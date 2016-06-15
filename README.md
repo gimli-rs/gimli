@@ -6,7 +6,7 @@
 
 [![Coverage Status](https://coveralls.io/repos/github/fitzgen/gimli/badge.svg?branch=master)](https://coveralls.io/github/fitzgen/gimli?branch=master)
 
-Read DWARF debugging format.
+A parser for the DWARF debugging format.
 
 ## Install
 
