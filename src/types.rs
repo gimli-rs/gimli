@@ -375,3 +375,55 @@ impl CompilationUnitHeader {
         self.address_size
     }
 }
+
+/// The header of a type unit's debugging information.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TypeUnitHeader {
+    header: CompilationUnitHeader,
+    type_signature: u64,
+    type_offset: u64,
+}
+
+impl TypeUnitHeader {
+    /// Construct a new `TypeUnitHeader`.
+    pub fn new(header: CompilationUnitHeader,
+               type_signature: u64,
+               type_offset: u64) -> TypeUnitHeader {
+        TypeUnitHeader {
+            header: header,
+            type_signature: type_signature,
+            type_offset: type_offset,
+        }
+    }
+
+    /// Get the length of the debugging info for this compilation unit.
+    pub fn unit_length(&self) -> u64 {
+        self.header.unit_length
+    }
+
+    /// Get the DWARF version of the debugging info for this compilation unit.
+    pub fn version(&self) -> u16 {
+        self.header.version
+    }
+
+    /// The offset into the `.debug_abbrev` section for this compilation unit's
+    /// debugging information entries.
+    pub fn debug_abbrev_offset(&self) -> u64 {
+        self.header.debug_abbrev_offset
+    }
+
+    /// The size of addresses (in bytes) in this compilation unit.
+    pub fn address_size(&self) -> u8 {
+        self.header.address_size
+    }
+
+    /// Get the unique type signature for this type unit.
+    pub fn type_signature(&self) -> u64 {
+        self.type_signature
+    }
+
+    /// Get the offset within this type unit where the type is defined.
+    pub fn type_offset(&self) -> u64 {
+        self.type_offset
+    }
+}

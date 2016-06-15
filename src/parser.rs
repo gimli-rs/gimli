@@ -4,7 +4,7 @@ use leb128;
 use nom::{self, Err, ErrorKind, IResult, le_u8, le_u16, le_u32, le_u64, Needed};
 use std::fmt;
 use types::{Abbreviation, AbbreviationHasChildren, Abbreviations, AbbreviationTag, AttributeForm,
-            AttributeName, AttributeSpecification, CompilationUnitHeader};
+            AttributeName, AttributeSpecification, CompilationUnitHeader, TypeUnitHeader};
 
 /// A parse error.
 #[derive(Debug)]
@@ -965,7 +965,7 @@ fn test_parse_unit_length_64_ok() {
 }
 
 #[test]
-fn test_parse_compilation_unit_unknown_reserved_value() {
+fn test_parse_unit_length_unknown_reserved_value() {
     let buf = [0xfe, 0xff, 0xff, 0xff];
     let abbrevs = Abbreviations::new();
 
@@ -1229,6 +1229,162 @@ fn test_parse_compilation_unit_header_64_ok() {
                                                           4,
                                                           0x0102030405060708,
                                                           8)),
+        _ =>
+            assert!(false),
+    }
+}
+
+/// Parse a type unit header's unique type signature. Callers should handle
+/// unique-ness checking.
+fn parse_type_signature(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u64> {
+    match le_u64(input.0) {
+        IResult::Done(rest, val) =>
+            IResult::Done(DebugInfoInput(rest, input.1, input.2), val),
+        IResult::Error(_) =>
+            IResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedUnsigned64),
+                                         input)),
+        IResult::Incomplete(needed) =>
+            IResult::Incomplete(needed),
+    }
+}
+
+#[test]
+fn test_parse_type_signature_ok() {
+    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+    let abbrevs = Abbreviations::new();
+
+    match parse_type_signature(DebugInfoInput::new(&buf, &abbrevs)) {
+        IResult::Done(_, val) => assert_eq!(val, 0x0807060504030201),
+        _ => assert!(false),
+    }
+}
+
+#[test]
+fn test_parse_type_signature_incomplete() {
+    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
+    let abbrevs = Abbreviations::new();
+
+    match parse_type_signature(DebugInfoInput::new(&buf, &abbrevs)) {
+        IResult::Incomplete(_) => assert!(true),
+        _ => assert!(false),
+    }
+}
+
+/// Parse a type unit header's type offset.
+fn parse_type_offset(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u64> {
+    match input.2 {
+        Format::Unknown =>
+            panic!("Need to know if this is 32- or 64-bit DWARF to parse the type_offset"),
+        Format::Dwarf32 =>
+            match le_u32(input.0) {
+                IResult::Done(rest, offset) =>
+                    IResult::Done(DebugInfoInput(rest, input.1, input.2),
+                                  offset as u64),
+                IResult::Error(_) =>
+                    IResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedUnsigned32),
+                                                 input)),
+                IResult::Incomplete(needed) =>
+                    IResult::Incomplete(needed),
+            },
+        Format::Dwarf64 =>
+            match le_u64(input.0) {
+                IResult::Done(rest, offset) =>
+                    IResult::Done(DebugInfoInput(rest, input.1, input.2),
+                                  offset),
+                IResult::Error(_) =>
+                    IResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedUnsigned64),
+                                                 input)),
+                IResult::Incomplete(needed) =>
+                    IResult::Incomplete(needed),
+            },
+    }
+}
+
+#[test]
+fn test_parse_type_offset_32_ok() {
+    let buf = [0x12, 0x34, 0x56, 0x78, 0x00];
+    let abbrevs = Abbreviations::new();
+
+    match parse_type_offset(DebugInfoInput(&buf, &abbrevs, Format::Dwarf32)) {
+        IResult::Done(rest, offset) => {
+            assert_eq!(rest.0.len(), 1);
+            assert_eq!(rest.2, Format::Dwarf32);
+            assert_eq!(0x78563412, offset);
+        },
+        _ =>
+            assert!(false),
+    }
+}
+
+#[test]
+fn test_parse_type_offset_64_ok() {
+    let buf = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff, 0x00];
+    let abbrevs = Abbreviations::new();
+
+    match parse_type_offset(DebugInfoInput(&buf, &abbrevs, Format::Dwarf64)) {
+        IResult::Done(rest, offset) => {
+            assert_eq!(rest.0.len(), 1);
+            assert_eq!(rest.2, Format::Dwarf64);
+            assert_eq!(0xffdebc9a78563412, offset);
+        },
+        _ =>
+            assert!(false),
+    }
+}
+
+#[test]
+#[should_panic]
+fn test_parse_type_offset_unknown() {
+    let buf = [0xfe, 0xff, 0xff, 0xff];
+    let abbrevs = Abbreviations::new();
+
+    parse_type_offset(DebugInfoInput(&buf, &abbrevs, Format::Unknown));
+}
+
+#[test]
+fn test_parse_type_offset_incomplete() {
+    let buf = [0xff, 0xff, 0xff]; // Need at least 4 bytes.
+    let abbrevs = Abbreviations::new();
+
+    match parse_type_offset(DebugInfoInput(&buf, &abbrevs, Format::Dwarf32)) {
+        IResult::Incomplete(_) => assert!(true),
+        _ => assert!(false),
+    };
+}
+
+/// Parse a type unit header.
+pub fn parse_type_unit_header(input: DebugInfoInput) -> ParseResult<DebugInfoInput, TypeUnitHeader> {
+    chain!(input,
+           header: parse_compilation_unit_header ~
+           signature: parse_type_signature ~
+           offset: parse_type_offset,
+           || TypeUnitHeader::new(header, signature, offset))
+}
+
+#[test]
+fn test_parse_type_unit_header_32_ok() {
+    let buf = [
+        0xff, 0xff, 0xff, 0xff,                         // enable 64-bit unit length mode
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, // The actual unit length
+        0x04, 0x00,                                     // version 4
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, // debug_abbrev_offset
+        0x08,                                           // address size
+        0xef, 0xbe, 0xad, 0xde, 0xef, 0xbe, 0xad, 0xde, // type signature
+        0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x56, 0x78  // type offset
+    ];
+    let abbrevs = Abbreviations::new();
+
+    let result = parse_type_unit_header(DebugInfoInput(&buf, &abbrevs, Format::Dwarf32));
+    println!("result = {:#?}", result);
+
+    match result {
+        IResult::Done(_, header) =>
+            assert_eq!(header, TypeUnitHeader::new(CompilationUnitHeader::new(0x0807060504030201,
+                                                                              4,
+                                                                              0x0807060504030201,
+                                                                              8),
+                                                   0xdeadbeefdeadbeef,
+                                                   0x7856341278563412)),
         _ =>
             assert!(false),
     }
