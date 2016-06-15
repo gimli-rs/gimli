@@ -1004,7 +1004,8 @@ fn test_parse_unit_length_64_incomplete() {
 /// Parse the DWARF version from the compilation unit header.
 fn parse_version(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u16> {
     match le_u16(input.0) {
-        IResult::Done(rest, val) if 1 <= val && val <= 4 =>
+        // DWARF 1 was very different, and is obsolete, so isn't supported by this reader.
+        IResult::Done(rest, val) if 2 <= val && val <= 4 =>
             IResult::Done(DebugInfoInput(rest, input.1, input.2), val),
 
         IResult::Done(_, _) =>
@@ -1038,6 +1039,16 @@ fn test_compilation_unit_version_ok() {
 #[test]
 fn test_compilation_unit_version_unknown_version() {
     let buf = [0xab, 0xcd];
+    let abbrevs = Abbreviations::new();
+
+    match parse_version(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+        IResult::Error(Err::Position(ErrorKind::Custom(Error::UnknownDwarfVersion), _)) =>
+            assert!(true),
+        _ =>
+            assert!(false),
+    };
+
+    let buf = [0x1, 0x0];
     let abbrevs = Abbreviations::new();
 
     match parse_version(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
