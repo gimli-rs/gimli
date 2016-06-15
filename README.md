@@ -34,7 +34,7 @@ or add this to your `Cargo.toml`:
 
 * Support all reserved values and vendor extensibility points
 
-* Be more future compatible by using "unkown" variants rather than throwing
+* Be more future compatible by using "unknown" variants rather than throwing
   parse errors when we find something unexpected
 
 * DWARF expressions and location descriptions
