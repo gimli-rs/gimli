@@ -52,7 +52,7 @@ pub enum Error {
 
     /// Found a compilation unit length within the range of reserved values, but
     /// whose specific value we do not know what to do with.
-    UnkownReservedCompilationUnitLength,
+    UnknownReservedCompilationUnitLength,
 
     /// The reported DWARF version is a version we do not know how to parse.
     UnknownDwarfVersion,
@@ -91,8 +91,8 @@ impl ::std::error::Error for Error {
                 "Expected an unsigned 32 bit integer, but did not find one",
             Error::ExpectedUnsigned64 =>
                 "Expected an unsigned 64 bit integer, but did not find one",
-            Error::UnkownReservedCompilationUnitLength =>
-                "Unkown reserved compilation unit length value found",
+            Error::UnknownReservedCompilationUnitLength =>
+                "Unknown reserved compilation unit length value found",
             Error::UnknownDwarfVersion =>
                 "The DWARF version is a version that we do not know how to parse",
         }
@@ -112,7 +112,7 @@ impl ::std::error::Error for Error {
             Error::ExpectedUnsigned16 => None,
             Error::ExpectedUnsigned32 => None,
             Error::ExpectedUnsigned64 => None,
-            Error::UnkownReservedCompilationUnitLength => None,
+            Error::UnknownReservedCompilationUnitLength => None,
             Error::UnknownDwarfVersion => None,
         }
     }
@@ -920,7 +920,7 @@ fn parse_unit_length(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u64> 
 
         IResult::Done(_, _) =>
             IResult::Error(Err::Position(
-                ErrorKind::Custom(Error::UnkownReservedCompilationUnitLength), input)),
+                ErrorKind::Custom(Error::UnknownReservedCompilationUnitLength), input)),
 
         IResult::Error(_) =>
             IResult::Error(Err::Position(
@@ -970,7 +970,7 @@ fn test_parse_compilation_unit_unknown_reserved_value() {
     let abbrevs = Abbreviations::new();
 
     match parse_unit_length(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
-        IResult::Error(Err::Position(ErrorKind::Custom(Error::UnkownReservedCompilationUnitLength),
+        IResult::Error(Err::Position(ErrorKind::Custom(Error::UnknownReservedCompilationUnitLength),
                                      _)) =>
             assert!(true),
         _ =>
