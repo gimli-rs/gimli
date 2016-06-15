@@ -38,3 +38,9 @@ or add this to your `Cargo.toml`:
   parse errors when we find something unexpected
 
 * DWARF expressions and location descriptions
+
+* A CompilationUnitHeader iterator that skips across the DIE tree and just
+  yields each header.
+
+    * Use this to iterate and then parse all compilation units' DIEs in
+      parallel.
