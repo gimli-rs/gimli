@@ -123,85 +123,238 @@ fn parse_abbreviation_code(mut input: &[u8]) -> ParseResult<u64> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(missing_docs)]
 pub enum AbbreviationTag {
-    // DW_TAG_array_type 0x01
-    // DW_TAG_class_type 0x02
-    // DW_TAG_entry_point 0x03
-    // DW_TAG_enumeration_type 0x04
-    // DW_TAG_formal_parameter 0x05
-    // DW_TAG_imported_declaration 0x08
-    // DW_TAG_label 0x0a
-    // DW_TAG_lexical_block 0x0b
-    // DW_TAG_member 0x0d
-    // DW_TAG_pointer_type 0x0f
-    // DW_TAG_reference_type 0x10
-    // DW_TAG_compile_unit 0x11
-    // DW_TAG_string_type 0x12
-    // DW_TAG_structure_type 0x13
-    // DW_TAG_subroutine_type 0x15
-    // DW_TAG_typedef 0x16
-    // DW_TAG_union_type 0x17
-    // DW_TAG_unspecified_parameters 0x18
-    // DW_TAG_variant 0x19
-    // DW_TAG_common_block 0x1a
-    // DW_TAG_common_inclusion 0x1b
-    // DW_TAG_inheritance 0x1c
-    // DW_TAG_inlined_subroutine 0x1d
-    // DW_TAG_module 0x1e
-    // DW_TAG_ptr_to_member_type 0x1f
-    // DW_TAG_set_type 0x20
-    // DW_TAG_subrange_type 0x21
-    // DW_TAG_with_stmt 0x22
-    // DW_TAG_access_declaration 0x23
-    // DW_TAG_base_type 0x24
-    // DW_TAG_catch_block 0x25
-    // DW_TAG_const_type 0x26
-    // DW_TAG_constant 0x27
-    // DW_TAG_enumerator 0x28
-    // DW_TAG_file_type 0x29
-    // DW_TAG_friend 0x2a
-    // DW_TAG_namelist 0x2b
-    // DW_TAG_namelist_item 0x2c
-    // DW_TAG_packed_type 0x2d
-    // DW_TAG_subprogram 0x2e
-    // DW_TAG_template_type_parameter 0x2f
-    // DW_TAG_template_value_parameter 0x30
-    // DW_TAG_thrown_type 0x31
-    // DW_TAG_try_block 0x32
-    // DW_TAG_variant_part 0x33
-    // DW_TAG_variable 0x34
-    // DW_TAG_volatile_type 0x35
-    // DW_TAG_dwarf_procedure 0x36
-    // DW_TAG_restrict_type 0x37
-    // DW_TAG_interface_type 0x38
-    // DW_TAG_namespace 0x39
-    // DW_TAG_imported_module 0x3a
-    // DW_TAG_unspecified_type 0x3b
-    // DW_TAG_partial_unit 0x3c
-    // DW_TAG_imported_unit 0x3d
-    // DW_TAG_condition 0x3f
-
-    /// TODO FITZGEN
+    ArrayType = 0x01,
+    ClassType = 0x02,
+    EntryPoint = 0x03,
+    EnumerationType = 0x04,
+    FormalParameter = 0x05,
+    ImportedDeclaration = 0x08,
+    Label = 0x0a,
+    LexicalBlock = 0x0b,
+    Member = 0x0d,
+    PointerType = 0x0f,
+    ReferenceType = 0x10,
+    CompileUnit = 0x11,
+    StringType = 0x12,
+    StructureType = 0x13,
+    SubroutineType = 0x15,
+    Typedef = 0x16,
+    UnionType = 0x17,
+    UnspecifiedParameters = 0x18,
+    Variant = 0x19,
+    CommonBlock = 0x1a,
+    CommonInclusion = 0x1b,
+    Inheritance = 0x1c,
+    InlinedSubroutine = 0x1d,
+    Module = 0x1e,
+    PtrToMemberType = 0x1f,
+    SetType = 0x20,
+    SubrangeType = 0x21,
+    WithStmt = 0x22,
+    AccessDeclaration = 0x23,
+    BaseType = 0x24,
+    CatchBlock = 0x25,
+    ConstType = 0x26,
+    Constant = 0x27,
+    Enumerator = 0x28,
+    FileType = 0x29,
+    Friend = 0x2a,
+    Namelist = 0x2b,
+    NamelistItem = 0x2c,
+    PackedType = 0x2d,
+    Subprogram = 0x2e,
+    TemplateTypeParameter = 0x2f,
+    TemplateValueParameter = 0x30,
+    ThrownType = 0x31,
+    TryBlock = 0x32,
+    VariantPart = 0x33,
+    Variable = 0x34,
+    VolatileType = 0x35,
+    DwarfProcedure = 0x36,
+    RestrictType = 0x37,
+    InterfaceType = 0x38,
+    Namespace = 0x39,
+    ImportedModule = 0x3a,
+    UnspecifiedType = 0x3b,
+    PartialUnit = 0x3c,
+    ImportedUnit = 0x3d,
+    Condition = 0x3f,
     SharedType = 0x40,
-
-    /// TODO FITZGEN
     TypeUnit = 0x41,
-
-    /// TODO FITZGEN
     RvalueReferenceType = 0x42,
-
-    /// TODO FITZGEN
     TemplateAlias = 0x43,
-
-    /// TODO FITZGEN
     LoUser = 0x4080,
-
-    /// TODO FITZGEN
     HiUser = 0xffff,
 }
 
 /// TODO FITZGEN
 fn parse_abbreviation_tag(mut input: &[u8]) -> ParseResult<AbbreviationTag> {
     match parse_unsigned_leb(&mut input) {
+        IResult::Done(input, val) if AbbreviationTag::ArrayType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::ArrayType),
+
+        IResult::Done(input, val) if AbbreviationTag::ClassType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::ClassType),
+
+        IResult::Done(input, val) if AbbreviationTag::EntryPoint as u64 == val =>
+            IResult::Done(input, AbbreviationTag::EntryPoint),
+
+        IResult::Done(input, val) if AbbreviationTag::EnumerationType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::EnumerationType),
+
+        IResult::Done(input, val) if AbbreviationTag::FormalParameter as u64 == val =>
+            IResult::Done(input, AbbreviationTag::FormalParameter),
+
+        IResult::Done(input, val) if AbbreviationTag::ImportedDeclaration as u64 == val =>
+            IResult::Done(input, AbbreviationTag::ImportedDeclaration),
+
+        IResult::Done(input, val) if AbbreviationTag::Label as u64 == val =>
+            IResult::Done(input, AbbreviationTag::Label),
+
+        IResult::Done(input, val) if AbbreviationTag::LexicalBlock as u64 == val =>
+            IResult::Done(input, AbbreviationTag::LexicalBlock),
+
+        IResult::Done(input, val) if AbbreviationTag::Member as u64 == val =>
+            IResult::Done(input, AbbreviationTag::Member),
+
+        IResult::Done(input, val) if AbbreviationTag::PointerType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::PointerType),
+
+        IResult::Done(input, val) if AbbreviationTag::ReferenceType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::ReferenceType),
+
+        IResult::Done(input, val) if AbbreviationTag::CompileUnit as u64 == val =>
+            IResult::Done(input, AbbreviationTag::CompileUnit),
+
+        IResult::Done(input, val) if AbbreviationTag::StringType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::StringType),
+
+        IResult::Done(input, val) if AbbreviationTag::StructureType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::StructureType),
+
+        IResult::Done(input, val) if AbbreviationTag::SubroutineType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::SubroutineType),
+
+        IResult::Done(input, val) if AbbreviationTag::Typedef as u64 == val =>
+            IResult::Done(input, AbbreviationTag::Typedef),
+
+        IResult::Done(input, val) if AbbreviationTag::UnionType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::UnionType),
+
+        IResult::Done(input, val) if AbbreviationTag::UnspecifiedParameters as u64 == val =>
+            IResult::Done(input, AbbreviationTag::UnspecifiedParameters),
+
+        IResult::Done(input, val) if AbbreviationTag::Variant as u64 == val =>
+            IResult::Done(input, AbbreviationTag::Variant),
+
+        IResult::Done(input, val) if AbbreviationTag::CommonBlock as u64 == val =>
+            IResult::Done(input, AbbreviationTag::CommonBlock),
+
+        IResult::Done(input, val) if AbbreviationTag::CommonInclusion as u64 == val =>
+            IResult::Done(input, AbbreviationTag::CommonInclusion),
+
+        IResult::Done(input, val) if AbbreviationTag::Inheritance as u64 == val =>
+            IResult::Done(input, AbbreviationTag::Inheritance),
+
+        IResult::Done(input, val) if AbbreviationTag::InlinedSubroutine as u64 == val =>
+            IResult::Done(input, AbbreviationTag::InlinedSubroutine),
+
+        IResult::Done(input, val) if AbbreviationTag::Module as u64 == val =>
+            IResult::Done(input, AbbreviationTag::Module),
+
+        IResult::Done(input, val) if AbbreviationTag::PtrToMemberType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::PtrToMemberType),
+
+        IResult::Done(input, val) if AbbreviationTag::SetType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::SetType),
+
+        IResult::Done(input, val) if AbbreviationTag::SubrangeType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::SubrangeType),
+
+        IResult::Done(input, val) if AbbreviationTag::WithStmt as u64 == val =>
+            IResult::Done(input, AbbreviationTag::WithStmt),
+
+        IResult::Done(input, val) if AbbreviationTag::AccessDeclaration as u64 == val =>
+            IResult::Done(input, AbbreviationTag::AccessDeclaration),
+
+        IResult::Done(input, val) if AbbreviationTag::BaseType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::BaseType),
+
+        IResult::Done(input, val) if AbbreviationTag::CatchBlock as u64 == val =>
+            IResult::Done(input, AbbreviationTag::CatchBlock),
+
+        IResult::Done(input, val) if AbbreviationTag::ConstType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::ConstType),
+
+        IResult::Done(input, val) if AbbreviationTag::Constant as u64 == val =>
+            IResult::Done(input, AbbreviationTag::Constant),
+
+        IResult::Done(input, val) if AbbreviationTag::Enumerator as u64 == val =>
+            IResult::Done(input, AbbreviationTag::Enumerator),
+
+        IResult::Done(input, val) if AbbreviationTag::FileType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::FileType),
+
+        IResult::Done(input, val) if AbbreviationTag::Friend as u64 == val =>
+            IResult::Done(input, AbbreviationTag::Friend),
+
+        IResult::Done(input, val) if AbbreviationTag::Namelist as u64 == val =>
+            IResult::Done(input, AbbreviationTag::Namelist),
+
+        IResult::Done(input, val) if AbbreviationTag::NamelistItem as u64 == val =>
+            IResult::Done(input, AbbreviationTag::NamelistItem),
+
+        IResult::Done(input, val) if AbbreviationTag::PackedType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::PackedType),
+
+        IResult::Done(input, val) if AbbreviationTag::Subprogram as u64 == val =>
+            IResult::Done(input, AbbreviationTag::Subprogram),
+
+        IResult::Done(input, val) if AbbreviationTag::TemplateTypeParameter as u64 == val =>
+            IResult::Done(input, AbbreviationTag::TemplateTypeParameter),
+
+        IResult::Done(input, val) if AbbreviationTag::TemplateValueParameter as u64 == val =>
+            IResult::Done(input, AbbreviationTag::TemplateValueParameter),
+
+        IResult::Done(input, val) if AbbreviationTag::ThrownType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::ThrownType),
+
+        IResult::Done(input, val) if AbbreviationTag::TryBlock as u64 == val =>
+            IResult::Done(input, AbbreviationTag::TryBlock),
+
+        IResult::Done(input, val) if AbbreviationTag::VariantPart as u64 == val =>
+            IResult::Done(input, AbbreviationTag::VariantPart),
+
+        IResult::Done(input, val) if AbbreviationTag::Variable as u64 == val =>
+            IResult::Done(input, AbbreviationTag::Variable),
+
+        IResult::Done(input, val) if AbbreviationTag::VolatileType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::VolatileType),
+
+        IResult::Done(input, val) if AbbreviationTag::RestrictType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::RestrictType),
+
+        IResult::Done(input, val) if AbbreviationTag::InterfaceType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::InterfaceType),
+
+        IResult::Done(input, val) if AbbreviationTag::Namespace as u64 == val =>
+            IResult::Done(input, AbbreviationTag::Namespace),
+
+        IResult::Done(input, val) if AbbreviationTag::ImportedModule as u64 == val =>
+            IResult::Done(input, AbbreviationTag::ImportedModule),
+
+        IResult::Done(input, val) if AbbreviationTag::UnspecifiedType as u64 == val =>
+            IResult::Done(input, AbbreviationTag::UnspecifiedType),
+
+        IResult::Done(input, val) if AbbreviationTag::PartialUnit as u64 == val =>
+            IResult::Done(input, AbbreviationTag::PartialUnit),
+
+        IResult::Done(input, val) if AbbreviationTag::ImportedUnit as u64 == val =>
+            IResult::Done(input, AbbreviationTag::ImportedUnit),
+
+        IResult::Done(input, val) if AbbreviationTag::Condition as u64 == val =>
+            IResult::Done(input, AbbreviationTag::Condition),
+
         IResult::Done(input, val) if AbbreviationTag::SharedType as u64 == val =>
             IResult::Done(input, AbbreviationTag::SharedType),
 
