@@ -1,4 +1,4 @@
-//! TODO FITZGEN
+//! Functions for parsing DWARF debugging information.
 
 use leb128;
 use nom::{Err, ErrorKind, IResult, le_u8, Needed};
@@ -6,31 +6,36 @@ use std::fmt;
 use types::{Abbreviation, AbbreviationHasChildren, Abbreviations, AbbreviationTag, AttributeForm,
             AttributeName, AttributeSpecification};
 
-/// TODO FITZGEN
+/// A parse error.
 #[derive(Debug)]
 pub enum Error {
-    /// TODO FITZGEN
+    /// A malformed LEB128 value.
     LebError(leb128::read::Error),
 
-    /// TODO FITZGEN
+    /// Zero is an illegal value for an abbreviation code.
     AbbreviationCodeZero,
 
-    /// TODO FITZGEN
+    /// The abbreviation's tag is not a known variant of `AbbreviationTag` (aka
+    /// `DW_TAG_*`).
     InvalidAbbreviationTag,
 
-    /// TODO FITZGEN
+    /// The abbreviation's "does the abbreviated type have children?" byte was
+    /// not one of `DW_CHILDREN_yes` or `DW_CHILDREN_no`.
     InvalidAbbreviationHasChildren,
 
-    /// TODO FITZGEN
+    /// The abbreviation's attribute name is not a valid variant of
+    /// `AttributeName` (aka `DW_AT_*`).
     InvalidAttributeName,
 
-    /// TODO FITZGEN
+    /// The abbreviation's attribute form is not a valid variant of
+    /// `AttributeForm` (aka `DW_FORM_*`).
     InvalidAttributeForm,
 
-    /// TODO FITZGEN
+    /// Expected a zero byte, but did not find one.
     ExpectedZero,
 
-    /// TODO FITZGEN
+    /// An abbreviation attempted to declare a code that is already in use by an
+    /// earlier abbreviation definition.
     DuplicateAbbreviationCode,
 }
 
@@ -50,7 +55,7 @@ impl ::std::error::Error for Error {
             Error::InvalidAbbreviationTag =>
                 "The abbreviation tag is invalid",
             Error::InvalidAbbreviationHasChildren =>
-                "The \"does-the-abbreviation-have-children?\" byte is not DW_CHILDREN_yes or DW_CHILDREN_no",
+                "The \"does-the-abbreviated-type-have-children?\" byte is not DW_CHILDREN_yes or DW_CHILDREN_no",
             Error::InvalidAttributeName =>
                 "The abbreviation's attribute name is invalid",
             Error::InvalidAttributeForm =>
@@ -76,10 +81,10 @@ impl ::std::error::Error for Error {
     }
 }
 
-/// TODO FITZGEN
+/// The result of an attempted parse.
 pub type ParseResult<'a, T> = IResult<&'a [u8], T, Error>;
 
-/// TODO FITZGEN
+/// Parse an unsigned LEB128 encoded integer.
 fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<u64> {
     match leb128::read::unsigned(&mut input) {
         Ok(val) =>
@@ -103,7 +108,7 @@ fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<u64> {
 //     }
 // }
 
-/// TODO FITZGEN
+/// Parse an abbreviation's code.
 fn parse_abbreviation_code(mut input: &[u8]) -> ParseResult<u64> {
     match parse_unsigned_leb(&mut input) {
         IResult::Done(input, val) =>
@@ -118,7 +123,7 @@ fn parse_abbreviation_code(mut input: &[u8]) -> ParseResult<u64> {
     }
 }
 
-/// TODO FITZGEN
+/// Parse an abbreviation's tag.
 fn parse_abbreviation_tag(mut input: &[u8]) -> ParseResult<AbbreviationTag> {
     match parse_unsigned_leb(&mut input) {
         IResult::Done(input, val) if AbbreviationTag::ArrayType as u64 == val =>
@@ -315,7 +320,7 @@ fn parse_abbreviation_tag(mut input: &[u8]) -> ParseResult<AbbreviationTag> {
     }
 }
 
-/// TODO FITZGEN
+/// Parse an abbreviation's "does the type have children?" byte.
 fn parse_abbreviation_has_children(input: &[u8]) -> ParseResult<AbbreviationHasChildren> {
     match le_u8(input) {
         IResult::Done(input, val) if AbbreviationHasChildren::Yes as u8 == val =>
@@ -336,7 +341,7 @@ fn parse_abbreviation_has_children(input: &[u8]) -> ParseResult<AbbreviationHasC
     }
 }
 
-/// TODO FITZGEN
+/// Parse an attribute's name.
 fn parse_attribute_name(input: &[u8]) -> ParseResult<AttributeName> {
     match parse_unsigned_leb(input) {
         IResult::Done(input, val) if AttributeName::Sibling as u64 == val =>
@@ -633,7 +638,7 @@ fn parse_attribute_name(input: &[u8]) -> ParseResult<AttributeName> {
     }
 }
 
-/// TODO FITZGEN
+/// Parse an attribute's form.
 fn parse_attribute_form(input: &[u8]) -> ParseResult<AttributeForm> {
     match parse_unsigned_leb(input) {
         IResult::Done(input, val) if AttributeForm::Addr as u64 == val =>
@@ -723,7 +728,7 @@ fn parse_attribute_form(input: &[u8]) -> ParseResult<AttributeForm> {
     }
 }
 
-/// TODO FITZGEN
+/// Parse a non-null attribute specification.
 fn parse_attribute_specification(input: &[u8]) -> ParseResult<AttributeSpecification> {
     chain!(input,
            name: parse_attribute_name ~
@@ -731,7 +736,7 @@ fn parse_attribute_specification(input: &[u8]) -> ParseResult<AttributeSpecifica
            || AttributeSpecification::new(name, form))
 }
 
-/// TODO FITZGEN
+/// Parse the null attribute specification.
 fn parse_null_attribute_specification(input: &[u8]) -> ParseResult<()> {
     let (input1, name) = try_parse!(input, parse_unsigned_leb);
     if name != 0 {
@@ -746,6 +751,8 @@ fn parse_null_attribute_specification(input: &[u8]) -> ParseResult<()> {
     IResult::Done(input2, ())
 }
 
+/// Parse a series of attribute specifications, terminated by a null attribute
+/// specification.
 fn parse_attribute_specifications(mut input: &[u8]) -> ParseResult<Vec<AttributeSpecification>> {
     // There has to be a better way to keep parsing attributes until we see two
     // 0 LEB128s, but take_until!/take_while! aren't quite expressive enough for
@@ -770,7 +777,7 @@ fn parse_attribute_specifications(mut input: &[u8]) -> ParseResult<Vec<Attribute
     IResult::Done(input, results)
 }
 
-/// TODO FITZGEN
+/// Parse a non-null abbreviation.
 fn parse_abbreviation(input: &[u8]) -> ParseResult<Abbreviation> {
     chain!(input,
            code: parse_abbreviation_code ~
@@ -780,6 +787,7 @@ fn parse_abbreviation(input: &[u8]) -> ParseResult<Abbreviation> {
            || Abbreviation::new(code, tag, has_children, attributes))
 }
 
+/// Parse a null abbreviation.
 fn parse_null_abbreviation(input: &[u8]) -> ParseResult<()> {
     let (input1, name) = try_parse!(input, parse_unsigned_leb);
     if name == 0 {
@@ -790,7 +798,7 @@ fn parse_null_abbreviation(input: &[u8]) -> ParseResult<()> {
 
 }
 
-/// TODO FITZGEN
+/// Parse a series of abbreviations, terminated by a null abbreviation.
 pub fn parse_abbreviations(mut input: &[u8]) -> ParseResult<Abbreviations> {
     // Again with the super funky keep-parsing-X-while-we-can't-parse-a-Y
     // thing... This should definitely be abstracted out.
