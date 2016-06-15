@@ -76,10 +76,10 @@ pub enum AbbreviationTag {
 /// DWARF standard 4, section 7.5.4, page 154
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AbbreviationHasChildren {
-    /// TODO FITZGEN
+    /// The type has children.
     Yes = 0x0,
 
-    /// TODO FITZGEN
+    /// The type does not have children.
     No = 0x1,
 }
 
@@ -328,5 +328,50 @@ impl Abbreviations {
                 Ok(())
             },
         }
+    }
+}
+
+/// The header of a compilation unit's debugging information.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompilationUnitHeader {
+    unit_length: u64,
+    version: u16,
+    debug_abbrev_offset: u64,
+    address_size: u8,
+}
+
+impl CompilationUnitHeader {
+    /// Construct a new `CompilationUnitHeader`.
+    pub fn new(unit_length: u64,
+               version: u16,
+               debug_abbrev_offset: u64,
+               address_size: u8) -> CompilationUnitHeader {
+        CompilationUnitHeader {
+            unit_length: unit_length,
+            version: version,
+            debug_abbrev_offset: debug_abbrev_offset,
+            address_size: address_size
+        }
+    }
+
+    /// Get the length of the debugging info for this compilation unit.
+    pub fn unit_length(&self) -> u64 {
+        self.unit_length
+    }
+
+    /// Get the DWARF version of the debugging info for this compilation unit.
+    pub fn version(&self) -> u16 {
+        self.version
+    }
+
+    /// The offset into the `.debug_abbrev` section for this compilation unit's
+    /// debugging information entries.
+    pub fn debug_abbrev_offset(&self) -> u64 {
+        self.debug_abbrev_offset
+    }
+
+    /// The size of addresses (in bytes) in this compilation unit.
+    pub fn address_size(&self) -> u8 {
+        self.address_size
     }
 }

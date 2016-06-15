@@ -1,10 +1,10 @@
 //! Functions for parsing DWARF debugging information.
 
 use leb128;
-use nom::{Err, ErrorKind, IResult, le_u8, Needed};
+use nom::{self, Err, ErrorKind, IResult, le_u8, le_u16, le_u32, le_u64, Needed};
 use std::fmt;
 use types::{Abbreviation, AbbreviationHasChildren, Abbreviations, AbbreviationTag, AttributeForm,
-            AttributeName, AttributeSpecification};
+            AttributeName, AttributeSpecification, CompilationUnitHeader};
 
 /// A parse error.
 #[derive(Debug)]
@@ -37,6 +37,25 @@ pub enum Error {
     /// An abbreviation attempted to declare a code that is already in use by an
     /// earlier abbreviation definition.
     DuplicateAbbreviationCode,
+
+    /// Expected an unsigned 8 bit integer, but did not see one.
+    ExpectedUnsigned8,
+
+    /// Expected an unsigned 16 bit integer, but did not see one.
+    ExpectedUnsigned16,
+
+    /// Expected an unsigned 32 bit integer, but did not see one.
+    ExpectedUnsigned32,
+
+    /// Expected an unsigned 64 bit integer, but did not see one.
+    ExpectedUnsigned64,
+
+    /// Found a compilation unit length within the range of reserved values, but
+    /// whose specific value we do not know what to do with.
+    UnkownReservedCompilationUnitLength,
+
+    /// The reported DWARF version is a version we do not know how to parse.
+    UnknownDwarfVersion,
 }
 
 impl fmt::Display for Error {
@@ -63,7 +82,19 @@ impl ::std::error::Error for Error {
             Error::ExpectedZero =>
                 "Expected zero",
             Error::DuplicateAbbreviationCode =>
-                "Found an abbreviation with a code that has already been used"
+                "Found an abbreviation with a code that has already been used",
+            Error::ExpectedUnsigned8 =>
+                "Expected an unsigned 8 bit integer, but did not find one",
+            Error::ExpectedUnsigned16 =>
+                "Expected an unsigned 16 bit integer, but did not find one",
+            Error::ExpectedUnsigned32 =>
+                "Expected an unsigned 32 bit integer, but did not find one",
+            Error::ExpectedUnsigned64 =>
+                "Expected an unsigned 64 bit integer, but did not find one",
+            Error::UnkownReservedCompilationUnitLength =>
+                "Unkown reserved compilation unit length value found",
+            Error::UnknownDwarfVersion =>
+                "The DWARF version is a version that we do not know how to parse",
         }
     }
 
@@ -77,15 +108,21 @@ impl ::std::error::Error for Error {
             Error::InvalidAttributeForm => None,
             Error::ExpectedZero => None,
             Error::DuplicateAbbreviationCode => None,
+            Error::ExpectedUnsigned8 => None,
+            Error::ExpectedUnsigned16 => None,
+            Error::ExpectedUnsigned32 => None,
+            Error::ExpectedUnsigned64 => None,
+            Error::UnkownReservedCompilationUnitLength => None,
+            Error::UnknownDwarfVersion => None,
         }
     }
 }
 
 /// The result of an attempted parse.
-pub type ParseResult<'a, T> = IResult<&'a [u8], T, Error>;
+pub type ParseResult<Input, T> = IResult<Input, T, Error>;
 
 /// Parse an unsigned LEB128 encoded integer.
-fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<u64> {
+fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<&[u8], u64> {
     match leb128::read::unsigned(&mut input) {
         Ok(val) =>
             IResult::Done(input, val),
@@ -97,7 +134,7 @@ fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<u64> {
 }
 
 // /// TODO FITZGEN
-// fn parse_signed_leb(mut input: &[u8]) -> ParseResult<i64> {
+// fn parse_signed_leb(mut input: &[u8]) -> ParseResult<&[u8], i64> {
 //     match leb128::read::signed(&mut input) {
 //         Ok(val) =>
 //             IResult::Done(input, val),
@@ -109,7 +146,7 @@ fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<u64> {
 // }
 
 /// Parse an abbreviation's code.
-fn parse_abbreviation_code(mut input: &[u8]) -> ParseResult<u64> {
+fn parse_abbreviation_code(mut input: &[u8]) -> ParseResult<&[u8], u64> {
     match parse_unsigned_leb(&mut input) {
         IResult::Done(input, val) =>
             if val == 0 {
@@ -124,7 +161,7 @@ fn parse_abbreviation_code(mut input: &[u8]) -> ParseResult<u64> {
 }
 
 /// Parse an abbreviation's tag.
-fn parse_abbreviation_tag(mut input: &[u8]) -> ParseResult<AbbreviationTag> {
+fn parse_abbreviation_tag(mut input: &[u8]) -> ParseResult<&[u8], AbbreviationTag> {
     match parse_unsigned_leb(&mut input) {
         IResult::Done(input, val) if AbbreviationTag::ArrayType as u64 == val =>
             IResult::Done(input, AbbreviationTag::ArrayType),
@@ -321,7 +358,7 @@ fn parse_abbreviation_tag(mut input: &[u8]) -> ParseResult<AbbreviationTag> {
 }
 
 /// Parse an abbreviation's "does the type have children?" byte.
-fn parse_abbreviation_has_children(input: &[u8]) -> ParseResult<AbbreviationHasChildren> {
+fn parse_abbreviation_has_children(input: &[u8]) -> ParseResult<&[u8], AbbreviationHasChildren> {
     match le_u8(input) {
         IResult::Done(input, val) if AbbreviationHasChildren::Yes as u8 == val =>
             IResult::Done(input, AbbreviationHasChildren::Yes),
@@ -342,7 +379,7 @@ fn parse_abbreviation_has_children(input: &[u8]) -> ParseResult<AbbreviationHasC
 }
 
 /// Parse an attribute's name.
-fn parse_attribute_name(input: &[u8]) -> ParseResult<AttributeName> {
+fn parse_attribute_name(input: &[u8]) -> ParseResult<&[u8], AttributeName> {
     match parse_unsigned_leb(input) {
         IResult::Done(input, val) if AttributeName::Sibling as u64 == val =>
             IResult::Done(input, AttributeName::Sibling),
@@ -639,7 +676,7 @@ fn parse_attribute_name(input: &[u8]) -> ParseResult<AttributeName> {
 }
 
 /// Parse an attribute's form.
-fn parse_attribute_form(input: &[u8]) -> ParseResult<AttributeForm> {
+fn parse_attribute_form(input: &[u8]) -> ParseResult<&[u8], AttributeForm> {
     match parse_unsigned_leb(input) {
         IResult::Done(input, val) if AttributeForm::Addr as u64 == val =>
             IResult::Done(input, AttributeForm::Addr),
@@ -729,7 +766,7 @@ fn parse_attribute_form(input: &[u8]) -> ParseResult<AttributeForm> {
 }
 
 /// Parse a non-null attribute specification.
-fn parse_attribute_specification(input: &[u8]) -> ParseResult<AttributeSpecification> {
+fn parse_attribute_specification(input: &[u8]) -> ParseResult<&[u8], AttributeSpecification> {
     chain!(input,
            name: parse_attribute_name ~
            form: parse_attribute_form,
@@ -737,7 +774,7 @@ fn parse_attribute_specification(input: &[u8]) -> ParseResult<AttributeSpecifica
 }
 
 /// Parse the null attribute specification.
-fn parse_null_attribute_specification(input: &[u8]) -> ParseResult<()> {
+fn parse_null_attribute_specification(input: &[u8]) -> ParseResult<&[u8], ()> {
     let (input1, name) = try_parse!(input, parse_unsigned_leb);
     if name != 0 {
         return IResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedZero), input));
@@ -753,7 +790,7 @@ fn parse_null_attribute_specification(input: &[u8]) -> ParseResult<()> {
 
 /// Parse a series of attribute specifications, terminated by a null attribute
 /// specification.
-fn parse_attribute_specifications(mut input: &[u8]) -> ParseResult<Vec<AttributeSpecification>> {
+fn parse_attribute_specifications(mut input: &[u8]) -> ParseResult<&[u8], Vec<AttributeSpecification>> {
     // There has to be a better way to keep parsing attributes until we see two
     // 0 LEB128s, but take_until!/take_while! aren't quite expressive enough for
     // this case.
@@ -778,7 +815,7 @@ fn parse_attribute_specifications(mut input: &[u8]) -> ParseResult<Vec<Attribute
 }
 
 /// Parse a non-null abbreviation.
-fn parse_abbreviation(input: &[u8]) -> ParseResult<Abbreviation> {
+fn parse_abbreviation(input: &[u8]) -> ParseResult<&[u8], Abbreviation> {
     chain!(input,
            code: parse_abbreviation_code ~
            tag: parse_abbreviation_tag ~
@@ -788,7 +825,7 @@ fn parse_abbreviation(input: &[u8]) -> ParseResult<Abbreviation> {
 }
 
 /// Parse a null abbreviation.
-fn parse_null_abbreviation(input: &[u8]) -> ParseResult<()> {
+fn parse_null_abbreviation(input: &[u8]) -> ParseResult<&[u8], ()> {
     let (input1, name) = try_parse!(input, parse_unsigned_leb);
     if name == 0 {
         IResult::Done(input1, ())
@@ -799,7 +836,7 @@ fn parse_null_abbreviation(input: &[u8]) -> ParseResult<()> {
 }
 
 /// Parse a series of abbreviations, terminated by a null abbreviation.
-pub fn parse_abbreviations(mut input: &[u8]) -> ParseResult<Abbreviations> {
+pub fn parse_abbreviations(mut input: &[u8]) -> ParseResult<&[u8], Abbreviations> {
     // Again with the super funky keep-parsing-X-while-we-can't-parse-a-Y
     // thing... This should definitely be abstracted out.
 
@@ -827,4 +864,365 @@ pub fn parse_abbreviations(mut input: &[u8]) -> ParseResult<Abbreviations> {
     }
 
     IResult::Done(input, results)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Format {
+    Unknown,
+    Dwarf64,
+    Dwarf32,
+}
+
+/// The input to parsing debugging information.
+///
+/// To parse debugging information, we need to have the abbreviations that
+/// describe the shape of the debugging information entries. Use
+/// `parse_abbreviations` to get that information from the `.debug_abbrevs`
+/// section, and then pass that here.
+#[derive(Debug, Clone, Copy)]
+pub struct DebugInfoInput<'a>(&'a [u8], &'a Abbreviations, Format);
+
+impl<'a> nom::InputLength for DebugInfoInput<'a> {
+    fn input_len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl<'a> DebugInfoInput<'a> {
+    /// Construct a new `DebugInfoInput`.
+    pub fn new(input: &'a [u8], abbrevs: &'a Abbreviations) -> DebugInfoInput<'a> {
+        DebugInfoInput(input, abbrevs, Format::Unknown)
+    }
+}
+
+const MAX_DWARF_32_UNIT_LENGTH: u32 = 0xfffffff0;
+
+const DWARF_64_INITIAL_UNIT_LENGTH: u32 = 0xffffffff;
+
+/// Parse the compilation unit header's length.
+fn parse_unit_length(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u64> {
+    // TODO FITZGEN: shouldn't just use little endian, should be generic on the
+    // input's natural endianness or something? Haven't found precise wording in
+    // standard yet...
+
+    match le_u32(input.0) {
+        IResult::Done(rest, val) if val < MAX_DWARF_32_UNIT_LENGTH =>
+            IResult::Done(DebugInfoInput(rest, input.1, Format::Dwarf32),
+                          val as u64),
+
+        IResult::Done(rest1, val) if val == DWARF_64_INITIAL_UNIT_LENGTH =>
+            match le_u64(rest1) {
+                IResult::Done(rest2, val) =>
+                    IResult::Done(DebugInfoInput(rest2, input.1, Format::Dwarf64), val),
+                IResult::Error(_) =>
+                    IResult::Error(Err::Position(
+                        ErrorKind::Custom(Error::ExpectedUnsigned64),
+                        DebugInfoInput(rest1, input.1, input.2))),
+                IResult::Incomplete(needed) =>
+                    IResult::Incomplete(needed),
+            },
+
+        IResult::Done(_, _) =>
+            IResult::Error(Err::Position(
+                ErrorKind::Custom(Error::UnkownReservedCompilationUnitLength), input)),
+
+        IResult::Error(_) =>
+            IResult::Error(Err::Position(
+                ErrorKind::Custom(Error::ExpectedUnsigned32), input)),
+
+        IResult::Incomplete(needed) =>
+            IResult::Incomplete(needed),
+    }
+}
+
+#[test]
+fn test_parse_unit_length_32_ok() {
+    let buf = [0x12, 0x34, 0x56, 0x78];
+    let abbrevs = Abbreviations::new();
+
+    match parse_unit_length(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+        IResult::Done(rest, length) => {
+            assert_eq!(rest.0.len(), 0);
+            assert_eq!(rest.2, Format::Dwarf32);
+            assert_eq!(0x78563412, length);
+        },
+        _ =>
+            assert!(false),
+    }
+}
+
+#[test]
+fn test_parse_unit_length_64_ok() {
+    let buf = [0xff, 0xff, 0xff, 0xff, // DWARF_64_INITIAL_UNIT_LENGTH
+               0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff]; // Actual length
+    let abbrevs = Abbreviations::new();
+
+    match parse_unit_length(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+        IResult::Done(rest, length) => {
+            assert_eq!(rest.0.len(), 0);
+            assert_eq!(rest.2, Format::Dwarf64);
+            assert_eq!(0xffdebc9a78563412, length);
+        },
+        _ =>
+            assert!(false),
+    }
+}
+
+#[test]
+fn test_parse_compilation_unit_unknown_reserved_value() {
+    let buf = [0xfe, 0xff, 0xff, 0xff];
+    let abbrevs = Abbreviations::new();
+
+    match parse_unit_length(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+        IResult::Error(Err::Position(ErrorKind::Custom(Error::UnkownReservedCompilationUnitLength),
+                                     _)) =>
+            assert!(true),
+        _ =>
+            assert!(false),
+    };
+}
+
+#[test]
+fn test_parse_unit_length_incomplete() {
+    let buf = [0xff, 0xff, 0xff]; // Need at least 4 bytes.
+    let abbrevs = Abbreviations::new();
+
+    match parse_unit_length(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+        IResult::Incomplete(_) => assert!(true),
+        _ => assert!(false),
+    };
+}
+
+#[test]
+fn test_parse_unit_length_64_incomplete() {
+    let buf = [0xff, 0xff, 0xff, 0xff, // DWARF_64_INITIAL_UNIT_LENGTH
+               0x12, 0x34, 0x56, 0x78, ]; // Actual length is not long enough
+    let abbrevs = Abbreviations::new();
+
+    match parse_unit_length(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+        IResult::Incomplete(_) => assert!(true),
+        _ => assert!(false),
+    };
+}
+
+/// Parse the DWARF version from the compilation unit header.
+fn parse_version(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u16> {
+    match le_u16(input.0) {
+        IResult::Done(rest, val) if 1 <= val && val <= 4 =>
+            IResult::Done(DebugInfoInput(rest, input.1, input.2), val),
+
+        IResult::Done(_, _) =>
+            IResult::Error(Err::Position(
+                ErrorKind::Custom(Error::UnknownDwarfVersion), input)),
+
+        IResult::Error(_) =>
+            IResult::Error(Err::Position(
+                ErrorKind::Custom(Error::ExpectedUnsigned16), input)),
+
+        IResult::Incomplete(needed) =>
+            IResult::Incomplete(needed),
+    }
+}
+
+#[test]
+fn test_compilation_unit_version_ok() {
+    let buf = [0x04, 0x00, 0xff, 0xff]; // Version 4 and two extra bytes
+    let abbrevs = Abbreviations::new();
+
+    match parse_version(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+        IResult::Done(rest, val) => {
+            assert_eq!(val, 4);
+            assert_eq!(rest.0, &[0xff, 0xff]);
+        },
+        _ =>
+            assert!(false),
+    };
+}
+
+#[test]
+fn test_compilation_unit_version_unknown_version() {
+    let buf = [0xab, 0xcd];
+    let abbrevs = Abbreviations::new();
+
+    match parse_version(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+        IResult::Error(Err::Position(ErrorKind::Custom(Error::UnknownDwarfVersion), _)) =>
+            assert!(true),
+        _ =>
+            assert!(false),
+    };
+}
+
+#[test]
+fn test_compilation_unit_version_incomplete() {
+    let buf = [0x04];
+    let abbrevs = Abbreviations::new();
+
+    match parse_version(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+        IResult::Incomplete(_) =>
+            assert!(true),
+        _ =>
+            assert!(false),
+    };
+}
+
+/// Parse the debug_abbrev_offset in the compilation unit header.
+fn parse_debug_abbrev_offset(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u64> {
+    match input.2 {
+        Format::Unknown =>
+            panic!("Need to know if this is 32- or 64-bit DWARF to parse the debug_abbrev_offset"),
+        Format::Dwarf32 =>
+            match le_u32(input.0) {
+                IResult::Done(rest, offset) =>
+                    IResult::Done(DebugInfoInput(rest, input.1, input.2),
+                                  offset as u64),
+                IResult::Error(_) =>
+                    IResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedUnsigned32),
+                                                 input)),
+                IResult::Incomplete(needed) =>
+                    IResult::Incomplete(needed),
+            },
+        Format::Dwarf64 =>
+            match le_u64(input.0) {
+                IResult::Done(rest, offset) =>
+                    IResult::Done(DebugInfoInput(rest, input.1, input.2),
+                                  offset),
+                IResult::Error(_) =>
+                    IResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedUnsigned64),
+                                                 input)),
+                IResult::Incomplete(needed) =>
+                    IResult::Incomplete(needed),
+            },
+    }
+}
+
+#[test]
+fn test_parse_debug_abbrev_offset_32() {
+    let buf = [0x01, 0x02, 0x03, 0x04];
+    let abbrevs = Abbreviations::new();
+
+    match parse_debug_abbrev_offset(DebugInfoInput(&buf, &abbrevs, Format::Dwarf32)) {
+        IResult::Done(_, val) => assert_eq!(val, 0x04030201),
+        _ => assert!(false),
+    };
+}
+
+#[test]
+fn test_parse_debug_abbrev_offset_32_incomplete() {
+    let buf = [0x01, 0x02];
+    let abbrevs = Abbreviations::new();
+
+    match parse_debug_abbrev_offset(DebugInfoInput(&buf, &abbrevs, Format::Dwarf32)) {
+        IResult::Incomplete(_) => assert!(true),
+        _ => assert!(false),
+    };
+}
+
+#[test]
+fn test_parse_debug_abbrev_offset_64() {
+    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+    let abbrevs = Abbreviations::new();
+
+    match parse_debug_abbrev_offset(DebugInfoInput(&buf, &abbrevs, Format::Dwarf64)) {
+        IResult::Done(_, val) => assert_eq!(val, 0x0807060504030201),
+        _ => assert!(false),
+    };
+}
+
+#[test]
+fn test_parse_debug_abbrev_offset_64_incomplete() {
+    let buf = [0x01, 0x02];
+    let abbrevs = Abbreviations::new();
+
+    match parse_debug_abbrev_offset(DebugInfoInput(&buf, &abbrevs, Format::Dwarf64)) {
+        IResult::Incomplete(_) => assert!(true),
+        _ => assert!(false),
+    };
+}
+
+#[test]
+#[should_panic]
+fn test_parse_debug_abbrev_offset_unknown() {
+    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+    let abbrevs = Abbreviations::new();
+
+    parse_debug_abbrev_offset(DebugInfoInput(&buf, &abbrevs, Format::Unknown));
+}
+
+/// Parse the size of addresses (in bytes) on the target architecture.
+fn parse_address_size(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u8> {
+    match le_u8(input.0) {
+        IResult::Done(rest, val) =>
+            IResult::Done(DebugInfoInput(rest, input.1, input.2), val),
+        IResult::Error(_) =>
+            IResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedUnsigned8),
+                                         input)),
+        IResult::Incomplete(needed) =>
+            IResult::Incomplete(needed),
+    }
+}
+
+#[test]
+fn test_parse_address_size_ok() {
+    let buf = [0x04];
+    let abbrevs = Abbreviations::new();
+
+    match parse_address_size(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+        IResult::Done(_, val) => assert_eq!(val, 4),
+        _ => assert!(false),
+    };
+}
+
+/// Parse a compilation unit header.
+pub fn parse_compilation_unit_header(input: DebugInfoInput)
+                                     -> ParseResult<DebugInfoInput, CompilationUnitHeader>
+{
+    chain!(input,
+           unit_length: parse_unit_length ~
+           version: parse_version ~
+           offset: parse_debug_abbrev_offset ~
+           address_size: parse_address_size,
+           || CompilationUnitHeader::new(unit_length,
+                                         version,
+                                         offset,
+                                         address_size))
+}
+
+#[test]
+fn test_parse_compilation_unit_header_32_ok() {
+    let buf = [
+        0x01, 0x02, 0x03, 0x04, // 32-bit unit length
+        0x04, 0x00,             // version 4
+        0x05, 0x06, 0x07, 0x08, // debug_abbrev_offset
+        0x04                    // address size
+    ];
+    let abbrevs = Abbreviations::new();
+
+    match parse_compilation_unit_header(DebugInfoInput::new(&buf, &abbrevs)) {
+        IResult::Done(_, header) =>
+            assert_eq!(header, CompilationUnitHeader::new(0x04030201, 4, 0x08070605, 4)),
+        _ =>
+            assert!(false),
+    }
+}
+
+#[test]
+fn test_parse_compilation_unit_header_64_ok() {
+    let buf = [
+        0xff, 0xff, 0xff, 0xff,                         // enable 64-bit
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, // unit length
+        0x04, 0x00,                                     // version 4
+        0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, // debug_abbrev_offset
+        0x08                                            // address size
+    ];
+    let abbrevs = Abbreviations::new();
+
+    match parse_compilation_unit_header(DebugInfoInput::new(&buf, &abbrevs)) {
+        IResult::Done(_, header) =>
+            assert_eq!(header, CompilationUnitHeader::new(0x0807060504030201,
+                                                          4,
+                                                          0x0102030405060708,
+                                                          8)),
+        _ =>
+            assert!(false),
+    }
 }

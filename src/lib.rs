@@ -13,11 +13,3 @@ extern crate leb128;
 pub mod parser;
 mod types;
 pub use types::*;
-
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-    }
-}
