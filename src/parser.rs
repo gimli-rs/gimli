@@ -901,10 +901,6 @@ const DWARF_64_INITIAL_UNIT_LENGTH: u32 = 0xffffffff;
 
 /// Parse the compilation unit header's length.
 fn parse_unit_length(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u64> {
-    // TODO FITZGEN: shouldn't just use little endian, should be generic on the
-    // input's natural endianness or something? Haven't found precise wording in
-    // standard yet...
-
     match le_u32(input.0) {
         IResult::Done(rest, val) if val < MAX_DWARF_32_UNIT_LENGTH =>
             IResult::Done(DebugInfoInput(rest, input.1, Format::Dwarf32),

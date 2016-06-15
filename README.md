@@ -22,3 +22,19 @@ or add this to your `Cargo.toml`:
 ## Documentation
 
 [Documentation](http://fitzgen.github.io/gimli/gimli/index.html)
+
+## TODO
+
+* Finish parsing DIEs
+
+* Better documentation and examples
+
+* For the fixed size integers (ie, not LEB128) figure out how to do endianness
+  correctly, and/or whether we are doing it correctly or not right now.
+
+* Support all reserved values and vendor extensibility points
+
+* Be more future compatible by using "unkown" variants rather than throwing
+  parse errors when we find something unexpected
+
+* DWARF expressions and location descriptions
