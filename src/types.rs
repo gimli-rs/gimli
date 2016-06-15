@@ -1,8 +1,6 @@
-//! TODO FITZGEN
-
 use std::collections::hash_map;
 
-/// TODO FITZGEN
+/// Abbreviation tag types, aka `DW_TAG_whatever` in the standard.
 ///
 /// DWARF standard 4, section 7.5.4, page 154
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,7 +70,8 @@ pub enum AbbreviationTag {
     HiUser = 0xffff,
 }
 
-/// TODO FITZGEN
+/// Whether an abbreviation's type has children or not, aka
+/// `DW_CHILDREN_{yes,no}` in the standard.
 ///
 /// DWARF standard 4, section 7.5.4, page 154
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,7 +83,7 @@ pub enum AbbreviationHasChildren {
     No = 0x1,
 }
 
-/// TODO FITZGEN
+/// The set of possible attribute names, aka `DW_AT_whatever` in the standard.
 ///
 /// DWARF standard 4, section 7.5.4, page 155
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,7 +185,7 @@ pub enum AttributeName {
     HiUser = 0x3fff,
 }
 
-/// TODO FITZGEN
+/// The type and encoding of an attribute, aka `DW_AT_whatever` in the standard.
 ///
 /// DWARF standard 4, section 7.5.4, page 160
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,7 +218,8 @@ pub enum AttributeForm {
     RefSig8 = 0x20,
 }
 
-/// TODO FITZGEN
+/// The description of an attribute in an abbreviated type. It is a pair of name
+/// and form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AttributeSpecification {
     name: AttributeName,
@@ -227,7 +227,7 @@ pub struct AttributeSpecification {
 }
 
 impl AttributeSpecification {
-    /// TODO FITZGEN
+    /// Construct a new `AttributeSpecification` from the given name and form.
     pub fn new(name: AttributeName, form: AttributeForm) -> AttributeSpecification {
         AttributeSpecification {
             name: name,
@@ -235,18 +235,19 @@ impl AttributeSpecification {
         }
     }
 
-    /// TODO FITZGEN
+    /// Get the attribute's name.
     pub fn name(&self) -> AttributeName {
         self.name
     }
 
-    /// TODO FITZGEN
+    /// Get the attribute's form.
     pub fn form(&self) -> AttributeForm {
         self.form
     }
 }
 
-/// TODO FITZGEN
+/// An abbreviation describes the shape of a DIE type: its code, tag type,
+/// whether it has children, and its set of attributes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Abbreviation {
     code: u64,
@@ -256,11 +257,16 @@ pub struct Abbreviation {
 }
 
 impl Abbreviation {
-    /// TODO FITZGEN
+    /// Construct a new `Abbreviation`.
+    ///
+    /// ### Panics
+    ///
+    /// Panics if `code` is `0`.
     pub fn new(code: u64,
                tag: AbbreviationTag,
                has_children: AbbreviationHasChildren,
                attributes: Vec<AttributeSpecification>) -> Abbreviation {
+        assert!(code != 0);
         Abbreviation {
             code: code,
             tag: tag,
@@ -269,17 +275,17 @@ impl Abbreviation {
         }
     }
 
-    /// TODO FITZGEN
+    /// Get this abbreviation's code.
     pub fn code(&self) -> u64 {
         self.code
     }
 
-    /// TODO FITZGEN
+    /// Get this abbreviation's tag.
     pub fn tag(&self) -> AbbreviationTag {
         self.tag
     }
 
-    /// TODO FITZGEN
+    /// Return true if this abbreviation's type has children, false otherwise.
     pub fn has_children(&self) -> bool {
         match self.has_children {
             AbbreviationHasChildren::Yes => true,
@@ -287,27 +293,31 @@ impl Abbreviation {
         }
     }
 
-    /// TODO FITZGEN
+    /// Get this abbreviation's attributes.
     pub fn attributes(&self) -> &[AttributeSpecification] {
         &self.attributes[..]
     }
 }
 
-/// TODO FITZGEN
+/// A set of type abbreviations.
 #[derive(Debug, Clone)]
 pub struct Abbreviations {
     abbrevs: hash_map::HashMap<u64, Abbreviation>,
 }
 
 impl Abbreviations {
-    /// TODO FITZGEN
+    /// Construct a new, empty set of abbreviations.
     pub fn new() -> Abbreviations {
         Abbreviations {
             abbrevs: hash_map::HashMap::new(),
         }
     }
 
-    /// TODO FITZGEN
+    /// Insert an abbreviation into the set.
+    ///
+    /// Returns `Ok` if it is the first abbreviation in the set with its code,
+    /// `Err` if the code is a duplicate and there already exists an
+    /// abbreviation in the set with the given abbreviation's code.
     pub fn insert(&mut self, abbrev: Abbreviation) -> Result<(), ()> {
         match self.abbrevs.entry(abbrev.code) {
             hash_map::Entry::Occupied(_) =>
