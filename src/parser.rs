@@ -133,18 +133,6 @@ fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<&[u8], u64> {
     }
 }
 
-// /// TODO FITZGEN
-// fn parse_signed_leb(mut input: &[u8]) -> ParseResult<&[u8], i64> {
-//     match leb128::read::signed(&mut input) {
-//         Ok(val) =>
-//             IResult::Done(input, val),
-//         Err(leb128::read::Error::UnexpectedEndOfData) =>
-//             IResult::Incomplete(Needed::Unknown),
-//         Err(e) =>
-//             IResult::Error(Err::Position(ErrorKind::Custom(Error::LebError(e)), input)),
-//     }
-// }
-
 /// Parse an abbreviation's code.
 fn parse_abbreviation_code(mut input: &[u8]) -> ParseResult<&[u8], u64> {
     match parse_unsigned_leb(&mut input) {
