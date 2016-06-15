@@ -185,7 +185,8 @@ pub enum AttributeName {
     HiUser = 0x3fff,
 }
 
-/// The type and encoding of an attribute, aka `DW_AT_whatever` in the standard.
+/// The type and encoding of an attribute, aka `DW_FORM_whatever` in the
+/// standard.
 ///
 /// DWARF standard 4, section 7.5.4, page 160
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
