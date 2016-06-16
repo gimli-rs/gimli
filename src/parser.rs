@@ -12,6 +12,9 @@ pub enum Error {
     /// A malformed LEB128 value.
     LebError(leb128::read::Error),
 
+    /// An error from a primitive parser.
+    Primitive(u32),
+
     /// Zero is an illegal value for an abbreviation code.
     AbbreviationCodeZero,
 
@@ -69,6 +72,8 @@ impl ::std::error::Error for Error {
         match *self {
             Error::LebError(_) =>
                 "Error parsing LEB128 value",
+            Error::Primitive(_) =>
+                "Error parsing primitive value",
             Error::AbbreviationCodeZero =>
                 "Abbreviation declared its code to be the reserved code 0",
             Error::InvalidAbbreviationTag =>
@@ -101,6 +106,7 @@ impl ::std::error::Error for Error {
     fn cause(&self) -> Option<&::std::error::Error> {
         match *self {
             Error::LebError(ref e) => Some(e),
+            Error::Primitive(_) => None,
             Error::AbbreviationCodeZero => None,
             Error::InvalidAbbreviationTag => None,
             Error::InvalidAbbreviationHasChildren => None,
@@ -881,41 +887,177 @@ impl<'a> DebugInfoInput<'a> {
     pub fn new(input: &'a [u8], abbrevs: &'a Abbreviations) -> DebugInfoInput<'a> {
         DebugInfoInput(input, abbrevs, Format::Unknown)
     }
+
+    fn into_dwarf_32(self) -> DebugInfoInput<'a> {
+        debug_assert!(self.2 == Format::Unknown);
+        DebugInfoInput(self.0, self.1, Format::Dwarf32)
+    }
+
+    fn into_dwarf_64(self) -> DebugInfoInput<'a> {
+        debug_assert!(self.2 == Format::Unknown);
+        DebugInfoInput(self.0, self.1, Format::Dwarf64)
+    }
 }
 
-const MAX_DWARF_32_UNIT_LENGTH: u32 = 0xfffffff0;
+/// Use a parser for some lower input type on a higher input type that is a
+/// composition of the lower input type and whatever extra data. Specifically,
+/// we use this so that we can use parsers on inputs of `&[u8]` with inputs of
+/// `DebugInfoInput`.
+fn translate_domain<Output,
+                    LowerError,
+                    HigherError,
+                    HigherInput,
+                    LowerInput,
+                    LowerParser,
+                    Unwrap,
+                    Rewrap>(input: HigherInput,
+                            parser: LowerParser,
+                            unwrap: Unwrap,
+                            rewrap: Rewrap) -> IResult<HigherInput, Output, HigherError>
+    where Unwrap: Fn(HigherInput) -> LowerInput,
+          Rewrap: Fn(HigherInput, IResult<LowerInput, Output, LowerError>) -> IResult<HigherInput, Output, HigherError>,
+          LowerParser: Fn(LowerInput) -> IResult<LowerInput, Output, LowerError>,
+          HigherInput: Clone
+{
+    let lower_input = unwrap(input.clone());
+    let lower_result = parser(lower_input);
+    rewrap(input, lower_result)
+}
 
-const DWARF_64_INITIAL_UNIT_LENGTH: u32 = 0xffffffff;
+/// The specific `Unwrap` instance used with `translate_domain` above.
+fn unwrap<'a>(input: DebugInfoInput<'a>) -> &[u8] {
+    input.0
+}
+
+/// The specific `Rewrap` instance used with `translate_domain` above for
+/// changing `IResult<&[u8], T, u32>` into `IResult<DebugInfoInput, T, Error>`.
+fn rewrap<'a, T>(original: DebugInfoInput<'a>,
+                 lowered: IResult<&'a [u8], T, u32>) -> ParseResult<DebugInfoInput<'a>, T> {
+    use nom::{Err, ErrorKind};
+
+    fn translate_err<'a>(original: DebugInfoInput<'a>,
+                         err: Err<&'a [u8], u32>) -> Err<DebugInfoInput<'a>, Error> {
+
+        fn translate_code(code: ErrorKind<u32>) -> ErrorKind<Error> {
+            // MATCH ALL THE THINGS!!!!
+            match code {
+                ErrorKind::Custom(e) => ErrorKind::Custom(Error::Primitive(e)),
+                ErrorKind::Tag => ErrorKind::Tag,
+                ErrorKind::MapRes => ErrorKind::MapRes,
+                ErrorKind::MapOpt => ErrorKind::MapOpt,
+                ErrorKind::Alt => ErrorKind::Alt,
+                ErrorKind::IsNot => ErrorKind::IsNot,
+                ErrorKind::IsA => ErrorKind::IsA,
+                ErrorKind::SeparatedList => ErrorKind::SeparatedList,
+                ErrorKind::SeparatedNonEmptyList => ErrorKind::SeparatedNonEmptyList,
+                ErrorKind::Many1 => ErrorKind::Many1,
+                ErrorKind::Count => ErrorKind::Count,
+                ErrorKind::TakeUntilAndConsume => ErrorKind::TakeUntilAndConsume,
+                ErrorKind::TakeUntil => ErrorKind::TakeUntil,
+                ErrorKind::TakeUntilEitherAndConsume => ErrorKind::TakeUntilEitherAndConsume,
+                ErrorKind::TakeUntilEither => ErrorKind::TakeUntilEither,
+                ErrorKind::LengthValue => ErrorKind::LengthValue,
+                ErrorKind::TagClosure => ErrorKind::TagClosure,
+                ErrorKind::Alpha => ErrorKind::Alpha,
+                ErrorKind::Digit => ErrorKind::Digit,
+                ErrorKind::HexDigit => ErrorKind::HexDigit,
+                ErrorKind::AlphaNumeric => ErrorKind::AlphaNumeric,
+                ErrorKind::Space => ErrorKind::Space,
+                ErrorKind::MultiSpace => ErrorKind::MultiSpace,
+                ErrorKind::LengthValueFn => ErrorKind::LengthValueFn,
+                ErrorKind::Eof => ErrorKind::Eof,
+                ErrorKind::ExprOpt => ErrorKind::ExprOpt,
+                ErrorKind::ExprRes => ErrorKind::ExprRes,
+                ErrorKind::CondReduce => ErrorKind::CondReduce,
+                ErrorKind::Switch => ErrorKind::Switch,
+                ErrorKind::TagBits => ErrorKind::TagBits,
+                ErrorKind::OneOf => ErrorKind::OneOf,
+                ErrorKind::NoneOf => ErrorKind::NoneOf,
+                ErrorKind::Char => ErrorKind::Char,
+                ErrorKind::CrLf => ErrorKind::CrLf,
+                ErrorKind::RegexpMatch => ErrorKind::RegexpMatch,
+                ErrorKind::RegexpMatches => ErrorKind::RegexpMatches,
+                ErrorKind::RegexpFind => ErrorKind::RegexpFind,
+                ErrorKind::RegexpCapture => ErrorKind::RegexpCapture,
+                ErrorKind::RegexpCaptures => ErrorKind::RegexpCaptures,
+                ErrorKind::TakeWhile1 => ErrorKind::TakeWhile1,
+                ErrorKind::Complete => ErrorKind::Complete,
+                ErrorKind::Fix => ErrorKind::Fix,
+                ErrorKind::Escaped => ErrorKind::Escaped,
+                ErrorKind::EscapedTransform => ErrorKind::EscapedTransform,
+                ErrorKind::TagStr => ErrorKind::TagStr,
+                ErrorKind::IsNotStr => ErrorKind::IsNotStr,
+                ErrorKind::IsAStr => ErrorKind::IsAStr,
+                ErrorKind::TakeWhile1Str => ErrorKind::TakeWhile1Str,
+                ErrorKind::NonEmpty => ErrorKind::NonEmpty,
+                ErrorKind::ManyMN => ErrorKind::ManyMN,
+                ErrorKind::TakeUntilAndConsumeStr => ErrorKind::TakeUntilAndConsumeStr,
+                ErrorKind::TakeUntilStr => ErrorKind::TakeUntilStr,
+                ErrorKind::Many0 => ErrorKind::Many0,
+                ErrorKind::OctDigit => ErrorKind::OctDigit,
+            }
+        }
+
+        match err {
+            Err::Code(code) =>
+                Err::Code(translate_code(code)),
+            Err::Node(code, boxed_err) =>
+                Err::Node(translate_code(code),
+                          Box::new(translate_err(original, *boxed_err))),
+            Err::Position(code, position) =>
+                Err::Position(translate_code(code),
+                              DebugInfoInput(position, original.1, original.2)),
+            Err::NodePosition(code, position, boxed_err) =>
+                Err::NodePosition(translate_code(code),
+                                  DebugInfoInput(position, original.1, original.2),
+                                  Box::new(translate_err(original, *boxed_err))),
+        }
+    }
+
+    match lowered {
+        IResult::Incomplete(needed) =>
+            IResult::Incomplete(needed),
+        IResult::Done(rest, val) =>
+            IResult::Done(DebugInfoInput(rest, original.1, original.2), val),
+        IResult::Error(err) =>
+            IResult::Error(translate_err(original, err)),
+    }
+}
+
+fn with_debug_input<Parser, T>(input: DebugInfoInput,
+                                     parser: Parser) -> ParseResult<DebugInfoInput, T>
+    where Parser: Fn(&[u8]) -> IResult<&[u8], T, u32>
+{
+    translate_domain(input, parser, unwrap, rewrap)
+}
+
+const MAX_DWARF_32_UNIT_LENGTH: u64 = 0xfffffff0;
+
+const DWARF_64_INITIAL_UNIT_LENGTH: u64 = 0xffffffff;
+
+named!(parse_u32_as_u64<&[u8], u64>,
+       chain!(val: le_u32, || val as u64));
 
 /// Parse the compilation unit header's length.
 fn parse_unit_length(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u64> {
-    match le_u32(input.0) {
+    match with_debug_input(input, parse_u32_as_u64) {
         IResult::Done(rest, val) if val < MAX_DWARF_32_UNIT_LENGTH =>
-            IResult::Done(DebugInfoInput(rest, input.1, Format::Dwarf32),
-                          val as u64),
+            IResult::Done(rest.into_dwarf_32(), val),
 
         IResult::Done(rest1, val) if val == DWARF_64_INITIAL_UNIT_LENGTH =>
-            match le_u64(rest1) {
+            match with_debug_input(rest1, le_u64) {
                 IResult::Done(rest2, val) =>
-                    IResult::Done(DebugInfoInput(rest2, input.1, Format::Dwarf64), val),
-                IResult::Error(_) =>
-                    IResult::Error(Err::Position(
-                        ErrorKind::Custom(Error::ExpectedUnsigned64),
-                        DebugInfoInput(rest1, input.1, input.2))),
-                IResult::Incomplete(needed) =>
-                    IResult::Incomplete(needed),
+                    IResult::Done(rest2.into_dwarf_64(), val),
+                otherwise =>
+                    otherwise
             },
 
         IResult::Done(_, _) =>
             IResult::Error(Err::Position(
                 ErrorKind::Custom(Error::UnknownReservedCompilationUnitLength), input)),
 
-        IResult::Error(_) =>
-            IResult::Error(Err::Position(
-                ErrorKind::Custom(Error::ExpectedUnsigned32), input)),
-
-        IResult::Incomplete(needed) =>
-            IResult::Incomplete(needed),
+        otherwise =>
+            otherwise
     }
 }
 
@@ -958,8 +1100,9 @@ fn test_parse_unit_length_unknown_reserved_value() {
     let abbrevs = Abbreviations::new();
 
     match parse_unit_length(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
-        IResult::Error(Err::Position(ErrorKind::Custom(Error::UnknownReservedCompilationUnitLength),
-                                     _)) =>
+        IResult::Error(Err::Position(
+            ErrorKind::Custom(Error::UnknownReservedCompilationUnitLength),
+            _)) =>
             assert!(true),
         _ =>
             assert!(false),
@@ -991,21 +1134,18 @@ fn test_parse_unit_length_64_incomplete() {
 
 /// Parse the DWARF version from the compilation unit header.
 fn parse_version(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u16> {
-    match le_u16(input.0) {
-        // DWARF 1 was very different, and is obsolete, so isn't supported by this reader.
+    match with_debug_input(input, le_u16) {
+        // DWARF 1 was very different, and is obsolete, so isn't supported by
+        // this reader.
         IResult::Done(rest, val) if 2 <= val && val <= 4 =>
-            IResult::Done(DebugInfoInput(rest, input.1, input.2), val),
+            IResult::Done(rest, val),
 
         IResult::Done(_, _) =>
             IResult::Error(Err::Position(
                 ErrorKind::Custom(Error::UnknownDwarfVersion), input)),
 
-        IResult::Error(_) =>
-            IResult::Error(Err::Position(
-                ErrorKind::Custom(Error::ExpectedUnsigned16), input)),
-
-        IResult::Incomplete(needed) =>
-            IResult::Incomplete(needed),
+        otherwise =>
+            otherwise
     }
 }
 
@@ -1066,27 +1206,9 @@ fn parse_debug_abbrev_offset(input: DebugInfoInput) -> ParseResult<DebugInfoInpu
         Format::Unknown =>
             panic!("Need to know if this is 32- or 64-bit DWARF to parse the debug_abbrev_offset"),
         Format::Dwarf32 =>
-            match le_u32(input.0) {
-                IResult::Done(rest, offset) =>
-                    IResult::Done(DebugInfoInput(rest, input.1, input.2),
-                                  offset as u64),
-                IResult::Error(_) =>
-                    IResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedUnsigned32),
-                                                 input)),
-                IResult::Incomplete(needed) =>
-                    IResult::Incomplete(needed),
-            },
+            with_debug_input(input, parse_u32_as_u64),
         Format::Dwarf64 =>
-            match le_u64(input.0) {
-                IResult::Done(rest, offset) =>
-                    IResult::Done(DebugInfoInput(rest, input.1, input.2),
-                                  offset),
-                IResult::Error(_) =>
-                    IResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedUnsigned64),
-                                                 input)),
-                IResult::Incomplete(needed) =>
-                    IResult::Incomplete(needed),
-            },
+            with_debug_input(input, le_u64),
     }
 }
 
@@ -1145,15 +1267,7 @@ fn test_parse_debug_abbrev_offset_unknown() {
 
 /// Parse the size of addresses (in bytes) on the target architecture.
 fn parse_address_size(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u8> {
-    match le_u8(input.0) {
-        IResult::Done(rest, val) =>
-            IResult::Done(DebugInfoInput(rest, input.1, input.2), val),
-        IResult::Error(_) =>
-            IResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedUnsigned8),
-                                         input)),
-        IResult::Incomplete(needed) =>
-            IResult::Incomplete(needed),
-    }
+    with_debug_input(input, le_u8)
 }
 
 #[test]
@@ -1225,15 +1339,7 @@ fn test_parse_compilation_unit_header_64_ok() {
 /// Parse a type unit header's unique type signature. Callers should handle
 /// unique-ness checking.
 fn parse_type_signature(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u64> {
-    match le_u64(input.0) {
-        IResult::Done(rest, val) =>
-            IResult::Done(DebugInfoInput(rest, input.1, input.2), val),
-        IResult::Error(_) =>
-            IResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedUnsigned64),
-                                         input)),
-        IResult::Incomplete(needed) =>
-            IResult::Incomplete(needed),
-    }
+    with_debug_input(input, le_u64)
 }
 
 #[test]
@@ -1264,27 +1370,9 @@ fn parse_type_offset(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u64> 
         Format::Unknown =>
             panic!("Need to know if this is 32- or 64-bit DWARF to parse the type_offset"),
         Format::Dwarf32 =>
-            match le_u32(input.0) {
-                IResult::Done(rest, offset) =>
-                    IResult::Done(DebugInfoInput(rest, input.1, input.2),
-                                  offset as u64),
-                IResult::Error(_) =>
-                    IResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedUnsigned32),
-                                                 input)),
-                IResult::Incomplete(needed) =>
-                    IResult::Incomplete(needed),
-            },
+            with_debug_input(input, parse_u32_as_u64),
         Format::Dwarf64 =>
-            match le_u64(input.0) {
-                IResult::Done(rest, offset) =>
-                    IResult::Done(DebugInfoInput(rest, input.1, input.2),
-                                  offset),
-                IResult::Error(_) =>
-                    IResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedUnsigned64),
-                                                 input)),
-                IResult::Incomplete(needed) =>
-                    IResult::Incomplete(needed),
-            },
+            with_debug_input(input, le_u64),
     }
 }
 
@@ -1362,7 +1450,7 @@ fn test_parse_type_unit_header_32_ok() {
     ];
     let abbrevs = Abbreviations::new();
 
-    let result = parse_type_unit_header(DebugInfoInput(&buf, &abbrevs, Format::Dwarf32));
+    let result = parse_type_unit_header(DebugInfoInput::new(&buf, &abbrevs));
     println!("result = {:#?}", result);
 
     match result {
