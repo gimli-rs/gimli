@@ -41,18 +41,6 @@ pub enum Error {
     /// earlier abbreviation definition.
     DuplicateAbbreviationCode,
 
-    /// Expected an unsigned 8 bit integer, but did not see one.
-    ExpectedUnsigned8,
-
-    /// Expected an unsigned 16 bit integer, but did not see one.
-    ExpectedUnsigned16,
-
-    /// Expected an unsigned 32 bit integer, but did not see one.
-    ExpectedUnsigned32,
-
-    /// Expected an unsigned 64 bit integer, but did not see one.
-    ExpectedUnsigned64,
-
     /// Found a compilation unit length within the range of reserved values, but
     /// whose specific value we do not know what to do with.
     UnknownReservedCompilationUnitLength,
@@ -88,14 +76,6 @@ impl ::std::error::Error for Error {
                 "Expected zero",
             Error::DuplicateAbbreviationCode =>
                 "Found an abbreviation with a code that has already been used",
-            Error::ExpectedUnsigned8 =>
-                "Expected an unsigned 8 bit integer, but did not find one",
-            Error::ExpectedUnsigned16 =>
-                "Expected an unsigned 16 bit integer, but did not find one",
-            Error::ExpectedUnsigned32 =>
-                "Expected an unsigned 32 bit integer, but did not find one",
-            Error::ExpectedUnsigned64 =>
-                "Expected an unsigned 64 bit integer, but did not find one",
             Error::UnknownReservedCompilationUnitLength =>
                 "Unknown reserved compilation unit length value found",
             Error::UnknownDwarfVersion =>
@@ -114,10 +94,6 @@ impl ::std::error::Error for Error {
             Error::InvalidAttributeForm => None,
             Error::ExpectedZero => None,
             Error::DuplicateAbbreviationCode => None,
-            Error::ExpectedUnsigned8 => None,
-            Error::ExpectedUnsigned16 => None,
-            Error::ExpectedUnsigned32 => None,
-            Error::ExpectedUnsigned64 => None,
             Error::UnknownReservedCompilationUnitLength => None,
             Error::UnknownDwarfVersion => None,
         }
