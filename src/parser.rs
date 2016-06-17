@@ -100,8 +100,24 @@ impl ::std::error::Error for Error {
     }
 }
 
+impl From<u32> for Error {
+    fn from(e: u32) -> Self {
+        Error::Primitive(e)
+    }
+}
+
 /// The result of an attempted parse.
 pub type ParseResult<Input, T> = IResult<Input, T, Error>;
+
+macro_rules! try_parse_result (
+    ($result:expr) => (
+        match $result {
+            IResult::Done(rest, out) => (rest, out),
+            IResult::Error(e) => return IResult::Error(e),
+            IResult::Incomplete(i) => return IResult::Incomplete(i)
+        }
+    );
+);
 
 /// Parse an unsigned LEB128 encoded integer.
 fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<&[u8], u64> {
@@ -836,6 +852,16 @@ pub fn parse_abbreviations(mut input: &[u8]) -> ParseResult<&[u8], Abbreviations
     IResult::Done(input, results)
 }
 
+/// Any type U that implements TranslateInput<T> can be lowered to T and then
+/// later raised back to U. This is useful for lowering types that are a
+/// composition of a `&[u8]` and some extra data down to `&[u8]` to use nom's
+/// builtin parsers and then raise the result and input back up to the original
+/// composition input type.
+trait TranslateInput<T> {
+    fn lower(self) -> T;
+    fn raise(original: Self, lowered_result: T) -> Self;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Format {
     Unknown,
@@ -843,81 +869,91 @@ enum Format {
     Dwarf32,
 }
 
-/// The input to parsing debugging information.
-///
-/// To parse debugging information, we need to have the abbreviations that
-/// describe the shape of the debugging information entries. Use
-/// `parse_abbreviations` to get that information from the `.debug_abbrevs`
-/// section, and then pass that here.
+/// The input to parsing various compilation unit header information.
 #[derive(Debug, Clone, Copy)]
-pub struct DebugInfoInput<'a>(&'a [u8], &'a Abbreviations, Format);
+pub struct CuInput<'a>(&'a [u8], Format);
 
-impl<'a> nom::InputLength for DebugInfoInput<'a> {
+impl<'a> nom::InputLength for CuInput<'a> {
     fn input_len(&self) -> usize {
         self.0.len()
     }
 }
 
-impl<'a> DebugInfoInput<'a> {
-    /// Construct a new `DebugInfoInput`.
-    pub fn new(input: &'a [u8], abbrevs: &'a Abbreviations) -> DebugInfoInput<'a> {
-        DebugInfoInput(input, abbrevs, Format::Unknown)
+impl<'a> CuInput<'a> {
+    /// Construct a new `CuInput`.
+    pub fn new(input: &'a [u8]) -> CuInput<'a> {
+        CuInput(input, Format::Unknown)
     }
 
-    fn into_dwarf_32(self) -> DebugInfoInput<'a> {
-        debug_assert!(self.2 == Format::Unknown);
-        DebugInfoInput(self.0, self.1, Format::Dwarf32)
+    fn into_dwarf_32(self) -> CuInput<'a> {
+        debug_assert!(self.1 == Format::Unknown);
+        CuInput(self.0, Format::Dwarf32)
     }
 
-    fn into_dwarf_64(self) -> DebugInfoInput<'a> {
-        debug_assert!(self.2 == Format::Unknown);
-        DebugInfoInput(self.0, self.1, Format::Dwarf64)
+    fn into_dwarf_64(self) -> CuInput<'a> {
+        debug_assert!(self.1 == Format::Unknown);
+        CuInput(self.0, Format::Dwarf64)
+    }
+}
+
+impl<'a> TranslateInput<&'a [u8]> for CuInput<'a> {
+    fn lower(self) -> &'a[u8] {
+        self.0
+    }
+
+    fn raise(original: Self, lowered: &'a [u8]) -> Self {
+        CuInput(lowered, original.1)
     }
 }
 
 /// Use a parser for some lower input type on a higher input type that is a
 /// composition of the lower input type and whatever extra data. Specifically,
 /// we use this so that we can use parsers on inputs of `&[u8]` with inputs of
-/// `DebugInfoInput`.
+/// `CuInput` of `DieInput`, etc.
 fn translate_domain<Output,
                     LowerError,
                     HigherError,
                     HigherInput,
                     LowerInput,
-                    LowerParser,
-                    Unwrap,
-                    Rewrap>(input: HigherInput,
-                            parser: LowerParser,
-                            unwrap: Unwrap,
-                            rewrap: Rewrap) -> IResult<HigherInput, Output, HigherError>
-    where Unwrap: Fn(HigherInput) -> LowerInput,
-          Rewrap: Fn(HigherInput, IResult<LowerInput, Output, LowerError>) -> IResult<HigherInput, Output, HigherError>,
+                    LowerParser>(input: HigherInput,
+                                 parser: LowerParser) -> IResult<HigherInput, Output, HigherError>
+    where HigherInput: TranslateInput<LowerInput> + Clone,
           LowerParser: Fn(LowerInput) -> IResult<LowerInput, Output, LowerError>,
-          HigherInput: Clone
+          HigherError: From<LowerError>
 {
-    let lower_input = unwrap(input.clone());
-    let lower_result = parser(lower_input);
-    rewrap(input, lower_result)
+    let lowered_input = input.clone().lower();
+    let lowered_result = parser(lowered_input);
+    raise_result(input, lowered_result)
 }
 
-/// The specific `Unwrap` instance used with `translate_domain` above.
-fn unwrap<'a>(input: DebugInfoInput<'a>) -> &[u8] {
-    input.0
-}
-
-/// The specific `Rewrap` instance used with `translate_domain` above for
-/// changing `IResult<&[u8], T, u32>` into `IResult<DebugInfoInput, T, Error>`.
-fn rewrap<'a, T>(original: DebugInfoInput<'a>,
-                 lowered: IResult<&'a [u8], T, u32>) -> ParseResult<DebugInfoInput<'a>, T> {
+fn raise_result<LowerInput,
+                HigherInput,
+                T,
+                LowerError,
+                HigherError>(original: HigherInput,
+                             lowered: IResult<LowerInput, T, LowerError>)
+                             -> IResult<HigherInput, T, HigherError>
+    where HigherInput: TranslateInput<LowerInput> + Clone,
+          HigherError: From<LowerError>
+{
     use nom::{Err, ErrorKind};
 
-    fn translate_err<'a>(original: DebugInfoInput<'a>,
-                         err: Err<&'a [u8], u32>) -> Err<DebugInfoInput<'a>, Error> {
+    fn translate_err<LowerInput,
+                     HigherInput,
+                     LowerError,
+                     HigherError>(original: HigherInput,
+                                  err: Err<LowerInput, LowerError>) -> Err<HigherInput, HigherError>
+        where HigherInput: TranslateInput<LowerInput> + Clone,
+              HigherError: From<LowerError>
+    {
 
-        fn translate_code(code: ErrorKind<u32>) -> ErrorKind<Error> {
+        fn translate_code<LowerError, HigherError>(code: ErrorKind<LowerError>)
+                                                   -> ErrorKind<HigherError>
+            where HigherError: From<LowerError>
+        {
             // MATCH ALL THE THINGS!!!!
             match code {
-                ErrorKind::Custom(e) => ErrorKind::Custom(Error::Primitive(e)),
+                ErrorKind::Custom(e) => ErrorKind::Custom(e.into()),
                 ErrorKind::Tag => ErrorKind::Tag,
                 ErrorKind::MapRes => ErrorKind::MapRes,
                 ErrorKind::MapOpt => ErrorKind::MapOpt,
@@ -982,10 +1018,10 @@ fn rewrap<'a, T>(original: DebugInfoInput<'a>,
                           Box::new(translate_err(original, *boxed_err))),
             Err::Position(code, position) =>
                 Err::Position(translate_code(code),
-                              DebugInfoInput(position, original.1, original.2)),
+                              TranslateInput::raise(original, position)),
             Err::NodePosition(code, position, boxed_err) =>
                 Err::NodePosition(translate_code(code),
-                                  DebugInfoInput(position, original.1, original.2),
+                                  TranslateInput::raise(original.clone(), position),
                                   Box::new(translate_err(original, *boxed_err))),
         }
     }
@@ -994,17 +1030,10 @@ fn rewrap<'a, T>(original: DebugInfoInput<'a>,
         IResult::Incomplete(needed) =>
             IResult::Incomplete(needed),
         IResult::Done(rest, val) =>
-            IResult::Done(DebugInfoInput(rest, original.1, original.2), val),
+            IResult::Done(TranslateInput::raise(original, rest), val),
         IResult::Error(err) =>
             IResult::Error(translate_err(original, err)),
     }
-}
-
-fn with_debug_input<Parser, T>(input: DebugInfoInput,
-                                     parser: Parser) -> ParseResult<DebugInfoInput, T>
-    where Parser: Fn(&[u8]) -> IResult<&[u8], T, u32>
-{
-    translate_domain(input, parser, unwrap, rewrap)
 }
 
 const MAX_DWARF_32_UNIT_LENGTH: u64 = 0xfffffff0;
@@ -1015,15 +1044,15 @@ named!(parse_u32_as_u64<&[u8], u64>,
        chain!(val: le_u32, || val as u64));
 
 /// Parse the compilation unit header's length.
-fn parse_unit_length(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u64> {
-    match with_debug_input(input, parse_u32_as_u64) {
+fn parse_unit_length(input: CuInput) -> ParseResult<CuInput, u64> {
+    match translate_domain(input, parse_u32_as_u64) {
         IResult::Done(rest, val) if val < MAX_DWARF_32_UNIT_LENGTH =>
             IResult::Done(rest.into_dwarf_32(), val),
 
-        IResult::Done(rest1, val) if val == DWARF_64_INITIAL_UNIT_LENGTH =>
-            match with_debug_input(rest1, le_u64) {
-                IResult::Done(rest2, val) =>
-                    IResult::Done(rest2.into_dwarf_64(), val),
+        IResult::Done(rest, val) if val == DWARF_64_INITIAL_UNIT_LENGTH =>
+            match translate_domain(rest, le_u64) {
+                IResult::Done(rest, val) =>
+                    IResult::Done(rest.into_dwarf_64(), val),
                 otherwise =>
                     otherwise
             },
@@ -1040,12 +1069,11 @@ fn parse_unit_length(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u64> 
 #[test]
 fn test_parse_unit_length_32_ok() {
     let buf = [0x12, 0x34, 0x56, 0x78];
-    let abbrevs = Abbreviations::new();
 
-    match parse_unit_length(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+    match parse_unit_length(CuInput(&buf, Format::Unknown)) {
         IResult::Done(rest, length) => {
             assert_eq!(rest.0.len(), 0);
-            assert_eq!(rest.2, Format::Dwarf32);
+            assert_eq!(rest.1, Format::Dwarf32);
             assert_eq!(0x78563412, length);
         },
         _ =>
@@ -1057,12 +1085,11 @@ fn test_parse_unit_length_32_ok() {
 fn test_parse_unit_length_64_ok() {
     let buf = [0xff, 0xff, 0xff, 0xff, // DWARF_64_INITIAL_UNIT_LENGTH
                0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff]; // Actual length
-    let abbrevs = Abbreviations::new();
 
-    match parse_unit_length(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+    match parse_unit_length(CuInput(&buf, Format::Unknown)) {
         IResult::Done(rest, length) => {
             assert_eq!(rest.0.len(), 0);
-            assert_eq!(rest.2, Format::Dwarf64);
+            assert_eq!(rest.1, Format::Dwarf64);
             assert_eq!(0xffdebc9a78563412, length);
         },
         _ =>
@@ -1073,9 +1100,8 @@ fn test_parse_unit_length_64_ok() {
 #[test]
 fn test_parse_unit_length_unknown_reserved_value() {
     let buf = [0xfe, 0xff, 0xff, 0xff];
-    let abbrevs = Abbreviations::new();
 
-    match parse_unit_length(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+    match parse_unit_length(CuInput(&buf, Format::Unknown)) {
         IResult::Error(Err::Position(
             ErrorKind::Custom(Error::UnknownReservedCompilationUnitLength),
             _)) =>
@@ -1088,9 +1114,8 @@ fn test_parse_unit_length_unknown_reserved_value() {
 #[test]
 fn test_parse_unit_length_incomplete() {
     let buf = [0xff, 0xff, 0xff]; // Need at least 4 bytes.
-    let abbrevs = Abbreviations::new();
 
-    match parse_unit_length(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+    match parse_unit_length(CuInput(&buf, Format::Unknown)) {
         IResult::Incomplete(_) => assert!(true),
         _ => assert!(false),
     };
@@ -1100,17 +1125,16 @@ fn test_parse_unit_length_incomplete() {
 fn test_parse_unit_length_64_incomplete() {
     let buf = [0xff, 0xff, 0xff, 0xff, // DWARF_64_INITIAL_UNIT_LENGTH
                0x12, 0x34, 0x56, 0x78, ]; // Actual length is not long enough
-    let abbrevs = Abbreviations::new();
 
-    match parse_unit_length(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+    match parse_unit_length(CuInput(&buf, Format::Unknown)) {
         IResult::Incomplete(_) => assert!(true),
         _ => assert!(false),
     };
 }
 
 /// Parse the DWARF version from the compilation unit header.
-fn parse_version(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u16> {
-    match with_debug_input(input, le_u16) {
+fn parse_version(input: CuInput) -> ParseResult<CuInput, u16> {
+    match translate_domain(input, le_u16) {
         // DWARF 1 was very different, and is obsolete, so isn't supported by
         // this reader.
         IResult::Done(rest, val) if 2 <= val && val <= 4 =>
@@ -1128,9 +1152,8 @@ fn parse_version(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u16> {
 #[test]
 fn test_compilation_unit_version_ok() {
     let buf = [0x04, 0x00, 0xff, 0xff]; // Version 4 and two extra bytes
-    let abbrevs = Abbreviations::new();
 
-    match parse_version(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+    match parse_version(CuInput(&buf, Format::Unknown)) {
         IResult::Done(rest, val) => {
             assert_eq!(val, 4);
             assert_eq!(rest.0, &[0xff, 0xff]);
@@ -1143,9 +1166,8 @@ fn test_compilation_unit_version_ok() {
 #[test]
 fn test_compilation_unit_version_unknown_version() {
     let buf = [0xab, 0xcd];
-    let abbrevs = Abbreviations::new();
 
-    match parse_version(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+    match parse_version(CuInput(&buf, Format::Unknown)) {
         IResult::Error(Err::Position(ErrorKind::Custom(Error::UnknownDwarfVersion), _)) =>
             assert!(true),
         _ =>
@@ -1153,9 +1175,8 @@ fn test_compilation_unit_version_unknown_version() {
     };
 
     let buf = [0x1, 0x0];
-    let abbrevs = Abbreviations::new();
 
-    match parse_version(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+    match parse_version(CuInput(&buf, Format::Unknown)) {
         IResult::Error(Err::Position(ErrorKind::Custom(Error::UnknownDwarfVersion), _)) =>
             assert!(true),
         _ =>
@@ -1166,9 +1187,8 @@ fn test_compilation_unit_version_unknown_version() {
 #[test]
 fn test_compilation_unit_version_incomplete() {
     let buf = [0x04];
-    let abbrevs = Abbreviations::new();
 
-    match parse_version(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+    match parse_version(CuInput(&buf, Format::Unknown)) {
         IResult::Incomplete(_) =>
             assert!(true),
         _ =>
@@ -1177,23 +1197,22 @@ fn test_compilation_unit_version_incomplete() {
 }
 
 /// Parse the debug_abbrev_offset in the compilation unit header.
-fn parse_debug_abbrev_offset(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u64> {
-    match input.2 {
+fn parse_debug_abbrev_offset(input: CuInput) -> ParseResult<CuInput, u64> {
+    match input.1 {
         Format::Unknown =>
             panic!("Need to know if this is 32- or 64-bit DWARF to parse the debug_abbrev_offset"),
         Format::Dwarf32 =>
-            with_debug_input(input, parse_u32_as_u64),
+            translate_domain(input, parse_u32_as_u64),
         Format::Dwarf64 =>
-            with_debug_input(input, le_u64),
+            translate_domain(input, le_u64),
     }
 }
 
 #[test]
 fn test_parse_debug_abbrev_offset_32() {
     let buf = [0x01, 0x02, 0x03, 0x04];
-    let abbrevs = Abbreviations::new();
 
-    match parse_debug_abbrev_offset(DebugInfoInput(&buf, &abbrevs, Format::Dwarf32)) {
+    match parse_debug_abbrev_offset(CuInput(&buf, Format::Dwarf32)) {
         IResult::Done(_, val) => assert_eq!(val, 0x04030201),
         _ => assert!(false),
     };
@@ -1202,9 +1221,8 @@ fn test_parse_debug_abbrev_offset_32() {
 #[test]
 fn test_parse_debug_abbrev_offset_32_incomplete() {
     let buf = [0x01, 0x02];
-    let abbrevs = Abbreviations::new();
 
-    match parse_debug_abbrev_offset(DebugInfoInput(&buf, &abbrevs, Format::Dwarf32)) {
+    match parse_debug_abbrev_offset(CuInput(&buf, Format::Dwarf32)) {
         IResult::Incomplete(_) => assert!(true),
         _ => assert!(false),
     };
@@ -1213,9 +1231,8 @@ fn test_parse_debug_abbrev_offset_32_incomplete() {
 #[test]
 fn test_parse_debug_abbrev_offset_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-    let abbrevs = Abbreviations::new();
 
-    match parse_debug_abbrev_offset(DebugInfoInput(&buf, &abbrevs, Format::Dwarf64)) {
+    match parse_debug_abbrev_offset(CuInput(&buf, Format::Dwarf64)) {
         IResult::Done(_, val) => assert_eq!(val, 0x0807060504030201),
         _ => assert!(false),
     };
@@ -1224,9 +1241,8 @@ fn test_parse_debug_abbrev_offset_64() {
 #[test]
 fn test_parse_debug_abbrev_offset_64_incomplete() {
     let buf = [0x01, 0x02];
-    let abbrevs = Abbreviations::new();
 
-    match parse_debug_abbrev_offset(DebugInfoInput(&buf, &abbrevs, Format::Dwarf64)) {
+    match parse_debug_abbrev_offset(CuInput(&buf, Format::Dwarf64)) {
         IResult::Incomplete(_) => assert!(true),
         _ => assert!(false),
     };
@@ -1236,30 +1252,28 @@ fn test_parse_debug_abbrev_offset_64_incomplete() {
 #[should_panic]
 fn test_parse_debug_abbrev_offset_unknown() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-    let abbrevs = Abbreviations::new();
 
-    parse_debug_abbrev_offset(DebugInfoInput(&buf, &abbrevs, Format::Unknown));
+    parse_debug_abbrev_offset(CuInput(&buf, Format::Unknown));
 }
 
 /// Parse the size of addresses (in bytes) on the target architecture.
-fn parse_address_size(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u8> {
-    with_debug_input(input, le_u8)
+fn parse_address_size(input: CuInput) -> ParseResult<CuInput, u8> {
+    translate_domain(input, le_u8)
 }
 
 #[test]
 fn test_parse_address_size_ok() {
     let buf = [0x04];
-    let abbrevs = Abbreviations::new();
 
-    match parse_address_size(DebugInfoInput(&buf, &abbrevs, Format::Unknown)) {
+    match parse_address_size(CuInput(&buf, Format::Unknown)) {
         IResult::Done(_, val) => assert_eq!(val, 4),
         _ => assert!(false),
     };
 }
 
 /// Parse a compilation unit header.
-pub fn parse_compilation_unit_header(input: DebugInfoInput)
-                                     -> ParseResult<DebugInfoInput, CompilationUnitHeader>
+pub fn parse_compilation_unit_header(input: CuInput)
+                                     -> ParseResult<CuInput, CompilationUnitHeader>
 {
     chain!(input,
            unit_length: parse_unit_length ~
@@ -1280,9 +1294,8 @@ fn test_parse_compilation_unit_header_32_ok() {
         0x05, 0x06, 0x07, 0x08, // debug_abbrev_offset
         0x04                    // address size
     ];
-    let abbrevs = Abbreviations::new();
 
-    match parse_compilation_unit_header(DebugInfoInput::new(&buf, &abbrevs)) {
+    match parse_compilation_unit_header(CuInput::new(&buf)) {
         IResult::Done(_, header) =>
             assert_eq!(header, CompilationUnitHeader::new(0x04030201, 4, 0x08070605, 4)),
         _ =>
@@ -1299,9 +1312,8 @@ fn test_parse_compilation_unit_header_64_ok() {
         0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, // debug_abbrev_offset
         0x08                                            // address size
     ];
-    let abbrevs = Abbreviations::new();
 
-    match parse_compilation_unit_header(DebugInfoInput::new(&buf, &abbrevs)) {
+    match parse_compilation_unit_header(CuInput::new(&buf)) {
         IResult::Done(_, header) =>
             assert_eq!(header, CompilationUnitHeader::new(0x0807060504030201,
                                                           4,
@@ -1314,16 +1326,15 @@ fn test_parse_compilation_unit_header_64_ok() {
 
 /// Parse a type unit header's unique type signature. Callers should handle
 /// unique-ness checking.
-fn parse_type_signature(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u64> {
-    with_debug_input(input, le_u64)
+fn parse_type_signature(input: CuInput) -> ParseResult<CuInput, u64> {
+    translate_domain(input, le_u64)
 }
 
 #[test]
 fn test_parse_type_signature_ok() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-    let abbrevs = Abbreviations::new();
 
-    match parse_type_signature(DebugInfoInput::new(&buf, &abbrevs)) {
+    match parse_type_signature(CuInput::new(&buf)) {
         IResult::Done(_, val) => assert_eq!(val, 0x0807060504030201),
         _ => assert!(false),
     }
@@ -1332,35 +1343,33 @@ fn test_parse_type_signature_ok() {
 #[test]
 fn test_parse_type_signature_incomplete() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
-    let abbrevs = Abbreviations::new();
 
-    match parse_type_signature(DebugInfoInput::new(&buf, &abbrevs)) {
+    match parse_type_signature(CuInput::new(&buf)) {
         IResult::Incomplete(_) => assert!(true),
         _ => assert!(false),
     }
 }
 
 /// Parse a type unit header's type offset.
-fn parse_type_offset(input: DebugInfoInput) -> ParseResult<DebugInfoInput, u64> {
-    match input.2 {
+fn parse_type_offset(input: CuInput) -> ParseResult<CuInput, u64> {
+    match input.1 {
         Format::Unknown =>
             panic!("Need to know if this is 32- or 64-bit DWARF to parse the type_offset"),
         Format::Dwarf32 =>
-            with_debug_input(input, parse_u32_as_u64),
+            translate_domain(input, parse_u32_as_u64),
         Format::Dwarf64 =>
-            with_debug_input(input, le_u64),
+            translate_domain(input, le_u64),
     }
 }
 
 #[test]
 fn test_parse_type_offset_32_ok() {
     let buf = [0x12, 0x34, 0x56, 0x78, 0x00];
-    let abbrevs = Abbreviations::new();
 
-    match parse_type_offset(DebugInfoInput(&buf, &abbrevs, Format::Dwarf32)) {
+    match parse_type_offset(CuInput(&buf, Format::Dwarf32)) {
         IResult::Done(rest, offset) => {
             assert_eq!(rest.0.len(), 1);
-            assert_eq!(rest.2, Format::Dwarf32);
+            assert_eq!(rest.1, Format::Dwarf32);
             assert_eq!(0x78563412, offset);
         },
         _ =>
@@ -1371,12 +1380,11 @@ fn test_parse_type_offset_32_ok() {
 #[test]
 fn test_parse_type_offset_64_ok() {
     let buf = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff, 0x00];
-    let abbrevs = Abbreviations::new();
 
-    match parse_type_offset(DebugInfoInput(&buf, &abbrevs, Format::Dwarf64)) {
+    match parse_type_offset(CuInput(&buf, Format::Dwarf64)) {
         IResult::Done(rest, offset) => {
             assert_eq!(rest.0.len(), 1);
-            assert_eq!(rest.2, Format::Dwarf64);
+            assert_eq!(rest.1, Format::Dwarf64);
             assert_eq!(0xffdebc9a78563412, offset);
         },
         _ =>
@@ -1388,24 +1396,22 @@ fn test_parse_type_offset_64_ok() {
 #[should_panic]
 fn test_parse_type_offset_unknown() {
     let buf = [0xfe, 0xff, 0xff, 0xff];
-    let abbrevs = Abbreviations::new();
 
-    parse_type_offset(DebugInfoInput(&buf, &abbrevs, Format::Unknown));
+    parse_type_offset(CuInput(&buf, Format::Unknown));
 }
 
 #[test]
 fn test_parse_type_offset_incomplete() {
     let buf = [0xff, 0xff, 0xff]; // Need at least 4 bytes.
-    let abbrevs = Abbreviations::new();
 
-    match parse_type_offset(DebugInfoInput(&buf, &abbrevs, Format::Dwarf32)) {
+    match parse_type_offset(CuInput(&buf, Format::Dwarf32)) {
         IResult::Incomplete(_) => assert!(true),
         _ => assert!(false),
     };
 }
 
 /// Parse a type unit header.
-pub fn parse_type_unit_header(input: DebugInfoInput) -> ParseResult<DebugInfoInput, TypeUnitHeader> {
+pub fn parse_type_unit_header(input: CuInput) -> ParseResult<CuInput, TypeUnitHeader> {
     chain!(input,
            header: parse_compilation_unit_header ~
            signature: parse_type_signature ~
@@ -1424,9 +1430,8 @@ fn test_parse_type_unit_header_32_ok() {
         0xef, 0xbe, 0xad, 0xde, 0xef, 0xbe, 0xad, 0xde, // type signature
         0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x56, 0x78  // type offset
     ];
-    let abbrevs = Abbreviations::new();
 
-    let result = parse_type_unit_header(DebugInfoInput::new(&buf, &abbrevs));
+    let result = parse_type_unit_header(CuInput::new(&buf));
     println!("result = {:#?}", result);
 
     match result {
