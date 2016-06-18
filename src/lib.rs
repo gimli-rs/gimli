@@ -10,6 +10,8 @@
 extern crate leb128;
 #[macro_use] extern crate nom;
 
-pub mod parser;
+mod parser;
+pub use parser::*;
+
 mod types;
 pub use types::*;

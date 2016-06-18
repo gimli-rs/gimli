@@ -1,7 +1,8 @@
 //! Functions for parsing DWARF debugging information.
 
 use leb128;
-use nom::{self, Err, ErrorKind, IResult, le_u8, le_u16, le_u32, le_u64, Needed};
+pub use nom::IResult as ParseResult;
+use nom::{self, Err, ErrorKind, le_u8, le_u16, le_u32, le_u64, Needed};
 use std::fmt;
 use types::{Abbreviation, AbbreviationHasChildren, Abbreviations,
             AbbreviationTag, AttributeForm, AttributeName,
@@ -108,40 +109,37 @@ impl From<u32> for Error {
     }
 }
 
-/// The result of an attempted parse.
-pub type ParseResult<Input, T> = IResult<Input, T, Error>;
-
 macro_rules! try_parse_result (
     ($input:expr, $result:expr) => (
         match $result {
-            IResult::Done(rest, out) => (rest, out),
-            IResult::Error(e) => return IResult::Error(raise_err($input, e)),
-            IResult::Incomplete(i) => return IResult::Incomplete(i)
+            ParseResult::Done(rest, out) => (rest, out),
+            ParseResult::Error(e) => return ParseResult::Error(raise_err($input, e)),
+            ParseResult::Incomplete(i) => return ParseResult::Incomplete(i)
         }
     );
 );
 
 /// Parse an unsigned LEB128 encoded integer.
-fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<&[u8], u64> {
+fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<&[u8], u64, Error> {
     match leb128::read::unsigned(&mut input) {
         Ok(val) =>
-            IResult::Done(input, val),
+            ParseResult::Done(input, val),
         Err(leb128::read::Error::UnexpectedEndOfData) =>
-            IResult::Incomplete(Needed::Unknown),
+            ParseResult::Incomplete(Needed::Unknown),
         Err(e) =>
-            IResult::Error(Err::Position(ErrorKind::Custom(Error::LebError(e)), input)),
+            ParseResult::Error(Err::Position(ErrorKind::Custom(Error::LebError(e)), input)),
     }
 }
 
 /// Parse an abbreviation's code.
-fn parse_abbreviation_code(mut input: &[u8]) -> ParseResult<&[u8], u64> {
+fn parse_abbreviation_code(mut input: &[u8]) -> ParseResult<&[u8], u64, Error> {
     match parse_unsigned_leb(&mut input) {
-        IResult::Done(input, val) =>
+        ParseResult::Done(input, val) =>
             if val == 0 {
-                IResult::Error(Err::Position(ErrorKind::Custom(Error::AbbreviationCodeZero),
+                ParseResult::Error(Err::Position(ErrorKind::Custom(Error::AbbreviationCodeZero),
                                              input))
             } else {
-                IResult::Done(input, val)
+                ParseResult::Done(input, val)
             },
         res =>
             res,
@@ -149,612 +147,612 @@ fn parse_abbreviation_code(mut input: &[u8]) -> ParseResult<&[u8], u64> {
 }
 
 /// Parse an abbreviation's tag.
-fn parse_abbreviation_tag(mut input: &[u8]) -> ParseResult<&[u8], AbbreviationTag> {
+fn parse_abbreviation_tag(mut input: &[u8]) -> ParseResult<&[u8], AbbreviationTag, Error> {
     match parse_unsigned_leb(&mut input) {
-        IResult::Done(input, val) if AbbreviationTag::ArrayType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::ArrayType),
+        ParseResult::Done(input, val) if AbbreviationTag::ArrayType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::ArrayType),
 
-        IResult::Done(input, val) if AbbreviationTag::ClassType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::ClassType),
+        ParseResult::Done(input, val) if AbbreviationTag::ClassType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::ClassType),
 
-        IResult::Done(input, val) if AbbreviationTag::EntryPoint as u64 == val =>
-            IResult::Done(input, AbbreviationTag::EntryPoint),
+        ParseResult::Done(input, val) if AbbreviationTag::EntryPoint as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::EntryPoint),
 
-        IResult::Done(input, val) if AbbreviationTag::EnumerationType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::EnumerationType),
+        ParseResult::Done(input, val) if AbbreviationTag::EnumerationType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::EnumerationType),
 
-        IResult::Done(input, val) if AbbreviationTag::FormalParameter as u64 == val =>
-            IResult::Done(input, AbbreviationTag::FormalParameter),
+        ParseResult::Done(input, val) if AbbreviationTag::FormalParameter as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::FormalParameter),
 
-        IResult::Done(input, val) if AbbreviationTag::ImportedDeclaration as u64 == val =>
-            IResult::Done(input, AbbreviationTag::ImportedDeclaration),
+        ParseResult::Done(input, val) if AbbreviationTag::ImportedDeclaration as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::ImportedDeclaration),
 
-        IResult::Done(input, val) if AbbreviationTag::Label as u64 == val =>
-            IResult::Done(input, AbbreviationTag::Label),
+        ParseResult::Done(input, val) if AbbreviationTag::Label as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::Label),
 
-        IResult::Done(input, val) if AbbreviationTag::LexicalBlock as u64 == val =>
-            IResult::Done(input, AbbreviationTag::LexicalBlock),
+        ParseResult::Done(input, val) if AbbreviationTag::LexicalBlock as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::LexicalBlock),
 
-        IResult::Done(input, val) if AbbreviationTag::Member as u64 == val =>
-            IResult::Done(input, AbbreviationTag::Member),
+        ParseResult::Done(input, val) if AbbreviationTag::Member as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::Member),
 
-        IResult::Done(input, val) if AbbreviationTag::PointerType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::PointerType),
+        ParseResult::Done(input, val) if AbbreviationTag::PointerType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::PointerType),
 
-        IResult::Done(input, val) if AbbreviationTag::ReferenceType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::ReferenceType),
+        ParseResult::Done(input, val) if AbbreviationTag::ReferenceType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::ReferenceType),
 
-        IResult::Done(input, val) if AbbreviationTag::CompileUnit as u64 == val =>
-            IResult::Done(input, AbbreviationTag::CompileUnit),
+        ParseResult::Done(input, val) if AbbreviationTag::CompileUnit as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::CompileUnit),
 
-        IResult::Done(input, val) if AbbreviationTag::StringType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::StringType),
+        ParseResult::Done(input, val) if AbbreviationTag::StringType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::StringType),
 
-        IResult::Done(input, val) if AbbreviationTag::StructureType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::StructureType),
+        ParseResult::Done(input, val) if AbbreviationTag::StructureType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::StructureType),
 
-        IResult::Done(input, val) if AbbreviationTag::SubroutineType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::SubroutineType),
+        ParseResult::Done(input, val) if AbbreviationTag::SubroutineType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::SubroutineType),
 
-        IResult::Done(input, val) if AbbreviationTag::Typedef as u64 == val =>
-            IResult::Done(input, AbbreviationTag::Typedef),
+        ParseResult::Done(input, val) if AbbreviationTag::Typedef as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::Typedef),
 
-        IResult::Done(input, val) if AbbreviationTag::UnionType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::UnionType),
+        ParseResult::Done(input, val) if AbbreviationTag::UnionType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::UnionType),
 
-        IResult::Done(input, val) if AbbreviationTag::UnspecifiedParameters as u64 == val =>
-            IResult::Done(input, AbbreviationTag::UnspecifiedParameters),
+        ParseResult::Done(input, val) if AbbreviationTag::UnspecifiedParameters as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::UnspecifiedParameters),
 
-        IResult::Done(input, val) if AbbreviationTag::Variant as u64 == val =>
-            IResult::Done(input, AbbreviationTag::Variant),
+        ParseResult::Done(input, val) if AbbreviationTag::Variant as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::Variant),
 
-        IResult::Done(input, val) if AbbreviationTag::CommonBlock as u64 == val =>
-            IResult::Done(input, AbbreviationTag::CommonBlock),
+        ParseResult::Done(input, val) if AbbreviationTag::CommonBlock as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::CommonBlock),
 
-        IResult::Done(input, val) if AbbreviationTag::CommonInclusion as u64 == val =>
-            IResult::Done(input, AbbreviationTag::CommonInclusion),
+        ParseResult::Done(input, val) if AbbreviationTag::CommonInclusion as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::CommonInclusion),
 
-        IResult::Done(input, val) if AbbreviationTag::Inheritance as u64 == val =>
-            IResult::Done(input, AbbreviationTag::Inheritance),
+        ParseResult::Done(input, val) if AbbreviationTag::Inheritance as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::Inheritance),
 
-        IResult::Done(input, val) if AbbreviationTag::InlinedSubroutine as u64 == val =>
-            IResult::Done(input, AbbreviationTag::InlinedSubroutine),
+        ParseResult::Done(input, val) if AbbreviationTag::InlinedSubroutine as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::InlinedSubroutine),
 
-        IResult::Done(input, val) if AbbreviationTag::Module as u64 == val =>
-            IResult::Done(input, AbbreviationTag::Module),
+        ParseResult::Done(input, val) if AbbreviationTag::Module as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::Module),
 
-        IResult::Done(input, val) if AbbreviationTag::PtrToMemberType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::PtrToMemberType),
+        ParseResult::Done(input, val) if AbbreviationTag::PtrToMemberType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::PtrToMemberType),
 
-        IResult::Done(input, val) if AbbreviationTag::SetType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::SetType),
+        ParseResult::Done(input, val) if AbbreviationTag::SetType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::SetType),
 
-        IResult::Done(input, val) if AbbreviationTag::SubrangeType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::SubrangeType),
+        ParseResult::Done(input, val) if AbbreviationTag::SubrangeType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::SubrangeType),
 
-        IResult::Done(input, val) if AbbreviationTag::WithStmt as u64 == val =>
-            IResult::Done(input, AbbreviationTag::WithStmt),
+        ParseResult::Done(input, val) if AbbreviationTag::WithStmt as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::WithStmt),
 
-        IResult::Done(input, val) if AbbreviationTag::AccessDeclaration as u64 == val =>
-            IResult::Done(input, AbbreviationTag::AccessDeclaration),
+        ParseResult::Done(input, val) if AbbreviationTag::AccessDeclaration as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::AccessDeclaration),
 
-        IResult::Done(input, val) if AbbreviationTag::BaseType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::BaseType),
+        ParseResult::Done(input, val) if AbbreviationTag::BaseType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::BaseType),
 
-        IResult::Done(input, val) if AbbreviationTag::CatchBlock as u64 == val =>
-            IResult::Done(input, AbbreviationTag::CatchBlock),
+        ParseResult::Done(input, val) if AbbreviationTag::CatchBlock as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::CatchBlock),
 
-        IResult::Done(input, val) if AbbreviationTag::ConstType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::ConstType),
+        ParseResult::Done(input, val) if AbbreviationTag::ConstType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::ConstType),
 
-        IResult::Done(input, val) if AbbreviationTag::Constant as u64 == val =>
-            IResult::Done(input, AbbreviationTag::Constant),
+        ParseResult::Done(input, val) if AbbreviationTag::Constant as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::Constant),
 
-        IResult::Done(input, val) if AbbreviationTag::Enumerator as u64 == val =>
-            IResult::Done(input, AbbreviationTag::Enumerator),
+        ParseResult::Done(input, val) if AbbreviationTag::Enumerator as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::Enumerator),
 
-        IResult::Done(input, val) if AbbreviationTag::FileType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::FileType),
+        ParseResult::Done(input, val) if AbbreviationTag::FileType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::FileType),
 
-        IResult::Done(input, val) if AbbreviationTag::Friend as u64 == val =>
-            IResult::Done(input, AbbreviationTag::Friend),
+        ParseResult::Done(input, val) if AbbreviationTag::Friend as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::Friend),
 
-        IResult::Done(input, val) if AbbreviationTag::Namelist as u64 == val =>
-            IResult::Done(input, AbbreviationTag::Namelist),
+        ParseResult::Done(input, val) if AbbreviationTag::Namelist as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::Namelist),
 
-        IResult::Done(input, val) if AbbreviationTag::NamelistItem as u64 == val =>
-            IResult::Done(input, AbbreviationTag::NamelistItem),
+        ParseResult::Done(input, val) if AbbreviationTag::NamelistItem as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::NamelistItem),
 
-        IResult::Done(input, val) if AbbreviationTag::PackedType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::PackedType),
+        ParseResult::Done(input, val) if AbbreviationTag::PackedType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::PackedType),
 
-        IResult::Done(input, val) if AbbreviationTag::Subprogram as u64 == val =>
-            IResult::Done(input, AbbreviationTag::Subprogram),
+        ParseResult::Done(input, val) if AbbreviationTag::Subprogram as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::Subprogram),
 
-        IResult::Done(input, val) if AbbreviationTag::TemplateTypeParameter as u64 == val =>
-            IResult::Done(input, AbbreviationTag::TemplateTypeParameter),
+        ParseResult::Done(input, val) if AbbreviationTag::TemplateTypeParameter as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::TemplateTypeParameter),
 
-        IResult::Done(input, val) if AbbreviationTag::TemplateValueParameter as u64 == val =>
-            IResult::Done(input, AbbreviationTag::TemplateValueParameter),
+        ParseResult::Done(input, val) if AbbreviationTag::TemplateValueParameter as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::TemplateValueParameter),
 
-        IResult::Done(input, val) if AbbreviationTag::ThrownType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::ThrownType),
+        ParseResult::Done(input, val) if AbbreviationTag::ThrownType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::ThrownType),
 
-        IResult::Done(input, val) if AbbreviationTag::TryBlock as u64 == val =>
-            IResult::Done(input, AbbreviationTag::TryBlock),
+        ParseResult::Done(input, val) if AbbreviationTag::TryBlock as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::TryBlock),
 
-        IResult::Done(input, val) if AbbreviationTag::VariantPart as u64 == val =>
-            IResult::Done(input, AbbreviationTag::VariantPart),
+        ParseResult::Done(input, val) if AbbreviationTag::VariantPart as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::VariantPart),
 
-        IResult::Done(input, val) if AbbreviationTag::Variable as u64 == val =>
-            IResult::Done(input, AbbreviationTag::Variable),
+        ParseResult::Done(input, val) if AbbreviationTag::Variable as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::Variable),
 
-        IResult::Done(input, val) if AbbreviationTag::VolatileType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::VolatileType),
+        ParseResult::Done(input, val) if AbbreviationTag::VolatileType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::VolatileType),
 
-        IResult::Done(input, val) if AbbreviationTag::RestrictType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::RestrictType),
+        ParseResult::Done(input, val) if AbbreviationTag::RestrictType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::RestrictType),
 
-        IResult::Done(input, val) if AbbreviationTag::InterfaceType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::InterfaceType),
+        ParseResult::Done(input, val) if AbbreviationTag::InterfaceType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::InterfaceType),
 
-        IResult::Done(input, val) if AbbreviationTag::Namespace as u64 == val =>
-            IResult::Done(input, AbbreviationTag::Namespace),
+        ParseResult::Done(input, val) if AbbreviationTag::Namespace as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::Namespace),
 
-        IResult::Done(input, val) if AbbreviationTag::ImportedModule as u64 == val =>
-            IResult::Done(input, AbbreviationTag::ImportedModule),
+        ParseResult::Done(input, val) if AbbreviationTag::ImportedModule as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::ImportedModule),
 
-        IResult::Done(input, val) if AbbreviationTag::UnspecifiedType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::UnspecifiedType),
+        ParseResult::Done(input, val) if AbbreviationTag::UnspecifiedType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::UnspecifiedType),
 
-        IResult::Done(input, val) if AbbreviationTag::PartialUnit as u64 == val =>
-            IResult::Done(input, AbbreviationTag::PartialUnit),
+        ParseResult::Done(input, val) if AbbreviationTag::PartialUnit as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::PartialUnit),
 
-        IResult::Done(input, val) if AbbreviationTag::ImportedUnit as u64 == val =>
-            IResult::Done(input, AbbreviationTag::ImportedUnit),
+        ParseResult::Done(input, val) if AbbreviationTag::ImportedUnit as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::ImportedUnit),
 
-        IResult::Done(input, val) if AbbreviationTag::Condition as u64 == val =>
-            IResult::Done(input, AbbreviationTag::Condition),
+        ParseResult::Done(input, val) if AbbreviationTag::Condition as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::Condition),
 
-        IResult::Done(input, val) if AbbreviationTag::SharedType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::SharedType),
+        ParseResult::Done(input, val) if AbbreviationTag::SharedType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::SharedType),
 
-        IResult::Done(input, val) if AbbreviationTag::TypeUnit as u64 == val =>
-            IResult::Done(input, AbbreviationTag::TypeUnit),
+        ParseResult::Done(input, val) if AbbreviationTag::TypeUnit as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::TypeUnit),
 
-        IResult::Done(input, val) if AbbreviationTag::RvalueReferenceType as u64 == val =>
-            IResult::Done(input, AbbreviationTag::RvalueReferenceType),
+        ParseResult::Done(input, val) if AbbreviationTag::RvalueReferenceType as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::RvalueReferenceType),
 
-        IResult::Done(input, val) if AbbreviationTag::TemplateAlias as u64 == val =>
-            IResult::Done(input, AbbreviationTag::TemplateAlias),
+        ParseResult::Done(input, val) if AbbreviationTag::TemplateAlias as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::TemplateAlias),
 
-        IResult::Done(input, val) if AbbreviationTag::LoUser as u64 == val =>
-            IResult::Done(input, AbbreviationTag::LoUser),
+        ParseResult::Done(input, val) if AbbreviationTag::LoUser as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::LoUser),
 
-        IResult::Done(input, val) if AbbreviationTag::HiUser as u64 == val =>
-            IResult::Done(input, AbbreviationTag::HiUser),
+        ParseResult::Done(input, val) if AbbreviationTag::HiUser as u64 == val =>
+            ParseResult::Done(input, AbbreviationTag::HiUser),
 
-        IResult::Done(input, _) =>
-            IResult::Error(Err::Position(ErrorKind::Custom(Error::InvalidAbbreviationTag), input)),
+        ParseResult::Done(input, _) =>
+            ParseResult::Error(Err::Position(ErrorKind::Custom(Error::InvalidAbbreviationTag), input)),
 
-        IResult::Incomplete(needed) =>
-            IResult::Incomplete(needed),
+        ParseResult::Incomplete(needed) =>
+            ParseResult::Incomplete(needed),
 
-        IResult::Error(error) =>
-            IResult::Error(error),
+        ParseResult::Error(error) =>
+            ParseResult::Error(error),
     }
 }
 
 /// Parse an abbreviation's "does the type have children?" byte.
-fn parse_abbreviation_has_children(input: &[u8]) -> ParseResult<&[u8], AbbreviationHasChildren> {
+fn parse_abbreviation_has_children(input: &[u8]) -> ParseResult<&[u8], AbbreviationHasChildren, Error> {
     match le_u8(input) {
-        IResult::Done(input, val) if AbbreviationHasChildren::Yes as u8 == val =>
-            IResult::Done(input, AbbreviationHasChildren::Yes),
+        ParseResult::Done(input, val) if AbbreviationHasChildren::Yes as u8 == val =>
+            ParseResult::Done(input, AbbreviationHasChildren::Yes),
 
-        IResult::Done(input, val) if AbbreviationHasChildren::No as u8 == val =>
-            IResult::Done(input, AbbreviationHasChildren::No),
+        ParseResult::Done(input, val) if AbbreviationHasChildren::No as u8 == val =>
+            ParseResult::Done(input, AbbreviationHasChildren::No),
 
-        IResult::Done(input, _) =>
-            IResult::Error(
+        ParseResult::Done(input, _) =>
+            ParseResult::Error(
                 Err::Position(ErrorKind::Custom(Error::InvalidAbbreviationHasChildren), input)),
 
-        IResult::Incomplete(needed) =>
-            IResult::Incomplete(needed),
+        ParseResult::Incomplete(needed) =>
+            ParseResult::Incomplete(needed),
 
-        IResult::Error(_) =>
-            IResult::Error(Err::Code(ErrorKind::Custom(Error::InvalidAbbreviationHasChildren))),
+        ParseResult::Error(_) =>
+            ParseResult::Error(Err::Code(ErrorKind::Custom(Error::InvalidAbbreviationHasChildren))),
     }
 }
 
 /// Parse an attribute's name.
-fn parse_attribute_name(input: &[u8]) -> ParseResult<&[u8], AttributeName> {
+fn parse_attribute_name(input: &[u8]) -> ParseResult<&[u8], AttributeName, Error> {
     match parse_unsigned_leb(input) {
-        IResult::Done(input, val) if AttributeName::Sibling as u64 == val =>
-            IResult::Done(input, AttributeName::Sibling),
+        ParseResult::Done(input, val) if AttributeName::Sibling as u64 == val =>
+            ParseResult::Done(input, AttributeName::Sibling),
 
-        IResult::Done(input, val) if AttributeName::Location as u64 == val =>
-            IResult::Done(input, AttributeName::Location),
+        ParseResult::Done(input, val) if AttributeName::Location as u64 == val =>
+            ParseResult::Done(input, AttributeName::Location),
 
-        IResult::Done(input, val) if AttributeName::Name as u64 == val =>
-            IResult::Done(input, AttributeName::Name),
+        ParseResult::Done(input, val) if AttributeName::Name as u64 == val =>
+            ParseResult::Done(input, AttributeName::Name),
 
-        IResult::Done(input, val) if AttributeName::Ordering as u64 == val =>
-            IResult::Done(input, AttributeName::Ordering),
+        ParseResult::Done(input, val) if AttributeName::Ordering as u64 == val =>
+            ParseResult::Done(input, AttributeName::Ordering),
 
-        IResult::Done(input, val) if AttributeName::ByteSize as u64 == val =>
-            IResult::Done(input, AttributeName::ByteSize),
+        ParseResult::Done(input, val) if AttributeName::ByteSize as u64 == val =>
+            ParseResult::Done(input, AttributeName::ByteSize),
 
-        IResult::Done(input, val) if AttributeName::BitOffset as u64 == val =>
-            IResult::Done(input, AttributeName::BitOffset),
+        ParseResult::Done(input, val) if AttributeName::BitOffset as u64 == val =>
+            ParseResult::Done(input, AttributeName::BitOffset),
 
-        IResult::Done(input, val) if AttributeName::BitSize as u64 == val =>
-            IResult::Done(input, AttributeName::BitSize),
+        ParseResult::Done(input, val) if AttributeName::BitSize as u64 == val =>
+            ParseResult::Done(input, AttributeName::BitSize),
 
-        IResult::Done(input, val) if AttributeName::StmtList as u64 == val =>
-            IResult::Done(input, AttributeName::StmtList),
+        ParseResult::Done(input, val) if AttributeName::StmtList as u64 == val =>
+            ParseResult::Done(input, AttributeName::StmtList),
 
-        IResult::Done(input, val) if AttributeName::LowPc as u64 == val =>
-            IResult::Done(input, AttributeName::LowPc),
+        ParseResult::Done(input, val) if AttributeName::LowPc as u64 == val =>
+            ParseResult::Done(input, AttributeName::LowPc),
 
-        IResult::Done(input, val) if AttributeName::HighPc as u64 == val =>
-            IResult::Done(input, AttributeName::HighPc),
+        ParseResult::Done(input, val) if AttributeName::HighPc as u64 == val =>
+            ParseResult::Done(input, AttributeName::HighPc),
 
-        IResult::Done(input, val) if AttributeName::Language as u64 == val =>
-            IResult::Done(input, AttributeName::Language),
+        ParseResult::Done(input, val) if AttributeName::Language as u64 == val =>
+            ParseResult::Done(input, AttributeName::Language),
 
-        IResult::Done(input, val) if AttributeName::Discr as u64 == val =>
-            IResult::Done(input, AttributeName::Discr),
+        ParseResult::Done(input, val) if AttributeName::Discr as u64 == val =>
+            ParseResult::Done(input, AttributeName::Discr),
 
-        IResult::Done(input, val) if AttributeName::DiscrValue as u64 == val =>
-            IResult::Done(input, AttributeName::DiscrValue),
+        ParseResult::Done(input, val) if AttributeName::DiscrValue as u64 == val =>
+            ParseResult::Done(input, AttributeName::DiscrValue),
 
-        IResult::Done(input, val) if AttributeName::Visibility as u64 == val =>
-            IResult::Done(input, AttributeName::Visibility),
+        ParseResult::Done(input, val) if AttributeName::Visibility as u64 == val =>
+            ParseResult::Done(input, AttributeName::Visibility),
 
-        IResult::Done(input, val) if AttributeName::Import as u64 == val =>
-            IResult::Done(input, AttributeName::Import),
+        ParseResult::Done(input, val) if AttributeName::Import as u64 == val =>
+            ParseResult::Done(input, AttributeName::Import),
 
-        IResult::Done(input, val) if AttributeName::StringLength as u64 == val =>
-            IResult::Done(input, AttributeName::StringLength),
+        ParseResult::Done(input, val) if AttributeName::StringLength as u64 == val =>
+            ParseResult::Done(input, AttributeName::StringLength),
 
-        IResult::Done(input, val) if AttributeName::CommonReference as u64 == val =>
-            IResult::Done(input, AttributeName::CommonReference),
+        ParseResult::Done(input, val) if AttributeName::CommonReference as u64 == val =>
+            ParseResult::Done(input, AttributeName::CommonReference),
 
-        IResult::Done(input, val) if AttributeName::CompDir as u64 == val =>
-            IResult::Done(input, AttributeName::CompDir),
+        ParseResult::Done(input, val) if AttributeName::CompDir as u64 == val =>
+            ParseResult::Done(input, AttributeName::CompDir),
 
-        IResult::Done(input, val) if AttributeName::ConstValue as u64 == val =>
-            IResult::Done(input, AttributeName::ConstValue),
+        ParseResult::Done(input, val) if AttributeName::ConstValue as u64 == val =>
+            ParseResult::Done(input, AttributeName::ConstValue),
 
-        IResult::Done(input, val) if AttributeName::ContainingType as u64 == val =>
-            IResult::Done(input, AttributeName::ContainingType),
+        ParseResult::Done(input, val) if AttributeName::ContainingType as u64 == val =>
+            ParseResult::Done(input, AttributeName::ContainingType),
 
-        IResult::Done(input, val) if AttributeName::DefaultValue as u64 == val =>
-            IResult::Done(input, AttributeName::DefaultValue),
+        ParseResult::Done(input, val) if AttributeName::DefaultValue as u64 == val =>
+            ParseResult::Done(input, AttributeName::DefaultValue),
 
-        IResult::Done(input, val) if AttributeName::Inline as u64 == val =>
-            IResult::Done(input, AttributeName::Inline),
+        ParseResult::Done(input, val) if AttributeName::Inline as u64 == val =>
+            ParseResult::Done(input, AttributeName::Inline),
 
-        IResult::Done(input, val) if AttributeName::IsOptional as u64 == val =>
-            IResult::Done(input, AttributeName::IsOptional),
+        ParseResult::Done(input, val) if AttributeName::IsOptional as u64 == val =>
+            ParseResult::Done(input, AttributeName::IsOptional),
 
-        IResult::Done(input, val) if AttributeName::LowerBound as u64 == val =>
-            IResult::Done(input, AttributeName::LowerBound),
+        ParseResult::Done(input, val) if AttributeName::LowerBound as u64 == val =>
+            ParseResult::Done(input, AttributeName::LowerBound),
 
-        IResult::Done(input, val) if AttributeName::Producer as u64 == val =>
-            IResult::Done(input, AttributeName::Producer),
+        ParseResult::Done(input, val) if AttributeName::Producer as u64 == val =>
+            ParseResult::Done(input, AttributeName::Producer),
 
-        IResult::Done(input, val) if AttributeName::Prototyped as u64 == val =>
-            IResult::Done(input, AttributeName::Prototyped),
+        ParseResult::Done(input, val) if AttributeName::Prototyped as u64 == val =>
+            ParseResult::Done(input, AttributeName::Prototyped),
 
-        IResult::Done(input, val) if AttributeName::ReturnAddr as u64 == val =>
-            IResult::Done(input, AttributeName::ReturnAddr),
+        ParseResult::Done(input, val) if AttributeName::ReturnAddr as u64 == val =>
+            ParseResult::Done(input, AttributeName::ReturnAddr),
 
-        IResult::Done(input, val) if AttributeName::StartScope as u64 == val =>
-            IResult::Done(input, AttributeName::StartScope),
+        ParseResult::Done(input, val) if AttributeName::StartScope as u64 == val =>
+            ParseResult::Done(input, AttributeName::StartScope),
 
-        IResult::Done(input, val) if AttributeName::BitStride as u64 == val =>
-            IResult::Done(input, AttributeName::BitStride),
+        ParseResult::Done(input, val) if AttributeName::BitStride as u64 == val =>
+            ParseResult::Done(input, AttributeName::BitStride),
 
-        IResult::Done(input, val) if AttributeName::UpperBound as u64 == val =>
-            IResult::Done(input, AttributeName::UpperBound),
+        ParseResult::Done(input, val) if AttributeName::UpperBound as u64 == val =>
+            ParseResult::Done(input, AttributeName::UpperBound),
 
-        IResult::Done(input, val) if AttributeName::AbstractOrigin as u64 == val =>
-            IResult::Done(input, AttributeName::AbstractOrigin),
+        ParseResult::Done(input, val) if AttributeName::AbstractOrigin as u64 == val =>
+            ParseResult::Done(input, AttributeName::AbstractOrigin),
 
-        IResult::Done(input, val) if AttributeName::Accessibility as u64 == val =>
-            IResult::Done(input, AttributeName::Accessibility),
+        ParseResult::Done(input, val) if AttributeName::Accessibility as u64 == val =>
+            ParseResult::Done(input, AttributeName::Accessibility),
 
-        IResult::Done(input, val) if AttributeName::AddressClass as u64 == val =>
-            IResult::Done(input, AttributeName::AddressClass),
+        ParseResult::Done(input, val) if AttributeName::AddressClass as u64 == val =>
+            ParseResult::Done(input, AttributeName::AddressClass),
 
-        IResult::Done(input, val) if AttributeName::Artificial as u64 == val =>
-            IResult::Done(input, AttributeName::Artificial),
+        ParseResult::Done(input, val) if AttributeName::Artificial as u64 == val =>
+            ParseResult::Done(input, AttributeName::Artificial),
 
-        IResult::Done(input, val) if AttributeName::BaseTypes as u64 == val =>
-            IResult::Done(input, AttributeName::BaseTypes),
+        ParseResult::Done(input, val) if AttributeName::BaseTypes as u64 == val =>
+            ParseResult::Done(input, AttributeName::BaseTypes),
 
-        IResult::Done(input, val) if AttributeName::CallingConvention as u64 == val =>
-            IResult::Done(input, AttributeName::CallingConvention),
+        ParseResult::Done(input, val) if AttributeName::CallingConvention as u64 == val =>
+            ParseResult::Done(input, AttributeName::CallingConvention),
 
-        IResult::Done(input, val) if AttributeName::Count as u64 == val =>
-            IResult::Done(input, AttributeName::Count),
+        ParseResult::Done(input, val) if AttributeName::Count as u64 == val =>
+            ParseResult::Done(input, AttributeName::Count),
 
-        IResult::Done(input, val) if AttributeName::DataMemberLocation as u64 == val =>
-            IResult::Done(input, AttributeName::DataMemberLocation),
+        ParseResult::Done(input, val) if AttributeName::DataMemberLocation as u64 == val =>
+            ParseResult::Done(input, AttributeName::DataMemberLocation),
 
-        IResult::Done(input, val) if AttributeName::DeclColumn as u64 == val =>
-            IResult::Done(input, AttributeName::DeclColumn),
+        ParseResult::Done(input, val) if AttributeName::DeclColumn as u64 == val =>
+            ParseResult::Done(input, AttributeName::DeclColumn),
 
-        IResult::Done(input, val) if AttributeName::DeclFile as u64 == val =>
-            IResult::Done(input, AttributeName::DeclFile),
+        ParseResult::Done(input, val) if AttributeName::DeclFile as u64 == val =>
+            ParseResult::Done(input, AttributeName::DeclFile),
 
-        IResult::Done(input, val) if AttributeName::DeclLine as u64 == val =>
-            IResult::Done(input, AttributeName::DeclLine),
+        ParseResult::Done(input, val) if AttributeName::DeclLine as u64 == val =>
+            ParseResult::Done(input, AttributeName::DeclLine),
 
-        IResult::Done(input, val) if AttributeName::Declaration as u64 == val =>
-            IResult::Done(input, AttributeName::Declaration),
+        ParseResult::Done(input, val) if AttributeName::Declaration as u64 == val =>
+            ParseResult::Done(input, AttributeName::Declaration),
 
-        IResult::Done(input, val) if AttributeName::DiscrList as u64 == val =>
-            IResult::Done(input, AttributeName::DiscrList),
+        ParseResult::Done(input, val) if AttributeName::DiscrList as u64 == val =>
+            ParseResult::Done(input, AttributeName::DiscrList),
 
-        IResult::Done(input, val) if AttributeName::Encoding as u64 == val =>
-            IResult::Done(input, AttributeName::Encoding),
+        ParseResult::Done(input, val) if AttributeName::Encoding as u64 == val =>
+            ParseResult::Done(input, AttributeName::Encoding),
 
-        IResult::Done(input, val) if AttributeName::External as u64 == val =>
-            IResult::Done(input, AttributeName::External),
+        ParseResult::Done(input, val) if AttributeName::External as u64 == val =>
+            ParseResult::Done(input, AttributeName::External),
 
-        IResult::Done(input, val) if AttributeName::FrameBase as u64 == val =>
-            IResult::Done(input, AttributeName::FrameBase),
+        ParseResult::Done(input, val) if AttributeName::FrameBase as u64 == val =>
+            ParseResult::Done(input, AttributeName::FrameBase),
 
-        IResult::Done(input, val) if AttributeName::Friend as u64 == val =>
-            IResult::Done(input, AttributeName::Friend),
+        ParseResult::Done(input, val) if AttributeName::Friend as u64 == val =>
+            ParseResult::Done(input, AttributeName::Friend),
 
-        IResult::Done(input, val) if AttributeName::IdentifierCase as u64 == val =>
-            IResult::Done(input, AttributeName::IdentifierCase),
+        ParseResult::Done(input, val) if AttributeName::IdentifierCase as u64 == val =>
+            ParseResult::Done(input, AttributeName::IdentifierCase),
 
-        IResult::Done(input, val) if AttributeName::MacroInfo as u64 == val =>
-            IResult::Done(input, AttributeName::MacroInfo),
+        ParseResult::Done(input, val) if AttributeName::MacroInfo as u64 == val =>
+            ParseResult::Done(input, AttributeName::MacroInfo),
 
-        IResult::Done(input, val) if AttributeName::NamelistItem as u64 == val =>
-            IResult::Done(input, AttributeName::NamelistItem),
+        ParseResult::Done(input, val) if AttributeName::NamelistItem as u64 == val =>
+            ParseResult::Done(input, AttributeName::NamelistItem),
 
-        IResult::Done(input, val) if AttributeName::Priority as u64 == val =>
-            IResult::Done(input, AttributeName::Priority),
+        ParseResult::Done(input, val) if AttributeName::Priority as u64 == val =>
+            ParseResult::Done(input, AttributeName::Priority),
 
-        IResult::Done(input, val) if AttributeName::Segment as u64 == val =>
-            IResult::Done(input, AttributeName::Segment),
+        ParseResult::Done(input, val) if AttributeName::Segment as u64 == val =>
+            ParseResult::Done(input, AttributeName::Segment),
 
-        IResult::Done(input, val) if AttributeName::Specification as u64 == val =>
-            IResult::Done(input, AttributeName::Specification),
+        ParseResult::Done(input, val) if AttributeName::Specification as u64 == val =>
+            ParseResult::Done(input, AttributeName::Specification),
 
-        IResult::Done(input, val) if AttributeName::StaticLink as u64 == val =>
-            IResult::Done(input, AttributeName::StaticLink),
+        ParseResult::Done(input, val) if AttributeName::StaticLink as u64 == val =>
+            ParseResult::Done(input, AttributeName::StaticLink),
 
-        IResult::Done(input, val) if AttributeName::Type as u64 == val =>
-            IResult::Done(input, AttributeName::Type),
+        ParseResult::Done(input, val) if AttributeName::Type as u64 == val =>
+            ParseResult::Done(input, AttributeName::Type),
 
-        IResult::Done(input, val) if AttributeName::UseLocation as u64 == val =>
-            IResult::Done(input, AttributeName::UseLocation),
+        ParseResult::Done(input, val) if AttributeName::UseLocation as u64 == val =>
+            ParseResult::Done(input, AttributeName::UseLocation),
 
-        IResult::Done(input, val) if AttributeName::VariableParameter as u64 == val =>
-            IResult::Done(input, AttributeName::VariableParameter),
+        ParseResult::Done(input, val) if AttributeName::VariableParameter as u64 == val =>
+            ParseResult::Done(input, AttributeName::VariableParameter),
 
-        IResult::Done(input, val) if AttributeName::Virtuality as u64 == val =>
-            IResult::Done(input, AttributeName::Virtuality),
+        ParseResult::Done(input, val) if AttributeName::Virtuality as u64 == val =>
+            ParseResult::Done(input, AttributeName::Virtuality),
 
-        IResult::Done(input, val) if AttributeName::VtableElemLocation as u64 == val =>
-            IResult::Done(input, AttributeName::VtableElemLocation),
+        ParseResult::Done(input, val) if AttributeName::VtableElemLocation as u64 == val =>
+            ParseResult::Done(input, AttributeName::VtableElemLocation),
 
-        IResult::Done(input, val) if AttributeName::Allocated as u64 == val =>
-            IResult::Done(input, AttributeName::Allocated),
+        ParseResult::Done(input, val) if AttributeName::Allocated as u64 == val =>
+            ParseResult::Done(input, AttributeName::Allocated),
 
-        IResult::Done(input, val) if AttributeName::Associated as u64 == val =>
-            IResult::Done(input, AttributeName::Associated),
+        ParseResult::Done(input, val) if AttributeName::Associated as u64 == val =>
+            ParseResult::Done(input, AttributeName::Associated),
 
-        IResult::Done(input, val) if AttributeName::DataLocation as u64 == val =>
-            IResult::Done(input, AttributeName::DataLocation),
+        ParseResult::Done(input, val) if AttributeName::DataLocation as u64 == val =>
+            ParseResult::Done(input, AttributeName::DataLocation),
 
-        IResult::Done(input, val) if AttributeName::ByteStride as u64 == val =>
-            IResult::Done(input, AttributeName::ByteStride),
+        ParseResult::Done(input, val) if AttributeName::ByteStride as u64 == val =>
+            ParseResult::Done(input, AttributeName::ByteStride),
 
-        IResult::Done(input, val) if AttributeName::EntryPc as u64 == val =>
-            IResult::Done(input, AttributeName::EntryPc),
+        ParseResult::Done(input, val) if AttributeName::EntryPc as u64 == val =>
+            ParseResult::Done(input, AttributeName::EntryPc),
 
-        IResult::Done(input, val) if AttributeName::UseUtf8 as u64 == val =>
-            IResult::Done(input, AttributeName::UseUtf8),
+        ParseResult::Done(input, val) if AttributeName::UseUtf8 as u64 == val =>
+            ParseResult::Done(input, AttributeName::UseUtf8),
 
-        IResult::Done(input, val) if AttributeName::Extension as u64 == val =>
-            IResult::Done(input, AttributeName::Extension),
+        ParseResult::Done(input, val) if AttributeName::Extension as u64 == val =>
+            ParseResult::Done(input, AttributeName::Extension),
 
-        IResult::Done(input, val) if AttributeName::Ranges as u64 == val =>
-            IResult::Done(input, AttributeName::Ranges),
+        ParseResult::Done(input, val) if AttributeName::Ranges as u64 == val =>
+            ParseResult::Done(input, AttributeName::Ranges),
 
-        IResult::Done(input, val) if AttributeName::Trampoline as u64 == val =>
-            IResult::Done(input, AttributeName::Trampoline),
+        ParseResult::Done(input, val) if AttributeName::Trampoline as u64 == val =>
+            ParseResult::Done(input, AttributeName::Trampoline),
 
-        IResult::Done(input, val) if AttributeName::CallColumn as u64 == val =>
-            IResult::Done(input, AttributeName::CallColumn),
+        ParseResult::Done(input, val) if AttributeName::CallColumn as u64 == val =>
+            ParseResult::Done(input, AttributeName::CallColumn),
 
-        IResult::Done(input, val) if AttributeName::CallFile as u64 == val =>
-            IResult::Done(input, AttributeName::CallFile),
+        ParseResult::Done(input, val) if AttributeName::CallFile as u64 == val =>
+            ParseResult::Done(input, AttributeName::CallFile),
 
-        IResult::Done(input, val) if AttributeName::CallLine as u64 == val =>
-            IResult::Done(input, AttributeName::CallLine),
+        ParseResult::Done(input, val) if AttributeName::CallLine as u64 == val =>
+            ParseResult::Done(input, AttributeName::CallLine),
 
-        IResult::Done(input, val) if AttributeName::Description as u64 == val =>
-            IResult::Done(input, AttributeName::Description),
+        ParseResult::Done(input, val) if AttributeName::Description as u64 == val =>
+            ParseResult::Done(input, AttributeName::Description),
 
-        IResult::Done(input, val) if AttributeName::BinaryScale as u64 == val =>
-            IResult::Done(input, AttributeName::BinaryScale),
+        ParseResult::Done(input, val) if AttributeName::BinaryScale as u64 == val =>
+            ParseResult::Done(input, AttributeName::BinaryScale),
 
-        IResult::Done(input, val) if AttributeName::DecimalScale as u64 == val =>
-            IResult::Done(input, AttributeName::DecimalScale),
+        ParseResult::Done(input, val) if AttributeName::DecimalScale as u64 == val =>
+            ParseResult::Done(input, AttributeName::DecimalScale),
 
-        IResult::Done(input, val) if AttributeName::Small as u64 == val =>
-            IResult::Done(input, AttributeName::Small),
+        ParseResult::Done(input, val) if AttributeName::Small as u64 == val =>
+            ParseResult::Done(input, AttributeName::Small),
 
-        IResult::Done(input, val) if AttributeName::DecimalSign as u64 == val =>
-            IResult::Done(input, AttributeName::DecimalSign),
+        ParseResult::Done(input, val) if AttributeName::DecimalSign as u64 == val =>
+            ParseResult::Done(input, AttributeName::DecimalSign),
 
-        IResult::Done(input, val) if AttributeName::DigitCount as u64 == val =>
-            IResult::Done(input, AttributeName::DigitCount),
+        ParseResult::Done(input, val) if AttributeName::DigitCount as u64 == val =>
+            ParseResult::Done(input, AttributeName::DigitCount),
 
-        IResult::Done(input, val) if AttributeName::PictureString as u64 == val =>
-            IResult::Done(input, AttributeName::PictureString),
+        ParseResult::Done(input, val) if AttributeName::PictureString as u64 == val =>
+            ParseResult::Done(input, AttributeName::PictureString),
 
-        IResult::Done(input, val) if AttributeName::Mutable as u64 == val =>
-            IResult::Done(input, AttributeName::Mutable),
+        ParseResult::Done(input, val) if AttributeName::Mutable as u64 == val =>
+            ParseResult::Done(input, AttributeName::Mutable),
 
-        IResult::Done(input, val) if AttributeName::ThreadsScaled as u64 == val =>
-            IResult::Done(input, AttributeName::ThreadsScaled),
+        ParseResult::Done(input, val) if AttributeName::ThreadsScaled as u64 == val =>
+            ParseResult::Done(input, AttributeName::ThreadsScaled),
 
-        IResult::Done(input, val) if AttributeName::Explicit as u64 == val =>
-            IResult::Done(input, AttributeName::Explicit),
+        ParseResult::Done(input, val) if AttributeName::Explicit as u64 == val =>
+            ParseResult::Done(input, AttributeName::Explicit),
 
-        IResult::Done(input, val) if AttributeName::ObjectPointer as u64 == val =>
-            IResult::Done(input, AttributeName::ObjectPointer),
+        ParseResult::Done(input, val) if AttributeName::ObjectPointer as u64 == val =>
+            ParseResult::Done(input, AttributeName::ObjectPointer),
 
-        IResult::Done(input, val) if AttributeName::Endianity as u64 == val =>
-            IResult::Done(input, AttributeName::Endianity),
+        ParseResult::Done(input, val) if AttributeName::Endianity as u64 == val =>
+            ParseResult::Done(input, AttributeName::Endianity),
 
-        IResult::Done(input, val) if AttributeName::Elemental as u64 == val =>
-            IResult::Done(input, AttributeName::Elemental),
+        ParseResult::Done(input, val) if AttributeName::Elemental as u64 == val =>
+            ParseResult::Done(input, AttributeName::Elemental),
 
-        IResult::Done(input, val) if AttributeName::Pure as u64 == val =>
-            IResult::Done(input, AttributeName::Pure),
+        ParseResult::Done(input, val) if AttributeName::Pure as u64 == val =>
+            ParseResult::Done(input, AttributeName::Pure),
 
-        IResult::Done(input, val) if AttributeName::Recursive as u64 == val =>
-            IResult::Done(input, AttributeName::Recursive),
+        ParseResult::Done(input, val) if AttributeName::Recursive as u64 == val =>
+            ParseResult::Done(input, AttributeName::Recursive),
 
-        IResult::Done(input, val) if AttributeName::Signature as u64 == val =>
-            IResult::Done(input, AttributeName::Signature),
+        ParseResult::Done(input, val) if AttributeName::Signature as u64 == val =>
+            ParseResult::Done(input, AttributeName::Signature),
 
-        IResult::Done(input, val) if AttributeName::MainSubprogram as u64 == val =>
-            IResult::Done(input, AttributeName::MainSubprogram),
+        ParseResult::Done(input, val) if AttributeName::MainSubprogram as u64 == val =>
+            ParseResult::Done(input, AttributeName::MainSubprogram),
 
-        IResult::Done(input, val) if AttributeName::DataBitOffset as u64 == val =>
-            IResult::Done(input, AttributeName::DataBitOffset),
+        ParseResult::Done(input, val) if AttributeName::DataBitOffset as u64 == val =>
+            ParseResult::Done(input, AttributeName::DataBitOffset),
 
-        IResult::Done(input, val) if AttributeName::ConstExpr as u64 == val =>
-            IResult::Done(input, AttributeName::ConstExpr),
+        ParseResult::Done(input, val) if AttributeName::ConstExpr as u64 == val =>
+            ParseResult::Done(input, AttributeName::ConstExpr),
 
-        IResult::Done(input, val) if AttributeName::EnumClass as u64 == val =>
-            IResult::Done(input, AttributeName::EnumClass),
+        ParseResult::Done(input, val) if AttributeName::EnumClass as u64 == val =>
+            ParseResult::Done(input, AttributeName::EnumClass),
 
-        IResult::Done(input, val) if AttributeName::LinkageName as u64 == val =>
-            IResult::Done(input, AttributeName::LinkageName),
+        ParseResult::Done(input, val) if AttributeName::LinkageName as u64 == val =>
+            ParseResult::Done(input, AttributeName::LinkageName),
 
-        IResult::Done(input, val) if AttributeName::LoUser as u64 == val =>
-            IResult::Done(input, AttributeName::LoUser),
+        ParseResult::Done(input, val) if AttributeName::LoUser as u64 == val =>
+            ParseResult::Done(input, AttributeName::LoUser),
 
-        IResult::Done(input, val) if AttributeName::HiUser as u64 == val =>
-            IResult::Done(input, AttributeName::HiUser),
+        ParseResult::Done(input, val) if AttributeName::HiUser as u64 == val =>
+            ParseResult::Done(input, AttributeName::HiUser),
 
-        IResult::Done(input, _) =>
-            IResult::Error(
+        ParseResult::Done(input, _) =>
+            ParseResult::Error(
                 Err::Position(ErrorKind::Custom(Error::InvalidAttributeName), input)),
 
-        IResult::Incomplete(needed) =>
-            IResult::Incomplete(needed),
+        ParseResult::Incomplete(needed) =>
+            ParseResult::Incomplete(needed),
 
-        IResult::Error(error) =>
-            IResult::Error(error),
+        ParseResult::Error(error) =>
+            ParseResult::Error(error),
     }
 }
 
 /// Parse an attribute's form.
-fn parse_attribute_form(input: &[u8]) -> ParseResult<&[u8], AttributeForm> {
+fn parse_attribute_form(input: &[u8]) -> ParseResult<&[u8], AttributeForm, Error> {
     match parse_unsigned_leb(input) {
-        IResult::Done(input, val) if AttributeForm::Addr as u64 == val =>
-            IResult::Done(input, AttributeForm::Addr),
+        ParseResult::Done(input, val) if AttributeForm::Addr as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Addr),
 
-        IResult::Done(input, val) if AttributeForm::Block2 as u64 == val =>
-            IResult::Done(input, AttributeForm::Block2),
+        ParseResult::Done(input, val) if AttributeForm::Block2 as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Block2),
 
-        IResult::Done(input, val) if AttributeForm::Block4 as u64 == val =>
-            IResult::Done(input, AttributeForm::Block4),
+        ParseResult::Done(input, val) if AttributeForm::Block4 as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Block4),
 
-        IResult::Done(input, val) if AttributeForm::Data2 as u64 == val =>
-            IResult::Done(input, AttributeForm::Data2),
+        ParseResult::Done(input, val) if AttributeForm::Data2 as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Data2),
 
-        IResult::Done(input, val) if AttributeForm::Data4 as u64 == val =>
-            IResult::Done(input, AttributeForm::Data4),
+        ParseResult::Done(input, val) if AttributeForm::Data4 as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Data4),
 
-        IResult::Done(input, val) if AttributeForm::Data8 as u64 == val =>
-            IResult::Done(input, AttributeForm::Data8),
+        ParseResult::Done(input, val) if AttributeForm::Data8 as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Data8),
 
-        IResult::Done(input, val) if AttributeForm::String as u64 == val =>
-            IResult::Done(input, AttributeForm::String),
+        ParseResult::Done(input, val) if AttributeForm::String as u64 == val =>
+            ParseResult::Done(input, AttributeForm::String),
 
-        IResult::Done(input, val) if AttributeForm::Block as u64 == val =>
-            IResult::Done(input, AttributeForm::Block),
+        ParseResult::Done(input, val) if AttributeForm::Block as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Block),
 
-        IResult::Done(input, val) if AttributeForm::Block1 as u64 == val =>
-            IResult::Done(input, AttributeForm::Block1),
+        ParseResult::Done(input, val) if AttributeForm::Block1 as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Block1),
 
-        IResult::Done(input, val) if AttributeForm::Data1 as u64 == val =>
-            IResult::Done(input, AttributeForm::Data1),
+        ParseResult::Done(input, val) if AttributeForm::Data1 as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Data1),
 
-        IResult::Done(input, val) if AttributeForm::Flag as u64 == val =>
-            IResult::Done(input, AttributeForm::Flag),
+        ParseResult::Done(input, val) if AttributeForm::Flag as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Flag),
 
-        IResult::Done(input, val) if AttributeForm::Sdata as u64 == val =>
-            IResult::Done(input, AttributeForm::Sdata),
+        ParseResult::Done(input, val) if AttributeForm::Sdata as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Sdata),
 
-        IResult::Done(input, val) if AttributeForm::Strp as u64 == val =>
-            IResult::Done(input, AttributeForm::Strp),
+        ParseResult::Done(input, val) if AttributeForm::Strp as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Strp),
 
-        IResult::Done(input, val) if AttributeForm::Udata as u64 == val =>
-            IResult::Done(input, AttributeForm::Udata),
+        ParseResult::Done(input, val) if AttributeForm::Udata as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Udata),
 
-        IResult::Done(input, val) if AttributeForm::RefAddr as u64 == val =>
-            IResult::Done(input, AttributeForm::RefAddr),
+        ParseResult::Done(input, val) if AttributeForm::RefAddr as u64 == val =>
+            ParseResult::Done(input, AttributeForm::RefAddr),
 
-        IResult::Done(input, val) if AttributeForm::Ref1 as u64 == val =>
-            IResult::Done(input, AttributeForm::Ref1),
+        ParseResult::Done(input, val) if AttributeForm::Ref1 as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Ref1),
 
-        IResult::Done(input, val) if AttributeForm::Ref2 as u64 == val =>
-            IResult::Done(input, AttributeForm::Ref2),
+        ParseResult::Done(input, val) if AttributeForm::Ref2 as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Ref2),
 
-        IResult::Done(input, val) if AttributeForm::Ref4 as u64 == val =>
-            IResult::Done(input, AttributeForm::Ref4),
+        ParseResult::Done(input, val) if AttributeForm::Ref4 as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Ref4),
 
-        IResult::Done(input, val) if AttributeForm::Ref8 as u64 == val =>
-            IResult::Done(input, AttributeForm::Ref8),
+        ParseResult::Done(input, val) if AttributeForm::Ref8 as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Ref8),
 
-        IResult::Done(input, val) if AttributeForm::RefUdata as u64 == val =>
-            IResult::Done(input, AttributeForm::RefUdata),
+        ParseResult::Done(input, val) if AttributeForm::RefUdata as u64 == val =>
+            ParseResult::Done(input, AttributeForm::RefUdata),
 
-        IResult::Done(input, val) if AttributeForm::Indirect as u64 == val =>
-            IResult::Done(input, AttributeForm::Indirect),
+        ParseResult::Done(input, val) if AttributeForm::Indirect as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Indirect),
 
-        IResult::Done(input, val) if AttributeForm::SecOffset as u64 == val =>
-            IResult::Done(input, AttributeForm::SecOffset),
+        ParseResult::Done(input, val) if AttributeForm::SecOffset as u64 == val =>
+            ParseResult::Done(input, AttributeForm::SecOffset),
 
-        IResult::Done(input, val) if AttributeForm::Exprloc as u64 == val =>
-            IResult::Done(input, AttributeForm::Exprloc),
+        ParseResult::Done(input, val) if AttributeForm::Exprloc as u64 == val =>
+            ParseResult::Done(input, AttributeForm::Exprloc),
 
-        IResult::Done(input, val) if AttributeForm::FlagPresent as u64 == val =>
-            IResult::Done(input, AttributeForm::FlagPresent),
+        ParseResult::Done(input, val) if AttributeForm::FlagPresent as u64 == val =>
+            ParseResult::Done(input, AttributeForm::FlagPresent),
 
-        IResult::Done(input, val) if AttributeForm::RefSig8 as u64 == val =>
-            IResult::Done(input, AttributeForm::RefSig8),
+        ParseResult::Done(input, val) if AttributeForm::RefSig8 as u64 == val =>
+            ParseResult::Done(input, AttributeForm::RefSig8),
 
-        IResult::Done(input, _) =>
-            IResult::Error(
+        ParseResult::Done(input, _) =>
+            ParseResult::Error(
                 Err::Position(ErrorKind::Custom(Error::InvalidAttributeForm), input)),
 
-        IResult::Incomplete(needed) =>
-            IResult::Incomplete(needed),
+        ParseResult::Incomplete(needed) =>
+            ParseResult::Incomplete(needed),
 
-        IResult::Error(error) =>
-            IResult::Error(error),
+        ParseResult::Error(error) =>
+            ParseResult::Error(error),
     }
 }
 
 /// Parse a non-null attribute specification.
-fn parse_attribute_specification(input: &[u8]) -> ParseResult<&[u8], AttributeSpecification> {
+fn parse_attribute_specification(input: &[u8]) -> ParseResult<&[u8], AttributeSpecification, Error> {
     chain!(input,
            name: parse_attribute_name ~
            form: parse_attribute_form,
@@ -762,23 +760,23 @@ fn parse_attribute_specification(input: &[u8]) -> ParseResult<&[u8], AttributeSp
 }
 
 /// Parse the null attribute specification.
-fn parse_null_attribute_specification(input: &[u8]) -> ParseResult<&[u8], ()> {
+fn parse_null_attribute_specification(input: &[u8]) -> ParseResult<&[u8], (), Error> {
     let (input1, name) = try_parse!(input, parse_unsigned_leb);
     if name != 0 {
-        return IResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedZero), input));
+        return ParseResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedZero), input));
     }
 
     let (input2, form) = try_parse!(input1, parse_unsigned_leb);
     if form != 0 {
-        return IResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedZero), input1));
+        return ParseResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedZero), input1));
     }
 
-    IResult::Done(input2, ())
+    ParseResult::Done(input2, ())
 }
 
 /// Parse a series of attribute specifications, terminated by a null attribute
 /// specification.
-fn parse_attribute_specifications(mut input: &[u8]) -> ParseResult<&[u8], Vec<AttributeSpecification>> {
+fn parse_attribute_specifications(mut input: &[u8]) -> ParseResult<&[u8], Vec<AttributeSpecification>, Error> {
     // There has to be a better way to keep parsing attributes until we see two
     // 0 LEB128s, but take_until!/take_while! aren't quite expressive enough for
     // this case.
@@ -799,11 +797,11 @@ fn parse_attribute_specifications(mut input: &[u8]) -> ParseResult<&[u8], Vec<At
         };
     }
 
-    IResult::Done(input, results)
+    ParseResult::Done(input, results)
 }
 
 /// Parse a non-null abbreviation.
-fn parse_abbreviation(input: &[u8]) -> ParseResult<&[u8], Abbreviation> {
+fn parse_abbreviation(input: &[u8]) -> ParseResult<&[u8], Abbreviation, Error> {
     chain!(input,
            code: parse_abbreviation_code ~
            tag: parse_abbreviation_tag ~
@@ -813,18 +811,18 @@ fn parse_abbreviation(input: &[u8]) -> ParseResult<&[u8], Abbreviation> {
 }
 
 /// Parse a null abbreviation.
-fn parse_null_abbreviation(input: &[u8]) -> ParseResult<&[u8], ()> {
+fn parse_null_abbreviation(input: &[u8]) -> ParseResult<&[u8], (), Error> {
     let (input1, name) = try_parse!(input, parse_unsigned_leb);
     if name == 0 {
-        IResult::Done(input1, ())
+        ParseResult::Done(input1, ())
     } else {
-        IResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedZero), input))
+        ParseResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedZero), input))
     }
 
 }
 
 /// Parse a series of abbreviations, terminated by a null abbreviation.
-pub fn parse_abbreviations(mut input: &[u8]) -> ParseResult<&[u8], Abbreviations> {
+pub fn parse_abbreviations(mut input: &[u8]) -> ParseResult<&[u8], Abbreviations, Error> {
     // Again with the super funky keep-parsing-X-while-we-can't-parse-a-Y
     // thing... This should definitely be abstracted out.
 
@@ -842,7 +840,7 @@ pub fn parse_abbreviations(mut input: &[u8]) -> ParseResult<&[u8], Abbreviations
                     Ok(_) =>
                         input = input1,
                     Err(_) =>
-                        return IResult::Error(
+                        return ParseResult::Error(
                             Err::Position(
                                 ErrorKind::Custom(Error::DuplicateAbbreviationCode),
                                 input)),
@@ -851,7 +849,7 @@ pub fn parse_abbreviations(mut input: &[u8]) -> ParseResult<&[u8], Abbreviations
         }
     }
 
-    IResult::Done(input, results)
+    ParseResult::Done(input, results)
 }
 
 trait Raise<T> {
@@ -920,9 +918,9 @@ fn translate<Output,
              HigherInput,
              LowerInput,
              LowerParser>(input: HigherInput,
-                          parser: LowerParser) -> IResult<HigherInput, Output, HigherError>
+                          parser: LowerParser) -> ParseResult<HigherInput, Output, HigherError>
     where HigherInput: TranslateInput<LowerInput> + Clone,
-          LowerParser: Fn(LowerInput) -> IResult<LowerInput, Output, LowerError>,
+          LowerParser: Fn(LowerInput) -> ParseResult<LowerInput, Output, LowerError>,
           HigherError: From<LowerError>
 {
     let lowered_input = input.clone().into();
@@ -933,13 +931,11 @@ fn translate<Output,
 fn raise_err<LowerInput,
              HigherInput,
              LowerError,
-             HigherError>(original: HigherInput, err: nom::Err<LowerInput, LowerError>)
-                          -> nom::Err<HigherInput, HigherError>
+             HigherError>(original: HigherInput, err: Err<LowerInput, LowerError>)
+                          -> Err<HigherInput, HigherError>
     where HigherInput: Raise<LowerInput> + Clone,
           HigherError: From<LowerError>
 {
-    use nom::{Err, ErrorKind};
-
     fn raise_error_kind<LowerError, HigherError>(code: ErrorKind<LowerError>)
                                                  -> ErrorKind<HigherError>
         where HigherError: From<LowerError>
@@ -1024,18 +1020,18 @@ fn raise_result<LowerInput,
                 T,
                 LowerError,
                 HigherError>(original: HigherInput,
-                             lowered: IResult<LowerInput, T, LowerError>)
-                             -> IResult<HigherInput, T, HigherError>
+                             lowered: ParseResult<LowerInput, T, LowerError>)
+                             -> ParseResult<HigherInput, T, HigherError>
     where HigherInput: Raise<LowerInput> + Clone,
           HigherError: From<LowerError>
 {
     match lowered {
-        IResult::Incomplete(needed) =>
-            IResult::Incomplete(needed),
-        IResult::Done(rest, val) =>
-            IResult::Done(Raise::raise(original, rest), val),
-        IResult::Error(err) =>
-            IResult::Error(raise_err(original, err)),
+        ParseResult::Incomplete(needed) =>
+            ParseResult::Incomplete(needed),
+        ParseResult::Done(rest, val) =>
+            ParseResult::Done(Raise::raise(original, rest), val),
+        ParseResult::Error(err) =>
+            ParseResult::Error(raise_err(original, err)),
     }
 }
 
@@ -1047,21 +1043,21 @@ named!(parse_u32_as_u64<&[u8], u64>,
        chain!(val: le_u32, || val as u64));
 
 /// Parse the compilation unit header's length.
-fn parse_unit_length(input: &[u8]) -> ParseResult<&[u8], (u64, Format)> {
+fn parse_unit_length(input: &[u8]) -> ParseResult<&[u8], (u64, Format), Error> {
     match parse_u32_as_u64(input) {
-        IResult::Done(rest, val) if val < MAX_DWARF_32_UNIT_LENGTH =>
-            IResult::Done(rest, (val, Format::Dwarf32)),
+        ParseResult::Done(rest, val) if val < MAX_DWARF_32_UNIT_LENGTH =>
+            ParseResult::Done(rest, (val, Format::Dwarf32)),
 
-        IResult::Done(rest, val) if val == DWARF_64_INITIAL_UNIT_LENGTH =>
+        ParseResult::Done(rest, val) if val == DWARF_64_INITIAL_UNIT_LENGTH =>
             match le_u64(rest) {
-                IResult::Done(rest, val) =>
-                    IResult::Done(rest, (val, Format::Dwarf64)),
+                ParseResult::Done(rest, val) =>
+                    ParseResult::Done(rest, (val, Format::Dwarf64)),
                 otherwise =>
                     raise_result(rest, otherwise.map(|_| unreachable!()))
             },
 
-        IResult::Done(_, _) =>
-            IResult::Error(Err::Position(
+        ParseResult::Done(_, _) =>
+            ParseResult::Error(Err::Position(
                 ErrorKind::Custom(Error::UnknownReservedCompilationUnitLength), input)),
 
         otherwise =>
@@ -1074,7 +1070,7 @@ fn test_parse_unit_length_32_ok() {
     let buf = [0x12, 0x34, 0x56, 0x78];
 
     match parse_unit_length(&buf) {
-        IResult::Done(rest, (length, format)) => {
+        ParseResult::Done(rest, (length, format)) => {
             assert_eq!(rest.len(), 0);
             assert_eq!(format, Format::Dwarf32);
             assert_eq!(0x78563412, length);
@@ -1090,7 +1086,7 @@ fn test_parse_unit_length_64_ok() {
                0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff]; // Actual length
 
     match parse_unit_length(&buf) {
-        IResult::Done(rest, (length, format)) => {
+        ParseResult::Done(rest, (length, format)) => {
             assert_eq!(rest.len(), 0);
             assert_eq!(format, Format::Dwarf64);
             assert_eq!(0xffdebc9a78563412, length);
@@ -1105,7 +1101,7 @@ fn test_parse_unit_length_unknown_reserved_value() {
     let buf = [0xfe, 0xff, 0xff, 0xff];
 
     match parse_unit_length(&buf) {
-        IResult::Error(Err::Position(
+        ParseResult::Error(Err::Position(
             ErrorKind::Custom(Error::UnknownReservedCompilationUnitLength),
             _)) =>
             assert!(true),
@@ -1119,7 +1115,7 @@ fn test_parse_unit_length_incomplete() {
     let buf = [0xff, 0xff, 0xff]; // Need at least 4 bytes.
 
     match parse_unit_length(&buf) {
-        IResult::Incomplete(_) => assert!(true),
+        ParseResult::Incomplete(_) => assert!(true),
         _ => assert!(false),
     };
 }
@@ -1130,21 +1126,21 @@ fn test_parse_unit_length_64_incomplete() {
                0x12, 0x34, 0x56, 0x78, ]; // Actual length is not long enough
 
     match parse_unit_length(&buf) {
-        IResult::Incomplete(_) => assert!(true),
+        ParseResult::Incomplete(_) => assert!(true),
         _ => assert!(false),
     };
 }
 
 /// Parse the DWARF version from the compilation unit header.
-fn parse_version(input: &[u8]) -> ParseResult<&[u8], u16> {
+fn parse_version(input: &[u8]) -> ParseResult<&[u8], u16, Error> {
     match le_u16(input) {
         // DWARF 1 was very different, and is obsolete, so isn't supported by
         // this reader.
-        IResult::Done(rest, val) if 2 <= val && val <= 4 =>
-            IResult::Done(rest, val),
+        ParseResult::Done(rest, val) if 2 <= val && val <= 4 =>
+            ParseResult::Done(rest, val),
 
-        IResult::Done(_, _) =>
-            IResult::Error(Err::Position(
+        ParseResult::Done(_, _) =>
+            ParseResult::Error(Err::Position(
                 ErrorKind::Custom(Error::UnknownDwarfVersion), input)),
 
         otherwise =>
@@ -1157,7 +1153,7 @@ fn test_compilation_unit_version_ok() {
     let buf = [0x04, 0x00, 0xff, 0xff]; // Version 4 and two extra bytes
 
     match parse_version(&buf) {
-        IResult::Done(rest, val) => {
+        ParseResult::Done(rest, val) => {
             assert_eq!(val, 4);
             assert_eq!(rest, &[0xff, 0xff]);
         },
@@ -1171,7 +1167,7 @@ fn test_compilation_unit_version_unknown_version() {
     let buf = [0xab, 0xcd];
 
     match parse_version(&buf) {
-        IResult::Error(Err::Position(ErrorKind::Custom(Error::UnknownDwarfVersion), _)) =>
+        ParseResult::Error(Err::Position(ErrorKind::Custom(Error::UnknownDwarfVersion), _)) =>
             assert!(true),
         _ =>
             assert!(false),
@@ -1180,7 +1176,7 @@ fn test_compilation_unit_version_unknown_version() {
     let buf = [0x1, 0x0];
 
     match parse_version(&buf) {
-        IResult::Error(Err::Position(ErrorKind::Custom(Error::UnknownDwarfVersion), _)) =>
+        ParseResult::Error(Err::Position(ErrorKind::Custom(Error::UnknownDwarfVersion), _)) =>
             assert!(true),
         _ =>
             assert!(false),
@@ -1192,7 +1188,7 @@ fn test_compilation_unit_version_incomplete() {
     let buf = [0x04];
 
     match parse_version(&buf) {
-        IResult::Incomplete(_) =>
+        ParseResult::Incomplete(_) =>
             assert!(true),
         _ =>
             assert!(false),
@@ -1200,7 +1196,7 @@ fn test_compilation_unit_version_incomplete() {
 }
 
 /// Parse the debug_abbrev_offset in the compilation unit header.
-fn parse_debug_abbrev_offset(input: FormatInput) -> ParseResult<FormatInput, u64> {
+fn parse_debug_abbrev_offset(input: FormatInput) -> ParseResult<FormatInput, u64, Error> {
     match input.1 {
         Format::Dwarf32 =>
             translate(input, parse_u32_as_u64),
@@ -1214,7 +1210,7 @@ fn test_parse_debug_abbrev_offset_32() {
     let buf = [0x01, 0x02, 0x03, 0x04];
 
     match parse_debug_abbrev_offset(FormatInput(&buf, Format::Dwarf32)) {
-        IResult::Done(_, val) => assert_eq!(val, 0x04030201),
+        ParseResult::Done(_, val) => assert_eq!(val, 0x04030201),
         _ => assert!(false),
     };
 }
@@ -1224,7 +1220,7 @@ fn test_parse_debug_abbrev_offset_32_incomplete() {
     let buf = [0x01, 0x02];
 
     match parse_debug_abbrev_offset(FormatInput(&buf, Format::Dwarf32)) {
-        IResult::Incomplete(_) => assert!(true),
+        ParseResult::Incomplete(_) => assert!(true),
         _ => assert!(false),
     };
 }
@@ -1234,7 +1230,7 @@ fn test_parse_debug_abbrev_offset_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
     match parse_debug_abbrev_offset(FormatInput(&buf, Format::Dwarf64)) {
-        IResult::Done(_, val) => assert_eq!(val, 0x0807060504030201),
+        ParseResult::Done(_, val) => assert_eq!(val, 0x0807060504030201),
         _ => assert!(false),
     };
 }
@@ -1244,13 +1240,13 @@ fn test_parse_debug_abbrev_offset_64_incomplete() {
     let buf = [0x01, 0x02];
 
     match parse_debug_abbrev_offset(FormatInput(&buf, Format::Dwarf64)) {
-        IResult::Incomplete(_) => assert!(true),
+        ParseResult::Incomplete(_) => assert!(true),
         _ => assert!(false),
     };
 }
 
 /// Parse the size of addresses (in bytes) on the target architecture.
-fn parse_address_size(input: &[u8]) -> ParseResult<&[u8], u8> {
+fn parse_address_size(input: &[u8]) -> ParseResult<&[u8], u8, Error> {
     translate(input, le_u8)
 }
 
@@ -1259,14 +1255,14 @@ fn test_parse_address_size_ok() {
     let buf = [0x04];
 
     match parse_address_size(&buf) {
-        IResult::Done(_, val) => assert_eq!(val, 4),
+        ParseResult::Done(_, val) => assert_eq!(val, 4),
         _ => assert!(false),
     };
 }
 
 /// Parse a compilation unit header.
 pub fn parse_compilation_unit_header(input: &[u8])
-                                     -> ParseResult<&[u8], CompilationUnitHeader>
+                                     -> ParseResult<&[u8], CompilationUnitHeader, Error>
 {
     let (rest, (unit_length, format)) = try_parse_result!(input, parse_unit_length(input));
     let (rest, version) = try_parse!(rest, parse_version);
@@ -1289,7 +1285,7 @@ fn test_parse_compilation_unit_header_32_ok() {
     ];
 
     match parse_compilation_unit_header(&buf) {
-        IResult::Done(_, header) =>
+        ParseResult::Done(_, header) =>
             assert_eq!(header, CompilationUnitHeader::new(0x04030201,
                                                           4,
                                                           0x08070605,
@@ -1311,7 +1307,7 @@ fn test_parse_compilation_unit_header_64_ok() {
     ];
 
     match parse_compilation_unit_header(&buf) {
-        IResult::Done(_, header) =>
+        ParseResult::Done(_, header) =>
             assert_eq!(header, CompilationUnitHeader::new(0x0807060504030201,
                                                           4,
                                                           0x0102030405060708,
@@ -1322,37 +1318,76 @@ fn test_parse_compilation_unit_header_64_ok() {
     }
 }
 
-/// An API to parse the .debug_info section.
+/// The `DebugInfo` struct represents the DWARF debugging information found in
+/// the `.debug_info` section.
 pub struct DebugInfo<'a>(&'a [u8]);
 
 impl<'a> DebugInfo<'a> {
-    /// Iterate the compilation units in this .debug_info section.
+    /// Construct a new `DebugInfo` instance from the data in the `.debug_info`
+    /// section.
+    ///
+    /// It is the caller's responsibility to read the `.debug_info` section and
+    /// present it as a `&[u8]` slice. That means using some ELF loader on Linux
+    /// or a Mach-O loader on OSX, etc.
+    ///
+    /// ```
+    /// use gimli::DebugInfo;
+    /// # let buf = [0x00, 0x01, 0x02, 0x03];
+    /// # let read_debug_info_section_somehow = || &buf;
+    /// let debug_info = DebugInfo::new(read_debug_info_section_somehow());
+    /// ```
+    pub fn new(input: &'a [u8]) -> DebugInfo<'a> {
+        DebugInfo(input)
+    }
+
+    /// Iterate the compilation units in this `.debug_info` section.
+    ///
+    /// ```
+    /// use gimli::{DebugInfo, ParseResult};
+    ///
+    /// # let buf = [];
+    /// # let read_debug_info_section_somehow = || &buf;
+    /// let debug_info = DebugInfo::new(read_debug_info_section_somehow());
+    ///
+    /// for parse_result in debug_info.compilation_units() {
+    ///     match parse_result {
+    ///         ParseResult::Done(_, unit) =>
+    ///             println!("unit's length is {}", unit.unit_length()),
+    ///         _ =>
+    ///             panic!(),
+    ///     }
+    /// }
+    /// ```
     pub fn compilation_units(&self) -> CompilationUnitsIter {
         CompilationUnitsIter { input: self.0 }
     }
 }
 
-/// An iterator over the compilation units of a .debug_info section.
+/// An iterator over the compilation units of a `.debug_info` section.
+///
+/// See the [documentation on
+/// `DebugInfo::compilation_units`](./struct.DebugInfo.html#method.compilation_units)
+/// for more detail.
 pub struct CompilationUnitsIter<'a> {
     input: &'a [u8],
 }
 
 impl<'a> Iterator for CompilationUnitsIter<'a> {
-    type Item = ParseResult<&'a [u8], CompilationUnitHeader>;
+    type Item = ParseResult<&'a [u8], CompilationUnitHeader, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.input.is_empty() {
             None
         } else {
             match parse_compilation_unit_header(self.input) {
-                IResult::Done(rest, header) => {
+                ParseResult::Done(rest, header) => {
                     let unit_len = header.length_including_self() as usize;
                     if self.input.len() < unit_len {
                         self.input = &self.input[..0];
                     } else {
                         self.input = &self.input[unit_len..];
                     }
-                    Some(IResult::Done(rest, header))
+                    Some(ParseResult::Done(rest, header))
                 }
                 otherwise => {
                     self.input = &self.input[..0];
@@ -1396,7 +1431,7 @@ fn test_compilation_units() {
     let mut units = debug_info.compilation_units();
 
     match units.next() {
-        Some(IResult::Done(_, header)) => {
+        Some(ParseResult::Done(_, header)) => {
             let expected = CompilationUnitHeader::new(0x000000000000002b,
                                                       4,
                                                       0x0102030405060708,
@@ -1409,7 +1444,7 @@ fn test_compilation_units() {
     }
 
     match units.next() {
-        Some(IResult::Done(_, header)) => {
+        Some(ParseResult::Done(_, header)) => {
             let expected = CompilationUnitHeader::new(0x00000027,
                                                       4,
                                                       0x08070605,
@@ -1426,7 +1461,7 @@ fn test_compilation_units() {
 
 /// Parse a type unit header's unique type signature. Callers should handle
 /// unique-ness checking.
-fn parse_type_signature(input: &[u8]) -> ParseResult<&[u8], u64> {
+fn parse_type_signature(input: &[u8]) -> ParseResult<&[u8], u64, Error> {
     translate(input, le_u64)
 }
 
@@ -1435,7 +1470,7 @@ fn test_parse_type_signature_ok() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
     match parse_type_signature(&buf) {
-        IResult::Done(_, val) => assert_eq!(val, 0x0807060504030201),
+        ParseResult::Done(_, val) => assert_eq!(val, 0x0807060504030201),
         _ => assert!(false),
     }
 }
@@ -1445,13 +1480,13 @@ fn test_parse_type_signature_incomplete() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
 
     match parse_type_signature(&buf) {
-        IResult::Incomplete(_) => assert!(true),
+        ParseResult::Incomplete(_) => assert!(true),
         _ => assert!(false),
     }
 }
 
 /// Parse a type unit header's type offset.
-fn parse_type_offset(input: FormatInput) -> ParseResult<FormatInput, u64> {
+fn parse_type_offset(input: FormatInput) -> ParseResult<FormatInput, u64, Error> {
     match input.1 {
         Format::Dwarf32 =>
             translate(input, parse_u32_as_u64),
@@ -1465,7 +1500,7 @@ fn test_parse_type_offset_32_ok() {
     let buf = [0x12, 0x34, 0x56, 0x78, 0x00];
 
     match parse_type_offset(FormatInput(&buf, Format::Dwarf32)) {
-        IResult::Done(rest, offset) => {
+        ParseResult::Done(rest, offset) => {
             assert_eq!(rest.0.len(), 1);
             assert_eq!(rest.1, Format::Dwarf32);
             assert_eq!(0x78563412, offset);
@@ -1480,7 +1515,7 @@ fn test_parse_type_offset_64_ok() {
     let buf = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff, 0x00];
 
     match parse_type_offset(FormatInput(&buf, Format::Dwarf64)) {
-        IResult::Done(rest, offset) => {
+        ParseResult::Done(rest, offset) => {
             assert_eq!(rest.0.len(), 1);
             assert_eq!(rest.1, Format::Dwarf64);
             assert_eq!(0xffdebc9a78563412, offset);
@@ -1495,18 +1530,18 @@ fn test_parse_type_offset_incomplete() {
     let buf = [0xff, 0xff, 0xff]; // Need at least 4 bytes.
 
     match parse_type_offset(FormatInput(&buf, Format::Dwarf32)) {
-        IResult::Incomplete(_) => assert!(true),
+        ParseResult::Incomplete(_) => assert!(true),
         _ => assert!(false),
     };
 }
 
 /// Parse a type unit header.
-pub fn parse_type_unit_header(input: &[u8]) -> ParseResult<&[u8], TypeUnitHeader> {
+pub fn parse_type_unit_header(input: &[u8]) -> ParseResult<&[u8], TypeUnitHeader, Error> {
     let (rest, header) = try_parse!(input, parse_compilation_unit_header);
     let (rest, signature) = try_parse!(rest, parse_type_signature);
     let (rest, offset) = try_parse_result!(
         rest, parse_type_offset(FormatInput(rest, header.format())));
-    IResult::Done(rest.0, TypeUnitHeader::new(header, signature, offset))
+    ParseResult::Done(rest.0, TypeUnitHeader::new(header, signature, offset))
 }
 
 #[test]
@@ -1525,7 +1560,7 @@ fn test_parse_type_unit_header_32_ok() {
     println!("result = {:#?}", result);
 
     match result {
-        IResult::Done(_, header) =>
+        ParseResult::Done(_, header) =>
             assert_eq!(header, TypeUnitHeader::new(CompilationUnitHeader::new(0x0807060504030201,
                                                                               4,
                                                                               0x0807060504030201,
