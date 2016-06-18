@@ -219,6 +219,15 @@ pub enum AttributeForm {
     RefSig8 = 0x20,
 }
 
+/// Whether the format of a compilation unit is 32- or 64-bit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    /// 64-bit DWARF
+    Dwarf64,
+    /// 32-bit DWARF
+    Dwarf32,
+}
+
 /// The description of an attribute in an abbreviated type. It is a pair of name
 /// and form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -244,6 +253,45 @@ impl AttributeSpecification {
     /// Get the attribute's form.
     pub fn form(&self) -> AttributeForm {
         self.form
+    }
+
+    /// Return the size of the attribute, in bytes.
+    ///
+    /// Note that because some attributes are variably sized, the size cannot
+    /// always be known without parsing, in which case we return `None`.
+    pub fn size(&self, header: &CompilationUnitHeader) -> Option<usize> {
+        match self.form {
+            AttributeForm::Addr =>
+                Some(header.address_size() as usize),
+
+            AttributeForm::Flag | AttributeForm::FlagPresent | AttributeForm::Data1 |
+            AttributeForm::Ref1 =>
+                Some(1),
+
+            AttributeForm::Data2 | AttributeForm::Ref2 =>
+                Some(2),
+
+            AttributeForm::Data4 | AttributeForm::Ref4 =>
+                Some(4),
+
+            AttributeForm::Data8 | AttributeForm::Ref8 =>
+                Some(8),
+
+            AttributeForm::SecOffset | AttributeForm::RefAddr | AttributeForm::RefSig8 |
+            AttributeForm::Strp =>
+                match header.format() {
+                    Format::Dwarf32 =>
+                        Some(4),
+                    Format::Dwarf64 =>
+                        Some(8),
+                },
+
+            AttributeForm::Block | AttributeForm::Block1 | AttributeForm::Block2 |
+            AttributeForm::Block4 | AttributeForm::Exprloc | AttributeForm::RefUdata |
+            AttributeForm::String | AttributeForm::Sdata | AttributeForm::Udata |
+            AttributeForm::Indirect =>
+                None,
+        }
     }
 }
 
@@ -338,6 +386,7 @@ pub struct CompilationUnitHeader {
     version: u16,
     debug_abbrev_offset: u64,
     address_size: u8,
+    format: Format,
 }
 
 impl CompilationUnitHeader {
@@ -345,18 +394,33 @@ impl CompilationUnitHeader {
     pub fn new(unit_length: u64,
                version: u16,
                debug_abbrev_offset: u64,
-               address_size: u8) -> CompilationUnitHeader {
+               address_size: u8,
+               format: Format) -> CompilationUnitHeader {
         CompilationUnitHeader {
             unit_length: unit_length,
             version: version,
             debug_abbrev_offset: debug_abbrev_offset,
-            address_size: address_size
+            address_size: address_size,
+            format: format,
         }
     }
 
-    /// Get the length of the debugging info for this compilation unit.
+    /// Get the length of the debugging info for this compilation unit, not
+    /// including the byte length of the encoded length itself.
     pub fn unit_length(&self) -> u64 {
         self.unit_length
+    }
+
+    /// Get the length of the debugging info for this compilation unit,
+    /// uncluding the byte length of the encoded length itself.
+    pub fn length_including_self(&self) -> u64 {
+        match self.format {
+            // Length of the 32-bit header plus the unit length.
+            Format::Dwarf32 => 4 + self.unit_length,
+            // Length of the 4 byte 0xffffffff value to enable 64-bit mode plus
+            // the actual 64-bit length.
+            Format::Dwarf64 => 4 + 8 + self.unit_length
+        }
     }
 
     /// Get the DWARF version of the debugging info for this compilation unit.
@@ -373,6 +437,11 @@ impl CompilationUnitHeader {
     /// The size of addresses (in bytes) in this compilation unit.
     pub fn address_size(&self) -> u8 {
         self.address_size
+    }
+
+    /// Whether this compilation unit is encoded in 64- or 32-bit DWARF.
+    pub fn format(&self) -> Format {
+        self.format
     }
 }
 
