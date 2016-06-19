@@ -1490,24 +1490,27 @@ fn test_parse_compilation_unit_header_64_ok() {
 
 /// The `DebugInfo` struct represents the DWARF debugging information found in
 /// the `.debug_info` section.
-pub struct DebugInfo<'a>(&'a [u8]);
+pub struct DebugInfo<'a> {
+    debug_info_section: &'a [u8],
+}
 
 impl<'a> DebugInfo<'a> {
     /// Construct a new `DebugInfo` instance from the data in the `.debug_info`
     /// section.
     ///
     /// It is the caller's responsibility to read the `.debug_info` section and
-    /// present it as a `&[u8]` slice. That means using some ELF loader on Linux
-    /// or a Mach-O loader on OSX, etc.
+    /// present it as a `&[u8]` slice. That means using some ELF loader on
+    /// Linux, a Mach-O loader on OSX, etc.
     ///
     /// ```
     /// use gimli::DebugInfo;
+    ///
     /// # let buf = [0x00, 0x01, 0x02, 0x03];
     /// # let read_debug_info_section_somehow = || &buf;
     /// let debug_info = DebugInfo::new(read_debug_info_section_somehow());
     /// ```
-    pub fn new(input: &'a [u8]) -> DebugInfo<'a> {
-        DebugInfo(input)
+    pub fn new(debug_info_section: &'a [u8]) -> DebugInfo<'a> {
+        DebugInfo { debug_info_section: debug_info_section }
     }
 
     /// Iterate the compilation units in this `.debug_info` section.
@@ -1529,7 +1532,7 @@ impl<'a> DebugInfo<'a> {
     /// }
     /// ```
     pub fn compilation_units(&self) -> CompilationUnitsIter {
-        CompilationUnitsIter { input: self.0 }
+        CompilationUnitsIter { input: self.debug_info_section }
     }
 }
 
@@ -1609,7 +1612,7 @@ fn test_compilation_units() {
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08
     ];
 
-    let debug_info = DebugInfo(&buf);
+    let debug_info = DebugInfo::new(&buf);
     let mut units = debug_info.compilation_units();
 
     match units.next() {
