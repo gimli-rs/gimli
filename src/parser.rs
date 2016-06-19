@@ -1243,9 +1243,14 @@ fn test_parse_unit_length_32_ok() {
 }
 
 #[test]
-fn test_parse_unit_length_64_ok() {
-    let buf = [0xff, 0xff, 0xff, 0xff /* DWARF_64_INITIAL_UNIT_LENGTH */, 0x12, 0x34, 0x56,
-               0x78, 0x9a, 0xbc, 0xde, 0xff]; // Actual length
+#[cfg_attr(rustfmt, rustfmt_skip)]
+fn test_parse_unit_lengtph_64_ok() {
+    let buf = [
+        // Dwarf_64_INITIAL_UNIT_LENGTH
+        0xff, 0xff, 0xff, 0xff,
+        // Actual length
+        0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff
+    ];
 
     match parse_unit_length(&buf) {
         ParseResult::Done(rest, (length, format)) => {
@@ -1281,9 +1286,14 @@ fn test_parse_unit_length_incomplete() {
 }
 
 #[test]
+#[cfg_attr(rustfmt, rustfmt_skip)]
 fn test_parse_unit_length_64_incomplete() {
-    let buf = [0xff, 0xff, 0xff, 0xff /* DWARF_64_INITIAL_UNIT_LENGTH */, 0x12, 0x34, 0x56,
-               0x78]; // Actual length is not long enough
+    let buf = [
+        // DWARF_64_INITIAL_UNIT_LENGTH
+        0xff, 0xff, 0xff, 0xff,
+        // Actual length is not long enough.
+        0x12, 0x34, 0x56, 0x78
+    ];
 
     match parse_unit_length(&buf) {
         ParseResult::Incomplete(_) => assert!(true),
@@ -1308,7 +1318,8 @@ fn parse_version(input: &[u8]) -> ParseResult<&[u8], u16, Error> {
 
 #[test]
 fn test_compilation_unit_version_ok() {
-    let buf = [0x04, 0x00, 0xff, 0xff]; // Version 4 and two extra bytes
+    // Version 4 and two extra bytes
+    let buf = [0x04, 0x00, 0xff, 0xff];
 
     match parse_version(&buf) {
         ParseResult::Done(rest, val) => {
@@ -1426,10 +1437,18 @@ pub fn parse_compilation_unit_header(input: &[u8])
 }
 
 #[test]
+#[cfg_attr(rustfmt, rustfmt_skip)]
 fn test_parse_compilation_unit_header_32_ok() {
-    let buf = [0x01, 0x02, 0x03, 0x04 /* 32-bit unit length */, 0x04,
-               0x00 /* version 4 */, 0x05, 0x06, 0x07, 0x08 /* debug_abbrev_offset */,
-               0x04 /* address size */];
+    let buf = [
+        // 32-bit unit length
+        0x01, 0x02, 0x03, 0x04,
+        // Version 4
+        0x04, 0x00,
+        // Debug_abbrev_offset
+        0x05, 0x06, 0x07, 0x08,
+        // Address size
+        0x04
+    ];
 
     match parse_compilation_unit_header(&buf) {
         ParseResult::Done(_, header) => {
@@ -1441,20 +1460,29 @@ fn test_parse_compilation_unit_header_32_ok() {
 }
 
 #[test]
+#[cfg_attr(rustfmt, rustfmt_skip)]
 fn test_parse_compilation_unit_header_64_ok() {
-    let buf = [0xff, 0xff, 0xff, 0xff /* enable 64-bit */, 0x01, 0x02, 0x03, 0x04, 0x05,
-               0x06, 0x07, 0x08 /* unit length */, 0x04, 0x00 /* version 4 */, 0x08,
-               0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01 /* debug_abbrev_offset */,
-               0x08 /* address size */];
+    let buf = [
+        // Enable 64-bit
+        0xff, 0xff, 0xff, 0xff,
+        // Unit length
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        // Version 4
+        0x04, 0x00,
+        // debug_abbrev_offset
+        0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
+        // Address size
+        0x08
+    ];
 
     match parse_compilation_unit_header(&buf) {
         ParseResult::Done(_, header) => {
-            assert_eq!(header,
-                                                   CompilationUnitHeader::new(0x0807060504030201,
-                                                                              4,
-                                                                              0x0102030405060708,
-                                                                              8,
-                                                                              Format::Dwarf64))
+            let expected = CompilationUnitHeader::new(0x0807060504030201,
+                                                      4,
+                                                      0x0102030405060708,
+                                                      8,
+                                                      Format::Dwarf64);
+            assert_eq!(header, expected)
         }
         _ => assert!(false),
     }
@@ -1541,112 +1569,45 @@ impl<'a> Iterator for CompilationUnitsIter<'a> {
 }
 
 #[test]
+#[cfg_attr(rustfmt, rustfmt_skip)]
 fn test_compilation_units() {
-    let buf = [// First compilation unit
-               0xff,
-               0xff,
-               0xff,
-               0xff, // enable 64-bit
-               0x2b,
-               0x00,
-               0x00,
-               0x00,
-               0x00,
-               0x00,
-               0x00,
-               0x00, // unit length = 43
-               0x04,
-               0x00, // version 4
-               0x08,
-               0x07,
-               0x06,
-               0x05,
-               0x04,
-               0x03,
-               0x02,
-               0x01, // debug_abbrev_offset
-               0x08, // address size
+    let buf = [
+        // First compilation unit.
 
-               // Placeholder data for first compilation unit's DIEs.
-               0x01,
-               0x02,
-               0x03,
-               0x04,
-               0x05,
-               0x06,
-               0x07,
-               0x08,
-               0x01,
-               0x02,
-               0x03,
-               0x04,
-               0x05,
-               0x06,
-               0x07,
-               0x08,
-               0x01,
-               0x02,
-               0x03,
-               0x04,
-               0x05,
-               0x06,
-               0x07,
-               0x08,
-               0x01,
-               0x02,
-               0x03,
-               0x04,
-               0x05,
-               0x06,
-               0x07,
-               0x08,
+        // Enable 64-bit DWARF.
+        0xff, 0xff, 0xff, 0xff,
+        // Unit length = 43
+        0x2b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        // Version 4
+        0x04, 0x00,
+        // debug_abbrev_offset
+        0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
+        // address size
+        0x08,
 
-               // Second compilation unit
-               0x27,
-               0x00,
-               0x00,
-               0x00, // 32-bit unit length = 39
-               0x04,
-               0x00, // version 4
-               0x05,
-               0x06,
-               0x07,
-               0x08, // debug_abbrev_offset
-               0x04, // address size
+        // Placeholder data for first compilation unit's DIEs.
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
 
-               // Placeholder data for second compilation unit's DIEs.
-               0x01,
-               0x02,
-               0x03,
-               0x04,
-               0x05,
-               0x06,
-               0x07,
-               0x08,
-               0x01,
-               0x02,
-               0x03,
-               0x04,
-               0x05,
-               0x06,
-               0x07,
-               0x08,
-               0x01,
-               0x02,
-               0x03,
-               0x04,
-               0x05,
-               0x06,
-               0x07,
-               0x08,
-               0x01,
-               0x02,
-               0x03,
-               0x04,
-               0x05,
-               0x06,
-               0x07,
-               0x08];
+        // Second compilation unit
+
+        // 32-bit unit length = 39
+        0x27, 0x00, 0x00, 0x00,
+        // Version 4
+        0x04, 0x00,
+        // debug_abbrev_offset
+        0x05, 0x06, 0x07, 0x08,
+        // Address size
+        0x04,
+
+        // Placeholder data for second compilation unit's DIEs.
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08
+    ];
 
     let debug_info = DebugInfo(&buf);
     let mut units = debug_info.compilation_units();
@@ -1739,7 +1700,8 @@ fn test_parse_type_offset_64_ok() {
 
 #[test]
 fn test_parse_type_offset_incomplete() {
-    let buf = [0xff, 0xff, 0xff]; // Need at least 4 bytes.
+    // Need at least 4 bytes.
+    let buf = [0xff, 0xff, 0xff];
 
     match parse_type_offset(FormatInput(&buf, Format::Dwarf32)) {
         ParseResult::Incomplete(_) => assert!(true),
@@ -1757,13 +1719,24 @@ pub fn parse_type_unit_header(input: &[u8]) -> ParseResult<&[u8], TypeUnitHeader
 }
 
 #[test]
+#[cfg_attr(rustfmt, rustfmt_skip)]
 fn test_parse_type_unit_header_32_ok() {
-    let buf = [0xff, 0xff, 0xff, 0xff /* enable 64-bit unit length mode */, 0x01, 0x02, 0x03,
-               0x04, 0x05, 0x06, 0x07, 0x08 /* The actual unit length */, 0x04,
-               0x00 /* version 4 */, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-               0x08 /* debug_abbrev_offset */, 0x08 /* address size */, 0xef, 0xbe,
-               0xad, 0xde, 0xef, 0xbe, 0xad, 0xde /* type signature */, 0x12, 0x34, 0x56,
-               0x78, 0x12, 0x34, 0x56, 0x78 /* type offset */];
+    let buf = [
+        // Enable 64-bit unit length mode.
+        0xff, 0xff, 0xff, 0xff,
+        // The actual unit length.
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        // Version 4
+        0x04, 0x00,
+        // debug_abbrev_offset
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+         // Address size
+        0x08,
+        // Type signature
+        0xef, 0xbe, 0xad, 0xde, 0xef, 0xbe, 0xad, 0xde,
+        // type offset
+        0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x56, 0x78
+    ];
 
     let result = parse_type_unit_header(&buf);
     println!("result = {:#?}", result);
