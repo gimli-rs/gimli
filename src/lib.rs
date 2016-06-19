@@ -8,7 +8,8 @@
 #![deny(missing_docs)]
 
 extern crate leb128;
-#[macro_use] extern crate nom;
+#[macro_use]
+extern crate nom;
 
 mod parser;
 pub use parser::*;

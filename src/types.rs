@@ -261,36 +261,42 @@ impl AttributeSpecification {
     /// always be known without parsing, in which case we return `None`.
     pub fn size(&self, header: &CompilationUnitHeader) -> Option<usize> {
         match self.form {
-            AttributeForm::Addr =>
-                Some(header.address_size() as usize),
+            AttributeForm::Addr => Some(header.address_size() as usize),
 
-            AttributeForm::Flag | AttributeForm::FlagPresent | AttributeForm::Data1 |
-            AttributeForm::Ref1 =>
-                Some(1),
+            AttributeForm::Flag |
+            AttributeForm::FlagPresent |
+            AttributeForm::Data1 |
+            AttributeForm::Ref1 => Some(1),
 
-            AttributeForm::Data2 | AttributeForm::Ref2 =>
-                Some(2),
+            AttributeForm::Data2 |
+            AttributeForm::Ref2 => Some(2),
 
-            AttributeForm::Data4 | AttributeForm::Ref4 =>
-                Some(4),
+            AttributeForm::Data4 |
+            AttributeForm::Ref4 => Some(4),
 
-            AttributeForm::Data8 | AttributeForm::Ref8 =>
-                Some(8),
+            AttributeForm::Data8 |
+            AttributeForm::Ref8 => Some(8),
 
-            AttributeForm::SecOffset | AttributeForm::RefAddr | AttributeForm::RefSig8 |
-            AttributeForm::Strp =>
+            AttributeForm::SecOffset |
+            AttributeForm::RefAddr |
+            AttributeForm::RefSig8 |
+            AttributeForm::Strp => {
                 match header.format() {
-                    Format::Dwarf32 =>
-                        Some(4),
-                    Format::Dwarf64 =>
-                        Some(8),
-                },
+                    Format::Dwarf32 => Some(4),
+                    Format::Dwarf64 => Some(8),
+                }
+            }
 
-            AttributeForm::Block | AttributeForm::Block1 | AttributeForm::Block2 |
-            AttributeForm::Block4 | AttributeForm::Exprloc | AttributeForm::RefUdata |
-            AttributeForm::String | AttributeForm::Sdata | AttributeForm::Udata |
-            AttributeForm::Indirect =>
-                None,
+            AttributeForm::Block |
+            AttributeForm::Block1 |
+            AttributeForm::Block2 |
+            AttributeForm::Block4 |
+            AttributeForm::Exprloc |
+            AttributeForm::RefUdata |
+            AttributeForm::String |
+            AttributeForm::Sdata |
+            AttributeForm::Udata |
+            AttributeForm::Indirect => None,
         }
     }
 }
@@ -314,7 +320,8 @@ impl Abbreviation {
     pub fn new(code: u64,
                tag: AbbreviationTag,
                has_children: AbbreviationHasChildren,
-               attributes: Vec<AttributeSpecification>) -> Abbreviation {
+               attributes: Vec<AttributeSpecification>)
+               -> Abbreviation {
         assert!(code != 0);
         Abbreviation {
             code: code,
@@ -357,9 +364,7 @@ pub struct Abbreviations {
 impl Abbreviations {
     /// Construct a new, empty set of abbreviations.
     pub fn new() -> Abbreviations {
-        Abbreviations {
-            abbrevs: hash_map::HashMap::new(),
-        }
+        Abbreviations { abbrevs: hash_map::HashMap::new() }
     }
 
     /// Insert an abbreviation into the set.
@@ -369,12 +374,11 @@ impl Abbreviations {
     /// abbreviation in the set with the given abbreviation's code.
     pub fn insert(&mut self, abbrev: Abbreviation) -> Result<(), ()> {
         match self.abbrevs.entry(abbrev.code) {
-            hash_map::Entry::Occupied(_) =>
-                Err(()),
+            hash_map::Entry::Occupied(_) => Err(()),
             hash_map::Entry::Vacant(entry) => {
                 entry.insert(abbrev);
                 Ok(())
-            },
+            }
         }
     }
 }
@@ -395,7 +399,8 @@ impl CompilationUnitHeader {
                version: u16,
                debug_abbrev_offset: u64,
                address_size: u8,
-               format: Format) -> CompilationUnitHeader {
+               format: Format)
+               -> CompilationUnitHeader {
         CompilationUnitHeader {
             unit_length: unit_length,
             version: version,
@@ -419,7 +424,7 @@ impl CompilationUnitHeader {
             Format::Dwarf32 => 4 + self.unit_length,
             // Length of the 4 byte 0xffffffff value to enable 64-bit mode plus
             // the actual 64-bit length.
-            Format::Dwarf64 => 4 + 8 + self.unit_length
+            Format::Dwarf64 => 4 + 8 + self.unit_length,
         }
     }
 
@@ -457,7 +462,8 @@ impl TypeUnitHeader {
     /// Construct a new `TypeUnitHeader`.
     pub fn new(header: CompilationUnitHeader,
                type_signature: u64,
-               type_offset: u64) -> TypeUnitHeader {
+               type_offset: u64)
+               -> TypeUnitHeader {
         TypeUnitHeader {
             header: header,
             type_signature: type_signature,
