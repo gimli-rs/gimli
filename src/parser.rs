@@ -2,10 +2,200 @@
 
 use leb128;
 pub use nom::IResult as ParseResult;
-use nom::{self, Err, ErrorKind, le_u8, le_u16, le_u32, le_u64, Needed};
+use nom::{self, Err, ErrorKind, le_u8, le_u16, le_u32, le_u64, length_value, Needed};
+use std::cell::Cell;
 use std::fmt;
-use types::{Abbreviation, AbbreviationHasChildren, Abbreviations, AbbreviationTag, AttributeForm,
-            AttributeName, AttributeSpecification, CompilationUnitHeader, Format, TypeUnitHeader};
+use std::collections::hash_map;
+
+/// An offset into the `.debug_types` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugTypesOffset(pub u64);
+
+/// An offset into the `.debug_str` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugStrOffset(pub u64);
+
+/// An offset into the `.debug_abbrev` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugAbbrevOffset(pub u64);
+
+/// An offset into the `.debug_info` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugInfoOffset(pub u64);
+
+/// An offset into the `.debug_line` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugLineOffset(pub u64);
+
+/// An offset into the `.debug_loc` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugLocOffset(pub u64);
+
+/// An offset into the `.debug_macinfo` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugMacinfoOffset(pub u64);
+
+/// An offset into the current compilation or type unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnitOffset(pub u64);
+
+/// The `DebugInfo` struct represents the DWARF debugging information found in
+/// the `.debug_info` section.
+pub struct DebugInfo<'a> {
+    debug_info_section: &'a [u8],
+}
+
+impl<'a> DebugInfo<'a> {
+    /// Construct a new `DebugInfo` instance from the data in the `.debug_info`
+    /// section.
+    ///
+    /// It is the caller's responsibility to read the `.debug_info` section and
+    /// present it as a `&[u8]` slice. That means using some ELF loader on
+    /// Linux, a Mach-O loader on OSX, etc.
+    ///
+    /// ```
+    /// use gimli::DebugInfo;
+    ///
+    /// # let buf = [0x00, 0x01, 0x02, 0x03];
+    /// # let read_debug_info_section_somehow = || &buf;
+    /// let debug_info = DebugInfo::new(read_debug_info_section_somehow());
+    /// ```
+    pub fn new(debug_info_section: &'a [u8]) -> DebugInfo<'a> {
+        DebugInfo { debug_info_section: debug_info_section }
+    }
+
+    /// Iterate the compilation units in this `.debug_info` section.
+    ///
+    /// ```
+    /// use gimli::{DebugInfo, ParseResult};
+    ///
+    /// # let buf = [];
+    /// # let read_debug_info_section_somehow = || &buf;
+    /// let debug_info = DebugInfo::new(read_debug_info_section_somehow());
+    ///
+    /// for parse_result in debug_info.compilation_units() {
+    ///     match parse_result {
+    ///         ParseResult::Done(_, unit) =>
+    ///             println!("unit's length is {}", unit.unit_length()),
+    ///         _ =>
+    ///             panic!(),
+    ///     }
+    /// }
+    /// ```
+    pub fn compilation_units(&self) -> CompilationUnitsIter {
+        CompilationUnitsIter { input: self.debug_info_section }
+    }
+}
+
+/// An iterator over the compilation units of a `.debug_info` section.
+///
+/// See the [documentation on
+/// `DebugInfo::compilation_units`](./struct.DebugInfo.html#method.compilation_units)
+/// for more detail.
+pub struct CompilationUnitsIter<'a> {
+    input: &'a [u8],
+}
+
+impl<'a> Iterator for CompilationUnitsIter<'a> {
+    type Item = ParseResult<&'a [u8], CompilationUnit<'a>, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.input.is_empty() {
+            None
+        } else {
+            match parse_compilation_unit_header(self.input) {
+                ParseResult::Done(rest, header) => {
+                    let unit_len = header.length_including_self() as usize;
+                    if self.input.len() < unit_len {
+                        self.input = &self.input[..0];
+                    } else {
+                        self.input = &self.input[unit_len..];
+                    }
+                    Some(ParseResult::Done(rest, header))
+                }
+                otherwise => {
+                    self.input = &self.input[..0];
+                    Some(otherwise)
+                }
+            }
+        }
+    }
+}
+
+#[test]
+#[cfg_attr(rustfmt, rustfmt_skip)]
+fn test_compilation_units() {
+    let buf = [
+        // First compilation unit.
+
+        // Enable 64-bit DWARF.
+        0xff, 0xff, 0xff, 0xff,
+        // Unit length = 43
+        0x2b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        // Version 4
+        0x04, 0x00,
+        // debug_abbrev_offset
+        0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
+        // address size
+        0x08,
+
+        // Placeholder data for first compilation unit's DIEs.
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+
+        // Second compilation unit
+
+        // 32-bit unit length = 39
+        0x27, 0x00, 0x00, 0x00,
+        // Version 4
+        0x04, 0x00,
+        // debug_abbrev_offset
+        0x05, 0x06, 0x07, 0x08,
+        // Address size
+        0x04,
+
+        // Placeholder data for second compilation unit's DIEs.
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08
+    ];
+
+    let debug_info = DebugInfo::new(&buf);
+    let mut units = debug_info.compilation_units();
+
+    match units.next() {
+        Some(ParseResult::Done(_, header)) => {
+            let expected = CompilationUnit::new(0x000000000000002b,
+                                                4,
+                                                DebugAbbrevOffset(0x0102030405060708),
+                                                8,
+                                                Format::Dwarf64,
+                                                &buf[23..23+32]);
+            assert_eq!(header, expected);
+
+        }
+        _ => assert!(false),
+    }
+
+    match units.next() {
+        Some(ParseResult::Done(_, header)) => {
+            let expected =
+                CompilationUnit::new(0x00000027,
+                                     4,
+                                     DebugAbbrevOffset(0x08070605),
+                                     4,
+                                     Format::Dwarf32,
+                                     &buf[buf.len()-32..]);
+            assert_eq!(header, expected);
+        }
+        _ => assert!(false),
+    }
+
+    assert!(units.next().is_none());
+}
 
 /// A parse error.
 #[derive(Debug)]
@@ -48,6 +238,13 @@ pub enum Error {
 
     /// The reported DWARF version is a version we do not know how to parse.
     UnknownDwarfVersion,
+
+    /// The compilation unit's specified length is invalid (for example, it is
+    /// shorter than the length of the compilation unit header's attributes).
+    InvalidUnitLength,
+
+    /// We found a reference to an unknown abbreviation code.
+    UnknownAbbreviationCode,
 }
 
 impl fmt::Display for Error {
@@ -81,22 +278,26 @@ impl ::std::error::Error for Error {
             Error::UnknownDwarfVersion => {
                 "The DWARF version is a version that we do not know how to parse"
             }
+            Error::InvalidUnitLength => "Invalid unit length",
+            Error::UnknownAbbreviationCode => "Found a reference to an unknown abbreviation code",
         }
     }
 
     fn cause(&self) -> Option<&::std::error::Error> {
         match *self {
             Error::LebError(ref e) => Some(e),
-            Error::Primitive(_) => None,
-            Error::AbbreviationCodeZero => None,
-            Error::InvalidAbbreviationTag => None,
-            Error::InvalidAbbreviationHasChildren => None,
-            Error::InvalidAttributeName => None,
-            Error::InvalidAttributeForm => None,
-            Error::ExpectedZero => None,
-            Error::DuplicateAbbreviationCode => None,
-            Error::UnknownReservedCompilationUnitLength => None,
-            Error::UnknownDwarfVersion => None,
+            Error::Primitive(_) |
+            Error::AbbreviationCodeZero |
+            Error::InvalidAbbreviationTag |
+            Error::InvalidAbbreviationHasChildren |
+            Error::InvalidAttributeName |
+            Error::InvalidAttributeForm |
+            Error::ExpectedZero |
+            Error::DuplicateAbbreviationCode |
+            Error::UnknownReservedCompilationUnitLength |
+            Error::UnknownDwarfVersion |
+            Error::InvalidUnitLength |
+            Error::UnknownAbbreviationCode => None,
         }
     }
 }
@@ -126,9 +327,18 @@ fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<&[u8], u64, Error> {
     }
 }
 
+/// Parse a signed LEB128 encoded integer.
+fn parse_signed_leb(mut input: &[u8]) -> ParseResult<&[u8], i64, Error> {
+    match leb128::read::signed(&mut input) {
+        Ok(val) => ParseResult::Done(input, val),
+        Err(leb128::read::Error::UnexpectedEndOfData) => ParseResult::Incomplete(Needed::Unknown),
+        Err(e) => ParseResult::Error(Err::Position(ErrorKind::Custom(Error::LebError(e)), input)),
+    }
+}
+
 /// Parse an abbreviation's code.
-fn parse_abbreviation_code(mut input: &[u8]) -> ParseResult<&[u8], u64, Error> {
-    match parse_unsigned_leb(&mut input) {
+fn parse_abbreviation_code(input: &[u8]) -> ParseResult<&[u8], u64, Error> {
+    match parse_unsigned_leb(input) {
         ParseResult::Done(input, val) => {
             if val == 0 {
                 ParseResult::Error(Err::Position(ErrorKind::Custom(Error::AbbreviationCodeZero),
@@ -141,9 +351,80 @@ fn parse_abbreviation_code(mut input: &[u8]) -> ParseResult<&[u8], u64, Error> {
     }
 }
 
+/// Abbreviation tag types, aka `DW_TAG_whatever` in the standard.
+///
+/// DWARF standard 4, section 7.5.4, page 154
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(missing_docs)]
+pub enum AbbreviationTag {
+    ArrayType = 0x01,
+    ClassType = 0x02,
+    EntryPoint = 0x03,
+    EnumerationType = 0x04,
+    FormalParameter = 0x05,
+    ImportedDeclaration = 0x08,
+    Label = 0x0a,
+    LexicalBlock = 0x0b,
+    Member = 0x0d,
+    PointerType = 0x0f,
+    ReferenceType = 0x10,
+    CompileUnit = 0x11,
+    StringType = 0x12,
+    StructureType = 0x13,
+    SubroutineType = 0x15,
+    Typedef = 0x16,
+    UnionType = 0x17,
+    UnspecifiedParameters = 0x18,
+    Variant = 0x19,
+    CommonBlock = 0x1a,
+    CommonInclusion = 0x1b,
+    Inheritance = 0x1c,
+    InlinedSubroutine = 0x1d,
+    Module = 0x1e,
+    PtrToMemberType = 0x1f,
+    SetType = 0x20,
+    SubrangeType = 0x21,
+    WithStmt = 0x22,
+    AccessDeclaration = 0x23,
+    BaseType = 0x24,
+    CatchBlock = 0x25,
+    ConstType = 0x26,
+    Constant = 0x27,
+    Enumerator = 0x28,
+    FileType = 0x29,
+    Friend = 0x2a,
+    Namelist = 0x2b,
+    NamelistItem = 0x2c,
+    PackedType = 0x2d,
+    Subprogram = 0x2e,
+    TemplateTypeParameter = 0x2f,
+    TemplateValueParameter = 0x30,
+    ThrownType = 0x31,
+    TryBlock = 0x32,
+    VariantPart = 0x33,
+    Variable = 0x34,
+    VolatileType = 0x35,
+    DwarfProcedure = 0x36,
+    RestrictType = 0x37,
+    InterfaceType = 0x38,
+    Namespace = 0x39,
+    ImportedModule = 0x3a,
+    UnspecifiedType = 0x3b,
+    PartialUnit = 0x3c,
+    ImportedUnit = 0x3d,
+    Condition = 0x3f,
+    SharedType = 0x40,
+    TypeUnit = 0x41,
+    RvalueReferenceType = 0x42,
+    TemplateAlias = 0x43,
+    LoUser = 0x4080,
+    HiUser = 0xffff,
+}
+
 /// Parse an abbreviation's tag.
-fn parse_abbreviation_tag(mut input: &[u8]) -> ParseResult<&[u8], AbbreviationTag, Error> {
-    match parse_unsigned_leb(&mut input) {
+#[allow(cyclomatic_complexity)]
+fn parse_abbreviation_tag(input: &[u8]) -> ParseResult<&[u8], AbbreviationTag, Error> {
+    match parse_unsigned_leb(input) {
         ParseResult::Done(input, val) if AbbreviationTag::ArrayType as u64 == val => {
             ParseResult::Done(input, AbbreviationTag::ArrayType)
         }
@@ -399,6 +680,19 @@ fn parse_abbreviation_tag(mut input: &[u8]) -> ParseResult<&[u8], AbbreviationTa
     }
 }
 
+/// Whether an abbreviation's type has children or not, aka
+/// `DW_CHILDREN_{yes,no}` in the standard.
+///
+/// DWARF standard 4, section 7.5.4, page 154
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AbbreviationHasChildren {
+    /// The type has children.
+    Yes = 0x0,
+
+    /// The type does not have children.
+    No = 0x1,
+}
+
 /// Parse an abbreviation's "does the type have children?" byte.
 fn parse_abbreviation_has_children(input: &[u8])
                                    -> ParseResult<&[u8], AbbreviationHasChildren, Error> {
@@ -423,7 +717,110 @@ fn parse_abbreviation_has_children(input: &[u8])
     }
 }
 
+/// The set of possible attribute names, aka `DW_AT_whatever` in the standard.
+///
+/// DWARF standard 4, section 7.5.4, page 155
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(missing_docs)]
+pub enum AttributeName {
+    Sibling = 0x1,
+    Location = 0x2,
+    Name = 0x3,
+    Ordering = 0x9,
+    ByteSize = 0xb,
+    BitOffset = 0xc,
+    BitSize = 0x0d,
+    StmtList = 0x10,
+    LowPc = 0x11,
+    HighPc = 0x12,
+    Language = 0x13,
+    Discr = 0x15,
+    DiscrValue = 0x16,
+    Visibility = 0x17,
+    Import = 0x18,
+    StringLength = 0x19,
+    CommonReference = 0x1a,
+    CompDir = 0x1b,
+    ConstValue = 0x1c,
+    ContainingType = 0x1d,
+    DefaultValue = 0x1e,
+    Inline = 0x20,
+    IsOptional = 0x21,
+    LowerBound = 0x22,
+    Producer = 0x25,
+    Prototyped = 0x27,
+    ReturnAddr = 0x2a,
+    StartScope = 0x2c,
+    BitStride = 0x2e,
+    UpperBound = 0x2f,
+    AbstractOrigin = 0x31,
+    Accessibility = 0x32,
+    AddressClass = 0x33,
+    Artificial = 0x34,
+    BaseTypes = 0x35,
+    CallingConvention = 0x36,
+    Count = 0x37,
+    DataMemberLocation = 0x38,
+    DeclColumn = 0x39,
+    DeclFile = 0x3a,
+    DeclLine = 0x3b,
+    Declaration = 0x3c,
+    DiscrList = 0x3d,
+    Encoding = 0x3e,
+    External = 0x3f,
+    FrameBase = 0x40,
+    Friend = 0x41,
+    IdentifierCase = 0x42,
+    MacroInfo = 0x43,
+    NamelistItem = 0x44,
+    Priority = 0x45,
+    Segment = 0x46,
+    Specification = 0x47,
+    StaticLink = 0x48,
+    Type = 0x49,
+    UseLocation = 0x4a,
+    VariableParameter = 0x4b,
+    Virtuality = 0x4c,
+    VtableElemLocation = 0x4d,
+    Allocated = 0x4e,
+    Associated = 0x4f,
+    DataLocation = 0x50,
+    ByteStride = 0x51,
+    EntryPc = 0x52,
+    UseUtf8 = 0x53,
+    Extension = 0x54,
+    Ranges = 0x55,
+    Trampoline = 0x56,
+    CallColumn = 0x57,
+    CallFile = 0x58,
+    CallLine = 0x59,
+    Description = 0x5a,
+    BinaryScale = 0x5b,
+    DecimalScale = 0x5c,
+    Small = 0x5d,
+    DecimalSign = 0x5e,
+    DigitCount = 0x5f,
+    PictureString = 0x60,
+    Mutable = 0x61,
+    ThreadsScaled = 0x62,
+    Explicit = 0x63,
+    ObjectPointer = 0x64,
+    Endianity = 0x65,
+    Elemental = 0x66,
+    Pure = 0x67,
+    Recursive = 0x68,
+    Signature = 0x69,
+    MainSubprogram = 0x6a,
+    DataBitOffset = 0x6b,
+    ConstExpr = 0x6c,
+    EnumClass = 0x6d,
+    LinkageName = 0x6e,
+    LoUser = 0x2000,
+    HiUser = 0x3fff,
+}
+
 /// Parse an attribute's name.
+#[allow(cyclomatic_complexity)]
 fn parse_attribute_name(input: &[u8]) -> ParseResult<&[u8], AttributeName, Error> {
     match parse_unsigned_leb(input) {
         ParseResult::Done(input, val) if AttributeName::Sibling as u64 == val => {
@@ -812,7 +1209,42 @@ fn parse_attribute_name(input: &[u8]) -> ParseResult<&[u8], AttributeName, Error
     }
 }
 
+/// The type and encoding of an attribute, aka `DW_FORM_whatever` in the
+/// standard.
+///
+/// DWARF standard 4, section 7.5.4, page 160
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(missing_docs)]
+pub enum AttributeForm {
+    Addr = 0x01,
+    Block2 = 0x03,
+    Block4 = 0x04,
+    Data2 = 0x05,
+    Data4 = 0x06,
+    Data8 = 0x07,
+    String = 0x08,
+    Block = 0x09,
+    Block1 = 0x0a,
+    Data1 = 0x0b,
+    Flag = 0x0c,
+    Sdata = 0x0d,
+    Strp = 0x0e,
+    Udata = 0x0f,
+    RefAddr = 0x10,
+    Ref1 = 0x11,
+    Ref2 = 0x12,
+    Ref4 = 0x13,
+    Ref8 = 0x14,
+    RefUdata = 0x15,
+    Indirect = 0x16,
+    SecOffset = 0x17,
+    Exprloc = 0x18,
+    FlagPresent = 0x19,
+    RefSig8 = 0x20,
+}
+
 /// Parse an attribute's form.
+#[allow(cyclomatic_complexity)]
 fn parse_attribute_form(input: &[u8]) -> ParseResult<&[u8], AttributeForm, Error> {
     match parse_unsigned_leb(input) {
         ParseResult::Done(input, val) if AttributeForm::Addr as u64 == val => {
@@ -925,6 +1357,79 @@ fn parse_attribute_form(input: &[u8]) -> ParseResult<&[u8], AttributeForm, Error
     }
 }
 
+/// The description of an attribute in an abbreviated type. It is a pair of name
+/// and form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AttributeSpecification {
+    name: AttributeName,
+    form: AttributeForm,
+}
+
+impl AttributeSpecification {
+    /// Construct a new `AttributeSpecification` from the given name and form.
+    pub fn new(name: AttributeName, form: AttributeForm) -> AttributeSpecification {
+        AttributeSpecification {
+            name: name,
+            form: form,
+        }
+    }
+
+    /// Get the attribute's name.
+    pub fn name(&self) -> AttributeName {
+        self.name
+    }
+
+    /// Get the attribute's form.
+    pub fn form(&self) -> AttributeForm {
+        self.form
+    }
+
+    /// Return the size of the attribute, in bytes.
+    ///
+    /// Note that because some attributes are variably sized, the size cannot
+    /// always be known without parsing, in which case we return `None`.
+    pub fn size(&self, header: &CompilationUnit) -> Option<usize> {
+        match self.form {
+            AttributeForm::Addr => Some(header.address_size() as usize),
+
+            AttributeForm::Flag |
+            AttributeForm::FlagPresent |
+            AttributeForm::Data1 |
+            AttributeForm::Ref1 => Some(1),
+
+            AttributeForm::Data2 |
+            AttributeForm::Ref2 => Some(2),
+
+            AttributeForm::Data4 |
+            AttributeForm::Ref4 => Some(4),
+
+            AttributeForm::Data8 |
+            AttributeForm::Ref8 => Some(8),
+
+            AttributeForm::SecOffset |
+            AttributeForm::RefAddr |
+            AttributeForm::RefSig8 |
+            AttributeForm::Strp => {
+                match header.format() {
+                    Format::Dwarf32 => Some(4),
+                    Format::Dwarf64 => Some(8),
+                }
+            }
+
+            AttributeForm::Block |
+            AttributeForm::Block1 |
+            AttributeForm::Block2 |
+            AttributeForm::Block4 |
+            AttributeForm::Exprloc |
+            AttributeForm::RefUdata |
+            AttributeForm::String |
+            AttributeForm::Sdata |
+            AttributeForm::Udata |
+            AttributeForm::Indirect => None,
+        }
+    }
+}
+
 /// Parse a non-null attribute specification.
 fn parse_attribute_specification(input: &[u8]) -> ParseResult<&[u8], AttributeSpecification, Error> {
     chain!(input,
@@ -975,6 +1480,60 @@ fn parse_attribute_specifications(mut input: &[u8])
     ParseResult::Done(input, results)
 }
 
+/// An abbreviation describes the shape of a DIE type: its code, tag type,
+/// whether it has children, and its set of attributes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Abbreviation {
+    code: u64,
+    tag: AbbreviationTag,
+    has_children: AbbreviationHasChildren,
+    attributes: Vec<AttributeSpecification>,
+}
+
+impl Abbreviation {
+    /// Construct a new `Abbreviation`.
+    ///
+    /// ### Panics
+    ///
+    /// Panics if `code` is `0`.
+    pub fn new(code: u64,
+               tag: AbbreviationTag,
+               has_children: AbbreviationHasChildren,
+               attributes: Vec<AttributeSpecification>)
+               -> Abbreviation {
+        assert!(code != 0);
+        Abbreviation {
+            code: code,
+            tag: tag,
+            has_children: has_children,
+            attributes: attributes,
+        }
+    }
+
+    /// Get this abbreviation's code.
+    pub fn code(&self) -> u64 {
+        self.code
+    }
+
+    /// Get this abbreviation's tag.
+    pub fn tag(&self) -> AbbreviationTag {
+        self.tag
+    }
+
+    /// Return true if this abbreviation's type has children, false otherwise.
+    pub fn has_children(&self) -> bool {
+        match self.has_children {
+            AbbreviationHasChildren::Yes => true,
+            AbbreviationHasChildren::No => false,
+        }
+    }
+
+    /// Get this abbreviation's attributes.
+    pub fn attributes(&self) -> &[AttributeSpecification] {
+        &self.attributes[..]
+    }
+}
+
 /// Parse a non-null abbreviation.
 fn parse_abbreviation(input: &[u8]) -> ParseResult<&[u8], Abbreviation, Error> {
     chain!(input,
@@ -994,6 +1553,39 @@ fn parse_null_abbreviation(input: &[u8]) -> ParseResult<&[u8], (), Error> {
         ParseResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedZero), input))
     }
 
+}
+
+/// A set of type abbreviations.
+#[derive(Debug, Default, Clone)]
+pub struct Abbreviations {
+    abbrevs: hash_map::HashMap<u64, Abbreviation>,
+}
+
+impl Abbreviations {
+    /// Construct a new, empty set of abbreviations.
+    pub fn new() -> Abbreviations {
+        Abbreviations { abbrevs: hash_map::HashMap::new() }
+    }
+
+    /// Insert an abbreviation into the set.
+    ///
+    /// Returns `Ok` if it is the first abbreviation in the set with its code,
+    /// `Err` if the code is a duplicate and there already exists an
+    /// abbreviation in the set with the given abbreviation's code.
+    fn insert(&mut self, abbrev: Abbreviation) -> Result<(), ()> {
+        match self.abbrevs.entry(abbrev.code) {
+            hash_map::Entry::Occupied(_) => Err(()),
+            hash_map::Entry::Vacant(entry) => {
+                entry.insert(abbrev);
+                Ok(())
+            }
+        }
+    }
+
+    /// Get the abbreviation associated with the given code.
+    fn get(&self, code: u64) -> Option<&Abbreviation> {
+        self.abbrevs.get(&code)
+    }
 }
 
 /// Parse a series of abbreviations, terminated by a null abbreviation.
@@ -1030,12 +1622,22 @@ trait Raise<T> {
     fn raise(original: Self, lowered_result: T) -> Self;
 }
 
-/// Any type U that implements TranslateInput<T> can be lowered to T and then
+/// Any type U that implements `TranslateInput<T>` can be lowered to T and then
 /// later raised back to U. This is useful for lowering types that are a
 /// composition of a `&[u8]` and some extra data down to `&[u8]` to use nom's
 /// builtin parsers and then raise the result and input back up to the original
 /// composition input type.
 trait TranslateInput<T>: Raise<T> + Into<T> {}
+
+/// Whether the format of a compilation unit is 32- or 64-bit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(enum_variant_names)]
+pub enum Format {
+    /// 64-bit DWARF
+    Dwarf64,
+    /// 32-bit DWARF
+    Dwarf32,
+}
 
 /// The input to parsing various compilation unit header information.
 #[derive(Debug, Clone, Copy)]
@@ -1086,12 +1688,19 @@ impl<T> TranslateInput<T> for T {}
 /// composition of the lower input type and whatever extra data. Specifically,
 /// we use this so that we can use parsers on inputs of `&[u8]` with inputs of
 /// `FormatInput`, etc.
-fn translate<Output, LowerError, HigherError, HigherInput, LowerInput, LowerParser>
+fn translate<LowerOutput,
+             HigherOutput,
+             LowerError,
+             HigherError,
+             LowerInput,
+             HigherInput,
+             LowerParser>
     (input: HigherInput,
      parser: LowerParser)
-     -> ParseResult<HigherInput, Output, HigherError>
+     -> ParseResult<HigherInput, HigherOutput, HigherError>
     where HigherInput: TranslateInput<LowerInput> + Clone,
-          LowerParser: Fn(LowerInput) -> ParseResult<LowerInput, Output, LowerError>,
+          LowerParser: Fn(LowerInput) -> ParseResult<LowerInput, LowerOutput, LowerError>,
+          HigherOutput: From<LowerOutput>,
           HigherError: From<LowerError>
 {
     let lowered_input = input.clone().into();
@@ -1185,16 +1794,17 @@ fn raise_err<LowerInput, HigherInput, LowerError, HigherError>(original: HigherI
     }
 }
 
-fn raise_result<LowerInput, HigherInput, T, LowerError, HigherError>
+fn raise_result<LowerOutput, HigherOutput, LowerInput, HigherInput, LowerError, HigherError>
     (original: HigherInput,
-     lowered: ParseResult<LowerInput, T, LowerError>)
-     -> ParseResult<HigherInput, T, HigherError>
+     lowered: ParseResult<LowerInput, LowerOutput, LowerError>)
+     -> ParseResult<HigherInput, HigherOutput, HigherError>
     where HigherInput: Raise<LowerInput> + Clone,
+          HigherOutput: From<LowerOutput>,
           HigherError: From<LowerError>
 {
     match lowered {
         ParseResult::Incomplete(needed) => ParseResult::Incomplete(needed),
-        ParseResult::Done(rest, val) => ParseResult::Done(Raise::raise(original, rest), val),
+        ParseResult::Done(rest, val) => ParseResult::Done(Raise::raise(original, rest), val.into()),
         ParseResult::Error(err) => ParseResult::Error(raise_err(original, err)),
     }
 }
@@ -1361,12 +1971,14 @@ fn test_compilation_unit_version_incomplete() {
     };
 }
 
-/// Parse the debug_abbrev_offset in the compilation unit header.
-fn parse_debug_abbrev_offset(input: FormatInput) -> ParseResult<FormatInput, u64, Error> {
-    match input.1 {
+/// Parse the `debug_abbrev_offset` in the compilation unit header.
+fn parse_debug_abbrev_offset(input: FormatInput)
+                             -> ParseResult<FormatInput, DebugAbbrevOffset, Error> {
+    let offset = match input.1 {
         Format::Dwarf32 => translate(input, parse_u32_as_u64),
         Format::Dwarf64 => translate(input, le_u64),
-    }
+    };
+    offset.map(DebugAbbrevOffset)
 }
 
 #[test]
@@ -1374,7 +1986,7 @@ fn test_parse_debug_abbrev_offset_32() {
     let buf = [0x01, 0x02, 0x03, 0x04];
 
     match parse_debug_abbrev_offset(FormatInput(&buf, Format::Dwarf32)) {
-        ParseResult::Done(_, val) => assert_eq!(val, 0x04030201),
+        ParseResult::Done(_, val) => assert_eq!(val, DebugAbbrevOffset(0x04030201)),
         _ => assert!(false),
     };
 }
@@ -1394,7 +2006,7 @@ fn test_parse_debug_abbrev_offset_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
     match parse_debug_abbrev_offset(FormatInput(&buf, Format::Dwarf64)) {
-        ParseResult::Done(_, val) => assert_eq!(val, 0x0807060504030201),
+        ParseResult::Done(_, val) => assert_eq!(val, DebugAbbrevOffset(0x0807060504030201)),
         _ => assert!(false),
     };
 }
@@ -1424,16 +2036,141 @@ fn test_parse_address_size_ok() {
     };
 }
 
+/// The header of a compilation unit's debugging information.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompilationUnit<'a> {
+    unit_length: u64,
+    version: u16,
+    debug_abbrev_offset: DebugAbbrevOffset,
+    address_size: u8,
+    format: Format,
+    entries_buf: &'a [u8],
+}
+
+/// Static methods.
+impl<'a> CompilationUnit<'a> {
+    /// Construct a new `CompilationUnit`.
+    pub fn new(unit_length: u64,
+               version: u16,
+               debug_abbrev_offset: DebugAbbrevOffset,
+               address_size: u8,
+               format: Format,
+               entries_buf: &'a [u8])
+               -> CompilationUnit {
+        CompilationUnit {
+            unit_length: unit_length,
+            version: version,
+            debug_abbrev_offset: debug_abbrev_offset,
+            address_size: address_size,
+            format: format,
+            entries_buf: entries_buf,
+        }
+    }
+
+    /// Return the serialized size of the `unit_length` attribute for the given
+    /// DWARF format.
+    pub fn size_of_unit_length(format: Format) -> usize {
+        match format {
+            Format::Dwarf32 => 4,
+            Format::Dwarf64 => 12,
+        }
+    }
+
+    /// Return the serialized size of the compilation unit header for the given
+    /// DWARF format.
+    pub fn size_of_header(format: Format) -> usize {
+        let unit_length_size = Self::size_of_unit_length(format);
+        let version_size = 2;
+        let debug_abbrev_offset_size = match format {
+            Format::Dwarf32 => 4,
+            Format::Dwarf64 => 8,
+        };
+        let address_size_size = 1;
+
+        unit_length_size + version_size + debug_abbrev_offset_size + address_size_size
+    }
+}
+
+/// Instance methods.
+impl<'a> CompilationUnit<'a> {
+    /// Get the length of the debugging info for this compilation unit, not
+    /// including the byte length of the encoded length itself.
+    pub fn unit_length(&self) -> u64 {
+        self.unit_length
+    }
+
+    /// Get the length of the debugging info for this compilation unit,
+    /// uncluding the byte length of the encoded length itself.
+    pub fn length_including_self(&self) -> u64 {
+        match self.format {
+            // Length of the 32-bit header plus the unit length.
+            Format::Dwarf32 => 4 + self.unit_length,
+            // Length of the 4 byte 0xffffffff value to enable 64-bit mode plus
+            // the actual 64-bit length.
+            Format::Dwarf64 => 4 + 8 + self.unit_length,
+        }
+    }
+
+    /// Get the DWARF version of the debugging info for this compilation unit.
+    pub fn version(&self) -> u16 {
+        self.version
+    }
+
+    /// The offset into the `.debug_abbrev` section for this compilation unit's
+    /// debugging information entries.
+    pub fn debug_abbrev_offset(&self) -> DebugAbbrevOffset {
+        self.debug_abbrev_offset
+    }
+
+    /// The size of addresses (in bytes) in this compilation unit.
+    pub fn address_size(&self) -> u8 {
+        self.address_size
+    }
+
+    /// Whether this compilation unit is encoded in 64- or 32-bit DWARF.
+    pub fn format(&self) -> Format {
+        self.format
+    }
+
+    /// Navigate this compilation unit's Debugging Information Entries (DIEs).
+    pub fn entries<'b>(&'a self, abbreviations: &'b Abbreviations) -> EntriesCursor<'a, 'b> {
+        EntriesCursor {
+            unit: self,
+            position: 0,
+            abbreviations: abbreviations,
+        }
+    }
+}
+
 /// Parse a compilation unit header.
-pub fn parse_compilation_unit_header(input: &[u8])
-                                     -> ParseResult<&[u8], CompilationUnitHeader, Error> {
+pub fn parse_compilation_unit_header(input: &[u8]) -> ParseResult<&[u8], CompilationUnit, Error> {
     let (rest, (unit_length, format)) = try_parse_result!(input, parse_unit_length(input));
     let (rest, version) = try_parse!(rest, parse_version);
     let (rest, offset) = try_parse_result!(rest,
                                            parse_debug_abbrev_offset(FormatInput(rest, format)));
-    parse_address_size(rest.0).map(|address_size| {
-        CompilationUnitHeader::new(unit_length, version, offset, address_size, format)
-    })
+    let (rest, address_size) = try_parse!(rest.0, parse_address_size);
+
+    if unit_length as usize + CompilationUnit::size_of_unit_length(format) <
+       CompilationUnit::size_of_header(format) {
+        return ParseResult::Error(Err::Position(ErrorKind::Custom(Error::InvalidUnitLength),
+                                                input));
+    }
+    let end = unit_length as usize + CompilationUnit::size_of_unit_length(format) -
+              CompilationUnit::size_of_header(format);
+    if end > rest.len() {
+        return ParseResult::Incomplete(Needed::Size(end - rest.len()));
+    }
+
+    println!("end = {}", end);
+    println!("rest.len() = {}", rest.len());
+    let entries_buf = &rest[..end];
+    ParseResult::Done(rest,
+                      CompilationUnit::new(unit_length,
+                                           version,
+                                           offset,
+                                           address_size,
+                                           format,
+                                           entries_buf))
 }
 
 #[test]
@@ -1441,7 +2178,7 @@ pub fn parse_compilation_unit_header(input: &[u8])
 fn test_parse_compilation_unit_header_32_ok() {
     let buf = [
         // 32-bit unit length
-        0x01, 0x02, 0x03, 0x04,
+        0x07, 0x00, 0x00, 0x00,
         // Version 4
         0x04, 0x00,
         // Debug_abbrev_offset
@@ -1453,7 +2190,12 @@ fn test_parse_compilation_unit_header_32_ok() {
     match parse_compilation_unit_header(&buf) {
         ParseResult::Done(_, header) => {
             assert_eq!(header,
-                       CompilationUnitHeader::new(0x04030201, 4, 0x08070605, 4, Format::Dwarf32))
+                       CompilationUnit::new(7,
+                                            4,
+                                            DebugAbbrevOffset(0x08070605),
+                                            4,
+                                            Format::Dwarf32,
+                                            &[]))
         }
         _ => assert!(false),
     }
@@ -1465,8 +2207,8 @@ fn test_parse_compilation_unit_header_64_ok() {
     let buf = [
         // Enable 64-bit
         0xff, 0xff, 0xff, 0xff,
-        // Unit length
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        // Unit length = 11
+        0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         // Version 4
         0x04, 0x00,
         // debug_abbrev_offset
@@ -1477,166 +2219,524 @@ fn test_parse_compilation_unit_header_64_ok() {
 
     match parse_compilation_unit_header(&buf) {
         ParseResult::Done(_, header) => {
-            let expected = CompilationUnitHeader::new(0x0807060504030201,
-                                                      4,
-                                                      0x0102030405060708,
-                                                      8,
-                                                      Format::Dwarf64);
+            let expected = CompilationUnit::new(11,
+                                                4,
+                                                DebugAbbrevOffset(0x0102030405060708),
+                                                8,
+                                                Format::Dwarf64,
+                                                &[]);
             assert_eq!(header, expected)
         }
         _ => assert!(false),
     }
 }
 
-/// The `DebugInfo` struct represents the DWARF debugging information found in
-/// the `.debug_info` section.
-pub struct DebugInfo<'a> {
-    debug_info_section: &'a [u8],
-}
-
-impl<'a> DebugInfo<'a> {
-    /// Construct a new `DebugInfo` instance from the data in the `.debug_info`
-    /// section.
-    ///
-    /// It is the caller's responsibility to read the `.debug_info` section and
-    /// present it as a `&[u8]` slice. That means using some ELF loader on
-    /// Linux, a Mach-O loader on OSX, etc.
-    ///
-    /// ```
-    /// use gimli::DebugInfo;
-    ///
-    /// # let buf = [0x00, 0x01, 0x02, 0x03];
-    /// # let read_debug_info_section_somehow = || &buf;
-    /// let debug_info = DebugInfo::new(read_debug_info_section_somehow());
-    /// ```
-    pub fn new(debug_info_section: &'a [u8]) -> DebugInfo<'a> {
-        DebugInfo { debug_info_section: debug_info_section }
-    }
-
-    /// Iterate the compilation units in this `.debug_info` section.
-    ///
-    /// ```
-    /// use gimli::{DebugInfo, ParseResult};
-    ///
-    /// # let buf = [];
-    /// # let read_debug_info_section_somehow = || &buf;
-    /// let debug_info = DebugInfo::new(read_debug_info_section_somehow());
-    ///
-    /// for parse_result in debug_info.compilation_units() {
-    ///     match parse_result {
-    ///         ParseResult::Done(_, unit) =>
-    ///             println!("unit's length is {}", unit.unit_length()),
-    ///         _ =>
-    ///             panic!(),
-    ///     }
-    /// }
-    /// ```
-    pub fn compilation_units(&self) -> CompilationUnitsIter {
-        CompilationUnitsIter { input: self.debug_info_section }
-    }
-}
-
-/// An iterator over the compilation units of a `.debug_info` section.
+/// A Debugging Information Entry (DIE).
 ///
-/// See the [documentation on
-/// `DebugInfo::compilation_units`](./struct.DebugInfo.html#method.compilation_units)
-/// for more detail.
-pub struct CompilationUnitsIter<'a> {
-    input: &'a [u8],
+/// DIEs have a set of attributes and optionally have children DIEs as well.
+#[derive(Clone, Debug)]
+pub struct DebuggingInformationEntry<'a, 'b, 'c> {
+    attrs_slice: &'a [u8],
+    children_slice: Cell<Option<&'a [u8]>>,
+    code: u64,
+    abbrev: &'b Abbreviation,
+    unit: &'c CompilationUnit<'c>,
 }
 
-impl<'a> Iterator for CompilationUnitsIter<'a> {
-    type Item = ParseResult<&'a [u8], CompilationUnitHeader, Error>;
+impl<'a, 'b, 'c> DebuggingInformationEntry<'a, 'b, 'c> {
+    /// Get this DIE's code.
+    pub fn code(&self) -> u64 {
+        self.code
+    }
+
+    /// Iterate over this DIE's set of attributes.
+    pub fn attrs(&self) -> AttrsIter<'a, 'b, 'c> {
+        AttrsIter {
+            input: self.attrs_slice,
+            attributes: &self.abbrev.attributes[..],
+            unit: self.unit,
+        }
+    }
+}
+
+/// The value of an attribute in a DIE.
+#[derive(Clone, Copy, Debug)]
+pub enum AttributeValue<'a> {
+    /// A slice that is CompilationUnitHeader::address_size bytes long.
+    Addr(&'a [u8]),
+
+    /// A slice of an arbitrary number of bytes.
+    Block(&'a [u8]),
+
+    /// A one, two, four, or eight byte constant data value. How to interpret
+    /// the bytes depends on context.
+    ///
+    /// From section 7 of the standard: "Depending on context, it may be a
+    /// signed integer, an unsigned integer, a floating-point constant, or
+    /// anything else."
+    Data(&'a [u8]),
+
+    /// A signed integer constant.
+    Sdata(i64),
+
+    /// An unsigned integer constant.
+    Udata(u64),
+
+    /// "The information bytes contain a DWARF expression (see Section 2.5) or
+    /// location description (see Section 2.6)."
+    Exprloc(&'a [u8]),
+
+    /// A boolean typically used to describe the presence or absence of another
+    /// attribute.
+    Flag(bool),
+
+    /// An offset into another section. Which section this is an offset into
+    /// depends on context.
+    SecOffset(u64),
+
+    /// An offset into the current compilation unit.
+    UnitRef(UnitOffset),
+
+    /// An offset into the current `.debug_info` section, but possibly a
+    /// different compilation unit from the current one.
+    DebugInfoRef(DebugInfoOffset),
+
+    /// An offset into the `.debug_types` section.
+    DebugTypesRef(DebugTypesOffset),
+
+    /// An offset into the `.debug_str` section.
+    DebugStrRef(DebugStrOffset),
+
+    /// A null terminated C string, including the final null byte. Not
+    /// guaranteed to be UTF-8 or anything like that.
+    String(&'a [u8]),
+}
+
+/// An attribute in a DIE, consisting of a name and associated value.
+#[derive(Copy, Clone, Debug)]
+pub struct Attribute<'a> {
+    name: AttributeName,
+    value: AttributeValue<'a>,
+}
+
+impl<'a> Attribute<'a> {
+    /// Get this attribute's name.
+    pub fn name(&self) -> AttributeName {
+        self.name
+    }
+
+    /// Get this attribute's value.
+    pub fn value(&self) -> AttributeValue {
+        self.value
+    }
+}
+
+/// The input to parsing an attribute.
+#[derive(Clone, Copy, Debug)]
+pub struct AttributeInput<'a, 'b>(&'a [u8], &'b CompilationUnit<'b>, AttributeSpecification);
+
+impl<'a, 'b> Into<&'a [u8]> for AttributeInput<'a, 'b> {
+    fn into(self) -> &'a [u8] {
+        self.0
+    }
+}
+
+impl<'a, 'b> Raise<&'a [u8]> for AttributeInput<'a, 'b> {
+    fn raise(original: Self, lowered: &'a [u8]) -> Self {
+        AttributeInput(lowered, original.1, original.2)
+    }
+}
+
+impl<'a, 'b> TranslateInput<&'a [u8]> for AttributeInput<'a, 'b> {}
+
+named!(length_u16_value, length_bytes!(le_u16));
+named!(length_u32_value, length_bytes!(le_u32));
+
+fn length_leb_value(input: &[u8]) -> ParseResult<&[u8], &[u8], Error> {
+    length_bytes!(input, parse_unsigned_leb)
+}
+
+fn parse_attribute<'a, 'b>(mut input: AttributeInput<'a, 'b>)
+                           -> ParseResult<AttributeInput<'a, 'b>, Attribute<'a>, Error> {
+    let mut form = input.2.form;
+    loop {
+        match form {
+            AttributeForm::Addr => {
+                return raise_result(input,
+                                    take!(input.0, input.1.address_size()).map(|addr| {
+                                        Attribute {
+                                            name: input.2.name,
+                                            value: AttributeValue::Addr(addr),
+                                        }
+                                    }));
+            }
+            AttributeForm::Block1 => {
+                return raise_result(input,
+                                    length_value(input.0).map(|block| {
+                                        Attribute {
+                                            name: input.2.name,
+                                            value: AttributeValue::Block(block),
+                                        }
+                                    }))
+            }
+            AttributeForm::Block2 => {
+                return raise_result(input,
+                                    length_u16_value(input.0).map(|block| {
+                                        Attribute {
+                                            name: input.2.name,
+                                            value: AttributeValue::Block(block),
+                                        }
+                                    }))
+            }
+            AttributeForm::Block4 => {
+                return raise_result(input,
+                                    length_u32_value(input.0).map(|block| {
+                                        Attribute {
+                                            name: input.2.name,
+                                            value: AttributeValue::Block(block),
+                                        }
+                                    }))
+            }
+            AttributeForm::Block => {
+                return raise_result(input,
+                                    length_leb_value(input.0).map(|block| {
+                                        Attribute {
+                                            name: input.2.name,
+                                            value: AttributeValue::Block(block),
+                                        }
+                                    }))
+            }
+            AttributeForm::Data1 => {
+                return raise_result(input,
+                                    take!(input.0, 1).map(|data| {
+                                        Attribute {
+                                            name: input.2.name,
+                                            value: AttributeValue::Data(data),
+                                        }
+                                    }))
+            }
+            AttributeForm::Data2 => {
+                return raise_result(input,
+                                    take!(input.0, 2).map(|data| {
+                                        Attribute {
+                                            name: input.2.name,
+                                            value: AttributeValue::Data(data),
+                                        }
+                                    }))
+            }
+            AttributeForm::Data4 => {
+                return raise_result(input,
+                                    take!(input.0, 4).map(|data| {
+                                        Attribute {
+                                            name: input.2.name,
+                                            value: AttributeValue::Data(data),
+                                        }
+                                    }))
+            }
+            AttributeForm::Data8 => {
+                return raise_result(input,
+                                    take!(input.0, 8).map(|data| {
+                                        Attribute {
+                                            name: input.2.name,
+                                            value: AttributeValue::Data(data),
+                                        }
+                                    }))
+            }
+            AttributeForm::Udata => {
+                return raise_result(input,
+                                    parse_unsigned_leb(input.0).map(|data| {
+                                        Attribute {
+                                            name: input.2.name,
+                                            value: AttributeValue::Udata(data),
+                                        }
+                                    }))
+            }
+            AttributeForm::Sdata => {
+                return raise_result(input,
+                                    parse_signed_leb(input.0).map(|data| {
+                                        Attribute {
+                                            name: input.2.name,
+                                            value: AttributeValue::Sdata(data),
+                                        }
+                                    }))
+            }
+            AttributeForm::Exprloc => {
+                return raise_result(input,
+                                    length_leb_value(input.0).map(|block| {
+                                        Attribute {
+                                            name: input.2.name,
+                                            value: AttributeValue::Exprloc(block),
+                                        }
+                                    }))
+            }
+            AttributeForm::Flag => {
+                return raise_result(input,
+                                    le_u8(input.0).map(|present| {
+                                        Attribute {
+                                            name: input.2.name,
+                                            value: AttributeValue::Flag(present != 0),
+                                        }
+                                    }))
+            }
+            AttributeForm::FlagPresent => {
+                // FlagPresent is this weird compile time always true thing that
+                // isn't actually present in the serialized DIEs, only in the
+                // abbreviations.
+                return ParseResult::Done(input,
+                                         Attribute {
+                                             name: input.2.name,
+                                             value: AttributeValue::Flag(true),
+                                         });
+            }
+            AttributeForm::SecOffset => {
+                return match input.1.format() {
+                    Format::Dwarf32 => {
+                        raise_result(input,
+                                     le_u32(input.0).map(|offset| {
+                                         Attribute {
+                                             name: input.2.name,
+                                             value: AttributeValue::SecOffset(offset as u64),
+                                         }
+                                     }))
+                    }
+                    Format::Dwarf64 => {
+                        raise_result(input,
+                                     le_u64(input.0).map(|offset| {
+                                         Attribute {
+                                             name: input.2.name,
+                                             value: AttributeValue::SecOffset(offset),
+                                         }
+                                     }))
+                    }
+                };
+            }
+            AttributeForm::Ref1 => {
+                return raise_result(input,
+                                    le_u8(input.0).map(|reference| {
+                                        Attribute {
+                                     name: input.2.name,
+                                     value: AttributeValue::UnitRef(UnitOffset(reference as u64)),
+                                 }
+                                    }));
+            }
+            AttributeForm::Ref2 => {
+                return raise_result(input,
+                                    le_u16(input.0).map(|reference| {
+                                        Attribute {
+                                     name: input.2.name,
+                                     value: AttributeValue::UnitRef(UnitOffset(reference as u64)),
+                                 }
+                                    }));
+            }
+            AttributeForm::Ref4 => {
+                return raise_result(input,
+                                    le_u32(input.0).map(|reference| {
+                                        Attribute {
+                                     name: input.2.name,
+                                     value: AttributeValue::UnitRef(UnitOffset(reference as u64)),
+                                 }
+                                    }));
+            }
+            AttributeForm::Ref8 => {
+                return raise_result(input,
+                                    le_u64(input.0).map(|reference| {
+                                        Attribute {
+                                            name: input.2.name,
+                                            value: AttributeValue::UnitRef(UnitOffset(reference)),
+                                        }
+                                    }));
+            }
+            AttributeForm::RefUdata => {
+                return raise_result(input,
+                                    parse_unsigned_leb(input.0).map(|reference| {
+                                        Attribute {
+                                            name: input.2.name,
+                                            value: AttributeValue::UnitRef(UnitOffset(reference)),
+                                        }
+                                    }));
+            }
+            AttributeForm::RefAddr => {
+                return match input.1.format() {
+                    Format::Dwarf32 => {
+                        raise_result(input,
+                                     le_u32(input.0).map(|offset| {
+                            let offset = DebugInfoOffset(offset as u64);
+                            Attribute {
+                                name: input.2.name,
+                                value: AttributeValue::DebugInfoRef(offset),
+                            }
+                        }))
+                    }
+                    Format::Dwarf64 => {
+                        raise_result(input,
+                                     le_u64(input.0).map(|offset| {
+                            let offset = DebugInfoOffset(offset);
+                            Attribute {
+                                name: input.2.name,
+                                value: AttributeValue::DebugInfoRef(offset),
+                            }
+                        }))
+                    }
+                };
+            }
+            AttributeForm::RefSig8 => {
+                return raise_result(input,
+                                    le_u64(input.0).map(|offset| {
+                    let offset = DebugTypesOffset(offset);
+                    Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::DebugTypesRef(offset),
+                    }
+                }));
+            }
+            AttributeForm::String => {
+                return raise_result(input,
+                                    take_until_and_consume!(input.0, &[0]).map(|bytes| {
+                                        Attribute {
+                                            name: input.2.name,
+                                            value: AttributeValue::String(bytes),
+                                        }
+                                    }));
+            }
+            AttributeForm::Strp => {
+                return match input.1.format() {
+                    Format::Dwarf32 => {
+                        raise_result(input,
+                                     le_u32(input.0).map(|offset| {
+                            let offset = DebugStrOffset(offset as u64);
+                            Attribute {
+                                name: input.2.name,
+                                value: AttributeValue::DebugStrRef(offset),
+                            }
+                        }))
+                    }
+                    Format::Dwarf64 => {
+                        raise_result(input,
+                                     le_u64(input.0).map(|offset| {
+                            let offset = DebugStrOffset(offset);
+                            Attribute {
+                                name: input.2.name,
+                                value: AttributeValue::DebugStrRef(offset),
+                            }
+                        }))
+                    }
+                };
+            }
+            AttributeForm::Indirect => {
+                let (rest, dynamic_form) = try_parse_result!(input,
+                                                             parse_attribute_form(input.0));
+                form = dynamic_form;
+                input = AttributeInput(rest, input.1, input.2);
+                continue;
+            }
+        };
+    }
+}
+
+/// An iterator over a particular DIE's attributes.
+#[derive(Clone, Copy, Debug)]
+pub struct AttrsIter<'a, 'b, 'c> {
+    input: &'a [u8],
+    attributes: &'b [AttributeSpecification],
+    unit: &'c CompilationUnit<'c>,
+}
+
+impl<'a, 'b, 'c> Iterator for AttrsIter<'a, 'b, 'c> {
+    type Item = ParseResult<AttributeInput<'a, 'c>, Attribute<'a>, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.input.is_empty() {
-            None
-        } else {
-            match parse_compilation_unit_header(self.input) {
-                ParseResult::Done(rest, header) => {
-                    let unit_len = header.length_including_self() as usize;
-                    if self.input.len() < unit_len {
-                        self.input = &self.input[..0];
-                    } else {
-                        self.input = &self.input[unit_len..];
-                    }
-                    Some(ParseResult::Done(rest, header))
-                }
-                otherwise => {
-                    self.input = &self.input[..0];
-                    Some(otherwise)
-                }
+        if self.attributes.len() == 0 {
+            return None;
+        }
+
+        let attr = self.attributes[0];
+        self.attributes = &self.attributes[1..];
+        match parse_attribute(AttributeInput(self.input, self.unit, attr)) {
+            ParseResult::Done(rest, attr) => {
+                self.input = rest.0;
+                Some(ParseResult::Done(rest, attr))
+            }
+            otherwise => {
+                self.attributes = &[];
+                Some(otherwise)
             }
         }
     }
 }
 
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_compilation_units() {
-    let buf = [
-        // First compilation unit.
-
-        // Enable 64-bit DWARF.
-        0xff, 0xff, 0xff, 0xff,
-        // Unit length = 43
-        0x2b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // Version 4
-        0x04, 0x00,
-        // debug_abbrev_offset
-        0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
-        // address size
-        0x08,
-
-        // Placeholder data for first compilation unit's DIEs.
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-
-        // Second compilation unit
-
-        // 32-bit unit length = 39
-        0x27, 0x00, 0x00, 0x00,
-        // Version 4
-        0x04, 0x00,
-        // debug_abbrev_offset
-        0x05, 0x06, 0x07, 0x08,
-        // Address size
-        0x04,
-
-        // Placeholder data for second compilation unit's DIEs.
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08
-    ];
-
-    let debug_info = DebugInfo::new(&buf);
-    let mut units = debug_info.compilation_units();
-
-    match units.next() {
-        Some(ParseResult::Done(_, header)) => {
-            let expected = CompilationUnitHeader::new(0x000000000000002b,
-                                                      4,
-                                                      0x0102030405060708,
-                                                      8,
-                                                      Format::Dwarf64);
-            assert_eq!(header, expected);
+impl<'a, 'b, 'c> AttrsIter<'a, 'b, 'c> {
+    /// Consume all attributes and get the rest of the input that follows (which
+    /// are the children, if the DIE's abbreviation dictates that the DIE has
+    /// children).
+    fn get_rest(mut self) -> &'a [u8] {
+        for _ in &mut self {
         }
-        _ => assert!(false),
+        self.input
+    }
+}
+
+/// A cursor into the Debugging Information Entries tree for a compilation unit.
+///
+/// The `EntriesCursor` can traverse the DIE tree in either DFS order, or skip
+/// to the next sibling of the entry the cursor is currently pointing to.
+#[derive(Clone, Copy, Debug)]
+pub struct EntriesCursor<'a, 'b> {
+    unit: &'a CompilationUnit<'a>,
+    position: usize,
+    abbreviations: &'b Abbreviations,
+}
+
+/// When advancing an `EntriesCursor` through a DIE tree in DFS order, this
+/// enumeration describes the relationship from the old position to the new one.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DfsMovement {
+    /// The cursor was moved down to the first child of the old, parent entry.
+    DownToChild,
+    /// The cursor was moved up to the old entry's parent's next sibling.
+    UpToParentSibling,
+    /// The old entry did not have any children, and we moved to its next
+    /// sibling.
+    SidewaysToSibling,
+}
+
+impl<'a, 'b> EntriesCursor<'a, 'b> {
+    /// Get the entry that the cursor is currently pointing to.
+    pub fn current(&mut self) -> Option<ParseResult<&'a [u8], DebuggingInformationEntry, Error>> {
+        if self.position < self.unit.entries_buf.len() {
+            let input = &self.unit.entries_buf[self.position..];
+            match parse_unsigned_leb(input) {
+                ParseResult::Done(rest, code) => {
+                    if let Some(abbrev) = self.abbreviations.get(code) {
+                        Some(ParseResult::Done(rest,
+                                               DebuggingInformationEntry {
+                                                   attrs_slice: rest,
+                                                   children_slice: Cell::new(None),
+                                                   code: code,
+                                                   abbrev: abbrev,
+                                                   unit: self.unit,
+                                               }))
+                    } else {
+                        let custom = ErrorKind::Custom(Error::UnknownAbbreviationCode);
+                        Some(ParseResult::Error(Err::Position(custom, input)))
+                    }
+                }
+                ParseResult::Incomplete(needed) => Some(ParseResult::Incomplete(needed)),
+                ParseResult::Error(e) => Some(ParseResult::Error(e)),
+            }
+        } else {
+            None
+        }
     }
 
-    match units.next() {
-        Some(ParseResult::Done(_, header)) => {
-            let expected =
-                CompilationUnitHeader::new(0x00000027, 4, 0x08070605, 4, Format::Dwarf32);
-            assert_eq!(header, expected);
-        }
-        _ => assert!(false),
+    /// Move the cursor to the next DIE in the tree in DFS order.
+    pub fn next_dfs(&mut self) -> Result<DfsMovement, ()> {
+        Err(())
     }
 
-    assert!(units.next().is_none());
+    /// Move the cursor to the next sibling DIE of the current one.
+    pub fn next_sibling(&mut self) -> Result<(), ()> {
+        Err(())
+    }
 }
 
 /// Parse a type unit header's unique type signature. Callers should handle
@@ -1666,11 +2766,12 @@ fn test_parse_type_signature_incomplete() {
 }
 
 /// Parse a type unit header's type offset.
-fn parse_type_offset(input: FormatInput) -> ParseResult<FormatInput, u64, Error> {
-    match input.1 {
+fn parse_type_offset(input: FormatInput) -> ParseResult<FormatInput, DebugTypesOffset, Error> {
+    let result = match input.1 {
         Format::Dwarf32 => translate(input, parse_u32_as_u64),
         Format::Dwarf64 => translate(input, le_u64),
-    }
+    };
+    result.map(DebugTypesOffset)
 }
 
 #[test]
@@ -1681,7 +2782,7 @@ fn test_parse_type_offset_32_ok() {
         ParseResult::Done(rest, offset) => {
             assert_eq!(rest.0.len(), 1);
             assert_eq!(rest.1, Format::Dwarf32);
-            assert_eq!(0x78563412, offset);
+            assert_eq!(DebugTypesOffset(0x78563412), offset);
         }
         _ => assert!(false),
     }
@@ -1695,7 +2796,7 @@ fn test_parse_type_offset_64_ok() {
         ParseResult::Done(rest, offset) => {
             assert_eq!(rest.0.len(), 1);
             assert_eq!(rest.1, Format::Dwarf64);
-            assert_eq!(0xffdebc9a78563412, offset);
+            assert_eq!(DebugTypesOffset(0xffdebc9a78563412), offset);
         }
         _ => assert!(false),
     }
@@ -1712,13 +2813,66 @@ fn test_parse_type_offset_incomplete() {
     };
 }
 
+/// The header of a type unit's debugging information.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TypeUnit<'a> {
+    header: CompilationUnit<'a>,
+    type_signature: u64,
+    type_offset: DebugTypesOffset,
+}
+
+impl<'a> TypeUnit<'a> {
+    /// Construct a new `TypeUnit`.
+    pub fn new(header: CompilationUnit<'a>,
+               type_signature: u64,
+               type_offset: DebugTypesOffset)
+               -> TypeUnit {
+        TypeUnit {
+            header: header,
+            type_signature: type_signature,
+            type_offset: type_offset,
+        }
+    }
+
+    /// Get the length of the debugging info for this compilation unit.
+    pub fn unit_length(&self) -> u64 {
+        self.header.unit_length
+    }
+
+    /// Get the DWARF version of the debugging info for this compilation unit.
+    pub fn version(&self) -> u16 {
+        self.header.version
+    }
+
+    /// The offset into the `.debug_abbrev` section for this compilation unit's
+    /// debugging information entries.
+    pub fn debug_abbrev_offset(&self) -> DebugAbbrevOffset {
+        self.header.debug_abbrev_offset
+    }
+
+    /// The size of addresses (in bytes) in this compilation unit.
+    pub fn address_size(&self) -> u8 {
+        self.header.address_size
+    }
+
+    /// Get the unique type signature for this type unit.
+    pub fn type_signature(&self) -> u64 {
+        self.type_signature
+    }
+
+    /// Get the offset within this type unit where the type is defined.
+    pub fn type_offset(&self) -> DebugTypesOffset {
+        self.type_offset
+    }
+}
+
 /// Parse a type unit header.
-pub fn parse_type_unit_header(input: &[u8]) -> ParseResult<&[u8], TypeUnitHeader, Error> {
+pub fn parse_type_unit_header(input: &[u8]) -> ParseResult<&[u8], TypeUnit, Error> {
     let (rest, header) = try_parse!(input, parse_compilation_unit_header);
     let (rest, signature) = try_parse!(rest, parse_type_signature);
     let (rest, offset) = try_parse_result!(rest,
                                            parse_type_offset(FormatInput(rest, header.format())));
-    ParseResult::Done(rest.0, TypeUnitHeader::new(header, signature, offset))
+    ParseResult::Done(rest.0, TypeUnit::new(header, signature, offset))
 }
 
 #[test]
@@ -1727,8 +2881,8 @@ fn test_parse_type_unit_header_32_ok() {
     let buf = [
         // Enable 64-bit unit length mode.
         0xff, 0xff, 0xff, 0xff,
-        // The actual unit length.
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        // The actual unit length (11).
+        0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         // Version 4
         0x04, 0x00,
         // debug_abbrev_offset
@@ -1747,14 +2901,15 @@ fn test_parse_type_unit_header_32_ok() {
     match result {
         ParseResult::Done(_, header) => {
             assert_eq!(header,
-                       TypeUnitHeader::new(CompilationUnitHeader::new(0x0807060504030201,
-                                                                      4,
-                                                                      0x0807060504030201,
-                                                                      8,
-                                                                      Format::Dwarf64),
-                                           0xdeadbeefdeadbeef,
-                                           0x7856341278563412))
-        }
+                       TypeUnit::new(CompilationUnit::new(11,
+                                                          4,
+                                                          DebugAbbrevOffset(0x0807060504030201),
+                                                          8,
+                                                          Format::Dwarf64,
+                                                          &[]),
+                                     0xdeadbeefdeadbeef,
+                                     DebugTypesOffset(0x7856341278563412)))
+        },
         _ => assert!(false),
     }
 }

@@ -7,12 +7,13 @@
 
 #![deny(missing_docs)]
 
+#![cfg_attr(feature = "nightly", feature(plugin))]
+#![cfg_attr(feature = "nightly", plugin(clippy))]
+#![cfg_attr(feature = "nightly", deny(clippy))]
+
 extern crate leb128;
 #[macro_use]
 extern crate nom;
 
 mod parser;
 pub use parser::*;
-
-mod types;
-pub use types::*;
