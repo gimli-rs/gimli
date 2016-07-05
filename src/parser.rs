@@ -2260,7 +2260,7 @@ impl<'a, 'b, 'c> DebuggingInformationEntry<'a, 'b, 'c> {
 }
 
 /// The value of an attribute in a DIE.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AttributeValue<'a> {
     /// A slice that is CompilationUnitHeader::address_size bytes long.
     Addr(&'a [u8]),
@@ -2313,7 +2313,7 @@ pub enum AttributeValue<'a> {
 }
 
 /// An attribute in a DIE, consisting of a name and associated value.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Attribute<'a> {
     name: AttributeName,
     value: AttributeValue<'a>,
@@ -2361,6 +2361,13 @@ fn parse_attribute<'a, 'b>(mut input: AttributeInput<'a, 'b>)
     let mut form = input.2.form;
     loop {
         match form {
+            AttributeForm::Indirect => {
+                let (rest, dynamic_form) = try_parse_result!(input,
+                                                             parse_attribute_form(input.0));
+                form = dynamic_form;
+                input = AttributeInput(rest, input.1, input.2);
+                continue;
+            }
             AttributeForm::Addr => {
                 return raise_result(input,
                                     take!(input.0, input.1.address_size()).map(|addr| {
@@ -2622,15 +2629,33 @@ fn parse_attribute<'a, 'b>(mut input: AttributeInput<'a, 'b>)
                     }
                 };
             }
-            AttributeForm::Indirect => {
-                let (rest, dynamic_form) = try_parse_result!(input,
-                                                             parse_attribute_form(input.0));
-                form = dynamic_form;
-                input = AttributeInput(rest, input.1, input.2);
-                continue;
-            }
         };
     }
+}
+
+#[test]
+fn test_parse_attribute_addr() {
+    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+
+    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+
+    let spec = AttributeSpecification {
+        name: AttributeName::LowPc,
+        form: AttributeForm::Addr,
+    };
+
+    let input = AttributeInput(&buf, &unit, spec);
+
+    match parse_attribute(input) {
+        ParseResult::Done(rest, attr) => {
+            assert_eq!(attr, Attribute {
+                name: AttributeName::LowPc,
+                value: AttributeValue::Addr(&buf[..4])
+            });
+            assert_eq!(rest.0, &buf[4..]);
+        }
+        _ => assert!(false),
+    };
 }
 
 /// An iterator over a particular DIE's attributes.
