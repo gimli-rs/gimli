@@ -2654,7 +2654,126 @@ fn test_parse_attribute_addr() {
             });
             assert_eq!(rest.0, &buf[4..]);
         }
-        _ => assert!(false),
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
+    };
+}
+
+#[test]
+fn test_parse_attribute_block1() {
+    // Length of data (3), three bytes of data, two bytes of left over input.
+    let buf = [0x03, 0x09, 0x09, 0x09, 0x00, 0x00];
+
+    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+
+    let spec = AttributeSpecification {
+        name: AttributeName::Name,
+        form: AttributeForm::Block1,
+    };
+
+    let input = AttributeInput(&buf, &unit, spec);
+
+    match parse_attribute(input) {
+        ParseResult::Done(rest, attr) => {
+            assert_eq!(attr, Attribute {
+                name: AttributeName::Name,
+                value: AttributeValue::Block(&buf[1..4])
+            });
+            assert_eq!(rest.0, &buf[4..]);
+        }
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
+    };
+}
+
+#[test]
+fn test_parse_attribute_block2() {
+    // Two byte length of data (2), two bytes of data, two bytes of left over input.
+    let buf = [0x02, 0x00, 0x09, 0x09, 0x00, 0x00];
+
+    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+
+    let spec = AttributeSpecification {
+        name: AttributeName::Name,
+        form: AttributeForm::Block2,
+    };
+
+    let input = AttributeInput(&buf, &unit, spec);
+
+    match parse_attribute(input) {
+        ParseResult::Done(rest, attr) => {
+            assert_eq!(attr, Attribute {
+                name: AttributeName::Name,
+                value: AttributeValue::Block(&buf[2..4])
+            });
+            assert_eq!(rest.0, &buf[4..]);
+        }
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
+    };
+}
+
+#[test]
+fn test_parse_attribute_block4() {
+    // Four byte length of data (2), two bytes of data, no left over input.
+    let buf = [0x02, 0x00, 0x00, 0x00, 0x99, 0x99];
+
+    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+
+    let spec = AttributeSpecification {
+        name: AttributeName::Name,
+        form: AttributeForm::Block4,
+    };
+
+    let input = AttributeInput(&buf, &unit, spec);
+
+    match parse_attribute(input) {
+        ParseResult::Done(rest, attr) => {
+            assert_eq!(attr, Attribute {
+                name: AttributeName::Name,
+                value: AttributeValue::Block(&buf[4..])
+            });
+            assert_eq!(rest.0, &buf[..0]);
+        }
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
+    };
+}
+
+#[test]
+fn test_parse_attribute_block() {
+    // LEB length of data (2, one byte), two bytes of data, no left over input.
+    let buf = [0x02, 0x99, 0x99];
+
+    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+
+    let spec = AttributeSpecification {
+        name: AttributeName::Name,
+        form: AttributeForm::Block,
+    };
+
+    let input = AttributeInput(&buf, &unit, spec);
+
+    match parse_attribute(input) {
+        ParseResult::Done(rest, attr) => {
+            assert_eq!(attr, Attribute {
+                name: AttributeName::Name,
+                value: AttributeValue::Block(&buf[1..])
+            });
+            assert_eq!(rest.0, &buf[..0]);
+        }
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
     };
 }
 
