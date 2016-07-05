@@ -201,7 +201,7 @@ fn test_compilation_units() {
 #[derive(Debug)]
 pub enum Error {
     /// A malformed LEB128 value.
-    LebError(leb128::read::Error),
+    Leb(leb128::read::Error),
 
     /// An error from a primitive parser.
     Primitive(u32),
@@ -256,7 +256,7 @@ impl fmt::Display for Error {
 impl ::std::error::Error for Error {
     fn description(&self) -> &str {
         match *self {
-            Error::LebError(_) => "Error parsing LEB128 value",
+            Error::Leb(_) => "Error parsing LEB128 value",
             Error::Primitive(_) => "Error parsing primitive value",
             Error::AbbreviationCodeZero => {
                 "Abbreviation declared its code to be the reserved code 0"
@@ -285,7 +285,7 @@ impl ::std::error::Error for Error {
 
     fn cause(&self) -> Option<&::std::error::Error> {
         match *self {
-            Error::LebError(ref e) => Some(e),
+            Error::Leb(ref e) => Some(e),
             Error::Primitive(_) |
             Error::AbbreviationCodeZero |
             Error::InvalidAbbreviationTag |
@@ -323,7 +323,7 @@ fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<&[u8], u64, Error> {
     match leb128::read::unsigned(&mut input) {
         Ok(val) => ParseResult::Done(input, val),
         Err(leb128::read::Error::UnexpectedEndOfData) => ParseResult::Incomplete(Needed::Unknown),
-        Err(e) => ParseResult::Error(Err::Position(ErrorKind::Custom(Error::LebError(e)), input)),
+        Err(e) => ParseResult::Error(Err::Position(ErrorKind::Custom(Error::Leb(e)), input)),
     }
 }
 
@@ -332,7 +332,7 @@ fn parse_signed_leb(mut input: &[u8]) -> ParseResult<&[u8], i64, Error> {
     match leb128::read::signed(&mut input) {
         Ok(val) => ParseResult::Done(input, val),
         Err(leb128::read::Error::UnexpectedEndOfData) => ParseResult::Incomplete(Needed::Unknown),
-        Err(e) => ParseResult::Error(Err::Position(ErrorKind::Custom(Error::LebError(e)), input)),
+        Err(e) => ParseResult::Error(Err::Position(ErrorKind::Custom(Error::Leb(e)), input)),
     }
 }
 

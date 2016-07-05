@@ -15,7 +15,7 @@ nom = "1.2.3"
 
 [dependencies.clippy]
 optional = true
-version = "0.0.76"
+version = "0.0.78"
 
 [features]
 nightly = ["clippy"]
