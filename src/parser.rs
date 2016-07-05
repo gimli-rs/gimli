@@ -2888,6 +2888,101 @@ fn test_parse_attribute_data8() {
     };
 }
 
+#[test]
+fn test_parse_attribute_udata() {
+    let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    let bytes_written = {
+        let mut writable = &mut buf[..];
+        leb128::write::unsigned(&mut writable, 4097).unwrap()
+    };
+
+    let unit = CompilationUnit::new(7, 8, DebugAbbrevOffset(0x08070605), 8, Format::Dwarf32, &[]);
+
+    let spec = AttributeSpecification {
+        name: AttributeName::Name,
+        form: AttributeForm::Udata,
+    };
+
+    let input = AttributeInput(&buf, &unit, spec);
+
+    match parse_attribute(input) {
+        ParseResult::Done(rest, attr) => {
+            assert_eq!(attr, Attribute {
+                name: AttributeName::Name,
+                value: AttributeValue::Udata(4097),
+            });
+            assert_eq!(rest.0, &buf[bytes_written..]);
+        }
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
+    };
+}
+
+#[test]
+fn test_parse_attribute_sdata() {
+    let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    let bytes_written = {
+        let mut writable = &mut buf[..];
+        leb128::write::signed(&mut writable, -4097).unwrap()
+    };
+
+    let unit = CompilationUnit::new(7, 8, DebugAbbrevOffset(0x08070605), 8, Format::Dwarf32, &[]);
+
+    let spec = AttributeSpecification {
+        name: AttributeName::Name,
+        form: AttributeForm::Sdata,
+    };
+
+    let input = AttributeInput(&buf, &unit, spec);
+
+    match parse_attribute(input) {
+        ParseResult::Done(rest, attr) => {
+            assert_eq!(attr, Attribute {
+                name: AttributeName::Name,
+                value: AttributeValue::Sdata(-4097),
+            });
+            assert_eq!(rest.0, &buf[bytes_written..]);
+        }
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
+    };
+}
+
+#[test]
+fn test_parse_attribute_exprloc() {
+    // LEB length of data (2, one byte), two bytes of data, one byte left over input.
+    let buf = [0x02, 0x99, 0x99, 0x11];
+
+    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+
+    let spec = AttributeSpecification {
+        name: AttributeName::Name,
+        form: AttributeForm::Exprloc,
+    };
+
+    let input = AttributeInput(&buf, &unit, spec);
+
+    match parse_attribute(input) {
+        ParseResult::Done(rest, attr) => {
+            assert_eq!(attr, Attribute {
+                name: AttributeName::Name,
+                value: AttributeValue::Exprloc(&buf[1..3])
+            });
+            assert_eq!(rest.0, &buf[3..]);
+        }
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
+    };
+}
+
 /// An iterator over a particular DIE's attributes.
 #[derive(Clone, Copy, Debug)]
 pub struct AttrsIter<'a, 'b, 'c> {
