@@ -3523,6 +3523,88 @@ impl<'a, 'b, 'c> AttrsIter<'a, 'b, 'c> {
     }
 }
 
+#[test]
+fn test_attrs_iter() {
+    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+
+    let abbrev = Abbreviation {
+        code: 42,
+        tag: AbbreviationTag::Subprogram,
+        has_children: AbbreviationHasChildren::Yes,
+        attributes: vec![
+            AttributeSpecification {
+                name: AttributeName::Name,
+                form: AttributeForm::String,
+            },
+            AttributeSpecification {
+                name: AttributeName::LowPc,
+                form: AttributeForm::Addr,
+            },
+            AttributeSpecification {
+                name: AttributeName::HighPc,
+                form: AttributeForm::Addr,
+            },
+        ],
+    };
+
+    // "foo", 42, 1337
+    let buf = [0x66, 0x6f, 0x6f, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x39, 0x05, 0x00, 0x00];
+
+    let mut attrs = AttrsIter {
+        input: &buf[..],
+        attributes: &abbrev.attributes[..],
+        unit: &unit,
+    };
+
+    match attrs.next() {
+        Some(ParseResult::Done(rest, attr)) => {
+            assert_eq!(attr, Attribute {
+                name: AttributeName::Name,
+                value: AttributeValue::String(b"foo\0"),
+            });
+            assert_eq!(rest.0, &buf[4..]);
+        }
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
+    }
+
+    match attrs.next() {
+        Some(ParseResult::Done(rest, attr)) => {
+            assert_eq!(attr, Attribute {
+                name: AttributeName::LowPc,
+                value: AttributeValue::Addr(&[0x2a, 0x00, 0x00, 0x00]),
+            });
+            assert_eq!(rest.0, &buf[8..]);
+        }
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
+    }
+
+    match attrs.next() {
+        Some(ParseResult::Done(rest, attr)) => {
+            assert_eq!(attr, Attribute {
+                name: AttributeName::HighPc,
+                value: AttributeValue::Addr(&[0x39, 0x05, 0x00, 0x00]),
+            });
+            assert_eq!(rest.0, &buf[..0]);
+        }
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
+    }
+
+    if let None = attrs.next() {
+        assert!(true);
+    } else {
+        assert!(false);
+    }
+}
+
 /// A cursor into the Debugging Information Entries tree for a compilation unit.
 ///
 /// The `EntriesCursor` can traverse the DIE tree in either DFS order, or skip
