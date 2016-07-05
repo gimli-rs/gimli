@@ -2777,6 +2777,117 @@ fn test_parse_attribute_block() {
     };
 }
 
+#[test]
+fn test_parse_attribute_data1() {
+    let buf = [0x03];
+
+    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+
+    let spec = AttributeSpecification {
+        name: AttributeName::Name,
+        form: AttributeForm::Data1,
+    };
+
+    let input = AttributeInput(&buf, &unit, spec);
+
+    match parse_attribute(input) {
+        ParseResult::Done(_, attr) => {
+            assert_eq!(attr, Attribute {
+                name: AttributeName::Name,
+                value: AttributeValue::Data(&buf[..])
+            });
+        }
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
+    };
+}
+
+#[test]
+fn test_parse_attribute_data2() {
+    let buf = [0x02, 0x01, 0x0];
+
+    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+
+    let spec = AttributeSpecification {
+        name: AttributeName::Name,
+        form: AttributeForm::Data2,
+    };
+
+    let input = AttributeInput(&buf, &unit, spec);
+
+    match parse_attribute(input) {
+        ParseResult::Done(rest, attr) => {
+            assert_eq!(attr, Attribute {
+                name: AttributeName::Name,
+                value: AttributeValue::Data(&buf[..2])
+            });
+            assert_eq!(rest.0, &buf[2..]);
+        }
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
+    };
+}
+
+#[test]
+fn test_parse_attribute_data4() {
+    let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
+
+    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+
+    let spec = AttributeSpecification {
+        name: AttributeName::Name,
+        form: AttributeForm::Data4,
+    };
+
+    let input = AttributeInput(&buf, &unit, spec);
+
+    match parse_attribute(input) {
+        ParseResult::Done(rest, attr) => {
+            assert_eq!(attr, Attribute {
+                name: AttributeName::Name,
+                value: AttributeValue::Data(&buf[..4])
+            });
+            assert_eq!(rest.0, &buf[4..]);
+        }
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
+    };
+}
+
+#[test]
+fn test_parse_attribute_data8() {
+    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+
+    let unit = CompilationUnit::new(7, 8, DebugAbbrevOffset(0x08070605), 8, Format::Dwarf32, &[]);
+
+    let spec = AttributeSpecification {
+        name: AttributeName::Name,
+        form: AttributeForm::Data8,
+    };
+
+    let input = AttributeInput(&buf, &unit, spec);
+
+    match parse_attribute(input) {
+        ParseResult::Done(rest, attr) => {
+            assert_eq!(attr, Attribute {
+                name: AttributeName::Name,
+                value: AttributeValue::Data(&buf[..8])
+            });
+            assert_eq!(rest.0, &buf[8..]);
+        }
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
+    };
+}
+
 /// An iterator over a particular DIE's attributes.
 #[derive(Clone, Copy, Debug)]
 pub struct AttrsIter<'a, 'b, 'c> {
