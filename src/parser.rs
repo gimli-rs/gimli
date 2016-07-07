@@ -2292,21 +2292,21 @@ impl<'input, 'abbrev, 'unit> DebuggingInformationEntry<'input, 'abbrev, 'unit> {
     ///
     /// # let abbrev_buf = [
     /// #     // Code
-    /// #     1,
+    /// #     0x01,
     /// #     // DW_TAG_subprogram
     /// #     0x2e,
     /// #     // DW_CHILDREN_no
-    /// #     0x0,
+    /// #     0x00,
     /// #     // Begin attributes
     /// #       // Attribute name = DW_AT_name
     /// #       0x03,
     /// #       // Attribute form = DW_FORM_string
     /// #       0x08,
     /// #     // End attributes
-    /// #     0x0,
-    /// #     0x0,
+    /// #     0x00,
+    /// #     0x00,
     /// #     // Null terminator
-    /// #     0x0
+    /// #     0x00
     /// # ];
     /// # let read_debug_abbrev_section_somehow = || &abbrev_buf;
     /// let debug_abbrev = DebugAbbrev::new(read_debug_abbrev_section_somehow());
