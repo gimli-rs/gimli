@@ -379,7 +379,6 @@ pub enum AbbreviationTag {
 }
 
 /// Parse an abbreviation's tag.
-#[allow(cyclomatic_complexity)]
 fn parse_abbreviation_tag(input: &[u8]) -> ParseResult<&[u8], AbbreviationTag> {
     match parse_unsigned_leb(input) {
         ParseResult::Done(input, val) if AbbreviationTag::ArrayType as u64 == val => {
@@ -771,7 +770,6 @@ pub enum AttributeName {
 }
 
 /// Parse an attribute's name.
-#[allow(cyclomatic_complexity)]
 fn parse_attribute_name(input: &[u8]) -> ParseResult<&[u8], AttributeName> {
     match parse_unsigned_leb(input) {
         ParseResult::Done(input, val) if AttributeName::Sibling as u64 == val => {
@@ -1195,7 +1193,6 @@ pub enum AttributeForm {
 }
 
 /// Parse an attribute's form.
-#[allow(cyclomatic_complexity)]
 fn parse_attribute_form(input: &[u8]) -> ParseResult<&[u8], AttributeForm> {
     match parse_unsigned_leb(input) {
         ParseResult::Done(input, val) if AttributeForm::Addr as u64 == val => {
@@ -1582,7 +1579,6 @@ trait TranslateInput<T>: Raise<T> + Into<T> {}
 
 /// Whether the format of a compilation unit is 32- or 64-bit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(enum_variant_names)]
 pub enum Format {
     /// 64-bit DWARF
     Dwarf64,

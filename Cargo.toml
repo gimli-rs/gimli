@@ -13,9 +13,5 @@ version = "0.1.0"
 leb128 = "0.1.0"
 nom = "1.2.3"
 
-[dependencies.clippy]
-optional = true
-version = "0.0.78"
-
 [features]
-nightly = ["clippy"]
+nightly = []
