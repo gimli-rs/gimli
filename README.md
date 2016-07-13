@@ -63,3 +63,5 @@ or add this to your `Cargo.toml`:
 
 * Don't expose ParseResult to the outside world, just re-wrap in a gimli::Result
   type
+
+* Investigate not using `nom` and use `std::io::Cursor` and `byteorder` instead.
