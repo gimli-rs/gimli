@@ -3776,7 +3776,7 @@ pub enum DfsMovement {
 
 impl<'input, 'abbrev, 'unit> EntriesCursor<'input, 'abbrev, 'unit> {
     /// Get the entry that the cursor is currently pointing to.
-    pub fn current<'any>(&'any mut self)
+    pub fn current<'me>(&'me mut self)
                          -> Option<ParseResult<&'input [u8],
                                                DebuggingInformationEntry<'input,
                                                                          'abbrev,
