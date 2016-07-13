@@ -55,7 +55,11 @@ or add this to your `Cargo.toml`:
     * implement two iterators on top of this:
         * iterate all DIEs in dfs
         * given a DIE, iterate its direct children
+    * Clean up the return types for traversal methods...
 
 * Make a common `Unit` trait for all `CompilationUnit`, `TypeUnit`, and
   `PartialUnit` so DIEs can just have a fat pointer to their unit rather than be
   generic.
+
+* Don't expose ParseResult to the outside world, just re-wrap in a gimli::Result
+  type
