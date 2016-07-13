@@ -3,7 +3,8 @@
 use leb128;
 pub use nom::IResult as ParseResult;
 use nom::{self, Err, ErrorKind, le_u8, le_u16, le_u32, le_u64, length_value, Needed};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::mem;
 use std::collections::hash_map;
 
 /// An offset into the `.debug_types` section.
@@ -641,11 +642,11 @@ fn parse_abbreviation_tag(input: &[u8]) -> ParseResult<&[u8], AbbreviationTag> {
 /// DWARF standard 4, section 7.5.4, page 154
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AbbreviationHasChildren {
-    /// The type has children.
-    Yes = 0x0,
-
     /// The type does not have children.
-    No = 0x1,
+    No = 0x0,
+
+    /// The type has children.
+    Yes = 0x1,
 }
 
 /// Parse an abbreviation's "does the type have children?" byte.
@@ -2087,8 +2088,9 @@ impl<'input> CompilationUnit<'input> {
                                  -> EntriesCursor<'input, 'abbrev, 'me> {
         EntriesCursor {
             unit: self,
-            position: 0,
+            input: self.entries_buf,
             abbreviations: abbreviations,
+            cached_current: RefCell::new(None),
         }
     }
 }
@@ -2188,7 +2190,7 @@ pub struct DebuggingInformationEntry<'input, 'abbrev, 'unit>
     where 'input: 'unit
 {
     attrs_slice: &'input [u8],
-    children_slice: Cell<Option<&'input [u8]>>,
+    after_attrs: Cell<Option<&'input [u8]>>,
     code: u64,
     abbrev: &'abbrev Abbreviation,
     unit: &'unit CompilationUnit<'input>,
@@ -3540,16 +3542,14 @@ impl<'input, 'abbrev, 'entry, 'unit> Iterator for AttrsIter<'input, 'abbrev, 'en
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.attributes.len() == 0 {
-            // Now that we have parsed all of the attributes, we know where this
-            // entry's children start.
-            if self.entry.abbrev.has_children == AbbreviationHasChildren::Yes {
-                if let Some(children) = self.entry.children_slice.get() {
-                    debug_assert!(children == self.input);
-                } else {
-                    self.entry.children_slice.set(Some(self.input));
-                }
+            // Now that we have parsed all of the attributes, we know where
+            // either (1) this entry's children start, if the abbreviation says
+            // this entry has children; or (2) where this entry's siblings
+            // begin.
+            if let Some(end) = self.entry.after_attrs.get() {
+                debug_assert!(end == self.input);
             } else {
-                debug_assert!(self.entry.children_slice.get().is_none());
+                self.entry.after_attrs.set(Some(self.input));
             }
 
             return None;
@@ -3600,7 +3600,7 @@ fn test_attrs_iter() {
 
     let entry = DebuggingInformationEntry {
         attrs_slice: &buf,
-        children_slice: Cell::new(None),
+        after_attrs: Cell::new(None),
         code: 1,
         abbrev: &abbrev,
         unit: &unit,
@@ -3626,7 +3626,7 @@ fn test_attrs_iter() {
         }
     }
 
-    assert!(entry.children_slice.get().is_none());
+    assert!(entry.after_attrs.get().is_none());
 
     match attrs.next() {
         Some(ParseResult::Done(rest, attr)) => {
@@ -3642,7 +3642,7 @@ fn test_attrs_iter() {
         }
     }
 
-    assert!(entry.children_slice.get().is_none());
+    assert!(entry.after_attrs.get().is_none());
 
     match attrs.next() {
         Some(ParseResult::Done(rest, attr)) => {
@@ -3658,37 +3658,26 @@ fn test_attrs_iter() {
         }
     }
 
-    assert!(entry.children_slice.get().is_none());
+    assert!(entry.after_attrs.get().is_none());
 
     assert!(attrs.next().is_none());
-    assert!(entry.children_slice.get().is_some());
-    assert_eq!(entry.children_slice.get().unwrap(), &buf[buf.len() - 4..])
+    assert!(entry.after_attrs.get().is_some());
+    assert_eq!(entry.after_attrs.get().unwrap(), &buf[buf.len() - 4..])
 }
 
 /// A cursor into the Debugging Information Entries tree for a compilation unit.
 ///
 /// The `EntriesCursor` can traverse the DIE tree in either DFS order, or skip
 /// to the next sibling of the entry the cursor is currently pointing to.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct EntriesCursor<'input, 'abbrev, 'unit>
     where 'input: 'unit
 {
+    input: &'input [u8],
     unit: &'unit CompilationUnit<'input>,
-    position: usize,
     abbreviations: &'abbrev Abbreviations,
-}
-
-/// When advancing an `EntriesCursor` through a DIE tree in DFS order, this
-/// enumeration describes the relationship from the old position to the new one.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DfsMovement {
-    /// The cursor was moved down to the first child of the old, parent entry.
-    DownToChild,
-    /// The cursor was moved up to the old entry's parent's next sibling.
-    UpToParentSibling,
-    /// The old entry did not have any children, and we moved to its next
-    /// sibling.
-    SidewaysToSibling,
+    cached_current: RefCell<Option<ParseResult<&'input [u8],
+                                               DebuggingInformationEntry<'input, 'abbrev, 'unit>>>>,
 }
 
 impl<'input, 'abbrev, 'unit> EntriesCursor<'input, 'abbrev, 'unit> {
@@ -3696,41 +3685,428 @@ impl<'input, 'abbrev, 'unit> EntriesCursor<'input, 'abbrev, 'unit> {
     pub fn current<'me>
         (&'me mut self)
          -> Option<ParseResult<&'input [u8], DebuggingInformationEntry<'input, 'abbrev, 'unit>>> {
-        if self.position < self.unit.entries_buf.len() {
-            let input = &self.unit.entries_buf[self.position..];
-            match parse_unsigned_leb(input) {
-                ParseResult::Done(rest, code) => {
-                    if let Some(abbrev) = self.abbreviations.get(code) {
-                        Some(ParseResult::Done(rest,
-                                               DebuggingInformationEntry {
-                                                   attrs_slice: rest,
-                                                   children_slice: Cell::new(None),
-                                                   code: code,
-                                                   abbrev: abbrev,
-                                                   unit: self.unit,
-                                               }))
-                    } else {
-                        let custom = ErrorKind::Custom(ERROR_UNKNOWN_ABBREVIATION);
-                        Some(ParseResult::Error(Err::Position(custom, input)))
-                    }
-                }
-                ParseResult::Incomplete(needed) => Some(ParseResult::Incomplete(needed)),
-                ParseResult::Error(e) => Some(ParseResult::Error(e)),
+
+        // First, check for a cached result.
+        {
+            let cached = self.cached_current.borrow();
+            if let Some(ref cached) = *cached {
+                debug_assert!(cached.is_done());
+                return Some(cached.clone());
             }
-        } else {
-            None
+        }
+
+        if self.input.len() == 0 {
+            return None;
+        }
+
+        match parse_unsigned_leb(self.input) {
+            ParseResult::Done(rest, code) => {
+                if let Some(abbrev) = self.abbreviations.get(code) {
+                    let result = Some(ParseResult::Done(rest,
+                                                        DebuggingInformationEntry {
+                                                            attrs_slice: rest,
+                                                            after_attrs: Cell::new(None),
+                                                            code: code,
+                                                            abbrev: abbrev,
+                                                            unit: self.unit,
+                                                        }));
+
+                    let mut cached = self.cached_current.borrow_mut();
+                    debug_assert!(cached.is_none());
+                    mem::replace(&mut *cached, result.clone());
+
+                    result
+                } else {
+                    let custom = ErrorKind::Custom(ERROR_UNKNOWN_ABBREVIATION);
+                    Some(ParseResult::Error(Err::Position(custom, self.input)))
+                }
+            }
+            ParseResult::Incomplete(needed) => Some(ParseResult::Incomplete(needed)),
+            ParseResult::Error(e) => Some(ParseResult::Error(e)),
         }
     }
 
     /// Move the cursor to the next DIE in the tree in DFS order.
-    pub fn next_dfs(&mut self) -> Result<DfsMovement, ()> {
-        Err(())
+    ///
+    /// Upon success, return the delta traversal depth:
+    ///
+    ///   * If we moved down into the previous current entry's children, we get
+    ///     `Ok(1)`.
+    ///
+    ///   * If we moved to the previous current entry's sibling, we get
+    ///     `Ok(0)`.
+    ///
+    ///   * If the previous entry does not have any siblings and we move up to
+    ///     its parent's next sibling, then we get `Ok(-1)`. Note that if the
+    ///     parent doesn't have a next sibling, then it could go up to the
+    ///     parent's parent's next sibling and return `Ok(-2)`, etc.
+    ///
+    /// Here is an example that finds the first entry in a compilation unit that
+    /// does not have any children.
+    ///
+    /// ```
+    /// use gimli::{ParseResult};
+    /// # use gimli::{DebugAbbrev, DebugInfo};
+    /// # let abbrev_buf = [
+    /// #     // Code
+    /// #     0x01,
+    /// #     // DW_TAG_subprogram
+    /// #     0x2e,
+    /// #     // DW_CHILDREN_yes
+    /// #     0x01,
+    /// #     // Begin attributes
+    /// #       // Attribute name = DW_AT_name
+    /// #       0x03,
+    /// #       // Attribute form = DW_FORM_string
+    /// #       0x08,
+    /// #     // End attributes
+    /// #     0x00,
+    /// #     0x00,
+    /// #     // Null terminator
+    /// #     0x00
+    /// # ];
+    /// # let debug_abbrev = DebugAbbrev::new(&abbrev_buf);
+    /// # let get_abbrevs_for_compilation_unit = |_| match debug_abbrev.abbreviations() {
+    /// #     ParseResult::Done(_, abbrevs) => abbrevs,
+    /// #     otherwise => panic!("bad debug_abbrev: {:?}", otherwise),
+    /// # };
+    /// #
+    /// # let info_buf = [
+    /// #     // Comilation unit header
+    /// #
+    /// #     // 32-bit unit length = 25
+    /// #     0x19, 0x00, 0x00, 0x00,
+    /// #     // Version 4
+    /// #     0x04, 0x00,
+    /// #     // debug_abbrev_offset
+    /// #     0x05, 0x06, 0x07, 0x08,
+    /// #     // Address size
+    /// #     0x04,
+    /// #
+    /// #     // DIEs
+    /// #
+    /// #     // Abbreviation code
+    /// #     0x01,
+    /// #     // Attribute of form DW_FORM_string = "foo\0"
+    /// #     0x66, 0x6f, 0x6f, 0x00,
+    /// #
+    /// #       // Children
+    /// #
+    /// #       // Abbreviation code
+    /// #       0x01,
+    /// #       // Attribute of form DW_FORM_string = "foo\0"
+    /// #       0x66, 0x6f, 0x6f, 0x00,
+    /// #
+    /// #         // Children
+    /// #
+    /// #         // Abbreviation code
+    /// #         0x01,
+    /// #         // Attribute of form DW_FORM_string = "foo\0"
+    /// #         0x66, 0x6f, 0x6f, 0x00,
+    /// #
+    /// #           // Children
+    /// #
+    /// #           // End of children
+    /// #           0x00,
+    /// #
+    /// #         // End of children
+    /// #         0x00,
+    /// #
+    /// #       // End of children
+    /// #       0x00,
+    /// # ];
+    /// # let debug_info = DebugInfo::new(&info_buf);
+    /// #
+    /// # let get_some_compilation_unit = || match debug_info.compilation_units().next() {
+    /// #     Some(ParseResult::Done(_, unit)) => unit,
+    /// #     otherwise => panic!("bad debug_info: {:?}", otherwise),
+    /// # };
+    ///
+    /// let unit = get_some_compilation_unit();
+    /// let abbrevs = get_abbrevs_for_compilation_unit(&unit);
+    ///
+    /// let mut first_entry_with_no_children = None;
+    /// let mut cursor = unit.entries(&abbrevs);
+    ///
+    /// while cursor.next_dfs().unwrap() > 0 {
+    ///     if let Some(ParseResult::Done(_, current)) = cursor.current() {
+    ///         first_entry_with_no_children = Some(current);
+    ///     } else {
+    ///         panic!("Expected current entry");
+    ///     }
+    /// }
+    ///
+    /// println!("The first entry with no children is {:?}",
+    ///          first_entry_with_no_children.unwrap());
+    /// ```
+    pub fn next_dfs(&mut self) -> Result<isize, ()> {
+        match self.current() {
+            Some(ParseResult::Done(_, current)) => {
+                self.input = if let Some(after_attrs) = current.after_attrs.get() {
+                    after_attrs
+                } else {
+                    for _ in current.attrs() {
+                    }
+                    current.after_attrs.get().unwrap()
+                };
+
+                let mut delta_depth = if current.abbrev.has_children() {
+                    1
+                } else {
+                    0
+                };
+
+                // Keep eating null entries that mark the end of an entry's
+                // children.
+                while self.input.len() > 0 && self.input[0] == 0 {
+                    delta_depth -= 1;
+                    self.input = &self.input[1..];
+                }
+
+                let mut cached_current = self.cached_current.borrow_mut();
+                mem::replace(&mut *cached_current, None);
+
+                Ok(delta_depth)
+            }
+            _ => Err(()),
+        }
     }
 
     /// Move the cursor to the next sibling DIE of the current one.
     pub fn next_sibling(&mut self) -> Result<(), ()> {
         Err(())
     }
+}
+
+#[test]
+#[cfg_attr(nightly, rustfmt_skip)]
+fn test_cursor_next_dfs() {
+    let abbrev_buf = [
+        // Code
+        0x01,
+        // DW_TAG_subprogram
+        0x2e,
+        // DW_CHILDREN_yes
+        0x01,
+        // Begin attributes
+            // Attribute name = DW_AT_name
+            0x03,
+            // Attribute form = DW_FORM_string
+            0x08,
+        // End attributes
+        0x00,
+        0x00,
+
+        // Null terminator
+        0x00
+    ];
+
+    let debug_abbrev = DebugAbbrev::new(&abbrev_buf);
+
+    let abbrevs = match debug_abbrev.abbreviations() {
+        ParseResult::Done(_, abbrevs) => abbrevs,
+        otherwise => panic!("bad debug_abbrev: {:?}", otherwise),
+    };
+
+    let info_buf = [
+        // Comilation unit header
+
+        // 32-bit unit length = 67
+        0x43, 0x00, 0x00, 0x00,
+        // Version 4
+        0x04, 0x00,
+        // debug_abbrev_offset
+        0x05, 0x06, 0x07, 0x08,
+        // Address size
+        0x04,
+
+        // DIEs
+
+        // Abbreviation code
+        0x01,
+        // Attribute of form DW_FORM_string = "001\0"
+        0x30, 0x30, 0x31, 0x00,
+
+        // Children
+
+            // Abbreviation code
+            0x01,
+            // Attribute of form DW_FORM_string = "002\0"
+            0x30, 0x30, 0x32, 0x00,
+
+            // Children
+
+                // Abbreviation code
+                0x01,
+                // Attribute of form DW_FORM_string = "003\0"
+                0x30, 0x30, 0x33, 0x00,
+
+                // Children
+
+                // End of children
+                0x00,
+
+            // End of children
+            0x00,
+
+            // Abbreviation code
+            0x01,
+            // Attribute of form DW_FORM_string = "004\0"
+            0x30, 0x30, 0x34, 0x00,
+
+            // Children
+
+                // Abbreviation code
+                0x01,
+                // Attribute of form DW_FORM_string = "005\0"
+                0x30, 0x30, 0x35, 0x00,
+
+                // Children
+
+                // End of children
+                0x00,
+
+                // Abbreviation code
+                0x01,
+                // Attribute of form DW_FORM_string = "006\0"
+                0x30, 0x30, 0x36, 0x00,
+
+                // Children
+
+                // End of children
+                0x00,
+
+            // End of children
+            0x00,
+
+            // Abbreviation code
+            0x01,
+            // Attribute of form DW_FORM_string = "007\0"
+            0x30, 0x30, 0x37, 0x00,
+
+            // Children
+
+                // Abbreviation code
+                0x01,
+                // Attribute of form DW_FORM_string = "008\0"
+                0x30, 0x30, 0x38, 0x00,
+
+                // Children
+
+                    // Abbreviation code
+                    0x01,
+                    // Attribute of form DW_FORM_string = "009\0"
+                    0x30, 0x30, 0x39, 0x00,
+
+                    // Children
+
+                    // End of children
+                    0x00,
+
+                // End of children
+                0x00,
+
+            // End of children
+            0x00,
+
+            // Abbreviation code
+            0x01,
+            // Attribute of form DW_FORM_string = "010\0"
+            0x30, 0x31, 0x30, 0x00,
+
+            // Children
+
+            // End of children
+            0x00,
+
+        // End of children
+        0x00
+    ];
+
+    let debug_info = DebugInfo::new(&info_buf);
+
+    let unit = match debug_info.compilation_units().next() {
+        Some(ParseResult::Done(_, unit)) => unit,
+        otherwise => panic!("bad debug_info: {:?}", otherwise),
+    };
+
+    let mut cursor = unit.entries(&abbrevs);
+
+    fn assert_entry(entry: DebuggingInformationEntry, name: &str) {
+        match entry.attrs().next().expect("Expected an attribute") {
+            ParseResult::Done(_, attr) => {
+                assert_eq!(attr.name, AttributeName::Name);
+
+                let mut with_null: Vec<u8> = name.as_bytes().into();
+                with_null.push(0);
+
+                assert_eq!(attr.value, AttributeValue::String(&with_null));
+            }
+            otherwise => panic!("Expected an attribute, found {:?}", otherwise),
+        }
+    }
+
+    match cursor.current() {
+        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "001"),
+        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
+    }
+
+    assert_eq!(cursor.next_dfs().unwrap(), 1);
+    match cursor.current() {
+        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "002"),
+        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
+    }
+
+    assert_eq!(cursor.next_dfs().unwrap(), 1);
+    match cursor.current() {
+        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "003"),
+        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
+    }
+
+    assert_eq!(cursor.next_dfs().unwrap(), -1);
+    match cursor.current() {
+        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "004"),
+        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
+    }
+
+    assert_eq!(cursor.next_dfs().unwrap(), 1);
+    match cursor.current() {
+        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "005"),
+        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
+    }
+
+    assert_eq!(cursor.next_dfs().unwrap(), 0);
+    match cursor.current() {
+        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "006"),
+        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
+    }
+
+    assert_eq!(cursor.next_dfs().unwrap(), -1);
+    match cursor.current() {
+        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "007"),
+        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
+    }
+
+    assert_eq!(cursor.next_dfs().unwrap(), 1);
+    match cursor.current() {
+        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "008"),
+        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
+    }
+
+    assert_eq!(cursor.next_dfs().unwrap(), 1);
+    match cursor.current() {
+        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "009"),
+        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
+    }
+
+    assert_eq!(cursor.next_dfs().unwrap(), -2);
+    match cursor.current() {
+        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "010"),
+        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
+    }
+
+    assert_eq!(cursor.next_dfs().unwrap(), -1);
+    assert!(cursor.current().is_none());
 }
 
 /// Parse a type unit header's unique type signature. Callers should handle
