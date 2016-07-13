@@ -4,7 +4,6 @@ use leb128;
 pub use nom::IResult as ParseResult;
 use nom::{self, Err, ErrorKind, le_u8, le_u16, le_u32, le_u64, length_value, Needed};
 use std::cell::Cell;
-use std::fmt;
 use std::collections::hash_map;
 
 /// An offset into the `.debug_types` section.
@@ -39,6 +38,38 @@ pub struct DebugMacinfoOffset(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnitOffset(pub u64);
 
+// Error codes.
+//
+// Turns out that it is a pain to use custom error types with `nom` parsers, so
+// I eventually got rid of the one we had and replaced it with these constants.
+
+#[allow(missing_docs)]
+pub const ERROR_PARSE_UNSIGNED_LEB128: u32 = 0;
+#[allow(missing_docs)]
+pub const ERROR_PARSE_SIGNED_LEB128: u32 = 1;
+#[allow(missing_docs)]
+pub const ERROR_ABBREVIATION_CODE_ZERO: u32 = 2;
+#[allow(missing_docs)]
+pub const ERROR_UNKNOWN_TAG: u32 = 3;
+#[allow(missing_docs)]
+pub const ERROR_BAD_HAS_CHILDREN: u32 = 4;
+#[allow(missing_docs)]
+pub const ERROR_UNKNOWN_NAME: u32 = 5;
+#[allow(missing_docs)]
+pub const ERROR_UNKNOWN_FORM: u32 = 6;
+#[allow(missing_docs)]
+pub const ERROR_EXPECTED_ZERO: u32 = 7;
+#[allow(missing_docs)]
+pub const ERROR_DUPLICATE_ABBREVIATION_CODE: u32 = 8;
+#[allow(missing_docs)]
+pub const ERROR_UNKNOWN_RESERVED_LENGTH: u32 = 9;
+#[allow(missing_docs)]
+pub const ERROR_UNKNOWN_VERSION: u32 = 10;
+#[allow(missing_docs)]
+pub const ERROR_UNIT_HEADER_LENGTH_TOO_SHORT: u32 = 11;
+#[allow(missing_docs)]
+pub const ERROR_UNKNOWN_ABBREVIATION: u32 = 11;
+
 /// The `DebugAbbrev` struct represents the abbreviations describing
 /// `DebuggingInformationEntry`s' attribute names and forms found in the
 /// `.debug_abbrev` section.
@@ -66,7 +97,7 @@ impl<'input> DebugAbbrev<'input> {
     }
 
     /// Parse the abbreviations within this `.debug_abbrev` section.
-    pub fn abbreviations(&self) -> ParseResult<&[u8], Abbreviations, Error> {
+    pub fn abbreviations(&self) -> ParseResult<&[u8], Abbreviations> {
         parse_abbreviations(self.debug_abbrev_section)
     }
 }
@@ -129,7 +160,7 @@ pub struct CompilationUnitsIter<'input> {
 }
 
 impl<'input> Iterator for CompilationUnitsIter<'input> {
-    type Item = ParseResult<&'input [u8], CompilationUnit<'input>, Error>;
+    type Item = ParseResult<&'input [u8], CompilationUnit<'input>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.input.is_empty() {
@@ -209,7 +240,7 @@ fn test_compilation_units() {
             assert_eq!(header, expected);
 
         }
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 
     match units.next() {
@@ -223,121 +254,10 @@ fn test_compilation_units() {
                                      &buf[buf.len()-32..]);
             assert_eq!(header, expected);
         }
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 
     assert!(units.next().is_none());
-}
-
-/// A parse error.
-#[derive(Debug)]
-pub enum Error {
-    /// A malformed LEB128 value.
-    Leb(leb128::read::Error),
-
-    /// An error from a primitive parser.
-    Primitive(u32),
-
-    /// Zero is an illegal value for an abbreviation code.
-    AbbreviationCodeZero,
-
-    /// The abbreviation's tag is not a known variant of `AbbreviationTag` (aka
-    /// `DW_TAG_*`).
-    InvalidAbbreviationTag,
-
-    /// The abbreviation's "does the abbreviated type have children?" byte was
-    /// not one of `DW_CHILDREN_yes` or `DW_CHILDREN_no`.
-    InvalidAbbreviationHasChildren,
-
-    /// The abbreviation's attribute name is not a valid variant of
-    /// `AttributeName` (aka `DW_AT_*`).
-    InvalidAttributeName,
-
-    /// The abbreviation's attribute form is not a valid variant of
-    /// `AttributeForm` (aka `DW_FORM_*`).
-    InvalidAttributeForm,
-
-    /// Expected a zero byte, but did not find one.
-    ExpectedZero,
-
-    /// An abbreviation attempted to declare a code that is already in use by an
-    /// earlier abbreviation definition.
-    DuplicateAbbreviationCode,
-
-    /// Found a compilation unit length within the range of reserved values, but
-    /// whose specific value we do not know what to do with.
-    UnknownReservedCompilationUnitLength,
-
-    /// The reported DWARF version is a version we do not know how to parse.
-    UnknownDwarfVersion,
-
-    /// The compilation unit's specified length is invalid (for example, it is
-    /// shorter than the length of the compilation unit header's attributes).
-    InvalidUnitLength,
-
-    /// We found a reference to an unknown abbreviation code.
-    UnknownAbbreviationCode,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "gimli::parser::Error")
-    }
-}
-
-impl ::std::error::Error for Error {
-    fn description(&self) -> &str {
-        match *self {
-            Error::Leb(_) => "Error parsing LEB128 value",
-            Error::Primitive(_) => "Error parsing primitive value",
-            Error::AbbreviationCodeZero => {
-                "Abbreviation declared its code to be the reserved code 0"
-            }
-            Error::InvalidAbbreviationTag => "The abbreviation tag is invalid",
-            Error::InvalidAbbreviationHasChildren => {
-                "The \"does-the-abbreviated-type-have-children?\" byte is not DW_CHILDREN_yes or \
-                 DW_CHILDREN_no"
-            }
-            Error::InvalidAttributeName => "The abbreviation's attribute name is invalid",
-            Error::InvalidAttributeForm => "The abbreviation's attribute form is invalid",
-            Error::ExpectedZero => "Expected zero",
-            Error::DuplicateAbbreviationCode => {
-                "Found an abbreviation with a code that has already been used"
-            }
-            Error::UnknownReservedCompilationUnitLength => {
-                "Unknown reserved compilation unit length value found"
-            }
-            Error::UnknownDwarfVersion => {
-                "The DWARF version is a version that we do not know how to parse"
-            }
-            Error::InvalidUnitLength => "Invalid unit length",
-            Error::UnknownAbbreviationCode => "Found a reference to an unknown abbreviation code",
-        }
-    }
-
-    fn cause(&self) -> Option<&::std::error::Error> {
-        match *self {
-            Error::Leb(ref e) => Some(e),
-            Error::Primitive(_) |
-            Error::AbbreviationCodeZero |
-            Error::InvalidAbbreviationTag |
-            Error::InvalidAbbreviationHasChildren |
-            Error::InvalidAttributeName |
-            Error::InvalidAttributeForm |
-            Error::ExpectedZero |
-            Error::DuplicateAbbreviationCode |
-            Error::UnknownReservedCompilationUnitLength |
-            Error::UnknownDwarfVersion |
-            Error::InvalidUnitLength |
-            Error::UnknownAbbreviationCode => None,
-        }
-    }
-}
-
-impl From<u32> for Error {
-    fn from(e: u32) -> Self {
-        Error::Primitive(e)
-    }
 }
 
 macro_rules! try_parse_result (
@@ -351,29 +271,33 @@ macro_rules! try_parse_result (
 );
 
 /// Parse an unsigned LEB128 encoded integer.
-fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<&[u8], u64, Error> {
+fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<&[u8], u64> {
     match leb128::read::unsigned(&mut input) {
         Ok(val) => ParseResult::Done(input, val),
         Err(leb128::read::Error::UnexpectedEndOfData) => ParseResult::Incomplete(Needed::Unknown),
-        Err(e) => ParseResult::Error(Err::Position(ErrorKind::Custom(Error::Leb(e)), input)),
+        Err(_) => {
+            ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_PARSE_UNSIGNED_LEB128), input))
+        }
     }
 }
 
 /// Parse a signed LEB128 encoded integer.
-fn parse_signed_leb(mut input: &[u8]) -> ParseResult<&[u8], i64, Error> {
+fn parse_signed_leb(mut input: &[u8]) -> ParseResult<&[u8], i64> {
     match leb128::read::signed(&mut input) {
         Ok(val) => ParseResult::Done(input, val),
         Err(leb128::read::Error::UnexpectedEndOfData) => ParseResult::Incomplete(Needed::Unknown),
-        Err(e) => ParseResult::Error(Err::Position(ErrorKind::Custom(Error::Leb(e)), input)),
+        Err(_) => {
+            ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_PARSE_SIGNED_LEB128), input))
+        }
     }
 }
 
 /// Parse an abbreviation's code.
-fn parse_abbreviation_code(input: &[u8]) -> ParseResult<&[u8], u64, Error> {
+fn parse_abbreviation_code(input: &[u8]) -> ParseResult<&[u8], u64> {
     match parse_unsigned_leb(input) {
         ParseResult::Done(input, val) => {
             if val == 0 {
-                ParseResult::Error(Err::Position(ErrorKind::Custom(Error::AbbreviationCodeZero),
+                ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_ABBREVIATION_CODE_ZERO),
                                                  input))
             } else {
                 ParseResult::Done(input, val)
@@ -455,7 +379,7 @@ pub enum AbbreviationTag {
 
 /// Parse an abbreviation's tag.
 #[allow(cyclomatic_complexity)]
-fn parse_abbreviation_tag(input: &[u8]) -> ParseResult<&[u8], AbbreviationTag, Error> {
+fn parse_abbreviation_tag(input: &[u8]) -> ParseResult<&[u8], AbbreviationTag> {
     match parse_unsigned_leb(input) {
         ParseResult::Done(input, val) if AbbreviationTag::ArrayType as u64 == val => {
             ParseResult::Done(input, AbbreviationTag::ArrayType)
@@ -702,8 +626,7 @@ fn parse_abbreviation_tag(input: &[u8]) -> ParseResult<&[u8], AbbreviationTag, E
         }
 
         ParseResult::Done(input, _) => {
-            ParseResult::Error(Err::Position(ErrorKind::Custom(Error::InvalidAbbreviationTag),
-                                             input))
+            ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNKNOWN_TAG), input))
         }
 
         ParseResult::Incomplete(needed) => ParseResult::Incomplete(needed),
@@ -726,8 +649,7 @@ pub enum AbbreviationHasChildren {
 }
 
 /// Parse an abbreviation's "does the type have children?" byte.
-fn parse_abbreviation_has_children(input: &[u8])
-                                   -> ParseResult<&[u8], AbbreviationHasChildren, Error> {
+fn parse_abbreviation_has_children(input: &[u8]) -> ParseResult<&[u8], AbbreviationHasChildren> {
     match le_u8(input) {
         ParseResult::Done(input, val) if AbbreviationHasChildren::Yes as u8 == val => {
             ParseResult::Done(input, AbbreviationHasChildren::Yes)
@@ -737,15 +659,11 @@ fn parse_abbreviation_has_children(input: &[u8])
             ParseResult::Done(input, AbbreviationHasChildren::No)
         }
 
-        ParseResult::Done(input, _) =>
-            ParseResult::Error(
-                Err::Position(ErrorKind::Custom(Error::InvalidAbbreviationHasChildren), input)),
-
-        ParseResult::Incomplete(needed) => ParseResult::Incomplete(needed),
-
-        ParseResult::Error(_) => {
-            ParseResult::Error(Err::Code(ErrorKind::Custom(Error::InvalidAbbreviationHasChildren)))
+        ParseResult::Done(input, _) => {
+            ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_BAD_HAS_CHILDREN), input))
         }
+
+        otherwise => raise_result(input, otherwise.map(|_| unreachable!())),
     }
 }
 
@@ -853,7 +771,7 @@ pub enum AttributeName {
 
 /// Parse an attribute's name.
 #[allow(cyclomatic_complexity)]
-fn parse_attribute_name(input: &[u8]) -> ParseResult<&[u8], AttributeName, Error> {
+fn parse_attribute_name(input: &[u8]) -> ParseResult<&[u8], AttributeName> {
     match parse_unsigned_leb(input) {
         ParseResult::Done(input, val) if AttributeName::Sibling as u64 == val => {
             ParseResult::Done(input, AttributeName::Sibling)
@@ -1232,7 +1150,7 @@ fn parse_attribute_name(input: &[u8]) -> ParseResult<&[u8], AttributeName, Error
         }
 
         ParseResult::Done(input, _) => {
-            ParseResult::Error(Err::Position(ErrorKind::Custom(Error::InvalidAttributeName), input))
+            ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNKNOWN_NAME), input))
         }
 
         ParseResult::Incomplete(needed) => ParseResult::Incomplete(needed),
@@ -1277,7 +1195,7 @@ pub enum AttributeForm {
 
 /// Parse an attribute's form.
 #[allow(cyclomatic_complexity)]
-fn parse_attribute_form(input: &[u8]) -> ParseResult<&[u8], AttributeForm, Error> {
+fn parse_attribute_form(input: &[u8]) -> ParseResult<&[u8], AttributeForm> {
     match parse_unsigned_leb(input) {
         ParseResult::Done(input, val) if AttributeForm::Addr as u64 == val => {
             ParseResult::Done(input, AttributeForm::Addr)
@@ -1380,7 +1298,7 @@ fn parse_attribute_form(input: &[u8]) -> ParseResult<&[u8], AttributeForm, Error
         }
 
         ParseResult::Done(input, _) => {
-            ParseResult::Error(Err::Position(ErrorKind::Custom(Error::InvalidAttributeForm), input))
+            ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNKNOWN_FORM), input))
         }
 
         ParseResult::Incomplete(needed) => ParseResult::Incomplete(needed),
@@ -1463,7 +1381,7 @@ impl AttributeSpecification {
 }
 
 /// Parse a non-null attribute specification.
-fn parse_attribute_specification(input: &[u8]) -> ParseResult<&[u8], AttributeSpecification, Error> {
+fn parse_attribute_specification(input: &[u8]) -> ParseResult<&[u8], AttributeSpecification> {
     chain!(input,
            name: parse_attribute_name ~
            form: parse_attribute_form,
@@ -1471,15 +1389,15 @@ fn parse_attribute_specification(input: &[u8]) -> ParseResult<&[u8], AttributeSp
 }
 
 /// Parse the null attribute specification.
-fn parse_null_attribute_specification(input: &[u8]) -> ParseResult<&[u8], (), Error> {
+fn parse_null_attribute_specification(input: &[u8]) -> ParseResult<&[u8], ()> {
     let (input1, name) = try_parse!(input, parse_unsigned_leb);
     if name != 0 {
-        return ParseResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedZero), input));
+        return ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_EXPECTED_ZERO), input));
     }
 
     let (input2, form) = try_parse!(input1, parse_unsigned_leb);
     if form != 0 {
-        return ParseResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedZero), input1));
+        return ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_EXPECTED_ZERO), input1));
     }
 
     ParseResult::Done(input2, ())
@@ -1488,7 +1406,7 @@ fn parse_null_attribute_specification(input: &[u8]) -> ParseResult<&[u8], (), Er
 /// Parse a series of attribute specifications, terminated by a null attribute
 /// specification.
 fn parse_attribute_specifications(mut input: &[u8])
-                                  -> ParseResult<&[u8], Vec<AttributeSpecification>, Error> {
+                                  -> ParseResult<&[u8], Vec<AttributeSpecification>> {
     // There has to be a better way to keep parsing attributes until we see two
     // 0 LEB128s, but take_until!/take_while! aren't quite expressive enough for
     // this case.
@@ -1567,7 +1485,7 @@ impl Abbreviation {
 }
 
 /// Parse a non-null abbreviation.
-fn parse_abbreviation(input: &[u8]) -> ParseResult<&[u8], Abbreviation, Error> {
+fn parse_abbreviation(input: &[u8]) -> ParseResult<&[u8], Abbreviation> {
     chain!(input,
            code: parse_abbreviation_code ~
            tag: parse_abbreviation_tag ~
@@ -1577,12 +1495,12 @@ fn parse_abbreviation(input: &[u8]) -> ParseResult<&[u8], Abbreviation, Error> {
 }
 
 /// Parse a null abbreviation.
-fn parse_null_abbreviation(input: &[u8]) -> ParseResult<&[u8], (), Error> {
+fn parse_null_abbreviation(input: &[u8]) -> ParseResult<&[u8], ()> {
     let (input1, name) = try_parse!(input, parse_unsigned_leb);
     if name == 0 {
         ParseResult::Done(input1, ())
     } else {
-        ParseResult::Error(Err::Position(ErrorKind::Custom(Error::ExpectedZero), input))
+        ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_EXPECTED_ZERO), input))
     }
 
 }
@@ -1621,7 +1539,7 @@ impl Abbreviations {
 }
 
 /// Parse a series of abbreviations, terminated by a null abbreviation.
-fn parse_abbreviations(mut input: &[u8]) -> ParseResult<&[u8], Abbreviations, Error> {
+fn parse_abbreviations(mut input: &[u8]) -> ParseResult<&[u8], Abbreviations> {
     // Again with the super funky keep-parsing-X-while-we-can't-parse-a-Y
     // thing... This should definitely be abstracted out.
 
@@ -1640,7 +1558,7 @@ fn parse_abbreviations(mut input: &[u8]) -> ParseResult<&[u8], Abbreviations, Er
                     Err(_) =>
                         return ParseResult::Error(
                             Err::Position(
-                                ErrorKind::Custom(Error::DuplicateAbbreviationCode),
+                                ErrorKind::Custom(ERROR_DUPLICATE_ABBREVIATION_CODE),
                                 input)),
                 }
             }
@@ -1849,7 +1767,7 @@ named!(parse_u32_as_u64<&[u8], u64>,
        chain!(val: le_u32, || val as u64));
 
 /// Parse the compilation unit header's length.
-fn parse_unit_length(input: &[u8]) -> ParseResult<&[u8], (u64, Format), Error> {
+fn parse_unit_length(input: &[u8]) -> ParseResult<&[u8], (u64, Format)> {
     match parse_u32_as_u64(input) {
         ParseResult::Done(rest, val) if val < MAX_DWARF_32_UNIT_LENGTH => {
             ParseResult::Done(rest, (val, Format::Dwarf32))
@@ -1862,9 +1780,10 @@ fn parse_unit_length(input: &[u8]) -> ParseResult<&[u8], (u64, Format), Error> {
             }
         }
 
-        ParseResult::Done(_, _) =>
-            ParseResult::Error(Err::Position(
-                ErrorKind::Custom(Error::UnknownReservedCompilationUnitLength), input)),
+        ParseResult::Done(_, _) => {
+            ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNKNOWN_RESERVED_LENGTH),
+                                             input))
+        }
 
         otherwise => raise_result(input, otherwise.map(|_| unreachable!())),
     }
@@ -1880,7 +1799,7 @@ fn test_parse_unit_length_32_ok() {
             assert_eq!(format, Format::Dwarf32);
             assert_eq!(0x78563412, length);
         }
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 }
 
@@ -1900,7 +1819,7 @@ fn test_parse_unit_lengtph_64_ok() {
             assert_eq!(format, Format::Dwarf64);
             assert_eq!(0xffdebc9a78563412, length);
         }
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 }
 
@@ -1909,11 +1828,10 @@ fn test_parse_unit_length_unknown_reserved_value() {
     let buf = [0xfe, 0xff, 0xff, 0xff];
 
     match parse_unit_length(&buf) {
-        ParseResult::Error(Err::Position(
-            ErrorKind::Custom(Error::UnknownReservedCompilationUnitLength),
-            _)) =>
-            assert!(true),
-        _ => assert!(false),
+        ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNKNOWN_RESERVED_LENGTH), _)) => {
+            assert!(true)
+        }
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
@@ -1923,7 +1841,7 @@ fn test_parse_unit_length_incomplete() {
 
     match parse_unit_length(&buf) {
         ParseResult::Incomplete(_) => assert!(true),
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
@@ -1939,19 +1857,19 @@ fn test_parse_unit_length_64_incomplete() {
 
     match parse_unit_length(&buf) {
         ParseResult::Incomplete(_) => assert!(true),
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
 /// Parse the DWARF version from the compilation unit header.
-fn parse_version(input: &[u8]) -> ParseResult<&[u8], u16, Error> {
+fn parse_version(input: &[u8]) -> ParseResult<&[u8], u16> {
     match le_u16(input) {
         // DWARF 1 was very different, and is obsolete, so isn't supported by
         // this reader.
         ParseResult::Done(rest, val) if 2 <= val && val <= 4 => ParseResult::Done(rest, val),
 
         ParseResult::Done(_, _) => {
-            ParseResult::Error(Err::Position(ErrorKind::Custom(Error::UnknownDwarfVersion), input))
+            ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNKNOWN_VERSION), input))
         }
 
         otherwise => raise_result(input, otherwise),
@@ -1968,7 +1886,7 @@ fn test_compilation_unit_version_ok() {
             assert_eq!(val, 4);
             assert_eq!(rest, &[0xff, 0xff]);
         }
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
@@ -1977,19 +1895,19 @@ fn test_compilation_unit_version_unknown_version() {
     let buf = [0xab, 0xcd];
 
     match parse_version(&buf) {
-        ParseResult::Error(Err::Position(ErrorKind::Custom(Error::UnknownDwarfVersion), _)) => {
+        ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNKNOWN_VERSION), _)) => {
             assert!(true)
         }
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 
     let buf = [0x1, 0x0];
 
     match parse_version(&buf) {
-        ParseResult::Error(Err::Position(ErrorKind::Custom(Error::UnknownDwarfVersion), _)) => {
+        ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNKNOWN_VERSION), _)) => {
             assert!(true)
         }
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
@@ -1999,13 +1917,12 @@ fn test_compilation_unit_version_incomplete() {
 
     match parse_version(&buf) {
         ParseResult::Incomplete(_) => assert!(true),
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
 /// Parse the `debug_abbrev_offset` in the compilation unit header.
-fn parse_debug_abbrev_offset(input: FormatInput)
-                             -> ParseResult<FormatInput, DebugAbbrevOffset, Error> {
+fn parse_debug_abbrev_offset(input: FormatInput) -> ParseResult<FormatInput, DebugAbbrevOffset> {
     let offset = match input.1 {
         Format::Dwarf32 => translate(input, parse_u32_as_u64),
         Format::Dwarf64 => translate(input, le_u64),
@@ -2019,7 +1936,7 @@ fn test_parse_debug_abbrev_offset_32() {
 
     match parse_debug_abbrev_offset(FormatInput(&buf, Format::Dwarf32)) {
         ParseResult::Done(_, val) => assert_eq!(val, DebugAbbrevOffset(0x04030201)),
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
@@ -2029,7 +1946,7 @@ fn test_parse_debug_abbrev_offset_32_incomplete() {
 
     match parse_debug_abbrev_offset(FormatInput(&buf, Format::Dwarf32)) {
         ParseResult::Incomplete(_) => assert!(true),
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
@@ -2039,7 +1956,7 @@ fn test_parse_debug_abbrev_offset_64() {
 
     match parse_debug_abbrev_offset(FormatInput(&buf, Format::Dwarf64)) {
         ParseResult::Done(_, val) => assert_eq!(val, DebugAbbrevOffset(0x0807060504030201)),
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
@@ -2049,12 +1966,12 @@ fn test_parse_debug_abbrev_offset_64_incomplete() {
 
     match parse_debug_abbrev_offset(FormatInput(&buf, Format::Dwarf64)) {
         ParseResult::Incomplete(_) => assert!(true),
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
 /// Parse the size of addresses (in bytes) on the target architecture.
-fn parse_address_size(input: &[u8]) -> ParseResult<&[u8], u8, Error> {
+fn parse_address_size(input: &[u8]) -> ParseResult<&[u8], u8> {
     translate(input, le_u8)
 }
 
@@ -2064,7 +1981,7 @@ fn test_parse_address_size_ok() {
 
     match parse_address_size(&buf) {
         ParseResult::Done(_, val) => assert_eq!(val, 4),
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
@@ -2177,7 +2094,7 @@ impl<'input> CompilationUnit<'input> {
 }
 
 /// Parse a compilation unit header.
-fn parse_compilation_unit_header(input: &[u8]) -> ParseResult<&[u8], CompilationUnit, Error> {
+fn parse_compilation_unit_header(input: &[u8]) -> ParseResult<&[u8], CompilationUnit> {
     let (rest, (unit_length, format)) = try_parse_result!(input, parse_unit_length(input));
     let (rest, version) = try_parse!(rest, parse_version);
     let (rest, offset) = try_parse_result!(rest,
@@ -2186,7 +2103,7 @@ fn parse_compilation_unit_header(input: &[u8]) -> ParseResult<&[u8], Compilation
 
     if unit_length as usize + CompilationUnit::size_of_unit_length(format) <
        CompilationUnit::size_of_header(format) {
-        return ParseResult::Error(Err::Position(ErrorKind::Custom(Error::InvalidUnitLength),
+        return ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNIT_HEADER_LENGTH_TOO_SHORT),
                                                 input));
     }
     let end = unit_length as usize + CompilationUnit::size_of_unit_length(format) -
@@ -2229,7 +2146,7 @@ fn test_parse_compilation_unit_header_32_ok() {
                                             Format::Dwarf32,
                                             &[]))
         }
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 }
 
@@ -2259,7 +2176,7 @@ fn test_parse_compilation_unit_header_64_ok() {
                                                 &[]);
             assert_eq!(header, expected)
         }
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 }
 
@@ -2472,13 +2389,13 @@ impl<'input, 'unit> TranslateInput<&'input [u8]> for AttributeInput<'input, 'uni
 named!(length_u16_value, length_bytes!(le_u16));
 named!(length_u32_value, length_bytes!(le_u32));
 
-fn length_leb_value(input: &[u8]) -> ParseResult<&[u8], &[u8], Error> {
+fn length_leb_value(input: &[u8]) -> ParseResult<&[u8], &[u8]> {
     length_bytes!(input, parse_unsigned_leb)
 }
 
 fn parse_attribute<'input, 'unit>
     (mut input: AttributeInput<'input, 'unit>)
-     -> ParseResult<AttributeInput<'input, 'unit>, Attribute<'input>, Error> {
+     -> ParseResult<AttributeInput<'input, 'unit>, Attribute<'input>> {
     let mut form = input.2.form;
     loop {
         match form {
@@ -3619,7 +3536,7 @@ pub struct AttrsIter<'input, 'abbrev, 'entry, 'unit>
 }
 
 impl<'input, 'abbrev, 'entry, 'unit> Iterator for AttrsIter<'input, 'abbrev, 'entry, 'unit> {
-    type Item = ParseResult<AttributeInput<'input, 'unit>, Attribute<'input>, Error>;
+    type Item = ParseResult<AttributeInput<'input, 'unit>, Attribute<'input>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.attributes.len() == 0 {
@@ -3776,12 +3693,9 @@ pub enum DfsMovement {
 
 impl<'input, 'abbrev, 'unit> EntriesCursor<'input, 'abbrev, 'unit> {
     /// Get the entry that the cursor is currently pointing to.
-    pub fn current<'me>(&'me mut self)
-                         -> Option<ParseResult<&'input [u8],
-                                               DebuggingInformationEntry<'input,
-                                                                         'abbrev,
-                                                                         'unit>,
-                                               Error>> {
+    pub fn current<'me>
+        (&'me mut self)
+         -> Option<ParseResult<&'input [u8], DebuggingInformationEntry<'input, 'abbrev, 'unit>>> {
         if self.position < self.unit.entries_buf.len() {
             let input = &self.unit.entries_buf[self.position..];
             match parse_unsigned_leb(input) {
@@ -3796,7 +3710,7 @@ impl<'input, 'abbrev, 'unit> EntriesCursor<'input, 'abbrev, 'unit> {
                                                    unit: self.unit,
                                                }))
                     } else {
-                        let custom = ErrorKind::Custom(Error::UnknownAbbreviationCode);
+                        let custom = ErrorKind::Custom(ERROR_UNKNOWN_ABBREVIATION);
                         Some(ParseResult::Error(Err::Position(custom, input)))
                     }
                 }
@@ -3821,7 +3735,7 @@ impl<'input, 'abbrev, 'unit> EntriesCursor<'input, 'abbrev, 'unit> {
 
 /// Parse a type unit header's unique type signature. Callers should handle
 /// unique-ness checking.
-fn parse_type_signature(input: &[u8]) -> ParseResult<&[u8], u64, Error> {
+fn parse_type_signature(input: &[u8]) -> ParseResult<&[u8], u64> {
     translate(input, le_u64)
 }
 
@@ -3831,7 +3745,7 @@ fn test_parse_type_signature_ok() {
 
     match parse_type_signature(&buf) {
         ParseResult::Done(_, val) => assert_eq!(val, 0x0807060504030201),
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 }
 
@@ -3841,12 +3755,12 @@ fn test_parse_type_signature_incomplete() {
 
     match parse_type_signature(&buf) {
         ParseResult::Incomplete(_) => assert!(true),
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 }
 
 /// Parse a type unit header's type offset.
-fn parse_type_offset(input: FormatInput) -> ParseResult<FormatInput, DebugTypesOffset, Error> {
+fn parse_type_offset(input: FormatInput) -> ParseResult<FormatInput, DebugTypesOffset> {
     let result = match input.1 {
         Format::Dwarf32 => translate(input, parse_u32_as_u64),
         Format::Dwarf64 => translate(input, le_u64),
@@ -3864,7 +3778,7 @@ fn test_parse_type_offset_32_ok() {
             assert_eq!(rest.1, Format::Dwarf32);
             assert_eq!(DebugTypesOffset(0x78563412), offset);
         }
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 }
 
@@ -3878,7 +3792,7 @@ fn test_parse_type_offset_64_ok() {
             assert_eq!(rest.1, Format::Dwarf64);
             assert_eq!(DebugTypesOffset(0xffdebc9a78563412), offset);
         }
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 }
 
@@ -3889,7 +3803,7 @@ fn test_parse_type_offset_incomplete() {
 
     match parse_type_offset(FormatInput(&buf, Format::Dwarf32)) {
         ParseResult::Incomplete(_) => assert!(true),
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
@@ -3947,7 +3861,7 @@ impl<'input> TypeUnit<'input> {
 }
 
 /// Parse a type unit header.
-pub fn parse_type_unit_header(input: &[u8]) -> ParseResult<&[u8], TypeUnit, Error> {
+pub fn parse_type_unit_header(input: &[u8]) -> ParseResult<&[u8], TypeUnit> {
     let (rest, header) = try_parse!(input, parse_compilation_unit_header);
     let (rest, signature) = try_parse!(rest, parse_type_signature);
     let (rest, offset) = try_parse_result!(rest,
@@ -3990,6 +3904,6 @@ fn test_parse_type_unit_header_32_ok() {
                                      0xdeadbeefdeadbeef,
                                      DebugTypesOffset(0x7856341278563412)))
         },
-        _ => assert!(false),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 }
