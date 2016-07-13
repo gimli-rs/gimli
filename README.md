@@ -48,10 +48,10 @@ or add this to your `Cargo.toml`:
       `PartialUnit`s fall into this again?
 
 * Cursor-based DIE parsing
-    * ~~ next_dfs() ~~
+    * ~~next_dfs()~~
     * next_sibling()
-    * ~~ Needs to hold a reference to the current DIE to reuse the attribute parse
-      when possible ~~
+    * ~~Needs to hold a reference to the current DIE to reuse the attribute parse
+      when possible~~
     * implement two iterators on top of this:
         * iterate all DIEs in dfs
         * given a DIE, iterate its direct children
