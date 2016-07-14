@@ -6,7 +6,11 @@
 
 [![Coverage Status](https://coveralls.io/repos/github/fitzgen/gimli/badge.svg?branch=master)](https://coveralls.io/github/fitzgen/gimli?branch=master)
 
-A parser for the DWARF debugging format.
+A zero-copy parser for the DWARF debugging format.
+
+Bring your own object file loader: `gimli` makes no assumptions about what kind
+of object file you're working with. The flipside to that is that it's up to you
+to provide an ELF loader on Linux or Mach-O loader on OSX.
 
 ## Install
 
@@ -17,7 +21,7 @@ Either
 or add this to your `Cargo.toml`:
 
     [dependencies]
-    gimli = "0.1.0"
+    gimli = "0.2.0"
 
 ## Documentation
 

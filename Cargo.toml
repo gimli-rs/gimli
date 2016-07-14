@@ -1,13 +1,13 @@
 [package]
 authors = ["Nick Fitzgerald <fitzgen@gmail.com>"]
-description = "DWARF debugging format parser."
+description = "A zero-copy DWARF debugging format parser."
 documentation = "http://fitzgen.github.io/gimli/gimli/index.html"
 keywords = ["DWARF", "debug", "elf"]
 license = "Apache-2.0/MIT"
 name = "gimli"
 readme = "./README.md"
 repository = "https://github.com/fitzgen/gimli"
-version = "0.1.0"
+version = "0.2.0"
 
 [dependencies]
 byteorder = "0.5.3"
