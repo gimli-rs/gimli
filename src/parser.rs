@@ -1,11 +1,224 @@
 //! Functions for parsing DWARF debugging information.
 
+use byteorder;
 use leb128;
-pub use nom::IResult as ParseResult;
-use nom::{self, Err, ErrorKind, le_u8, le_u16, le_u32, le_u64, length_value, Needed};
 use std::cell::{Cell, RefCell};
-use std::mem;
 use std::collections::hash_map;
+use std::fmt::Debug;
+use std::marker::PhantomData;
+use std::mem;
+use std::ops::{Deref, Index, RangeFrom, RangeTo};
+
+/// TODO FITZGEN
+pub trait Endianity
+    : byteorder::ByteOrder + Debug + Clone + Copy + PartialEq + Eq {
+}
+
+/// TODO FITZGEN
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LittleEndian {}
+
+impl byteorder::ByteOrder for LittleEndian {
+    fn read_u16(buf: &[u8]) -> u16 {
+        byteorder::LittleEndian::read_u16(buf)
+    }
+    fn read_u32(buf: &[u8]) -> u32 {
+        byteorder::LittleEndian::read_u32(buf)
+    }
+    fn read_u64(buf: &[u8]) -> u64 {
+        byteorder::LittleEndian::read_u64(buf)
+    }
+    fn read_uint(buf: &[u8], nbytes: usize) -> u64 {
+        byteorder::LittleEndian::read_uint(buf, nbytes)
+    }
+    fn write_u16(buf: &mut [u8], n: u16) {
+        byteorder::LittleEndian::write_u16(buf, n)
+    }
+    fn write_u32(buf: &mut [u8], n: u32) {
+        byteorder::LittleEndian::write_u32(buf, n)
+    }
+    fn write_u64(buf: &mut [u8], n: u64) {
+        byteorder::LittleEndian::write_u64(buf, n)
+    }
+    fn write_uint(buf: &mut [u8], n: u64, nbytes: usize) {
+        byteorder::LittleEndian::write_uint(buf, n, nbytes)
+    }
+}
+
+impl Endianity for LittleEndian {}
+
+/// TODO FITZGEN
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BigEndian {}
+
+impl byteorder::ByteOrder for BigEndian {
+    fn read_u16(buf: &[u8]) -> u16 {
+        byteorder::BigEndian::read_u16(buf)
+    }
+    fn read_u32(buf: &[u8]) -> u32 {
+        byteorder::BigEndian::read_u32(buf)
+    }
+    fn read_u64(buf: &[u8]) -> u64 {
+        byteorder::BigEndian::read_u64(buf)
+    }
+    fn read_uint(buf: &[u8], nbytes: usize) -> u64 {
+        byteorder::BigEndian::read_uint(buf, nbytes)
+    }
+    fn write_u16(buf: &mut [u8], n: u16) {
+        byteorder::BigEndian::write_u16(buf, n)
+    }
+    fn write_u32(buf: &mut [u8], n: u32) {
+        byteorder::BigEndian::write_u32(buf, n)
+    }
+    fn write_u64(buf: &mut [u8], n: u64) {
+        byteorder::BigEndian::write_u64(buf, n)
+    }
+    fn write_uint(buf: &mut [u8], n: u64, nbytes: usize) {
+        byteorder::BigEndian::write_uint(buf, n, nbytes)
+    }
+}
+
+impl Endianity for BigEndian {}
+
+/// TODO FITZGEN
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Error {
+    /// TODO FITZGEN
+    BadUnsignedLeb128,
+    /// TODO FITZGEN
+    BadSignedLeb128,
+    /// TODO FITZGEN
+    AbbreviationCodeZero,
+    /// TODO FITZGEN
+    UnknownTag,
+    /// TODO FITZGEN
+    BadHasChildren,
+    /// TODO FITZGEN
+    UnknownName,
+    /// TODO FITZGEN
+    UnknownForm,
+    /// TODO FITZGEN
+    ExpectedZero,
+    /// TODO FITZGEN
+    DuplicateAbbreviationCode,
+    /// TODO FITZGEN
+    UnknownReservedLength,
+    /// TODO FITZGEN
+    UnknownVersion,
+    /// TODO FITZGEN
+    UnitHeaderLengthTooShort,
+    /// TODO FITZGEN
+    UnknownAbbreviation,
+    /// TODO FITZGEN
+    UnexpectedEof,
+}
+
+/// TODO FITZGEN
+pub type ParseResult<T> = Result<T, Error>;
+
+/// TODO FITZGEN
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct EndianBuf<'input, Endian>(&'input [u8], PhantomData<Endian>) where Endian: Endianity;
+
+impl<'input, Endian> EndianBuf<'input, Endian>
+    where Endian: Endianity
+{
+    fn new(buf: &'input [u8]) -> EndianBuf<'input, Endian> {
+        EndianBuf(buf, PhantomData)
+    }
+
+    // Unfortunately, std::ops::Index *must* return a reference, so we can't
+    // implement Index<Range<usize>> to return a new EndianBuf the way we would
+    // like to. Instead, we abandon fancy indexing operators and have these
+    // plain old methods.
+
+    #[allow(dead_code)]
+    fn range_from(&self, idx: RangeFrom<usize>) -> EndianBuf<'input, Endian> {
+        EndianBuf(&self.0[idx], self.1)
+    }
+
+    fn range_to(&self, idx: RangeTo<usize>) -> EndianBuf<'input, Endian> {
+        EndianBuf(&self.0[idx], self.1)
+    }
+}
+
+impl<'input, Endian> Index<usize> for EndianBuf<'input, Endian>
+    where Endian: Endianity
+{
+    type Output = u8;
+    fn index(&self, idx: usize) -> &Self::Output {
+        &self.0[idx]
+    }
+}
+
+impl<'input, Endian> Deref for EndianBuf<'input, Endian>
+    where Endian: Endianity
+{
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl<'input, Endian> Into<&'input [u8]> for EndianBuf<'input, Endian>
+    where Endian: Endianity
+{
+    fn into(self) -> &'input [u8] {
+        self.0
+    }
+}
+
+fn parse_u8(input: &[u8]) -> ParseResult<(&[u8], u8)> {
+    if input.len() == 0 {
+        Err(Error::UnexpectedEof)
+    } else {
+        Ok((&input[1..], input[0]))
+    }
+}
+
+fn parse_u16<'input, Endian>(input: EndianBuf<'input, Endian>)
+                             -> ParseResult<(EndianBuf<'input, Endian>, u16)>
+    where Endian: Endianity
+{
+    if input.len() < 2 {
+        Err(Error::UnexpectedEof)
+    } else {
+        Ok((input.range_from(2..), Endian::read_u16(&input)))
+    }
+}
+
+fn parse_u32<'input, Endian>(input: EndianBuf<'input, Endian>)
+                             -> ParseResult<(EndianBuf<'input, Endian>, u32)>
+    where Endian: Endianity
+{
+    if input.len() < 4 {
+        Err(Error::UnexpectedEof)
+    } else {
+        Ok((input.range_from(4..), Endian::read_u32(&input)))
+    }
+}
+
+fn parse_u64<'input, Endian>(input: EndianBuf<'input, Endian>)
+                             -> ParseResult<(EndianBuf<'input, Endian>, u64)>
+    where Endian: Endianity
+{
+    if input.len() < 8 {
+        Err(Error::UnexpectedEof)
+    } else {
+        Ok((input.range_from(8..), Endian::read_u64(&input)))
+    }
+}
+
+fn parse_u32_as_u64<'input, Endian>(input: EndianBuf<'input, Endian>)
+                                    -> ParseResult<(EndianBuf<'input, Endian>, u64)>
+    where Endian: Endianity
+{
+    if input.len() < 4 {
+        Err(Error::UnexpectedEof)
+    } else {
+        Ok((input.range_from(4..), Endian::read_u32(&input) as u64))
+    }
+}
 
 /// An offset into the `.debug_types` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,46 +252,18 @@ pub struct DebugMacinfoOffset(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnitOffset(pub u64);
 
-// Error codes.
-//
-// Turns out that it is a pain to use custom error types with `nom` parsers, so
-// I eventually got rid of the one we had and replaced it with these constants.
-
-#[allow(missing_docs)]
-pub const ERROR_PARSE_UNSIGNED_LEB128: u32 = 0;
-#[allow(missing_docs)]
-pub const ERROR_PARSE_SIGNED_LEB128: u32 = 1;
-#[allow(missing_docs)]
-pub const ERROR_ABBREVIATION_CODE_ZERO: u32 = 2;
-#[allow(missing_docs)]
-pub const ERROR_UNKNOWN_TAG: u32 = 3;
-#[allow(missing_docs)]
-pub const ERROR_BAD_HAS_CHILDREN: u32 = 4;
-#[allow(missing_docs)]
-pub const ERROR_UNKNOWN_NAME: u32 = 5;
-#[allow(missing_docs)]
-pub const ERROR_UNKNOWN_FORM: u32 = 6;
-#[allow(missing_docs)]
-pub const ERROR_EXPECTED_ZERO: u32 = 7;
-#[allow(missing_docs)]
-pub const ERROR_DUPLICATE_ABBREVIATION_CODE: u32 = 8;
-#[allow(missing_docs)]
-pub const ERROR_UNKNOWN_RESERVED_LENGTH: u32 = 9;
-#[allow(missing_docs)]
-pub const ERROR_UNKNOWN_VERSION: u32 = 10;
-#[allow(missing_docs)]
-pub const ERROR_UNIT_HEADER_LENGTH_TOO_SHORT: u32 = 11;
-#[allow(missing_docs)]
-pub const ERROR_UNKNOWN_ABBREVIATION: u32 = 11;
-
 /// The `DebugAbbrev` struct represents the abbreviations describing
 /// `DebuggingInformationEntry`s' attribute names and forms found in the
 /// `.debug_abbrev` section.
-pub struct DebugAbbrev<'input> {
-    debug_abbrev_section: &'input [u8],
+pub struct DebugAbbrev<'input, Endian>
+    where Endian: Endianity
+{
+    debug_abbrev_section: EndianBuf<'input, Endian>,
 }
 
-impl<'input> DebugAbbrev<'input> {
+impl<'input, Endian> DebugAbbrev<'input, Endian>
+    where Endian: Endianity
+{
     /// Construct a new `DebugAbbrev` instance from the data in the `.debug_abbrev`
     /// section.
     ///
@@ -87,29 +272,33 @@ impl<'input> DebugAbbrev<'input> {
     /// Linux, a Mach-O loader on OSX, etc.
     ///
     /// ```
-    /// use gimli::DebugAbbrev;
+    /// use gimli::{DebugAbbrev, LittleEndian};
     ///
     /// # let buf = [0x00, 0x01, 0x02, 0x03];
     /// # let read_debug_abbrev_section_somehow = || &buf;
-    /// let debug_abbrev = DebugAbbrev::new(read_debug_abbrev_section_somehow());
+    /// let debug_abbrev = DebugAbbrev::<LittleEndian>::new(read_debug_abbrev_section_somehow());
     /// ```
-    pub fn new(debug_abbrev_section: &'input [u8]) -> DebugAbbrev<'input> {
-        DebugAbbrev { debug_abbrev_section: debug_abbrev_section }
+    pub fn new(debug_abbrev_section: &'input [u8]) -> DebugAbbrev<'input, Endian> {
+        DebugAbbrev { debug_abbrev_section: EndianBuf(debug_abbrev_section, PhantomData) }
     }
 
     /// Parse the abbreviations within this `.debug_abbrev` section.
-    pub fn abbreviations(&self) -> ParseResult<&[u8], Abbreviations> {
-        parse_abbreviations(self.debug_abbrev_section)
+    pub fn abbreviations(&self) -> ParseResult<Abbreviations> {
+        parse_abbreviations(self.debug_abbrev_section.0).map(|(_, abbrevs)| abbrevs)
     }
 }
 
 /// The `DebugInfo` struct represents the DWARF debugging information found in
 /// the `.debug_info` section.
-pub struct DebugInfo<'input> {
-    debug_info_section: &'input [u8],
+pub struct DebugInfo<'input, Endian>
+    where Endian: Endianity
+{
+    debug_info_section: EndianBuf<'input, Endian>,
 }
 
-impl<'input> DebugInfo<'input> {
+impl<'input, Endian> DebugInfo<'input, Endian>
+    where Endian: Endianity
+{
     /// Construct a new `DebugInfo` instance from the data in the `.debug_info`
     /// section.
     ///
@@ -118,35 +307,31 @@ impl<'input> DebugInfo<'input> {
     /// Linux, a Mach-O loader on OSX, etc.
     ///
     /// ```
-    /// use gimli::DebugInfo;
+    /// use gimli::{DebugInfo, LittleEndian};
     ///
     /// # let buf = [0x00, 0x01, 0x02, 0x03];
     /// # let read_debug_info_section_somehow = || &buf;
-    /// let debug_info = DebugInfo::new(read_debug_info_section_somehow());
+    /// let debug_info = DebugInfo::<LittleEndian>::new(read_debug_info_section_somehow());
     /// ```
-    pub fn new(debug_info_section: &'input [u8]) -> DebugInfo<'input> {
-        DebugInfo { debug_info_section: debug_info_section }
+    pub fn new(debug_info_section: &'input [u8]) -> DebugInfo<'input, Endian> {
+        DebugInfo { debug_info_section: EndianBuf(debug_info_section, PhantomData) }
     }
 
     /// Iterate the compilation units in this `.debug_info` section.
     ///
     /// ```
-    /// use gimli::{DebugInfo, ParseResult};
+    /// use gimli::{DebugInfo, LittleEndian};
     ///
     /// # let buf = [];
     /// # let read_debug_info_section_somehow = || &buf;
-    /// let debug_info = DebugInfo::new(read_debug_info_section_somehow());
+    /// let debug_info = DebugInfo::<LittleEndian>::new(read_debug_info_section_somehow());
     ///
     /// for parse_result in debug_info.compilation_units() {
-    ///     match parse_result {
-    ///         ParseResult::Done(_, unit) =>
-    ///             println!("unit's length is {}", unit.unit_length()),
-    ///         _ =>
-    ///             panic!(),
-    ///     }
+    ///     let unit = parse_result.unwrap();
+    ///     println!("unit's length is {}", unit.unit_length());
     /// }
     /// ```
-    pub fn compilation_units(&self) -> CompilationUnitsIter<'input> {
+    pub fn compilation_units(&self) -> CompilationUnitsIter<'input, Endian> {
         CompilationUnitsIter { input: self.debug_info_section }
     }
 }
@@ -156,30 +341,34 @@ impl<'input> DebugInfo<'input> {
 /// See the [documentation on
 /// `DebugInfo::compilation_units`](./struct.DebugInfo.html#method.compilation_units)
 /// for more detail.
-pub struct CompilationUnitsIter<'input> {
-    input: &'input [u8],
+pub struct CompilationUnitsIter<'input, Endian>
+    where Endian: Endianity
+{
+    input: EndianBuf<'input, Endian>,
 }
 
-impl<'input> Iterator for CompilationUnitsIter<'input> {
-    type Item = ParseResult<&'input [u8], CompilationUnit<'input>>;
+impl<'input, Endian> Iterator for CompilationUnitsIter<'input, Endian>
+    where Endian: Endianity
+{
+    type Item = ParseResult<CompilationUnit<'input, Endian>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.input.is_empty() {
             None
         } else {
             match parse_compilation_unit_header(self.input) {
-                ParseResult::Done(rest, header) => {
+                Ok((_, header)) => {
                     let unit_len = header.length_including_self() as usize;
                     if self.input.len() < unit_len {
-                        self.input = &self.input[..0];
+                        self.input = self.input.range_to(..0);
                     } else {
-                        self.input = &self.input[unit_len..];
+                        self.input = self.input.range_from(unit_len..);
                     }
-                    Some(ParseResult::Done(rest, header))
+                    Some(Ok(header))
                 }
-                otherwise => {
-                    self.input = &self.input[..0];
-                    Some(otherwise)
+                Err(e) => {
+                    self.input = self.input.range_to(..0);
+                    Some(Err(e))
                 }
             }
         }
@@ -227,12 +416,12 @@ fn test_compilation_units() {
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08
     ];
 
-    let debug_info = DebugInfo::new(&buf);
+    let debug_info = DebugInfo::<LittleEndian>::new(&buf);
     let mut units = debug_info.compilation_units();
 
     match units.next() {
-        Some(ParseResult::Done(_, header)) => {
-            let expected = CompilationUnit::new(0x000000000000002b,
+        Some(Ok(header)) => {
+            let expected = CompilationUnit::<LittleEndian>::new(0x000000000000002b,
                                                 4,
                                                 DebugAbbrevOffset(0x0102030405060708),
                                                 8,
@@ -245,7 +434,7 @@ fn test_compilation_units() {
     }
 
     match units.next() {
-        Some(ParseResult::Done(_, header)) => {
+        Some(Ok(header)) => {
             let expected =
                 CompilationUnit::new(0x00000027,
                                      4,
@@ -261,50 +450,31 @@ fn test_compilation_units() {
     assert!(units.next().is_none());
 }
 
-macro_rules! try_parse_result (
-    ($input:expr, $result:expr) => (
-        match $result {
-            ParseResult::Done(rest, out) => (rest, out),
-            ParseResult::Error(e) => return ParseResult::Error(raise_err($input, e)),
-            ParseResult::Incomplete(i) => return ParseResult::Incomplete(i)
-        }
-    );
-);
-
 /// Parse an unsigned LEB128 encoded integer.
-fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<&[u8], u64> {
+fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<(&[u8], u64)> {
     match leb128::read::unsigned(&mut input) {
-        Ok(val) => ParseResult::Done(input, val),
-        Err(leb128::read::Error::UnexpectedEndOfData) => ParseResult::Incomplete(Needed::Unknown),
-        Err(_) => {
-            ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_PARSE_UNSIGNED_LEB128), input))
-        }
+        Ok(val) => Ok((input, val)),
+        Err(leb128::read::Error::UnexpectedEndOfData) => Err(Error::UnexpectedEof),
+        Err(_) => Err(Error::BadUnsignedLeb128),
     }
 }
 
 /// Parse a signed LEB128 encoded integer.
-fn parse_signed_leb(mut input: &[u8]) -> ParseResult<&[u8], i64> {
+fn parse_signed_leb(mut input: &[u8]) -> ParseResult<(&[u8], i64)> {
     match leb128::read::signed(&mut input) {
-        Ok(val) => ParseResult::Done(input, val),
-        Err(leb128::read::Error::UnexpectedEndOfData) => ParseResult::Incomplete(Needed::Unknown),
-        Err(_) => {
-            ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_PARSE_SIGNED_LEB128), input))
-        }
+        Ok(val) => Ok((input, val)),
+        Err(leb128::read::Error::UnexpectedEndOfData) => Err(Error::UnexpectedEof),
+        Err(_) => Err(Error::BadSignedLeb128),
     }
 }
 
 /// Parse an abbreviation's code.
-fn parse_abbreviation_code(input: &[u8]) -> ParseResult<&[u8], u64> {
-    match parse_unsigned_leb(input) {
-        ParseResult::Done(input, val) => {
-            if val == 0 {
-                ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_ABBREVIATION_CODE_ZERO),
-                                                 input))
-            } else {
-                ParseResult::Done(input, val)
-            }
-        }
-        res => res,
+fn parse_abbreviation_code(input: &[u8]) -> ParseResult<(&[u8], u64)> {
+    let (rest, code) = try!(parse_unsigned_leb(input));
+    if code == 0 {
+        Err(Error::AbbreviationCodeZero)
+    } else {
+        Ok((rest, code))
     }
 }
 
@@ -379,259 +549,133 @@ pub enum AbbreviationTag {
 }
 
 /// Parse an abbreviation's tag.
-fn parse_abbreviation_tag(input: &[u8]) -> ParseResult<&[u8], AbbreviationTag> {
-    match parse_unsigned_leb(input) {
-        ParseResult::Done(input, val) if AbbreviationTag::ArrayType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::ArrayType)
-        }
+fn parse_abbreviation_tag(input: &[u8]) -> ParseResult<(&[u8], AbbreviationTag)> {
+    let (rest, val) = try!(parse_unsigned_leb(input));
 
-        ParseResult::Done(input, val) if AbbreviationTag::ClassType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::ClassType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::EntryPoint as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::EntryPoint)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::EnumerationType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::EnumerationType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::FormalParameter as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::FormalParameter)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::ImportedDeclaration as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::ImportedDeclaration)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::Label as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::Label)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::LexicalBlock as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::LexicalBlock)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::Member as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::Member)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::PointerType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::PointerType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::ReferenceType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::ReferenceType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::CompileUnit as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::CompileUnit)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::StringType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::StringType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::StructureType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::StructureType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::SubroutineType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::SubroutineType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::Typedef as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::Typedef)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::UnionType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::UnionType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::UnspecifiedParameters as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::UnspecifiedParameters)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::Variant as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::Variant)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::CommonBlock as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::CommonBlock)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::CommonInclusion as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::CommonInclusion)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::Inheritance as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::Inheritance)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::InlinedSubroutine as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::InlinedSubroutine)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::Module as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::Module)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::PtrToMemberType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::PtrToMemberType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::SetType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::SetType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::SubrangeType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::SubrangeType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::WithStmt as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::WithStmt)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::AccessDeclaration as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::AccessDeclaration)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::BaseType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::BaseType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::CatchBlock as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::CatchBlock)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::ConstType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::ConstType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::Constant as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::Constant)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::Enumerator as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::Enumerator)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::FileType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::FileType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::Friend as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::Friend)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::Namelist as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::Namelist)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::NamelistItem as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::NamelistItem)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::PackedType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::PackedType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::Subprogram as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::Subprogram)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::TemplateTypeParameter as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::TemplateTypeParameter)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::TemplateValueParameter as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::TemplateValueParameter)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::ThrownType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::ThrownType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::TryBlock as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::TryBlock)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::VariantPart as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::VariantPart)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::Variable as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::Variable)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::VolatileType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::VolatileType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::RestrictType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::RestrictType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::InterfaceType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::InterfaceType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::Namespace as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::Namespace)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::ImportedModule as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::ImportedModule)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::UnspecifiedType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::UnspecifiedType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::PartialUnit as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::PartialUnit)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::ImportedUnit as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::ImportedUnit)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::Condition as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::Condition)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::SharedType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::SharedType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::TypeUnit as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::TypeUnit)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::RvalueReferenceType as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::RvalueReferenceType)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::TemplateAlias as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::TemplateAlias)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::LoUser as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::LoUser)
-        }
-
-        ParseResult::Done(input, val) if AbbreviationTag::HiUser as u64 == val => {
-            ParseResult::Done(input, AbbreviationTag::HiUser)
-        }
-
-        ParseResult::Done(input, _) => {
-            ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNKNOWN_TAG), input))
-        }
-
-        ParseResult::Incomplete(needed) => ParseResult::Incomplete(needed),
-
-        ParseResult::Error(error) => ParseResult::Error(error),
+    if AbbreviationTag::ArrayType as u64 == val {
+        Ok((rest, AbbreviationTag::ArrayType))
+    } else if AbbreviationTag::ClassType as u64 == val {
+        Ok((rest, AbbreviationTag::ClassType))
+    } else if AbbreviationTag::EntryPoint as u64 == val {
+        Ok((rest, AbbreviationTag::EntryPoint))
+    } else if AbbreviationTag::EnumerationType as u64 == val {
+        Ok((rest, AbbreviationTag::EnumerationType))
+    } else if AbbreviationTag::FormalParameter as u64 == val {
+        Ok((rest, AbbreviationTag::FormalParameter))
+    } else if AbbreviationTag::ImportedDeclaration as u64 == val {
+        Ok((rest, AbbreviationTag::ImportedDeclaration))
+    } else if AbbreviationTag::Label as u64 == val {
+        Ok((rest, AbbreviationTag::Label))
+    } else if AbbreviationTag::LexicalBlock as u64 == val {
+        Ok((rest, AbbreviationTag::LexicalBlock))
+    } else if AbbreviationTag::Member as u64 == val {
+        Ok((rest, AbbreviationTag::Member))
+    } else if AbbreviationTag::PointerType as u64 == val {
+        Ok((rest, AbbreviationTag::PointerType))
+    } else if AbbreviationTag::ReferenceType as u64 == val {
+        Ok((rest, AbbreviationTag::ReferenceType))
+    } else if AbbreviationTag::CompileUnit as u64 == val {
+        Ok((rest, AbbreviationTag::CompileUnit))
+    } else if AbbreviationTag::StringType as u64 == val {
+        Ok((rest, AbbreviationTag::StringType))
+    } else if AbbreviationTag::StructureType as u64 == val {
+        Ok((rest, AbbreviationTag::StructureType))
+    } else if AbbreviationTag::SubroutineType as u64 == val {
+        Ok((rest, AbbreviationTag::SubroutineType))
+    } else if AbbreviationTag::Typedef as u64 == val {
+        Ok((rest, AbbreviationTag::Typedef))
+    } else if AbbreviationTag::UnionType as u64 == val {
+        Ok((rest, AbbreviationTag::UnionType))
+    } else if AbbreviationTag::UnspecifiedParameters as u64 == val {
+        Ok((rest, AbbreviationTag::UnspecifiedParameters))
+    } else if AbbreviationTag::Variant as u64 == val {
+        Ok((rest, AbbreviationTag::Variant))
+    } else if AbbreviationTag::CommonBlock as u64 == val {
+        Ok((rest, AbbreviationTag::CommonBlock))
+    } else if AbbreviationTag::CommonInclusion as u64 == val {
+        Ok((rest, AbbreviationTag::CommonInclusion))
+    } else if AbbreviationTag::Inheritance as u64 == val {
+        Ok((rest, AbbreviationTag::Inheritance))
+    } else if AbbreviationTag::InlinedSubroutine as u64 == val {
+        Ok((rest, AbbreviationTag::InlinedSubroutine))
+    } else if AbbreviationTag::Module as u64 == val {
+        Ok((rest, AbbreviationTag::Module))
+    } else if AbbreviationTag::PtrToMemberType as u64 == val {
+        Ok((rest, AbbreviationTag::PtrToMemberType))
+    } else if AbbreviationTag::SetType as u64 == val {
+        Ok((rest, AbbreviationTag::SetType))
+    } else if AbbreviationTag::SubrangeType as u64 == val {
+        Ok((rest, AbbreviationTag::SubrangeType))
+    } else if AbbreviationTag::WithStmt as u64 == val {
+        Ok((rest, AbbreviationTag::WithStmt))
+    } else if AbbreviationTag::AccessDeclaration as u64 == val {
+        Ok((rest, AbbreviationTag::AccessDeclaration))
+    } else if AbbreviationTag::BaseType as u64 == val {
+        Ok((rest, AbbreviationTag::BaseType))
+    } else if AbbreviationTag::CatchBlock as u64 == val {
+        Ok((rest, AbbreviationTag::CatchBlock))
+    } else if AbbreviationTag::ConstType as u64 == val {
+        Ok((rest, AbbreviationTag::ConstType))
+    } else if AbbreviationTag::Constant as u64 == val {
+        Ok((rest, AbbreviationTag::Constant))
+    } else if AbbreviationTag::Enumerator as u64 == val {
+        Ok((rest, AbbreviationTag::Enumerator))
+    } else if AbbreviationTag::FileType as u64 == val {
+        Ok((rest, AbbreviationTag::FileType))
+    } else if AbbreviationTag::Friend as u64 == val {
+        Ok((rest, AbbreviationTag::Friend))
+    } else if AbbreviationTag::Namelist as u64 == val {
+        Ok((rest, AbbreviationTag::Namelist))
+    } else if AbbreviationTag::NamelistItem as u64 == val {
+        Ok((rest, AbbreviationTag::NamelistItem))
+    } else if AbbreviationTag::PackedType as u64 == val {
+        Ok((rest, AbbreviationTag::PackedType))
+    } else if AbbreviationTag::Subprogram as u64 == val {
+        Ok((rest, AbbreviationTag::Subprogram))
+    } else if AbbreviationTag::TemplateTypeParameter as u64 == val {
+        Ok((rest, AbbreviationTag::TemplateTypeParameter))
+    } else if AbbreviationTag::TemplateValueParameter as u64 == val {
+        Ok((rest, AbbreviationTag::TemplateValueParameter))
+    } else if AbbreviationTag::ThrownType as u64 == val {
+        Ok((rest, AbbreviationTag::ThrownType))
+    } else if AbbreviationTag::TryBlock as u64 == val {
+        Ok((rest, AbbreviationTag::TryBlock))
+    } else if AbbreviationTag::VariantPart as u64 == val {
+        Ok((rest, AbbreviationTag::VariantPart))
+    } else if AbbreviationTag::Variable as u64 == val {
+        Ok((rest, AbbreviationTag::Variable))
+    } else if AbbreviationTag::VolatileType as u64 == val {
+        Ok((rest, AbbreviationTag::VolatileType))
+    } else if AbbreviationTag::RestrictType as u64 == val {
+        Ok((rest, AbbreviationTag::RestrictType))
+    } else if AbbreviationTag::InterfaceType as u64 == val {
+        Ok((rest, AbbreviationTag::InterfaceType))
+    } else if AbbreviationTag::Namespace as u64 == val {
+        Ok((rest, AbbreviationTag::Namespace))
+    } else if AbbreviationTag::ImportedModule as u64 == val {
+        Ok((rest, AbbreviationTag::ImportedModule))
+    } else if AbbreviationTag::UnspecifiedType as u64 == val {
+        Ok((rest, AbbreviationTag::UnspecifiedType))
+    } else if AbbreviationTag::PartialUnit as u64 == val {
+        Ok((rest, AbbreviationTag::PartialUnit))
+    } else if AbbreviationTag::ImportedUnit as u64 == val {
+        Ok((rest, AbbreviationTag::ImportedUnit))
+    } else if AbbreviationTag::Condition as u64 == val {
+        Ok((rest, AbbreviationTag::Condition))
+    } else if AbbreviationTag::SharedType as u64 == val {
+        Ok((rest, AbbreviationTag::SharedType))
+    } else if AbbreviationTag::TypeUnit as u64 == val {
+        Ok((rest, AbbreviationTag::TypeUnit))
+    } else if AbbreviationTag::RvalueReferenceType as u64 == val {
+        Ok((rest, AbbreviationTag::RvalueReferenceType))
+    } else if AbbreviationTag::TemplateAlias as u64 == val {
+        Ok((rest, AbbreviationTag::TemplateAlias))
+    } else if AbbreviationTag::LoUser as u64 == val {
+        Ok((rest, AbbreviationTag::LoUser))
+    } else if AbbreviationTag::HiUser as u64 == val {
+        Ok((rest, AbbreviationTag::HiUser))
+    } else {
+        Err(Error::UnknownTag)
     }
 }
 
@@ -649,21 +693,15 @@ pub enum AbbreviationHasChildren {
 }
 
 /// Parse an abbreviation's "does the type have children?" byte.
-fn parse_abbreviation_has_children(input: &[u8]) -> ParseResult<&[u8], AbbreviationHasChildren> {
-    match le_u8(input) {
-        ParseResult::Done(input, val) if AbbreviationHasChildren::Yes as u8 == val => {
-            ParseResult::Done(input, AbbreviationHasChildren::Yes)
-        }
+fn parse_abbreviation_has_children(input: &[u8]) -> ParseResult<(&[u8], AbbreviationHasChildren)> {
+    let (rest, val) = try!(parse_u8(input));
 
-        ParseResult::Done(input, val) if AbbreviationHasChildren::No as u8 == val => {
-            ParseResult::Done(input, AbbreviationHasChildren::No)
-        }
-
-        ParseResult::Done(input, _) => {
-            ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_BAD_HAS_CHILDREN), input))
-        }
-
-        otherwise => raise_result(input, otherwise.map(|_| unreachable!())),
+    if AbbreviationHasChildren::Yes as u8 == val {
+        Ok((rest, AbbreviationHasChildren::Yes))
+    } else if AbbreviationHasChildren::No as u8 == val {
+        Ok((rest, AbbreviationHasChildren::No))
+    } else {
+        Err(Error::BadHasChildren)
     }
 }
 
@@ -770,391 +808,198 @@ pub enum AttributeName {
 }
 
 /// Parse an attribute's name.
-fn parse_attribute_name(input: &[u8]) -> ParseResult<&[u8], AttributeName> {
-    match parse_unsigned_leb(input) {
-        ParseResult::Done(input, val) if AttributeName::Sibling as u64 == val => {
-            ParseResult::Done(input, AttributeName::Sibling)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Location as u64 == val => {
-            ParseResult::Done(input, AttributeName::Location)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Name as u64 == val => {
-            ParseResult::Done(input, AttributeName::Name)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Ordering as u64 == val => {
-            ParseResult::Done(input, AttributeName::Ordering)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::ByteSize as u64 == val => {
-            ParseResult::Done(input, AttributeName::ByteSize)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::BitOffset as u64 == val => {
-            ParseResult::Done(input, AttributeName::BitOffset)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::BitSize as u64 == val => {
-            ParseResult::Done(input, AttributeName::BitSize)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::StmtList as u64 == val => {
-            ParseResult::Done(input, AttributeName::StmtList)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::LowPc as u64 == val => {
-            ParseResult::Done(input, AttributeName::LowPc)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::HighPc as u64 == val => {
-            ParseResult::Done(input, AttributeName::HighPc)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Language as u64 == val => {
-            ParseResult::Done(input, AttributeName::Language)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Discr as u64 == val => {
-            ParseResult::Done(input, AttributeName::Discr)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::DiscrValue as u64 == val => {
-            ParseResult::Done(input, AttributeName::DiscrValue)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Visibility as u64 == val => {
-            ParseResult::Done(input, AttributeName::Visibility)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Import as u64 == val => {
-            ParseResult::Done(input, AttributeName::Import)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::StringLength as u64 == val => {
-            ParseResult::Done(input, AttributeName::StringLength)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::CommonReference as u64 == val => {
-            ParseResult::Done(input, AttributeName::CommonReference)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::CompDir as u64 == val => {
-            ParseResult::Done(input, AttributeName::CompDir)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::ConstValue as u64 == val => {
-            ParseResult::Done(input, AttributeName::ConstValue)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::ContainingType as u64 == val => {
-            ParseResult::Done(input, AttributeName::ContainingType)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::DefaultValue as u64 == val => {
-            ParseResult::Done(input, AttributeName::DefaultValue)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Inline as u64 == val => {
-            ParseResult::Done(input, AttributeName::Inline)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::IsOptional as u64 == val => {
-            ParseResult::Done(input, AttributeName::IsOptional)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::LowerBound as u64 == val => {
-            ParseResult::Done(input, AttributeName::LowerBound)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Producer as u64 == val => {
-            ParseResult::Done(input, AttributeName::Producer)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Prototyped as u64 == val => {
-            ParseResult::Done(input, AttributeName::Prototyped)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::ReturnAddr as u64 == val => {
-            ParseResult::Done(input, AttributeName::ReturnAddr)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::StartScope as u64 == val => {
-            ParseResult::Done(input, AttributeName::StartScope)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::BitStride as u64 == val => {
-            ParseResult::Done(input, AttributeName::BitStride)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::UpperBound as u64 == val => {
-            ParseResult::Done(input, AttributeName::UpperBound)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::AbstractOrigin as u64 == val => {
-            ParseResult::Done(input, AttributeName::AbstractOrigin)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Accessibility as u64 == val => {
-            ParseResult::Done(input, AttributeName::Accessibility)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::AddressClass as u64 == val => {
-            ParseResult::Done(input, AttributeName::AddressClass)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Artificial as u64 == val => {
-            ParseResult::Done(input, AttributeName::Artificial)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::BaseTypes as u64 == val => {
-            ParseResult::Done(input, AttributeName::BaseTypes)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::CallingConvention as u64 == val => {
-            ParseResult::Done(input, AttributeName::CallingConvention)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Count as u64 == val => {
-            ParseResult::Done(input, AttributeName::Count)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::DataMemberLocation as u64 == val => {
-            ParseResult::Done(input, AttributeName::DataMemberLocation)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::DeclColumn as u64 == val => {
-            ParseResult::Done(input, AttributeName::DeclColumn)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::DeclFile as u64 == val => {
-            ParseResult::Done(input, AttributeName::DeclFile)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::DeclLine as u64 == val => {
-            ParseResult::Done(input, AttributeName::DeclLine)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Declaration as u64 == val => {
-            ParseResult::Done(input, AttributeName::Declaration)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::DiscrList as u64 == val => {
-            ParseResult::Done(input, AttributeName::DiscrList)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Encoding as u64 == val => {
-            ParseResult::Done(input, AttributeName::Encoding)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::External as u64 == val => {
-            ParseResult::Done(input, AttributeName::External)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::FrameBase as u64 == val => {
-            ParseResult::Done(input, AttributeName::FrameBase)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Friend as u64 == val => {
-            ParseResult::Done(input, AttributeName::Friend)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::IdentifierCase as u64 == val => {
-            ParseResult::Done(input, AttributeName::IdentifierCase)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::MacroInfo as u64 == val => {
-            ParseResult::Done(input, AttributeName::MacroInfo)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::NamelistItem as u64 == val => {
-            ParseResult::Done(input, AttributeName::NamelistItem)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Priority as u64 == val => {
-            ParseResult::Done(input, AttributeName::Priority)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Segment as u64 == val => {
-            ParseResult::Done(input, AttributeName::Segment)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Specification as u64 == val => {
-            ParseResult::Done(input, AttributeName::Specification)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::StaticLink as u64 == val => {
-            ParseResult::Done(input, AttributeName::StaticLink)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Type as u64 == val => {
-            ParseResult::Done(input, AttributeName::Type)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::UseLocation as u64 == val => {
-            ParseResult::Done(input, AttributeName::UseLocation)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::VariableParameter as u64 == val => {
-            ParseResult::Done(input, AttributeName::VariableParameter)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Virtuality as u64 == val => {
-            ParseResult::Done(input, AttributeName::Virtuality)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::VtableElemLocation as u64 == val => {
-            ParseResult::Done(input, AttributeName::VtableElemLocation)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Allocated as u64 == val => {
-            ParseResult::Done(input, AttributeName::Allocated)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Associated as u64 == val => {
-            ParseResult::Done(input, AttributeName::Associated)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::DataLocation as u64 == val => {
-            ParseResult::Done(input, AttributeName::DataLocation)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::ByteStride as u64 == val => {
-            ParseResult::Done(input, AttributeName::ByteStride)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::EntryPc as u64 == val => {
-            ParseResult::Done(input, AttributeName::EntryPc)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::UseUtf8 as u64 == val => {
-            ParseResult::Done(input, AttributeName::UseUtf8)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Extension as u64 == val => {
-            ParseResult::Done(input, AttributeName::Extension)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Ranges as u64 == val => {
-            ParseResult::Done(input, AttributeName::Ranges)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Trampoline as u64 == val => {
-            ParseResult::Done(input, AttributeName::Trampoline)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::CallColumn as u64 == val => {
-            ParseResult::Done(input, AttributeName::CallColumn)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::CallFile as u64 == val => {
-            ParseResult::Done(input, AttributeName::CallFile)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::CallLine as u64 == val => {
-            ParseResult::Done(input, AttributeName::CallLine)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Description as u64 == val => {
-            ParseResult::Done(input, AttributeName::Description)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::BinaryScale as u64 == val => {
-            ParseResult::Done(input, AttributeName::BinaryScale)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::DecimalScale as u64 == val => {
-            ParseResult::Done(input, AttributeName::DecimalScale)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Small as u64 == val => {
-            ParseResult::Done(input, AttributeName::Small)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::DecimalSign as u64 == val => {
-            ParseResult::Done(input, AttributeName::DecimalSign)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::DigitCount as u64 == val => {
-            ParseResult::Done(input, AttributeName::DigitCount)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::PictureString as u64 == val => {
-            ParseResult::Done(input, AttributeName::PictureString)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Mutable as u64 == val => {
-            ParseResult::Done(input, AttributeName::Mutable)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::ThreadsScaled as u64 == val => {
-            ParseResult::Done(input, AttributeName::ThreadsScaled)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Explicit as u64 == val => {
-            ParseResult::Done(input, AttributeName::Explicit)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::ObjectPointer as u64 == val => {
-            ParseResult::Done(input, AttributeName::ObjectPointer)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Endianity as u64 == val => {
-            ParseResult::Done(input, AttributeName::Endianity)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Elemental as u64 == val => {
-            ParseResult::Done(input, AttributeName::Elemental)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Pure as u64 == val => {
-            ParseResult::Done(input, AttributeName::Pure)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Recursive as u64 == val => {
-            ParseResult::Done(input, AttributeName::Recursive)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::Signature as u64 == val => {
-            ParseResult::Done(input, AttributeName::Signature)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::MainSubprogram as u64 == val => {
-            ParseResult::Done(input, AttributeName::MainSubprogram)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::DataBitOffset as u64 == val => {
-            ParseResult::Done(input, AttributeName::DataBitOffset)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::ConstExpr as u64 == val => {
-            ParseResult::Done(input, AttributeName::ConstExpr)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::EnumClass as u64 == val => {
-            ParseResult::Done(input, AttributeName::EnumClass)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::LinkageName as u64 == val => {
-            ParseResult::Done(input, AttributeName::LinkageName)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::LoUser as u64 == val => {
-            ParseResult::Done(input, AttributeName::LoUser)
-        }
-
-        ParseResult::Done(input, val) if AttributeName::HiUser as u64 == val => {
-            ParseResult::Done(input, AttributeName::HiUser)
-        }
-
-        ParseResult::Done(input, _) => {
-            ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNKNOWN_NAME), input))
-        }
-
-        ParseResult::Incomplete(needed) => ParseResult::Incomplete(needed),
-
-        ParseResult::Error(error) => ParseResult::Error(error),
+fn parse_attribute_name(input: &[u8]) -> ParseResult<(&[u8], AttributeName)> {
+    let (rest, val) = try!(parse_unsigned_leb(input));
+    if AttributeName::Sibling as u64 == val {
+        Ok((rest, AttributeName::Sibling))
+    } else if AttributeName::Location as u64 == val {
+        Ok((rest, AttributeName::Location))
+    } else if AttributeName::Name as u64 == val {
+        Ok((rest, AttributeName::Name))
+    } else if AttributeName::Ordering as u64 == val {
+        Ok((rest, AttributeName::Ordering))
+    } else if AttributeName::ByteSize as u64 == val {
+        Ok((rest, AttributeName::ByteSize))
+    } else if AttributeName::BitOffset as u64 == val {
+        Ok((rest, AttributeName::BitOffset))
+    } else if AttributeName::BitSize as u64 == val {
+        Ok((rest, AttributeName::BitSize))
+    } else if AttributeName::StmtList as u64 == val {
+        Ok((rest, AttributeName::StmtList))
+    } else if AttributeName::LowPc as u64 == val {
+        Ok((rest, AttributeName::LowPc))
+    } else if AttributeName::HighPc as u64 == val {
+        Ok((rest, AttributeName::HighPc))
+    } else if AttributeName::Language as u64 == val {
+        Ok((rest, AttributeName::Language))
+    } else if AttributeName::Discr as u64 == val {
+        Ok((rest, AttributeName::Discr))
+    } else if AttributeName::DiscrValue as u64 == val {
+        Ok((rest, AttributeName::DiscrValue))
+    } else if AttributeName::Visibility as u64 == val {
+        Ok((rest, AttributeName::Visibility))
+    } else if AttributeName::Import as u64 == val {
+        Ok((rest, AttributeName::Import))
+    } else if AttributeName::StringLength as u64 == val {
+        Ok((rest, AttributeName::StringLength))
+    } else if AttributeName::CommonReference as u64 == val {
+        Ok((rest, AttributeName::CommonReference))
+    } else if AttributeName::CompDir as u64 == val {
+        Ok((rest, AttributeName::CompDir))
+    } else if AttributeName::ConstValue as u64 == val {
+        Ok((rest, AttributeName::ConstValue))
+    } else if AttributeName::ContainingType as u64 == val {
+        Ok((rest, AttributeName::ContainingType))
+    } else if AttributeName::DefaultValue as u64 == val {
+        Ok((rest, AttributeName::DefaultValue))
+    } else if AttributeName::Inline as u64 == val {
+        Ok((rest, AttributeName::Inline))
+    } else if AttributeName::IsOptional as u64 == val {
+        Ok((rest, AttributeName::IsOptional))
+    } else if AttributeName::LowerBound as u64 == val {
+        Ok((rest, AttributeName::LowerBound))
+    } else if AttributeName::Producer as u64 == val {
+        Ok((rest, AttributeName::Producer))
+    } else if AttributeName::Prototyped as u64 == val {
+        Ok((rest, AttributeName::Prototyped))
+    } else if AttributeName::ReturnAddr as u64 == val {
+        Ok((rest, AttributeName::ReturnAddr))
+    } else if AttributeName::StartScope as u64 == val {
+        Ok((rest, AttributeName::StartScope))
+    } else if AttributeName::BitStride as u64 == val {
+        Ok((rest, AttributeName::BitStride))
+    } else if AttributeName::UpperBound as u64 == val {
+        Ok((rest, AttributeName::UpperBound))
+    } else if AttributeName::AbstractOrigin as u64 == val {
+        Ok((rest, AttributeName::AbstractOrigin))
+    } else if AttributeName::Accessibility as u64 == val {
+        Ok((rest, AttributeName::Accessibility))
+    } else if AttributeName::AddressClass as u64 == val {
+        Ok((rest, AttributeName::AddressClass))
+    } else if AttributeName::Artificial as u64 == val {
+        Ok((rest, AttributeName::Artificial))
+    } else if AttributeName::BaseTypes as u64 == val {
+        Ok((rest, AttributeName::BaseTypes))
+    } else if AttributeName::CallingConvention as u64 == val {
+        Ok((rest, AttributeName::CallingConvention))
+    } else if AttributeName::Count as u64 == val {
+        Ok((rest, AttributeName::Count))
+    } else if AttributeName::DataMemberLocation as u64 == val {
+        Ok((rest, AttributeName::DataMemberLocation))
+    } else if AttributeName::DeclColumn as u64 == val {
+        Ok((rest, AttributeName::DeclColumn))
+    } else if AttributeName::DeclFile as u64 == val {
+        Ok((rest, AttributeName::DeclFile))
+    } else if AttributeName::DeclLine as u64 == val {
+        Ok((rest, AttributeName::DeclLine))
+    } else if AttributeName::Declaration as u64 == val {
+        Ok((rest, AttributeName::Declaration))
+    } else if AttributeName::DiscrList as u64 == val {
+        Ok((rest, AttributeName::DiscrList))
+    } else if AttributeName::Encoding as u64 == val {
+        Ok((rest, AttributeName::Encoding))
+    } else if AttributeName::External as u64 == val {
+        Ok((rest, AttributeName::External))
+    } else if AttributeName::FrameBase as u64 == val {
+        Ok((rest, AttributeName::FrameBase))
+    } else if AttributeName::Friend as u64 == val {
+        Ok((rest, AttributeName::Friend))
+    } else if AttributeName::IdentifierCase as u64 == val {
+        Ok((rest, AttributeName::IdentifierCase))
+    } else if AttributeName::MacroInfo as u64 == val {
+        Ok((rest, AttributeName::MacroInfo))
+    } else if AttributeName::NamelistItem as u64 == val {
+        Ok((rest, AttributeName::NamelistItem))
+    } else if AttributeName::Priority as u64 == val {
+        Ok((rest, AttributeName::Priority))
+    } else if AttributeName::Segment as u64 == val {
+        Ok((rest, AttributeName::Segment))
+    } else if AttributeName::Specification as u64 == val {
+        Ok((rest, AttributeName::Specification))
+    } else if AttributeName::StaticLink as u64 == val {
+        Ok((rest, AttributeName::StaticLink))
+    } else if AttributeName::Type as u64 == val {
+        Ok((rest, AttributeName::Type))
+    } else if AttributeName::UseLocation as u64 == val {
+        Ok((rest, AttributeName::UseLocation))
+    } else if AttributeName::VariableParameter as u64 == val {
+        Ok((rest, AttributeName::VariableParameter))
+    } else if AttributeName::Virtuality as u64 == val {
+        Ok((rest, AttributeName::Virtuality))
+    } else if AttributeName::VtableElemLocation as u64 == val {
+        Ok((rest, AttributeName::VtableElemLocation))
+    } else if AttributeName::Allocated as u64 == val {
+        Ok((rest, AttributeName::Allocated))
+    } else if AttributeName::Associated as u64 == val {
+        Ok((rest, AttributeName::Associated))
+    } else if AttributeName::DataLocation as u64 == val {
+        Ok((rest, AttributeName::DataLocation))
+    } else if AttributeName::ByteStride as u64 == val {
+        Ok((rest, AttributeName::ByteStride))
+    } else if AttributeName::EntryPc as u64 == val {
+        Ok((rest, AttributeName::EntryPc))
+    } else if AttributeName::UseUtf8 as u64 == val {
+        Ok((rest, AttributeName::UseUtf8))
+    } else if AttributeName::Extension as u64 == val {
+        Ok((rest, AttributeName::Extension))
+    } else if AttributeName::Ranges as u64 == val {
+        Ok((rest, AttributeName::Ranges))
+    } else if AttributeName::Trampoline as u64 == val {
+        Ok((rest, AttributeName::Trampoline))
+    } else if AttributeName::CallColumn as u64 == val {
+        Ok((rest, AttributeName::CallColumn))
+    } else if AttributeName::CallFile as u64 == val {
+        Ok((rest, AttributeName::CallFile))
+    } else if AttributeName::CallLine as u64 == val {
+        Ok((rest, AttributeName::CallLine))
+    } else if AttributeName::Description as u64 == val {
+        Ok((rest, AttributeName::Description))
+    } else if AttributeName::BinaryScale as u64 == val {
+        Ok((rest, AttributeName::BinaryScale))
+    } else if AttributeName::DecimalScale as u64 == val {
+        Ok((rest, AttributeName::DecimalScale))
+    } else if AttributeName::Small as u64 == val {
+        Ok((rest, AttributeName::Small))
+    } else if AttributeName::DecimalSign as u64 == val {
+        Ok((rest, AttributeName::DecimalSign))
+    } else if AttributeName::DigitCount as u64 == val {
+        Ok((rest, AttributeName::DigitCount))
+    } else if AttributeName::PictureString as u64 == val {
+        Ok((rest, AttributeName::PictureString))
+    } else if AttributeName::Mutable as u64 == val {
+        Ok((rest, AttributeName::Mutable))
+    } else if AttributeName::ThreadsScaled as u64 == val {
+        Ok((rest, AttributeName::ThreadsScaled))
+    } else if AttributeName::Explicit as u64 == val {
+        Ok((rest, AttributeName::Explicit))
+    } else if AttributeName::ObjectPointer as u64 == val {
+        Ok((rest, AttributeName::ObjectPointer))
+    } else if AttributeName::Endianity as u64 == val {
+        Ok((rest, AttributeName::Endianity))
+    } else if AttributeName::Elemental as u64 == val {
+        Ok((rest, AttributeName::Elemental))
+    } else if AttributeName::Pure as u64 == val {
+        Ok((rest, AttributeName::Pure))
+    } else if AttributeName::Recursive as u64 == val {
+        Ok((rest, AttributeName::Recursive))
+    } else if AttributeName::Signature as u64 == val {
+        Ok((rest, AttributeName::Signature))
+    } else if AttributeName::MainSubprogram as u64 == val {
+        Ok((rest, AttributeName::MainSubprogram))
+    } else if AttributeName::DataBitOffset as u64 == val {
+        Ok((rest, AttributeName::DataBitOffset))
+    } else if AttributeName::ConstExpr as u64 == val {
+        Ok((rest, AttributeName::ConstExpr))
+    } else if AttributeName::EnumClass as u64 == val {
+        Ok((rest, AttributeName::EnumClass))
+    } else if AttributeName::LinkageName as u64 == val {
+        Ok((rest, AttributeName::LinkageName))
+    } else if AttributeName::LoUser as u64 == val {
+        Ok((rest, AttributeName::LoUser))
+    } else if AttributeName::HiUser as u64 == val {
+        Ok((rest, AttributeName::HiUser))
+    } else {
+        Err(Error::UnknownName)
     }
 }
 
@@ -1193,115 +1038,60 @@ pub enum AttributeForm {
 }
 
 /// Parse an attribute's form.
-fn parse_attribute_form(input: &[u8]) -> ParseResult<&[u8], AttributeForm> {
-    match parse_unsigned_leb(input) {
-        ParseResult::Done(input, val) if AttributeForm::Addr as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Addr)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Block2 as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Block2)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Block4 as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Block4)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Data2 as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Data2)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Data4 as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Data4)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Data8 as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Data8)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::String as u64 == val => {
-            ParseResult::Done(input, AttributeForm::String)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Block as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Block)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Block1 as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Block1)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Data1 as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Data1)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Flag as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Flag)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Sdata as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Sdata)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Strp as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Strp)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Udata as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Udata)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::RefAddr as u64 == val => {
-            ParseResult::Done(input, AttributeForm::RefAddr)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Ref1 as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Ref1)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Ref2 as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Ref2)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Ref4 as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Ref4)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Ref8 as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Ref8)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::RefUdata as u64 == val => {
-            ParseResult::Done(input, AttributeForm::RefUdata)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Indirect as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Indirect)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::SecOffset as u64 == val => {
-            ParseResult::Done(input, AttributeForm::SecOffset)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::Exprloc as u64 == val => {
-            ParseResult::Done(input, AttributeForm::Exprloc)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::FlagPresent as u64 == val => {
-            ParseResult::Done(input, AttributeForm::FlagPresent)
-        }
-
-        ParseResult::Done(input, val) if AttributeForm::RefSig8 as u64 == val => {
-            ParseResult::Done(input, AttributeForm::RefSig8)
-        }
-
-        ParseResult::Done(input, _) => {
-            ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNKNOWN_FORM), input))
-        }
-
-        ParseResult::Incomplete(needed) => ParseResult::Incomplete(needed),
-
-        ParseResult::Error(error) => ParseResult::Error(error),
+fn parse_attribute_form(input: &[u8]) -> ParseResult<(&[u8], AttributeForm)> {
+    let (rest, val) = try!(parse_unsigned_leb(input));
+    if AttributeForm::Addr as u64 == val {
+        Ok((rest, AttributeForm::Addr))
+    } else if AttributeForm::Block2 as u64 == val {
+        Ok((rest, AttributeForm::Block2))
+    } else if AttributeForm::Block4 as u64 == val {
+        Ok((rest, AttributeForm::Block4))
+    } else if AttributeForm::Data2 as u64 == val {
+        Ok((rest, AttributeForm::Data2))
+    } else if AttributeForm::Data4 as u64 == val {
+        Ok((rest, AttributeForm::Data4))
+    } else if AttributeForm::Data8 as u64 == val {
+        Ok((rest, AttributeForm::Data8))
+    } else if AttributeForm::String as u64 == val {
+        Ok((rest, AttributeForm::String))
+    } else if AttributeForm::Block as u64 == val {
+        Ok((rest, AttributeForm::Block))
+    } else if AttributeForm::Block1 as u64 == val {
+        Ok((rest, AttributeForm::Block1))
+    } else if AttributeForm::Data1 as u64 == val {
+        Ok((rest, AttributeForm::Data1))
+    } else if AttributeForm::Flag as u64 == val {
+        Ok((rest, AttributeForm::Flag))
+    } else if AttributeForm::Sdata as u64 == val {
+        Ok((rest, AttributeForm::Sdata))
+    } else if AttributeForm::Strp as u64 == val {
+        Ok((rest, AttributeForm::Strp))
+    } else if AttributeForm::Udata as u64 == val {
+        Ok((rest, AttributeForm::Udata))
+    } else if AttributeForm::RefAddr as u64 == val {
+        Ok((rest, AttributeForm::RefAddr))
+    } else if AttributeForm::Ref1 as u64 == val {
+        Ok((rest, AttributeForm::Ref1))
+    } else if AttributeForm::Ref2 as u64 == val {
+        Ok((rest, AttributeForm::Ref2))
+    } else if AttributeForm::Ref4 as u64 == val {
+        Ok((rest, AttributeForm::Ref4))
+    } else if AttributeForm::Ref8 as u64 == val {
+        Ok((rest, AttributeForm::Ref8))
+    } else if AttributeForm::RefUdata as u64 == val {
+        Ok((rest, AttributeForm::RefUdata))
+    } else if AttributeForm::Indirect as u64 == val {
+        Ok((rest, AttributeForm::Indirect))
+    } else if AttributeForm::SecOffset as u64 == val {
+        Ok((rest, AttributeForm::SecOffset))
+    } else if AttributeForm::Exprloc as u64 == val {
+        Ok((rest, AttributeForm::Exprloc))
+    } else if AttributeForm::FlagPresent as u64 == val {
+        Ok((rest, AttributeForm::FlagPresent))
+    } else if AttributeForm::RefSig8 as u64 == val {
+        Ok((rest, AttributeForm::RefSig8))
+    } else {
+        Err(Error::UnknownForm)
     }
 }
 
@@ -1336,7 +1126,11 @@ impl AttributeSpecification {
     ///
     /// Note that because some attributes are variably sized, the size cannot
     /// always be known without parsing, in which case we return `None`.
-    pub fn size(&self, header: &CompilationUnit) -> Option<usize> {
+    pub fn size<'me, 'input, 'unit, Endian>(&'me self,
+                                            header: &'unit CompilationUnit<'input, Endian>)
+                                            -> Option<usize>
+        where Endian: Endianity
+    {
         match self.form {
             AttributeForm::Addr => Some(header.address_size() as usize),
 
@@ -1379,53 +1173,47 @@ impl AttributeSpecification {
 }
 
 /// Parse a non-null attribute specification.
-fn parse_attribute_specification(input: &[u8]) -> ParseResult<&[u8], AttributeSpecification> {
-    chain!(input,
-           name: parse_attribute_name ~
-           form: parse_attribute_form,
-           || AttributeSpecification::new(name, form))
+fn parse_attribute_specification(input: &[u8]) -> ParseResult<(&[u8], AttributeSpecification)> {
+    let (rest, name) = try!(parse_attribute_name(input));
+    let (rest, form) = try!(parse_attribute_form(rest));
+    let spec = AttributeSpecification::new(name, form);
+    Ok((rest, spec))
 }
 
 /// Parse the null attribute specification.
-fn parse_null_attribute_specification(input: &[u8]) -> ParseResult<&[u8], ()> {
-    let (input1, name) = try_parse!(input, parse_unsigned_leb);
+fn parse_null_attribute_specification(input: &[u8]) -> ParseResult<(&[u8], ())> {
+    let (rest, name) = try!(parse_unsigned_leb(input));
     if name != 0 {
-        return ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_EXPECTED_ZERO), input));
+        return Err(Error::ExpectedZero);
     }
 
-    let (input2, form) = try_parse!(input1, parse_unsigned_leb);
+    let (rest, form) = try!(parse_unsigned_leb(rest));
     if form != 0 {
-        return ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_EXPECTED_ZERO), input1));
+        return Err(Error::ExpectedZero);
     }
 
-    ParseResult::Done(input2, ())
+    Ok((rest, ()))
 }
 
 /// Parse a series of attribute specifications, terminated by a null attribute
 /// specification.
 fn parse_attribute_specifications(mut input: &[u8])
-                                  -> ParseResult<&[u8], Vec<AttributeSpecification>> {
-    // There has to be a better way to keep parsing attributes until we see two
-    // 0 LEB128s, but take_until!/take_while! aren't quite expressive enough for
-    // this case.
-
-    let mut results = Vec::new();
+                                  -> ParseResult<(&[u8], Vec<AttributeSpecification>)> {
+    let mut attrs = Vec::new();
 
     loop {
-        let (input1, attribute) = try_parse!(
-            input,
-            alt!(parse_null_attribute_specification => { |_| None } |
-                 parse_attribute_specification      => { |a| Some(a) }));
+        let result = parse_null_attribute_specification(input).map(|(rest, _)| (rest, None));
+        let result = result.or_else(|_| parse_attribute_specification(input).map(|(rest, a)| (rest, Some(a))));
+        let (rest, attr) = try!(result);
+        input = rest;
 
-        input = input1;
-
-        match attribute {
+        match attr {
             None => break,
-            Some(attr) => results.push(attr),
+            Some(attr) => attrs.push(attr),
         };
     }
 
-    ParseResult::Done(input, results)
+    Ok((input, attrs))
 }
 
 /// An abbreviation describes the shape of a `DebuggingInformationEntry`'s type:
@@ -1483,22 +1271,22 @@ impl Abbreviation {
 }
 
 /// Parse a non-null abbreviation.
-fn parse_abbreviation(input: &[u8]) -> ParseResult<&[u8], Abbreviation> {
-    chain!(input,
-           code: parse_abbreviation_code ~
-           tag: parse_abbreviation_tag ~
-           has_children: parse_abbreviation_has_children ~
-           attributes: parse_attribute_specifications,
-           || Abbreviation::new(code, tag, has_children, attributes))
+fn parse_abbreviation(input: &[u8]) -> ParseResult<(&[u8], Abbreviation)> {
+    let (rest, code) = try!(parse_abbreviation_code(input));
+    let (rest, tag) = try!(parse_abbreviation_tag(rest));
+    let (rest, has_children) = try!(parse_abbreviation_has_children(rest));
+    let (rest, attributes) = try!(parse_attribute_specifications(rest));
+    let abbrev = Abbreviation::new(code, tag, has_children, attributes);
+    Ok((rest, abbrev))
 }
 
 /// Parse a null abbreviation.
-fn parse_null_abbreviation(input: &[u8]) -> ParseResult<&[u8], ()> {
-    let (input1, name) = try_parse!(input, parse_unsigned_leb);
+fn parse_null_abbreviation(input: &[u8]) -> ParseResult<(&[u8], ())> {
+    let (rest, name) = try!(parse_unsigned_leb(input));
     if name == 0 {
-        ParseResult::Done(input1, ())
+        Ok((rest, ()))
     } else {
-        ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_EXPECTED_ZERO), input))
+        Err(Error::ExpectedZero)
     }
 
 }
@@ -1537,45 +1325,27 @@ impl Abbreviations {
 }
 
 /// Parse a series of abbreviations, terminated by a null abbreviation.
-fn parse_abbreviations(mut input: &[u8]) -> ParseResult<&[u8], Abbreviations> {
-    // Again with the super funky keep-parsing-X-while-we-can't-parse-a-Y
-    // thing... This should definitely be abstracted out.
-
-    let mut results = Abbreviations::empty();
+fn parse_abbreviations(mut input: &[u8]) -> ParseResult<(&[u8], Abbreviations)> {
+    let mut abbrevs = Abbreviations::empty();
 
     loop {
-        let (input1, abbrev) = try_parse!(input,
-                                          alt!(parse_null_abbreviation => { |_| None } |
-                                               parse_abbreviation      => { |a| Some(a) }));
+        let result = parse_null_abbreviation(input).map(|(rest, _)| (rest, None));
+        let result = result.or_else(|_| parse_abbreviation(input).map(|(rest, a)| (rest, Some(a))));
+        let (rest, abbrev) = try!(result);
+        input = rest;
 
         match abbrev {
             None => break,
             Some(abbrev) => {
-                match results.insert(abbrev) {
-                    Ok(_) => input = input1,
-                    Err(_) =>
-                        return ParseResult::Error(
-                            Err::Position(
-                                ErrorKind::Custom(ERROR_DUPLICATE_ABBREVIATION_CODE),
-                                input)),
+                if let Err(_) = abbrevs.insert(abbrev) {
+                    return Err(Error::DuplicateAbbreviationCode);
                 }
             }
         }
     }
 
-    ParseResult::Done(input, results)
+    Ok((input, abbrevs))
 }
-
-trait Raise<T> {
-    fn raise(original: Self, lowered_result: T) -> Self;
-}
-
-/// Any type U that implements `TranslateInput<T>` can be lowered to T and then
-/// later raised back to U. This is useful for lowering types that are a
-/// composition of a `&[u8]` and some extra data down to `&[u8]` to use nom's
-/// builtin parsers and then raise the result and input back up to the original
-/// composition input type.
-trait TranslateInput<T>: Raise<T> + Into<T> {}
 
 /// Whether the format of a compilation unit is 32- or 64-bit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1588,171 +1358,38 @@ pub enum Format {
 
 /// The input to parsing various compilation unit header information.
 #[derive(Debug, Clone, Copy)]
-pub struct FormatInput<'input>(&'input [u8], Format);
+struct FormatInput<'input, Endian>(EndianBuf<'input, Endian>, Format) where Endian: Endianity;
 
-impl<'input> nom::InputLength for FormatInput<'input> {
-    fn input_len(&self) -> usize {
-        self.0.len()
+impl<'input, Endian> FormatInput<'input, Endian>
+    where Endian: Endianity
+{
+    fn merge(&self, rest: EndianBuf<'input, Endian>) -> FormatInput<'input, Endian> {
+        FormatInput(rest, self.1)
     }
 }
 
-impl<'input> FormatInput<'input> {
-    /// Construct a new `FormatInput`.
-    pub fn new(input: &'input [u8], format: Format) -> FormatInput<'input> {
-        FormatInput(input, format)
-    }
-}
-
-impl<'input> Into<&'input [u8]> for FormatInput<'input> {
-    fn into(self) -> &'input [u8] {
+impl<'input, Endian> Into<EndianBuf<'input, Endian>> for FormatInput<'input, Endian>
+    where Endian: Endianity
+{
+    fn into(self) -> EndianBuf<'input, Endian> {
         self.0
     }
 }
 
-impl<'input> Raise<&'input [u8]> for FormatInput<'input> {
-    fn raise(original: Self, lowered: &'input [u8]) -> Self {
-        FormatInput(lowered, original.1)
-    }
-}
-
-impl<'input> TranslateInput<&'input [u8]> for FormatInput<'input> {}
-
-impl<'input> Raise<FormatInput<'input>> for &'input [u8] {
-    fn raise(_: Self, lowered: FormatInput<'input>) -> &'input [u8] {
-        lowered.0
-    }
-}
-
-impl<T> Raise<T> for T {
-    fn raise(_: Self, lowered: Self) -> Self {
-        lowered
-    }
-}
-
-impl<T> TranslateInput<T> for T {}
-
-/// Use a parser for some lower input type on a higher input type that is a
-/// composition of the lower input type and whatever extra data. Specifically,
-/// we use this so that we can use parsers on inputs of `&[u8]` with inputs of
-/// `FormatInput`, etc.
-fn translate<LowerOutput,
-             HigherOutput,
-             LowerError,
-             HigherError,
-             LowerInput,
-             HigherInput,
-             LowerParser>
-    (input: HigherInput,
-     parser: LowerParser)
-     -> ParseResult<HigherInput, HigherOutput, HigherError>
-    where HigherInput: TranslateInput<LowerInput> + Clone,
-          LowerParser: Fn(LowerInput) -> ParseResult<LowerInput, LowerOutput, LowerError>,
-          HigherOutput: From<LowerOutput>,
-          HigherError: From<LowerError>
+impl<'input, Endian> Into<&'input [u8]> for FormatInput<'input, Endian>
+    where Endian: Endianity
 {
-    let lowered_input = input.clone().into();
-    let lowered_result = parser(lowered_input);
-    raise_result(input, lowered_result)
-}
-
-fn raise_err<LowerInput, HigherInput, LowerError, HigherError>(original: HigherInput,
-                                                               err: Err<LowerInput, LowerError>)
-                                                               -> Err<HigherInput, HigherError>
-    where HigherInput: Raise<LowerInput> + Clone,
-          HigherError: From<LowerError>
-{
-    fn raise_error_kind<LowerError, HigherError>(code: ErrorKind<LowerError>)
-                                                 -> ErrorKind<HigherError>
-        where HigherError: From<LowerError>
-    {
-        // MATCH ALL THE THINGS!!!!
-        match code {
-            ErrorKind::Custom(e) => ErrorKind::Custom(e.into()),
-            ErrorKind::Tag => ErrorKind::Tag,
-            ErrorKind::MapRes => ErrorKind::MapRes,
-            ErrorKind::MapOpt => ErrorKind::MapOpt,
-            ErrorKind::Alt => ErrorKind::Alt,
-            ErrorKind::IsNot => ErrorKind::IsNot,
-            ErrorKind::IsA => ErrorKind::IsA,
-            ErrorKind::SeparatedList => ErrorKind::SeparatedList,
-            ErrorKind::SeparatedNonEmptyList => ErrorKind::SeparatedNonEmptyList,
-            ErrorKind::Many1 => ErrorKind::Many1,
-            ErrorKind::Count => ErrorKind::Count,
-            ErrorKind::TakeUntilAndConsume => ErrorKind::TakeUntilAndConsume,
-            ErrorKind::TakeUntil => ErrorKind::TakeUntil,
-            ErrorKind::TakeUntilEitherAndConsume => ErrorKind::TakeUntilEitherAndConsume,
-            ErrorKind::TakeUntilEither => ErrorKind::TakeUntilEither,
-            ErrorKind::LengthValue => ErrorKind::LengthValue,
-            ErrorKind::TagClosure => ErrorKind::TagClosure,
-            ErrorKind::Alpha => ErrorKind::Alpha,
-            ErrorKind::Digit => ErrorKind::Digit,
-            ErrorKind::HexDigit => ErrorKind::HexDigit,
-            ErrorKind::AlphaNumeric => ErrorKind::AlphaNumeric,
-            ErrorKind::Space => ErrorKind::Space,
-            ErrorKind::MultiSpace => ErrorKind::MultiSpace,
-            ErrorKind::LengthValueFn => ErrorKind::LengthValueFn,
-            ErrorKind::Eof => ErrorKind::Eof,
-            ErrorKind::ExprOpt => ErrorKind::ExprOpt,
-            ErrorKind::ExprRes => ErrorKind::ExprRes,
-            ErrorKind::CondReduce => ErrorKind::CondReduce,
-            ErrorKind::Switch => ErrorKind::Switch,
-            ErrorKind::TagBits => ErrorKind::TagBits,
-            ErrorKind::OneOf => ErrorKind::OneOf,
-            ErrorKind::NoneOf => ErrorKind::NoneOf,
-            ErrorKind::Char => ErrorKind::Char,
-            ErrorKind::CrLf => ErrorKind::CrLf,
-            ErrorKind::RegexpMatch => ErrorKind::RegexpMatch,
-            ErrorKind::RegexpMatches => ErrorKind::RegexpMatches,
-            ErrorKind::RegexpFind => ErrorKind::RegexpFind,
-            ErrorKind::RegexpCapture => ErrorKind::RegexpCapture,
-            ErrorKind::RegexpCaptures => ErrorKind::RegexpCaptures,
-            ErrorKind::TakeWhile1 => ErrorKind::TakeWhile1,
-            ErrorKind::Complete => ErrorKind::Complete,
-            ErrorKind::Fix => ErrorKind::Fix,
-            ErrorKind::Escaped => ErrorKind::Escaped,
-            ErrorKind::EscapedTransform => ErrorKind::EscapedTransform,
-            ErrorKind::TagStr => ErrorKind::TagStr,
-            ErrorKind::IsNotStr => ErrorKind::IsNotStr,
-            ErrorKind::IsAStr => ErrorKind::IsAStr,
-            ErrorKind::TakeWhile1Str => ErrorKind::TakeWhile1Str,
-            ErrorKind::NonEmpty => ErrorKind::NonEmpty,
-            ErrorKind::ManyMN => ErrorKind::ManyMN,
-            ErrorKind::TakeUntilAndConsumeStr => ErrorKind::TakeUntilAndConsumeStr,
-            ErrorKind::TakeUntilStr => ErrorKind::TakeUntilStr,
-            ErrorKind::Many0 => ErrorKind::Many0,
-            ErrorKind::OctDigit => ErrorKind::OctDigit,
-        }
-    }
-
-    match err {
-        Err::Code(code) => Err::Code(raise_error_kind(code)),
-        Err::Node(code, boxed_err) => {
-            Err::Node(raise_error_kind(code),
-                      Box::new(raise_err(original, *boxed_err)))
-        }
-        Err::Position(code, position) => {
-            Err::Position(raise_error_kind(code), Raise::raise(original, position))
-        }
-        Err::NodePosition(code, position, boxed_err) => {
-            Err::NodePosition(raise_error_kind(code),
-                              Raise::raise(original.clone(), position),
-                              Box::new(raise_err(original, *boxed_err)))
-        }
+    fn into(self) -> &'input [u8] {
+        self.0.into()
     }
 }
 
-fn raise_result<LowerOutput, HigherOutput, LowerInput, HigherInput, LowerError, HigherError>
-    (original: HigherInput,
-     lowered: ParseResult<LowerInput, LowerOutput, LowerError>)
-     -> ParseResult<HigherInput, HigherOutput, HigherError>
-    where HigherInput: Raise<LowerInput> + Clone,
-          HigherOutput: From<LowerOutput>,
-          HigherError: From<LowerError>
+impl<'input, Endian> Deref for FormatInput<'input, Endian>
+    where Endian: Endianity
 {
-    match lowered {
-        ParseResult::Incomplete(needed) => ParseResult::Incomplete(needed),
-        ParseResult::Done(rest, val) => ParseResult::Done(Raise::raise(original, rest), val.into()),
-        ParseResult::Error(err) => ParseResult::Error(raise_err(original, err)),
+    type Target = EndianBuf<'input, Endian>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -1760,29 +1397,19 @@ const MAX_DWARF_32_UNIT_LENGTH: u64 = 0xfffffff0;
 
 const DWARF_64_INITIAL_UNIT_LENGTH: u64 = 0xffffffff;
 
-named!(parse_u32_as_u64<&[u8], u64>,
-       chain!(val: le_u32, || val as u64));
-
 /// Parse the compilation unit header's length.
-fn parse_unit_length(input: &[u8]) -> ParseResult<&[u8], (u64, Format)> {
-    match parse_u32_as_u64(input) {
-        ParseResult::Done(rest, val) if val < MAX_DWARF_32_UNIT_LENGTH => {
-            ParseResult::Done(rest, (val, Format::Dwarf32))
-        }
-
-        ParseResult::Done(rest, val) if val == DWARF_64_INITIAL_UNIT_LENGTH => {
-            match le_u64(rest) {
-                ParseResult::Done(rest, val) => ParseResult::Done(rest, (val, Format::Dwarf64)),
-                otherwise => raise_result(rest, otherwise.map(|_| unreachable!())),
-            }
-        }
-
-        ParseResult::Done(_, _) => {
-            ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNKNOWN_RESERVED_LENGTH),
-                                             input))
-        }
-
-        otherwise => raise_result(input, otherwise.map(|_| unreachable!())),
+fn parse_unit_length<'input, Endian>(input: EndianBuf<'input, Endian>)
+                                     -> ParseResult<(EndianBuf<'input, Endian>, (u64, Format))>
+    where Endian: Endianity
+{
+    let (rest, val) = try!(parse_u32_as_u64(input));
+    if val < MAX_DWARF_32_UNIT_LENGTH {
+        Ok((rest, (val, Format::Dwarf32)))
+    } else if val == DWARF_64_INITIAL_UNIT_LENGTH {
+        let (rest, val) = try!(parse_u64(rest));
+        Ok((rest, (val, Format::Dwarf64)))
+    } else {
+        Err(Error::UnknownReservedLength)
     }
 }
 
@@ -1790,8 +1417,8 @@ fn parse_unit_length(input: &[u8]) -> ParseResult<&[u8], (u64, Format)> {
 fn test_parse_unit_length_32_ok() {
     let buf = [0x12, 0x34, 0x56, 0x78];
 
-    match parse_unit_length(&buf) {
-        ParseResult::Done(rest, (length, format)) => {
+    match parse_unit_length(EndianBuf::<LittleEndian>::new(&buf)) {
+        Ok((rest, (length, format))) => {
             assert_eq!(rest.len(), 0);
             assert_eq!(format, Format::Dwarf32);
             assert_eq!(0x78563412, length);
@@ -1802,7 +1429,7 @@ fn test_parse_unit_length_32_ok() {
 
 #[test]
 #[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_parse_unit_lengtph_64_ok() {
+fn test_parse_unit_length_64_ok() {
     let buf = [
         // Dwarf_64_INITIAL_UNIT_LENGTH
         0xff, 0xff, 0xff, 0xff,
@@ -1810,8 +1437,8 @@ fn test_parse_unit_lengtph_64_ok() {
         0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff
     ];
 
-    match parse_unit_length(&buf) {
-        ParseResult::Done(rest, (length, format)) => {
+    match parse_unit_length(EndianBuf::<LittleEndian>::new(&buf)) {
+        Ok((rest, (length, format))) => {
             assert_eq!(rest.len(), 0);
             assert_eq!(format, Format::Dwarf64);
             assert_eq!(0xffdebc9a78563412, length);
@@ -1824,10 +1451,8 @@ fn test_parse_unit_lengtph_64_ok() {
 fn test_parse_unit_length_unknown_reserved_value() {
     let buf = [0xfe, 0xff, 0xff, 0xff];
 
-    match parse_unit_length(&buf) {
-        ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNKNOWN_RESERVED_LENGTH), _)) => {
-            assert!(true)
-        }
+    match parse_unit_length(EndianBuf::<LittleEndian>::new(&buf)) {
+        Err(Error::UnknownReservedLength) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
@@ -1836,8 +1461,8 @@ fn test_parse_unit_length_unknown_reserved_value() {
 fn test_parse_unit_length_incomplete() {
     let buf = [0xff, 0xff, 0xff]; // Need at least 4 bytes.
 
-    match parse_unit_length(&buf) {
-        ParseResult::Incomplete(_) => assert!(true),
+    match parse_unit_length(EndianBuf::<LittleEndian>::new(&buf)) {
+        Err(Error::UnexpectedEof) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
@@ -1852,24 +1477,25 @@ fn test_parse_unit_length_64_incomplete() {
         0x12, 0x34, 0x56, 0x78
     ];
 
-    match parse_unit_length(&buf) {
-        ParseResult::Incomplete(_) => assert!(true),
+    match parse_unit_length(EndianBuf::<LittleEndian>::new(&buf)) {
+        Err(Error::UnexpectedEof) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
 /// Parse the DWARF version from the compilation unit header.
-fn parse_version(input: &[u8]) -> ParseResult<&[u8], u16> {
-    match le_u16(input) {
-        // DWARF 1 was very different, and is obsolete, so isn't supported by
-        // this reader.
-        ParseResult::Done(rest, val) if 2 <= val && val <= 4 => ParseResult::Done(rest, val),
+fn parse_version<'input, Endian>(input: EndianBuf<'input, Endian>)
+                                 -> ParseResult<(EndianBuf<'input, Endian>, u16)>
+    where Endian: Endianity
+{
+    let (rest, val) = try!(parse_u16(input));
 
-        ParseResult::Done(_, _) => {
-            ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNKNOWN_VERSION), input))
-        }
-
-        otherwise => raise_result(input, otherwise),
+    // DWARF 1 was very different, and is obsolete, so isn't supported by this
+    // reader.
+    if 2 <= val && val <= 4 {
+        Ok((rest, val))
+    } else {
+        Err(Error::UnknownVersion)
     }
 }
 
@@ -1878,10 +1504,10 @@ fn test_compilation_unit_version_ok() {
     // Version 4 and two extra bytes
     let buf = [0x04, 0x00, 0xff, 0xff];
 
-    match parse_version(&buf) {
-        ParseResult::Done(rest, val) => {
+    match parse_version(EndianBuf::<LittleEndian>::new(&buf)) {
+        Ok((rest, val)) => {
             assert_eq!(val, 4);
-            assert_eq!(rest, &[0xff, 0xff]);
+            assert_eq!(rest, EndianBuf::new(&[0xff, 0xff]));
         }
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
@@ -1891,19 +1517,15 @@ fn test_compilation_unit_version_ok() {
 fn test_compilation_unit_version_unknown_version() {
     let buf = [0xab, 0xcd];
 
-    match parse_version(&buf) {
-        ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNKNOWN_VERSION), _)) => {
-            assert!(true)
-        }
+    match parse_version(EndianBuf::<LittleEndian>::new(&buf)) {
+        Err(Error::UnknownVersion) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 
     let buf = [0x1, 0x0];
 
-    match parse_version(&buf) {
-        ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNKNOWN_VERSION), _)) => {
-            assert!(true)
-        }
+    match parse_version(EndianBuf::<LittleEndian>::new(&buf)) {
+        Err(Error::UnknownVersion) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
@@ -1912,27 +1534,32 @@ fn test_compilation_unit_version_unknown_version() {
 fn test_compilation_unit_version_incomplete() {
     let buf = [0x04];
 
-    match parse_version(&buf) {
-        ParseResult::Incomplete(_) => assert!(true),
+    match parse_version(EndianBuf::<LittleEndian>::new(&buf)) {
+        Err(Error::UnexpectedEof) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
 /// Parse the `debug_abbrev_offset` in the compilation unit header.
-fn parse_debug_abbrev_offset(input: FormatInput) -> ParseResult<FormatInput, DebugAbbrevOffset> {
+fn parse_debug_abbrev_offset<'input, Endian>
+    (input: FormatInput<'input, Endian>)
+     -> ParseResult<(FormatInput<'input, Endian>, DebugAbbrevOffset)>
+    where Endian: Endianity
+{
     let offset = match input.1 {
-        Format::Dwarf32 => translate(input, parse_u32_as_u64),
-        Format::Dwarf64 => translate(input, le_u64),
+        Format::Dwarf32 => parse_u32_as_u64(input.0),
+        Format::Dwarf64 => parse_u64(input.0),
     };
-    offset.map(DebugAbbrevOffset)
+    offset.map(|(rest, offset)| (input.merge(rest), DebugAbbrevOffset(offset)))
 }
 
 #[test]
 fn test_parse_debug_abbrev_offset_32() {
     let buf = [0x01, 0x02, 0x03, 0x04];
 
-    match parse_debug_abbrev_offset(FormatInput(&buf, Format::Dwarf32)) {
-        ParseResult::Done(_, val) => assert_eq!(val, DebugAbbrevOffset(0x04030201)),
+    match parse_debug_abbrev_offset(FormatInput(EndianBuf::<LittleEndian>::new(&buf),
+                                                Format::Dwarf32)) {
+        Ok((_, val)) => assert_eq!(val, DebugAbbrevOffset(0x04030201)),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
@@ -1941,8 +1568,9 @@ fn test_parse_debug_abbrev_offset_32() {
 fn test_parse_debug_abbrev_offset_32_incomplete() {
     let buf = [0x01, 0x02];
 
-    match parse_debug_abbrev_offset(FormatInput(&buf, Format::Dwarf32)) {
-        ParseResult::Incomplete(_) => assert!(true),
+    match parse_debug_abbrev_offset(FormatInput(EndianBuf::<LittleEndian>::new(&buf),
+                                                Format::Dwarf32)) {
+        Err(Error::UnexpectedEof) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
@@ -1951,8 +1579,9 @@ fn test_parse_debug_abbrev_offset_32_incomplete() {
 fn test_parse_debug_abbrev_offset_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
-    match parse_debug_abbrev_offset(FormatInput(&buf, Format::Dwarf64)) {
-        ParseResult::Done(_, val) => assert_eq!(val, DebugAbbrevOffset(0x0807060504030201)),
+    match parse_debug_abbrev_offset(FormatInput(EndianBuf::<LittleEndian>::new(&buf),
+                                                Format::Dwarf64)) {
+        Ok((_, val)) => assert_eq!(val, DebugAbbrevOffset(0x0807060504030201)),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
@@ -1961,15 +1590,16 @@ fn test_parse_debug_abbrev_offset_64() {
 fn test_parse_debug_abbrev_offset_64_incomplete() {
     let buf = [0x01, 0x02];
 
-    match parse_debug_abbrev_offset(FormatInput(&buf, Format::Dwarf64)) {
-        ParseResult::Incomplete(_) => assert!(true),
+    match parse_debug_abbrev_offset(FormatInput(EndianBuf::<LittleEndian>::new(&buf),
+                                                Format::Dwarf64)) {
+        Err(Error::UnexpectedEof) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
 /// Parse the size of addresses (in bytes) on the target architecture.
-fn parse_address_size(input: &[u8]) -> ParseResult<&[u8], u8> {
-    translate(input, le_u8)
+fn parse_address_size(input: &[u8]) -> ParseResult<(&[u8], u8)> {
+    parse_u8(input)
 }
 
 #[test]
@@ -1977,24 +1607,28 @@ fn test_parse_address_size_ok() {
     let buf = [0x04];
 
     match parse_address_size(&buf) {
-        ParseResult::Done(_, val) => assert_eq!(val, 4),
+        Ok((_, val)) => assert_eq!(val, 4),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
 /// The header of a compilation unit's debugging information.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CompilationUnit<'input> {
+pub struct CompilationUnit<'input, Endian>
+    where Endian: Endianity
+{
     unit_length: u64,
     version: u16,
     debug_abbrev_offset: DebugAbbrevOffset,
     address_size: u8,
     format: Format,
-    entries_buf: &'input [u8],
+    entries_buf: EndianBuf<'input, Endian>,
 }
 
 /// Static methods.
-impl<'input> CompilationUnit<'input> {
+impl<'input, Endian> CompilationUnit<'input, Endian>
+    where Endian: Endianity
+{
     /// Construct a new `CompilationUnit`.
     pub fn new(unit_length: u64,
                version: u16,
@@ -2002,14 +1636,14 @@ impl<'input> CompilationUnit<'input> {
                address_size: u8,
                format: Format,
                entries_buf: &'input [u8])
-               -> CompilationUnit {
+               -> CompilationUnit<'input, Endian> {
         CompilationUnit {
             unit_length: unit_length,
             version: version,
             debug_abbrev_offset: debug_abbrev_offset,
             address_size: address_size,
             format: format,
-            entries_buf: entries_buf,
+            entries_buf: EndianBuf(entries_buf, PhantomData),
         }
     }
 
@@ -2038,7 +1672,9 @@ impl<'input> CompilationUnit<'input> {
 }
 
 /// Instance methods.
-impl<'input> CompilationUnit<'input> {
+impl<'input, Endian> CompilationUnit<'input, Endian>
+    where Endian: Endianity
+{
     /// Get the length of the debugging info for this compilation unit, not
     /// including the byte length of the encoded length itself.
     pub fn unit_length(&self) -> u64 {
@@ -2081,10 +1717,10 @@ impl<'input> CompilationUnit<'input> {
     /// Navigate this compilation unit's `DebuggingInformationEntry`s.
     pub fn entries<'me, 'abbrev>(&'me self,
                                  abbreviations: &'abbrev Abbreviations)
-                                 -> EntriesCursor<'input, 'abbrev, 'me> {
+                                 -> EntriesCursor<'input, 'abbrev, 'me, Endian> {
         EntriesCursor {
             unit: self,
-            input: self.entries_buf,
+            input: self.entries_buf.into(),
             abbreviations: abbreviations,
             cached_current: RefCell::new(None),
         }
@@ -2092,32 +1728,36 @@ impl<'input> CompilationUnit<'input> {
 }
 
 /// Parse a compilation unit header.
-fn parse_compilation_unit_header(input: &[u8]) -> ParseResult<&[u8], CompilationUnit> {
-    let (rest, (unit_length, format)) = try_parse_result!(input, parse_unit_length(input));
-    let (rest, version) = try_parse!(rest, parse_version);
-    let (rest, offset) = try_parse_result!(rest,
-                                           parse_debug_abbrev_offset(FormatInput(rest, format)));
-    let (rest, address_size) = try_parse!(rest.0, parse_address_size);
+fn parse_compilation_unit_header<'input, Endian>
+    (input: EndianBuf<'input, Endian>)
+     -> ParseResult<(EndianBuf<'input, Endian>, CompilationUnit<'input, Endian>)>
+    where Endian: Endianity
+{
+    let (rest, (unit_length, format)) = try!(parse_unit_length(input));
+    let (rest, version) = try!(parse_version(rest));
+    let (rest, offset) = try!(parse_debug_abbrev_offset(FormatInput(rest, format)));
+    let (rest, address_size) = try!(parse_address_size(rest.into()));
 
-    if unit_length as usize + CompilationUnit::size_of_unit_length(format) <
-       CompilationUnit::size_of_header(format) {
-        return ParseResult::Error(Err::Position(ErrorKind::Custom(ERROR_UNIT_HEADER_LENGTH_TOO_SHORT),
-                                                input));
+    let size_of_unit_length = CompilationUnit::<Endian>::size_of_unit_length(format);
+    let size_of_header = CompilationUnit::<Endian>::size_of_header(format);
+
+    if unit_length as usize + size_of_unit_length < size_of_header {
+        return Err(Error::UnitHeaderLengthTooShort);
     }
-    let end = unit_length as usize + CompilationUnit::size_of_unit_length(format) -
-              CompilationUnit::size_of_header(format);
+
+    let end = unit_length as usize + size_of_unit_length - size_of_header;
     if end > rest.len() {
-        return ParseResult::Incomplete(Needed::Size(end - rest.len()));
+        return Err(Error::UnexpectedEof);
     }
 
     let entries_buf = &rest[..end];
-    ParseResult::Done(rest,
-                      CompilationUnit::new(unit_length,
-                                           version,
-                                           offset,
-                                           address_size,
-                                           format,
-                                           entries_buf))
+    Ok((EndianBuf::new(rest),
+        CompilationUnit::new(unit_length,
+                             version,
+                             offset,
+                             address_size,
+                             format,
+                             entries_buf)))
 }
 
 #[test]
@@ -2134,8 +1774,8 @@ fn test_parse_compilation_unit_header_32_ok() {
         0x04
     ];
 
-    match parse_compilation_unit_header(&buf) {
-        ParseResult::Done(_, header) => {
+    match parse_compilation_unit_header(EndianBuf::<LittleEndian>::new(&buf)) {
+        Ok((_, header)) => {
             assert_eq!(header,
                        CompilationUnit::new(7,
                                             4,
@@ -2164,8 +1804,8 @@ fn test_parse_compilation_unit_header_64_ok() {
         0x08
     ];
 
-    match parse_compilation_unit_header(&buf) {
-        ParseResult::Done(_, header) => {
+    match parse_compilation_unit_header(EndianBuf::<LittleEndian>::new(&buf)) {
+        Ok((_, header)) => {
             let expected = CompilationUnit::new(11,
                                                 4,
                                                 DebugAbbrevOffset(0x0102030405060708),
@@ -2182,17 +1822,20 @@ fn test_parse_compilation_unit_header_64_ok() {
 ///
 /// DIEs have a set of attributes and optionally have children DIEs as well.
 #[derive(Clone, Debug)]
-pub struct DebuggingInformationEntry<'input, 'abbrev, 'unit>
-    where 'input: 'unit
+pub struct DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>
+    where 'input: 'unit,
+          Endian: Endianity + 'unit
 {
     attrs_slice: &'input [u8],
     after_attrs: Cell<Option<&'input [u8]>>,
     code: u64,
     abbrev: &'abbrev Abbreviation,
-    unit: &'unit CompilationUnit<'input>,
+    unit: &'unit CompilationUnit<'input, Endian>,
 }
 
-impl<'input, 'abbrev, 'unit> DebuggingInformationEntry<'input, 'abbrev, 'unit> {
+impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>
+    where Endian: Endianity
+{
     /// Get this entry's code.
     pub fn code(&self) -> u64 {
         self.code
@@ -2201,7 +1844,7 @@ impl<'input, 'abbrev, 'unit> DebuggingInformationEntry<'input, 'abbrev, 'unit> {
     /// Iterate over this entry's set of attributes.
     ///
     /// ```
-    /// use gimli::{DebugAbbrev, DebugInfo, ParseResult};
+    /// use gimli::{DebugAbbrev, DebugInfo, LittleEndian};
     ///
     /// // Read the `.debug_abbrev` section and parse it into `Abbreviations`.
     ///
@@ -2224,11 +1867,8 @@ impl<'input, 'abbrev, 'unit> DebuggingInformationEntry<'input, 'abbrev, 'unit> {
     /// #     0x00
     /// # ];
     /// # let read_debug_abbrev_section_somehow = || &abbrev_buf;
-    /// let debug_abbrev = DebugAbbrev::new(read_debug_abbrev_section_somehow());
-    /// let abbrevs = match debug_abbrev.abbreviations() {
-    ///     ParseResult::Done(_, abbrevs) => abbrevs,
-    ///     otherwise => panic!("bad debug_abbrev: {:?}", otherwise),
-    /// };
+    /// let debug_abbrev = DebugAbbrev::<LittleEndian>::new(read_debug_abbrev_section_somehow());
+    /// let abbrevs = debug_abbrev.abbreviations().unwrap();
     ///
     /// // Read the `.debug_info` section.
     ///
@@ -2252,36 +1892,31 @@ impl<'input, 'abbrev, 'unit> DebuggingInformationEntry<'input, 'abbrev, 'unit> {
     /// #     0x66, 0x6f, 0x6f, 0x00,
     /// # ];
     /// # let read_debug_info_section_somehow = || &info_buf;
-    /// let debug_info = DebugInfo::new(read_debug_info_section_somehow());
+    /// let debug_info = DebugInfo::<LittleEndian>::new(read_debug_info_section_somehow());
     ///
     /// // Get the data about the first compilation unit out of the `.debug_info`.
     ///
-    /// let unit = match debug_info.compilation_units().next() {
-    ///     Some(ParseResult::Done(_, unit)) => unit,
-    ///     otherwise => panic!("bad debug_info: {:?}", otherwise),
-    /// };
+    /// let unit = debug_info.compilation_units().next()
+    ///     .expect("Should have at least one compilation unit")
+    ///     .expect("and it should parse ok");
     ///
     /// // Get the first entry from that compilation unit.
     ///
     /// let mut cursor = unit.entries(&abbrevs);
-    /// let entry = match cursor.current() {
-    ///     Some(ParseResult::Done(_, entry)) => entry,
-    ///     otherwise => panic!("bad DIEs: {:?}", otherwise),
-    /// };
+    /// let entry = cursor.current()
+    ///     .expect("Should have at least one entry")
+    ///     .expect("and it should parse ok");
     ///
     /// // Finally, print the first entry's attributes.
     ///
-    /// for attr in entry.attrs() {
-    ///     let attr = match attr {
-    ///         ParseResult::Done(_, attr) => attr,
-    ///         otherwise => panic!("bad attribute: {:?}", otherwise),
-    ///     };
+    /// for attr_result in entry.attrs() {
+    ///     let attr = attr_result.unwrap();
     ///
     ///     println!("Attribute name = {:?}", attr.name());
     ///     println!("Attribute value = {:?}", attr.value());
     /// }
     /// ```
-    pub fn attrs<'me>(&'me self) -> AttrsIter<'input, 'abbrev, 'me, 'unit> {
+    pub fn attrs<'me>(&'me self) -> AttrsIter<'input, 'abbrev, 'me, 'unit, Endian> {
         AttrsIter {
             input: self.attrs_slice,
             attributes: &self.abbrev.attributes[..],
@@ -2358,322 +1993,372 @@ impl<'input> Attribute<'input> {
     }
 
     /// Get this attribute's value.
-    pub fn value(&self) -> AttributeValue {
+    pub fn value(&self) -> AttributeValue<'input> {
         self.value
     }
 }
 
 /// The input to parsing an attribute.
 #[derive(Clone, Copy, Debug)]
-pub struct AttributeInput<'input, 'unit>(&'input [u8],
-                                         &'unit CompilationUnit<'input>,
-                                         AttributeSpecification)
-    where 'input: 'unit;
+pub struct AttributeInput<'input, 'unit, Endian>(EndianBuf<'input, Endian>,
+                                                 &'unit CompilationUnit<'input, Endian>,
+                                                 AttributeSpecification)
+    where 'input: 'unit,
+          Endian: Endianity + 'unit;
 
-impl<'input, 'unit> Into<&'input [u8]> for AttributeInput<'input, 'unit> {
+impl<'input, 'unit, Endian> AttributeInput<'input, 'unit, Endian>
+    where Endian: Endianity
+{
+    fn merge<T>(&self, rest: T) -> AttributeInput<'input, 'unit, Endian>
+        where T: Into<&'input [u8]>
+    {
+        let buf = rest.into();
+        AttributeInput(EndianBuf::new(buf), self.1, self.2)
+    }
+
+    fn range_from(&self, range: RangeFrom<usize>) -> AttributeInput<'input, 'unit, Endian> {
+        AttributeInput(self.0.range_from(range), self.1, self.2)
+    }
+}
+
+impl<'input, 'unit, Endian> Deref for AttributeInput<'input, 'unit, Endian>
+    where Endian: Endianity
+{
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        (self.0).0
+    }
+}
+
+impl<'input, 'unit, Endian> Into<&'input [u8]> for AttributeInput<'input, 'unit, Endian>
+    where Endian: Endianity
+{
     fn into(self) -> &'input [u8] {
+        self.0.into()
+    }
+}
+
+impl<'input, 'unit, Endian> Into<EndianBuf<'input, Endian>> for AttributeInput<'input,
+                                                                               'unit,
+                                                                               Endian>
+    where Endian: Endianity
+{
+    fn into(self) -> EndianBuf<'input, Endian> {
         self.0
     }
 }
 
-impl<'input, 'unit> Raise<&'input [u8]> for AttributeInput<'input, 'unit> {
-    fn raise(original: Self, lowered: &'input [u8]) -> Self {
-        AttributeInput(lowered, original.1, original.2)
+/// Take a slice of size `bytes` from the input.
+fn take(bytes: usize, input: &[u8]) -> ParseResult<(&[u8], &[u8])> {
+    if input.len() < bytes {
+        Err(Error::UnexpectedEof)
+    } else {
+        Ok((&input[bytes..], &input[0..bytes]))
     }
 }
 
-impl<'input, 'unit> TranslateInput<&'input [u8]> for AttributeInput<'input, 'unit> {}
-
-named!(length_u16_value, length_bytes!(le_u16));
-named!(length_u32_value, length_bytes!(le_u32));
-
-fn length_leb_value(input: &[u8]) -> ParseResult<&[u8], &[u8]> {
-    length_bytes!(input, parse_unsigned_leb)
+fn length_u8_value(input: &[u8]) -> ParseResult<(&[u8], &[u8])> {
+    let (rest, len) = try!(parse_u8(input));
+    take(len as usize, rest)
 }
 
-fn parse_attribute<'input, 'unit>
-    (mut input: AttributeInput<'input, 'unit>)
-     -> ParseResult<AttributeInput<'input, 'unit>, Attribute<'input>> {
+fn length_u16_value<'input, Endian>(input: EndianBuf<'input, Endian>)
+                                    -> ParseResult<(EndianBuf<'input, Endian>, &'input [u8])>
+    where Endian: Endianity
+{
+    let (rest, len) = try!(parse_u16(input));
+    take(len as usize, rest.into()).map(|(rest, result)| (EndianBuf::new(rest), result))
+}
+
+fn length_u32_value<'input, Endian>(input: EndianBuf<'input, Endian>)
+                                    -> ParseResult<(EndianBuf<'input, Endian>, &'input [u8])>
+    where Endian: Endianity
+{
+    let (rest, len) = try!(parse_u32(input));
+    take(len as usize, rest.into()).map(|(rest, result)| (EndianBuf::new(rest), result))
+}
+
+fn length_leb_value(input: &[u8]) -> ParseResult<(&[u8], &[u8])> {
+    let (rest, len) = try!(parse_unsigned_leb(input));
+    take(len as usize, rest)
+}
+
+fn parse_attribute<'input, 'unit, Endian>
+    (mut input: AttributeInput<'input, 'unit, Endian>)
+     -> ParseResult<(AttributeInput<'input, 'unit, Endian>, Attribute<'input>)>
+    where Endian: Endianity
+{
     let mut form = input.2.form;
     loop {
         match form {
             AttributeForm::Indirect => {
-                let (rest, dynamic_form) = try_parse_result!(input,
-                                                             parse_attribute_form(input.0));
+                let (rest, dynamic_form) = try!(parse_attribute_form(input.into()));
                 form = dynamic_form;
-                input = AttributeInput(rest, input.1, input.2);
+                input = input.merge(rest);
                 continue;
             }
             AttributeForm::Addr => {
-                return raise_result(input,
-                                    take!(input.0, input.1.address_size()).map(|addr| {
-                                        Attribute {
-                                            name: input.2.name,
-                                            value: AttributeValue::Addr(addr),
-                                        }
-                                    }));
+                return take(input.1.address_size() as usize, input.into()).map(|(rest, addr)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::Addr(addr),
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::Block1 => {
-                return raise_result(input,
-                                    length_value(input.0).map(|block| {
-                                        Attribute {
-                                            name: input.2.name,
-                                            value: AttributeValue::Block(block),
-                                        }
-                                    }))
+                return length_u8_value(input.into()).map(|(rest, block)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::Block(block),
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::Block2 => {
-                return raise_result(input,
-                                    length_u16_value(input.0).map(|block| {
-                                        Attribute {
-                                            name: input.2.name,
-                                            value: AttributeValue::Block(block),
-                                        }
-                                    }))
+                return length_u16_value(input.into()).map(|(rest, block)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::Block(block),
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::Block4 => {
-                return raise_result(input,
-                                    length_u32_value(input.0).map(|block| {
-                                        Attribute {
-                                            name: input.2.name,
-                                            value: AttributeValue::Block(block),
-                                        }
-                                    }))
+                return length_u32_value(input.into()).map(|(rest, block)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::Block(block),
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::Block => {
-                return raise_result(input,
-                                    length_leb_value(input.0).map(|block| {
-                                        Attribute {
-                                            name: input.2.name,
-                                            value: AttributeValue::Block(block),
-                                        }
-                                    }))
+                return length_leb_value(input.into()).map(|(rest, block)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::Block(block),
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::Data1 => {
-                return raise_result(input,
-                                    take!(input.0, 1).map(|data| {
-                                        Attribute {
-                                            name: input.2.name,
-                                            value: AttributeValue::Data(data),
-                                        }
-                                    }))
+                return take(1, input.into()).map(|(rest, data)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::Data(data),
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::Data2 => {
-                return raise_result(input,
-                                    take!(input.0, 2).map(|data| {
-                                        Attribute {
-                                            name: input.2.name,
-                                            value: AttributeValue::Data(data),
-                                        }
-                                    }))
+                return take(2, input.into()).map(|(rest, data)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::Data(data),
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::Data4 => {
-                return raise_result(input,
-                                    take!(input.0, 4).map(|data| {
-                                        Attribute {
-                                            name: input.2.name,
-                                            value: AttributeValue::Data(data),
-                                        }
-                                    }))
+                return take(4, input.into()).map(|(rest, data)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::Data(data),
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::Data8 => {
-                return raise_result(input,
-                                    take!(input.0, 8).map(|data| {
-                                        Attribute {
-                                            name: input.2.name,
-                                            value: AttributeValue::Data(data),
-                                        }
-                                    }))
+                return take(8, input.into()).map(|(rest, data)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::Data(data),
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::Udata => {
-                return raise_result(input,
-                                    parse_unsigned_leb(input.0).map(|data| {
-                                        Attribute {
-                                            name: input.2.name,
-                                            value: AttributeValue::Udata(data),
-                                        }
-                                    }))
+                return parse_unsigned_leb(input.into()).map(|(rest, data)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::Udata(data),
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::Sdata => {
-                return raise_result(input,
-                                    parse_signed_leb(input.0).map(|data| {
-                                        Attribute {
-                                            name: input.2.name,
-                                            value: AttributeValue::Sdata(data),
-                                        }
-                                    }))
+                return parse_signed_leb(input.into()).map(|(rest, data)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::Sdata(data),
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::Exprloc => {
-                return raise_result(input,
-                                    length_leb_value(input.0).map(|block| {
-                                        Attribute {
-                                            name: input.2.name,
-                                            value: AttributeValue::Exprloc(block),
-                                        }
-                                    }))
+                return length_leb_value(input.into()).map(|(rest, block)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::Exprloc(block),
+                    };
+                    (input.merge(rest), attr)
+                })
             }
             AttributeForm::Flag => {
-                return raise_result(input,
-                                    le_u8(input.0).map(|present| {
-                                        Attribute {
-                                            name: input.2.name,
-                                            value: AttributeValue::Flag(present != 0),
-                                        }
-                                    }))
+                return parse_u8(input.into()).map(|(rest, present)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::Flag(present != 0),
+                    };
+                    (input.merge(rest), attr)
+                })
             }
             AttributeForm::FlagPresent => {
                 // FlagPresent is this weird compile time always true thing that
-                // isn't actually present in the serialized DIEs, only in the
-                // abbreviations.
-                return ParseResult::Done(input,
-                                         Attribute {
-                                             name: input.2.name,
-                                             value: AttributeValue::Flag(true),
-                                         });
+                // isn't actually present in the serialized DIEs, only in Ok(
+                return Ok((input,
+                           Attribute {
+                    name: input.2.name,
+                    value: AttributeValue::Flag(true),
+                }));
             }
             AttributeForm::SecOffset => {
                 return match input.1.format() {
                     Format::Dwarf32 => {
-                        raise_result(input,
-                                     le_u32(input.0).map(|offset| {
-                                         Attribute {
-                                             name: input.2.name,
-                                             value: AttributeValue::SecOffset(offset as u64),
-                                         }
-                                     }))
+                        parse_u32(input.into()).map(|(rest, offset)| {
+                            let attr = Attribute {
+                                name: input.2.name,
+                                value: AttributeValue::SecOffset(offset as u64),
+                            };
+                            (input.merge(rest), attr)
+                        })
                     }
                     Format::Dwarf64 => {
-                        raise_result(input,
-                                     le_u64(input.0).map(|offset| {
-                                         Attribute {
-                                             name: input.2.name,
-                                             value: AttributeValue::SecOffset(offset),
-                                         }
-                                     }))
+                        parse_u64(input.into()).map(|(rest, offset)| {
+                            let attr = Attribute {
+                                name: input.2.name,
+                                value: AttributeValue::SecOffset(offset),
+                            };
+                            (input.merge(rest), attr)
+                        })
                     }
                 };
             }
             AttributeForm::Ref1 => {
-                return raise_result(input,
-                                    le_u8(input.0).map(|reference| {
-                                        Attribute {
-                                     name: input.2.name,
-                                     value: AttributeValue::UnitRef(UnitOffset(reference as u64)),
-                                 }
-                                    }));
+                return parse_u8(input.into()).map(|(rest, reference)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::UnitRef(UnitOffset(reference as u64)),
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::Ref2 => {
-                return raise_result(input,
-                                    le_u16(input.0).map(|reference| {
-                                        Attribute {
-                                     name: input.2.name,
-                                     value: AttributeValue::UnitRef(UnitOffset(reference as u64)),
-                                 }
-                                    }));
+                return parse_u16(input.into()).map(|(rest, reference)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::UnitRef(UnitOffset(reference as u64)),
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::Ref4 => {
-                return raise_result(input,
-                                    le_u32(input.0).map(|reference| {
-                                        Attribute {
-                                     name: input.2.name,
-                                     value: AttributeValue::UnitRef(UnitOffset(reference as u64)),
-                                 }
-                                    }));
+                return parse_u32(input.into()).map(|(rest, reference)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::UnitRef(UnitOffset(reference as u64)),
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::Ref8 => {
-                return raise_result(input,
-                                    le_u64(input.0).map(|reference| {
-                                        Attribute {
-                                            name: input.2.name,
-                                            value: AttributeValue::UnitRef(UnitOffset(reference)),
-                                        }
-                                    }));
+                return parse_u64(input.into()).map(|(rest, reference)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::UnitRef(UnitOffset(reference)),
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::RefUdata => {
-                return raise_result(input,
-                                    parse_unsigned_leb(input.0).map(|reference| {
-                                        Attribute {
-                                            name: input.2.name,
-                                            value: AttributeValue::UnitRef(UnitOffset(reference)),
-                                        }
-                                    }));
+                return parse_unsigned_leb(input.into()).map(|(rest, reference)| {
+                    let attr = Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::UnitRef(UnitOffset(reference)),
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::RefAddr => {
                 return match input.1.format() {
                     Format::Dwarf32 => {
-                        raise_result(input,
-                                     le_u32(input.0).map(|offset| {
+                        parse_u32(input.into()).map(|(rest, offset)| {
                             let offset = DebugInfoOffset(offset as u64);
-                            Attribute {
+                            let attr = Attribute {
                                 name: input.2.name,
                                 value: AttributeValue::DebugInfoRef(offset),
-                            }
-                        }))
+                            };
+                            (input.merge(rest), attr)
+                        })
                     }
                     Format::Dwarf64 => {
-                        raise_result(input,
-                                     le_u64(input.0).map(|offset| {
+                        parse_u64(input.into()).map(|(rest, offset)| {
                             let offset = DebugInfoOffset(offset);
-                            Attribute {
+                            let attr = Attribute {
                                 name: input.2.name,
                                 value: AttributeValue::DebugInfoRef(offset),
-                            }
-                        }))
+                            };
+                            (input.merge(rest), attr)
+                        })
                     }
                 };
             }
             AttributeForm::RefSig8 => {
-                return raise_result(input,
-                                    le_u64(input.0).map(|offset| {
+                return parse_u64(input.into()).map(|(rest, offset)| {
                     let offset = DebugTypesOffset(offset);
-                    Attribute {
+                    let attr = Attribute {
                         name: input.2.name,
                         value: AttributeValue::DebugTypesRef(offset),
-                    }
-                }));
+                    };
+                    (input.merge(rest), attr)
+                });
             }
             AttributeForm::String => {
-                // Consume the null byte as well.
-                let mut found_null = false;
-                let mut predicate = |ch| {
-                    if found_null {
-                        false
-                    } else {
-                        if ch == 0 {
-                            found_null = true;
-                        }
-                        true
-                    }
-                };
-                return raise_result(input,
-                                    take_while!(input.0, predicate).map(|bytes| {
-                                        Attribute {
-                                            name: input.2.name,
-                                            value: AttributeValue::String(bytes),
-                                        }
-                                    }));
+                let null_idx = input.iter().position(|ch| *ch == 0);
+
+                if let Some(idx) = null_idx {
+                    let buf: &[u8] = input.into();
+                    return Ok((input.range_from(idx + 1..),
+                               Attribute {
+                        name: input.2.name,
+                        value: AttributeValue::String(&buf[0..idx + 1]),
+                    }));
+                } else {
+                    return Err(Error::UnexpectedEof);
+                }
             }
             AttributeForm::Strp => {
                 return match input.1.format() {
                     Format::Dwarf32 => {
-                        raise_result(input,
-                                     le_u32(input.0).map(|offset| {
+                        parse_u32(input.into()).map(|(rest, offset)| {
                             let offset = DebugStrOffset(offset as u64);
-                            Attribute {
+                            let attr = Attribute {
                                 name: input.2.name,
                                 value: AttributeValue::DebugStrRef(offset),
-                            }
-                        }))
+                            };
+                            (input.merge(rest), attr)
+                        })
                     }
                     Format::Dwarf64 => {
-                        raise_result(input,
-                                     le_u64(input.0).map(|offset| {
+                        parse_u64(input.into()).map(|(rest, offset)| {
                             let offset = DebugStrOffset(offset);
-                            Attribute {
+                            let attr = Attribute {
                                 name: input.2.name,
                                 value: AttributeValue::DebugStrRef(offset),
-                            }
-                        }))
+                            };
+                            (input.merge(rest), attr)
+                        })
                     }
                 };
             }
@@ -2685,22 +2370,28 @@ fn parse_attribute<'input, 'unit>
 fn test_parse_attribute_addr() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::LowPc,
         form: AttributeForm::Addr,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::LowPc,
-                value: AttributeValue::Addr(&buf[..4])
-            });
-            assert_eq!(rest.0, &buf[4..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::LowPc,
+                           value: AttributeValue::Addr(&buf[..4]),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -2714,22 +2405,28 @@ fn test_parse_attribute_block1() {
     // Length of data (3), three bytes of data, two bytes of left over input.
     let buf = [0x03, 0x09, 0x09, 0x09, 0x00, 0x00];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Block1,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::Block(&buf[1..4])
-            });
-            assert_eq!(rest.0, &buf[4..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::Block(&buf[1..4]),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -2743,22 +2440,28 @@ fn test_parse_attribute_block2() {
     // Two byte length of data (2), two bytes of data, two bytes of left over input.
     let buf = [0x02, 0x00, 0x09, 0x09, 0x00, 0x00];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Block2,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::Block(&buf[2..4])
-            });
-            assert_eq!(rest.0, &buf[4..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::Block(&buf[2..4]),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -2772,22 +2475,28 @@ fn test_parse_attribute_block4() {
     // Four byte length of data (2), two bytes of data, no left over input.
     let buf = [0x02, 0x00, 0x00, 0x00, 0x99, 0x99];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Block4,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::Block(&buf[4..])
-            });
-            assert_eq!(rest.0, &buf[..0]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::Block(&buf[4..]),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[..0]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -2801,22 +2510,28 @@ fn test_parse_attribute_block() {
     // LEB length of data (2, one byte), two bytes of data, no left over input.
     let buf = [0x02, 0x99, 0x99];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Block,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::Block(&buf[1..])
-            });
-            assert_eq!(rest.0, &buf[..0]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::Block(&buf[1..]),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[..0]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -2829,21 +2544,27 @@ fn test_parse_attribute_block() {
 fn test_parse_attribute_data1() {
     let buf = [0x03];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Data1,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(_, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::Data(&buf[..])
-            });
+        Ok((_, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::Data(&buf[..]),
+                       });
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -2856,22 +2577,28 @@ fn test_parse_attribute_data1() {
 fn test_parse_attribute_data2() {
     let buf = [0x02, 0x01, 0x0];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Data2,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::Data(&buf[..2])
-            });
-            assert_eq!(rest.0, &buf[2..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::Data(&buf[..2]),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[2..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -2884,22 +2611,28 @@ fn test_parse_attribute_data2() {
 fn test_parse_attribute_data4() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Data4,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::Data(&buf[..4])
-            });
-            assert_eq!(rest.0, &buf[4..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::Data(&buf[..4]),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -2912,22 +2645,28 @@ fn test_parse_attribute_data4() {
 fn test_parse_attribute_data8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
-    let unit = CompilationUnit::new(7, 8, DebugAbbrevOffset(0x08070605), 8, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    8,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    8,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Data8,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::Data(&buf[..8])
-            });
-            assert_eq!(rest.0, &buf[8..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::Data(&buf[..8]),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -2942,25 +2681,31 @@ fn test_parse_attribute_udata() {
 
     let bytes_written = {
         let mut writable = &mut buf[..];
-        leb128::write::unsigned(&mut writable, 4097).unwrap()
+        leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
     };
 
-    let unit = CompilationUnit::new(7, 8, DebugAbbrevOffset(0x08070605), 8, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    8,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    8,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Udata,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::Udata(4097),
-            });
-            assert_eq!(rest.0, &buf[bytes_written..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::Udata(4097),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[bytes_written..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -2975,25 +2720,31 @@ fn test_parse_attribute_sdata() {
 
     let bytes_written = {
         let mut writable = &mut buf[..];
-        leb128::write::signed(&mut writable, -4097).unwrap()
+        leb128::write::signed(&mut writable, -4097).expect("should write ok")
     };
 
-    let unit = CompilationUnit::new(7, 8, DebugAbbrevOffset(0x08070605), 8, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    8,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    8,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Sdata,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::Sdata(-4097),
-            });
-            assert_eq!(rest.0, &buf[bytes_written..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::Sdata(-4097),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[bytes_written..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3007,22 +2758,28 @@ fn test_parse_attribute_exprloc() {
     // LEB length of data (2, one byte), two bytes of data, one byte left over input.
     let buf = [0x02, 0x99, 0x99, 0x11];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Exprloc,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::Exprloc(&buf[1..3])
-            });
-            assert_eq!(rest.0, &buf[3..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::Exprloc(&buf[1..3]),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[3..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3035,21 +2792,27 @@ fn test_parse_attribute_exprloc() {
 fn test_parse_attribute_flag_true() {
     let buf = [0x42];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Flag,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(_, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::Flag(true),
-            });
+        Ok((_, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::Flag(true),
+                       });
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3062,21 +2825,27 @@ fn test_parse_attribute_flag_true() {
 fn test_parse_attribute_flag_false() {
     let buf = [0x00];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Flag,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(_, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::Flag(false),
-            });
+        Ok((_, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::Flag(false),
+                       });
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3089,24 +2858,30 @@ fn test_parse_attribute_flag_false() {
 fn test_parse_attribute_flag_present() {
     let buf = [0x01, 0x02, 0x03, 0x04];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::FlagPresent,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::Flag(true),
-            });
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::Flag(true),
+                       });
             // DW_FORM_flag_present does not consume any bytes of the input
             // stream.
-            assert_eq!(rest.0, &buf[..]);
+            assert_eq!(rest.0, EndianBuf::new(&buf[..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3119,22 +2894,28 @@ fn test_parse_attribute_flag_present() {
 fn test_parse_attribute_sec_offset_32() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::SecOffset,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::SecOffset(0x04030201),
-            });
-            assert_eq!(rest.0, &buf[4..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::SecOffset(0x04030201),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3147,22 +2928,28 @@ fn test_parse_attribute_sec_offset_32() {
 fn test_parse_attribute_sec_offset_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf64, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf64,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::SecOffset,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::SecOffset(0x0807060504030201),
-            });
-            assert_eq!(rest.0, &buf[8..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::SecOffset(0x0807060504030201),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3175,21 +2962,27 @@ fn test_parse_attribute_sec_offset_64() {
 fn test_parse_attribute_ref1() {
     let buf = [0x03];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Ref1,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(_, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::UnitRef(UnitOffset(3)),
-            });
+        Ok((_, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::UnitRef(UnitOffset(3)),
+                       });
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3202,22 +2995,28 @@ fn test_parse_attribute_ref1() {
 fn test_parse_attribute_ref2() {
     let buf = [0x02, 0x01, 0x0];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Ref2,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::UnitRef(UnitOffset(258))
-            });
-            assert_eq!(rest.0, &buf[2..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::UnitRef(UnitOffset(258)),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[2..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3230,22 +3029,28 @@ fn test_parse_attribute_ref2() {
 fn test_parse_attribute_ref4() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
 
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Ref4,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::UnitRef(UnitOffset(67305985)),
-            });
-            assert_eq!(rest.0, &buf[4..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::UnitRef(UnitOffset(67305985)),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3258,22 +3063,28 @@ fn test_parse_attribute_ref4() {
 fn test_parse_attribute_ref8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
-    let unit = CompilationUnit::new(7, 8, DebugAbbrevOffset(0x08070605), 8, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    8,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    8,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Ref8,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::UnitRef(UnitOffset(578437695752307201)),
-            });
-            assert_eq!(rest.0, &buf[8..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::UnitRef(UnitOffset(578437695752307201)),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3288,25 +3099,31 @@ fn test_parse_attribute_refudata() {
 
     let bytes_written = {
         let mut writable = &mut buf[..];
-        leb128::write::unsigned(&mut writable, 4097).unwrap()
+        leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
     };
 
-    let unit = CompilationUnit::new(7, 8, DebugAbbrevOffset(0x08070605), 8, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    8,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    8,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::RefUdata,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::UnitRef(UnitOffset(4097)),
-            });
-            assert_eq!(rest.0, &buf[bytes_written..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::UnitRef(UnitOffset(4097)),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[bytes_written..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3319,22 +3136,28 @@ fn test_parse_attribute_refudata() {
 fn test_parse_attribute_refaddr_32() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
-    let unit = CompilationUnit::new(7, 8, DebugAbbrevOffset(0x08070605), 8, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    8,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    8,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::RefAddr,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::DebugInfoRef(DebugInfoOffset(67305985)),
-            });
-            assert_eq!(rest.0, &buf[4..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::DebugInfoRef(DebugInfoOffset(67305985)),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3347,22 +3170,28 @@ fn test_parse_attribute_refaddr_32() {
 fn test_parse_attribute_refaddr_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
-    let unit = CompilationUnit::new(7, 8, DebugAbbrevOffset(0x08070605), 8, Format::Dwarf64, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    8,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    8,
+                                                    Format::Dwarf64,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::RefAddr,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::DebugInfoRef(DebugInfoOffset(578437695752307201)),
-            });
-            assert_eq!(rest.0, &buf[8..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::DebugInfoRef(DebugInfoOffset(578437695752307201)),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3375,22 +3204,29 @@ fn test_parse_attribute_refaddr_64() {
 fn test_parse_attribute_refsig8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
-    let unit = CompilationUnit::new(7, 8, DebugAbbrevOffset(0x08070605), 8, Format::Dwarf64, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    8,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    8,
+                                                    Format::Dwarf64,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::RefSig8,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::DebugTypesRef(DebugTypesOffset(578437695752307201)),
-            });
-            assert_eq!(rest.0, &buf[8..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value:
+                               AttributeValue::DebugTypesRef(DebugTypesOffset(578437695752307201)),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3403,22 +3239,28 @@ fn test_parse_attribute_refsig8() {
 fn test_parse_attribute_string() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x0, 0x99, 0x99];
 
-    let unit = CompilationUnit::new(7, 8, DebugAbbrevOffset(0x08070605), 8, Format::Dwarf64, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    8,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    8,
+                                                    Format::Dwarf64,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::String,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::String(&buf[..6]),
-            });
-            assert_eq!(rest.0, &buf[6..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::String(&buf[..6]),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[6..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3431,22 +3273,28 @@ fn test_parse_attribute_string() {
 fn test_parse_attribute_strp_32() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
-    let unit = CompilationUnit::new(7, 8, DebugAbbrevOffset(0x08070605), 8, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    8,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    8,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Strp,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::DebugStrRef(DebugStrOffset(67305985)),
-            });
-            assert_eq!(rest.0, &buf[4..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::DebugStrRef(DebugStrOffset(67305985)),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3459,22 +3307,28 @@ fn test_parse_attribute_strp_32() {
 fn test_parse_attribute_strp_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
-    let unit = CompilationUnit::new(7, 8, DebugAbbrevOffset(0x08070605), 8, Format::Dwarf64, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    8,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    8,
+                                                    Format::Dwarf64,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Strp,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::DebugStrRef(DebugStrOffset(578437695752307201)),
-            });
-            assert_eq!(rest.0, &buf[8..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::DebugStrRef(DebugStrOffset(578437695752307201)),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3489,26 +3343,33 @@ fn test_parse_attribute_indirect() {
 
     let bytes_written = {
         let mut writable = &mut buf[..];
-        leb128::write::unsigned(&mut writable, AttributeForm::Udata as u64).unwrap() +
-        leb128::write::unsigned(&mut writable, 9999999).unwrap()
+        leb128::write::unsigned(&mut writable, AttributeForm::Udata as u64)
+            .expect("should write udata") +
+        leb128::write::unsigned(&mut writable, 9999999).expect("should write value")
     };
 
-    let unit = CompilationUnit::new(7, 8, DebugAbbrevOffset(0x08070605), 8, Format::Dwarf64, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    8,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    8,
+                                                    Format::Dwarf64,
+                                                    &[]);
 
     let spec = AttributeSpecification {
         name: AttributeName::Name,
         form: AttributeForm::Indirect,
     };
 
-    let input = AttributeInput(&buf, &unit, spec);
+    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
 
     match parse_attribute(input) {
-        ParseResult::Done(rest, attr) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::Udata(9999999),
-            });
-            assert_eq!(rest.0, &buf[bytes_written..]);
+        Ok((rest, attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::Udata(9999999),
+                       });
+            assert_eq!(rest.0, EndianBuf::new(&buf[bytes_written..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3523,18 +3384,25 @@ fn test_parse_attribute_indirect() {
 /// `DebuggingInformationEntry::attrs()`](./struct.DebuggingInformationEntry.html#method.attrs)
 /// for details.
 #[derive(Clone, Copy, Debug)]
-pub struct AttrsIter<'input, 'abbrev, 'entry, 'unit>
+pub struct AttrsIter<'input, 'abbrev, 'entry, 'unit, Endian>
     where 'input: 'entry + 'unit,
           'abbrev: 'entry,
-          'unit: 'entry
+          'unit: 'entry,
+          Endian: Endianity + 'entry + 'unit
 {
     input: &'input [u8],
     attributes: &'abbrev [AttributeSpecification],
-    entry: &'entry DebuggingInformationEntry<'input, 'abbrev, 'unit>,
+    entry: &'entry DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>,
 }
 
-impl<'input, 'abbrev, 'entry, 'unit> Iterator for AttrsIter<'input, 'abbrev, 'entry, 'unit> {
-    type Item = ParseResult<AttributeInput<'input, 'unit>, Attribute<'input>>;
+impl<'input, 'abbrev, 'entry, 'unit, Endian> Iterator for AttrsIter<'input,
+                                                                    'abbrev,
+                                                                    'entry,
+                                                                    'unit,
+                                                                    Endian>
+    where Endian: Endianity
+{
+    type Item = ParseResult<Attribute<'input>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.attributes.len() == 0 {
@@ -3553,14 +3421,14 @@ impl<'input, 'abbrev, 'entry, 'unit> Iterator for AttrsIter<'input, 'abbrev, 'en
 
         let attr = self.attributes[0];
         self.attributes = &self.attributes[1..];
-        match parse_attribute(AttributeInput(self.input, self.entry.unit, attr)) {
-            ParseResult::Done(rest, attr) => {
-                self.input = rest.0;
-                Some(ParseResult::Done(rest, attr))
+        match parse_attribute(AttributeInput(EndianBuf::new(self.input), self.entry.unit, attr)) {
+            Ok((rest, attr)) => {
+                self.input = rest.0.into();
+                Some(Ok(attr))
             }
-            otherwise => {
+            Err(e) => {
                 self.attributes = &[];
-                Some(otherwise)
+                Some(Err(e))
             }
         }
     }
@@ -3568,7 +3436,12 @@ impl<'input, 'abbrev, 'entry, 'unit> Iterator for AttrsIter<'input, 'abbrev, 'en
 
 #[test]
 fn test_attrs_iter() {
-    let unit = CompilationUnit::new(7, 4, DebugAbbrevOffset(0x08070605), 4, Format::Dwarf32, &[]);
+    let unit = CompilationUnit::<LittleEndian>::new(7,
+                                                    4,
+                                                    DebugAbbrevOffset(0x08070605),
+                                                    4,
+                                                    Format::Dwarf32,
+                                                    &[]);
 
     let abbrev = Abbreviation {
         code: 42,
@@ -3609,12 +3482,12 @@ fn test_attrs_iter() {
     };
 
     match attrs.next() {
-        Some(ParseResult::Done(rest, attr)) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::Name,
-                value: AttributeValue::String(b"foo\0"),
-            });
-            assert_eq!(rest.0, &buf[4..]);
+        Some(Ok(attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::Name,
+                           value: AttributeValue::String(b"foo\0"),
+                       });
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3625,12 +3498,12 @@ fn test_attrs_iter() {
     assert!(entry.after_attrs.get().is_none());
 
     match attrs.next() {
-        Some(ParseResult::Done(rest, attr)) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::LowPc,
-                value: AttributeValue::Addr(&[0x2a, 0x00, 0x00, 0x00]),
-            });
-            assert_eq!(rest.0, &buf[8..]);
+        Some(Ok(attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::LowPc,
+                           value: AttributeValue::Addr(&[0x2a, 0x00, 0x00, 0x00]),
+                       });
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3641,12 +3514,12 @@ fn test_attrs_iter() {
     assert!(entry.after_attrs.get().is_none());
 
     match attrs.next() {
-        Some(ParseResult::Done(rest, attr)) => {
-            assert_eq!(attr, Attribute {
-                name: AttributeName::HighPc,
-                value: AttributeValue::Addr(&[0x39, 0x05, 0x00, 0x00]),
-            });
-            assert_eq!(rest.0, &buf[buf.len() - 4..]);
+        Some(Ok(attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: AttributeName::HighPc,
+                           value: AttributeValue::Addr(&[0x39, 0x05, 0x00, 0x00]),
+                       });
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -3658,7 +3531,8 @@ fn test_attrs_iter() {
 
     assert!(attrs.next().is_none());
     assert!(entry.after_attrs.get().is_some());
-    assert_eq!(entry.after_attrs.get().unwrap(), &buf[buf.len() - 4..])
+    assert_eq!(entry.after_attrs.get().expect("should have entry.after_attrs"),
+               &buf[buf.len() - 4..])
 }
 
 /// A cursor into the Debugging Information Entries tree for a compilation unit.
@@ -3666,27 +3540,32 @@ fn test_attrs_iter() {
 /// The `EntriesCursor` can traverse the DIE tree in either DFS order, or skip
 /// to the next sibling of the entry the cursor is currently pointing to.
 #[derive(Clone, Debug)]
-pub struct EntriesCursor<'input, 'abbrev, 'unit>
-    where 'input: 'unit
+pub struct EntriesCursor<'input, 'abbrev, 'unit, Endian>
+    where 'input: 'unit,
+          Endian: Endianity + 'unit
 {
     input: &'input [u8],
-    unit: &'unit CompilationUnit<'input>,
+    unit: &'unit CompilationUnit<'input, Endian>,
     abbreviations: &'abbrev Abbreviations,
-    cached_current: RefCell<Option<ParseResult<&'input [u8],
-                                               DebuggingInformationEntry<'input, 'abbrev, 'unit>>>>,
+    cached_current: RefCell<Option<ParseResult<DebuggingInformationEntry<'input,
+                                                                         'abbrev,
+                                                                         'unit,
+                                                                         Endian>>>>,
 }
 
-impl<'input, 'abbrev, 'unit> EntriesCursor<'input, 'abbrev, 'unit> {
+impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endian>
+    where Endian: Endianity
+{
     /// Get the entry that the cursor is currently pointing to.
     pub fn current<'me>
         (&'me mut self)
-         -> Option<ParseResult<&'input [u8], DebuggingInformationEntry<'input, 'abbrev, 'unit>>> {
+         -> Option<ParseResult<DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>> {
 
         // First, check for a cached result.
         {
             let cached = self.cached_current.borrow();
             if let Some(ref cached) = *cached {
-                debug_assert!(cached.is_done());
+                debug_assert!(cached.is_ok());
                 return Some(cached.clone());
             }
         }
@@ -3696,16 +3575,15 @@ impl<'input, 'abbrev, 'unit> EntriesCursor<'input, 'abbrev, 'unit> {
         }
 
         match parse_unsigned_leb(self.input) {
-            ParseResult::Done(rest, code) => {
+            Ok((rest, code)) => {
                 if let Some(abbrev) = self.abbreviations.get(code) {
-                    let result = Some(ParseResult::Done(rest,
-                                                        DebuggingInformationEntry {
-                                                            attrs_slice: rest,
-                                                            after_attrs: Cell::new(None),
-                                                            code: code,
-                                                            abbrev: abbrev,
-                                                            unit: self.unit,
-                                                        }));
+                    let result = Some(Ok(DebuggingInformationEntry {
+                        attrs_slice: rest,
+                        after_attrs: Cell::new(None),
+                        code: code,
+                        abbrev: abbrev,
+                        unit: self.unit,
+                    }));
 
                     let mut cached = self.cached_current.borrow_mut();
                     debug_assert!(cached.is_none());
@@ -3713,12 +3591,10 @@ impl<'input, 'abbrev, 'unit> EntriesCursor<'input, 'abbrev, 'unit> {
 
                     result
                 } else {
-                    let custom = ErrorKind::Custom(ERROR_UNKNOWN_ABBREVIATION);
-                    Some(ParseResult::Error(Err::Position(custom, self.input)))
+                    Some(Err(Error::UnknownAbbreviation))
                 }
             }
-            ParseResult::Incomplete(needed) => Some(ParseResult::Incomplete(needed)),
-            ParseResult::Error(e) => Some(ParseResult::Error(e)),
+            Err(e) => Some(Err(e)),
         }
     }
 
@@ -3741,8 +3617,7 @@ impl<'input, 'abbrev, 'unit> EntriesCursor<'input, 'abbrev, 'unit> {
     /// does not have any children.
     ///
     /// ```
-    /// use gimli::{ParseResult};
-    /// # use gimli::{DebugAbbrev, DebugInfo};
+    /// # use gimli::{DebugAbbrev, DebugInfo, LittleEndian};
     /// # let abbrev_buf = [
     /// #     // Code
     /// #     0x01,
@@ -3761,11 +3636,8 @@ impl<'input, 'abbrev, 'unit> EntriesCursor<'input, 'abbrev, 'unit> {
     /// #     // Null terminator
     /// #     0x00
     /// # ];
-    /// # let debug_abbrev = DebugAbbrev::new(&abbrev_buf);
-    /// # let get_abbrevs_for_compilation_unit = |_| match debug_abbrev.abbreviations() {
-    /// #     ParseResult::Done(_, abbrevs) => abbrevs,
-    /// #     otherwise => panic!("bad debug_abbrev: {:?}", otherwise),
-    /// # };
+    /// # let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&abbrev_buf);
+    /// # let get_abbrevs_for_compilation_unit = |_| debug_abbrev.abbreviations().unwrap();
     /// #
     /// # let info_buf = [
     /// #     // Comilation unit header
@@ -3811,12 +3683,9 @@ impl<'input, 'abbrev, 'unit> EntriesCursor<'input, 'abbrev, 'unit> {
     /// #       // End of children
     /// #       0x00,
     /// # ];
-    /// # let debug_info = DebugInfo::new(&info_buf);
+    /// # let debug_info = DebugInfo::<LittleEndian>::new(&info_buf);
     /// #
-    /// # let get_some_compilation_unit = || match debug_info.compilation_units().next() {
-    /// #     Some(ParseResult::Done(_, unit)) => unit,
-    /// #     otherwise => panic!("bad debug_info: {:?}", otherwise),
-    /// # };
+    /// # let get_some_compilation_unit = || debug_info.compilation_units().next().unwrap().unwrap();
     ///
     /// let unit = get_some_compilation_unit();
     /// let abbrevs = get_abbrevs_for_compilation_unit(&unit);
@@ -3824,12 +3693,19 @@ impl<'input, 'abbrev, 'unit> EntriesCursor<'input, 'abbrev, 'unit> {
     /// let mut first_entry_with_no_children = None;
     /// let mut cursor = unit.entries(&abbrevs);
     ///
-    /// while cursor.next_dfs().unwrap() > 0 {
-    ///     if let Some(ParseResult::Done(_, current)) = cursor.current() {
-    ///         first_entry_with_no_children = Some(current);
-    ///     } else {
-    ///         panic!("Expected current entry");
+    /// // Keep looping while the cursor is moving deeper into the DIE tree.
+    /// while let Ok(delta_depth) = cursor.next_dfs() {
+    ///     // 0 means we moved to a sibling, a negative number means we went back
+    ///     // up to a parent's sibling. In either case, bail out of the loop because
+    ///     //  we aren't going deeper into the tree anymore.
+    ///     if delta_depth <= 0 {
+    ///         break;
     ///     }
+    ///
+    ///     let current = cursor.current()
+    ///         .expect("Should be at an entry")
+    ///         .expect("And we should parse the entry ok");
+    ///     first_entry_with_no_children = Some(current);
     /// }
     ///
     /// println!("The first entry with no children is {:?}",
@@ -3837,13 +3713,15 @@ impl<'input, 'abbrev, 'unit> EntriesCursor<'input, 'abbrev, 'unit> {
     /// ```
     pub fn next_dfs(&mut self) -> Result<isize, ()> {
         match self.current() {
-            Some(ParseResult::Done(_, current)) => {
+            Some(Ok(current)) => {
                 self.input = if let Some(after_attrs) = current.after_attrs.get() {
                     after_attrs
                 } else {
                     for _ in current.attrs() {
                     }
-                    current.after_attrs.get().unwrap()
+                    current.after_attrs
+                        .get()
+                        .expect("should have after_attrs after iterating attrs")
                 };
 
                 let mut delta_depth = if current.abbrev.has_children() {
@@ -3897,12 +3775,10 @@ fn test_cursor_next_dfs() {
         0x00
     ];
 
-    let debug_abbrev = DebugAbbrev::new(&abbrev_buf);
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&abbrev_buf);
 
-    let abbrevs = match debug_abbrev.abbreviations() {
-        ParseResult::Done(_, abbrevs) => abbrevs,
-        otherwise => panic!("bad debug_abbrev: {:?}", otherwise),
-    };
+    let abbrevs = debug_abbrev.abbreviations()
+        .expect("Should parse abbreviations");
 
     let info_buf = [
         // Comilation unit header
@@ -4019,104 +3895,106 @@ fn test_cursor_next_dfs() {
         0x00
     ];
 
-    let debug_info = DebugInfo::new(&info_buf);
+    let debug_info = DebugInfo::<LittleEndian>::new(&info_buf);
 
-    let unit = match debug_info.compilation_units().next() {
-        Some(ParseResult::Done(_, unit)) => unit,
-        otherwise => panic!("bad debug_info: {:?}", otherwise),
-    };
+    let unit = debug_info.compilation_units().next()
+        .expect("should have a unit result")
+        .expect("and it should be ok");
 
     let mut cursor = unit.entries(&abbrevs);
 
-    fn assert_entry(entry: DebuggingInformationEntry, name: &str) {
-        match entry.attrs().next().expect("Expected an attribute") {
-            ParseResult::Done(_, attr) => {
-                assert_eq!(attr.name, AttributeName::Name);
+    fn assert_entry<'input, 'abbrev, 'unit, Endian>(entry: DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>, name: &'static str)
+        where Endian: Endianity
+    {
+        let attr = entry.attrs().next()
+            .expect("Should have an attribute result")
+            .expect("and it should be ok");
+        assert_eq!(attr.name, AttributeName::Name);
 
-                let mut with_null: Vec<u8> = name.as_bytes().into();
-                with_null.push(0);
+        let mut with_null: Vec<u8> = name.as_bytes().into();
+        with_null.push(0);
 
-                assert_eq!(attr.value, AttributeValue::String(&with_null));
-            }
-            otherwise => panic!("Expected an attribute, found {:?}", otherwise),
-        }
+        assert_eq!(attr.value, AttributeValue::String(&with_null));
     }
 
-    match cursor.current() {
-        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "001"),
-        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
-    }
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry(entry, "001");
 
-    assert_eq!(cursor.next_dfs().unwrap(), 1);
-    match cursor.current() {
-        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "002"),
-        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
-    }
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry(entry, "002");
 
-    assert_eq!(cursor.next_dfs().unwrap(), 1);
-    match cursor.current() {
-        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "003"),
-        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
-    }
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry(entry, "003");
 
-    assert_eq!(cursor.next_dfs().unwrap(), -1);
-    match cursor.current() {
-        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "004"),
-        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
-    }
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -1);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry(entry, "004");
 
-    assert_eq!(cursor.next_dfs().unwrap(), 1);
-    match cursor.current() {
-        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "005"),
-        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
-    }
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry(entry, "005");
 
-    assert_eq!(cursor.next_dfs().unwrap(), 0);
-    match cursor.current() {
-        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "006"),
-        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
-    }
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 0);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry(entry, "006");
 
-    assert_eq!(cursor.next_dfs().unwrap(), -1);
-    match cursor.current() {
-        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "007"),
-        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
-    }
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -1);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry(entry, "007");
 
-    assert_eq!(cursor.next_dfs().unwrap(), 1);
-    match cursor.current() {
-        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "008"),
-        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
-    }
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry(entry, "008");
 
-    assert_eq!(cursor.next_dfs().unwrap(), 1);
-    match cursor.current() {
-        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "009"),
-        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
-    }
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry(entry, "009");
 
-    assert_eq!(cursor.next_dfs().unwrap(), -2);
-    match cursor.current() {
-        Some(ParseResult::Done(_, entry)) => assert_entry(entry, "010"),
-        otherwise => panic!("Unexpected current entry: {:?}", otherwise),
-    }
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -2);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry(entry, "010");
 
-    assert_eq!(cursor.next_dfs().unwrap(), -1);
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -1);
     assert!(cursor.current().is_none());
 }
 
 /// Parse a type unit header's unique type signature. Callers should handle
 /// unique-ness checking.
-fn parse_type_signature(input: &[u8]) -> ParseResult<&[u8], u64> {
-    translate(input, le_u64)
+fn parse_type_signature<'input, Endian>(input: EndianBuf<'input, Endian>)
+                                        -> ParseResult<(EndianBuf<'input, Endian>, u64)>
+    where Endian: Endianity
+{
+    parse_u64(input)
 }
 
 #[test]
 fn test_parse_type_signature_ok() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
-    match parse_type_signature(&buf) {
-        ParseResult::Done(_, val) => assert_eq!(val, 0x0807060504030201),
+    match parse_type_signature(EndianBuf::<LittleEndian>::new(&buf)) {
+        Ok((_, val)) => assert_eq!(val, 0x0807060504030201),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 }
@@ -4125,27 +4003,32 @@ fn test_parse_type_signature_ok() {
 fn test_parse_type_signature_incomplete() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
 
-    match parse_type_signature(&buf) {
-        ParseResult::Incomplete(_) => assert!(true),
+    match parse_type_signature(EndianBuf::<LittleEndian>::new(&buf)) {
+        Err(Error::UnexpectedEof) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 }
 
 /// Parse a type unit header's type offset.
-fn parse_type_offset(input: FormatInput) -> ParseResult<FormatInput, DebugTypesOffset> {
+fn parse_type_offset<'input, Endian>
+    (input: FormatInput<'input, Endian>)
+     -> ParseResult<(FormatInput<'input, Endian>, DebugTypesOffset)>
+    where Endian: Endianity
+{
     let result = match input.1 {
-        Format::Dwarf32 => translate(input, parse_u32_as_u64),
-        Format::Dwarf64 => translate(input, le_u64),
+        Format::Dwarf32 => parse_u32_as_u64(input.into()),
+        Format::Dwarf64 => parse_u64(input.into()),
     };
-    result.map(DebugTypesOffset)
+
+    result.map(|(rest, offset)| (input.merge(rest), DebugTypesOffset(offset)))
 }
 
 #[test]
 fn test_parse_type_offset_32_ok() {
     let buf = [0x12, 0x34, 0x56, 0x78, 0x00];
 
-    match parse_type_offset(FormatInput(&buf, Format::Dwarf32)) {
-        ParseResult::Done(rest, offset) => {
+    match parse_type_offset(FormatInput(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32)) {
+        Ok((rest, offset)) => {
             assert_eq!(rest.0.len(), 1);
             assert_eq!(rest.1, Format::Dwarf32);
             assert_eq!(DebugTypesOffset(0x78563412), offset);
@@ -4158,8 +4041,8 @@ fn test_parse_type_offset_32_ok() {
 fn test_parse_type_offset_64_ok() {
     let buf = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff, 0x00];
 
-    match parse_type_offset(FormatInput(&buf, Format::Dwarf64)) {
-        ParseResult::Done(rest, offset) => {
+    match parse_type_offset(FormatInput(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64)) {
+        Ok((rest, offset)) => {
             assert_eq!(rest.0.len(), 1);
             assert_eq!(rest.1, Format::Dwarf64);
             assert_eq!(DebugTypesOffset(0xffdebc9a78563412), offset);
@@ -4173,26 +4056,30 @@ fn test_parse_type_offset_incomplete() {
     // Need at least 4 bytes.
     let buf = [0xff, 0xff, 0xff];
 
-    match parse_type_offset(FormatInput(&buf, Format::Dwarf32)) {
-        ParseResult::Incomplete(_) => assert!(true),
+    match parse_type_offset(FormatInput(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32)) {
+        Err(Error::UnexpectedEof) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
 /// The header of a type unit's debugging information.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TypeUnit<'input> {
-    header: CompilationUnit<'input>,
+pub struct TypeUnit<'input, Endian>
+    where Endian: Endianity
+{
+    header: CompilationUnit<'input, Endian>,
     type_signature: u64,
     type_offset: DebugTypesOffset,
 }
 
-impl<'input> TypeUnit<'input> {
+impl<'input, Endian> TypeUnit<'input, Endian>
+    where Endian: Endianity
+{
     /// Construct a new `TypeUnit`.
-    pub fn new(header: CompilationUnit<'input>,
+    pub fn new(header: CompilationUnit<'input, Endian>,
                type_signature: u64,
                type_offset: DebugTypesOffset)
-               -> TypeUnit {
+               -> TypeUnit<'input, Endian> {
         TypeUnit {
             header: header,
             type_signature: type_signature,
@@ -4233,12 +4120,16 @@ impl<'input> TypeUnit<'input> {
 }
 
 /// Parse a type unit header.
-pub fn parse_type_unit_header(input: &[u8]) -> ParseResult<&[u8], TypeUnit> {
-    let (rest, header) = try_parse!(input, parse_compilation_unit_header);
-    let (rest, signature) = try_parse!(rest, parse_type_signature);
-    let (rest, offset) = try_parse_result!(rest,
-                                           parse_type_offset(FormatInput(rest, header.format())));
-    ParseResult::Done(rest.0, TypeUnit::new(header, signature, offset))
+#[allow(dead_code)] // TODO FITZGEN
+fn parse_type_unit_header<'input, Endian>
+    (input: EndianBuf<'input, Endian>)
+     -> ParseResult<(EndianBuf<'input, Endian>, TypeUnit<'input, Endian>)>
+    where Endian: Endianity
+{
+    let (rest, header) = try!(parse_compilation_unit_header(input));
+    let (rest, signature) = try!(parse_type_signature(rest));
+    let (rest, offset) = try!(parse_type_offset(FormatInput(rest, header.format())));
+    Ok((rest.0, TypeUnit::new(header, signature, offset)))
 }
 
 #[test]
@@ -4261,11 +4152,11 @@ fn test_parse_type_unit_header_32_ok() {
         0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x56, 0x78
     ];
 
-    let result = parse_type_unit_header(&buf);
+    let result = parse_type_unit_header(EndianBuf::<LittleEndian>::new(&buf));
     println!("result = {:#?}", result);
 
     match result {
-        ParseResult::Done(_, header) => {
+        Ok((_, header)) => {
             assert_eq!(header,
                        TypeUnit::new(CompilationUnit::new(11,
                                                           4,

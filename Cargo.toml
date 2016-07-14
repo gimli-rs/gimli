@@ -10,8 +10,8 @@ repository = "https://github.com/fitzgen/gimli"
 version = "0.1.0"
 
 [dependencies]
+byteorder = "0.5.3"
 leb128 = "0.1.0"
-nom = "1.2.3"
 
 [features]
 nightly = []

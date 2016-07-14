@@ -27,12 +27,6 @@ or add this to your `Cargo.toml`:
 
 * Better documentation and examples
 
-* For the fixed size integers (ie, not LEB128) figure out how to do endianness
-  correctly, and/or whether we are doing it correctly or not right now.
-    * Need to be generic across an `Endianness` trait (big or little) which
-      should match the endianness of the object file we are being supplied with
-      data from.
-
 * Gracefully handle all reserved values and vendor extensibility points
     * Might need to support some extensions like DWZ compressor which is used
       heavily for system libraries on at least Fedora.
@@ -55,13 +49,7 @@ or add this to your `Cargo.toml`:
     * implement two iterators on top of this:
         * iterate all DIEs in dfs
         * given a DIE, iterate its direct children
-    * Clean up the return types for traversal methods...
 
 * Make a common `Unit` trait for all `CompilationUnit`, `TypeUnit`, and
   `PartialUnit` so DIEs can just have a fat pointer to their unit rather than be
   generic.
-
-* Don't expose ParseResult to the outside world, just re-wrap in a gimli::Result
-  type
-
-* Investigate not using `nom` and use `std::io::Cursor` and `byteorder` instead.
