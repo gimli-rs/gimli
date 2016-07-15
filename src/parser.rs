@@ -8,7 +8,7 @@ use std::error;
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 use std::mem;
-use std::ops::{Deref, Index, RangeFrom, RangeTo};
+use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 
 /// A trait describing the endianity of some buffer.
 ///
@@ -295,7 +295,7 @@ pub struct DebugLocOffset(pub u64);
 pub struct DebugMacinfoOffset(pub u64);
 
 /// An offset into the current compilation or type unit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 pub struct UnitOffset(pub u64);
 
 /// The `DebugAbbrev` struct represents the abbreviations describing
@@ -1758,6 +1758,41 @@ impl<'input, Endian> CompilationUnit<'input, Endian>
     /// Whether this compilation unit is encoded in 64- or 32-bit DWARF.
     pub fn format(&self) -> Format {
         self.format
+    }
+
+    fn is_valid_offset(&self, offset: UnitOffset) -> bool {
+        let size_of_header = Self::size_of_header(self.format);
+        if !offset.0 as usize >= size_of_header {
+            return false;
+        }
+
+        let relative_to_entries_buf = offset.0 as usize - size_of_header;
+        relative_to_entries_buf < self.entries_buf.len()
+    }
+
+    /// TODO FITZGEN
+    pub fn range(&self, idx: Range<UnitOffset>) -> &'input [u8] {
+        assert!(self.is_valid_offset(idx.start));
+        assert!(self.is_valid_offset(idx.end));
+        assert!(idx.start <= idx.end);
+        let size_of_header = Self::size_of_header(self.format);
+        let start = idx.start.0 as usize - size_of_header;
+        let end = idx.end.0 as usize - size_of_header;
+        &self.entries_buf.0[start..end]
+    }
+
+    /// TODO FITZGEN
+    pub fn range_from(&self, idx: RangeFrom<UnitOffset>) -> &'input [u8] {
+        assert!(self.is_valid_offset(idx.start));
+        let start = idx.start.0 as usize - Self::size_of_header(self.format);
+        &self.entries_buf.0[start..]
+    }
+
+    /// TODO FITZGEN
+    pub fn range_to(&self, idx: RangeTo<UnitOffset>) -> &'input [u8] {
+        assert!(self.is_valid_offset(idx.end));
+        let end = idx.end.0 as usize - Self::size_of_header(self.format);
+        &self.entries_buf.0[..end]
     }
 
     /// Navigate this compilation unit's `DebuggingInformationEntry`s.
@@ -3621,6 +3656,11 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
         }
 
         match parse_unsigned_leb(self.input) {
+            Err(e) => Some(Err(e)),
+
+            // Null abbreviation is the lack of an entry.
+            Ok((_, 0)) => None,
+
             Ok((rest, code)) => {
                 if let Some(abbrev) = self.abbreviations.get(code) {
                     let result = Some(Ok(DebuggingInformationEntry {
@@ -3640,7 +3680,6 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                     Some(Err(Error::UnknownAbbreviation))
                 }
             }
-            Err(e) => Some(Err(e)),
         }
     }
 
@@ -3800,26 +3839,489 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     }
 
     /// Move the cursor to the next sibling DIE of the current one.
-    pub fn next_sibling(&mut self) -> Result<(), ()> {
-        Err(())
+    ///
+    /// Returns `Some` when the cursor the cursor has been moved to the next
+    /// sibling, `None` when there is no next sibling.
+    ///
+    /// After returning `None`, the cursor is exhausted.
+    ///
+    /// Here is an example that iterates over all of the direct children of the
+    /// root entry:
+    ///
+    /// ```
+    /// # use gimli::{DebugAbbrev, DebugInfo, LittleEndian};
+    /// # let abbrev_buf = [
+    /// #     // Code
+    /// #     0x01,
+    /// #     // DW_TAG_subprogram
+    /// #     0x2e,
+    /// #     // DW_CHILDREN_yes
+    /// #     0x01,
+    /// #     // Begin attributes
+    /// #       // Attribute name = DW_AT_name
+    /// #       0x03,
+    /// #       // Attribute form = DW_FORM_string
+    /// #       0x08,
+    /// #     // End attributes
+    /// #     0x00,
+    /// #     0x00,
+    /// #     // Null terminator
+    /// #     0x00
+    /// # ];
+    /// # let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&abbrev_buf);
+    /// # let get_abbrevs_for_compilation_unit = |_| debug_abbrev.abbreviations().unwrap();
+    /// #
+    /// # let info_buf = [
+    /// #     // Comilation unit header
+    /// #
+    /// #     // 32-bit unit length = 25
+    /// #     0x19, 0x00, 0x00, 0x00,
+    /// #     // Version 4
+    /// #     0x04, 0x00,
+    /// #     // debug_abbrev_offset
+    /// #     0x05, 0x06, 0x07, 0x08,
+    /// #     // Address size
+    /// #     0x04,
+    /// #
+    /// #     // DIEs
+    /// #
+    /// #     // Abbreviation code
+    /// #     0x01,
+    /// #     // Attribute of form DW_FORM_string = "foo\0"
+    /// #     0x66, 0x6f, 0x6f, 0x00,
+    /// #
+    /// #       // Children
+    /// #
+    /// #       // Abbreviation code
+    /// #       0x01,
+    /// #       // Attribute of form DW_FORM_string = "foo\0"
+    /// #       0x66, 0x6f, 0x6f, 0x00,
+    /// #
+    /// #         // Children
+    /// #
+    /// #         // Abbreviation code
+    /// #         0x01,
+    /// #         // Attribute of form DW_FORM_string = "foo\0"
+    /// #         0x66, 0x6f, 0x6f, 0x00,
+    /// #
+    /// #           // Children
+    /// #
+    /// #           // End of children
+    /// #           0x00,
+    /// #
+    /// #         // End of children
+    /// #         0x00,
+    /// #
+    /// #       // End of children
+    /// #       0x00,
+    /// # ];
+    /// # let debug_info = DebugInfo::<LittleEndian>::new(&info_buf);
+    /// #
+    /// # let get_some_compilation_unit = || debug_info.compilation_units().next().unwrap().unwrap();
+    ///
+    /// let unit = get_some_compilation_unit();
+    /// let abbrevs = get_abbrevs_for_compilation_unit(&unit);
+    ///
+    /// let mut cursor = unit.entries(&abbrevs);
+    ///
+    /// // Move the cursor to the root's first child.
+    /// assert_eq!(cursor.next_dfs().unwrap(), 1);
+    ///
+    /// // Iterate the root's children.
+    /// loop {
+    ///     let current = cursor.current()
+    ///         .expect("Should be at an entry")
+    ///         .expect("And we should parse the entry ok");
+    ///
+    ///     println!("{:?} is a child of the root", current);
+    ///
+    ///     if cursor.next_sibling().is_none() {
+    ///         break;
+    ///     }
+    /// }
+    /// ```
+    pub fn next_sibling(&mut self) -> Option<()> {
+        match self.current() {
+            Some(Ok(current)) => {
+                let sibling_ptr = current.attrs()
+                    .take_while(|res| res.is_ok())
+                    .find(|res| res.unwrap().name() == AttributeName::Sibling);
+
+                if let Some(sibling_ptr) = sibling_ptr {
+                    if let AttributeValue::UnitRef(offset) = sibling_ptr.unwrap().value() {
+                        if self.unit.is_valid_offset(offset) {
+                            // Fast path: this entry has a DW_AT_sibling
+                            // attribute pointing to its sibling.
+                            self.input = &self.unit.range_from(offset..);
+                            if self.input.len() > 0 && self.input[0] != 0 {
+                                return Some(());
+                            } else {
+                                self.input = &[];
+                                return None;
+                            }
+                        }
+                    }
+                }
+
+                // Slow path: either the entry doesn't have a sibling pointer,
+                // or the pointer is bogus. Do a DFS until we get to the next
+                // sibling.
+
+                let mut depth = 0;
+                while let Some(delta_depth) = self.next_dfs() {
+                    depth += delta_depth;
+
+                    if depth == 0 && self.input[0] != 0 {
+                        // We found the next sibling.
+                        return Some(());
+                    }
+
+                    if depth < 0 {
+                        // We moved up to the original entry's parent's (or
+                        // parent's parent's, etc ...) siblings.
+                        self.input = &[];
+                        return None;
+                    }
+                }
+
+                // No sibling found.
+                self.input = &[];
+                None
+            }
+            _ => {
+                self.input = &[];
+                None
+            }
+        }
     }
 }
 
+#[cfg(test)]
+fn assert_entry_with_name<'input, 'abbrev, 'unit, Endian>(entry: DebuggingInformationEntry<'input,
+                                                                                           'abbrev,
+                                                                                           'unit,
+                                                                                           Endian>,
+                                                          name: &'static str)
+    where Endian: Endianity
+{
+    let attr = entry.attrs()
+        .find(|attr| attr.is_ok() && attr.unwrap().name() == AttributeName::Name)
+        .expect("Should have found the name attribute")
+        .expect("and it should parse ok");
+
+    let mut with_null: Vec<u8> = name.as_bytes().into();
+    with_null.push(0);
+
+    assert_eq!(attr.value, AttributeValue::String(&with_null));
+}
+
+#[cfg(test)]
+#[cfg_attr(rustfmt, rustfmt_skip)]
+const ENTRIES_CURSOR_TESTS_ABBREV_BUF: [u8; 8] = [
+    // Code
+    0x01,
+
+    // DW_TAG_subprogram
+    0x2e,
+
+    // DW_CHILDREN_yes
+    0x01,
+
+    // Begin attributes
+
+        // Attribute name = DW_AT_name
+        0x03,
+        // Attribute form = DW_FORM_string
+        0x08,
+
+    // End attributes
+    0x00,
+    0x00,
+
+    // Null terminator
+    0x00
+];
+
+#[cfg(test)]
+#[cfg_attr(rustfmt, rustfmt_skip)]
+const ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF: [u8; 71] = [
+    // Comilation unit header
+
+    // 32-bit unit length = 67
+    0x43, 0x00, 0x00, 0x00,
+    // Version 4
+    0x04, 0x00,
+    // debug_abbrev_offset
+    0x05, 0x06, 0x07, 0x08,
+    // Address size
+    0x04,
+
+    // DIEs
+
+    // Abbreviation code
+    0x01,
+    // Attribute of form DW_FORM_string = "001\0"
+    0x30, 0x30, 0x31, 0x00,
+
+    // Children
+
+        // Abbreviation code
+        0x01,
+        // Attribute of form DW_FORM_string = "002\0"
+        0x30, 0x30, 0x32, 0x00,
+
+        // Children
+
+            // Abbreviation code
+            0x01,
+            // Attribute of form DW_FORM_string = "003\0"
+            0x30, 0x30, 0x33, 0x00,
+
+            // Children
+
+            // End of children
+            0x00,
+
+        // End of children
+        0x00,
+
+        // Abbreviation code
+        0x01,
+        // Attribute of form DW_FORM_string = "004\0"
+        0x30, 0x30, 0x34, 0x00,
+
+        // Children
+
+            // Abbreviation code
+            0x01,
+            // Attribute of form DW_FORM_string = "005\0"
+            0x30, 0x30, 0x35, 0x00,
+
+            // Children
+
+            // End of children
+            0x00,
+
+            // Abbreviation code
+            0x01,
+            // Attribute of form DW_FORM_string = "006\0"
+            0x30, 0x30, 0x36, 0x00,
+
+            // Children
+
+            // End of children
+            0x00,
+
+        // End of children
+        0x00,
+
+        // Abbreviation code
+        0x01,
+        // Attribute of form DW_FORM_string = "007\0"
+        0x30, 0x30, 0x37, 0x00,
+
+        // Children
+
+            // Abbreviation code
+            0x01,
+            // Attribute of form DW_FORM_string = "008\0"
+            0x30, 0x30, 0x38, 0x00,
+
+            // Children
+
+                // Abbreviation code
+                0x01,
+                // Attribute of form DW_FORM_string = "009\0"
+                0x30, 0x30, 0x39, 0x00,
+
+                // Children
+
+                // End of children
+                0x00,
+
+            // End of children
+            0x00,
+
+        // End of children
+        0x00,
+
+        // Abbreviation code
+        0x01,
+        // Attribute of form DW_FORM_string = "010\0"
+        0x30, 0x31, 0x30, 0x00,
+
+        // Children
+
+        // End of children
+        0x00,
+
+    // End of children
+    0x00
+];
+
 #[test]
-#[cfg_attr(nightly, rustfmt_skip)]
+#[cfg_attr(rustfmt, rustfmt_skip)]
 fn test_cursor_next_dfs() {
+    let abbrevs_buf = &ENTRIES_CURSOR_TESTS_ABBREV_BUF;
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(abbrevs_buf);
+
+    let abbrevs = debug_abbrev.abbreviations()
+        .expect("Should parse abbreviations");
+
+    let info_buf = &ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF;
+    let debug_info = DebugInfo::<LittleEndian>::new(info_buf);
+
+    let unit = debug_info.compilation_units().next()
+        .expect("should have a unit result")
+        .expect("and it should be ok");
+
+    let mut cursor = unit.entries(&abbrevs);
+
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry_with_name(entry, "001");
+
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry_with_name(entry, "002");
+
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry_with_name(entry, "003");
+
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -1);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry_with_name(entry, "004");
+
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry_with_name(entry, "005");
+
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 0);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry_with_name(entry, "006");
+
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -1);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry_with_name(entry, "007");
+
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry_with_name(entry, "008");
+
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry_with_name(entry, "009");
+
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -2);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry_with_name(entry, "010");
+
+    assert!(cursor.next_dfs().is_none());
+    assert!(cursor.current().is_none());
+}
+
+#[test]
+#[cfg_attr(rustfmt, rustfmt_skip)]
+fn test_cursor_next_sibling_no_sibling_ptr() {
+    let abbrevs_buf = &ENTRIES_CURSOR_TESTS_ABBREV_BUF;
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(abbrevs_buf);
+
+    let abbrevs = debug_abbrev.abbreviations()
+        .expect("Should parse abbreviations");
+
+    let info_buf = &ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF;
+    let debug_info = DebugInfo::<LittleEndian>::new(info_buf);
+
+    let unit = debug_info.compilation_units().next()
+        .expect("should have a unit result")
+        .expect("and it should be ok");
+
+    let mut cursor = unit.entries(&abbrevs);
+
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry_with_name(entry, "001");
+
+    // Down to the first child of the root entry.
+
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry_with_name(entry, "002");
+
+    // Now iterate all children of the root via `next_sibling`.
+
+    cursor.next_sibling().expect("Should not be done with traversal");
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry_with_name(entry, "004");
+
+    cursor.next_sibling().expect("Should not be done with traversal");
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry_with_name(entry, "007");
+
+    cursor.next_sibling().expect("Should not be done with traversal");
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+    assert_entry_with_name(entry, "010");
+
+    // And now the cursor should be exhausted.
+
+    assert!(cursor.next_sibling().is_none());
+    assert!(cursor.current().is_none());
+}
+
+#[test]
+#[cfg_attr(rustfmt, rustfmt_skip)]
+fn test_cursor_next_sibling_with_sibling_ptr() {
     let abbrev_buf = [
         // Code
         0x01,
+
         // DW_TAG_subprogram
         0x2e,
+
         // DW_CHILDREN_yes
         0x01,
+
         // Begin attributes
+
             // Attribute name = DW_AT_name
             0x03,
             // Attribute form = DW_FORM_string
             0x08,
+
+            // Attribute name = DW_AT_sibling
+            0x01,
+            // Attribute form = DW_FORM_ref1
+            0x11,
+
         // End attributes
         0x00,
         0x00,
@@ -3836,8 +4338,8 @@ fn test_cursor_next_dfs() {
     let info_buf = [
         // Comilation unit header
 
-        // 32-bit unit length = 67
-        0x43, 0x00, 0x00, 0x00,
+        // 32-bit unit length = 56
+        0x38, 0x00, 0x00, 0x00,
         // Version 4
         0x04, 0x00,
         // debug_abbrev_offset
@@ -3849,103 +4351,88 @@ fn test_cursor_next_dfs() {
 
         // Abbreviation code
         0x01,
-        // Attribute of form DW_FORM_string = "001\0"
+
+        // DW_AT_name of form DW_FORM_string = "001\0"
         0x30, 0x30, 0x31, 0x00,
+        // DW_AT_sibling of form DW_FORM_ref1
+        0x00,
 
         // Children
 
             // Abbreviation code
             0x01,
-            // Attribute of form DW_FORM_string = "002\0"
+
+            // DW_AT_name of form DW_FORM_string = "002\0"
             0x30, 0x30, 0x32, 0x00,
+            // Valid DW_AT_sibling pointer of form DW_FORM_ref1 = 31
+            0x1f,
 
             // Children
 
                 // Abbreviation code
                 0x01,
-                // Attribute of form DW_FORM_string = "003\0"
+
+                // DW_AT_name of form DW_FORM_string = "003\0"
                 0x30, 0x30, 0x33, 0x00,
-
-                // Children
-
-                // End of children
+                // DW_AT_sibling of form DW_FORM_ref1
                 0x00,
 
-            // End of children
+                // No children
+                0x00,
+
+            // End children
             0x00,
 
             // Abbreviation code
             0x01,
-            // Attribute of form DW_FORM_string = "004\0"
+
+            // DW_AT_name of form DW_FORM_string = "004\0"
             0x30, 0x30, 0x34, 0x00,
+            // Invalid DW_AT_sibling of form DW_FORM_ref1 = 255
+            0xff,
 
             // Children
 
                 // Abbreviation code
                 0x01,
-                // Attribute of form DW_FORM_string = "005\0"
+
+                // DW_AT_name of form DW_FORM_string = "005\0"
                 0x30, 0x30, 0x35, 0x00,
-
-                // Children
-
-                // End of children
+                // DW_AT_sibling of form DW_FORM_ref1
                 0x00,
 
-                // Abbreviation code
-                0x01,
-                // Attribute of form DW_FORM_string = "006\0"
-                0x30, 0x30, 0x36, 0x00,
-
-                // Children
-
-                // End of children
+                // No children
                 0x00,
 
-            // End of children
+            // End children
             0x00,
 
             // Abbreviation code
             0x01,
-            // Attribute of form DW_FORM_string = "007\0"
-            0x30, 0x30, 0x37, 0x00,
+
+            // DW_AT_name of form DW_FORM_string = "006\0"
+            0x30, 0x30, 0x36, 0x00,
+            // DW_AT_sibling of form DW_FORM_ref1
+            0x00,
 
             // Children
 
                 // Abbreviation code
                 0x01,
-                // Attribute of form DW_FORM_string = "008\0"
-                0x30, 0x30, 0x38, 0x00,
 
-                // Children
-
-                    // Abbreviation code
-                    0x01,
-                    // Attribute of form DW_FORM_string = "009\0"
-                    0x30, 0x30, 0x39, 0x00,
-
-                    // Children
-
-                    // End of children
-                    0x00,
-
-                // End of children
+                // DW_AT_name of form DW_FORM_string = "007\0"
+                0x30, 0x30, 0x37, 0x00,
+                // DW_AT_sibling of form DW_FORM_ref1
                 0x00,
 
-            // End of children
+                // No children
+                0x00,
+
+            // End children
             0x00,
 
-            // Abbreviation code
-            0x01,
-            // Attribute of form DW_FORM_string = "010\0"
-            0x30, 0x31, 0x30, 0x00,
-
-            // Children
-
-            // End of children
-            0x00,
-
-        // End of children
-        0x00
+        // End children
+        0x00,
     ];
 
     let debug_info = DebugInfo::<LittleEndian>::new(&info_buf);
@@ -3956,80 +4443,36 @@ fn test_cursor_next_dfs() {
 
     let mut cursor = unit.entries(&abbrevs);
 
-    fn assert_entry<'input, 'abbrev, 'unit, Endian>(entry: DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>, name: &'static str)
-        where Endian: Endianity
-    {
-        let attr = entry.attrs().next()
-            .expect("Should have an attribute result")
-            .expect("and it should be ok");
-        assert_eq!(attr.name, AttributeName::Name);
-
-        let mut with_null: Vec<u8> = name.as_bytes().into();
-        with_null.push(0);
-
-        assert_eq!(attr.value, AttributeValue::String(&with_null));
-    }
-
-    let entry = cursor.current()
+    let root = cursor.current()
         .expect("Should have an entry result")
         .expect("and it should be ok");
-    assert_entry(entry, "001");
+    assert_entry_with_name(root, "001");
+
+    // Down to the first child of the root.
 
     assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
     let entry = cursor.current()
         .expect("Should have an entry result")
         .expect("and it should be ok");
-    assert_entry(entry, "002");
+    assert_entry_with_name(entry, "002");
 
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
+    // Now iterate all children of the root via `next_sibling`.
+
+    cursor.next_sibling().expect("Should handle valid DW_AT_sibling pointer");
     let entry = cursor.current()
         .expect("Should have an entry result")
         .expect("and it should be ok");
-    assert_entry(entry, "003");
+    assert_entry_with_name(entry, "004");
 
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -1);
+    cursor.next_sibling().expect("Should handle invalid DW_AT_sibling pointer");
     let entry = cursor.current()
         .expect("Should have an entry result")
         .expect("and it should be ok");
-    assert_entry(entry, "004");
+    assert_entry_with_name(entry, "006");
 
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry(entry, "005");
+    // And now the cursor should be exhausted.
 
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 0);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry(entry, "006");
-
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -1);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry(entry, "007");
-
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry(entry, "008");
-
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry(entry, "009");
-
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -2);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry(entry, "010");
-
-    assert!(cursor.next_dfs().is_none());
+    assert!(cursor.next_sibling().is_none());
     assert!(cursor.current().is_none());
 }
 
