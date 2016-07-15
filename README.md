@@ -33,8 +33,19 @@ or add this to your `Cargo.toml`:
 
 ## License
 
-Either MIT or Apache 2.0. See the `LICENSE-APACHE` and `LICENSE-MIT`
-respectively.
+Licensed under either of
+
+  * Apache License, Version 2.0 ([`LICENSE-APACHE`](./LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+  * MIT license ([`LICENSE-MIT`](./LICENSE-MIT) or http://op
+  ensource.org/licenses/MIT)
+
+at your option.
+
+## Contribution
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
+dual licensed as above, without any additional terms or conditions.
 
 ## TODO
 
