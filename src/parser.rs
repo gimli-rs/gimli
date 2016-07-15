@@ -4,7 +4,8 @@ use byteorder;
 use leb128;
 use std::cell::{Cell, RefCell};
 use std::collections::hash_map;
-use std::fmt::Debug;
+use std::error;
+use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, Index, RangeFrom, RangeTo};
@@ -84,43 +85,84 @@ impl byteorder::ByteOrder for BigEndian {
 
 impl Endianity for BigEndian {}
 
-/// TODO FITZGEN
+/// An error that occurred when parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
-    /// TODO FITZGEN
+    /// An error parsing an unsigned LEB128 value.
     BadUnsignedLeb128,
-    /// TODO FITZGEN
+    /// An error parsing a signed LEB128 value.
     BadSignedLeb128,
-    /// TODO FITZGEN
+    /// An abbreviation declared that its code is zero, but zero is reserved for
+    /// null records.
     AbbreviationCodeZero,
-    /// TODO FITZGEN
+    /// Found an unknown `DW_TAG_*` type.
     UnknownTag,
-    /// TODO FITZGEN
+    /// The abbreviation's has-children byte was not one of
+    /// `DW_CHILDREN_{yes,no}`.
     BadHasChildren,
-    /// TODO FITZGEN
+    /// Found an unknown `DW_NAME_*` type.
     UnknownName,
-    /// TODO FITZGEN
+    /// Found an unknown `DW_FORM_*` type.
     UnknownForm,
-    /// TODO FITZGEN
+    /// Expected a zero, found something else.
     ExpectedZero,
-    /// TODO FITZGEN
+    /// Found an abbreviation code that has already been used.
     DuplicateAbbreviationCode,
-    /// TODO FITZGEN
+    /// Found an unknown reserved length value.
     UnknownReservedLength,
-    /// TODO FITZGEN
+    /// Found an unknown DWARF version.
     UnknownVersion,
-    /// TODO FITZGEN
+    /// The unit header's claimed length is too short to even hold the header
+    /// itself.
     UnitHeaderLengthTooShort,
-    /// TODO FITZGEN
+    /// Found a record with an unknown abbreviation code.
     UnknownAbbreviation,
-    /// TODO FITZGEN
+    /// Hit the end of input before it was expected.
     UnexpectedEof,
 }
 
-/// TODO FITZGEN
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        Debug::fmt(self, f)
+    }
+}
+
+impl error::Error for Error {
+    fn description(&self) -> &str {
+        match *self {
+            Error::BadUnsignedLeb128 => "An error parsing an unsigned LEB128 value",
+            Error::BadSignedLeb128 => "An error parsing a signed LEB128 value",
+            Error::AbbreviationCodeZero => {
+                "An abbreviation declared that its code is zero,
+                 but zero is reserved for null records"
+            }
+            Error::UnknownTag => "Found an unknown `DW_TAG_*` type",
+            Error::BadHasChildren => {
+                "The abbreviation's has-children byte was not one of
+                 `DW_CHILDREN_{yes,no}`"
+            }
+            Error::UnknownName => "Found an unknown `DW_NAME_*` type",
+            Error::UnknownForm => "Found an unknown `DW_FORM_*` type",
+            Error::ExpectedZero => "Expected a zero, found something else",
+            Error::DuplicateAbbreviationCode => {
+                "Found an abbreviation code that has already been used"
+            }
+            Error::UnknownReservedLength => "Found an unknown reserved length value",
+            Error::UnknownVersion => "Found an unknown DWARF version",
+            Error::UnitHeaderLengthTooShort => {
+                "The unit header's claimed length is too short to even hold
+                 the header itself"
+            }
+            Error::UnknownAbbreviation => "Found a record with an unknown abbreviation code",
+            Error::UnexpectedEof => "Hit the end of input before it was expected",
+        }
+    }
+}
+
+/// The result of a parse.
 pub type ParseResult<T> = Result<T, Error>;
 
-/// TODO FITZGEN
+/// A &[u8] slice with compile-time endianity metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct EndianBuf<'input, Endian>(&'input [u8], PhantomData<Endian>) where Endian: Endianity;
 
