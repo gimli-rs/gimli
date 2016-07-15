@@ -1,16 +1,20 @@
 # `gimli`
 
-[![](http://meritbadge.herokuapp.com/gimli)![](https://img.shields.io/crates/d/gimli.png)](https://crates.io/crates/gimli)
+[![](http://meritbadge.herokuapp.com/gimli) ![](https://img.shields.io/crates/d/gimli.png)](https://crates.io/crates/gimli) [![Build Status](https://travis-ci.org/fitzgen/gimli.png?branch=master)](https://travis-ci.org/fitzgen/gimli) [![Coverage Status](https://coveralls.io/repos/github/fitzgen/gimli/badge.svg?branch=master)](https://coveralls.io/github/fitzgen/gimli?branch=master)
 
-[![Build Status](https://travis-ci.org/fitzgen/gimli.png?branch=master)](https://travis-ci.org/fitzgen/gimli)
+A lazy, zero-copy parser for the DWARF debugging format.
 
-[![Coverage Status](https://coveralls.io/repos/github/fitzgen/gimli/badge.svg?branch=master)](https://coveralls.io/github/fitzgen/gimli?branch=master)
+* Zero copy: everything is just a reference to the original input buffer. No
+  copies of the input data get made.
 
-A zero-copy parser for the DWARF debugging format.
+* Lazy: you can iterate compilation units without parsing their
+  contents. Parse only as many debugging information entry (DIE) trees as you
+  iterate over. `gimli` also uses `DW_AT_sibling` references to avoid parsing a
+  DIE's children to find its next sibling, when possible.
 
-Bring your own object file loader: `gimli` makes no assumptions about what kind
-of object file you're working with. The flipside to that is that it's up to you
-to provide an ELF loader on Linux or Mach-O loader on OSX.
+* Bring your own object file loader: `gimli` makes no assumptions about what
+  kind of object file you're working with. The flipside to that is that it's up
+  to you to provide an ELF loader on Linux or Mach-O loader on OSX.
 
 ## Install
 
@@ -26,6 +30,11 @@ or add this to your `Cargo.toml`:
 ## Documentation
 
 [Documentation](http://fitzgen.github.io/gimli/gimli/index.html)
+
+## License
+
+Either MIT or Apache 2.0. See the `LICENSE-APACHE` and `LICENSE-MIT`
+respectively.
 
 ## TODO
 
@@ -57,3 +66,7 @@ or add this to your `Cargo.toml`:
 * Make a common `Unit` trait for all `CompilationUnit`, `TypeUnit`, and
   `PartialUnit` so DIEs can just have a fat pointer to their unit rather than be
   generic.
+
+* Examples:
+  * Make a `dwarfdump` DIE tree printer clone
+  * Make a `atos` symbolizer clone
