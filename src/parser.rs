@@ -9,12 +9,16 @@ use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, Index, RangeFrom, RangeTo};
 
-/// TODO FITZGEN
+/// A trait describing the endianity of some buffer.
+///
+/// All interesting methods are from the `byteorder` crate's `ByteOrder`
+/// trait. All methods are static. You shouldn't instantiate concrete objects
+/// that implement this trait, it is just used as compile-time phantom data.
 pub trait Endianity
     : byteorder::ByteOrder + Debug + Clone + Copy + PartialEq + Eq {
 }
 
-/// TODO FITZGEN
+/// Little endian byte order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LittleEndian {}
 
@@ -47,7 +51,7 @@ impl byteorder::ByteOrder for LittleEndian {
 
 impl Endianity for LittleEndian {}
 
-/// TODO FITZGEN
+/// Big endian byte order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BigEndian {}
 
