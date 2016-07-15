@@ -3600,18 +3600,21 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
 
     /// Move the cursor to the next DIE in the tree in DFS order.
     ///
-    /// Upon success, return the delta traversal depth:
+    /// Upon successful movement of the cursor, return the delta traversal
+    /// depth:
     ///
     ///   * If we moved down into the previous current entry's children, we get
-    ///     `Ok(1)`.
+    ///     `Some(1)`.
     ///
     ///   * If we moved to the previous current entry's sibling, we get
-    ///     `Ok(0)`.
+    ///     `Some(0)`.
     ///
     ///   * If the previous entry does not have any siblings and we move up to
-    ///     its parent's next sibling, then we get `Ok(-1)`. Note that if the
+    ///     its parent's next sibling, then we get `Some(-1)`. Note that if the
     ///     parent doesn't have a next sibling, then it could go up to the
-    ///     parent's parent's next sibling and return `Ok(-2)`, etc.
+    ///     parent's parent's next sibling and return `Some(-2)`, etc.
+    ///
+    /// If there is no next entry, then `None` is returned.
     ///
     /// Here is an example that finds the first entry in a compilation unit that
     /// does not have any children.
@@ -3694,7 +3697,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// let mut cursor = unit.entries(&abbrevs);
     ///
     /// // Keep looping while the cursor is moving deeper into the DIE tree.
-    /// while let Ok(delta_depth) = cursor.next_dfs() {
+    /// while let Some(delta_depth) = cursor.next_dfs() {
     ///     // 0 means we moved to a sibling, a negative number means we went back
     ///     // up to a parent's sibling. In either case, bail out of the loop because
     ///     //  we aren't going deeper into the tree anymore.
@@ -3711,7 +3714,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// println!("The first entry with no children is {:?}",
     ///          first_entry_with_no_children.unwrap());
     /// ```
-    pub fn next_dfs(&mut self) -> Result<isize, ()> {
+    pub fn next_dfs(&mut self) -> Option<isize> {
         match self.current() {
             Some(Ok(current)) => {
                 self.input = if let Some(after_attrs) = current.after_attrs.get() {
@@ -3740,9 +3743,13 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                 let mut cached_current = self.cached_current.borrow_mut();
                 mem::replace(&mut *cached_current, None);
 
-                Ok(delta_depth)
+                if self.input.len() > 0 {
+                    Some(delta_depth)
+                } else {
+                    None
+                }
             }
-            _ => Err(()),
+            _ => None,
         }
     }
 
@@ -3976,7 +3983,7 @@ fn test_cursor_next_dfs() {
         .expect("and it should be ok");
     assert_entry(entry, "010");
 
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -1);
+    assert!(cursor.next_dfs().is_none());
     assert!(cursor.current().is_none());
 }
 
