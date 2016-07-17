@@ -1770,7 +1770,7 @@ impl<'input, Endian> CompilationUnit<'input, Endian>
         relative_to_entries_buf < self.entries_buf.len()
     }
 
-    /// TODO FITZGEN
+    /// Get the underlying bytes for the supplied range.
     pub fn range(&self, idx: Range<UnitOffset>) -> &'input [u8] {
         assert!(self.is_valid_offset(idx.start));
         assert!(self.is_valid_offset(idx.end));
@@ -1781,14 +1781,14 @@ impl<'input, Endian> CompilationUnit<'input, Endian>
         &self.entries_buf.0[start..end]
     }
 
-    /// TODO FITZGEN
+    /// Get the underlying bytes for the supplied range.
     pub fn range_from(&self, idx: RangeFrom<UnitOffset>) -> &'input [u8] {
         assert!(self.is_valid_offset(idx.start));
         let start = idx.start.0 as usize - Self::size_of_header(self.format);
         &self.entries_buf.0[start..]
     }
 
-    /// TODO FITZGEN
+    /// Get the underlying bytes for the supplied range.
     pub fn range_to(&self, idx: RangeTo<UnitOffset>) -> &'input [u8] {
         assert!(self.is_valid_offset(idx.end));
         let end = idx.end.0 as usize - Self::size_of_header(self.format);
