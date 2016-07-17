@@ -66,7 +66,7 @@ dual licensed as above, without any additional terms or conditions.
 
 * Cursor-based DIE parsing
     * ~~next_dfs()~~
-    * next_sibling()
+    * ~~next_sibling()~~
     * ~~Needs to hold a reference to the current DIE to reuse the attribute parse
       when possible~~
     * implement two iterators on top of this:
