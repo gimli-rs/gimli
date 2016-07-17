@@ -11,7 +11,7 @@ version = "0.2.0"
 
 [dependencies]
 byteorder = "0.5.3"
-leb128 = "0.1.0"
+leb128 = "0.2.1"
 
 [features]
 nightly = []

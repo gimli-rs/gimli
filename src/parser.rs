@@ -6,6 +6,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::hash_map;
 use std::error;
 use std::fmt::{self, Debug};
+use std::io;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
@@ -500,7 +501,9 @@ fn test_compilation_units() {
 fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<(&[u8], u64)> {
     match leb128::read::unsigned(&mut input) {
         Ok(val) => Ok((input, val)),
-        Err(leb128::read::Error::UnexpectedEndOfData) => Err(Error::UnexpectedEof),
+        Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
+            Err(Error::UnexpectedEof)
+        }
         Err(_) => Err(Error::BadUnsignedLeb128),
     }
 }
@@ -509,7 +512,9 @@ fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<(&[u8], u64)> {
 fn parse_signed_leb(mut input: &[u8]) -> ParseResult<(&[u8], i64)> {
     match leb128::read::signed(&mut input) {
         Ok(val) => Ok((input, val)),
-        Err(leb128::read::Error::UnexpectedEndOfData) => Err(Error::UnexpectedEof),
+        Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
+            Err(Error::UnexpectedEof)
+        }
         Err(_) => Err(Error::BadSignedLeb128),
     }
 }
