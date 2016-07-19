@@ -50,13 +50,6 @@ dual licensed as above, without any additional terms or conditions.
 
 * Better documentation and examples
 
-* Gracefully handle all reserved values and vendor extensibility points
-    * Might need to support some extensions like DWZ compressor which is used
-      heavily for system libraries on at least Fedora.
-
-* Be more future compatible by using "unknown" variants rather than throwing
-  parse errors when we find something unexpected
-
 * DWARF expressions and location descriptions
 
 * ~~A CompilationUnitHeader iterator that skips across the DIE tree and just
