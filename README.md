@@ -45,31 +45,3 @@ at your option.
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
-
-## TODO
-
-* Better documentation and examples
-
-* DWARF expressions and location descriptions
-
-* ~~A CompilationUnitHeader iterator that skips across the DIE tree and just
-  yields each header.~~
-    * Factor this out and also have a `TypeUnitIterator` -- where do
-      `PartialUnit`s fall into this again?
-
-* Cursor-based DIE parsing
-    * ~~next_dfs()~~
-    * ~~next_sibling()~~
-    * ~~Needs to hold a reference to the current DIE to reuse the attribute parse
-      when possible~~
-    * implement two iterators on top of this:
-        * iterate all DIEs in dfs
-        * given a DIE, iterate its direct children
-
-* Make a common `Unit` trait for all `CompilationUnit`, `TypeUnit`, and
-  `PartialUnit` so DIEs can just have a fat pointer to their unit rather than be
-  generic.
-
-* Examples:
-  * Make a `dwarfdump` DIE tree printer clone
-  * Make a `atos` symbolizer clone
