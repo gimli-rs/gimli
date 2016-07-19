@@ -10,5 +10,8 @@
 extern crate byteorder;
 extern crate leb128;
 
+mod constants;
+pub use constants::*;
+
 mod parser;
 pub use parser::*;

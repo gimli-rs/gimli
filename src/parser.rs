@@ -1,6 +1,7 @@
 //! Functions for parsing DWARF debugging information.
 
 use byteorder;
+use constants;
 use leb128;
 use std::cell::{Cell, RefCell};
 use std::collections::hash_map;
@@ -101,8 +102,6 @@ pub enum Error {
     /// The abbreviation's has-children byte was not one of
     /// `DW_CHILDREN_{yes,no}`.
     BadHasChildren,
-    /// Found an unknown `DW_NAME_*` type.
-    UnknownName,
     /// Found an unknown `DW_FORM_*` type.
     UnknownForm,
     /// Expected a zero, found something else.
@@ -142,7 +141,6 @@ impl error::Error for Error {
                 "The abbreviation's has-children byte was not one of
                  `DW_CHILDREN_{yes,no}`"
             }
-            Error::UnknownName => "Found an unknown `DW_NAME_*` type",
             Error::UnknownForm => "Found an unknown `DW_FORM_*` type",
             Error::ExpectedZero => "Expected a zero, found something else",
             Error::DuplicateAbbreviationCode => {
@@ -529,634 +527,50 @@ fn parse_abbreviation_code(input: &[u8]) -> ParseResult<(&[u8], u64)> {
     }
 }
 
-/// Abbreviation tag types, aka `DW_TAG_whatever` in the standard.
-///
-/// DWARF standard 4, section 7.5.4, page 154
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(missing_docs)]
-pub enum AbbreviationTag {
-    ArrayType = 0x01,
-    ClassType = 0x02,
-    EntryPoint = 0x03,
-    EnumerationType = 0x04,
-    FormalParameter = 0x05,
-    ImportedDeclaration = 0x08,
-    Label = 0x0a,
-    LexicalBlock = 0x0b,
-    Member = 0x0d,
-    PointerType = 0x0f,
-    ReferenceType = 0x10,
-    CompileUnit = 0x11,
-    StringType = 0x12,
-    StructureType = 0x13,
-    SubroutineType = 0x15,
-    Typedef = 0x16,
-    UnionType = 0x17,
-    UnspecifiedParameters = 0x18,
-    Variant = 0x19,
-    CommonBlock = 0x1a,
-    CommonInclusion = 0x1b,
-    Inheritance = 0x1c,
-    InlinedSubroutine = 0x1d,
-    Module = 0x1e,
-    PtrToMemberType = 0x1f,
-    SetType = 0x20,
-    SubrangeType = 0x21,
-    WithStmt = 0x22,
-    AccessDeclaration = 0x23,
-    BaseType = 0x24,
-    CatchBlock = 0x25,
-    ConstType = 0x26,
-    Constant = 0x27,
-    Enumerator = 0x28,
-    FileType = 0x29,
-    Friend = 0x2a,
-    Namelist = 0x2b,
-    NamelistItem = 0x2c,
-    PackedType = 0x2d,
-    Subprogram = 0x2e,
-    TemplateTypeParameter = 0x2f,
-    TemplateValueParameter = 0x30,
-    ThrownType = 0x31,
-    TryBlock = 0x32,
-    VariantPart = 0x33,
-    Variable = 0x34,
-    VolatileType = 0x35,
-    DwarfProcedure = 0x36,
-    RestrictType = 0x37,
-    InterfaceType = 0x38,
-    Namespace = 0x39,
-    ImportedModule = 0x3a,
-    UnspecifiedType = 0x3b,
-    PartialUnit = 0x3c,
-    ImportedUnit = 0x3d,
-    Condition = 0x3f,
-    SharedType = 0x40,
-    TypeUnit = 0x41,
-    RvalueReferenceType = 0x42,
-    TemplateAlias = 0x43,
-    LoUser = 0x4080,
-    HiUser = 0xffff,
-}
-
 /// Parse an abbreviation's tag.
-fn parse_abbreviation_tag(input: &[u8]) -> ParseResult<(&[u8], AbbreviationTag)> {
+fn parse_abbreviation_tag(input: &[u8]) -> ParseResult<(&[u8], constants::DwTag)> {
     let (rest, val) = try!(parse_unsigned_leb(input));
-
-    if AbbreviationTag::ArrayType as u64 == val {
-        Ok((rest, AbbreviationTag::ArrayType))
-    } else if AbbreviationTag::ClassType as u64 == val {
-        Ok((rest, AbbreviationTag::ClassType))
-    } else if AbbreviationTag::EntryPoint as u64 == val {
-        Ok((rest, AbbreviationTag::EntryPoint))
-    } else if AbbreviationTag::EnumerationType as u64 == val {
-        Ok((rest, AbbreviationTag::EnumerationType))
-    } else if AbbreviationTag::FormalParameter as u64 == val {
-        Ok((rest, AbbreviationTag::FormalParameter))
-    } else if AbbreviationTag::ImportedDeclaration as u64 == val {
-        Ok((rest, AbbreviationTag::ImportedDeclaration))
-    } else if AbbreviationTag::Label as u64 == val {
-        Ok((rest, AbbreviationTag::Label))
-    } else if AbbreviationTag::LexicalBlock as u64 == val {
-        Ok((rest, AbbreviationTag::LexicalBlock))
-    } else if AbbreviationTag::Member as u64 == val {
-        Ok((rest, AbbreviationTag::Member))
-    } else if AbbreviationTag::PointerType as u64 == val {
-        Ok((rest, AbbreviationTag::PointerType))
-    } else if AbbreviationTag::ReferenceType as u64 == val {
-        Ok((rest, AbbreviationTag::ReferenceType))
-    } else if AbbreviationTag::CompileUnit as u64 == val {
-        Ok((rest, AbbreviationTag::CompileUnit))
-    } else if AbbreviationTag::StringType as u64 == val {
-        Ok((rest, AbbreviationTag::StringType))
-    } else if AbbreviationTag::StructureType as u64 == val {
-        Ok((rest, AbbreviationTag::StructureType))
-    } else if AbbreviationTag::SubroutineType as u64 == val {
-        Ok((rest, AbbreviationTag::SubroutineType))
-    } else if AbbreviationTag::Typedef as u64 == val {
-        Ok((rest, AbbreviationTag::Typedef))
-    } else if AbbreviationTag::UnionType as u64 == val {
-        Ok((rest, AbbreviationTag::UnionType))
-    } else if AbbreviationTag::UnspecifiedParameters as u64 == val {
-        Ok((rest, AbbreviationTag::UnspecifiedParameters))
-    } else if AbbreviationTag::Variant as u64 == val {
-        Ok((rest, AbbreviationTag::Variant))
-    } else if AbbreviationTag::CommonBlock as u64 == val {
-        Ok((rest, AbbreviationTag::CommonBlock))
-    } else if AbbreviationTag::CommonInclusion as u64 == val {
-        Ok((rest, AbbreviationTag::CommonInclusion))
-    } else if AbbreviationTag::Inheritance as u64 == val {
-        Ok((rest, AbbreviationTag::Inheritance))
-    } else if AbbreviationTag::InlinedSubroutine as u64 == val {
-        Ok((rest, AbbreviationTag::InlinedSubroutine))
-    } else if AbbreviationTag::Module as u64 == val {
-        Ok((rest, AbbreviationTag::Module))
-    } else if AbbreviationTag::PtrToMemberType as u64 == val {
-        Ok((rest, AbbreviationTag::PtrToMemberType))
-    } else if AbbreviationTag::SetType as u64 == val {
-        Ok((rest, AbbreviationTag::SetType))
-    } else if AbbreviationTag::SubrangeType as u64 == val {
-        Ok((rest, AbbreviationTag::SubrangeType))
-    } else if AbbreviationTag::WithStmt as u64 == val {
-        Ok((rest, AbbreviationTag::WithStmt))
-    } else if AbbreviationTag::AccessDeclaration as u64 == val {
-        Ok((rest, AbbreviationTag::AccessDeclaration))
-    } else if AbbreviationTag::BaseType as u64 == val {
-        Ok((rest, AbbreviationTag::BaseType))
-    } else if AbbreviationTag::CatchBlock as u64 == val {
-        Ok((rest, AbbreviationTag::CatchBlock))
-    } else if AbbreviationTag::ConstType as u64 == val {
-        Ok((rest, AbbreviationTag::ConstType))
-    } else if AbbreviationTag::Constant as u64 == val {
-        Ok((rest, AbbreviationTag::Constant))
-    } else if AbbreviationTag::Enumerator as u64 == val {
-        Ok((rest, AbbreviationTag::Enumerator))
-    } else if AbbreviationTag::FileType as u64 == val {
-        Ok((rest, AbbreviationTag::FileType))
-    } else if AbbreviationTag::Friend as u64 == val {
-        Ok((rest, AbbreviationTag::Friend))
-    } else if AbbreviationTag::Namelist as u64 == val {
-        Ok((rest, AbbreviationTag::Namelist))
-    } else if AbbreviationTag::NamelistItem as u64 == val {
-        Ok((rest, AbbreviationTag::NamelistItem))
-    } else if AbbreviationTag::PackedType as u64 == val {
-        Ok((rest, AbbreviationTag::PackedType))
-    } else if AbbreviationTag::Subprogram as u64 == val {
-        Ok((rest, AbbreviationTag::Subprogram))
-    } else if AbbreviationTag::TemplateTypeParameter as u64 == val {
-        Ok((rest, AbbreviationTag::TemplateTypeParameter))
-    } else if AbbreviationTag::TemplateValueParameter as u64 == val {
-        Ok((rest, AbbreviationTag::TemplateValueParameter))
-    } else if AbbreviationTag::ThrownType as u64 == val {
-        Ok((rest, AbbreviationTag::ThrownType))
-    } else if AbbreviationTag::TryBlock as u64 == val {
-        Ok((rest, AbbreviationTag::TryBlock))
-    } else if AbbreviationTag::VariantPart as u64 == val {
-        Ok((rest, AbbreviationTag::VariantPart))
-    } else if AbbreviationTag::Variable as u64 == val {
-        Ok((rest, AbbreviationTag::Variable))
-    } else if AbbreviationTag::VolatileType as u64 == val {
-        Ok((rest, AbbreviationTag::VolatileType))
-    } else if AbbreviationTag::RestrictType as u64 == val {
-        Ok((rest, AbbreviationTag::RestrictType))
-    } else if AbbreviationTag::InterfaceType as u64 == val {
-        Ok((rest, AbbreviationTag::InterfaceType))
-    } else if AbbreviationTag::Namespace as u64 == val {
-        Ok((rest, AbbreviationTag::Namespace))
-    } else if AbbreviationTag::ImportedModule as u64 == val {
-        Ok((rest, AbbreviationTag::ImportedModule))
-    } else if AbbreviationTag::UnspecifiedType as u64 == val {
-        Ok((rest, AbbreviationTag::UnspecifiedType))
-    } else if AbbreviationTag::PartialUnit as u64 == val {
-        Ok((rest, AbbreviationTag::PartialUnit))
-    } else if AbbreviationTag::ImportedUnit as u64 == val {
-        Ok((rest, AbbreviationTag::ImportedUnit))
-    } else if AbbreviationTag::Condition as u64 == val {
-        Ok((rest, AbbreviationTag::Condition))
-    } else if AbbreviationTag::SharedType as u64 == val {
-        Ok((rest, AbbreviationTag::SharedType))
-    } else if AbbreviationTag::TypeUnit as u64 == val {
-        Ok((rest, AbbreviationTag::TypeUnit))
-    } else if AbbreviationTag::RvalueReferenceType as u64 == val {
-        Ok((rest, AbbreviationTag::RvalueReferenceType))
-    } else if AbbreviationTag::TemplateAlias as u64 == val {
-        Ok((rest, AbbreviationTag::TemplateAlias))
-    } else if AbbreviationTag::LoUser as u64 == val {
-        Ok((rest, AbbreviationTag::LoUser))
-    } else if AbbreviationTag::HiUser as u64 == val {
-        Ok((rest, AbbreviationTag::HiUser))
+    if val == 0 {
+        Err(Error::AbbreviationCodeZero)
     } else {
-        Err(Error::UnknownTag)
+        Ok((rest, constants::DwTag(val)))
     }
 }
 
-/// Whether an abbreviation's type has children or not, aka
-/// `DW_CHILDREN_{yes,no}` in the standard.
-///
-/// DWARF standard 4, section 7.5.4, page 154
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AbbreviationHasChildren {
-    /// The type does not have children.
-    No = 0x0,
-
-    /// The type has children.
-    Yes = 0x1,
-}
-
 /// Parse an abbreviation's "does the type have children?" byte.
-fn parse_abbreviation_has_children(input: &[u8]) -> ParseResult<(&[u8], AbbreviationHasChildren)> {
+fn parse_abbreviation_has_children(input: &[u8]) -> ParseResult<(&[u8], constants::DwChildren)> {
     let (rest, val) = try!(parse_u8(input));
-
-    if AbbreviationHasChildren::Yes as u8 == val {
-        Ok((rest, AbbreviationHasChildren::Yes))
-    } else if AbbreviationHasChildren::No as u8 == val {
-        Ok((rest, AbbreviationHasChildren::No))
+    let val = constants::DwChildren(val);
+    if val == constants::DW_CHILDREN_no || val == constants::DW_CHILDREN_yes {
+        Ok((rest, val))
     } else {
         Err(Error::BadHasChildren)
     }
 }
 
-/// The set of possible attribute names, aka `DW_AT_whatever` in the standard.
-///
-/// DWARF standard 4, section 7.5.4, page 155
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(missing_docs)]
-pub enum AttributeName {
-    Sibling = 0x1,
-    Location = 0x2,
-    Name = 0x3,
-    Ordering = 0x9,
-    ByteSize = 0xb,
-    BitOffset = 0xc,
-    BitSize = 0x0d,
-    StmtList = 0x10,
-    LowPc = 0x11,
-    HighPc = 0x12,
-    Language = 0x13,
-    Discr = 0x15,
-    DiscrValue = 0x16,
-    Visibility = 0x17,
-    Import = 0x18,
-    StringLength = 0x19,
-    CommonReference = 0x1a,
-    CompDir = 0x1b,
-    ConstValue = 0x1c,
-    ContainingType = 0x1d,
-    DefaultValue = 0x1e,
-    Inline = 0x20,
-    IsOptional = 0x21,
-    LowerBound = 0x22,
-    Producer = 0x25,
-    Prototyped = 0x27,
-    ReturnAddr = 0x2a,
-    StartScope = 0x2c,
-    BitStride = 0x2e,
-    UpperBound = 0x2f,
-    AbstractOrigin = 0x31,
-    Accessibility = 0x32,
-    AddressClass = 0x33,
-    Artificial = 0x34,
-    BaseTypes = 0x35,
-    CallingConvention = 0x36,
-    Count = 0x37,
-    DataMemberLocation = 0x38,
-    DeclColumn = 0x39,
-    DeclFile = 0x3a,
-    DeclLine = 0x3b,
-    Declaration = 0x3c,
-    DiscrList = 0x3d,
-    Encoding = 0x3e,
-    External = 0x3f,
-    FrameBase = 0x40,
-    Friend = 0x41,
-    IdentifierCase = 0x42,
-    MacroInfo = 0x43,
-    NamelistItem = 0x44,
-    Priority = 0x45,
-    Segment = 0x46,
-    Specification = 0x47,
-    StaticLink = 0x48,
-    Type = 0x49,
-    UseLocation = 0x4a,
-    VariableParameter = 0x4b,
-    Virtuality = 0x4c,
-    VtableElemLocation = 0x4d,
-    Allocated = 0x4e,
-    Associated = 0x4f,
-    DataLocation = 0x50,
-    ByteStride = 0x51,
-    EntryPc = 0x52,
-    UseUtf8 = 0x53,
-    Extension = 0x54,
-    Ranges = 0x55,
-    Trampoline = 0x56,
-    CallColumn = 0x57,
-    CallFile = 0x58,
-    CallLine = 0x59,
-    Description = 0x5a,
-    BinaryScale = 0x5b,
-    DecimalScale = 0x5c,
-    Small = 0x5d,
-    DecimalSign = 0x5e,
-    DigitCount = 0x5f,
-    PictureString = 0x60,
-    Mutable = 0x61,
-    ThreadsScaled = 0x62,
-    Explicit = 0x63,
-    ObjectPointer = 0x64,
-    Endianity = 0x65,
-    Elemental = 0x66,
-    Pure = 0x67,
-    Recursive = 0x68,
-    Signature = 0x69,
-    MainSubprogram = 0x6a,
-    DataBitOffset = 0x6b,
-    ConstExpr = 0x6c,
-    EnumClass = 0x6d,
-    LinkageName = 0x6e,
-    LoUser = 0x2000,
-    HiUser = 0x3fff,
-}
-
 /// Parse an attribute's name.
-fn parse_attribute_name(input: &[u8]) -> ParseResult<(&[u8], AttributeName)> {
+fn parse_attribute_name(input: &[u8]) -> ParseResult<(&[u8], constants::DwAt)> {
     let (rest, val) = try!(parse_unsigned_leb(input));
-    if AttributeName::Sibling as u64 == val {
-        Ok((rest, AttributeName::Sibling))
-    } else if AttributeName::Location as u64 == val {
-        Ok((rest, AttributeName::Location))
-    } else if AttributeName::Name as u64 == val {
-        Ok((rest, AttributeName::Name))
-    } else if AttributeName::Ordering as u64 == val {
-        Ok((rest, AttributeName::Ordering))
-    } else if AttributeName::ByteSize as u64 == val {
-        Ok((rest, AttributeName::ByteSize))
-    } else if AttributeName::BitOffset as u64 == val {
-        Ok((rest, AttributeName::BitOffset))
-    } else if AttributeName::BitSize as u64 == val {
-        Ok((rest, AttributeName::BitSize))
-    } else if AttributeName::StmtList as u64 == val {
-        Ok((rest, AttributeName::StmtList))
-    } else if AttributeName::LowPc as u64 == val {
-        Ok((rest, AttributeName::LowPc))
-    } else if AttributeName::HighPc as u64 == val {
-        Ok((rest, AttributeName::HighPc))
-    } else if AttributeName::Language as u64 == val {
-        Ok((rest, AttributeName::Language))
-    } else if AttributeName::Discr as u64 == val {
-        Ok((rest, AttributeName::Discr))
-    } else if AttributeName::DiscrValue as u64 == val {
-        Ok((rest, AttributeName::DiscrValue))
-    } else if AttributeName::Visibility as u64 == val {
-        Ok((rest, AttributeName::Visibility))
-    } else if AttributeName::Import as u64 == val {
-        Ok((rest, AttributeName::Import))
-    } else if AttributeName::StringLength as u64 == val {
-        Ok((rest, AttributeName::StringLength))
-    } else if AttributeName::CommonReference as u64 == val {
-        Ok((rest, AttributeName::CommonReference))
-    } else if AttributeName::CompDir as u64 == val {
-        Ok((rest, AttributeName::CompDir))
-    } else if AttributeName::ConstValue as u64 == val {
-        Ok((rest, AttributeName::ConstValue))
-    } else if AttributeName::ContainingType as u64 == val {
-        Ok((rest, AttributeName::ContainingType))
-    } else if AttributeName::DefaultValue as u64 == val {
-        Ok((rest, AttributeName::DefaultValue))
-    } else if AttributeName::Inline as u64 == val {
-        Ok((rest, AttributeName::Inline))
-    } else if AttributeName::IsOptional as u64 == val {
-        Ok((rest, AttributeName::IsOptional))
-    } else if AttributeName::LowerBound as u64 == val {
-        Ok((rest, AttributeName::LowerBound))
-    } else if AttributeName::Producer as u64 == val {
-        Ok((rest, AttributeName::Producer))
-    } else if AttributeName::Prototyped as u64 == val {
-        Ok((rest, AttributeName::Prototyped))
-    } else if AttributeName::ReturnAddr as u64 == val {
-        Ok((rest, AttributeName::ReturnAddr))
-    } else if AttributeName::StartScope as u64 == val {
-        Ok((rest, AttributeName::StartScope))
-    } else if AttributeName::BitStride as u64 == val {
-        Ok((rest, AttributeName::BitStride))
-    } else if AttributeName::UpperBound as u64 == val {
-        Ok((rest, AttributeName::UpperBound))
-    } else if AttributeName::AbstractOrigin as u64 == val {
-        Ok((rest, AttributeName::AbstractOrigin))
-    } else if AttributeName::Accessibility as u64 == val {
-        Ok((rest, AttributeName::Accessibility))
-    } else if AttributeName::AddressClass as u64 == val {
-        Ok((rest, AttributeName::AddressClass))
-    } else if AttributeName::Artificial as u64 == val {
-        Ok((rest, AttributeName::Artificial))
-    } else if AttributeName::BaseTypes as u64 == val {
-        Ok((rest, AttributeName::BaseTypes))
-    } else if AttributeName::CallingConvention as u64 == val {
-        Ok((rest, AttributeName::CallingConvention))
-    } else if AttributeName::Count as u64 == val {
-        Ok((rest, AttributeName::Count))
-    } else if AttributeName::DataMemberLocation as u64 == val {
-        Ok((rest, AttributeName::DataMemberLocation))
-    } else if AttributeName::DeclColumn as u64 == val {
-        Ok((rest, AttributeName::DeclColumn))
-    } else if AttributeName::DeclFile as u64 == val {
-        Ok((rest, AttributeName::DeclFile))
-    } else if AttributeName::DeclLine as u64 == val {
-        Ok((rest, AttributeName::DeclLine))
-    } else if AttributeName::Declaration as u64 == val {
-        Ok((rest, AttributeName::Declaration))
-    } else if AttributeName::DiscrList as u64 == val {
-        Ok((rest, AttributeName::DiscrList))
-    } else if AttributeName::Encoding as u64 == val {
-        Ok((rest, AttributeName::Encoding))
-    } else if AttributeName::External as u64 == val {
-        Ok((rest, AttributeName::External))
-    } else if AttributeName::FrameBase as u64 == val {
-        Ok((rest, AttributeName::FrameBase))
-    } else if AttributeName::Friend as u64 == val {
-        Ok((rest, AttributeName::Friend))
-    } else if AttributeName::IdentifierCase as u64 == val {
-        Ok((rest, AttributeName::IdentifierCase))
-    } else if AttributeName::MacroInfo as u64 == val {
-        Ok((rest, AttributeName::MacroInfo))
-    } else if AttributeName::NamelistItem as u64 == val {
-        Ok((rest, AttributeName::NamelistItem))
-    } else if AttributeName::Priority as u64 == val {
-        Ok((rest, AttributeName::Priority))
-    } else if AttributeName::Segment as u64 == val {
-        Ok((rest, AttributeName::Segment))
-    } else if AttributeName::Specification as u64 == val {
-        Ok((rest, AttributeName::Specification))
-    } else if AttributeName::StaticLink as u64 == val {
-        Ok((rest, AttributeName::StaticLink))
-    } else if AttributeName::Type as u64 == val {
-        Ok((rest, AttributeName::Type))
-    } else if AttributeName::UseLocation as u64 == val {
-        Ok((rest, AttributeName::UseLocation))
-    } else if AttributeName::VariableParameter as u64 == val {
-        Ok((rest, AttributeName::VariableParameter))
-    } else if AttributeName::Virtuality as u64 == val {
-        Ok((rest, AttributeName::Virtuality))
-    } else if AttributeName::VtableElemLocation as u64 == val {
-        Ok((rest, AttributeName::VtableElemLocation))
-    } else if AttributeName::Allocated as u64 == val {
-        Ok((rest, AttributeName::Allocated))
-    } else if AttributeName::Associated as u64 == val {
-        Ok((rest, AttributeName::Associated))
-    } else if AttributeName::DataLocation as u64 == val {
-        Ok((rest, AttributeName::DataLocation))
-    } else if AttributeName::ByteStride as u64 == val {
-        Ok((rest, AttributeName::ByteStride))
-    } else if AttributeName::EntryPc as u64 == val {
-        Ok((rest, AttributeName::EntryPc))
-    } else if AttributeName::UseUtf8 as u64 == val {
-        Ok((rest, AttributeName::UseUtf8))
-    } else if AttributeName::Extension as u64 == val {
-        Ok((rest, AttributeName::Extension))
-    } else if AttributeName::Ranges as u64 == val {
-        Ok((rest, AttributeName::Ranges))
-    } else if AttributeName::Trampoline as u64 == val {
-        Ok((rest, AttributeName::Trampoline))
-    } else if AttributeName::CallColumn as u64 == val {
-        Ok((rest, AttributeName::CallColumn))
-    } else if AttributeName::CallFile as u64 == val {
-        Ok((rest, AttributeName::CallFile))
-    } else if AttributeName::CallLine as u64 == val {
-        Ok((rest, AttributeName::CallLine))
-    } else if AttributeName::Description as u64 == val {
-        Ok((rest, AttributeName::Description))
-    } else if AttributeName::BinaryScale as u64 == val {
-        Ok((rest, AttributeName::BinaryScale))
-    } else if AttributeName::DecimalScale as u64 == val {
-        Ok((rest, AttributeName::DecimalScale))
-    } else if AttributeName::Small as u64 == val {
-        Ok((rest, AttributeName::Small))
-    } else if AttributeName::DecimalSign as u64 == val {
-        Ok((rest, AttributeName::DecimalSign))
-    } else if AttributeName::DigitCount as u64 == val {
-        Ok((rest, AttributeName::DigitCount))
-    } else if AttributeName::PictureString as u64 == val {
-        Ok((rest, AttributeName::PictureString))
-    } else if AttributeName::Mutable as u64 == val {
-        Ok((rest, AttributeName::Mutable))
-    } else if AttributeName::ThreadsScaled as u64 == val {
-        Ok((rest, AttributeName::ThreadsScaled))
-    } else if AttributeName::Explicit as u64 == val {
-        Ok((rest, AttributeName::Explicit))
-    } else if AttributeName::ObjectPointer as u64 == val {
-        Ok((rest, AttributeName::ObjectPointer))
-    } else if AttributeName::Endianity as u64 == val {
-        Ok((rest, AttributeName::Endianity))
-    } else if AttributeName::Elemental as u64 == val {
-        Ok((rest, AttributeName::Elemental))
-    } else if AttributeName::Pure as u64 == val {
-        Ok((rest, AttributeName::Pure))
-    } else if AttributeName::Recursive as u64 == val {
-        Ok((rest, AttributeName::Recursive))
-    } else if AttributeName::Signature as u64 == val {
-        Ok((rest, AttributeName::Signature))
-    } else if AttributeName::MainSubprogram as u64 == val {
-        Ok((rest, AttributeName::MainSubprogram))
-    } else if AttributeName::DataBitOffset as u64 == val {
-        Ok((rest, AttributeName::DataBitOffset))
-    } else if AttributeName::ConstExpr as u64 == val {
-        Ok((rest, AttributeName::ConstExpr))
-    } else if AttributeName::EnumClass as u64 == val {
-        Ok((rest, AttributeName::EnumClass))
-    } else if AttributeName::LinkageName as u64 == val {
-        Ok((rest, AttributeName::LinkageName))
-    } else if AttributeName::LoUser as u64 == val {
-        Ok((rest, AttributeName::LoUser))
-    } else if AttributeName::HiUser as u64 == val {
-        Ok((rest, AttributeName::HiUser))
-    } else {
-        Err(Error::UnknownName)
-    }
-}
-
-/// The type and encoding of an attribute, aka `DW_FORM_whatever` in the
-/// standard.
-///
-/// DWARF standard 4, section 7.5.4, page 160
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(missing_docs)]
-pub enum AttributeForm {
-    Addr = 0x01,
-    Block2 = 0x03,
-    Block4 = 0x04,
-    Data2 = 0x05,
-    Data4 = 0x06,
-    Data8 = 0x07,
-    String = 0x08,
-    Block = 0x09,
-    Block1 = 0x0a,
-    Data1 = 0x0b,
-    Flag = 0x0c,
-    Sdata = 0x0d,
-    Strp = 0x0e,
-    Udata = 0x0f,
-    RefAddr = 0x10,
-    Ref1 = 0x11,
-    Ref2 = 0x12,
-    Ref4 = 0x13,
-    Ref8 = 0x14,
-    RefUdata = 0x15,
-    Indirect = 0x16,
-    SecOffset = 0x17,
-    Exprloc = 0x18,
-    FlagPresent = 0x19,
-    RefSig8 = 0x20,
+    Ok((rest, constants::DwAt(val)))
 }
 
 /// Parse an attribute's form.
-fn parse_attribute_form(input: &[u8]) -> ParseResult<(&[u8], AttributeForm)> {
+fn parse_attribute_form(input: &[u8]) -> ParseResult<(&[u8], constants::DwForm)> {
     let (rest, val) = try!(parse_unsigned_leb(input));
-    if AttributeForm::Addr as u64 == val {
-        Ok((rest, AttributeForm::Addr))
-    } else if AttributeForm::Block2 as u64 == val {
-        Ok((rest, AttributeForm::Block2))
-    } else if AttributeForm::Block4 as u64 == val {
-        Ok((rest, AttributeForm::Block4))
-    } else if AttributeForm::Data2 as u64 == val {
-        Ok((rest, AttributeForm::Data2))
-    } else if AttributeForm::Data4 as u64 == val {
-        Ok((rest, AttributeForm::Data4))
-    } else if AttributeForm::Data8 as u64 == val {
-        Ok((rest, AttributeForm::Data8))
-    } else if AttributeForm::String as u64 == val {
-        Ok((rest, AttributeForm::String))
-    } else if AttributeForm::Block as u64 == val {
-        Ok((rest, AttributeForm::Block))
-    } else if AttributeForm::Block1 as u64 == val {
-        Ok((rest, AttributeForm::Block1))
-    } else if AttributeForm::Data1 as u64 == val {
-        Ok((rest, AttributeForm::Data1))
-    } else if AttributeForm::Flag as u64 == val {
-        Ok((rest, AttributeForm::Flag))
-    } else if AttributeForm::Sdata as u64 == val {
-        Ok((rest, AttributeForm::Sdata))
-    } else if AttributeForm::Strp as u64 == val {
-        Ok((rest, AttributeForm::Strp))
-    } else if AttributeForm::Udata as u64 == val {
-        Ok((rest, AttributeForm::Udata))
-    } else if AttributeForm::RefAddr as u64 == val {
-        Ok((rest, AttributeForm::RefAddr))
-    } else if AttributeForm::Ref1 as u64 == val {
-        Ok((rest, AttributeForm::Ref1))
-    } else if AttributeForm::Ref2 as u64 == val {
-        Ok((rest, AttributeForm::Ref2))
-    } else if AttributeForm::Ref4 as u64 == val {
-        Ok((rest, AttributeForm::Ref4))
-    } else if AttributeForm::Ref8 as u64 == val {
-        Ok((rest, AttributeForm::Ref8))
-    } else if AttributeForm::RefUdata as u64 == val {
-        Ok((rest, AttributeForm::RefUdata))
-    } else if AttributeForm::Indirect as u64 == val {
-        Ok((rest, AttributeForm::Indirect))
-    } else if AttributeForm::SecOffset as u64 == val {
-        Ok((rest, AttributeForm::SecOffset))
-    } else if AttributeForm::Exprloc as u64 == val {
-        Ok((rest, AttributeForm::Exprloc))
-    } else if AttributeForm::FlagPresent as u64 == val {
-        Ok((rest, AttributeForm::FlagPresent))
-    } else if AttributeForm::RefSig8 as u64 == val {
-        Ok((rest, AttributeForm::RefSig8))
-    } else {
-        Err(Error::UnknownForm)
-    }
+    Ok((rest, constants::DwForm(val)))
 }
 
 /// The description of an attribute in an abbreviated type. It is a pair of name
 /// and form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AttributeSpecification {
-    name: AttributeName,
-    form: AttributeForm,
+    name: constants::DwAt,
+    form: constants::DwForm,
 }
 
 impl AttributeSpecification {
     /// Construct a new `AttributeSpecification` from the given name and form.
-    pub fn new(name: AttributeName, form: AttributeForm) -> AttributeSpecification {
+    pub fn new(name: constants::DwAt, form: constants::DwForm) -> AttributeSpecification {
         AttributeSpecification {
             name: name,
             form: form,
@@ -1164,12 +578,12 @@ impl AttributeSpecification {
     }
 
     /// Get the attribute's name.
-    pub fn name(&self) -> AttributeName {
+    pub fn name(&self) -> constants::DwAt {
         self.name
     }
 
     /// Get the attribute's form.
-    pub fn form(&self) -> AttributeForm {
+    pub fn form(&self) -> constants::DwForm {
         self.form
     }
 
@@ -1183,42 +597,45 @@ impl AttributeSpecification {
         where Endian: Endianity
     {
         match self.form {
-            AttributeForm::Addr => Some(header.address_size() as usize),
+            constants::DW_FORM_addr => Some(header.address_size() as usize),
 
-            AttributeForm::Flag |
-            AttributeForm::FlagPresent |
-            AttributeForm::Data1 |
-            AttributeForm::Ref1 => Some(1),
+            constants::DW_FORM_flag |
+            constants::DW_FORM_flag_present |
+            constants::DW_FORM_data1 |
+            constants::DW_FORM_ref1 => Some(1),
 
-            AttributeForm::Data2 |
-            AttributeForm::Ref2 => Some(2),
+            constants::DW_FORM_data2 |
+            constants::DW_FORM_ref2 => Some(2),
 
-            AttributeForm::Data4 |
-            AttributeForm::Ref4 => Some(4),
+            constants::DW_FORM_data4 |
+            constants::DW_FORM_ref4 => Some(4),
 
-            AttributeForm::Data8 |
-            AttributeForm::Ref8 => Some(8),
+            constants::DW_FORM_data8 |
+            constants::DW_FORM_ref8 => Some(8),
 
-            AttributeForm::SecOffset |
-            AttributeForm::RefAddr |
-            AttributeForm::RefSig8 |
-            AttributeForm::Strp => {
+            constants::DW_FORM_sec_offset |
+            constants::DW_FORM_ref_addr |
+            constants::DW_FORM_ref_sig8 |
+            constants::DW_FORM_strp => {
                 match header.format() {
                     Format::Dwarf32 => Some(4),
                     Format::Dwarf64 => Some(8),
                 }
             }
 
-            AttributeForm::Block |
-            AttributeForm::Block1 |
-            AttributeForm::Block2 |
-            AttributeForm::Block4 |
-            AttributeForm::Exprloc |
-            AttributeForm::RefUdata |
-            AttributeForm::String |
-            AttributeForm::Sdata |
-            AttributeForm::Udata |
-            AttributeForm::Indirect => None,
+            constants::DW_FORM_block |
+            constants::DW_FORM_block1 |
+            constants::DW_FORM_block2 |
+            constants::DW_FORM_block4 |
+            constants::DW_FORM_exprloc |
+            constants::DW_FORM_ref_udata |
+            constants::DW_FORM_string |
+            constants::DW_FORM_sdata |
+            constants::DW_FORM_udata |
+            constants::DW_FORM_indirect => None,
+
+            // We don't know the size of unknown forms.
+            _ => None,
         }
     }
 }
@@ -1272,8 +689,8 @@ fn parse_attribute_specifications(mut input: &[u8])
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Abbreviation {
     code: u64,
-    tag: AbbreviationTag,
-    has_children: AbbreviationHasChildren,
+    tag: constants::DwTag,
+    has_children: constants::DwChildren,
     attributes: Vec<AttributeSpecification>,
 }
 
@@ -1284,8 +701,8 @@ impl Abbreviation {
     ///
     /// Panics if `code` is `0`.
     pub fn new(code: u64,
-               tag: AbbreviationTag,
-               has_children: AbbreviationHasChildren,
+               tag: constants::DwTag,
+               has_children: constants::DwChildren,
                attributes: Vec<AttributeSpecification>)
                -> Abbreviation {
         assert!(code != 0);
@@ -1303,16 +720,13 @@ impl Abbreviation {
     }
 
     /// Get this abbreviation's tag.
-    pub fn tag(&self) -> AbbreviationTag {
+    pub fn tag(&self) -> constants::DwTag {
         self.tag
     }
 
     /// Return true if this abbreviation's type has children, false otherwise.
     pub fn has_children(&self) -> bool {
-        match self.has_children {
-            AbbreviationHasChildren::Yes => true,
-            AbbreviationHasChildren::No => false,
-        }
+        self.has_children == constants::DW_CHILDREN_yes
     }
 
     /// Get this abbreviation's attributes.
@@ -2068,13 +1482,13 @@ pub enum AttributeValue<'input> {
 /// associated value.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Attribute<'input> {
-    name: AttributeName,
+    name: constants::DwAt,
     value: AttributeValue<'input>,
 }
 
 impl<'input> Attribute<'input> {
     /// Get this attribute's name.
-    pub fn name(&self) -> AttributeName {
+    pub fn name(&self) -> constants::DwAt {
         self.name
     }
 
@@ -2177,13 +1591,13 @@ fn parse_attribute<'input, 'unit, Endian>
     let mut form = input.2.form;
     loop {
         match form {
-            AttributeForm::Indirect => {
+            constants::DW_FORM_indirect => {
                 let (rest, dynamic_form) = try!(parse_attribute_form(input.into()));
                 form = dynamic_form;
                 input = input.merge(rest);
                 continue;
             }
-            AttributeForm::Addr => {
+            constants::DW_FORM_addr => {
                 return take(input.1.address_size() as usize, input.into()).map(|(rest, addr)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2192,7 +1606,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::Block1 => {
+            constants::DW_FORM_block1 => {
                 return length_u8_value(input.into()).map(|(rest, block)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2201,7 +1615,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::Block2 => {
+            constants::DW_FORM_block2 => {
                 return length_u16_value(input.into()).map(|(rest, block)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2210,7 +1624,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::Block4 => {
+            constants::DW_FORM_block4 => {
                 return length_u32_value(input.into()).map(|(rest, block)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2219,7 +1633,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::Block => {
+            constants::DW_FORM_block => {
                 return length_leb_value(input.into()).map(|(rest, block)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2228,7 +1642,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::Data1 => {
+            constants::DW_FORM_data1 => {
                 return take(1, input.into()).map(|(rest, data)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2237,7 +1651,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::Data2 => {
+            constants::DW_FORM_data2 => {
                 return take(2, input.into()).map(|(rest, data)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2246,7 +1660,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::Data4 => {
+            constants::DW_FORM_data4 => {
                 return take(4, input.into()).map(|(rest, data)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2255,7 +1669,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::Data8 => {
+            constants::DW_FORM_data8 => {
                 return take(8, input.into()).map(|(rest, data)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2264,7 +1678,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::Udata => {
+            constants::DW_FORM_udata => {
                 return parse_unsigned_leb(input.into()).map(|(rest, data)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2273,7 +1687,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::Sdata => {
+            constants::DW_FORM_sdata => {
                 return parse_signed_leb(input.into()).map(|(rest, data)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2282,7 +1696,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::Exprloc => {
+            constants::DW_FORM_exprloc => {
                 return length_leb_value(input.into()).map(|(rest, block)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2291,7 +1705,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 })
             }
-            AttributeForm::Flag => {
+            constants::DW_FORM_flag => {
                 return parse_u8(input.into()).map(|(rest, present)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2300,7 +1714,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 })
             }
-            AttributeForm::FlagPresent => {
+            constants::DW_FORM_flag_present => {
                 // FlagPresent is this weird compile time always true thing that
                 // isn't actually present in the serialized DIEs, only in Ok(
                 return Ok((input,
@@ -2309,7 +1723,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     value: AttributeValue::Flag(true),
                 }));
             }
-            AttributeForm::SecOffset => {
+            constants::DW_FORM_sec_offset => {
                 return match input.1.format() {
                     Format::Dwarf32 => {
                         parse_u32(input.into()).map(|(rest, offset)| {
@@ -2331,7 +1745,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     }
                 };
             }
-            AttributeForm::Ref1 => {
+            constants::DW_FORM_ref1 => {
                 return parse_u8(input.into()).map(|(rest, reference)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2340,7 +1754,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::Ref2 => {
+            constants::DW_FORM_ref2 => {
                 return parse_u16(input.into()).map(|(rest, reference)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2349,7 +1763,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::Ref4 => {
+            constants::DW_FORM_ref4 => {
                 return parse_u32(input.into()).map(|(rest, reference)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2358,7 +1772,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::Ref8 => {
+            constants::DW_FORM_ref8 => {
                 return parse_u64(input.into()).map(|(rest, reference)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2367,7 +1781,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::RefUdata => {
+            constants::DW_FORM_ref_udata => {
                 return parse_unsigned_leb(input.into()).map(|(rest, reference)| {
                     let attr = Attribute {
                         name: input.2.name,
@@ -2376,7 +1790,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::RefAddr => {
+            constants::DW_FORM_ref_addr => {
                 return match input.1.format() {
                     Format::Dwarf32 => {
                         parse_u32(input.into()).map(|(rest, offset)| {
@@ -2400,7 +1814,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     }
                 };
             }
-            AttributeForm::RefSig8 => {
+            constants::DW_FORM_ref_sig8 => {
                 return parse_u64(input.into()).map(|(rest, offset)| {
                     let offset = DebugTypesOffset(offset);
                     let attr = Attribute {
@@ -2410,7 +1824,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     (input.merge(rest), attr)
                 });
             }
-            AttributeForm::String => {
+            constants::DW_FORM_string => {
                 let null_idx = input.iter().position(|ch| *ch == 0);
 
                 if let Some(idx) = null_idx {
@@ -2424,7 +1838,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     return Err(Error::UnexpectedEof);
                 }
             }
-            AttributeForm::Strp => {
+            constants::DW_FORM_strp => {
                 return match input.1.format() {
                     Format::Dwarf32 => {
                         parse_u32(input.into()).map(|(rest, offset)| {
@@ -2448,6 +1862,9 @@ fn parse_attribute<'input, 'unit, Endian>
                     }
                 };
             }
+            _ => {
+                return Err(Error::UnknownForm);
+            }
         };
     }
 }
@@ -2464,8 +1881,8 @@ fn test_parse_attribute_addr() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::LowPc,
-        form: AttributeForm::Addr,
+        name: constants::DW_AT_low_pc,
+        form: constants::DW_FORM_addr,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -2474,7 +1891,7 @@ fn test_parse_attribute_addr() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::LowPc,
+                           name: constants::DW_AT_low_pc,
                            value: AttributeValue::Addr(&buf[..4]),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
@@ -2499,8 +1916,8 @@ fn test_parse_attribute_block1() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Block1,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_block1,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -2509,7 +1926,7 @@ fn test_parse_attribute_block1() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::Block(&buf[1..4]),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
@@ -2534,8 +1951,8 @@ fn test_parse_attribute_block2() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Block2,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_block2,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -2544,7 +1961,7 @@ fn test_parse_attribute_block2() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::Block(&buf[2..4]),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
@@ -2569,8 +1986,8 @@ fn test_parse_attribute_block4() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Block4,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_block4,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -2579,7 +1996,7 @@ fn test_parse_attribute_block4() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::Block(&buf[4..]),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[..0]));
@@ -2604,8 +2021,8 @@ fn test_parse_attribute_block() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Block,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_block,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -2614,7 +2031,7 @@ fn test_parse_attribute_block() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::Block(&buf[1..]),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[..0]));
@@ -2638,8 +2055,8 @@ fn test_parse_attribute_data1() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Data1,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_data1,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -2648,7 +2065,7 @@ fn test_parse_attribute_data1() {
         Ok((_, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::Data(&buf[..]),
                        });
         }
@@ -2671,8 +2088,8 @@ fn test_parse_attribute_data2() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Data2,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_data2,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -2681,7 +2098,7 @@ fn test_parse_attribute_data2() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::Data(&buf[..2]),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[2..]));
@@ -2705,8 +2122,8 @@ fn test_parse_attribute_data4() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Data4,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_data4,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -2715,7 +2132,7 @@ fn test_parse_attribute_data4() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::Data(&buf[..4]),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
@@ -2739,8 +2156,8 @@ fn test_parse_attribute_data8() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Data8,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_data8,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -2749,7 +2166,7 @@ fn test_parse_attribute_data8() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::Data(&buf[..8]),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
@@ -2778,8 +2195,8 @@ fn test_parse_attribute_udata() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Udata,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_udata,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -2788,7 +2205,7 @@ fn test_parse_attribute_udata() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::Udata(4097),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[bytes_written..]));
@@ -2817,8 +2234,8 @@ fn test_parse_attribute_sdata() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Sdata,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_sdata,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -2827,7 +2244,7 @@ fn test_parse_attribute_sdata() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::Sdata(-4097),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[bytes_written..]));
@@ -2852,8 +2269,8 @@ fn test_parse_attribute_exprloc() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Exprloc,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_exprloc,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -2862,7 +2279,7 @@ fn test_parse_attribute_exprloc() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::Exprloc(&buf[1..3]),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[3..]));
@@ -2886,8 +2303,8 @@ fn test_parse_attribute_flag_true() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Flag,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_flag,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -2896,7 +2313,7 @@ fn test_parse_attribute_flag_true() {
         Ok((_, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::Flag(true),
                        });
         }
@@ -2919,8 +2336,8 @@ fn test_parse_attribute_flag_false() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Flag,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_flag,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -2929,7 +2346,7 @@ fn test_parse_attribute_flag_false() {
         Ok((_, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::Flag(false),
                        });
         }
@@ -2952,8 +2369,8 @@ fn test_parse_attribute_flag_present() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::FlagPresent,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_flag_present,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -2962,7 +2379,7 @@ fn test_parse_attribute_flag_present() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::Flag(true),
                        });
             // DW_FORM_flag_present does not consume any bytes of the input
@@ -2988,8 +2405,8 @@ fn test_parse_attribute_sec_offset_32() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::SecOffset,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_sec_offset,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -2998,7 +2415,7 @@ fn test_parse_attribute_sec_offset_32() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::SecOffset(0x04030201),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
@@ -3022,8 +2439,8 @@ fn test_parse_attribute_sec_offset_64() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::SecOffset,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_sec_offset,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -3032,7 +2449,7 @@ fn test_parse_attribute_sec_offset_64() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::SecOffset(0x0807060504030201),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
@@ -3056,8 +2473,8 @@ fn test_parse_attribute_ref1() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Ref1,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_ref1,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -3066,7 +2483,7 @@ fn test_parse_attribute_ref1() {
         Ok((_, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::UnitRef(UnitOffset(3)),
                        });
         }
@@ -3089,8 +2506,8 @@ fn test_parse_attribute_ref2() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Ref2,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_ref2,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -3099,7 +2516,7 @@ fn test_parse_attribute_ref2() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::UnitRef(UnitOffset(258)),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[2..]));
@@ -3123,8 +2540,8 @@ fn test_parse_attribute_ref4() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Ref4,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_ref4,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -3133,7 +2550,7 @@ fn test_parse_attribute_ref4() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::UnitRef(UnitOffset(67305985)),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
@@ -3157,8 +2574,8 @@ fn test_parse_attribute_ref8() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Ref8,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_ref8,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -3167,7 +2584,7 @@ fn test_parse_attribute_ref8() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::UnitRef(UnitOffset(578437695752307201)),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
@@ -3196,8 +2613,8 @@ fn test_parse_attribute_refudata() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::RefUdata,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_ref_udata,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -3206,7 +2623,7 @@ fn test_parse_attribute_refudata() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::UnitRef(UnitOffset(4097)),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[bytes_written..]));
@@ -3230,8 +2647,8 @@ fn test_parse_attribute_refaddr_32() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::RefAddr,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_ref_addr,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -3240,7 +2657,7 @@ fn test_parse_attribute_refaddr_32() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::DebugInfoRef(DebugInfoOffset(67305985)),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
@@ -3264,8 +2681,8 @@ fn test_parse_attribute_refaddr_64() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::RefAddr,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_ref_addr,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -3274,7 +2691,7 @@ fn test_parse_attribute_refaddr_64() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::DebugInfoRef(DebugInfoOffset(578437695752307201)),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
@@ -3298,8 +2715,8 @@ fn test_parse_attribute_refsig8() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::RefSig8,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_ref_sig8,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -3308,7 +2725,7 @@ fn test_parse_attribute_refsig8() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value:
                                AttributeValue::DebugTypesRef(DebugTypesOffset(578437695752307201)),
                        });
@@ -3333,8 +2750,8 @@ fn test_parse_attribute_string() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::String,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_string,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -3343,7 +2760,7 @@ fn test_parse_attribute_string() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::String(&buf[..6]),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[6..]));
@@ -3367,8 +2784,8 @@ fn test_parse_attribute_strp_32() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Strp,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_strp,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -3377,7 +2794,7 @@ fn test_parse_attribute_strp_32() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::DebugStrRef(DebugStrOffset(67305985)),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
@@ -3401,8 +2818,8 @@ fn test_parse_attribute_strp_64() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Strp,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_strp,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -3411,7 +2828,7 @@ fn test_parse_attribute_strp_64() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::DebugStrRef(DebugStrOffset(578437695752307201)),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
@@ -3429,7 +2846,7 @@ fn test_parse_attribute_indirect() {
 
     let bytes_written = {
         let mut writable = &mut buf[..];
-        leb128::write::unsigned(&mut writable, AttributeForm::Udata as u64)
+        leb128::write::unsigned(&mut writable, constants::DW_FORM_udata.0)
             .expect("should write udata") +
         leb128::write::unsigned(&mut writable, 9999999).expect("should write value")
     };
@@ -3442,8 +2859,8 @@ fn test_parse_attribute_indirect() {
                                                     &[]);
 
     let spec = AttributeSpecification {
-        name: AttributeName::Name,
-        form: AttributeForm::Indirect,
+        name: constants::DW_AT_name,
+        form: constants::DW_FORM_indirect,
     };
 
     let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
@@ -3452,7 +2869,7 @@ fn test_parse_attribute_indirect() {
         Ok((rest, attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::Udata(9999999),
                        });
             assert_eq!(rest.0, EndianBuf::new(&buf[bytes_written..]));
@@ -3531,20 +2948,20 @@ fn test_attrs_iter() {
 
     let abbrev = Abbreviation {
         code: 42,
-        tag: AbbreviationTag::Subprogram,
-        has_children: AbbreviationHasChildren::Yes,
+        tag: constants::DW_TAG_subprogram,
+        has_children: constants::DW_CHILDREN_yes,
         attributes: vec![
             AttributeSpecification {
-                name: AttributeName::Name,
-                form: AttributeForm::String,
+                name: constants::DW_AT_name,
+                form: constants::DW_FORM_string,
             },
             AttributeSpecification {
-                name: AttributeName::LowPc,
-                form: AttributeForm::Addr,
+                name: constants::DW_AT_low_pc,
+                form: constants::DW_FORM_addr,
             },
             AttributeSpecification {
-                name: AttributeName::HighPc,
-                form: AttributeForm::Addr,
+                name: constants::DW_AT_high_pc,
+                form: constants::DW_FORM_addr,
             },
         ],
     };
@@ -3571,7 +2988,7 @@ fn test_attrs_iter() {
         Some(Ok(attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::Name,
+                           name: constants::DW_AT_name,
                            value: AttributeValue::String(b"foo\0"),
                        });
         }
@@ -3587,7 +3004,7 @@ fn test_attrs_iter() {
         Some(Ok(attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::LowPc,
+                           name: constants::DW_AT_low_pc,
                            value: AttributeValue::Addr(&[0x2a, 0x00, 0x00, 0x00]),
                        });
         }
@@ -3603,7 +3020,7 @@ fn test_attrs_iter() {
         Some(Ok(attr)) => {
             assert_eq!(attr,
                        Attribute {
-                           name: AttributeName::HighPc,
+                           name: constants::DW_AT_high_pc,
                            value: AttributeValue::Addr(&[0x39, 0x05, 0x00, 0x00]),
                        });
         }
@@ -3950,7 +3367,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
             Some(Ok(current)) => {
                 let sibling_ptr = current.attrs()
                     .take_while(|res| res.is_ok())
-                    .find(|res| res.unwrap().name() == AttributeName::Sibling);
+                    .find(|res| res.unwrap().name() == constants::DW_AT_sibling);
 
                 if let Some(sibling_ptr) = sibling_ptr {
                     if let AttributeValue::UnitRef(offset) = sibling_ptr.unwrap().value() {
@@ -4010,7 +3427,7 @@ fn assert_entry_with_name<'input, 'abbrev, 'unit, Endian>(entry: DebuggingInform
     where Endian: Endianity
 {
     let attr = entry.attrs()
-        .find(|attr| attr.is_ok() && attr.unwrap().name() == AttributeName::Name)
+        .find(|attr| attr.is_ok() && attr.unwrap().name() == constants::DW_AT_name)
         .expect("Should have found the name attribute")
         .expect("and it should parse ok");
 
