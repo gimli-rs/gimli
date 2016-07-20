@@ -50,14 +50,14 @@ const ENTRIES_CURSOR_TESTS_ABBREV_BUF: [u8; 8] = [
 #[cfg(test)]
 #[cfg_attr(rustfmt, rustfmt_skip)]
 const ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF: [u8; 71] = [
-    // Comilation unit header
+    // Compilation unit header
 
     // 32-bit unit length = 67
     0x43, 0x00, 0x00, 0x00,
     // Version 4
     0x04, 0x00,
     // debug_abbrev_offset
-    0x05, 0x06, 0x07, 0x08,
+    0x00, 0x00, 0x00, 0x00,
     // Address size
     0x04,
 
@@ -167,18 +167,18 @@ const ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF: [u8; 71] = [
 #[test]
 #[cfg_attr(rustfmt, rustfmt_skip)]
 fn test_cursor_next_dfs() {
-    let abbrevs_buf = &ENTRIES_CURSOR_TESTS_ABBREV_BUF;
-    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(abbrevs_buf);
-
-    let abbrevs = debug_abbrev.abbreviations()
-        .expect("Should parse abbreviations");
-
     let info_buf = &ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF;
     let debug_info = DebugInfo::<LittleEndian>::new(info_buf);
 
     let unit = debug_info.compilation_units().next()
         .expect("should have a unit result")
         .expect("and it should be ok");
+
+    let abbrevs_buf = &ENTRIES_CURSOR_TESTS_ABBREV_BUF;
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(abbrevs_buf);
+
+    let abbrevs = unit.abbreviations(debug_abbrev)
+        .expect("Should parse abbreviations");
 
     let mut cursor = unit.entries(&abbrevs);
 
@@ -248,18 +248,18 @@ fn test_cursor_next_dfs() {
 #[test]
 #[cfg_attr(rustfmt, rustfmt_skip)]
 fn test_cursor_next_sibling_no_sibling_ptr() {
-    let abbrevs_buf = &ENTRIES_CURSOR_TESTS_ABBREV_BUF;
-    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(abbrevs_buf);
-
-    let abbrevs = debug_abbrev.abbreviations()
-        .expect("Should parse abbreviations");
-
     let info_buf = &ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF;
     let debug_info = DebugInfo::<LittleEndian>::new(info_buf);
 
     let unit = debug_info.compilation_units().next()
         .expect("should have a unit result")
         .expect("and it should be ok");
+
+    let abbrevs_buf = &ENTRIES_CURSOR_TESTS_ABBREV_BUF;
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(abbrevs_buf);
+
+    let abbrevs = unit.abbreviations(debug_abbrev)
+        .expect("Should parse abbreviations");
 
     let mut cursor = unit.entries(&abbrevs);
 
@@ -305,50 +305,15 @@ fn test_cursor_next_sibling_no_sibling_ptr() {
 #[test]
 #[cfg_attr(rustfmt, rustfmt_skip)]
 fn test_cursor_next_sibling_with_sibling_ptr() {
-    let abbrev_buf = [
-        // Code
-        0x01,
-
-        // DW_TAG_subprogram
-        0x2e,
-
-        // DW_CHILDREN_yes
-        0x01,
-
-        // Begin attributes
-
-            // Attribute name = DW_AT_name
-            0x03,
-            // Attribute form = DW_FORM_string
-            0x08,
-
-            // Attribute name = DW_AT_sibling
-            0x01,
-            // Attribute form = DW_FORM_ref1
-            0x11,
-
-        // End attributes
-        0x00,
-        0x00,
-
-        // Null terminator
-        0x00
-    ];
-
-    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&abbrev_buf);
-
-    let abbrevs = debug_abbrev.abbreviations()
-        .expect("Should parse abbreviations");
-
     let info_buf = [
-        // Comilation unit header
+        // Compilation unit header
 
         // 32-bit unit length = 56
         0x38, 0x00, 0x00, 0x00,
         // Version 4
         0x04, 0x00,
         // debug_abbrev_offset
-        0x05, 0x06, 0x07, 0x08,
+        0x00, 0x00, 0x00, 0x00,
         // Address size
         0x04,
 
@@ -445,6 +410,41 @@ fn test_cursor_next_sibling_with_sibling_ptr() {
     let unit = debug_info.compilation_units().next()
         .expect("should have a unit result")
         .expect("and it should be ok");
+
+    let abbrev_buf = [
+        // Code
+        0x01,
+
+        // DW_TAG_subprogram
+        0x2e,
+
+        // DW_CHILDREN_yes
+        0x01,
+
+        // Begin attributes
+
+        // Attribute name = DW_AT_name
+        0x03,
+        // Attribute form = DW_FORM_string
+        0x08,
+
+        // Attribute name = DW_AT_sibling
+        0x01,
+        // Attribute form = DW_FORM_ref1
+        0x11,
+
+        // End attributes
+        0x00,
+        0x00,
+
+        // Null terminator
+        0x00
+    ];
+
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&abbrev_buf);
+
+    let abbrevs = unit.abbreviations(debug_abbrev)
+        .expect("Should parse abbreviations");
 
     let mut cursor = unit.entries(&abbrevs);
 
