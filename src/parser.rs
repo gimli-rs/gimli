@@ -1432,6 +1432,72 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
         self.code
     }
 
+    /// Get this entry's `DW_TAG_whatever` tag.
+    ///
+    /// ```
+    /// # use gimli::{DebugAbbrev, DebugInfo, LittleEndian};
+    /// # let info_buf = [
+    /// #     // Comilation unit header
+    /// #
+    /// #     // 32-bit unit length = 12
+    /// #     0x0c, 0x00, 0x00, 0x00,
+    /// #     // Version 4
+    /// #     0x04, 0x00,
+    /// #     // debug_abbrev_offset
+    /// #     0x00, 0x00, 0x00, 0x00,
+    /// #     // Address size
+    /// #     0x04,
+    /// #
+    /// #     // DIEs
+    /// #
+    /// #     // Abbreviation code
+    /// #     0x01,
+    /// #     // Attribute of form DW_FORM_string = "foo\0"
+    /// #     0x66, 0x6f, 0x6f, 0x00,
+    /// # ];
+    /// # let debug_info = DebugInfo::<LittleEndian>::new(&info_buf);
+    /// # let abbrev_buf = [
+    /// #     // Code
+    /// #     0x01,
+    /// #     // DW_TAG_subprogram
+    /// #     0x2e,
+    /// #     // DW_CHILDREN_no
+    /// #     0x00,
+    /// #     // Begin attributes
+    /// #       // Attribute name = DW_AT_name
+    /// #       0x03,
+    /// #       // Attribute form = DW_FORM_string
+    /// #       0x08,
+    /// #     // End attributes
+    /// #     0x00,
+    /// #     0x00,
+    /// #     // Null terminator
+    /// #     0x00
+    /// # ];
+    /// # let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&abbrev_buf);
+    /// # let unit = debug_info.units().next().unwrap().unwrap();
+    /// # let abbrevs = unit.abbreviations(debug_abbrev).unwrap();
+    /// # let mut cursor = unit.entries(&abbrevs);
+    /// # let mut get_some_entry = || cursor.current().unwrap().unwrap();
+    /// let entry = get_some_entry();
+    ///
+    /// match entry.tag() {
+    ///     gimli::DW_TAG_subprogram =>
+    ///         println!("this entry contains debug info about a function"),
+    ///     gimli::DW_TAG_inlined_subroutine =>
+    ///         println!("this entry contains debug info about a particular instance of inlining"),
+    ///     gimli::DW_TAG_variable =>
+    ///         println!("this entry contains debug info about a local variable"),
+    ///     gimli::DW_TAG_formal_parameter =>
+    ///         println!("this entry contains debug info about a function parameter"),
+    ///     otherwise =>
+    ///         println!("this entry is some other kind of data: {:?}", otherwise),
+    /// };
+    /// ```
+    pub fn tag(&self) -> constants::DwTag {
+        self.abbrev.tag()
+    }
+
     /// Iterate over this entry's set of attributes.
     ///
     /// ```
