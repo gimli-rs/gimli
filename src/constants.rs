@@ -69,7 +69,9 @@ macro_rules! dw {
                     $(
                         $name => write!(f, stringify!($name)),
                     )+
-                    otherwise => write!(f, "Unknown $struct_name: {}", otherwise.0),
+                    otherwise => write!(f, "Unknown {}: {}", 
+                                        stringify!($struct_name),
+                                        otherwise.0),
                 }
             }
         }
