@@ -25,7 +25,7 @@ script:
   travis-cargo build &&
   travis-cargo test &&
   travis-cargo bench &&
-  travis-cargo run -- --example dwarfdump ./target/debug/gimli-* &&
+  travis-cargo run -- --example dwarfdump ./target/debug/gimli-* > /dev/null &&
   travis-cargo --only stable doc
 
 after_success:
