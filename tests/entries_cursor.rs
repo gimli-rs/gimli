@@ -170,7 +170,7 @@ fn test_cursor_next_dfs() {
     let info_buf = &ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF;
     let debug_info = DebugInfo::<LittleEndian>::new(info_buf);
 
-    let unit = debug_info.compilation_units().next()
+    let unit = debug_info.units().next()
         .expect("should have a unit result")
         .expect("and it should be ok");
 
@@ -251,7 +251,7 @@ fn test_cursor_next_sibling_no_sibling_ptr() {
     let info_buf = &ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF;
     let debug_info = DebugInfo::<LittleEndian>::new(info_buf);
 
-    let unit = debug_info.compilation_units().next()
+    let unit = debug_info.units().next()
         .expect("should have a unit result")
         .expect("and it should be ok");
 
@@ -407,7 +407,7 @@ fn test_cursor_next_sibling_with_sibling_ptr() {
 
     let debug_info = DebugInfo::<LittleEndian>::new(&info_buf);
 
-    let unit = debug_info.compilation_units().next()
+    let unit = debug_info.units().next()
         .expect("should have a unit result")
         .expect("and it should be ok");
 

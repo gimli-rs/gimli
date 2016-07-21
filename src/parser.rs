@@ -359,7 +359,8 @@ impl<'input, Endian> DebugInfo<'input, Endian>
         DebugInfo { debug_info_section: EndianBuf(debug_info_section, PhantomData) }
     }
 
-    /// Iterate the compilation units in this `.debug_info` section.
+    /// Iterate the compilation- and partial-units in this
+    /// `.debug_info` section.
     ///
     /// ```
     /// use gimli::{DebugInfo, LittleEndian};
@@ -368,37 +369,38 @@ impl<'input, Endian> DebugInfo<'input, Endian>
     /// # let read_debug_info_section_somehow = || &buf;
     /// let debug_info = DebugInfo::<LittleEndian>::new(read_debug_info_section_somehow());
     ///
-    /// for parse_result in debug_info.compilation_units() {
+    /// for parse_result in debug_info.units() {
     ///     let unit = parse_result.unwrap();
     ///     println!("unit's length is {}", unit.unit_length());
     /// }
     /// ```
-    pub fn compilation_units(&self) -> CompilationUnitsIter<'input, Endian> {
-        CompilationUnitsIter { input: self.debug_info_section }
+    pub fn units(&self) -> UnitHeadersIter<'input, Endian> {
+        UnitHeadersIter { input: self.debug_info_section }
     }
 }
 
-/// An iterator over the compilation units of a `.debug_info` section.
+/// An iterator over the compilation-, type-, and partial-units of a
+/// section.
 ///
 /// See the [documentation on
-/// `DebugInfo::compilation_units`](./struct.DebugInfo.html#method.compilation_units)
+/// `DebugInfo::units`](./struct.DebugInfo.html#method.units)
 /// for more detail.
-pub struct CompilationUnitsIter<'input, Endian>
+pub struct UnitHeadersIter<'input, Endian>
     where Endian: Endianity
 {
     input: EndianBuf<'input, Endian>,
 }
 
-impl<'input, Endian> Iterator for CompilationUnitsIter<'input, Endian>
+impl<'input, Endian> Iterator for UnitHeadersIter<'input, Endian>
     where Endian: Endianity
 {
-    type Item = ParseResult<CompilationUnit<'input, Endian>>;
+    type Item = ParseResult<UnitHeader<'input, Endian>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.input.is_empty() {
             None
         } else {
-            match parse_compilation_unit_header(self.input) {
+            match parse_unit_header(self.input) {
                 Ok((_, header)) => {
                     let unit_len = header.length_including_self() as usize;
                     if self.input.len() < unit_len {
@@ -419,7 +421,7 @@ impl<'input, Endian> Iterator for CompilationUnitsIter<'input, Endian>
 
 #[test]
 #[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_compilation_units() {
+fn test_units() {
     let buf = [
         // First compilation unit.
 
@@ -459,11 +461,11 @@ fn test_compilation_units() {
     ];
 
     let debug_info = DebugInfo::<LittleEndian>::new(&buf);
-    let mut units = debug_info.compilation_units();
+    let mut units = debug_info.units();
 
     match units.next() {
         Some(Ok(header)) => {
-            let expected = CompilationUnit::<LittleEndian>::new(0x000000000000002b,
+            let expected = UnitHeader::<LittleEndian>::new(0x000000000000002b,
                                                 4,
                                                 DebugAbbrevOffset(0x0102030405060708),
                                                 8,
@@ -478,7 +480,7 @@ fn test_compilation_units() {
     match units.next() {
         Some(Ok(header)) => {
             let expected =
-                CompilationUnit::new(0x00000027,
+                UnitHeader::new(0x00000027,
                                      4,
                                      DebugAbbrevOffset(0x08070605),
                                      4,
@@ -589,7 +591,7 @@ impl AttributeSpecification {
     /// Note that because some attributes are variably sized, the size cannot
     /// always be known without parsing, in which case we return `None`.
     pub fn size<'me, 'input, 'unit, Endian>(&'me self,
-                                            header: &'unit CompilationUnit<'input, Endian>)
+                                            header: &'unit UnitHeader<'input, Endian>)
                                             -> Option<usize>
         where Endian: Endianity
     {
@@ -756,7 +758,7 @@ fn parse_null_abbreviation(input: &[u8]) -> ParseResult<(&[u8], ())> {
 /// A set of type abbreviations.
 ///
 /// Construct an `Abbreviations` instance with the
-/// [`abbreviations()`](struct.CompilationUnit.html#method.abbreviations)
+/// [`abbreviations()`](struct.UnitHeader.html#method.abbreviations)
 /// method.
 #[derive(Debug, Default, Clone)]
 pub struct Abbreviations {
@@ -966,7 +968,7 @@ fn parse_version<'input, Endian>(input: EndianBuf<'input, Endian>)
 }
 
 #[test]
-fn test_compilation_unit_version_ok() {
+fn test_unit_version_ok() {
     // Version 4 and two extra bytes
     let buf = [0x04, 0x00, 0xff, 0xff];
 
@@ -980,7 +982,7 @@ fn test_compilation_unit_version_ok() {
 }
 
 #[test]
-fn test_compilation_unit_version_unknown_version() {
+fn test_unit_version_unknown_version() {
     let buf = [0xab, 0xcd];
 
     match parse_version(EndianBuf::<LittleEndian>::new(&buf)) {
@@ -997,7 +999,7 @@ fn test_compilation_unit_version_unknown_version() {
 }
 
 #[test]
-fn test_compilation_unit_version_incomplete() {
+fn test_unit_version_incomplete() {
     let buf = [0x04];
 
     match parse_version(EndianBuf::<LittleEndian>::new(&buf)) {
@@ -1080,7 +1082,7 @@ fn test_parse_address_size_ok() {
 
 /// The header of a compilation unit's debugging information.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CompilationUnit<'input, Endian>
+pub struct UnitHeader<'input, Endian>
     where Endian: Endianity
 {
     unit_length: u64,
@@ -1092,18 +1094,18 @@ pub struct CompilationUnit<'input, Endian>
 }
 
 /// Static methods.
-impl<'input, Endian> CompilationUnit<'input, Endian>
+impl<'input, Endian> UnitHeader<'input, Endian>
     where Endian: Endianity
 {
-    /// Construct a new `CompilationUnit`.
+    /// Construct a new `UnitHeader`.
     pub fn new(unit_length: u64,
                version: u16,
                debug_abbrev_offset: DebugAbbrevOffset,
                address_size: u8,
                format: Format,
                entries_buf: &'input [u8])
-               -> CompilationUnit<'input, Endian> {
-        CompilationUnit {
+               -> UnitHeader<'input, Endian> {
+        UnitHeader {
             unit_length: unit_length,
             version: version,
             debug_abbrev_offset: debug_abbrev_offset,
@@ -1138,7 +1140,7 @@ impl<'input, Endian> CompilationUnit<'input, Endian>
 }
 
 /// Instance methods.
-impl<'input, Endian> CompilationUnit<'input, Endian>
+impl<'input, Endian> UnitHeader<'input, Endian>
     where Endian: Endianity
 {
     /// Get the length of the debugging info for this compilation unit, not
@@ -1300,23 +1302,27 @@ impl<'input, Endian> CompilationUnit<'input, Endian>
     /// #     0x00
     /// # ];
     /// #
-    /// # let get_some_compilation_unit = || debug_info.compilation_units().next().unwrap().unwrap();
+    /// # let get_some_unit = || debug_info.units().next().unwrap().unwrap();
     ///
-    /// let unit = get_some_compilation_unit();
+    /// let unit = get_some_unit();
     ///
     /// # let read_debug_abbrev_section_somehow = || &abbrev_buf;
     /// let debug_abbrev = DebugAbbrev::<LittleEndian>::new(read_debug_abbrev_section_somehow());
     /// let abbrevs_for_unit = unit.abbreviations(debug_abbrev).unwrap();
     /// ```
-    pub fn abbreviations<'abbrev>(&self, debug_abbrev: DebugAbbrev<'abbrev, Endian>) -> ParseResult<Abbreviations> {
-        parse_abbreviations(&debug_abbrev.debug_abbrev_section.0[self.debug_abbrev_offset.0 as usize..]).map(|(_, abbrevs)| abbrevs)
+    pub fn abbreviations<'abbrev>(&self,
+                                  debug_abbrev: DebugAbbrev<'abbrev, Endian>)
+                                  -> ParseResult<Abbreviations> {
+        parse_abbreviations(&debug_abbrev.debug_abbrev_section.0[self.debug_abbrev_offset
+                .0 as usize..])
+            .map(|(_, abbrevs)| abbrevs)
     }
 }
 
 /// Parse a compilation unit header.
-fn parse_compilation_unit_header<'input, Endian>
+fn parse_unit_header<'input, Endian>
     (input: EndianBuf<'input, Endian>)
-     -> ParseResult<(EndianBuf<'input, Endian>, CompilationUnit<'input, Endian>)>
+     -> ParseResult<(EndianBuf<'input, Endian>, UnitHeader<'input, Endian>)>
     where Endian: Endianity
 {
     let (rest, (unit_length, format)) = try!(parse_unit_length(input));
@@ -1324,8 +1330,8 @@ fn parse_compilation_unit_header<'input, Endian>
     let (rest, offset) = try!(parse_debug_abbrev_offset(FormatInput(rest, format)));
     let (rest, address_size) = try!(parse_address_size(rest.into()));
 
-    let size_of_unit_length = CompilationUnit::<Endian>::size_of_unit_length(format);
-    let size_of_header = CompilationUnit::<Endian>::size_of_header(format);
+    let size_of_unit_length = UnitHeader::<Endian>::size_of_unit_length(format);
+    let size_of_header = UnitHeader::<Endian>::size_of_header(format);
 
     if unit_length as usize + size_of_unit_length < size_of_header {
         return Err(Error::UnitHeaderLengthTooShort);
@@ -1338,17 +1344,17 @@ fn parse_compilation_unit_header<'input, Endian>
 
     let entries_buf = &rest[..end];
     Ok((EndianBuf::new(rest),
-        CompilationUnit::new(unit_length,
-                             version,
-                             offset,
-                             address_size,
-                             format,
-                             entries_buf)))
+        UnitHeader::new(unit_length,
+                        version,
+                        offset,
+                        address_size,
+                        format,
+                        entries_buf)))
 }
 
 #[test]
 #[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_parse_compilation_unit_header_32_ok() {
+fn test_parse_unit_header_32_ok() {
     let buf = [
         // 32-bit unit length
         0x07, 0x00, 0x00, 0x00,
@@ -1360,10 +1366,10 @@ fn test_parse_compilation_unit_header_32_ok() {
         0x04
     ];
 
-    match parse_compilation_unit_header(EndianBuf::<LittleEndian>::new(&buf)) {
+    match parse_unit_header(EndianBuf::<LittleEndian>::new(&buf)) {
         Ok((_, header)) => {
             assert_eq!(header,
-                       CompilationUnit::new(7,
+                       UnitHeader::new(7,
                                             4,
                                             DebugAbbrevOffset(0x08070605),
                                             4,
@@ -1376,7 +1382,7 @@ fn test_parse_compilation_unit_header_32_ok() {
 
 #[test]
 #[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_parse_compilation_unit_header_64_ok() {
+fn test_parse_unit_header_64_ok() {
     let buf = [
         // Enable 64-bit
         0xff, 0xff, 0xff, 0xff,
@@ -1390,9 +1396,9 @@ fn test_parse_compilation_unit_header_64_ok() {
         0x08
     ];
 
-    match parse_compilation_unit_header(EndianBuf::<LittleEndian>::new(&buf)) {
+    match parse_unit_header(EndianBuf::<LittleEndian>::new(&buf)) {
         Ok((_, header)) => {
-            let expected = CompilationUnit::new(11,
+            let expected = UnitHeader::new(11,
                                                 4,
                                                 DebugAbbrevOffset(0x0102030405060708),
                                                 8,
@@ -1416,7 +1422,7 @@ pub struct DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>
     after_attrs: Cell<Option<&'input [u8]>>,
     code: u64,
     abbrev: &'abbrev Abbreviation,
-    unit: &'unit CompilationUnit<'input, Endian>,
+    unit: &'unit UnitHeader<'input, Endian>,
 }
 
 impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>
@@ -1458,7 +1464,7 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
     ///
     /// // Get the data about the first compilation unit out of the `.debug_info`.
     ///
-    /// let unit = debug_info.compilation_units().next()
+    /// let unit = debug_info.units().next()
     ///     .expect("Should have at least one compilation unit")
     ///     .expect("and it should parse ok");
     ///
@@ -1515,7 +1521,7 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
 /// The value of an attribute in a `DebuggingInformationEntry`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AttributeValue<'input> {
-    /// A slice that is CompilationUnitHeader::address_size bytes long.
+    /// A slice that is UnitHeaderHeader::address_size bytes long.
     Addr(&'input [u8]),
 
     /// A slice of an arbitrary number of bytes.
@@ -1588,7 +1594,7 @@ impl<'input> Attribute<'input> {
 /// The input to parsing an attribute.
 #[derive(Clone, Copy, Debug)]
 pub struct AttributeInput<'input, 'unit, Endian>(EndianBuf<'input, Endian>,
-                                                 &'unit CompilationUnit<'input, Endian>,
+                                                 &'unit UnitHeader<'input, Endian>,
                                                  AttributeSpecification)
     where 'input: 'unit,
           Endian: Endianity + 'unit;
@@ -1960,12 +1966,12 @@ fn parse_attribute<'input, 'unit, Endian>
 fn test_parse_attribute_addr() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_low_pc,
@@ -1995,12 +2001,12 @@ fn test_parse_attribute_block1() {
     // Length of data (3), three bytes of data, two bytes of left over input.
     let buf = [0x03, 0x09, 0x09, 0x09, 0x00, 0x00];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2030,12 +2036,12 @@ fn test_parse_attribute_block2() {
     // Two byte length of data (2), two bytes of data, two bytes of left over input.
     let buf = [0x02, 0x00, 0x09, 0x09, 0x00, 0x00];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2065,12 +2071,12 @@ fn test_parse_attribute_block4() {
     // Four byte length of data (2), two bytes of data, no left over input.
     let buf = [0x02, 0x00, 0x00, 0x00, 0x99, 0x99];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2100,12 +2106,12 @@ fn test_parse_attribute_block() {
     // LEB length of data (2, one byte), two bytes of data, no left over input.
     let buf = [0x02, 0x99, 0x99];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2134,12 +2140,12 @@ fn test_parse_attribute_block() {
 fn test_parse_attribute_data1() {
     let buf = [0x03];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2167,12 +2173,12 @@ fn test_parse_attribute_data1() {
 fn test_parse_attribute_data2() {
     let buf = [0x02, 0x01, 0x0];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2201,12 +2207,12 @@ fn test_parse_attribute_data2() {
 fn test_parse_attribute_data4() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2235,12 +2241,12 @@ fn test_parse_attribute_data4() {
 fn test_parse_attribute_data8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    8,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    8,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               8,
+                                               DebugAbbrevOffset(0x08070605),
+                                               8,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2274,12 +2280,12 @@ fn test_parse_attribute_udata() {
         leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
     };
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    8,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    8,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               8,
+                                               DebugAbbrevOffset(0x08070605),
+                                               8,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2313,12 +2319,12 @@ fn test_parse_attribute_sdata() {
         leb128::write::signed(&mut writable, -4097).expect("should write ok")
     };
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    8,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    8,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               8,
+                                               DebugAbbrevOffset(0x08070605),
+                                               8,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2348,12 +2354,12 @@ fn test_parse_attribute_exprloc() {
     // LEB length of data (2, one byte), two bytes of data, one byte left over input.
     let buf = [0x02, 0x99, 0x99, 0x11];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2382,12 +2388,12 @@ fn test_parse_attribute_exprloc() {
 fn test_parse_attribute_flag_true() {
     let buf = [0x42];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2415,12 +2421,12 @@ fn test_parse_attribute_flag_true() {
 fn test_parse_attribute_flag_false() {
     let buf = [0x00];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2448,12 +2454,12 @@ fn test_parse_attribute_flag_false() {
 fn test_parse_attribute_flag_present() {
     let buf = [0x01, 0x02, 0x03, 0x04];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2484,12 +2490,12 @@ fn test_parse_attribute_flag_present() {
 fn test_parse_attribute_sec_offset_32() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2518,12 +2524,12 @@ fn test_parse_attribute_sec_offset_32() {
 fn test_parse_attribute_sec_offset_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf64,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf64,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2552,12 +2558,12 @@ fn test_parse_attribute_sec_offset_64() {
 fn test_parse_attribute_ref1() {
     let buf = [0x03];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2585,12 +2591,12 @@ fn test_parse_attribute_ref1() {
 fn test_parse_attribute_ref2() {
     let buf = [0x02, 0x01, 0x0];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2619,12 +2625,12 @@ fn test_parse_attribute_ref2() {
 fn test_parse_attribute_ref4() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2653,12 +2659,12 @@ fn test_parse_attribute_ref4() {
 fn test_parse_attribute_ref8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    8,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    8,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               8,
+                                               DebugAbbrevOffset(0x08070605),
+                                               8,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2692,12 +2698,12 @@ fn test_parse_attribute_refudata() {
         leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
     };
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    8,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    8,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               8,
+                                               DebugAbbrevOffset(0x08070605),
+                                               8,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2726,12 +2732,12 @@ fn test_parse_attribute_refudata() {
 fn test_parse_attribute_refaddr_32() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    8,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    8,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               8,
+                                               DebugAbbrevOffset(0x08070605),
+                                               8,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2760,12 +2766,12 @@ fn test_parse_attribute_refaddr_32() {
 fn test_parse_attribute_refaddr_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    8,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    8,
-                                                    Format::Dwarf64,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               8,
+                                               DebugAbbrevOffset(0x08070605),
+                                               8,
+                                               Format::Dwarf64,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2794,12 +2800,12 @@ fn test_parse_attribute_refaddr_64() {
 fn test_parse_attribute_refsig8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    8,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    8,
-                                                    Format::Dwarf64,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               8,
+                                               DebugAbbrevOffset(0x08070605),
+                                               8,
+                                               Format::Dwarf64,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2829,12 +2835,12 @@ fn test_parse_attribute_refsig8() {
 fn test_parse_attribute_string() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x0, 0x99, 0x99];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    8,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    8,
-                                                    Format::Dwarf64,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               8,
+                                               DebugAbbrevOffset(0x08070605),
+                                               8,
+                                               Format::Dwarf64,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2863,12 +2869,12 @@ fn test_parse_attribute_string() {
 fn test_parse_attribute_strp_32() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    8,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    8,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               8,
+                                               DebugAbbrevOffset(0x08070605),
+                                               8,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2897,12 +2903,12 @@ fn test_parse_attribute_strp_32() {
 fn test_parse_attribute_strp_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    8,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    8,
-                                                    Format::Dwarf64,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               8,
+                                               DebugAbbrevOffset(0x08070605),
+                                               8,
+                                               Format::Dwarf64,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -2938,12 +2944,12 @@ fn test_parse_attribute_indirect() {
         leb128::write::unsigned(&mut writable, 9999999).expect("should write value")
     };
 
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    8,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    8,
-                                                    Format::Dwarf64,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               8,
+                                               DebugAbbrevOffset(0x08070605),
+                                               8,
+                                               Format::Dwarf64,
+                                               &[]);
 
     let spec = AttributeSpecification {
         name: constants::DW_AT_name,
@@ -3026,12 +3032,12 @@ impl<'input, 'abbrev, 'entry, 'unit, Endian> Iterator for AttrsIter<'input,
 
 #[test]
 fn test_attrs_iter() {
-    let unit = CompilationUnit::<LittleEndian>::new(7,
-                                                    4,
-                                                    DebugAbbrevOffset(0x08070605),
-                                                    4,
-                                                    Format::Dwarf32,
-                                                    &[]);
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
 
     let abbrev = Abbreviation {
         code: 42,
@@ -3135,7 +3141,7 @@ pub struct EntriesCursor<'input, 'abbrev, 'unit, Endian>
           Endian: Endianity + 'unit
 {
     input: &'input [u8],
-    unit: &'unit CompilationUnit<'input, Endian>,
+    unit: &'unit UnitHeader<'input, Endian>,
     abbreviations: &'abbrev Abbreviations,
     cached_current: RefCell<Option<ParseResult<DebuggingInformationEntry<'input,
                                                                          'abbrev,
@@ -3214,7 +3220,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// does not have any children.
     ///
     /// ```
-    /// # use gimli::{CompilationUnit, DebugAbbrev, DebugInfo, LittleEndian};
+    /// # use gimli::{UnitHeader, DebugAbbrev, DebugInfo, LittleEndian};
     /// # let info_buf = [
     /// #     // Comilation unit header
     /// #
@@ -3281,11 +3287,11 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// # ];
     /// # let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&abbrev_buf);
     /// #
-    /// # let get_some_compilation_unit = || debug_info.compilation_units().next().unwrap().unwrap();
+    /// # let get_some_unit = || debug_info.units().next().unwrap().unwrap();
     ///
-    /// let unit = get_some_compilation_unit();
-    /// # let get_abbrevs_for_compilation_unit = |_| unit.abbreviations(debug_abbrev).unwrap();
-    /// let abbrevs = get_abbrevs_for_compilation_unit(&unit);
+    /// let unit = get_some_unit();
+    /// # let get_abbrevs_for_unit = |_| unit.abbreviations(debug_abbrev).unwrap();
+    /// let abbrevs = get_abbrevs_for_unit(&unit);
     ///
     /// let mut first_entry_with_no_children = None;
     /// let mut cursor = unit.entries(&abbrevs);
@@ -3405,7 +3411,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// # ];
     /// # let debug_info = DebugInfo::<LittleEndian>::new(&info_buf);
     /// #
-    /// # let get_some_compilation_unit = || debug_info.compilation_units().next().unwrap().unwrap();
+    /// # let get_some_unit = || debug_info.units().next().unwrap().unwrap();
     ///
     /// # let abbrev_buf = [
     /// #     // Code
@@ -3427,9 +3433,9 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// # ];
     /// # let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&abbrev_buf);
     /// #
-    /// let unit = get_some_compilation_unit();
-    /// # let get_abbrevs_for_compilation_unit = |_| unit.abbreviations(debug_abbrev).unwrap();
-    /// let abbrevs = get_abbrevs_for_compilation_unit(&unit);
+    /// let unit = get_some_unit();
+    /// # let get_abbrevs_for_unit = |_| unit.abbreviations(debug_abbrev).unwrap();
+    /// let abbrevs = get_abbrevs_for_unit(&unit);
     ///
     /// let mut cursor = unit.entries(&abbrevs);
     ///
@@ -3592,7 +3598,7 @@ fn test_parse_type_offset_incomplete() {
 pub struct TypeUnit<'input, Endian>
     where Endian: Endianity
 {
-    header: CompilationUnit<'input, Endian>,
+    header: UnitHeader<'input, Endian>,
     type_signature: u64,
     type_offset: DebugTypesOffset,
 }
@@ -3601,7 +3607,7 @@ impl<'input, Endian> TypeUnit<'input, Endian>
     where Endian: Endianity
 {
     /// Construct a new `TypeUnit`.
-    pub fn new(header: CompilationUnit<'input, Endian>,
+    pub fn new(header: UnitHeader<'input, Endian>,
                type_signature: u64,
                type_offset: DebugTypesOffset)
                -> TypeUnit<'input, Endian> {
@@ -3651,7 +3657,7 @@ fn parse_type_unit_header<'input, Endian>
      -> ParseResult<(EndianBuf<'input, Endian>, TypeUnit<'input, Endian>)>
     where Endian: Endianity
 {
-    let (rest, header) = try!(parse_compilation_unit_header(input));
+    let (rest, header) = try!(parse_unit_header(input));
     let (rest, signature) = try!(parse_type_signature(rest));
     let (rest, offset) = try!(parse_type_offset(FormatInput(rest, header.format())));
     Ok((rest.0, TypeUnit::new(header, signature, offset)))
@@ -3683,7 +3689,7 @@ fn test_parse_type_unit_header_32_ok() {
     match result {
         Ok((_, header)) => {
             assert_eq!(header,
-                       TypeUnit::new(CompilationUnit::new(11,
+                       TypeUnit::new(UnitHeader::new(11,
                                                           4,
                                                           DebugAbbrevOffset(0x0807060504030201),
                                                           8,

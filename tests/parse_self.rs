@@ -22,14 +22,13 @@ fn read_section(section: &str) -> Vec<u8> {
 
 #[test]
 fn test_parse_self_debug_info() {
-
     let debug_info = read_section("debug_info");
     let debug_info = DebugInfo::<LittleEndian>::new(&debug_info);
 
     let debug_abbrev = read_section("debug_abbrev");
     let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&debug_abbrev);
 
-    for unit in debug_info.compilation_units() {
+    for unit in debug_info.units() {
         let unit = unit.expect("Should parse compilation unit");
         let abbrevs = unit.abbreviations(debug_abbrev)
             .expect("Should parse abbreviations");
