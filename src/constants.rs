@@ -25,6 +25,8 @@
 #![allow(non_upper_case_globals)]
 #![allow(missing_docs)]
 
+use std::fmt;
+
 // The `dw!` macro turns this:
 //
 //     dw!(DwFoo(u32) {
@@ -35,17 +37,42 @@
 //
 // into this:
 //
+//     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 //     struct DwFoo(pub u32);
+//
 //     pub const DW_FOO_bar: DwFoo = DwFoo(0);
 //     pub const DW_FOO_baz: DwFoo = DwFoo(1);
 //     pub const DW_FOO_bang: DwFoo = DwFoo(2);
+//
+//     impl fmt::Display for DwFoo {
+//         fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+//             match *self {
+//                 DW_FOO_bar => write!(f, "DW_FOO_bar"),
+//                 DW_FOO_baz => write!(f, "DW_FOO_baz"),
+//                 DW_FOO_bang => write!(f, "DW_FOO_bang"),
+//                 otherwise => write!(f, "Unknown DwFoo: {}", otherwise.0),
+//             }
+//         }
+//     }
 macro_rules! dw {
     ($struct_name:ident($struct_type:ty) { $($name:ident = $val:expr),+ }) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub struct $struct_name(pub $struct_type);
+
         $(
             pub const $name: $struct_name = $struct_name($val);
         )+
+
+        impl fmt::Display for $struct_name {
+            fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+                match *self {
+                    $(
+                        $name => write!(f, stringify!($name)),
+                    )+
+                    otherwise => write!(f, "Unknown $struct_name: {}", otherwise.0),
+                }
+            }
+        }
     };
     // Handle trailing comma
     ($struct_name:ident($struct_type:ty) { $($name:ident = $val:expr),+, }) => {
