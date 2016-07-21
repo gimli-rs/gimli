@@ -3595,7 +3595,7 @@ fn test_parse_type_offset_incomplete() {
 
 /// The header of a type unit's debugging information.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TypeUnit<'input, Endian>
+pub struct TypeUnitHeader<'input, Endian>
     where Endian: Endianity
 {
     header: UnitHeader<'input, Endian>,
@@ -3603,15 +3603,28 @@ pub struct TypeUnit<'input, Endian>
     type_offset: DebugTypesOffset,
 }
 
-impl<'input, Endian> TypeUnit<'input, Endian>
+impl<'input, Endian> TypeUnitHeader<'input, Endian>
     where Endian: Endianity
 {
-    /// Construct a new `TypeUnit`.
-    pub fn new(header: UnitHeader<'input, Endian>,
+    /// Construct a new `TypeUnitHeader`.
+    pub fn new(mut header: UnitHeader<'input, Endian>,
                type_signature: u64,
                type_offset: DebugTypesOffset)
-               -> TypeUnit<'input, Endian> {
-        TypeUnit {
+               -> TypeUnitHeader<'input, Endian> {
+        // First, fix up the header's entries_buf. Currently it points
+        // right after end of the header, but since this is a type
+        // unit header, there are two more fields before entries
+        // begin. The type_signature is always 64 bits regardless of
+        // format, the type_offset is 32 or 64 bits depending on the
+        // format.
+        let additional_header_size = 8 +
+                                     (match header.format {
+            Format::Dwarf32 => 4,
+            Format::Dwarf64 => 8,
+        });
+        header.entries_buf = header.entries_buf.range_from(additional_header_size..);
+
+        TypeUnitHeader {
             header: header,
             type_signature: type_signature,
             type_offset: type_offset,
@@ -3654,23 +3667,23 @@ impl<'input, Endian> TypeUnit<'input, Endian>
 #[allow(dead_code)] // TODO FITZGEN
 fn parse_type_unit_header<'input, Endian>
     (input: EndianBuf<'input, Endian>)
-     -> ParseResult<(EndianBuf<'input, Endian>, TypeUnit<'input, Endian>)>
+     -> ParseResult<(EndianBuf<'input, Endian>, TypeUnitHeader<'input, Endian>)>
     where Endian: Endianity
 {
     let (rest, header) = try!(parse_unit_header(input));
     let (rest, signature) = try!(parse_type_signature(rest));
     let (rest, offset) = try!(parse_type_offset(FormatInput(rest, header.format())));
-    Ok((rest.0, TypeUnit::new(header, signature, offset)))
+    Ok((rest.0, TypeUnitHeader::new(header, signature, offset)))
 }
 
 #[test]
 #[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_parse_type_unit_header_32_ok() {
+fn test_parse_type_unit_header_64_ok() {
     let buf = [
         // Enable 64-bit unit length mode.
         0xff, 0xff, 0xff, 0xff,
-        // The actual unit length (11).
-        0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        // The actual unit length (27).
+        0x1b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         // Version 4
         0x04, 0x00,
         // debug_abbrev_offset
@@ -3684,19 +3697,18 @@ fn test_parse_type_unit_header_32_ok() {
     ];
 
     let result = parse_type_unit_header(EndianBuf::<LittleEndian>::new(&buf));
-    println!("result = {:#?}", result);
 
     match result {
         Ok((_, header)) => {
             assert_eq!(header,
-                       TypeUnit::new(UnitHeader::new(11,
-                                                          4,
-                                                          DebugAbbrevOffset(0x0807060504030201),
-                                                          8,
-                                                          Format::Dwarf64,
-                                                          &[]),
-                                     0xdeadbeefdeadbeef,
-                                     DebugTypesOffset(0x7856341278563412)))
+                       TypeUnitHeader::new(UnitHeader::new(27,
+                                                           4,
+                                                           DebugAbbrevOffset(0x0807060504030201),
+                                                           8,
+                                                           Format::Dwarf64,
+                                                           &buf[buf.len() - 16..]),
+                                           0xdeadbeefdeadbeef,
+                                           DebugTypesOffset(0x7856341278563412)))
         },
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
