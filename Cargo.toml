@@ -13,5 +13,8 @@ version = "0.2.0"
 byteorder = "0.5.3"
 leb128 = "0.2.1"
 
+[target.'cfg(target_os="linux")'.dev-dependencies]
+elf = "0.0.9"
+
 [features]
 nightly = []
