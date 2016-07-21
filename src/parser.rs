@@ -300,6 +300,7 @@ pub struct UnitOffset(pub u64);
 /// The `DebugAbbrev` struct represents the abbreviations describing
 /// `DebuggingInformationEntry`s' attribute names and forms found in the
 /// `.debug_abbrev` section.
+#[derive(Debug, Clone, Copy)]
 pub struct DebugAbbrev<'input, Endian>
     where Endian: Endianity
 {
@@ -326,15 +327,11 @@ impl<'input, Endian> DebugAbbrev<'input, Endian>
     pub fn new(debug_abbrev_section: &'input [u8]) -> DebugAbbrev<'input, Endian> {
         DebugAbbrev { debug_abbrev_section: EndianBuf(debug_abbrev_section, PhantomData) }
     }
-
-    /// Parse the abbreviations within this `.debug_abbrev` section.
-    pub fn abbreviations(&self) -> ParseResult<Abbreviations> {
-        parse_abbreviations(self.debug_abbrev_section.0).map(|(_, abbrevs)| abbrevs)
-    }
 }
 
 /// The `DebugInfo` struct represents the DWARF debugging information found in
 /// the `.debug_info` section.
+#[derive(Debug, Clone, Copy)]
 pub struct DebugInfo<'input, Endian>
     where Endian: Endianity
 {
@@ -757,6 +754,10 @@ fn parse_null_abbreviation(input: &[u8]) -> ParseResult<(&[u8], ())> {
 }
 
 /// A set of type abbreviations.
+///
+/// Construct an `Abbreviations` instance with the
+/// [`abbreviations()`](struct.CompilationUnit.html#method.abbreviations)
+/// method.
 #[derive(Debug, Default, Clone)]
 pub struct Abbreviations {
     abbrevs: hash_map::HashMap<u64, Abbreviation>,
@@ -1225,6 +1226,91 @@ impl<'input, Endian> CompilationUnit<'input, Endian>
             cached_current: RefCell::new(None),
         }
     }
+
+    /// Parse the abbreviations at the given `offset` within this
+    /// `.debug_abbrev` section.
+    ///
+    /// The `offset` should generally be retrieved from a unit header.
+    ///
+    /// ```
+    /// use gimli::DebugAbbrev;
+    /// # use gimli::{DebugInfo, LittleEndian};
+    /// # let info_buf = [
+    /// #     // Comilation unit header
+    /// #
+    /// #     // 32-bit unit length = 25
+    /// #     0x19, 0x00, 0x00, 0x00,
+    /// #     // Version 4
+    /// #     0x04, 0x00,
+    /// #     // debug_abbrev_offset
+    /// #     0x00, 0x00, 0x00, 0x00,
+    /// #     // Address size
+    /// #     0x04,
+    /// #
+    /// #     // DIEs
+    /// #
+    /// #     // Abbreviation code
+    /// #     0x01,
+    /// #     // Attribute of form DW_FORM_string = "foo\0"
+    /// #     0x66, 0x6f, 0x6f, 0x00,
+    /// #
+    /// #       // Children
+    /// #
+    /// #       // Abbreviation code
+    /// #       0x01,
+    /// #       // Attribute of form DW_FORM_string = "foo\0"
+    /// #       0x66, 0x6f, 0x6f, 0x00,
+    /// #
+    /// #         // Children
+    /// #
+    /// #         // Abbreviation code
+    /// #         0x01,
+    /// #         // Attribute of form DW_FORM_string = "foo\0"
+    /// #         0x66, 0x6f, 0x6f, 0x00,
+    /// #
+    /// #           // Children
+    /// #
+    /// #           // End of children
+    /// #           0x00,
+    /// #
+    /// #         // End of children
+    /// #         0x00,
+    /// #
+    /// #       // End of children
+    /// #       0x00,
+    /// # ];
+    /// # let debug_info = DebugInfo::<LittleEndian>::new(&info_buf);
+    /// #
+    /// # let abbrev_buf = [
+    /// #     // Code
+    /// #     0x01,
+    /// #     // DW_TAG_subprogram
+    /// #     0x2e,
+    /// #     // DW_CHILDREN_yes
+    /// #     0x01,
+    /// #     // Begin attributes
+    /// #       // Attribute name = DW_AT_name
+    /// #       0x03,
+    /// #       // Attribute form = DW_FORM_string
+    /// #       0x08,
+    /// #     // End attributes
+    /// #     0x00,
+    /// #     0x00,
+    /// #     // Null terminator
+    /// #     0x00
+    /// # ];
+    /// #
+    /// # let get_some_compilation_unit = || debug_info.compilation_units().next().unwrap().unwrap();
+    ///
+    /// let unit = get_some_compilation_unit();
+    ///
+    /// # let read_debug_abbrev_section_somehow = || &abbrev_buf;
+    /// let debug_abbrev = DebugAbbrev::<LittleEndian>::new(read_debug_abbrev_section_somehow());
+    /// let abbrevs_for_unit = unit.abbreviations(debug_abbrev).unwrap();
+    /// ```
+    pub fn abbreviations<'abbrev>(&self, debug_abbrev: DebugAbbrev<'abbrev, Endian>) -> ParseResult<Abbreviations> {
+        parse_abbreviations(&debug_abbrev.debug_abbrev_section.0[self.debug_abbrev_offset.0 as usize..]).map(|(_, abbrevs)| abbrevs)
+    }
 }
 
 /// Parse a compilation unit header.
@@ -1346,7 +1432,38 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
     /// ```
     /// use gimli::{DebugAbbrev, DebugInfo, LittleEndian};
     ///
-    /// // Read the `.debug_abbrev` section and parse it into `Abbreviations`.
+    /// // Read the `.debug_info` section.
+    ///
+    /// # let info_buf = [
+    /// #     // Comilation unit header
+    /// #
+    /// #     // 32-bit unit length = 12
+    /// #     0x0c, 0x00, 0x00, 0x00,
+    /// #     // Version 4
+    /// #     0x04, 0x00,
+    /// #     // debug_abbrev_offset
+    /// #     0x00, 0x00, 0x00, 0x00,
+    /// #     // Address size
+    /// #     0x04,
+    /// #
+    /// #     // DIEs
+    /// #
+    /// #     // Abbreviation code
+    /// #     0x01,
+    /// #     // Attribute of form DW_FORM_string = "foo\0"
+    /// #     0x66, 0x6f, 0x6f, 0x00,
+    /// # ];
+    /// # let read_debug_info_section_somehow = || &info_buf;
+    /// let debug_info = DebugInfo::<LittleEndian>::new(read_debug_info_section_somehow());
+    ///
+    /// // Get the data about the first compilation unit out of the `.debug_info`.
+    ///
+    /// let unit = debug_info.compilation_units().next()
+    ///     .expect("Should have at least one compilation unit")
+    ///     .expect("and it should parse ok");
+    ///
+    /// // Read the `.debug_abbrev` section and parse the
+    /// // abbreviations for our compilation unit.
     ///
     /// # let abbrev_buf = [
     /// #     // Code
@@ -1368,37 +1485,7 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
     /// # ];
     /// # let read_debug_abbrev_section_somehow = || &abbrev_buf;
     /// let debug_abbrev = DebugAbbrev::<LittleEndian>::new(read_debug_abbrev_section_somehow());
-    /// let abbrevs = debug_abbrev.abbreviations().unwrap();
-    ///
-    /// // Read the `.debug_info` section.
-    ///
-    /// # let info_buf = [
-    /// #     // Comilation unit header
-    /// #
-    /// #     // 32-bit unit length = 12
-    /// #     0x0c, 0x00, 0x00, 0x00,
-    /// #     // Version 4
-    /// #     0x04, 0x00,
-    /// #     // debug_abbrev_offset
-    /// #     0x05, 0x06, 0x07, 0x08,
-    /// #     // Address size
-    /// #     0x04,
-    /// #
-    /// #     // DIEs
-    /// #
-    /// #     // Abbreviation code
-    /// #     0x01,
-    /// #     // Attribute of form DW_FORM_string = "foo\0"
-    /// #     0x66, 0x6f, 0x6f, 0x00,
-    /// # ];
-    /// # let read_debug_info_section_somehow = || &info_buf;
-    /// let debug_info = DebugInfo::<LittleEndian>::new(read_debug_info_section_somehow());
-    ///
-    /// // Get the data about the first compilation unit out of the `.debug_info`.
-    ///
-    /// let unit = debug_info.compilation_units().next()
-    ///     .expect("Should have at least one compilation unit")
-    ///     .expect("and it should parse ok");
+    /// let abbrevs = unit.abbreviations(debug_abbrev).unwrap();
     ///
     /// // Get the first entry from that compilation unit.
     ///
@@ -3127,28 +3214,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// does not have any children.
     ///
     /// ```
-    /// # use gimli::{DebugAbbrev, DebugInfo, LittleEndian};
-    /// # let abbrev_buf = [
-    /// #     // Code
-    /// #     0x01,
-    /// #     // DW_TAG_subprogram
-    /// #     0x2e,
-    /// #     // DW_CHILDREN_yes
-    /// #     0x01,
-    /// #     // Begin attributes
-    /// #       // Attribute name = DW_AT_name
-    /// #       0x03,
-    /// #       // Attribute form = DW_FORM_string
-    /// #       0x08,
-    /// #     // End attributes
-    /// #     0x00,
-    /// #     0x00,
-    /// #     // Null terminator
-    /// #     0x00
-    /// # ];
-    /// # let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&abbrev_buf);
-    /// # let get_abbrevs_for_compilation_unit = |_| debug_abbrev.abbreviations().unwrap();
-    /// #
+    /// # use gimli::{CompilationUnit, DebugAbbrev, DebugInfo, LittleEndian};
     /// # let info_buf = [
     /// #     // Comilation unit header
     /// #
@@ -3157,7 +3223,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// #     // Version 4
     /// #     0x04, 0x00,
     /// #     // debug_abbrev_offset
-    /// #     0x05, 0x06, 0x07, 0x08,
+    /// #     0x00, 0x00, 0x00, 0x00,
     /// #     // Address size
     /// #     0x04,
     /// #
@@ -3195,9 +3261,30 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// # ];
     /// # let debug_info = DebugInfo::<LittleEndian>::new(&info_buf);
     /// #
+    /// # let abbrev_buf = [
+    /// #     // Code
+    /// #     0x01,
+    /// #     // DW_TAG_subprogram
+    /// #     0x2e,
+    /// #     // DW_CHILDREN_yes
+    /// #     0x01,
+    /// #     // Begin attributes
+    /// #       // Attribute name = DW_AT_name
+    /// #       0x03,
+    /// #       // Attribute form = DW_FORM_string
+    /// #       0x08,
+    /// #     // End attributes
+    /// #     0x00,
+    /// #     0x00,
+    /// #     // Null terminator
+    /// #     0x00
+    /// # ];
+    /// # let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&abbrev_buf);
+    /// #
     /// # let get_some_compilation_unit = || debug_info.compilation_units().next().unwrap().unwrap();
     ///
     /// let unit = get_some_compilation_unit();
+    /// # let get_abbrevs_for_compilation_unit = |_| unit.abbreviations(debug_abbrev).unwrap();
     /// let abbrevs = get_abbrevs_for_compilation_unit(&unit);
     ///
     /// let mut first_entry_with_no_children = None;
@@ -3272,27 +3359,6 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     ///
     /// ```
     /// # use gimli::{DebugAbbrev, DebugInfo, LittleEndian};
-    /// # let abbrev_buf = [
-    /// #     // Code
-    /// #     0x01,
-    /// #     // DW_TAG_subprogram
-    /// #     0x2e,
-    /// #     // DW_CHILDREN_yes
-    /// #     0x01,
-    /// #     // Begin attributes
-    /// #       // Attribute name = DW_AT_name
-    /// #       0x03,
-    /// #       // Attribute form = DW_FORM_string
-    /// #       0x08,
-    /// #     // End attributes
-    /// #     0x00,
-    /// #     0x00,
-    /// #     // Null terminator
-    /// #     0x00
-    /// # ];
-    /// # let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&abbrev_buf);
-    /// # let get_abbrevs_for_compilation_unit = |_| debug_abbrev.abbreviations().unwrap();
-    /// #
     /// # let info_buf = [
     /// #     // Comilation unit header
     /// #
@@ -3301,7 +3367,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// #     // Version 4
     /// #     0x04, 0x00,
     /// #     // debug_abbrev_offset
-    /// #     0x05, 0x06, 0x07, 0x08,
+    /// #     0x00, 0x00, 0x00, 0x00,
     /// #     // Address size
     /// #     0x04,
     /// #
@@ -3341,7 +3407,28 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// #
     /// # let get_some_compilation_unit = || debug_info.compilation_units().next().unwrap().unwrap();
     ///
+    /// # let abbrev_buf = [
+    /// #     // Code
+    /// #     0x01,
+    /// #     // DW_TAG_subprogram
+    /// #     0x2e,
+    /// #     // DW_CHILDREN_yes
+    /// #     0x01,
+    /// #     // Begin attributes
+    /// #       // Attribute name = DW_AT_name
+    /// #       0x03,
+    /// #       // Attribute form = DW_FORM_string
+    /// #       0x08,
+    /// #     // End attributes
+    /// #     0x00,
+    /// #     0x00,
+    /// #     // Null terminator
+    /// #     0x00
+    /// # ];
+    /// # let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&abbrev_buf);
+    /// #
     /// let unit = get_some_compilation_unit();
+    /// # let get_abbrevs_for_compilation_unit = |_| unit.abbreviations(debug_abbrev).unwrap();
     /// let abbrevs = get_abbrevs_for_compilation_unit(&unit);
     ///
     /// let mut cursor = unit.entries(&abbrevs);
