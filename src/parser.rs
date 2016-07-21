@@ -379,8 +379,7 @@ impl<'input, Endian> DebugInfo<'input, Endian>
     }
 }
 
-/// An iterator over the compilation-, type-, and partial-units of a
-/// section.
+/// An iterator over the compilation- and partial-units of a section.
 ///
 /// See the [documentation on
 /// `DebugInfo::units`](./struct.DebugInfo.html#method.units)
@@ -3593,6 +3592,94 @@ fn test_parse_type_offset_incomplete() {
     };
 }
 
+/// The `DebugTypes` struct represents the DWARF type information
+/// found in the `.debug_types` section.
+#[derive(Debug, Clone, Copy)]
+pub struct DebugTypes<'input, Endian>
+    where Endian: Endianity
+{
+    debug_types_section: EndianBuf<'input, Endian>,
+}
+
+impl<'input, Endian> DebugTypes<'input, Endian>
+    where Endian: Endianity
+{
+    /// Construct a new `DebugTypes` instance from the data in the `.debug_types`
+    /// section.
+    ///
+    /// It is the caller's responsibility to read the `.debug_types` section and
+    /// present it as a `&[u8]` slice. That means using some ELF loader on
+    /// Linux, a Mach-O loader on OSX, etc.
+    ///
+    /// ```
+    /// use gimli::{DebugTypes, LittleEndian};
+    ///
+    /// # let buf = [0x00, 0x01, 0x02, 0x03];
+    /// # let read_debug_types_section_somehow = || &buf;
+    /// let debug_types = DebugTypes::<LittleEndian>::new(read_debug_types_section_somehow());
+    /// ```
+    pub fn new(debug_types_section: &'input [u8]) -> DebugTypes<'input, Endian> {
+        DebugTypes { debug_types_section: EndianBuf(debug_types_section, PhantomData) }
+    }
+
+    /// Iterate the type-units in this `.debug_types` section.
+    ///
+    /// ```
+    /// use gimli::{DebugTypes, LittleEndian};
+    ///
+    /// # let buf = [];
+    /// # let read_debug_types_section_somehow = || &buf;
+    /// let debug_types = DebugTypes::<LittleEndian>::new(read_debug_types_section_somehow());
+    ///
+    /// for parse_result in debug_types.units() {
+    ///     let unit = parse_result.unwrap();
+    ///     println!("unit's length is {}", unit.unit_length());
+    /// }
+    /// ```
+    pub fn units(&self) -> TypeUnitHeadersIter<'input, Endian> {
+        TypeUnitHeadersIter { input: self.debug_types_section }
+    }
+}
+
+/// An iterator over the type-units of this `.debug_types` section.
+///
+/// See the [documentation on
+/// `DebugTypes::units`](./struct.DebugTypes.html#method.units) for
+/// more detail.
+pub struct TypeUnitHeadersIter<'input, Endian>
+    where Endian: Endianity
+{
+    input: EndianBuf<'input, Endian>,
+}
+
+impl<'input, Endian> Iterator for TypeUnitHeadersIter<'input, Endian>
+    where Endian: Endianity
+{
+    type Item = ParseResult<TypeUnitHeader<'input, Endian>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.input.is_empty() {
+            None
+        } else {
+            match parse_type_unit_header(self.input) {
+                Ok((_, header)) => {
+                    let unit_len = header.length_including_self() as usize;
+                    if self.input.len() < unit_len {
+                        self.input = self.input.range_to(..0);
+                    } else {
+                        self.input = self.input.range_from(unit_len..);
+                    }
+                    Some(Ok(header))
+                }
+                Err(e) => {
+                    self.input = self.input.range_to(..0);
+                    Some(Err(e))
+                }
+            }
+        }
+    }
+}
+
 /// The header of a type unit's debugging information.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TypeUnitHeader<'input, Endian>
@@ -3607,22 +3694,16 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
     where Endian: Endianity
 {
     /// Construct a new `TypeUnitHeader`.
-    pub fn new(mut header: UnitHeader<'input, Endian>,
-               type_signature: u64,
-               type_offset: DebugTypesOffset)
-               -> TypeUnitHeader<'input, Endian> {
+    fn new(mut header: UnitHeader<'input, Endian>,
+           type_signature: u64,
+           type_offset: DebugTypesOffset)
+           -> TypeUnitHeader<'input, Endian> {
         // First, fix up the header's entries_buf. Currently it points
         // right after end of the header, but since this is a type
         // unit header, there are two more fields before entries
-        // begin. The type_signature is always 64 bits regardless of
-        // format, the type_offset is 32 or 64 bits depending on the
-        // format.
-        let additional_header_size = 8 +
-                                     (match header.format {
-            Format::Dwarf32 => 4,
-            Format::Dwarf64 => 8,
-        });
-        header.entries_buf = header.entries_buf.range_from(additional_header_size..);
+        // begin to account for.
+        let additional = Self::additional_header_size(header.format);
+        header.entries_buf = header.entries_buf.range_from(additional..);
 
         TypeUnitHeader {
             header: header,
@@ -3631,23 +3712,43 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
         }
     }
 
-    /// Get the length of the debugging info for this compilation unit.
+    /// Get the length of the debugging info for this type-unit.
     pub fn unit_length(&self) -> u64 {
         self.header.unit_length
     }
 
-    /// Get the DWARF version of the debugging info for this compilation unit.
+    fn additional_header_size(format: Format) -> usize {
+        // There are two additional fields in a type-unit compared to
+        // compilation- and partial-units. The type_signature is
+        // always 64 bits regardless of format, the type_offset is 32
+        // or 64 bits depending on the format.
+        let type_signature_size = 8;
+        let type_offset_size = match format {
+            Format::Dwarf32 => 4,
+            Format::Dwarf64 => 8,
+        };
+        type_signature_size + type_offset_size
+    }
+
+    /// Get the length of the debugging info for this type-unit,
+    /// uncluding the byte length of the encoded length itself.
+    pub fn length_including_self(&self) -> u64 {
+        self.header.length_including_self() +
+        Self::additional_header_size(self.header.format) as u64
+    }
+
+    /// Get the DWARF version of the debugging info for this type-unit.
     pub fn version(&self) -> u16 {
         self.header.version
     }
 
-    /// The offset into the `.debug_abbrev` section for this compilation unit's
+    /// The offset into the `.debug_abbrev` section for this type-unit's
     /// debugging information entries.
     pub fn debug_abbrev_offset(&self) -> DebugAbbrevOffset {
         self.header.debug_abbrev_offset
     }
 
-    /// The size of addresses (in bytes) in this compilation unit.
+    /// The size of addresses (in bytes) in this type-unit.
     pub fn address_size(&self) -> u8 {
         self.header.address_size
     }
@@ -3661,10 +3762,111 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
     pub fn type_offset(&self) -> DebugTypesOffset {
         self.type_offset
     }
+
+    /// Navigate this type unit's `DebuggingInformationEntry`s.
+    pub fn entries<'me, 'abbrev>(&'me self,
+                                 abbreviations: &'abbrev Abbreviations)
+                                 -> EntriesCursor<'input, 'abbrev, 'me, Endian> {
+        EntriesCursor {
+            unit: &self.header,
+            input: self.header.entries_buf.into(),
+            abbreviations: abbreviations,
+            cached_current: RefCell::new(None),
+        }
+    }
+
+    /// Parse this type unit's abbreviations.
+    ///
+    /// ```
+    /// use gimli::DebugAbbrev;
+    /// # use gimli::{DebugTypes, LittleEndian};
+    /// # let types_buf = [
+    /// #     // Type unit header
+    /// #
+    /// #     // 32-bit unit length = 37
+    /// #     0x25, 0x00, 0x00, 0x00,
+    /// #     // Version 4
+    /// #     0x04, 0x00,
+    /// #     // debug_abbrev_offset
+    /// #     0x00, 0x00, 0x00, 0x00,
+    /// #     // Address size
+    /// #     0x04,
+    /// #     // Type signature
+    /// #     0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+    /// #     // Type offset
+    /// #     0x01, 0x02, 0x03, 0x04,
+    /// #
+    /// #     // DIEs
+    /// #
+    /// #     // Abbreviation code
+    /// #     0x01,
+    /// #     // Attribute of form DW_FORM_string = "foo\0"
+    /// #     0x66, 0x6f, 0x6f, 0x00,
+    /// #
+    /// #       // Children
+    /// #
+    /// #       // Abbreviation code
+    /// #       0x01,
+    /// #       // Attribute of form DW_FORM_string = "foo\0"
+    /// #       0x66, 0x6f, 0x6f, 0x00,
+    /// #
+    /// #         // Children
+    /// #
+    /// #         // Abbreviation code
+    /// #         0x01,
+    /// #         // Attribute of form DW_FORM_string = "foo\0"
+    /// #         0x66, 0x6f, 0x6f, 0x00,
+    /// #
+    /// #           // Children
+    /// #
+    /// #           // End of children
+    /// #           0x00,
+    /// #
+    /// #         // End of children
+    /// #         0x00,
+    /// #
+    /// #       // End of children
+    /// #       0x00,
+    /// # ];
+    /// # let debug_types = DebugTypes::<LittleEndian>::new(&types_buf);
+    /// #
+    /// # let abbrev_buf = [
+    /// #     // Code
+    /// #     0x01,
+    /// #     // DW_TAG_subprogram
+    /// #     0x2e,
+    /// #     // DW_CHILDREN_yes
+    /// #     0x01,
+    /// #     // Begin attributes
+    /// #       // Attribute name = DW_AT_name
+    /// #       0x03,
+    /// #       // Attribute form = DW_FORM_string
+    /// #       0x08,
+    /// #     // End attributes
+    /// #     0x00,
+    /// #     0x00,
+    /// #     // Null terminator
+    /// #     0x00
+    /// # ];
+    /// #
+    /// # let get_some_type_unit = || debug_types.units().next().unwrap().unwrap();
+    ///
+    /// let unit = get_some_type_unit();
+    ///
+    /// # let read_debug_abbrev_section_somehow = || &abbrev_buf;
+    /// let debug_abbrev = DebugAbbrev::<LittleEndian>::new(read_debug_abbrev_section_somehow());
+    /// let abbrevs_for_unit = unit.abbreviations(debug_abbrev).unwrap();
+    /// ```
+    pub fn abbreviations<'abbrev>(&self,
+                                  debug_abbrev: DebugAbbrev<'abbrev, Endian>)
+                                  -> ParseResult<Abbreviations> {
+        let offset = self.debug_abbrev_offset().0 as usize;
+        parse_abbreviations(&debug_abbrev.debug_abbrev_section.0[offset..])
+            .map(|(_, abbrevs)| abbrevs)
+    }
 }
 
 /// Parse a type unit header.
-#[allow(dead_code)] // TODO FITZGEN
 fn parse_type_unit_header<'input, Endian>
     (input: EndianBuf<'input, Endian>)
      -> ParseResult<(EndianBuf<'input, Endian>, TypeUnitHeader<'input, Endian>)>
