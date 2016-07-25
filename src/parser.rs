@@ -2051,6 +2051,11 @@ fn test_parse_attribute_unit<Endian>(address_size: u8,
 }
 
 #[cfg(test)]
+fn test_parse_attribute_unit_default() -> UnitHeader<'static, LittleEndian> {
+    test_parse_attribute_unit(4, Format::Dwarf32)
+}
+
+#[cfg(test)]
 fn test_parse_attribute<Endian>(buf: &[u8],
                                 len: usize,
                                 unit: &UnitHeader<Endian>,
@@ -2104,7 +2109,7 @@ fn test_parse_attribute_addr8() {
 fn test_parse_attribute_block1() {
     // Length of data (3), three bytes of data, two bytes of left over input.
     let buf = [0x03, 0x09, 0x09, 0x09, 0x00, 0x00];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_block1;
     let value = AttributeValue::Block(&buf[1..4]);
     test_parse_attribute(&buf, 4, &unit, form, value);
@@ -2114,7 +2119,7 @@ fn test_parse_attribute_block1() {
 fn test_parse_attribute_block2() {
     // Two byte length of data (2), two bytes of data, two bytes of left over input.
     let buf = [0x02, 0x00, 0x09, 0x09, 0x00, 0x00];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_block2;
     let value = AttributeValue::Block(&buf[2..4]);
     test_parse_attribute(&buf, 4, &unit, form, value);
@@ -2124,7 +2129,7 @@ fn test_parse_attribute_block2() {
 fn test_parse_attribute_block4() {
     // Four byte length of data (2), two bytes of data, no left over input.
     let buf = [0x02, 0x00, 0x00, 0x00, 0x99, 0x99];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_block4;
     let value = AttributeValue::Block(&buf[4..]);
     test_parse_attribute(&buf, 6, &unit, form, value);
@@ -2134,7 +2139,7 @@ fn test_parse_attribute_block4() {
 fn test_parse_attribute_block() {
     // LEB length of data (2, one byte), two bytes of data, no left over input.
     let buf = [0x02, 0x99, 0x99];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_block;
     let value = AttributeValue::Block(&buf[1..]);
     test_parse_attribute(&buf, 3, &unit, form, value);
@@ -2143,7 +2148,7 @@ fn test_parse_attribute_block() {
 #[test]
 fn test_parse_attribute_data1() {
     let buf = [0x03];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_data1;
     let value = AttributeValue::Data(&buf[..]);
     test_parse_attribute(&buf, 1, &unit, form, value);
@@ -2152,7 +2157,7 @@ fn test_parse_attribute_data1() {
 #[test]
 fn test_parse_attribute_data2() {
     let buf = [0x02, 0x01, 0x0];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_data2;
     let value = AttributeValue::Data(&buf[..2]);
     test_parse_attribute(&buf, 2, &unit, form, value);
@@ -2161,7 +2166,7 @@ fn test_parse_attribute_data2() {
 #[test]
 fn test_parse_attribute_data4() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_data4;
     let value = AttributeValue::Data(&buf[..4]);
     test_parse_attribute(&buf, 4, &unit, form, value);
@@ -2170,7 +2175,7 @@ fn test_parse_attribute_data4() {
 #[test]
 fn test_parse_attribute_data8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-    let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_data8;
     let value = AttributeValue::Data(&buf[..8]);
     test_parse_attribute(&buf, 8, &unit, form, value);
@@ -2185,7 +2190,7 @@ fn test_parse_attribute_udata() {
         leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
     };
 
-    let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_udata;
     let value = AttributeValue::Udata(4097);
     test_parse_attribute(&buf, bytes_written, &unit, form, value);
@@ -2200,7 +2205,7 @@ fn test_parse_attribute_sdata() {
         leb128::write::signed(&mut writable, -4097).expect("should write ok")
     };
 
-    let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_sdata;
     let value = AttributeValue::Sdata(-4097);
     test_parse_attribute(&buf, bytes_written, &unit, form, value);
@@ -2210,7 +2215,7 @@ fn test_parse_attribute_sdata() {
 fn test_parse_attribute_exprloc() {
     // LEB length of data (2, one byte), two bytes of data, one byte left over input.
     let buf = [0x02, 0x99, 0x99, 0x11];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_exprloc;
     let value = AttributeValue::Exprloc(&buf[1..3]);
     test_parse_attribute(&buf, 3, &unit, form, value);
@@ -2219,7 +2224,7 @@ fn test_parse_attribute_exprloc() {
 #[test]
 fn test_parse_attribute_flag_true() {
     let buf = [0x42];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_flag;
     let value = AttributeValue::Flag(true);
     test_parse_attribute(&buf, 1, &unit, form, value);
@@ -2228,7 +2233,7 @@ fn test_parse_attribute_flag_true() {
 #[test]
 fn test_parse_attribute_flag_false() {
     let buf = [0x00];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_flag;
     let value = AttributeValue::Flag(false);
     test_parse_attribute(&buf, 1, &unit, form, value);
@@ -2237,7 +2242,7 @@ fn test_parse_attribute_flag_false() {
 #[test]
 fn test_parse_attribute_flag_present() {
     let buf = [0x01, 0x02, 0x03, 0x04];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_flag_present;
     let value = AttributeValue::Flag(true);
     // DW_FORM_flag_present does not consume any bytes of the input stream.
@@ -2265,7 +2270,7 @@ fn test_parse_attribute_sec_offset_64() {
 #[test]
 fn test_parse_attribute_ref1() {
     let buf = [0x03];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_ref1;
     let value = AttributeValue::UnitRef(UnitOffset(3));
     test_parse_attribute(&buf, 1, &unit, form, value);
@@ -2274,7 +2279,7 @@ fn test_parse_attribute_ref1() {
 #[test]
 fn test_parse_attribute_ref2() {
     let buf = [0x02, 0x01, 0x0];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_ref2;
     let value = AttributeValue::UnitRef(UnitOffset(258));
     test_parse_attribute(&buf, 2, &unit, form, value);
@@ -2283,7 +2288,7 @@ fn test_parse_attribute_ref2() {
 #[test]
 fn test_parse_attribute_ref4() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_ref4;
     let value = AttributeValue::UnitRef(UnitOffset(67305985));
     test_parse_attribute(&buf, 4, &unit, form, value);
@@ -2292,7 +2297,7 @@ fn test_parse_attribute_ref4() {
 #[test]
 fn test_parse_attribute_ref8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-    let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_ref8;
     let value = AttributeValue::UnitRef(UnitOffset(578437695752307201));
     test_parse_attribute(&buf, 8, &unit, form, value);
@@ -2307,7 +2312,7 @@ fn test_parse_attribute_refudata() {
         leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
     };
 
-    let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_ref_udata;
     let value = AttributeValue::UnitRef(UnitOffset(4097));
     test_parse_attribute(&buf, bytes_written, &unit, form, value);
@@ -2316,7 +2321,7 @@ fn test_parse_attribute_refudata() {
 #[test]
 fn test_parse_attribute_refaddr_32() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-    let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
+    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
     let form = constants::DW_FORM_ref_addr;
     let value = AttributeValue::DebugInfoRef(DebugInfoOffset(67305985));
     test_parse_attribute(&buf, 4, &unit, form, value);
@@ -2325,7 +2330,7 @@ fn test_parse_attribute_refaddr_32() {
 #[test]
 fn test_parse_attribute_refaddr_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-    let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf64);
+    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf64);
     let form = constants::DW_FORM_ref_addr;
     let value = AttributeValue::DebugInfoRef(DebugInfoOffset(578437695752307201));
     test_parse_attribute(&buf, 8, &unit, form, value);
@@ -2334,7 +2339,7 @@ fn test_parse_attribute_refaddr_64() {
 #[test]
 fn test_parse_attribute_refsig8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-    let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf64);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_ref_sig8;
     let value = AttributeValue::DebugTypesRef(DebugTypesOffset(578437695752307201));
     test_parse_attribute(&buf, 8, &unit, form, value);
@@ -2343,7 +2348,7 @@ fn test_parse_attribute_refsig8() {
 #[test]
 fn test_parse_attribute_string() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x0, 0x99, 0x99];
-    let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf64);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_string;
     let value = AttributeValue::String(&buf[..6]);
     test_parse_attribute(&buf, 6, &unit, form, value);
@@ -2352,7 +2357,7 @@ fn test_parse_attribute_string() {
 #[test]
 fn test_parse_attribute_strp_32() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-    let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
+    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
     let form = constants::DW_FORM_strp;
     let value = AttributeValue::DebugStrRef(DebugStrOffset(67305985));
     test_parse_attribute(&buf, 4, &unit, form, value);
@@ -2361,7 +2366,7 @@ fn test_parse_attribute_strp_32() {
 #[test]
 fn test_parse_attribute_strp_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-    let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf64);
+    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf64);
     let form = constants::DW_FORM_strp;
     let value = AttributeValue::DebugStrRef(DebugStrOffset(578437695752307201));
     test_parse_attribute(&buf, 8, &unit, form, value);
@@ -2378,7 +2383,7 @@ fn test_parse_attribute_indirect() {
         leb128::write::unsigned(&mut writable, 9999999).expect("should write value")
     };
 
-    let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf64);
+    let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_indirect;
     let value = AttributeValue::Udata(9999999);
     test_parse_attribute(&buf, bytes_written, &unit, form, value);
