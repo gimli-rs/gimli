@@ -1,14 +1,18 @@
 extern crate gimli;
-use gimli::{AttributeValue, DebugAbbrev, DebugInfo, DebuggingInformationEntry, Endianity, LittleEndian};
+use gimli::{AttributeValue, DebugAbbrev, DebugInfo, Endianity, EntriesCursor, LittleEndian};
 
 #[cfg(test)]
-fn assert_entry_with_name<'input, 'abbrev, 'unit, Endian>(entry: DebuggingInformationEntry<'input,
-                                                                                           'abbrev,
-                                                                                           'unit,
-                                                                                           Endian>,
-                                                          name: &'static str)
+fn assert_current_name<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCursor<'input,
+                                                                           'abbrev,
+                                                                           'unit,
+                                                                           Endian>,
+                                                       name: &'static str)
     where Endian: Endianity
 {
+    let entry = cursor.current()
+        .expect("Should have an entry result")
+        .expect("and it should be ok");
+
     let value = entry.attr_value(gimli::DW_AT_name)
         .expect("Should have found the name attribute");
 
@@ -179,65 +183,34 @@ fn test_cursor_next_dfs() {
         .expect("Should parse abbreviations");
 
     let mut cursor = unit.entries(&abbrevs);
-
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "001");
+    assert_current_name(&mut cursor, "001");
 
     assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "002");
+    assert_current_name(&mut cursor, "002");
 
     assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "003");
+    assert_current_name(&mut cursor, "003");
 
     assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -1);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "004");
+    assert_current_name(&mut cursor, "004");
 
     assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "005");
+    assert_current_name(&mut cursor, "005");
 
     assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 0);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "006");
+    assert_current_name(&mut cursor, "006");
 
     assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -1);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "007");
+    assert_current_name(&mut cursor, "007");
 
     assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "008");
+    assert_current_name(&mut cursor, "008");
 
     assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "009");
+    assert_current_name(&mut cursor, "009");
 
     assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -2);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "010");
+    assert_current_name(&mut cursor, "010");
 
     assert!(cursor.next_dfs().is_none());
     assert!(cursor.current().is_none());
@@ -261,38 +234,23 @@ fn test_cursor_next_sibling_no_sibling_ptr() {
 
     let mut cursor = unit.entries(&abbrevs);
 
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "001");
+    assert_current_name(&mut cursor, "001");
 
     // Down to the first child of the root entry.
 
     assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "002");
+    assert_current_name(&mut cursor, "002");
 
     // Now iterate all children of the root via `next_sibling`.
 
     cursor.next_sibling().expect("Should not be done with traversal");
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "004");
+    assert_current_name(&mut cursor, "004");
 
     cursor.next_sibling().expect("Should not be done with traversal");
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "007");
+    assert_current_name(&mut cursor, "007");
 
     cursor.next_sibling().expect("Should not be done with traversal");
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "010");
+    assert_current_name(&mut cursor, "010");
 
     // And now the cursor should be exhausted.
 
@@ -446,32 +404,20 @@ fn test_cursor_next_sibling_with_sibling_ptr() {
 
     let mut cursor = unit.entries(&abbrevs);
 
-    let root = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(root, "001");
+    assert_current_name(&mut cursor, "001");
 
     // Down to the first child of the root.
 
     assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "002");
+    assert_current_name(&mut cursor, "002");
 
     // Now iterate all children of the root via `next_sibling`.
 
     cursor.next_sibling().expect("Should handle valid DW_AT_sibling pointer");
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "004");
+    assert_current_name(&mut cursor, "004");
 
     cursor.next_sibling().expect("Should handle invalid DW_AT_sibling pointer");
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-    assert_entry_with_name(entry, "006");
+    assert_current_name(&mut cursor, "006");
 
     // And now the cursor should be exhausted.
 
