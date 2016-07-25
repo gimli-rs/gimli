@@ -23,6 +23,31 @@ fn assert_current_name<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCurso
 }
 
 #[cfg(test)]
+fn assert_next_dfs<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCursor<'input,
+                                                                           'abbrev,
+                                                                           'unit,
+                                                                           Endian>,
+                                                   name: &'static str,
+                                                   depth: isize)
+    where Endian: Endianity
+{
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), depth);
+    assert_current_name(cursor, name);
+}
+
+#[cfg(test)]
+fn assert_next_sibling<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCursor<'input,
+                                                                           'abbrev,
+                                                                           'unit,
+                                                                           Endian>,
+                                                       name: &'static str)
+    where Endian: Endianity
+{
+    cursor.next_sibling().expect("Should not be done with traversal");
+    assert_current_name(cursor, name);
+}
+
+#[cfg(test)]
 #[cfg_attr(rustfmt, rustfmt_skip)]
 const ENTRIES_CURSOR_TESTS_ABBREV_BUF: [u8; 8] = [
     // Code
@@ -183,34 +208,17 @@ fn test_cursor_next_dfs() {
         .expect("Should parse abbreviations");
 
     let mut cursor = unit.entries(&abbrevs);
+
     assert_current_name(&mut cursor, "001");
-
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    assert_current_name(&mut cursor, "002");
-
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    assert_current_name(&mut cursor, "003");
-
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -1);
-    assert_current_name(&mut cursor, "004");
-
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    assert_current_name(&mut cursor, "005");
-
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 0);
-    assert_current_name(&mut cursor, "006");
-
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -1);
-    assert_current_name(&mut cursor, "007");
-
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    assert_current_name(&mut cursor, "008");
-
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    assert_current_name(&mut cursor, "009");
-
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), -2);
-    assert_current_name(&mut cursor, "010");
+    assert_next_dfs(&mut cursor, "002", 1);
+    assert_next_dfs(&mut cursor, "003", 1);
+    assert_next_dfs(&mut cursor, "004", -1);
+    assert_next_dfs(&mut cursor, "005", 1);
+    assert_next_dfs(&mut cursor, "006", 0);
+    assert_next_dfs(&mut cursor, "007", -1);
+    assert_next_dfs(&mut cursor, "008", 1);
+    assert_next_dfs(&mut cursor, "009", 1);
+    assert_next_dfs(&mut cursor, "010", -2);
 
     assert!(cursor.next_dfs().is_none());
     assert!(cursor.current().is_none());
@@ -238,19 +246,13 @@ fn test_cursor_next_sibling_no_sibling_ptr() {
 
     // Down to the first child of the root entry.
 
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    assert_current_name(&mut cursor, "002");
+    assert_next_dfs(&mut cursor, "002", 1);
 
     // Now iterate all children of the root via `next_sibling`.
 
-    cursor.next_sibling().expect("Should not be done with traversal");
-    assert_current_name(&mut cursor, "004");
-
-    cursor.next_sibling().expect("Should not be done with traversal");
-    assert_current_name(&mut cursor, "007");
-
-    cursor.next_sibling().expect("Should not be done with traversal");
-    assert_current_name(&mut cursor, "010");
+    assert_next_sibling(&mut cursor, "004");
+    assert_next_sibling(&mut cursor, "007");
+    assert_next_sibling(&mut cursor, "010");
 
     // And now the cursor should be exhausted.
 
@@ -408,16 +410,12 @@ fn test_cursor_next_sibling_with_sibling_ptr() {
 
     // Down to the first child of the root.
 
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), 1);
-    assert_current_name(&mut cursor, "002");
+    assert_next_dfs(&mut cursor, "002", 1);
 
     // Now iterate all children of the root via `next_sibling`.
 
-    cursor.next_sibling().expect("Should handle valid DW_AT_sibling pointer");
-    assert_current_name(&mut cursor, "004");
-
-    cursor.next_sibling().expect("Should handle invalid DW_AT_sibling pointer");
-    assert_current_name(&mut cursor, "006");
+    assert_next_sibling(&mut cursor, "004");
+    assert_next_sibling(&mut cursor, "006");
 
     // And now the cursor should be exhausted.
 
