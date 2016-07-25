@@ -1581,6 +1581,15 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
             entry: self,
         }
     }
+
+    /// Find the first attribute in this entry which has the given name,
+    /// and return its value. Returns `Ok(None)` if no attribute is found.
+    pub fn attr_value(&self, name: constants::DwAt) -> Option<AttributeValue<'input>> {
+        self.attrs()
+            .take_while(|res| res.is_ok())
+            .find(|res| res.unwrap().name() == name)
+            .map(|res| res.unwrap().value())
+    }
 }
 
 /// The value of an attribute in a `DebuggingInformationEntry`.
@@ -3523,22 +3532,17 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     pub fn next_sibling(&mut self) -> Option<()> {
         match self.current() {
             Some(Ok(current)) => {
-                let sibling_ptr = current.attrs()
-                    .take_while(|res| res.is_ok())
-                    .find(|res| res.unwrap().name() == constants::DW_AT_sibling);
-
-                if let Some(sibling_ptr) = sibling_ptr {
-                    if let AttributeValue::UnitRef(offset) = sibling_ptr.unwrap().value() {
-                        if self.unit.is_valid_offset(offset) {
-                            // Fast path: this entry has a DW_AT_sibling
-                            // attribute pointing to its sibling.
-                            self.input = &self.unit.range_from(offset..);
-                            if self.input.len() > 0 && self.input[0] != 0 {
-                                return Some(());
-                            } else {
-                                self.input = &[];
-                                return None;
-                            }
+                let sibling_ptr = current.attr_value(constants::DW_AT_sibling);
+                if let Some(AttributeValue::UnitRef(offset)) = sibling_ptr {
+                    if self.unit.is_valid_offset(offset) {
+                        // Fast path: this entry has a DW_AT_sibling
+                        // attribute pointing to its sibling.
+                        self.input = &self.unit.range_from(offset..);
+                        if self.input.len() > 0 && self.input[0] != 0 {
+                            return Some(());
+                        } else {
+                            self.input = &[];
+                            return None;
                         }
                     }
                 }

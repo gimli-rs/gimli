@@ -9,15 +9,13 @@ fn assert_entry_with_name<'input, 'abbrev, 'unit, Endian>(entry: DebuggingInform
                                                           name: &'static str)
     where Endian: Endianity
 {
-    let attr = entry.attrs()
-        .find(|attr| attr.is_ok() && attr.unwrap().name() == gimli::DW_AT_name)
-        .expect("Should have found the name attribute")
-        .expect("and it should parse ok");
+    let value = entry.attr_value(gimli::DW_AT_name)
+        .expect("Should have found the name attribute");
 
     let mut with_null: Vec<u8> = name.as_bytes().into();
     with_null.push(0);
 
-    assert_eq!(attr.value(), AttributeValue::String(&with_null));
+    assert_eq!(value, AttributeValue::String(&with_null));
 }
 
 #[cfg(test)]
