@@ -823,43 +823,6 @@ pub enum Format {
     Dwarf32,
 }
 
-/// The input to parsing various compilation unit header information.
-#[derive(Debug, Clone, Copy)]
-struct FormatInput<'input, Endian>(EndianBuf<'input, Endian>, Format) where Endian: Endianity;
-
-impl<'input, Endian> FormatInput<'input, Endian>
-    where Endian: Endianity
-{
-    fn merge(&self, rest: EndianBuf<'input, Endian>) -> FormatInput<'input, Endian> {
-        FormatInput(rest, self.1)
-    }
-}
-
-impl<'input, Endian> Into<EndianBuf<'input, Endian>> for FormatInput<'input, Endian>
-    where Endian: Endianity
-{
-    fn into(self) -> EndianBuf<'input, Endian> {
-        self.0
-    }
-}
-
-impl<'input, Endian> Into<&'input [u8]> for FormatInput<'input, Endian>
-    where Endian: Endianity
-{
-    fn into(self) -> &'input [u8] {
-        self.0.into()
-    }
-}
-
-impl<'input, Endian> Deref for FormatInput<'input, Endian>
-    where Endian: Endianity
-{
-    type Target = EndianBuf<'input, Endian>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 const MAX_DWARF_32_UNIT_LENGTH: u64 = 0xfffffff0;
 
 const DWARF_64_INITIAL_UNIT_LENGTH: u64 = 0xffffffff;
@@ -1009,23 +972,23 @@ fn test_unit_version_incomplete() {
 
 /// Parse the `debug_abbrev_offset` in the compilation unit header.
 fn parse_debug_abbrev_offset<'input, Endian>
-    (input: FormatInput<'input, Endian>)
-     -> ParseResult<(FormatInput<'input, Endian>, DebugAbbrevOffset)>
+    (input: EndianBuf<'input, Endian>, format: Format)
+     -> ParseResult<(EndianBuf<'input, Endian>, DebugAbbrevOffset)>
     where Endian: Endianity
 {
-    let offset = match input.1 {
-        Format::Dwarf32 => parse_u32_as_u64(input.0),
-        Format::Dwarf64 => parse_u64(input.0),
+    let offset = match format {
+        Format::Dwarf32 => parse_u32_as_u64(input),
+        Format::Dwarf64 => parse_u64(input),
     };
-    offset.map(|(rest, offset)| (input.merge(rest), DebugAbbrevOffset(offset)))
+    offset.map(|(rest, offset)| (rest, DebugAbbrevOffset(offset)))
 }
 
 #[test]
 fn test_parse_debug_abbrev_offset_32() {
     let buf = [0x01, 0x02, 0x03, 0x04];
 
-    match parse_debug_abbrev_offset(FormatInput(EndianBuf::<LittleEndian>::new(&buf),
-                                                Format::Dwarf32)) {
+    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf),
+                                                Format::Dwarf32) {
         Ok((_, val)) => assert_eq!(val, DebugAbbrevOffset(0x04030201)),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
@@ -1035,8 +998,8 @@ fn test_parse_debug_abbrev_offset_32() {
 fn test_parse_debug_abbrev_offset_32_incomplete() {
     let buf = [0x01, 0x02];
 
-    match parse_debug_abbrev_offset(FormatInput(EndianBuf::<LittleEndian>::new(&buf),
-                                                Format::Dwarf32)) {
+    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf),
+                                                Format::Dwarf32) {
         Err(Error::UnexpectedEof) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
@@ -1046,8 +1009,8 @@ fn test_parse_debug_abbrev_offset_32_incomplete() {
 fn test_parse_debug_abbrev_offset_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
-    match parse_debug_abbrev_offset(FormatInput(EndianBuf::<LittleEndian>::new(&buf),
-                                                Format::Dwarf64)) {
+    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf),
+                                                Format::Dwarf64) {
         Ok((_, val)) => assert_eq!(val, DebugAbbrevOffset(0x0807060504030201)),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
@@ -1057,8 +1020,8 @@ fn test_parse_debug_abbrev_offset_64() {
 fn test_parse_debug_abbrev_offset_64_incomplete() {
     let buf = [0x01, 0x02];
 
-    match parse_debug_abbrev_offset(FormatInput(EndianBuf::<LittleEndian>::new(&buf),
-                                                Format::Dwarf64)) {
+    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf),
+                                                Format::Dwarf64) {
         Err(Error::UnexpectedEof) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
@@ -1326,7 +1289,7 @@ fn parse_unit_header<'input, Endian>
 {
     let (rest, (unit_length, format)) = try!(parse_unit_length(input));
     let (rest, version) = try!(parse_version(rest));
-    let (rest, offset) = try!(parse_debug_abbrev_offset(FormatInput(rest, format)));
+    let (rest, offset) = try!(parse_debug_abbrev_offset(rest, format));
     let (rest, address_size) = try!(parse_address_size(rest.into()));
 
     let size_of_unit_length = UnitHeader::<Endian>::size_of_unit_length(format);
@@ -1665,56 +1628,6 @@ impl<'input> Attribute<'input> {
     }
 }
 
-/// The input to parsing an attribute.
-#[derive(Clone, Copy, Debug)]
-pub struct AttributeInput<'input, 'unit, Endian>(EndianBuf<'input, Endian>,
-                                                 &'unit UnitHeader<'input, Endian>,
-                                                 AttributeSpecification)
-    where 'input: 'unit,
-          Endian: Endianity + 'unit;
-
-impl<'input, 'unit, Endian> AttributeInput<'input, 'unit, Endian>
-    where Endian: Endianity
-{
-    fn merge<T>(&self, rest: T) -> AttributeInput<'input, 'unit, Endian>
-        where T: Into<&'input [u8]>
-    {
-        let buf = rest.into();
-        AttributeInput(EndianBuf::new(buf), self.1, self.2)
-    }
-
-    fn range_from(&self, range: RangeFrom<usize>) -> AttributeInput<'input, 'unit, Endian> {
-        AttributeInput(self.0.range_from(range), self.1, self.2)
-    }
-}
-
-impl<'input, 'unit, Endian> Deref for AttributeInput<'input, 'unit, Endian>
-    where Endian: Endianity
-{
-    type Target = [u8];
-    fn deref(&self) -> &Self::Target {
-        (self.0).0
-    }
-}
-
-impl<'input, 'unit, Endian> Into<&'input [u8]> for AttributeInput<'input, 'unit, Endian>
-    where Endian: Endianity
-{
-    fn into(self) -> &'input [u8] {
-        self.0.into()
-    }
-}
-
-impl<'input, 'unit, Endian> Into<EndianBuf<'input, Endian>> for AttributeInput<'input,
-                                                                               'unit,
-                                                                               Endian>
-    where Endian: Endianity
-{
-    fn into(self) -> EndianBuf<'input, Endian> {
-        self.0
-    }
-}
-
 /// Take a slice of size `bytes` from the input.
 fn take(bytes: usize, input: &[u8]) -> ParseResult<(&[u8], &[u8])> {
     if input.len() < bytes {
@@ -1751,134 +1664,136 @@ fn length_leb_value(input: &[u8]) -> ParseResult<(&[u8], &[u8])> {
 }
 
 fn parse_attribute<'input, 'unit, Endian>
-    (mut input: AttributeInput<'input, 'unit, Endian>)
-     -> ParseResult<(AttributeInput<'input, 'unit, Endian>, Attribute<'input>)>
+    (mut input: EndianBuf<'input, Endian>,
+     unit: &'unit UnitHeader<'input, Endian>,
+     spec: AttributeSpecification)
+     -> ParseResult<(EndianBuf<'input, Endian>, Attribute<'input>)>
     where Endian: Endianity
 {
-    let mut form = input.2.form;
+    let mut form = spec.form;
     loop {
         match form {
             constants::DW_FORM_indirect => {
                 let (rest, dynamic_form) = try!(parse_attribute_form(input.into()));
                 form = dynamic_form;
-                input = input.merge(rest);
+                input = EndianBuf::new(rest);
                 continue;
             }
             constants::DW_FORM_addr => {
-                return take(input.1.address_size() as usize, input.into()).map(|(rest, addr)| {
+                return take(unit.address_size() as usize, input.into()).map(|(rest, addr)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::Addr(addr),
                     };
-                    (input.merge(rest), attr)
+                    (EndianBuf::new(rest), attr)
                 });
             }
             constants::DW_FORM_block1 => {
                 return length_u8_value(input.into()).map(|(rest, block)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::Block(block),
                     };
-                    (input.merge(rest), attr)
+                    (EndianBuf::new(rest), attr)
                 });
             }
             constants::DW_FORM_block2 => {
                 return length_u16_value(input.into()).map(|(rest, block)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::Block(block),
                     };
-                    (input.merge(rest), attr)
+                    (rest, attr)
                 });
             }
             constants::DW_FORM_block4 => {
                 return length_u32_value(input.into()).map(|(rest, block)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::Block(block),
                     };
-                    (input.merge(rest), attr)
+                    (rest, attr)
                 });
             }
             constants::DW_FORM_block => {
                 return length_leb_value(input.into()).map(|(rest, block)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::Block(block),
                     };
-                    (input.merge(rest), attr)
+                    (EndianBuf::new(rest), attr)
                 });
             }
             constants::DW_FORM_data1 => {
                 return take(1, input.into()).map(|(rest, data)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::Data(data),
                     };
-                    (input.merge(rest), attr)
+                    (EndianBuf::new(rest), attr)
                 });
             }
             constants::DW_FORM_data2 => {
                 return take(2, input.into()).map(|(rest, data)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::Data(data),
                     };
-                    (input.merge(rest), attr)
+                    (EndianBuf::new(rest), attr)
                 });
             }
             constants::DW_FORM_data4 => {
                 return take(4, input.into()).map(|(rest, data)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::Data(data),
                     };
-                    (input.merge(rest), attr)
+                    (EndianBuf::new(rest), attr)
                 });
             }
             constants::DW_FORM_data8 => {
                 return take(8, input.into()).map(|(rest, data)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::Data(data),
                     };
-                    (input.merge(rest), attr)
+                    (EndianBuf::new(rest), attr)
                 });
             }
             constants::DW_FORM_udata => {
                 return parse_unsigned_leb(input.into()).map(|(rest, data)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::Udata(data),
                     };
-                    (input.merge(rest), attr)
+                    (EndianBuf::new(rest), attr)
                 });
             }
             constants::DW_FORM_sdata => {
                 return parse_signed_leb(input.into()).map(|(rest, data)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::Sdata(data),
                     };
-                    (input.merge(rest), attr)
+                    (EndianBuf::new(rest), attr)
                 });
             }
             constants::DW_FORM_exprloc => {
                 return length_leb_value(input.into()).map(|(rest, block)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::Exprloc(block),
                     };
-                    (input.merge(rest), attr)
+                    (EndianBuf::new(rest), attr)
                 })
             }
             constants::DW_FORM_flag => {
                 return parse_u8(input.into()).map(|(rest, present)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::Flag(present != 0),
                     };
-                    (input.merge(rest), attr)
+                    (EndianBuf::new(rest), attr)
                 })
             }
             constants::DW_FORM_flag_present => {
@@ -1886,28 +1801,28 @@ fn parse_attribute<'input, 'unit, Endian>
                 // isn't actually present in the serialized DIEs, only in Ok(
                 return Ok((input,
                            Attribute {
-                    name: input.2.name,
+                    name: spec.name,
                     value: AttributeValue::Flag(true),
                 }));
             }
             constants::DW_FORM_sec_offset => {
-                return match input.1.format() {
+                return match unit.format() {
                     Format::Dwarf32 => {
                         parse_u32(input.into()).map(|(rest, offset)| {
                             let attr = Attribute {
-                                name: input.2.name,
+                                name: spec.name,
                                 value: AttributeValue::SecOffset(offset as u64),
                             };
-                            (input.merge(rest), attr)
+                            (rest, attr)
                         })
                     }
                     Format::Dwarf64 => {
                         parse_u64(input.into()).map(|(rest, offset)| {
                             let attr = Attribute {
-                                name: input.2.name,
+                                name: spec.name,
                                 value: AttributeValue::SecOffset(offset),
                             };
-                            (input.merge(rest), attr)
+                            (rest, attr)
                         })
                     }
                 };
@@ -1915,68 +1830,68 @@ fn parse_attribute<'input, 'unit, Endian>
             constants::DW_FORM_ref1 => {
                 return parse_u8(input.into()).map(|(rest, reference)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::UnitRef(UnitOffset(reference as u64)),
                     };
-                    (input.merge(rest), attr)
+                    (EndianBuf::new(rest), attr)
                 });
             }
             constants::DW_FORM_ref2 => {
                 return parse_u16(input.into()).map(|(rest, reference)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::UnitRef(UnitOffset(reference as u64)),
                     };
-                    (input.merge(rest), attr)
+                    (rest, attr)
                 });
             }
             constants::DW_FORM_ref4 => {
                 return parse_u32(input.into()).map(|(rest, reference)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::UnitRef(UnitOffset(reference as u64)),
                     };
-                    (input.merge(rest), attr)
+                    (rest, attr)
                 });
             }
             constants::DW_FORM_ref8 => {
                 return parse_u64(input.into()).map(|(rest, reference)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::UnitRef(UnitOffset(reference)),
                     };
-                    (input.merge(rest), attr)
+                    (rest, attr)
                 });
             }
             constants::DW_FORM_ref_udata => {
                 return parse_unsigned_leb(input.into()).map(|(rest, reference)| {
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::UnitRef(UnitOffset(reference)),
                     };
-                    (input.merge(rest), attr)
+                    (EndianBuf::new(rest), attr)
                 });
             }
             constants::DW_FORM_ref_addr => {
-                return match input.1.format() {
+                return match unit.format() {
                     Format::Dwarf32 => {
                         parse_u32(input.into()).map(|(rest, offset)| {
                             let offset = DebugInfoOffset(offset as u64);
                             let attr = Attribute {
-                                name: input.2.name,
+                                name: spec.name,
                                 value: AttributeValue::DebugInfoRef(offset),
                             };
-                            (input.merge(rest), attr)
+                            (rest, attr)
                         })
                     }
                     Format::Dwarf64 => {
                         parse_u64(input.into()).map(|(rest, offset)| {
                             let offset = DebugInfoOffset(offset);
                             let attr = Attribute {
-                                name: input.2.name,
+                                name: spec.name,
                                 value: AttributeValue::DebugInfoRef(offset),
                             };
-                            (input.merge(rest), attr)
+                            (rest, attr)
                         })
                     }
                 };
@@ -1985,10 +1900,10 @@ fn parse_attribute<'input, 'unit, Endian>
                 return parse_u64(input.into()).map(|(rest, offset)| {
                     let offset = DebugTypesOffset(offset);
                     let attr = Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::DebugTypesRef(offset),
                     };
-                    (input.merge(rest), attr)
+                    (rest, attr)
                 });
             }
             constants::DW_FORM_string => {
@@ -1998,7 +1913,7 @@ fn parse_attribute<'input, 'unit, Endian>
                     let buf: &[u8] = input.into();
                     return Ok((input.range_from(idx + 1..),
                                Attribute {
-                        name: input.2.name,
+                        name: spec.name,
                         value: AttributeValue::String(&buf[0..idx + 1]),
                     }));
                 } else {
@@ -2006,25 +1921,25 @@ fn parse_attribute<'input, 'unit, Endian>
                 }
             }
             constants::DW_FORM_strp => {
-                return match input.1.format() {
+                return match unit.format() {
                     Format::Dwarf32 => {
                         parse_u32(input.into()).map(|(rest, offset)| {
                             let offset = DebugStrOffset(offset as u64);
                             let attr = Attribute {
-                                name: input.2.name,
+                                name: spec.name,
                                 value: AttributeValue::DebugStrRef(offset),
                             };
-                            (input.merge(rest), attr)
+                            (rest, attr)
                         })
                     }
                     Format::Dwarf64 => {
                         parse_u64(input.into()).map(|(rest, offset)| {
                             let offset = DebugStrOffset(offset);
                             let attr = Attribute {
-                                name: input.2.name,
+                                name: spec.name,
                                 value: AttributeValue::DebugStrRef(offset),
                             };
-                            (input.merge(rest), attr)
+                            (rest, attr)
                         })
                     }
                 };
@@ -2073,12 +1988,10 @@ fn test_parse_attribute<Endian>(buf: &[u8],
         value: value,
     };
 
-    let input = AttributeInput(EndianBuf::new(buf), unit, spec);
-
-    match parse_attribute(input) {
+    match parse_attribute(EndianBuf::new(buf), unit, spec) {
         Ok((rest, attr)) => {
             assert_eq!(attr, expect);
-            assert_eq!(rest.0, EndianBuf::new(&buf[len..]));
+            assert_eq!(rest, EndianBuf::new(&buf[len..]));
         }
         otherwise => {
             println!("Unexpected parse result = {:#?}", otherwise);
@@ -2432,9 +2345,9 @@ impl<'input, 'abbrev, 'entry, 'unit, Endian> Iterator for AttrsIter<'input,
 
         let attr = self.attributes[0];
         self.attributes = &self.attributes[1..];
-        match parse_attribute(AttributeInput(EndianBuf::new(self.input), self.entry.unit, attr)) {
+        match parse_attribute(EndianBuf::new(self.input), self.entry.unit, attr) {
             Ok((rest, attr)) => {
-                self.input = rest.0.into();
+                self.input = rest.into();
                 Some(Ok(attr))
             }
             Err(e) => {
@@ -2952,26 +2865,25 @@ fn test_parse_type_signature_incomplete() {
 
 /// Parse a type unit header's type offset.
 fn parse_type_offset<'input, Endian>
-    (input: FormatInput<'input, Endian>)
-     -> ParseResult<(FormatInput<'input, Endian>, DebugTypesOffset)>
+    (input: EndianBuf<'input, Endian>, format: Format)
+     -> ParseResult<(EndianBuf<'input, Endian>, DebugTypesOffset)>
     where Endian: Endianity
 {
-    let result = match input.1 {
-        Format::Dwarf32 => parse_u32_as_u64(input.into()),
-        Format::Dwarf64 => parse_u64(input.into()),
+    let result = match format {
+        Format::Dwarf32 => parse_u32_as_u64(input),
+        Format::Dwarf64 => parse_u64(input),
     };
 
-    result.map(|(rest, offset)| (input.merge(rest), DebugTypesOffset(offset)))
+    result.map(|(rest, offset)| (rest, DebugTypesOffset(offset)))
 }
 
 #[test]
 fn test_parse_type_offset_32_ok() {
     let buf = [0x12, 0x34, 0x56, 0x78, 0x00];
 
-    match parse_type_offset(FormatInput(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32)) {
+    match parse_type_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
         Ok((rest, offset)) => {
-            assert_eq!(rest.0.len(), 1);
-            assert_eq!(rest.1, Format::Dwarf32);
+            assert_eq!(rest.len(), 1);
             assert_eq!(DebugTypesOffset(0x78563412), offset);
         }
         otherwise => panic!("Unexpected result: {:?}", otherwise),
@@ -2982,10 +2894,9 @@ fn test_parse_type_offset_32_ok() {
 fn test_parse_type_offset_64_ok() {
     let buf = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff, 0x00];
 
-    match parse_type_offset(FormatInput(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64)) {
+    match parse_type_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
         Ok((rest, offset)) => {
-            assert_eq!(rest.0.len(), 1);
-            assert_eq!(rest.1, Format::Dwarf64);
+            assert_eq!(rest.len(), 1);
             assert_eq!(DebugTypesOffset(0xffdebc9a78563412), offset);
         }
         otherwise => panic!("Unexpected result: {:?}", otherwise),
@@ -2997,7 +2908,7 @@ fn test_parse_type_offset_incomplete() {
     // Need at least 4 bytes.
     let buf = [0xff, 0xff, 0xff];
 
-    match parse_type_offset(FormatInput(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32)) {
+    match parse_type_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
         Err(Error::UnexpectedEof) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
@@ -3285,8 +3196,8 @@ fn parse_type_unit_header<'input, Endian>
 {
     let (rest, header) = try!(parse_unit_header(input));
     let (rest, signature) = try!(parse_type_signature(rest));
-    let (rest, offset) = try!(parse_type_offset(FormatInput(rest, header.format())));
-    Ok((rest.0, TypeUnitHeader::new(header, signature, offset)))
+    let (rest, offset) = try!(parse_type_offset(rest, header.format()));
+    Ok((rest, TypeUnitHeader::new(header, signature, offset)))
 }
 
 #[test]
