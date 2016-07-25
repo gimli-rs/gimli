@@ -2205,7 +2205,7 @@ fn test_parse_attribute_data8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
     let unit = UnitHeader::<LittleEndian>::new(7,
-                                               8,
+                                               4,
                                                DebugAbbrevOffset(0x08070605),
                                                8,
                                                Format::Dwarf32,
@@ -2226,7 +2226,7 @@ fn test_parse_attribute_udata() {
     };
 
     let unit = UnitHeader::<LittleEndian>::new(7,
-                                               8,
+                                               4,
                                                DebugAbbrevOffset(0x08070605),
                                                8,
                                                Format::Dwarf32,
@@ -2247,7 +2247,7 @@ fn test_parse_attribute_sdata() {
     };
 
     let unit = UnitHeader::<LittleEndian>::new(7,
-                                               8,
+                                               4,
                                                DebugAbbrevOffset(0x08070605),
                                                8,
                                                Format::Dwarf32,
@@ -2409,7 +2409,7 @@ fn test_parse_attribute_ref8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
     let unit = UnitHeader::<LittleEndian>::new(7,
-                                               8,
+                                               4,
                                                DebugAbbrevOffset(0x08070605),
                                                8,
                                                Format::Dwarf32,
@@ -2430,7 +2430,7 @@ fn test_parse_attribute_refudata() {
     };
 
     let unit = UnitHeader::<LittleEndian>::new(7,
-                                               8,
+                                               4,
                                                DebugAbbrevOffset(0x08070605),
                                                8,
                                                Format::Dwarf32,
@@ -2446,7 +2446,7 @@ fn test_parse_attribute_refaddr_32() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
     let unit = UnitHeader::<LittleEndian>::new(7,
-                                               8,
+                                               4,
                                                DebugAbbrevOffset(0x08070605),
                                                8,
                                                Format::Dwarf32,
@@ -2462,7 +2462,7 @@ fn test_parse_attribute_refaddr_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
     let unit = UnitHeader::<LittleEndian>::new(7,
-                                               8,
+                                               4,
                                                DebugAbbrevOffset(0x08070605),
                                                8,
                                                Format::Dwarf64,
@@ -2478,7 +2478,7 @@ fn test_parse_attribute_refsig8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
     let unit = UnitHeader::<LittleEndian>::new(7,
-                                               8,
+                                               4,
                                                DebugAbbrevOffset(0x08070605),
                                                8,
                                                Format::Dwarf64,
@@ -2494,7 +2494,7 @@ fn test_parse_attribute_string() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x0, 0x99, 0x99];
 
     let unit = UnitHeader::<LittleEndian>::new(7,
-                                               8,
+                                               4,
                                                DebugAbbrevOffset(0x08070605),
                                                8,
                                                Format::Dwarf64,
@@ -2510,7 +2510,7 @@ fn test_parse_attribute_strp_32() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
     let unit = UnitHeader::<LittleEndian>::new(7,
-                                               8,
+                                               4,
                                                DebugAbbrevOffset(0x08070605),
                                                8,
                                                Format::Dwarf32,
@@ -2526,7 +2526,7 @@ fn test_parse_attribute_strp_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
 
     let unit = UnitHeader::<LittleEndian>::new(7,
-                                               8,
+                                               4,
                                                DebugAbbrevOffset(0x08070605),
                                                8,
                                                Format::Dwarf64,
@@ -2549,7 +2549,7 @@ fn test_parse_attribute_indirect() {
     };
 
     let unit = UnitHeader::<LittleEndian>::new(7,
-                                               8,
+                                               4,
                                                DebugAbbrevOffset(0x08070605),
                                                8,
                                                Format::Dwarf64,
