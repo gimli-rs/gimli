@@ -2092,6 +2092,15 @@ fn test_parse_attribute_addr() {
 }
 
 #[test]
+fn test_parse_attribute_addr8() {
+    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+    let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
+    let form = constants::DW_FORM_addr;
+    let value = AttributeValue::Addr(&buf[..8]);
+    test_parse_attribute(&buf, 8, &unit, form, value);
+}
+
+#[test]
 fn test_parse_attribute_block1() {
     // Length of data (3), three bytes of data, two bytes of left over input.
     let buf = [0x03, 0x09, 0x09, 0x09, 0x00, 0x00];
