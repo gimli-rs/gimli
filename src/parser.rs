@@ -2036,6 +2036,38 @@ fn parse_attribute<'input, 'unit, Endian>
     }
 }
 
+#[cfg(test)]
+fn test_parse_attribute<Endian>(buf: &[u8],
+                                len: usize,
+                                unit: &UnitHeader<Endian>,
+                                form: constants::DwForm,
+                                value: AttributeValue)
+    where Endian: Endianity
+{
+    let spec = AttributeSpecification {
+        name: constants::DW_AT_low_pc,
+        form: form,
+    };
+
+    let expect = Attribute {
+        name: constants::DW_AT_low_pc,
+        value: value,
+    };
+
+    let input = AttributeInput(EndianBuf::new(buf), unit, spec);
+
+    match parse_attribute(input) {
+        Ok((rest, attr)) => {
+            assert_eq!(attr, expect);
+            assert_eq!(rest.0, EndianBuf::new(&buf[len..]));
+        }
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
+    };
+}
+
 #[test]
 fn test_parse_attribute_addr() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
@@ -2047,27 +2079,9 @@ fn test_parse_attribute_addr() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_low_pc,
-        form: constants::DW_FORM_addr,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_low_pc,
-                           value: AttributeValue::Addr(&buf[..4]),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_addr;
+    let value = AttributeValue::Addr(&buf[..4]);
+    test_parse_attribute(&buf, 4, &unit, form, value);
 }
 
 #[test]
@@ -2082,27 +2096,9 @@ fn test_parse_attribute_block1() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_block1,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::Block(&buf[1..4]),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_block1;
+    let value = AttributeValue::Block(&buf[1..4]);
+    test_parse_attribute(&buf, 4, &unit, form, value);
 }
 
 #[test]
@@ -2117,27 +2113,9 @@ fn test_parse_attribute_block2() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_block2,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::Block(&buf[2..4]),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_block2;
+    let value = AttributeValue::Block(&buf[2..4]);
+    test_parse_attribute(&buf, 4, &unit, form, value);
 }
 
 #[test]
@@ -2152,27 +2130,9 @@ fn test_parse_attribute_block4() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_block4,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::Block(&buf[4..]),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[..0]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_block4;
+    let value = AttributeValue::Block(&buf[4..]);
+    test_parse_attribute(&buf, 6, &unit, form, value);
 }
 
 #[test]
@@ -2187,27 +2147,9 @@ fn test_parse_attribute_block() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_block,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::Block(&buf[1..]),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[..0]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_block;
+    let value = AttributeValue::Block(&buf[1..]);
+    test_parse_attribute(&buf, 3, &unit, form, value);
 }
 
 #[test]
@@ -2221,26 +2163,9 @@ fn test_parse_attribute_data1() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_data1,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((_, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::Data(&buf[..]),
-                       });
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_data1;
+    let value = AttributeValue::Data(&buf[..]);
+    test_parse_attribute(&buf, 1, &unit, form, value);
 }
 
 #[test]
@@ -2254,27 +2179,9 @@ fn test_parse_attribute_data2() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_data2,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::Data(&buf[..2]),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[2..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_data2;
+    let value = AttributeValue::Data(&buf[..2]);
+    test_parse_attribute(&buf, 2, &unit, form, value);
 }
 
 #[test]
@@ -2288,27 +2195,9 @@ fn test_parse_attribute_data4() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_data4,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::Data(&buf[..4]),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_data4;
+    let value = AttributeValue::Data(&buf[..4]);
+    test_parse_attribute(&buf, 4, &unit, form, value);
 }
 
 #[test]
@@ -2322,27 +2211,9 @@ fn test_parse_attribute_data8() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_data8,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::Data(&buf[..8]),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_data8;
+    let value = AttributeValue::Data(&buf[..8]);
+    test_parse_attribute(&buf, 8, &unit, form, value);
 }
 
 #[test]
@@ -2361,27 +2232,9 @@ fn test_parse_attribute_udata() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_udata,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::Udata(4097),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[bytes_written..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_udata;
+    let value = AttributeValue::Udata(4097);
+    test_parse_attribute(&buf, bytes_written, &unit, form, value);
 }
 
 #[test]
@@ -2400,27 +2253,9 @@ fn test_parse_attribute_sdata() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_sdata,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::Sdata(-4097),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[bytes_written..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_sdata;
+    let value = AttributeValue::Sdata(-4097);
+    test_parse_attribute(&buf, bytes_written, &unit, form, value);
 }
 
 #[test]
@@ -2435,27 +2270,9 @@ fn test_parse_attribute_exprloc() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_exprloc,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::Exprloc(&buf[1..3]),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[3..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_exprloc;
+    let value = AttributeValue::Exprloc(&buf[1..3]);
+    test_parse_attribute(&buf, 3, &unit, form, value);
 }
 
 #[test]
@@ -2469,26 +2286,9 @@ fn test_parse_attribute_flag_true() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_flag,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((_, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::Flag(true),
-                       });
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_flag;
+    let value = AttributeValue::Flag(true);
+    test_parse_attribute(&buf, 1, &unit, form, value);
 }
 
 #[test]
@@ -2502,26 +2302,9 @@ fn test_parse_attribute_flag_false() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_flag,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((_, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::Flag(false),
-                       });
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_flag;
+    let value = AttributeValue::Flag(false);
+    test_parse_attribute(&buf, 1, &unit, form, value);
 }
 
 #[test]
@@ -2535,29 +2318,10 @@ fn test_parse_attribute_flag_present() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_flag_present,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::Flag(true),
-                       });
-            // DW_FORM_flag_present does not consume any bytes of the input
-            // stream.
-            assert_eq!(rest.0, EndianBuf::new(&buf[..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_flag_present;
+    let value = AttributeValue::Flag(true);
+    // DW_FORM_flag_present does not consume any bytes of the input stream.
+    test_parse_attribute(&buf, 0, &unit, form, value);
 }
 
 #[test]
@@ -2571,27 +2335,9 @@ fn test_parse_attribute_sec_offset_32() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_sec_offset,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::SecOffset(0x04030201),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_sec_offset;
+    let value = AttributeValue::SecOffset(0x04030201);
+    test_parse_attribute(&buf, 4, &unit, form, value);
 }
 
 #[test]
@@ -2605,27 +2351,9 @@ fn test_parse_attribute_sec_offset_64() {
                                                Format::Dwarf64,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_sec_offset,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::SecOffset(0x0807060504030201),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_sec_offset;
+    let value = AttributeValue::SecOffset(0x0807060504030201);
+    test_parse_attribute(&buf, 8, &unit, form, value);
 }
 
 #[test]
@@ -2639,26 +2367,9 @@ fn test_parse_attribute_ref1() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_ref1,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((_, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::UnitRef(UnitOffset(3)),
-                       });
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_ref1;
+    let value = AttributeValue::UnitRef(UnitOffset(3));
+    test_parse_attribute(&buf, 1, &unit, form, value);
 }
 
 #[test]
@@ -2672,27 +2383,9 @@ fn test_parse_attribute_ref2() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_ref2,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::UnitRef(UnitOffset(258)),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[2..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_ref2;
+    let value = AttributeValue::UnitRef(UnitOffset(258));
+    test_parse_attribute(&buf, 2, &unit, form, value);
 }
 
 #[test]
@@ -2706,27 +2399,9 @@ fn test_parse_attribute_ref4() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_ref4,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::UnitRef(UnitOffset(67305985)),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_ref4;
+    let value = AttributeValue::UnitRef(UnitOffset(67305985));
+    test_parse_attribute(&buf, 4, &unit, form, value);
 }
 
 #[test]
@@ -2740,27 +2415,9 @@ fn test_parse_attribute_ref8() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_ref8,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::UnitRef(UnitOffset(578437695752307201)),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_ref8;
+    let value = AttributeValue::UnitRef(UnitOffset(578437695752307201));
+    test_parse_attribute(&buf, 8, &unit, form, value);
 }
 
 #[test]
@@ -2779,27 +2436,9 @@ fn test_parse_attribute_refudata() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_ref_udata,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::UnitRef(UnitOffset(4097)),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[bytes_written..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_ref_udata;
+    let value = AttributeValue::UnitRef(UnitOffset(4097));
+    test_parse_attribute(&buf, bytes_written, &unit, form, value);
 }
 
 #[test]
@@ -2813,27 +2452,9 @@ fn test_parse_attribute_refaddr_32() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_ref_addr,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::DebugInfoRef(DebugInfoOffset(67305985)),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_ref_addr;
+    let value = AttributeValue::DebugInfoRef(DebugInfoOffset(67305985));
+    test_parse_attribute(&buf, 4, &unit, form, value);
 }
 
 #[test]
@@ -2847,27 +2468,9 @@ fn test_parse_attribute_refaddr_64() {
                                                Format::Dwarf64,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_ref_addr,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::DebugInfoRef(DebugInfoOffset(578437695752307201)),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_ref_addr;
+    let value = AttributeValue::DebugInfoRef(DebugInfoOffset(578437695752307201));
+    test_parse_attribute(&buf, 8, &unit, form, value);
 }
 
 #[test]
@@ -2881,28 +2484,9 @@ fn test_parse_attribute_refsig8() {
                                                Format::Dwarf64,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_ref_sig8,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value:
-                               AttributeValue::DebugTypesRef(DebugTypesOffset(578437695752307201)),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_ref_sig8;
+    let value = AttributeValue::DebugTypesRef(DebugTypesOffset(578437695752307201));
+    test_parse_attribute(&buf, 8, &unit, form, value);
 }
 
 #[test]
@@ -2916,27 +2500,9 @@ fn test_parse_attribute_string() {
                                                Format::Dwarf64,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_string,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::String(&buf[..6]),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[6..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_string;
+    let value = AttributeValue::String(&buf[..6]);
+    test_parse_attribute(&buf, 6, &unit, form, value);
 }
 
 #[test]
@@ -2950,27 +2516,9 @@ fn test_parse_attribute_strp_32() {
                                                Format::Dwarf32,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_strp,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::DebugStrRef(DebugStrOffset(67305985)),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[4..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_strp;
+    let value = AttributeValue::DebugStrRef(DebugStrOffset(67305985));
+    test_parse_attribute(&buf, 4, &unit, form, value);
 }
 
 #[test]
@@ -2984,27 +2532,9 @@ fn test_parse_attribute_strp_64() {
                                                Format::Dwarf64,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_strp,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::DebugStrRef(DebugStrOffset(578437695752307201)),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[8..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_strp;
+    let value = AttributeValue::DebugStrRef(DebugStrOffset(578437695752307201));
+    test_parse_attribute(&buf, 8, &unit, form, value);
 }
 
 #[test]
@@ -3025,27 +2555,9 @@ fn test_parse_attribute_indirect() {
                                                Format::Dwarf64,
                                                &[]);
 
-    let spec = AttributeSpecification {
-        name: constants::DW_AT_name,
-        form: constants::DW_FORM_indirect,
-    };
-
-    let input = AttributeInput(EndianBuf::new(&buf), &unit, spec);
-
-    match parse_attribute(input) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::Udata(9999999),
-                       });
-            assert_eq!(rest.0, EndianBuf::new(&buf[bytes_written..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
+    let form = constants::DW_FORM_indirect;
+    let value = AttributeValue::Udata(9999999);
+    test_parse_attribute(&buf, bytes_written, &unit, form, value);
 }
 
 /// An iterator over a particular entry's attributes.
