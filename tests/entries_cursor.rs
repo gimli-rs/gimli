@@ -3,9 +3,9 @@ use gimli::{AttributeValue, DebugAbbrev, DebugInfo, Endianity, EntriesCursor, Li
 
 #[cfg(test)]
 fn assert_current_name<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCursor<'input,
-                                                                           'abbrev,
-                                                                           'unit,
-                                                                           Endian>,
+                                                                                  'abbrev,
+                                                                                  'unit,
+                                                                                  Endian>,
                                                        name: &'static str)
     where Endian: Endianity
 {
@@ -24,22 +24,23 @@ fn assert_current_name<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCurso
 
 #[cfg(test)]
 fn assert_next_dfs<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCursor<'input,
-                                                                           'abbrev,
-                                                                           'unit,
-                                                                           Endian>,
+                                                                              'abbrev,
+                                                                              'unit,
+                                                                              Endian>,
                                                    name: &'static str,
                                                    depth: isize)
     where Endian: Endianity
 {
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"), depth);
+    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"),
+               depth);
     assert_current_name(cursor, name);
 }
 
 #[cfg(test)]
 fn assert_next_sibling<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCursor<'input,
-                                                                           'abbrev,
-                                                                           'unit,
-                                                                           Endian>,
+                                                                                  'abbrev,
+                                                                                  'unit,
+                                                                                  Endian>,
                                                        name: &'static str)
     where Endian: Endianity
 {
