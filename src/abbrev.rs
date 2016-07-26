@@ -182,7 +182,7 @@ fn parse_abbreviation_code(input: &[u8]) -> ParseResult<(&[u8], u64)> {
 fn parse_abbreviation_tag(input: &[u8]) -> ParseResult<(&[u8], constants::DwTag)> {
     let (rest, val) = try!(parse_unsigned_leb(input));
     if val == 0 {
-        Err(Error::AbbreviationCodeZero)
+        Err(Error::AbbreviationTagZero)
     } else {
         Ok((rest, constants::DwTag(val)))
     }

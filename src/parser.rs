@@ -98,8 +98,9 @@ pub enum Error {
     /// An abbreviation declared that its code is zero, but zero is reserved for
     /// null records.
     AbbreviationCodeZero,
-    /// Found an unknown `DW_TAG_*` type.
-    UnknownTag,
+    /// An abbreviation declared that its tag is zero, but zero is reserved for
+    /// null records.
+    AbbreviationTagZero,
     /// The abbreviation's has-children byte was not one of
     /// `DW_CHILDREN_{yes,no}`.
     BadHasChildren,
@@ -137,7 +138,10 @@ impl error::Error for Error {
                 "An abbreviation declared that its code is zero,
                  but zero is reserved for null records"
             }
-            Error::UnknownTag => "Found an unknown `DW_TAG_*` type",
+            Error::AbbreviationTagZero => {
+                "An abbreviation declared that its tag is zero,
+                 but zero is reserved for null records"
+            }
             Error::BadHasChildren => {
                 "The abbreviation's has-children byte was not one of
                  `DW_CHILDREN_{yes,no}`"
