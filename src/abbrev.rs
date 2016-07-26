@@ -369,7 +369,82 @@ fn parse_attribute_specifications(mut input: &[u8])
 mod tests {
     use super::*;
     use constants;
-    use parser::Error;
+    use parser::{Error, LittleEndian};
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_debug_abbrev_ok() {
+        let buf = [
+            // Extra
+            0x01,
+            0x02,
+            0x03,
+            0x04,
+
+            // Code
+            0x02,
+            // DW_TAG_subprogram
+            0x2e,
+            // DW_CHILDREN_no
+            0x00,
+            // Begin attributes
+                // Attribute name = DW_AT_name
+                0x03,
+                // Attribute form = DW_FORM_string
+                0x08,
+            // End attributes
+            0x00,
+            0x00,
+
+            // Code
+            0x01,
+            // DW_TAG_compile_unit
+            0x11,
+            // DW_CHILDREN_yes
+            0x01,
+            // Begin attributes
+                // Attribute name = DW_AT_producer
+                0x25,
+                // Attribute form = DW_FORM_strp
+                0x0e,
+                // Attribute name = DW_AT_language
+                0x13,
+                // Attribute form = DW_FORM_data2
+                0x05,
+            // End attributes
+            0x00,
+            0x00,
+
+            // Null terminator
+            0x00,
+
+            // Extra
+            0x05,
+            0x06,
+            0x07,
+            0x08
+        ];
+
+        let abbrev1 = Abbreviation::new(
+            1, constants::DW_TAG_compile_unit, constants::DW_CHILDREN_yes,
+            vec![
+                AttributeSpecification::new(constants::DW_AT_producer, constants::DW_FORM_strp),
+                AttributeSpecification::new(constants::DW_AT_language, constants::DW_FORM_data2),
+            ]);
+
+        let abbrev2 = Abbreviation::new(
+            2, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no,
+            vec![
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
+            ]);
+
+        let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&buf);
+        let debug_abbrev_offset = DebugAbbrevOffset(4);
+        let abbrevs = debug_abbrev.abbreviations(debug_abbrev_offset)
+            .expect("Should parse abbreviations");
+        assert_eq!(abbrevs.get(1), Some(&abbrev1));
+        assert_eq!(abbrevs.get(2), Some(&abbrev2));
+    }
 
     #[test]
     #[cfg_attr(rustfmt, rustfmt_skip)]
