@@ -302,15 +302,23 @@ impl AttributeSpecification {
 }
 
 /// Parse an attribute's name.
-fn parse_attribute_name(input: &[u8]) -> ParseResult<(&[u8], constants::DwAt)> {
+pub fn parse_attribute_name(input: &[u8]) -> ParseResult<(&[u8], constants::DwAt)> {
     let (rest, val) = try!(parse_unsigned_leb(input));
-    Ok((rest, constants::DwAt(val)))
+    if val == 0 {
+        Err(Error::AttributeNameZero)
+    } else {
+        Ok((rest, constants::DwAt(val)))
+    }
 }
 
 /// Parse an attribute's form.
 pub fn parse_attribute_form(input: &[u8]) -> ParseResult<(&[u8], constants::DwForm)> {
     let (rest, val) = try!(parse_unsigned_leb(input));
-    Ok((rest, constants::DwForm(val)))
+    if val == 0 {
+        Err(Error::AttributeFormZero)
+    } else {
+        Ok((rest, constants::DwForm(val)))
+    }
 }
 
 /// Parse a non-null attribute specification.
@@ -584,5 +592,39 @@ mod tests {
 
         let (rest, _) = parse_null_abbreviation(&buf).expect("Should parse null abbreviation");
         assert_eq!(rest, [0x01, 0x02, 0x03, 0x04]);
+    }
+
+    #[test]
+    fn test_parse_attribute_name_ok() {
+        let buf = [0x01, 0x02];
+        let (rest, tag) = parse_attribute_name(&buf).expect("Should parse name");
+        assert_eq!(tag, constants::DW_AT_sibling);
+        assert_eq!(rest, &buf[1..]);
+    }
+
+    #[test]
+    fn test_parse_attribute_name_zero() {
+        let buf = [0x00];
+        match parse_attribute_name(&buf) {
+            Err(Error::AttributeNameZero) => {}
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_attribute_form_ok() {
+        let buf = [0x01, 0x02];
+        let (rest, tag) = parse_attribute_form(&buf).expect("Should parse form");
+        assert_eq!(tag, constants::DW_FORM_addr);
+        assert_eq!(rest, &buf[1..]);
+    }
+
+    #[test]
+    fn test_parse_attribute_form_zero() {
+        let buf = [0x00];
+        match parse_attribute_form(&buf) {
+            Err(Error::AttributeFormZero) => {}
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
     }
 }

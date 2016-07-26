@@ -101,6 +101,12 @@ pub enum Error {
     /// An abbreviation declared that its tag is zero, but zero is reserved for
     /// null records.
     AbbreviationTagZero,
+    /// An attribute specification declared that its name is zero, but zero is
+    /// reserved for null records.
+    AttributeNameZero,
+    /// An attribute specification declared that its form is zero, but zero is
+    /// reserved for null records.
+    AttributeFormZero,
     /// The abbreviation's has-children byte was not one of
     /// `DW_CHILDREN_{yes,no}`.
     BadHasChildren,
@@ -140,6 +146,14 @@ impl error::Error for Error {
             }
             Error::AbbreviationTagZero => {
                 "An abbreviation declared that its tag is zero,
+                 but zero is reserved for null records"
+            }
+            Error::AttributeNameZero => {
+                "An attribute specification declared that its name is zero,
+                 but zero is reserved for null records"
+            }
+            Error::AttributeFormZero => {
+                "An attribute specification declared that its form is zero,
                  but zero is reserved for null records"
             }
             Error::BadHasChildren => {
