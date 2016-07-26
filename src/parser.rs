@@ -4,7 +4,6 @@ use byteorder;
 use constants;
 use leb128;
 use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation, AttributeSpecification};
-use abbrev::parse_attribute_form;
 use std::cell::{Cell, RefCell};
 use std::error;
 use std::fmt::{self, Debug};
@@ -1350,7 +1349,7 @@ fn parse_attribute<'input, 'unit, Endian>
     loop {
         match form {
             constants::DW_FORM_indirect => {
-                let (rest, dynamic_form) = try!(parse_attribute_form(input.into()));
+                let (rest, dynamic_form) = try!(AttributeSpecification::parse_form(input.into()));
                 form = dynamic_form;
                 input = EndianBuf::new(rest);
                 continue;
