@@ -91,7 +91,7 @@ impl Abbreviations {
 }
 
 /// Parse a series of abbreviations, terminated by a null abbreviation.
-fn parse_abbreviations(mut input: &[u8]) -> ParseResult<(&[u8], Abbreviations)> {
+pub fn parse_abbreviations(mut input: &[u8]) -> ParseResult<(&[u8], Abbreviations)> {
     let mut abbrevs = Abbreviations::empty();
 
     loop {
@@ -169,7 +169,7 @@ impl Abbreviation {
 }
 
 /// Parse an abbreviation's code.
-fn parse_abbreviation_code(input: &[u8]) -> ParseResult<(&[u8], u64)> {
+pub fn parse_abbreviation_code(input: &[u8]) -> ParseResult<(&[u8], u64)> {
     let (rest, code) = try!(parse_unsigned_leb(input));
     if code == 0 {
         Err(Error::AbbreviationCodeZero)
@@ -179,7 +179,7 @@ fn parse_abbreviation_code(input: &[u8]) -> ParseResult<(&[u8], u64)> {
 }
 
 /// Parse an abbreviation's tag.
-fn parse_abbreviation_tag(input: &[u8]) -> ParseResult<(&[u8], constants::DwTag)> {
+pub fn parse_abbreviation_tag(input: &[u8]) -> ParseResult<(&[u8], constants::DwTag)> {
     let (rest, val) = try!(parse_unsigned_leb(input));
     if val == 0 {
         Err(Error::AbbreviationTagZero)
@@ -189,7 +189,7 @@ fn parse_abbreviation_tag(input: &[u8]) -> ParseResult<(&[u8], constants::DwTag)
 }
 
 /// Parse an abbreviation's "does the type have children?" byte.
-fn parse_abbreviation_has_children(input: &[u8]) -> ParseResult<(&[u8], constants::DwChildren)> {
+pub fn parse_abbreviation_has_children(input: &[u8]) -> ParseResult<(&[u8], constants::DwChildren)> {
     let (rest, val) = try!(parse_u8(input));
     let val = constants::DwChildren(val);
     if val == constants::DW_CHILDREN_no || val == constants::DW_CHILDREN_yes {
@@ -200,7 +200,7 @@ fn parse_abbreviation_has_children(input: &[u8]) -> ParseResult<(&[u8], constant
 }
 
 /// Parse a non-null abbreviation.
-fn parse_abbreviation(input: &[u8]) -> ParseResult<(&[u8], Abbreviation)> {
+pub fn parse_abbreviation(input: &[u8]) -> ParseResult<(&[u8], Abbreviation)> {
     let (rest, code) = try!(parse_abbreviation_code(input));
     let (rest, tag) = try!(parse_abbreviation_tag(rest));
     let (rest, has_children) = try!(parse_abbreviation_has_children(rest));
@@ -210,14 +210,13 @@ fn parse_abbreviation(input: &[u8]) -> ParseResult<(&[u8], Abbreviation)> {
 }
 
 /// Parse a null abbreviation.
-fn parse_null_abbreviation(input: &[u8]) -> ParseResult<(&[u8], ())> {
-    let (rest, name) = try!(parse_unsigned_leb(input));
-    if name == 0 {
+pub fn parse_null_abbreviation(input: &[u8]) -> ParseResult<(&[u8], ())> {
+    let (rest, code) = try!(parse_unsigned_leb(input));
+    if code == 0 {
         Ok((rest, ()))
     } else {
         Err(Error::ExpectedZero)
     }
-
 }
 
 /// The description of an attribute in an abbreviated type. It is a pair of name
@@ -356,4 +355,234 @@ fn parse_attribute_specifications(mut input: &[u8])
     }
 
     Ok((input, attrs))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use constants;
+    use parser::Error;
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_parse_abbreviations_ok() {
+        let buf = [
+            // Code
+            0x02,
+            // DW_TAG_subprogram
+            0x2e,
+            // DW_CHILDREN_no
+            0x00,
+            // Begin attributes
+                // Attribute name = DW_AT_name
+                0x03,
+                // Attribute form = DW_FORM_string
+                0x08,
+            // End attributes
+            0x00,
+            0x00,
+
+            // Code
+            0x01,
+            // DW_TAG_compile_unit
+            0x11,
+            // DW_CHILDREN_yes
+            0x01,
+            // Begin attributes
+                // Attribute name = DW_AT_producer
+                0x25,
+                // Attribute form = DW_FORM_strp
+                0x0e,
+                // Attribute name = DW_AT_language
+                0x13,
+                // Attribute form = DW_FORM_data2
+                0x05,
+            // End attributes
+            0x00,
+            0x00,
+
+            // Null terminator
+            0x00,
+
+            // Extra
+            0x01,
+            0x02,
+            0x03,
+            0x04
+        ];
+
+        let abbrev1 = Abbreviation::new(
+            1, constants::DW_TAG_compile_unit, constants::DW_CHILDREN_yes,
+            vec![
+                AttributeSpecification::new(constants::DW_AT_producer, constants::DW_FORM_strp),
+                AttributeSpecification::new(constants::DW_AT_language, constants::DW_FORM_data2),
+            ]);
+
+        let abbrev2 = Abbreviation::new(
+            2, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no,
+            vec![
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
+            ]);
+
+        let (rest, abbrevs) = parse_abbreviations(&buf).expect("Should parse abbreviations");
+        assert_eq!(abbrevs.get(1), Some(&abbrev1));
+        assert_eq!(abbrevs.get(2), Some(&abbrev2));
+        assert_eq!(rest, [0x01, 0x02, 0x03, 0x04]);
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_parse_abbreviations_duplicate() {
+        let buf = [
+            // Code
+            0x01,
+            // DW_TAG_subprogram
+            0x2e,
+            // DW_CHILDREN_no
+            0x00,
+            // Begin attributes
+                // Attribute name = DW_AT_name
+                0x03,
+                // Attribute form = DW_FORM_string
+                0x08,
+            // End attributes
+            0x00,
+            0x00,
+
+            // Code
+            0x01,
+            // DW_TAG_compile_unit
+            0x11,
+            // DW_CHILDREN_yes
+            0x01,
+            // Begin attributes
+                // Attribute name = DW_AT_producer
+                0x25,
+                // Attribute form = DW_FORM_strp
+                0x0e,
+                // Attribute name = DW_AT_language
+                0x13,
+                // Attribute form = DW_FORM_data2
+                0x05,
+            // End attributes
+            0x00,
+            0x00,
+
+            // Null terminator
+            0x00,
+
+            // Extra
+            0x01,
+            0x02,
+            0x03,
+            0x04
+        ];
+
+        match parse_abbreviations(&buf) {
+            Err(Error::DuplicateAbbreviationCode) => {}
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_abbreviation_code_ok() {
+        let buf = [0x01, 0x02];
+        let (rest, code) = parse_abbreviation_code(&buf).expect("Should parse code");
+        assert_eq!(code, 0x01);
+        assert_eq!(rest, &buf[1..]);
+    }
+
+    #[test]
+    fn test_parse_abbreviation_code_zero() {
+        let buf = [0x00];
+        match parse_abbreviation_code(&buf) {
+            Err(Error::AbbreviationCodeZero) => {}
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_abbreviation_tag_ok() {
+        let buf = [0x01, 0x02];
+        let (rest, tag) = parse_abbreviation_tag(&buf).expect("Should parse tag");
+        assert_eq!(tag, constants::DW_TAG_array_type);
+        assert_eq!(rest, &buf[1..]);
+    }
+
+    #[test]
+    fn test_parse_abbreviation_tag_zero() {
+        let buf = [0x00];
+        match parse_abbreviation_tag(&buf) {
+            Err(Error::AbbreviationTagZero) => {}
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_abbreviation_has_children() {
+        let buf = [0x00, 0x01, 0x02];
+        let (rest, val) = parse_abbreviation_has_children(&buf).expect("Should parse children");
+        assert_eq!(val, constants::DW_CHILDREN_no);
+        let (rest, val) = parse_abbreviation_has_children(rest).expect("Should parse children");
+        assert_eq!(val, constants::DW_CHILDREN_yes);
+        match parse_abbreviation_has_children(rest) {
+            Err(Error::BadHasChildren) => {}
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_parse_abbreviation_ok() {
+        let buf = [
+            // Code
+            0x01,
+            // DW_TAG_subprogram
+            0x2e,
+            // DW_CHILDREN_no
+            0x00,
+            // Begin attributes
+                // Attribute name = DW_AT_name
+                0x03,
+                // Attribute form = DW_FORM_string
+                0x08,
+            // End attributes
+            0x00,
+            0x00,
+
+            // Extra
+            0x01,
+            0x02,
+            0x03,
+            0x04
+        ];
+
+        let expect = Abbreviation::new(
+            1, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no,
+            vec![
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
+            ]);
+
+        let (rest, abbrev) = parse_abbreviation(&buf).expect("Should parse abbreviation");
+        assert_eq!(abbrev, expect);
+        assert_eq!(rest, [0x01, 0x02, 0x03, 0x04]);
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_parse_null_abbreviation_ok() {
+        let buf = [
+            // Code
+            0x00,
+
+            // Extra
+            0x01,
+            0x02,
+            0x03,
+            0x04
+        ];
+
+        let (rest, _) = parse_null_abbreviation(&buf).expect("Should parse null abbreviation");
+        assert_eq!(rest, [0x01, 0x02, 0x03, 0x04]);
+    }
 }
