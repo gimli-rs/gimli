@@ -84,6 +84,7 @@ impl Abbreviations {
     }
 
     /// Get the abbreviation associated with the given code.
+    #[inline]
     pub fn get(&self, code: u64) -> Option<&Abbreviation> {
         self.abbrevs.get(&code)
     }
@@ -143,21 +144,25 @@ impl Abbreviation {
     }
 
     /// Get this abbreviation's code.
+    #[inline]
     pub fn code(&self) -> u64 {
         self.code
     }
 
     /// Get this abbreviation's tag.
+    #[inline]
     pub fn tag(&self) -> constants::DwTag {
         self.tag
     }
 
     /// Return true if this abbreviation's type has children, false otherwise.
+    #[inline]
     pub fn has_children(&self) -> bool {
         self.has_children == constants::DW_CHILDREN_yes
     }
 
     /// Get this abbreviation's attributes.
+    #[inline]
     pub fn attributes(&self) -> &[AttributeSpecification] {
         &self.attributes[..]
     }
@@ -233,11 +238,13 @@ impl AttributeSpecification {
     }
 
     /// Get the attribute's name.
+    #[inline]
     pub fn name(&self) -> constants::DwAt {
         self.name
     }
 
     /// Get the attribute's form.
+    #[inline]
     pub fn form(&self) -> constants::DwForm {
         self.form
     }
