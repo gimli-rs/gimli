@@ -15,11 +15,12 @@ pub use constants::*;
 
 mod parser;
 pub use parser::{Endianity, LittleEndian, BigEndian};
-pub use parser::{Error, ParseResult};
-pub use parser::Format;
+pub use parser::{Error, ParseResult, Format};
 pub use parser::{DebugStrOffset, DebugLineOffset, DebugLocOffset, DebugMacinfoOffset, UnitOffset};
-pub use parser::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation,
-                 AttributeSpecification};
 pub use parser::{DebugInfo, DebugInfoOffset, UnitHeadersIter, UnitHeader};
 pub use parser::{DebugTypes, DebugTypesOffset, TypeUnitHeadersIter, TypeUnitHeader};
 pub use parser::{EntriesCursor, DebuggingInformationEntry, AttrsIter, Attribute, AttributeValue};
+
+mod abbrev;
+pub use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation,
+                 AttributeSpecification};
