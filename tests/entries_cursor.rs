@@ -422,4 +422,3 @@ fn test_cursor_next_sibling_with_sibling_ptr() {
     assert!(cursor.next_sibling().is_none());
     assert!(cursor.current().is_none());
 }
-

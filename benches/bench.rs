@@ -27,7 +27,8 @@ fn read_section(section: &str) -> Vec<u8> {
 fn bench_parsing_debug_abbrev(b: &mut test::Bencher) {
     let debug_info = read_section("debug_info");
     let debug_info = DebugInfo::<LittleEndian>::new(&debug_info);
-    let unit = debug_info.units().next()
+    let unit = debug_info.units()
+        .next()
         .expect("Should have at least one compilation unit")
         .expect("And it should parse OK");
 

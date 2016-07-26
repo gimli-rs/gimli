@@ -75,7 +75,7 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>)
     while let Some(entry) = entries.current() {
         let entry = entry.expect("Should parse the entry OK");
 
-        let  indent = || {
+        let indent = || {
             for _ in 0..(depth.get() as usize) {
                 print!("        ");
             }
@@ -122,7 +122,8 @@ mod obj {
     /// Get the contents of the section named `section_name`, if such
     /// a section exists.
     pub fn get_section<'a>(file: &'a File, section_name: &str) -> Option<&'a [u8]> {
-        file.sections.iter()
+        file.sections
+            .iter()
             .find(|s| s.shdr.name == section_name)
             .map(|s| &s.data[..])
     }
@@ -134,5 +135,49 @@ mod obj {
             elf::types::ELFDATA2MSB => false,
             otherwise => panic!("Unknown endianity: {}", otherwise),
         }
+    }
+}
+
+#[cfg(target_os="macos")]
+mod obj {
+    extern crate macho;
+
+    use std::fs;
+    use std::io::Read;
+    use std::path::Path;
+
+    pub type File = Vec<u8>;
+
+    pub fn open<P>(path: P) -> File
+        where P: AsRef<Path>
+    {
+        let mut file = fs::File::open(path).expect("Could not open file");
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).expect("Could not read file");
+        buf
+    }
+
+    pub fn get_section<'a>(file: &'a File, section_name: &str) -> Option<&'a [u8]> {
+        let parsed = macho::MachHeader::parse(&file[..]).expect("Could not parse macho-o file");
+
+        for seg in parsed.segments {
+            for section in seg.sections {
+                // OSX uses "__" instead of "." as a section name prefix, eg
+                // "__debug_info"" instead of ".debug_info", so strip the
+                // prefixes altogether when comparing names.
+                if &section.sectname[2..] == &section_name[1..] {
+                    let offset = section.offset as usize;
+                    let size = section.size as usize;
+                    let end = offset + size;
+                    return Some(&file[offset..end]);
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn is_little_endian(_: &File) -> bool {
+        true
     }
 }
