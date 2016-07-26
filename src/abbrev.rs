@@ -193,12 +193,7 @@ impl Abbreviation {
         let mut attrs = Vec::new();
 
         loop {
-            let result = AttributeSpecification::parse_null(input).map(|(rest, _)| (rest, None));
-            let result =
-                result.or_else(|_| {
-                    AttributeSpecification::parse(input).map(|(rest, a)| (rest, Some(a)))
-                });
-            let (rest, attr) = try!(result);
+            let (rest, attr) = try!(AttributeSpecification::parse(input));
             input = rest;
 
             match attr {
@@ -307,16 +302,6 @@ impl AttributeSpecification {
         }
     }
 
-    /// Parse an attribute's name.
-    fn parse_name(input: &[u8]) -> ParseResult<(&[u8], constants::DwAt)> {
-        let (rest, val) = try!(parse_unsigned_leb(input));
-        if val == 0 {
-            Err(Error::AttributeNameZero)
-        } else {
-            Ok((rest, constants::DwAt(val)))
-        }
-    }
-
     /// Parse an attribute's form.
     pub fn parse_form(input: &[u8]) -> ParseResult<(&[u8], constants::DwForm)> {
         let (rest, val) = try!(parse_unsigned_leb(input));
@@ -327,27 +312,24 @@ impl AttributeSpecification {
         }
     }
 
-    /// Parse a non-null attribute specification.
-    fn parse(input: &[u8]) -> ParseResult<(&[u8], AttributeSpecification)> {
-        let (rest, name) = try!(Self::parse_name(input));
+    /// Parse an attribute specification. Returns `None` for the null attribute
+    /// specification, `Some` for an actual attribute specification.
+    fn parse(input: &[u8]) -> ParseResult<(&[u8], Option<AttributeSpecification>)> {
+        let (rest, name) = try!(parse_unsigned_leb(input));
+        if name == 0 {
+            // Parse the null attribute specification.
+            let (rest, form) = try!(parse_unsigned_leb(rest));
+            return if form == 0 {
+                Ok((rest, None))
+            } else {
+                Err(Error::ExpectedZero)
+            };
+        }
+
+        let name = constants::DwAt(name);
         let (rest, form) = try!(Self::parse_form(rest));
         let spec = AttributeSpecification::new(name, form);
-        Ok((rest, spec))
-    }
-
-    /// Parse the null attribute specification.
-    fn parse_null(input: &[u8]) -> ParseResult<(&[u8], ())> {
-        let (rest, name) = try!(parse_unsigned_leb(input));
-        if name != 0 {
-            return Err(Error::ExpectedZero);
-        }
-
-        let (rest, form) = try!(parse_unsigned_leb(rest));
-        if form != 0 {
-            return Err(Error::ExpectedZero);
-        }
-
-        Ok((rest, ()))
+        Ok((rest, Some(spec)))
     }
 }
 
@@ -647,23 +629,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_attribute_name_ok() {
-        let buf = [0x01, 0x02];
-        let (rest, tag) = AttributeSpecification::parse_name(&buf).expect("Should parse name");
-        assert_eq!(tag, constants::DW_AT_sibling);
-        assert_eq!(rest, &buf[1..]);
-    }
-
-    #[test]
-    fn test_parse_attribute_name_zero() {
-        let buf = [0x00];
-        match AttributeSpecification::parse_name(&buf) {
-            Err(Error::AttributeNameZero) => {}
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
-    }
-
-    #[test]
     fn test_parse_attribute_form_ok() {
         let buf = [0x01, 0x02];
         let (rest, tag) = AttributeSpecification::parse_form(&buf).expect("Should parse form");
@@ -683,34 +648,17 @@ mod tests {
     #[test]
     fn test_parse_null_attribute_specification_ok() {
         let buf = [0x00, 0x00, 0x01];
-        let (rest, _) = AttributeSpecification::parse_null(&buf)
+        let (rest, attr) = AttributeSpecification::parse(&buf)
             .expect("Should parse null attribute specification");
+        assert!(attr.is_none());
         assert_eq!(rest, [0x01]);
-    }
-
-    #[test]
-    fn test_parse_null_attribute_specification_form_nonzero() {
-        let buf = [0x00, 0x01];
-        match AttributeSpecification::parse_null(&buf) {
-            Err(Error::ExpectedZero) => {}
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
-    }
-
-    #[test]
-    fn test_parse_null_attribute_specification_name_nonzero() {
-        let buf = [0x01, 0x00];
-        match AttributeSpecification::parse_null(&buf) {
-            Err(Error::ExpectedZero) => {}
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
     }
 
     #[test]
     fn test_parse_attribute_specifications_name_zero() {
         let buf = [0x00, 0x01, 0x00, 0x00];
         match AttributeSpecification::parse(&buf) {
-            Err(Error::AttributeNameZero) => {}
+            Err(Error::ExpectedZero) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
