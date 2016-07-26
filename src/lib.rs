@@ -13,8 +13,10 @@ extern crate leb128;
 mod constants;
 pub use constants::*;
 
+mod endianity;
+pub use endianity::{Endianity, LittleEndian, BigEndian};
+
 mod parser;
-pub use parser::{Endianity, LittleEndian, BigEndian};
 pub use parser::{Error, ParseResult, Format};
 pub use parser::{DebugStrOffset, DebugLineOffset, DebugLocOffset, DebugMacinfoOffset, UnitOffset};
 pub use parser::{DebugInfo, DebugInfoOffset, UnitHeadersIter, UnitHeader};

@@ -1,7 +1,8 @@
 //! Functions for parsing DWARF debugging abbreviations.
 
 use constants;
-use parser::{Endianity, EndianBuf, Error, ParseResult, Format, UnitHeader};
+use endianity::Endianity;
+use parser::{EndianBuf, Error, ParseResult, Format, UnitHeader};
 use parser::{parse_unsigned_leb, parse_u8};
 use std::collections::hash_map;
 
@@ -372,7 +373,8 @@ impl AttributeSpecification {
 mod tests {
     use super::*;
     use constants;
-    use parser::{Error, LittleEndian};
+    use parser::Error;
+    use endianity::LittleEndian;
 
     #[test]
     #[cfg_attr(rustfmt, rustfmt_skip)]
