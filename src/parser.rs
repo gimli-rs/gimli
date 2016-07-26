@@ -327,6 +327,17 @@ impl<'input, Endian> DebugAbbrev<'input, Endian>
     pub fn new(debug_abbrev_section: &'input [u8]) -> DebugAbbrev<'input, Endian> {
         DebugAbbrev { debug_abbrev_section: EndianBuf(debug_abbrev_section, PhantomData) }
     }
+
+    /// Parse the abbreviations at the given `offset` within this
+    /// `.debug_abbrev` section.
+    ///
+    /// The `offset` should generally be retrieved from a unit header.
+    pub fn abbreviations(&self,
+                         debug_abbrev_offset: DebugAbbrevOffset)
+                         -> ParseResult<Abbreviations> {
+        parse_abbreviations(&self.debug_abbrev_section.0[debug_abbrev_offset.0 as usize..])
+            .map(|(_, abbrevs)| abbrevs)
+    }
 }
 
 /// The `DebugInfo` struct represents the DWARF debugging information found in
@@ -1188,10 +1199,7 @@ impl<'input, Endian> UnitHeader<'input, Endian>
         }
     }
 
-    /// Parse the abbreviations at the given `offset` within this
-    /// `.debug_abbrev` section.
-    ///
-    /// The `offset` should generally be retrieved from a unit header.
+    /// Parse this compilation unit's abbreviations.
     ///
     /// ```
     /// use gimli::DebugAbbrev;
@@ -1272,9 +1280,7 @@ impl<'input, Endian> UnitHeader<'input, Endian>
     pub fn abbreviations<'abbrev>(&self,
                                   debug_abbrev: DebugAbbrev<'abbrev, Endian>)
                                   -> ParseResult<Abbreviations> {
-        parse_abbreviations(&debug_abbrev.debug_abbrev_section.0[self.debug_abbrev_offset
-                .0 as usize..])
-            .map(|(_, abbrevs)| abbrevs)
+        debug_abbrev.abbreviations(self.debug_abbrev_offset())
     }
 }
 
@@ -3180,9 +3186,7 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
     pub fn abbreviations<'abbrev>(&self,
                                   debug_abbrev: DebugAbbrev<'abbrev, Endian>)
                                   -> ParseResult<Abbreviations> {
-        let offset = self.debug_abbrev_offset().0 as usize;
-        parse_abbreviations(&debug_abbrev.debug_abbrev_section.0[offset..])
-            .map(|(_, abbrevs)| abbrevs)
+        debug_abbrev.abbreviations(self.debug_abbrev_offset())
     }
 }
 
