@@ -972,7 +972,8 @@ fn test_unit_version_incomplete() {
 
 /// Parse the `debug_abbrev_offset` in the compilation unit header.
 fn parse_debug_abbrev_offset<'input, Endian>
-    (input: EndianBuf<'input, Endian>, format: Format)
+    (input: EndianBuf<'input, Endian>,
+     format: Format)
      -> ParseResult<(EndianBuf<'input, Endian>, DebugAbbrevOffset)>
     where Endian: Endianity
 {
@@ -987,8 +988,7 @@ fn parse_debug_abbrev_offset<'input, Endian>
 fn test_parse_debug_abbrev_offset_32() {
     let buf = [0x01, 0x02, 0x03, 0x04];
 
-    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf),
-                                                Format::Dwarf32) {
+    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
         Ok((_, val)) => assert_eq!(val, DebugAbbrevOffset(0x04030201)),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
@@ -998,8 +998,7 @@ fn test_parse_debug_abbrev_offset_32() {
 fn test_parse_debug_abbrev_offset_32_incomplete() {
     let buf = [0x01, 0x02];
 
-    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf),
-                                                Format::Dwarf32) {
+    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
         Err(Error::UnexpectedEof) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
@@ -1009,8 +1008,7 @@ fn test_parse_debug_abbrev_offset_32_incomplete() {
 fn test_parse_debug_abbrev_offset_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
-    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf),
-                                                Format::Dwarf64) {
+    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
         Ok((_, val)) => assert_eq!(val, DebugAbbrevOffset(0x0807060504030201)),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
@@ -1020,8 +1018,7 @@ fn test_parse_debug_abbrev_offset_64() {
 fn test_parse_debug_abbrev_offset_64_incomplete() {
     let buf = [0x01, 0x02];
 
-    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf),
-                                                Format::Dwarf64) {
+    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
         Err(Error::UnexpectedEof) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
@@ -2865,7 +2862,8 @@ fn test_parse_type_signature_incomplete() {
 
 /// Parse a type unit header's type offset.
 fn parse_type_offset<'input, Endian>
-    (input: EndianBuf<'input, Endian>, format: Format)
+    (input: EndianBuf<'input, Endian>,
+     format: Format)
      -> ParseResult<(EndianBuf<'input, Endian>, DebugTypesOffset)>
     where Endian: Endianity
 {
