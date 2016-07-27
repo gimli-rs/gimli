@@ -21,15 +21,9 @@ pub enum Error {
     BadUnsignedLeb128,
     /// An error parsing a signed LEB128 value.
     BadSignedLeb128,
-    /// An abbreviation declared that its code is zero, but zero is reserved for
-    /// null records.
-    AbbreviationCodeZero,
     /// An abbreviation declared that its tag is zero, but zero is reserved for
     /// null records.
     AbbreviationTagZero,
-    /// An attribute specification declared that its name is zero, but zero is
-    /// reserved for null records.
-    AttributeNameZero,
     /// An attribute specification declared that its form is zero, but zero is
     /// reserved for null records.
     AttributeFormZero,
@@ -66,16 +60,8 @@ impl error::Error for Error {
         match *self {
             Error::BadUnsignedLeb128 => "An error parsing an unsigned LEB128 value",
             Error::BadSignedLeb128 => "An error parsing a signed LEB128 value",
-            Error::AbbreviationCodeZero => {
-                "An abbreviation declared that its code is zero,
-                 but zero is reserved for null records"
-            }
             Error::AbbreviationTagZero => {
                 "An abbreviation declared that its tag is zero,
-                 but zero is reserved for null records"
-            }
-            Error::AttributeNameZero => {
-                "An attribute specification declared that its name is zero,
                  but zero is reserved for null records"
             }
             Error::AttributeFormZero => {
