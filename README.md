@@ -29,7 +29,9 @@ or add this to your `Cargo.toml`:
 
 ## Documentation
 
-[Documentation](http://fitzgen.github.io/gimli/gimli/index.html)
+* [Rustdocs documentation](http://fitzgen.github.io/gimli/gimli/index.html)
+
+* [Example programs](./examples)
 
 ## License
 
