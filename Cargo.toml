@@ -1,5 +1,8 @@
 [package]
-authors = ["Nick Fitzgerald <fitzgen@gmail.com>"]
+authors = [
+  "Nick Fitzgerald <fitzgen@gmail.com>",
+  "Philip Craig <philipjcraig@gmail.com>"
+]
 description = "A zero-copy DWARF debugging format parser."
 documentation = "http://fitzgen.github.io/gimli/gimli/index.html"
 keywords = ["DWARF", "debug", "elf"]
