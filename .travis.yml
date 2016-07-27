@@ -2,6 +2,17 @@ sudo: false
 
 language: rust
 
+os:
+- linux
+- osx
+
+osx_image: xcode7.1
+
+rust:
+- nightly
+- beta
+- stable
+
 addons:
   apt:
     packages:
@@ -10,27 +21,32 @@ addons:
     - libdw-dev
     - binutils-dev
 
-rust:
-- nightly
-- beta
-- stable
+before_install:
+- if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update; fi
+- if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install python; fi
 
 before_script:
-- |
-  pip install 'travis-cargo<0.2' --user &&
-  export PATH=$HOME/.local/bin:$PATH
+- pip install -v 'travis-cargo<0.2' --user
+- if [[ -e ~/Library/Python/2.7/bin ]]; then export PATH=~/Library/Python/2.7/bin:$PATH; fi
+- if [[ -e ~/.local/bin ]]; then export PATH=~/.local/bin:$PATH; fi
+- echo PATH is $PATH
 
 script:
 - |
   travis-cargo build &&
   travis-cargo test &&
   travis-cargo bench &&
-  travis-cargo run -- --example dwarfdump ./target/debug/gimli-* > /dev/null &&
+  ([[ $TRAVIS_OS_NAME == "osx" ]] && (
+      with_debug_info=$(find ./target/debug -type f | grep DWARF | grep gimli | head -n 1) &&
+      travis-cargo run -- --example dwarfdump "$with_debug_info" > /dev/null
+  ) || (
+      travis-cargo run -- --example dwarfdump ./target/debug/gimli-* > /dev/null
+  )) &&
   travis-cargo --only stable doc
 
 after_success:
-- travis-cargo --only stable doc-upload
-- travis-cargo coveralls --no-sudo --verify
+- if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then travis-cargo --only stable doc-upload; fi
+- if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then travis-cargo coveralls --no-sudo --verify; fi
 
 env:
   global:
