@@ -145,6 +145,7 @@ mod obj {
     use std::ffi::CString;
     use std::fs;
     use std::io::Read;
+    use std::mem;
     use std::path::Path;
 
     pub type File = Vec<u8>;
@@ -178,8 +179,16 @@ mod obj {
         parsed.get_section(&segment_name, &section_name).map(|s| s.data())
     }
 
-    pub fn is_little_endian(_: &File) -> bool {
-        // TODO FITZGEN
-        true
+    pub fn is_little_endian(file: &File) -> bool {
+        let parsed = mach_o::Header::new(&file[..]).expect("Could not parse macho-o file");
+
+        let bytes = [1, 0, 0, 0u8];
+        let int: u32 = unsafe { mem::transmute(bytes) };
+        let native_byteorder_is_little = int == 1;
+
+        match (native_byteorder_is_little, parsed.is_native_byteorder()) {
+            (true, b) => b,
+            (false, b) => !b,
+        }
     }
 }
