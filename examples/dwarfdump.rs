@@ -140,8 +140,9 @@ mod obj {
 
 #[cfg(target_os="macos")]
 mod obj {
-    extern crate macho;
+    extern crate mach_o;
 
+    use std::ffi::CString;
     use std::fs;
     use std::io::Read;
     use std::path::Path;
@@ -157,27 +158,28 @@ mod obj {
         buf
     }
 
-    pub fn get_section<'a>(file: &'a File, section_name: &str) -> Option<&'a [u8]> {
-        let parsed = macho::MachHeader::parse(&file[..]).expect("Could not parse macho-o file");
-
-        for seg in parsed.segments {
-            for section in seg.sections {
-                // OSX uses "__" instead of "." as a section name prefix, eg
-                // "__debug_info"" instead of ".debug_info", so strip the
-                // prefixes altogether when comparing names.
-                if &section.sectname[2..] == &section_name[1..] {
-                    let offset = section.offset as usize;
-                    let size = section.size as usize;
-                    let end = offset + size;
-                    return Some(&file[offset..end]);
-                }
-            }
+    // Translate the "." prefix to the "__" prefix used by OSX/Mach-O, eg
+    // ".debug_info" to "__debug_info".
+    fn translate_section_name(section_name: &str) -> CString {
+        let mut name = Vec::with_capacity(section_name.len() + 1);
+        name.push(b'_');
+        name.push(b'_');
+        for ch in &section_name.as_bytes()[1..] {
+            name.push(*ch);
         }
+        unsafe { CString::from_vec_unchecked(name) }
+    }
 
-        None
+    pub fn get_section<'a>(file: &'a File, section_name: &str) -> Option<&'a [u8]> {
+        let parsed = mach_o::Header::new(&file[..]).expect("Could not parse macho-o file");
+
+        let segment_name = CString::new("__DWARF").unwrap();
+        let section_name = translate_section_name(section_name);
+        parsed.get_section(&segment_name, &section_name).map(|s| s.data())
     }
 
     pub fn is_little_endian(_: &File) -> bool {
+        // TODO FITZGEN
         true
     }
 }
