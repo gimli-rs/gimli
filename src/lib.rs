@@ -64,7 +64,7 @@ mod constants;
 pub use constants::*;
 
 mod endianity;
-pub use endianity::{Endianity, LittleEndian, BigEndian};
+pub use endianity::{Endianity, EndianBuf, LittleEndian, BigEndian};
 
 mod parser;
 pub use parser::{Error, ParseResult, Format};

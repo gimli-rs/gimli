@@ -1,9 +1,11 @@
 //! Functions for parsing DWARF debugging information.
 
+#![deny(missing_docs)]
+
 use constants;
 use leb128;
 use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation, AttributeSpecification};
-use endianity::Endianity;
+use endianity::{Endianity, EndianBuf};
 #[cfg(test)]
 use endianity::LittleEndian;
 use std::cell::Cell;
@@ -11,7 +13,7 @@ use std::error;
 use std::fmt::{self, Debug};
 use std::io;
 use std::marker::PhantomData;
-use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
+use std::ops::{Range, RangeFrom, RangeTo};
 
 /// An error that occurred when parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,58 +92,6 @@ impl error::Error for Error {
 
 /// The result of a parse.
 pub type ParseResult<T> = Result<T, Error>;
-
-/// A &[u8] slice with compile-time endianity metadata.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EndianBuf<'input, Endian>(&'input [u8], PhantomData<Endian>) where Endian: Endianity;
-
-impl<'input, Endian> EndianBuf<'input, Endian>
-    where Endian: Endianity
-{
-    pub fn new(buf: &'input [u8]) -> EndianBuf<'input, Endian> {
-        EndianBuf(buf, PhantomData)
-    }
-
-    // Unfortunately, std::ops::Index *must* return a reference, so we can't
-    // implement Index<Range<usize>> to return a new EndianBuf the way we would
-    // like to. Instead, we abandon fancy indexing operators and have these
-    // plain old methods.
-
-    #[allow(dead_code)]
-    fn range_from(&self, idx: RangeFrom<usize>) -> EndianBuf<'input, Endian> {
-        EndianBuf(&self.0[idx], self.1)
-    }
-
-    fn range_to(&self, idx: RangeTo<usize>) -> EndianBuf<'input, Endian> {
-        EndianBuf(&self.0[idx], self.1)
-    }
-}
-
-impl<'input, Endian> Index<usize> for EndianBuf<'input, Endian>
-    where Endian: Endianity
-{
-    type Output = u8;
-    fn index(&self, idx: usize) -> &Self::Output {
-        &self.0[idx]
-    }
-}
-
-impl<'input, Endian> Deref for EndianBuf<'input, Endian>
-    where Endian: Endianity
-{
-    type Target = [u8];
-    fn deref(&self) -> &Self::Target {
-        self.0
-    }
-}
-
-impl<'input, Endian> Into<&'input [u8]> for EndianBuf<'input, Endian>
-    where Endian: Endianity
-{
-    fn into(self) -> &'input [u8] {
-        self.0
-    }
-}
 
 pub fn parse_u8(input: &[u8]) -> ParseResult<(&[u8], u8)> {
     if input.len() == 0 {
