@@ -11,7 +11,7 @@ use std::io::Read;
 use std::path::PathBuf;
 
 fn read_section(section: &str) -> Vec<u8> {
-    let mut path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let mut path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or(".".into()));
     path.push("./fixtures/self/");
     path.push(section);
 
