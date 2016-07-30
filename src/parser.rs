@@ -1217,6 +1217,7 @@ impl<'input> Attribute<'input> {
 }
 
 /// Take a slice of size `bytes` from the input.
+#[inline]
 fn take(bytes: usize, input: &[u8]) -> ParseResult<(&[u8], &[u8])> {
     if input.len() < bytes {
         Err(Error::UnexpectedEof)
