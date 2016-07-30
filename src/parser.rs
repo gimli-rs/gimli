@@ -1262,8 +1262,8 @@ fn parse_attribute<'input, 'unit, Endian>
     loop {
         match form {
             constants::DW_FORM_indirect => {
-                let (rest, dynamic_form) = try!(AttributeSpecification::parse_form(input.into()));
-                form = dynamic_form;
+                let (rest, dynamic_form) = try!(parse_unsigned_leb(input.into()));
+                form = constants::DwForm(dynamic_form);
                 input = EndianBuf::new(rest);
                 continue;
             }

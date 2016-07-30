@@ -303,7 +303,7 @@ impl AttributeSpecification {
     }
 
     /// Parse an attribute's form.
-    pub fn parse_form(input: &[u8]) -> ParseResult<(&[u8], constants::DwForm)> {
+    fn parse_form(input: &[u8]) -> ParseResult<(&[u8], constants::DwForm)> {
         let (rest, val) = try!(parse_unsigned_leb(input));
         if val == 0 {
             Err(Error::AttributeFormZero)
