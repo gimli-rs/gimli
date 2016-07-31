@@ -2219,19 +2219,20 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     ///          first_entry_with_no_children.unwrap());
     /// ```
     pub fn next_dfs(&mut self) -> Option<isize> {
-        match self.current() {
-            Some(Ok(current)) => {
-                self.input = if let Some(after_attrs) = current.after_attrs.get() {
+        self.current_ref();
+        {
+            if self.cached_current.is_some() {
+                self.input = if let Some(after_attrs) = self.cached_current.as_ref().unwrap().after_attrs.get() {
                     after_attrs
                 } else {
-                    for _ in current.attrs() {
+                    for _ in self.cached_current.as_ref().unwrap().attrs() {
                     }
-                    current.after_attrs
+                    self.cached_current.as_ref().unwrap().after_attrs
                         .get()
                         .expect("should have after_attrs after iterating attrs")
                 };
 
-                let mut delta_depth = if current.abbrev.has_children() {
+                let mut delta_depth = if self.cached_current.as_ref().unwrap().abbrev.has_children() {
                     1
                 } else {
                     0
@@ -2251,8 +2252,9 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                 } else {
                     None
                 }
+            } else {
+                None
             }
-            _ => None,
         }
     }
 
@@ -2359,9 +2361,10 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// }
     /// ```
     pub fn next_sibling(&mut self) -> Option<()> {
-        match self.current() {
-            Some(Ok(current)) => {
-                let sibling_ptr = current.attr_value(constants::DW_AT_sibling);
+        self.current_ref();
+        {
+            if self.cached_current.is_some() {
+                let sibling_ptr = self.cached_current.as_ref().unwrap().attr_value(constants::DW_AT_sibling);
                 if let Some(AttributeValue::UnitRef(offset)) = sibling_ptr {
                     if self.unit.is_valid_offset(offset) {
                         // Fast path: this entry has a DW_AT_sibling
@@ -2400,8 +2403,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                 // No sibling found.
                 self.input = &[];
                 None
-            }
-            _ => {
+            } else {
                 self.input = &[];
                 None
             }
