@@ -6,12 +6,11 @@ use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation, Attrib
 use endianity::Endianity;
 #[cfg(test)]
 use endianity::LittleEndian;
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::error;
 use std::fmt::{self, Debug};
 use std::io;
 use std::marker::PhantomData;
-use std::mem;
 use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 
 /// An error that occurred when parsing.
@@ -780,7 +779,7 @@ impl<'input, Endian> UnitHeader<'input, Endian>
             unit: self,
             input: self.entries_buf.into(),
             abbreviations: abbreviations,
-            cached_current: RefCell::new(None),
+            cached_current: None,
         }
     }
 
@@ -2046,26 +2045,21 @@ pub struct EntriesCursor<'input, 'abbrev, 'unit, Endian>
     input: &'input [u8],
     unit: &'unit UnitHeader<'input, Endian>,
     abbreviations: &'abbrev Abbreviations,
-    cached_current: RefCell<Option<ParseResult<DebuggingInformationEntry<'input,
-                                                                         'abbrev,
-                                                                         'unit,
-                                                                         Endian>>>>,
+    cached_current: Option<DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>,
 }
 
 impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endian>
     where Endian: Endianity
 {
-    /// Get the entry that the cursor is currently pointing to.
-    pub fn current<'me>
+    /// Get a reference to the entry that the cursor is currently pointing to.
+    pub fn current_ref<'me>
         (&'me mut self)
-         -> Option<ParseResult<DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>> {
+         -> Option<ParseResult<&'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>> {
 
         // First, check for a cached result.
         {
-            let cached = self.cached_current.borrow();
-            if let Some(ref cached) = *cached {
-                debug_assert!(cached.is_ok());
-                return Some(cached.clone());
+            if let Some(ref cached) = self.cached_current {
+                return Some(Ok(cached));
             }
         }
 
@@ -2081,23 +2075,30 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
 
             Ok((rest, code)) => {
                 if let Some(abbrev) = self.abbreviations.get(code) {
-                    let result = Some(Ok(DebuggingInformationEntry {
+                    self.cached_current = Some(DebuggingInformationEntry {
                         attrs_slice: rest,
                         after_attrs: Cell::new(None),
                         code: code,
                         abbrev: abbrev,
                         unit: self.unit,
-                    }));
+                    });
 
-                    let mut cached = self.cached_current.borrow_mut();
-                    debug_assert!(cached.is_none());
-                    mem::replace(&mut *cached, result.clone());
-
-                    result
+                    Some(Ok(self.cached_current.as_ref().unwrap()))
                 } else {
                     Some(Err(Error::UnknownAbbreviation))
                 }
             }
+        }
+    }
+
+    /// Get the entry that the cursor is currently pointing to.
+    pub fn current<'me>
+        (&'me mut self)
+         -> Option<ParseResult<DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>> {
+        match self.current_ref() {
+            Some(Ok(current)) => Some(Ok(current.clone())),
+            Some(Err(e)) => Some(Err(e)),
+            None => None,
         }
     }
 
@@ -2218,19 +2219,20 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     ///          first_entry_with_no_children.unwrap());
     /// ```
     pub fn next_dfs(&mut self) -> Option<isize> {
-        match self.current() {
-            Some(Ok(current)) => {
-                self.input = if let Some(after_attrs) = current.after_attrs.get() {
+        self.current_ref();
+        {
+            if self.cached_current.is_some() {
+                self.input = if let Some(after_attrs) = self.cached_current.as_ref().unwrap().after_attrs.get() {
                     after_attrs
                 } else {
-                    for _ in current.attrs() {
+                    for _ in self.cached_current.as_ref().unwrap().attrs() {
                     }
-                    current.after_attrs
+                    self.cached_current.as_ref().unwrap().after_attrs
                         .get()
                         .expect("should have after_attrs after iterating attrs")
                 };
 
-                let mut delta_depth = if current.abbrev.has_children() {
+                let mut delta_depth = if self.cached_current.as_ref().unwrap().abbrev.has_children() {
                     1
                 } else {
                     0
@@ -2243,16 +2245,16 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                     self.input = &self.input[1..];
                 }
 
-                let mut cached_current = self.cached_current.borrow_mut();
-                mem::replace(&mut *cached_current, None);
+                self.cached_current = None;
 
                 if self.input.len() > 0 {
                     Some(delta_depth)
                 } else {
                     None
                 }
+            } else {
+                None
             }
-            _ => None,
         }
     }
 
@@ -2359,9 +2361,10 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// }
     /// ```
     pub fn next_sibling(&mut self) -> Option<()> {
-        match self.current() {
-            Some(Ok(current)) => {
-                let sibling_ptr = current.attr_value(constants::DW_AT_sibling);
+        self.current_ref();
+        {
+            if self.cached_current.is_some() {
+                let sibling_ptr = self.cached_current.as_ref().unwrap().attr_value(constants::DW_AT_sibling);
                 if let Some(AttributeValue::UnitRef(offset)) = sibling_ptr {
                     if self.unit.is_valid_offset(offset) {
                         // Fast path: this entry has a DW_AT_sibling
@@ -2400,8 +2403,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                 // No sibling found.
                 self.input = &[];
                 None
-            }
-            _ => {
+            } else {
                 self.input = &[];
                 None
             }
@@ -2669,7 +2671,7 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
             unit: &self.header,
             input: self.header.entries_buf.into(),
             abbreviations: abbreviations,
-            cached_current: RefCell::new(None),
+            cached_current: None,
         }
     }
 
