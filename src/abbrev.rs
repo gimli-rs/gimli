@@ -1,5 +1,7 @@
 //! Functions for parsing DWARF debugging abbreviations.
 
+#![deny(missing_docs)]
+
 use constants;
 use endianity::{Endianity, EndianBuf};
 use parser::{Error, ParseResult, Format, UnitHeader};

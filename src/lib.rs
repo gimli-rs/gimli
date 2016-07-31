@@ -68,7 +68,7 @@ pub use endianity::{Endianity, EndianBuf, LittleEndian, BigEndian};
 
 mod parser;
 pub use parser::{Error, ParseResult, Format};
-pub use parser::{DebugStrOffset, DebugLineOffset, DebugLocOffset, DebugMacinfoOffset, UnitOffset};
+pub use parser::{DebugStrOffset, DebugLocOffset, DebugMacinfoOffset, UnitOffset};
 pub use parser::{DebugInfo, DebugInfoOffset, UnitHeadersIter, UnitHeader};
 pub use parser::{DebugTypes, DebugTypesOffset, TypeUnitHeadersIter, TypeUnitHeader};
 pub use parser::{EntriesCursor, DebuggingInformationEntry, AttrsIter, Attribute, AttributeValue};
@@ -76,3 +76,6 @@ pub use parser::{EntriesCursor, DebuggingInformationEntry, AttrsIter, Attribute,
 mod abbrev;
 pub use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation,
                  AttributeSpecification};
+
+mod line;
+pub use line::*;

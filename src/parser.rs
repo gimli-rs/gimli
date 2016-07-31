@@ -12,6 +12,7 @@ use std::cell::Cell;
 use std::error;
 use std::fmt::{self, Debug};
 use std::io;
+use std::mem;
 use std::marker::PhantomData;
 use std::ops::{Range, RangeFrom, RangeTo};
 
@@ -93,6 +94,8 @@ impl error::Error for Error {
 /// The result of a parse.
 pub type ParseResult<T> = Result<T, Error>;
 
+/// Parse a `u8` from the input.
+#[doc(hidden)]
 pub fn parse_u8(input: &[u8]) -> ParseResult<(&[u8], u8)> {
     if input.len() == 0 {
         Err(Error::UnexpectedEof)
@@ -101,7 +104,19 @@ pub fn parse_u8(input: &[u8]) -> ParseResult<(&[u8], u8)> {
     }
 }
 
-fn parse_u16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u16)>
+/// Parse a `i8` from the input.
+#[doc(hidden)]
+pub fn parse_i8(input: &[u8]) -> ParseResult<(&[u8], i8)> {
+    if input.len() == 0 {
+        Err(Error::UnexpectedEof)
+    } else {
+        Ok((&input[1..], unsafe { mem::transmute(input[0]) }))
+    }
+}
+
+/// Parse a `u16` from the input.
+#[doc(hidden)]
+pub fn parse_u16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u16)>
     where Endian: Endianity
 {
     if input.len() < 2 {
@@ -111,7 +126,9 @@ fn parse_u16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>
     }
 }
 
-fn parse_u32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u32)>
+/// Parse a `u32` from the input.
+#[doc(hidden)]
+pub fn parse_u32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u32)>
     where Endian: Endianity
 {
     if input.len() < 4 {
@@ -121,7 +138,9 @@ fn parse_u32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>
     }
 }
 
-fn parse_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
+/// Parse a `u64` from the input.
+#[doc(hidden)]
+pub fn parse_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
     if input.len() < 8 {
@@ -131,13 +150,27 @@ fn parse_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>
     }
 }
 
-fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
+/// Parse a `u32` from the input and return it as a `u64`.
+#[doc(hidden)]
+pub fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
     if input.len() < 4 {
         Err(Error::UnexpectedEof)
     } else {
         Ok((input.range_from(4..), Endian::read_u32(&input) as u64))
+    }
+}
+
+/// Parse a null-terminated slice from the input.
+#[doc(hidden)]
+pub fn parse_null_terminated_string(input: &[u8]) -> ParseResult<(&[u8], &[u8])> {
+    let null_idx = input.iter().position(|ch| *ch == 0);
+
+    if let Some(idx) = null_idx {
+        Ok((&input[idx + 1..], &input[0..idx + 1]))
+    } else {
+        Err(Error::UnexpectedEof)
     }
 }
 
@@ -152,10 +185,6 @@ pub struct DebugStrOffset(pub u64);
 /// An offset into the `.debug_info` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DebugInfoOffset(pub u64);
-
-/// An offset into the `.debug_line` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugLineOffset(pub u64);
 
 /// An offset into the `.debug_loc` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -369,8 +398,9 @@ const MAX_DWARF_32_UNIT_LENGTH: u64 = 0xfffffff0;
 const DWARF_64_INITIAL_UNIT_LENGTH: u64 = 0xffffffff;
 
 /// Parse the compilation unit header's length.
-fn parse_unit_length<Endian>(input: EndianBuf<Endian>)
-                             -> ParseResult<(EndianBuf<Endian>, (u64, Format))>
+#[doc(hidden)]
+pub fn parse_unit_length<Endian>(input: EndianBuf<Endian>)
+                                 -> ParseResult<(EndianBuf<Endian>, (u64, Format))>
     where Endian: Endianity
 {
     let (rest, val) = try!(parse_u32_as_u64(input));
@@ -1438,18 +1468,13 @@ fn parse_attribute<'input, 'unit, Endian>
                 });
             }
             constants::DW_FORM_string => {
-                let null_idx = input.iter().position(|ch| *ch == 0);
-
-                if let Some(idx) = null_idx {
-                    let buf: &[u8] = input.into();
-                    return Ok((input.range_from(idx + 1..),
-                               Attribute {
+                return parse_null_terminated_string(input.0).map(|(rest, string)| {
+                    let attr = Attribute {
                         name: spec.name(),
-                        value: AttributeValue::String(&buf[0..idx + 1]),
-                    }));
-                } else {
-                    return Err(Error::UnexpectedEof);
-                }
+                        value: AttributeValue::String(string),
+                    };
+                    (EndianBuf::new(rest), attr)
+                });
             }
             constants::DW_FORM_strp => {
                 return match unit.format() {
