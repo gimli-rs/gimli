@@ -20,7 +20,7 @@ leb128 = "0.2.1"
 elf = "0.0.9"
 
 [target.'cfg(target_os="macos")'.dev-dependencies]
-mach_o = "0.1.1"
+mach_o = "0.1.2"
 
 [features]
 nightly = []
