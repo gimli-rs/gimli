@@ -6,12 +6,11 @@ use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation, Attrib
 use endianity::Endianity;
 #[cfg(test)]
 use endianity::LittleEndian;
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::error;
 use std::fmt::{self, Debug};
 use std::io;
 use std::marker::PhantomData;
-use std::mem;
 use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 
 /// An error that occurred when parsing.
@@ -780,7 +779,7 @@ impl<'input, Endian> UnitHeader<'input, Endian>
             unit: self,
             input: self.entries_buf.into(),
             abbreviations: abbreviations,
-            cached_current: RefCell::new(None),
+            cached_current: None,
         }
     }
 
@@ -2046,7 +2045,7 @@ pub struct EntriesCursor<'input, 'abbrev, 'unit, Endian>
     input: &'input [u8],
     unit: &'unit UnitHeader<'input, Endian>,
     abbreviations: &'abbrev Abbreviations,
-    cached_current: RefCell<Option<DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>>,
+    cached_current: Option<DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>,
 }
 
 impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endian>
@@ -2059,8 +2058,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
 
         // First, check for a cached result.
         {
-            let cached = self.cached_current.borrow();
-            if let Some(ref cached) = *cached {
+            if let Some(ref cached) = self.cached_current {
                 return Some(Ok(cached.clone()));
             }
         }
@@ -2077,19 +2075,15 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
 
             Ok((rest, code)) => {
                 if let Some(abbrev) = self.abbreviations.get(code) {
-                    let result = DebuggingInformationEntry {
+                    self.cached_current = Some(DebuggingInformationEntry {
                         attrs_slice: rest,
                         after_attrs: Cell::new(None),
                         code: code,
                         abbrev: abbrev,
                         unit: self.unit,
-                    };
+                    });
 
-                    let mut cached = self.cached_current.borrow_mut();
-                    debug_assert!(cached.is_none());
-                    mem::replace(&mut *cached, Some(result.clone()));
-
-                    Some(Ok(result))
+                    Some(Ok(self.cached_current.as_ref().unwrap().clone()))
                 } else {
                     Some(Err(Error::UnknownAbbreviation))
                 }
@@ -2239,8 +2233,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                     self.input = &self.input[1..];
                 }
 
-                let mut cached_current = self.cached_current.borrow_mut();
-                mem::replace(&mut *cached_current, None);
+                self.cached_current = None;
 
                 if self.input.len() > 0 {
                     Some(delta_depth)
@@ -2665,7 +2658,7 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
             unit: &self.header,
             input: self.header.entries_buf.into(),
             abbreviations: abbreviations,
-            cached_current: RefCell::new(None),
+            cached_current: None,
         }
     }
 
