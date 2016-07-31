@@ -2051,15 +2051,15 @@ pub struct EntriesCursor<'input, 'abbrev, 'unit, Endian>
 impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endian>
     where Endian: Endianity
 {
-    /// Get the entry that the cursor is currently pointing to.
-    pub fn current<'me>
+    /// Get a reference to the entry that the cursor is currently pointing to.
+    pub fn current_ref<'me>
         (&'me mut self)
-         -> Option<ParseResult<DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>> {
+         -> Option<ParseResult<&'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>> {
 
         // First, check for a cached result.
         {
             if let Some(ref cached) = self.cached_current {
-                return Some(Ok(cached.clone()));
+                return Some(Ok(cached));
             }
         }
 
@@ -2083,11 +2083,22 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                         unit: self.unit,
                     });
 
-                    Some(Ok(self.cached_current.as_ref().unwrap().clone()))
+                    Some(Ok(self.cached_current.as_ref().unwrap()))
                 } else {
                     Some(Err(Error::UnknownAbbreviation))
                 }
             }
+        }
+    }
+
+    /// Get the entry that the cursor is currently pointing to.
+    pub fn current<'me>
+        (&'me mut self)
+         -> Option<ParseResult<DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>> {
+        match self.current_ref() {
+            Some(Ok(current)) => Some(Ok(current.clone())),
+            Some(Err(e)) => Some(Err(e)),
+            None => None,
         }
     }
 
