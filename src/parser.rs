@@ -2046,10 +2046,7 @@ pub struct EntriesCursor<'input, 'abbrev, 'unit, Endian>
     input: &'input [u8],
     unit: &'unit UnitHeader<'input, Endian>,
     abbreviations: &'abbrev Abbreviations,
-    cached_current: RefCell<Option<ParseResult<DebuggingInformationEntry<'input,
-                                                                         'abbrev,
-                                                                         'unit,
-                                                                         Endian>>>>,
+    cached_current: RefCell<Option<DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>>,
 }
 
 impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endian>
@@ -2064,8 +2061,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
         {
             let cached = self.cached_current.borrow();
             if let Some(ref cached) = *cached {
-                debug_assert!(cached.is_ok());
-                return Some(cached.clone());
+                return Some(Ok(cached.clone()));
             }
         }
 
@@ -2081,19 +2077,19 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
 
             Ok((rest, code)) => {
                 if let Some(abbrev) = self.abbreviations.get(code) {
-                    let result = Some(Ok(DebuggingInformationEntry {
+                    let result = DebuggingInformationEntry {
                         attrs_slice: rest,
                         after_attrs: Cell::new(None),
                         code: code,
                         abbrev: abbrev,
                         unit: self.unit,
-                    }));
+                    };
 
                     let mut cached = self.cached_current.borrow_mut();
                     debug_assert!(cached.is_none());
-                    mem::replace(&mut *cached, result.clone());
+                    mem::replace(&mut *cached, Some(result.clone()));
 
-                    result
+                    Some(Ok(result))
                 } else {
                     Some(Err(Error::UnknownAbbreviation))
                 }
