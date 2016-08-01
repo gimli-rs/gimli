@@ -35,17 +35,13 @@ fn test_parse_self_debug_info() {
 
         let mut cursor = unit.entries(&abbrevs);
 
-        loop {
+        while cursor.next_dfs().expect("Should parse next dfs").is_some() {
             let entry = cursor.current()
                 .expect("Should have a current entry")
                 .expect("And should parse that entry OK");
 
             for attr in entry.attrs() {
                 attr.expect("Should parse entry's attribute");
-            }
-
-            if let None = cursor.next_dfs().expect("Should parse next dfs") {
-                break;
             }
         }
     }
