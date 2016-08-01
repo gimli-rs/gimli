@@ -329,7 +329,52 @@ fn test_cursor_next_sibling_no_sibling_ptr() {
     assert_next_sibling(&mut cursor, "007");
     assert_next_sibling(&mut cursor, "010");
 
-    // And now the cursor should be exhausted.
+    // There should be no more siblings.
+
+    assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+    assert!(cursor.current().expect("Should parse current entry").is_none());
+}
+
+#[test]
+fn test_cursor_next_sibling_continuation() {
+    let info_buf = &ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF;
+    let debug_info = DebugInfo::<LittleEndian>::new(info_buf);
+
+    let unit = debug_info.units()
+        .next()
+        .expect("should have a unit result")
+        .expect("and it should be ok");
+
+    let abbrevs_buf = &ENTRIES_CURSOR_TESTS_ABBREV_BUF;
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(abbrevs_buf);
+
+    let abbrevs = unit.abbreviations(debug_abbrev)
+        .expect("Should parse abbreviations");
+
+    let mut cursor = unit.entries(&abbrevs);
+
+    assert_current_name(&mut cursor, "001");
+
+    // Down to the first child of the root entry.
+
+    assert_next_dfs(&mut cursor, "002", 1);
+
+    // Get the next sibling, then iterate its children
+
+    assert_next_sibling(&mut cursor, "004");
+    assert_next_dfs(&mut cursor, "005", 1);
+    assert_next_sibling(&mut cursor, "006");
+    assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+    assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+    assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+    assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+
+    // And we should be able to continue with the children of the root entry.
+
+    assert_next_dfs(&mut cursor, "007", -1);
+    assert_next_sibling(&mut cursor, "010");
+
+    // There should be no more siblings.
 
     assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
     assert!(cursor.current().expect("Should parse current entry").is_none());
@@ -492,7 +537,7 @@ fn test_cursor_next_sibling_with_sibling_ptr() {
     assert_next_sibling(&mut cursor, "004");
     assert_next_sibling(&mut cursor, "006");
 
-    // And now the cursor should be exhausted.
+    // There should be no more siblings.
 
     assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
     assert!(cursor.current().expect("Should parse current entry").is_none());

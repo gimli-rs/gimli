@@ -2279,10 +2279,12 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
 
     /// Move the cursor to the next sibling DIE of the current one.
     ///
-    /// Returns `Some` when the cursor the cursor has been moved to the next
-    /// sibling, `None` when there is no next sibling.
+    /// Returns `Ok(Some(()))` when the cursor has been moved to
+    /// the next sibling, `Ok(None)` when there is no next sibling.
     ///
-    /// After returning `None`, the cursor is exhausted.
+    /// The depth of the cursor is never changed if this method returns `Ok`.
+    /// Once `Ok(None)` is returned, this method will continue to return
+    /// `Ok(None)` until either `next_entry` or `next_dfs` is called.
     ///
     /// Here is an example that iterates over all of the direct children of the
     /// root entry:
@@ -2383,8 +2385,6 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// }
     /// ```
     pub fn next_sibling(&mut self) -> ParseResult<Option<()>> {
-        try!(self.current_ref());
-
         if self.cached_current.is_some() {
             let sibling_ptr =
                 self.cached_current.as_ref().unwrap().attr_value(constants::DW_AT_sibling);
@@ -2393,10 +2393,11 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                     // Fast path: this entry has a DW_AT_sibling
                     // attribute pointing to its sibling.
                     self.input = &self.unit.range_from(offset..);
-                    if self.input.len() > 0 && self.input[0] != 0 {
+                    self.cached_current = None;
+                    try!(self.next_entry());
+                    if self.cached_current.is_some() {
                         return Ok(Some(()));
                     } else {
-                        self.input = &[];
                         return Ok(None);
                     }
                 }
@@ -2406,28 +2407,22 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
             // or the pointer is bogus. Do a DFS until we get to the next
             // sibling.
 
-            let mut depth = 0;
-            while let Some(delta_depth) = try!(self.next_dfs()) {
-                depth += delta_depth;
-
-                if depth == 0 && self.input[0] != 0 {
-                    // We found the next sibling.
-                    return Ok(Some(()));
-                }
-
-                if depth < 0 {
-                    // We moved up to the original entry's parent's (or
-                    // parent's parent's, etc ...) siblings.
-                    self.input = &[];
+            let mut depth = self.delta_depth;
+            while depth > 0 {
+                if try!(self.next_entry()).is_none() {
                     return Ok(None);
                 }
+                depth += self.delta_depth;
             }
 
-            // No sibling found.
-            self.input = &[];
-            Ok(None)
+            // The next entry will be the sibling, so parse it
+            try!(self.next_entry());
+            if self.cached_current.is_some() {
+                Ok(Some(()))
+            } else {
+                Ok(None)
+            }
         } else {
-            self.input = &[];
             Ok(None)
         }
     }
