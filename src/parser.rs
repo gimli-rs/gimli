@@ -2073,12 +2073,9 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
         }
     }
 
-    /// Move the cursor to the next DIE in the tree.
-    ///
-    /// Returns `Some` if there is a next entry, even if this entry is null.
-    /// If there is no next entry, then `None` is returned.
-    pub fn next_entry<'me>(&'me mut self) -> ParseResult<Option<()>> {
-        let input = if let Some(ref current) = self.cached_current {
+    /// Return the input buffer after the current entry.
+    fn after_entry(&self) -> &'input [u8] {
+        if let Some(ref current) = self.cached_current {
             if let Some(after_attrs) = current.after_attrs.get() {
                 after_attrs
             } else {
@@ -2088,8 +2085,15 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
             }
         } else {
             self.input
-        };
+        }
+    }
 
+    /// Move the cursor to the next DIE in the tree.
+    ///
+    /// Returns `Some` if there is a next entry, even if this entry is null.
+    /// If there is no next entry, then `None` is returned.
+    pub fn next_entry<'me>(&'me mut self) -> ParseResult<Option<()>> {
+        let input = self.after_entry();
         if input.len() == 0 {
             self.input = input;
             self.cached_current = None;
@@ -2149,7 +2153,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// does not have any children.
     ///
     /// ```
-    /// # use gimli::{UnitHeader, DebugAbbrev, DebugInfo, LittleEndian};
+    /// # use gimli::{DebugAbbrev, DebugInfo, LittleEndian};
     /// # let info_buf = [
     /// #     // Comilation unit header
     /// #
@@ -2225,6 +2229,9 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// let mut first_entry_with_no_children = None;
     /// let mut cursor = unit.entries(&abbrevs);
     ///
+    /// // Move the cursor to the root.
+    /// assert_eq!(cursor.next_dfs().unwrap(), Some(0));
+    ///
     /// // Keep looping while the cursor is moving deeper into the DIE tree.
     /// while let Some(delta_depth) = cursor.next_dfs().expect("Should parse next dfs") {
     ///     // 0 means we moved to a sibling, a negative number means we went back
@@ -2244,49 +2251,28 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     ///          first_entry_with_no_children.unwrap());
     /// ```
     pub fn next_dfs(&mut self) -> ParseResult<Option<isize>> {
-        try!(self.current_ref());
-        {
-            if self.cached_current.is_some() {
-                self.input = if let Some(after_attrs) = self.cached_current
-                    .as_ref()
-                    .unwrap()
-                    .after_attrs
-                    .get() {
-                    after_attrs
-                } else {
-                    for _ in self.cached_current.as_ref().unwrap().attrs() {
-                    }
-                    self.cached_current
-                        .as_ref()
-                        .unwrap()
-                        .after_attrs
-                        .get()
-                        .expect("should have after_attrs after iterating attrs")
-                };
+        let mut delta_depth = self.delta_depth;
+        loop {
+            // Keep eating null entries that mark the end of an entry's
+            // children.
+            let mut input = self.after_entry();
+            while input.len() > 0 && input[0] == 0 {
+                delta_depth -= 1;
+                input = &input[1..];
+            }
+            self.input = input;
+            self.cached_current = None;
 
-                let mut delta_depth =
-                    if self.cached_current.as_ref().unwrap().abbrev.has_children() {
-                        1
-                    } else {
-                        0
-                    };
-
-                // Keep eating null entries that mark the end of an entry's
-                // children.
-                while self.input.len() > 0 && self.input[0] == 0 {
-                    delta_depth -= 1;
-                    self.input = &self.input[1..];
+            // The next entry should be the one we want.
+            if try!(self.next_entry()).is_some() {
+                if self.cached_current.is_some() {
+                    return Ok(Some(delta_depth));
                 }
 
-                self.cached_current = None;
-
-                if self.input.len() > 0 {
-                    Ok(Some(delta_depth))
-                } else {
-                    Ok(None)
-                }
+                // Must have been a strange leb128 encoding of zero.
+                delta_depth += self.delta_depth;
             } else {
-                Ok(None)
+                return Ok(None);
             }
         }
     }
@@ -2376,6 +2362,9 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// let abbrevs = get_abbrevs_for_unit(&unit);
     ///
     /// let mut cursor = unit.entries(&abbrevs);
+    ///
+    /// // Move the cursor to the root.
+    /// assert_eq!(cursor.next_dfs().unwrap(), Some(0));
     ///
     /// // Move the cursor to the root's first child.
     /// assert_eq!(cursor.next_dfs().unwrap(), Some(1));
