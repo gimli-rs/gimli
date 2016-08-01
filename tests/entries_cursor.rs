@@ -23,6 +23,33 @@ fn assert_current_name<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCurso
 }
 
 #[cfg(test)]
+fn assert_next_entry<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCursor<'input,
+                                                                                'abbrev,
+                                                                                'unit,
+                                                                                Endian>,
+                                                     name: &'static str)
+    where Endian: Endianity
+{
+    cursor.next_entry()
+        .expect("Should parse next entry")
+        .expect("Should have an entry");
+    assert_current_name(cursor, name);
+}
+
+#[cfg(test)]
+fn assert_next_entry_null<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCursor<'input,
+                                                                                     'abbrev,
+                                                                                     'unit,
+                                                                                     Endian>)
+    where Endian: Endianity
+{
+    cursor.next_entry()
+        .expect("Should parse next entry")
+        .expect("Should have an entry");
+    // assert!(cursor.current().expect("Should parse current entry").is_none());
+}
+
+#[cfg(test)]
 fn assert_next_dfs<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCursor<'input,
                                                                               'abbrev,
                                                                               'unit,
@@ -195,6 +222,49 @@ const ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF: [u8; 71] = [
     // End of children
     0x00
 ];
+
+#[test]
+#[cfg_attr(rustfmt, rustfmt_skip)]
+fn test_cursor_next_entry() {
+    let info_buf = &ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF;
+    let debug_info = DebugInfo::<LittleEndian>::new(info_buf);
+
+    let unit = debug_info.units().next()
+        .expect("should have a unit result")
+        .expect("and it should be ok");
+
+    let abbrevs_buf = &ENTRIES_CURSOR_TESTS_ABBREV_BUF;
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(abbrevs_buf);
+
+    let abbrevs = unit.abbreviations(debug_abbrev)
+        .expect("Should parse abbreviations");
+
+    let mut cursor = unit.entries(&abbrevs);
+
+    assert_next_entry(&mut cursor, "001");
+    assert_next_entry(&mut cursor, "002");
+    assert_next_entry(&mut cursor, "003");
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry(&mut cursor, "004");
+    assert_next_entry(&mut cursor, "005");
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry(&mut cursor, "006");
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry(&mut cursor, "007");
+    assert_next_entry(&mut cursor, "008");
+    assert_next_entry(&mut cursor, "009");
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry(&mut cursor, "010");
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry_null(&mut cursor);
+
+    assert!(cursor.next_entry().expect("Should parse next entry").is_none());
+    assert!(cursor.current().expect("Should parse current entry").is_none());
+}
 
 #[test]
 #[cfg_attr(rustfmt, rustfmt_skip)]

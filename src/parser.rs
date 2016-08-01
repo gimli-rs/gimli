@@ -780,6 +780,7 @@ impl<'input, Endian> UnitHeader<'input, Endian>
             input: self.entries_buf.into(),
             abbreviations: abbreviations,
             cached_current: None,
+            delta_depth: 0,
         }
     }
 
@@ -2046,6 +2047,7 @@ pub struct EntriesCursor<'input, 'abbrev, 'unit, Endian>
     unit: &'unit UnitHeader<'input, Endian>,
     abbreviations: &'abbrev Abbreviations,
     cached_current: Option<DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>,
+    delta_depth: isize,
 }
 
 impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endian>
@@ -2055,38 +2057,10 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     pub fn current_ref<'me>
         (&'me mut self)
          -> ParseResult<Option<&'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>> {
-
-        // First, check for a cached result.
-        {
-            if let Some(ref cached) = self.cached_current {
-                return Ok(Some(cached));
-            }
+        if self.cached_current.is_none() {
+            try!(self.next_entry());
         }
-
-        if self.input.len() == 0 {
-            return Ok(None);
-        }
-
-        match try!(parse_unsigned_leb(self.input)) {
-            // Null abbreviation is the lack of an entry.
-            (_, 0) => Ok(None),
-
-            (rest, code) => {
-                if let Some(abbrev) = self.abbreviations.get(code) {
-                    self.cached_current = Some(DebuggingInformationEntry {
-                        attrs_slice: rest,
-                        after_attrs: Cell::new(None),
-                        code: code,
-                        abbrev: abbrev,
-                        unit: self.unit,
-                    });
-
-                    Ok(Some(self.cached_current.as_ref().unwrap()))
-                } else {
-                    Err(Error::UnknownAbbreviation)
-                }
-            }
-        }
+        Ok(self.cached_current.as_ref())
     }
 
     /// Get the entry that the cursor is currently pointing to.
@@ -2096,6 +2070,60 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
         match try!(self.current_ref()) {
             Some(current) => Ok(Some(current.clone())),
             None => Ok(None),
+        }
+    }
+
+    /// Move the cursor to the next DIE in the tree.
+    ///
+    /// Returns `Some` if there is a next entry, even if this entry is null.
+    /// If there is no next entry, then `None` is returned.
+    pub fn next_entry<'me>(&'me mut self) -> ParseResult<Option<()>> {
+        let input = if let Some(ref current) = self.cached_current {
+            if let Some(after_attrs) = current.after_attrs.get() {
+                after_attrs
+            } else {
+                for _ in current.attrs() {
+                }
+                current.after_attrs.get().expect("should have after_attrs after iterating attrs")
+            }
+        } else {
+            self.input
+        };
+
+        if input.len() == 0 {
+            self.input = input;
+            self.cached_current = None;
+            self.delta_depth = 0;
+            return Ok(None);
+        }
+
+        match try!(parse_unsigned_leb(input)) {
+            (rest, 0) => {
+                self.input = rest;
+                self.cached_current = None;
+                self.delta_depth = -1;
+                Ok(Some(()))
+            }
+            (rest, code) => {
+                if let Some(abbrev) = self.abbreviations.get(code) {
+                    self.cached_current = Some(DebuggingInformationEntry {
+                        attrs_slice: rest,
+                        after_attrs: Cell::new(None),
+                        code: code,
+                        abbrev: abbrev,
+                        unit: self.unit,
+                    });
+                    self.delta_depth = if abbrev.has_children() {
+                        1
+                    } else {
+                        0
+                    };
+
+                    Ok(Some(()))
+                } else {
+                    Err(Error::UnknownAbbreviation)
+                }
+            }
         }
     }
 
@@ -2678,6 +2706,7 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
             input: self.header.entries_buf.into(),
             abbreviations: abbreviations,
             cached_current: None,
+            delta_depth: 0,
         }
     }
 
