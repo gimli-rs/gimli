@@ -43,9 +43,7 @@
 //! let mut entries = unit.entries(&abbrevs);
 //!
 //! // Keep iterating entries while the cursor is not exhausted.
-//! while let Some(entry) = entries.current() {
-//!     let entry = entry.expect("Should parse the entry OK");
-//!
+//! while let Some(entry) = entries.current().expect("Should parse the entry OK") {
 //!     // If we find an entry for a function, print it.
 //!     if entry.tag() == gimli::DW_TAG_subprogram {
 //!         println!("Found a function: {:?}", entry);

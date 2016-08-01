@@ -44,7 +44,7 @@ fn test_parse_self_debug_info() {
                 attr.expect("Should parse entry's attribute");
             }
 
-            if let None = cursor.next_dfs() {
+            if let None = cursor.next_dfs().expect("Should parse next dfs") {
                 break;
             }
         }

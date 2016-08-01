@@ -2054,26 +2054,24 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// Get a reference to the entry that the cursor is currently pointing to.
     pub fn current_ref<'me>
         (&'me mut self)
-         -> Option<ParseResult<&'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>> {
+         -> ParseResult<Option<&'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>> {
 
         // First, check for a cached result.
         {
             if let Some(ref cached) = self.cached_current {
-                return Some(Ok(cached));
+                return Ok(Some(cached));
             }
         }
 
         if self.input.len() == 0 {
-            return None;
+            return Ok(None);
         }
 
-        match parse_unsigned_leb(self.input) {
-            Err(e) => Some(Err(e)),
-
+        match try!(parse_unsigned_leb(self.input)) {
             // Null abbreviation is the lack of an entry.
-            Ok((_, 0)) => None,
+            (_, 0) => Ok(None),
 
-            Ok((rest, code)) => {
+            (rest, code) => {
                 if let Some(abbrev) = self.abbreviations.get(code) {
                     self.cached_current = Some(DebuggingInformationEntry {
                         attrs_slice: rest,
@@ -2083,9 +2081,9 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                         unit: self.unit,
                     });
 
-                    Some(Ok(self.cached_current.as_ref().unwrap()))
+                    Ok(Some(self.cached_current.as_ref().unwrap()))
                 } else {
-                    Some(Err(Error::UnknownAbbreviation))
+                    Err(Error::UnknownAbbreviation)
                 }
             }
         }
@@ -2094,11 +2092,10 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// Get the entry that the cursor is currently pointing to.
     pub fn current<'me>
         (&'me mut self)
-         -> Option<ParseResult<DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>> {
-        match self.current_ref() {
-            Some(Ok(current)) => Some(Ok(current.clone())),
-            Some(Err(e)) => Some(Err(e)),
-            None => None,
+         -> ParseResult<Option<DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>> {
+        match try!(self.current_ref()) {
+            Some(current) => Ok(Some(current.clone())),
+            None => Ok(None),
         }
     }
 
@@ -2201,7 +2198,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// let mut cursor = unit.entries(&abbrevs);
     ///
     /// // Keep looping while the cursor is moving deeper into the DIE tree.
-    /// while let Some(delta_depth) = cursor.next_dfs() {
+    /// while let Some(delta_depth) = cursor.next_dfs().expect("Should parse next dfs") {
     ///     // 0 means we moved to a sibling, a negative number means we went back
     ///     // up to a parent's sibling. In either case, bail out of the loop because
     ///     //  we aren't going deeper into the tree anymore.
@@ -2218,8 +2215,8 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// println!("The first entry with no children is {:?}",
     ///          first_entry_with_no_children.unwrap());
     /// ```
-    pub fn next_dfs(&mut self) -> Option<isize> {
-        self.current_ref();
+    pub fn next_dfs(&mut self) -> ParseResult<Option<isize>> {
+        try!(self.current_ref());
         {
             if self.cached_current.is_some() {
                 self.input = if let Some(after_attrs) = self.cached_current
@@ -2256,12 +2253,12 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                 self.cached_current = None;
 
                 if self.input.len() > 0 {
-                    Some(delta_depth)
+                    Ok(Some(delta_depth))
                 } else {
-                    None
+                    Ok(None)
                 }
             } else {
-                None
+                Ok(None)
             }
         }
     }
@@ -2353,7 +2350,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// let mut cursor = unit.entries(&abbrevs);
     ///
     /// // Move the cursor to the root's first child.
-    /// assert_eq!(cursor.next_dfs().unwrap(), 1);
+    /// assert_eq!(cursor.next_dfs().unwrap(), Some(1));
     ///
     /// // Iterate the root's children.
     /// loop {
@@ -2363,13 +2360,13 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     ///
     ///     println!("{:?} is a child of the root", current);
     ///
-    ///     if cursor.next_sibling().is_none() {
+    ///     if cursor.next_sibling().expect("Should parse next sibling").is_none() {
     ///         break;
     ///     }
     /// }
     /// ```
-    pub fn next_sibling(&mut self) -> Option<()> {
-        self.current_ref();
+    pub fn next_sibling(&mut self) -> ParseResult<Option<()>> {
+        try!(self.current_ref());
         {
             if self.cached_current.is_some() {
                 let sibling_ptr =
@@ -2380,10 +2377,10 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                         // attribute pointing to its sibling.
                         self.input = &self.unit.range_from(offset..);
                         if self.input.len() > 0 && self.input[0] != 0 {
-                            return Some(());
+                            return Ok(Some(()));
                         } else {
                             self.input = &[];
-                            return None;
+                            return Ok(None);
                         }
                     }
                 }
@@ -2393,28 +2390,28 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                 // sibling.
 
                 let mut depth = 0;
-                while let Some(delta_depth) = self.next_dfs() {
+                while let Some(delta_depth) = try!(self.next_dfs()) {
                     depth += delta_depth;
 
                     if depth == 0 && self.input[0] != 0 {
                         // We found the next sibling.
-                        return Some(());
+                        return Ok(Some(()));
                     }
 
                     if depth < 0 {
                         // We moved up to the original entry's parent's (or
                         // parent's parent's, etc ...) siblings.
                         self.input = &[];
-                        return None;
+                        return Ok(None);
                     }
                 }
 
                 // No sibling found.
                 self.input = &[];
-                None
+                Ok(None)
             } else {
                 self.input = &[];
-                None
+                Ok(None)
             }
         }
     }

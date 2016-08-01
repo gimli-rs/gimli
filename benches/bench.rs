@@ -69,7 +69,7 @@ fn bench_parsing_debug_info(b: &mut test::Bencher) {
                     }
                 }
 
-                if let None = cursor.next_dfs() {
+                if let None = cursor.next_dfs().expect("Should parse next dfs") {
                     break;
                 }
             }

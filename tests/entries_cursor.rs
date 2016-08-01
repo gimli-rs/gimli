@@ -31,7 +31,9 @@ fn assert_next_dfs<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCursor<'i
                                                    depth: isize)
     where Endian: Endianity
 {
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"),
+    assert_eq!(cursor.next_dfs()
+                   .expect("Should parse next dfs")
+                   .expect("Should not be done with traversal"),
                depth);
     assert_current_name(cursor, name);
 }
@@ -44,7 +46,9 @@ fn assert_next_sibling<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCurso
                                                        name: &'static str)
     where Endian: Endianity
 {
-    cursor.next_sibling().expect("Should not be done with traversal");
+    cursor.next_sibling()
+        .expect("Should parse next sibling")
+        .expect("Should not be done with traversal");
     assert_current_name(cursor, name);
 }
 
@@ -221,8 +225,8 @@ fn test_cursor_next_dfs() {
     assert_next_dfs(&mut cursor, "009", 1);
     assert_next_dfs(&mut cursor, "010", -2);
 
-    assert!(cursor.next_dfs().is_none());
-    assert!(cursor.current().is_none());
+    assert!(cursor.next_dfs().expect("Should parse next dfs").is_none());
+    assert!(cursor.current().expect("Should parse current entry").is_none());
 }
 
 #[test]
@@ -257,8 +261,8 @@ fn test_cursor_next_sibling_no_sibling_ptr() {
 
     // And now the cursor should be exhausted.
 
-    assert!(cursor.next_sibling().is_none());
-    assert!(cursor.current().is_none());
+    assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+    assert!(cursor.current().expect("Should parse current entry").is_none());
 }
 
 #[test]
@@ -420,6 +424,6 @@ fn test_cursor_next_sibling_with_sibling_ptr() {
 
     // And now the cursor should be exhausted.
 
-    assert!(cursor.next_sibling().is_none());
-    assert!(cursor.current().is_none());
+    assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+    assert!(cursor.current().expect("Should parse current entry").is_none());
 }
