@@ -72,11 +72,10 @@ fn test_parse_self_debug_line() {
             .expect("Should have a root entry");
 
         if let Some(value) = unit_entry.attr_value(DW_AT_stmt_list) {
-            // For whatever reason, rustc generated DW_FORM_data4 typed
-            // attributes for DW_AT_stmt_list attributes, when it seems to me
-            // like the more correct choice would be DW_FORM_sec_offset (the
-            // spec seems to agree -- see pages 214-215). Because of this, we
-            // have to turn the data into an offset.
+            // rustc generates DWARF 2 by default, which doesn't have
+            // DW_FORM_sec_offset, so instead we get DW_FORM_data4
+            // values. Because of this, we have to turn the data into an offset
+            // manually.
             let offset = match value {
                 AttributeValue::Data(data) => LittleEndian::read_u32(data),
                 otherwise => panic!("unexpected value form: {:?}", otherwise),
