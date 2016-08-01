@@ -1029,7 +1029,8 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
     /// # let unit = debug_info.units().next().unwrap().unwrap();
     /// # let abbrevs = unit.abbreviations(debug_abbrev).unwrap();
     /// # let mut cursor = unit.entries(&abbrevs);
-    /// # let mut get_some_entry = || cursor.current().unwrap().unwrap();
+    /// # cursor.next_dfs().unwrap();
+    /// # let mut get_some_entry = || cursor.current().unwrap();
     /// let entry = get_some_entry();
     ///
     /// match entry.tag() {
@@ -1112,9 +1113,8 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
     /// // Get the first entry from that compilation unit.
     ///
     /// let mut cursor = unit.entries(&abbrevs);
-    /// let entry = cursor.current()
-    ///     .expect("Should have at least one entry")
-    ///     .expect("and it should parse ok");
+    /// cursor.next_dfs().expect("Should parse next entry");
+    /// let entry = cursor.current().expect("Should have at least one entry");
     ///
     /// // Finally, print the first entry's attributes.
     ///
@@ -2054,23 +2054,10 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     where Endian: Endianity
 {
     /// Get a reference to the entry that the cursor is currently pointing to.
-    pub fn current_ref<'me>
-        (&'me mut self)
-         -> ParseResult<Option<&'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>> {
-        if self.cached_current.is_none() {
-            try!(self.next_entry());
-        }
-        Ok(self.cached_current.as_ref())
-    }
-
-    /// Get the entry that the cursor is currently pointing to.
     pub fn current<'me>
-        (&'me mut self)
-         -> ParseResult<Option<DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>>> {
-        match try!(self.current_ref()) {
-            Some(current) => Ok(Some(current.clone())),
-            None => Ok(None),
-        }
+        (&'me self)
+         -> Option<&'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>> {
+        self.cached_current.as_ref()
     }
 
     /// Return the input buffer after the current entry.
@@ -2241,10 +2228,8 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     ///         break;
     ///     }
     ///
-    ///     let current = cursor.current()
-    ///         .expect("Should be at an entry")
-    ///         .expect("And we should parse the entry ok");
-    ///     first_entry_with_no_children = Some(current);
+    ///     let current = cursor.current().expect("Should be at an entry");
+    ///     first_entry_with_no_children = Some(current.clone());
     /// }
     ///
     /// println!("The first entry with no children is {:?}",
@@ -2373,11 +2358,10 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     ///
     /// // Iterate the root's children.
     /// loop {
-    ///     let current = cursor.current()
-    ///         .expect("Should be at an entry")
-    ///         .expect("And we should parse the entry ok");
-    ///
-    ///     println!("{:?} is a child of the root", current);
+    ///     {
+    ///         let current = cursor.current().expect("Should be at an entry");
+    ///         println!("{:?} is a child of the root", current);
+    ///     }
     ///
     ///     if cursor.next_sibling().expect("Should parse next sibling").is_none() {
     ///         break;
@@ -2386,8 +2370,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// ```
     pub fn next_sibling(&mut self) -> ParseResult<Option<()>> {
         if self.cached_current.is_some() {
-            let sibling_ptr =
-                self.cached_current.as_ref().unwrap().attr_value(constants::DW_AT_sibling);
+            let sibling_ptr = self.current().unwrap().attr_value(constants::DW_AT_sibling);
             if let Some(AttributeValue::UnitRef(offset)) = sibling_ptr {
                 if self.unit.is_valid_offset(offset) {
                     // Fast path: this entry has a DW_AT_sibling

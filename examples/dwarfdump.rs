@@ -73,9 +73,7 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>)
 {
     let depth = Cell::new(0);
     while let Some(delta_depth) = entries.next_dfs().expect("Should parse next dfs") {
-        let entry = entries.current()
-            .expect("Should have a current entry")
-            .expect("And should parse that entry OK");
+        let entry = entries.current().expect("Should have a current entry");
 
         depth.set(depth.get() + delta_depth);
         let indent = || {

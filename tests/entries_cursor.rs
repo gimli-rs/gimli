@@ -9,9 +9,7 @@ fn assert_current_name<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCurso
                                                        name: &'static str)
     where Endian: Endianity
 {
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
+    let entry = cursor.current().expect("Should have an entry result");
 
     let value = entry.attr_value(gimli::DW_AT_name)
         .expect("Should have found the name attribute");
@@ -46,7 +44,7 @@ fn assert_next_entry_null<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCu
     cursor.next_entry()
         .expect("Should parse next entry")
         .expect("Should have an entry");
-    // assert!(cursor.current().expect("Should parse current entry").is_none());
+    assert!(cursor.current().is_none());
 }
 
 #[cfg(test)]
@@ -263,7 +261,7 @@ fn test_cursor_next_entry() {
     assert_next_entry_null(&mut cursor);
 
     assert!(cursor.next_entry().expect("Should parse next entry").is_none());
-    assert!(cursor.current().expect("Should parse current entry").is_none());
+    assert!(cursor.current().is_none());
 }
 
 #[test]
@@ -284,7 +282,7 @@ fn test_cursor_next_dfs() {
 
     let mut cursor = unit.entries(&abbrevs);
 
-    assert_current_name(&mut cursor, "001");
+    assert_next_dfs(&mut cursor, "001", 0);
     assert_next_dfs(&mut cursor, "002", 1);
     assert_next_dfs(&mut cursor, "003", 1);
     assert_next_dfs(&mut cursor, "004", -1);
@@ -296,7 +294,7 @@ fn test_cursor_next_dfs() {
     assert_next_dfs(&mut cursor, "010", -2);
 
     assert!(cursor.next_dfs().expect("Should parse next dfs").is_none());
-    assert!(cursor.current().expect("Should parse current entry").is_none());
+    assert!(cursor.current().is_none());
 }
 
 #[test]
@@ -317,7 +315,7 @@ fn test_cursor_next_sibling_no_sibling_ptr() {
 
     let mut cursor = unit.entries(&abbrevs);
 
-    assert_current_name(&mut cursor, "001");
+    assert_next_dfs(&mut cursor, "001", 0);
 
     // Down to the first child of the root entry.
 
@@ -332,7 +330,7 @@ fn test_cursor_next_sibling_no_sibling_ptr() {
     // There should be no more siblings.
 
     assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
-    assert!(cursor.current().expect("Should parse current entry").is_none());
+    assert!(cursor.current().is_none());
 }
 
 #[test]
@@ -353,7 +351,7 @@ fn test_cursor_next_sibling_continuation() {
 
     let mut cursor = unit.entries(&abbrevs);
 
-    assert_current_name(&mut cursor, "001");
+    assert_next_dfs(&mut cursor, "001", 0);
 
     // Down to the first child of the root entry.
 
@@ -377,7 +375,7 @@ fn test_cursor_next_sibling_continuation() {
     // There should be no more siblings.
 
     assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
-    assert!(cursor.current().expect("Should parse current entry").is_none());
+    assert!(cursor.current().is_none());
 }
 
 #[test]
@@ -526,7 +524,7 @@ fn test_cursor_next_sibling_with_sibling_ptr() {
 
     let mut cursor = unit.entries(&abbrevs);
 
-    assert_current_name(&mut cursor, "001");
+    assert_next_dfs(&mut cursor, "001", 0);
 
     // Down to the first child of the root.
 
@@ -540,5 +538,5 @@ fn test_cursor_next_sibling_with_sibling_ptr() {
     // There should be no more siblings.
 
     assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
-    assert!(cursor.current().expect("Should parse current entry").is_none());
+    assert!(cursor.current().is_none());
 }

@@ -44,9 +44,7 @@
 //!
 //! // Keep iterating entries while the cursor is not exhausted.
 //! while let Some(_) = entries.next_dfs().expect("Should parse next entry") {
-//!     let entry = entries.current()
-//!         .expect("Should have a current entry")
-//!         .expect("And should parse that entry OK");
+//!     let entry = entries.current().expect("Should have a current entry");
 //!     // If we find an entry for a function, print it.
 //!     if entry.tag() == gimli::DW_TAG_subprogram {
 //!         println!("Found a function: {:?}", entry);
