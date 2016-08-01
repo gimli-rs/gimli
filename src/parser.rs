@@ -2384,52 +2384,51 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// ```
     pub fn next_sibling(&mut self) -> ParseResult<Option<()>> {
         try!(self.current_ref());
-        {
-            if self.cached_current.is_some() {
-                let sibling_ptr =
-                    self.cached_current.as_ref().unwrap().attr_value(constants::DW_AT_sibling);
-                if let Some(AttributeValue::UnitRef(offset)) = sibling_ptr {
-                    if self.unit.is_valid_offset(offset) {
-                        // Fast path: this entry has a DW_AT_sibling
-                        // attribute pointing to its sibling.
-                        self.input = &self.unit.range_from(offset..);
-                        if self.input.len() > 0 && self.input[0] != 0 {
-                            return Ok(Some(()));
-                        } else {
-                            self.input = &[];
-                            return Ok(None);
-                        }
-                    }
-                }
 
-                // Slow path: either the entry doesn't have a sibling pointer,
-                // or the pointer is bogus. Do a DFS until we get to the next
-                // sibling.
-
-                let mut depth = 0;
-                while let Some(delta_depth) = try!(self.next_dfs()) {
-                    depth += delta_depth;
-
-                    if depth == 0 && self.input[0] != 0 {
-                        // We found the next sibling.
+        if self.cached_current.is_some() {
+            let sibling_ptr =
+                self.cached_current.as_ref().unwrap().attr_value(constants::DW_AT_sibling);
+            if let Some(AttributeValue::UnitRef(offset)) = sibling_ptr {
+                if self.unit.is_valid_offset(offset) {
+                    // Fast path: this entry has a DW_AT_sibling
+                    // attribute pointing to its sibling.
+                    self.input = &self.unit.range_from(offset..);
+                    if self.input.len() > 0 && self.input[0] != 0 {
                         return Ok(Some(()));
-                    }
-
-                    if depth < 0 {
-                        // We moved up to the original entry's parent's (or
-                        // parent's parent's, etc ...) siblings.
+                    } else {
                         self.input = &[];
                         return Ok(None);
                     }
                 }
-
-                // No sibling found.
-                self.input = &[];
-                Ok(None)
-            } else {
-                self.input = &[];
-                Ok(None)
             }
+
+            // Slow path: either the entry doesn't have a sibling pointer,
+            // or the pointer is bogus. Do a DFS until we get to the next
+            // sibling.
+
+            let mut depth = 0;
+            while let Some(delta_depth) = try!(self.next_dfs()) {
+                depth += delta_depth;
+
+                if depth == 0 && self.input[0] != 0 {
+                    // We found the next sibling.
+                    return Ok(Some(()));
+                }
+
+                if depth < 0 {
+                    // We moved up to the original entry's parent's (or
+                    // parent's parent's, etc ...) siblings.
+                    self.input = &[];
+                    return Ok(None);
+                }
+            }
+
+            // No sibling found.
+            self.input = &[];
+            Ok(None)
+        } else {
+            self.input = &[];
+            Ok(None)
         }
     }
 }
