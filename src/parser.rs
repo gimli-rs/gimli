@@ -2222,21 +2222,29 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
         self.current_ref();
         {
             if self.cached_current.is_some() {
-                self.input = if let Some(after_attrs) = self.cached_current.as_ref().unwrap().after_attrs.get() {
+                self.input = if let Some(after_attrs) = self.cached_current
+                    .as_ref()
+                    .unwrap()
+                    .after_attrs
+                    .get() {
                     after_attrs
                 } else {
                     for _ in self.cached_current.as_ref().unwrap().attrs() {
                     }
-                    self.cached_current.as_ref().unwrap().after_attrs
+                    self.cached_current
+                        .as_ref()
+                        .unwrap()
+                        .after_attrs
                         .get()
                         .expect("should have after_attrs after iterating attrs")
                 };
 
-                let mut delta_depth = if self.cached_current.as_ref().unwrap().abbrev.has_children() {
-                    1
-                } else {
-                    0
-                };
+                let mut delta_depth =
+                    if self.cached_current.as_ref().unwrap().abbrev.has_children() {
+                        1
+                    } else {
+                        0
+                    };
 
                 // Keep eating null entries that mark the end of an entry's
                 // children.
@@ -2364,7 +2372,8 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
         self.current_ref();
         {
             if self.cached_current.is_some() {
-                let sibling_ptr = self.cached_current.as_ref().unwrap().attr_value(constants::DW_AT_sibling);
+                let sibling_ptr =
+                    self.cached_current.as_ref().unwrap().attr_value(constants::DW_AT_sibling);
                 if let Some(AttributeValue::UnitRef(offset)) = sibling_ptr {
                     if self.unit.is_valid_offset(offset) {
                         // Fast path: this entry has a DW_AT_sibling
