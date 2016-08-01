@@ -1,6 +1,7 @@
 extern crate gimli;
 use gimli::{AttributeValue, DebugAbbrev, DebugInfo, DebuggingInformationEntry, Endianity,
             EntriesCursor, LittleEndian, UnitHeader};
+use std::ffi;
 
 #[cfg(test)]
 fn assert_entry_name<Endian>(entry: &DebuggingInformationEntry<Endian>, name: &str)
@@ -12,7 +13,8 @@ fn assert_entry_name<Endian>(entry: &DebuggingInformationEntry<Endian>, name: &s
     let mut with_null: Vec<u8> = name.as_bytes().into();
     with_null.push(0);
 
-    assert_eq!(value, AttributeValue::String(&with_null));
+    assert_eq!(value,
+               AttributeValue::String(ffi::CStr::from_bytes_with_nul(&with_null).unwrap()));
 }
 
 #[cfg(test)]

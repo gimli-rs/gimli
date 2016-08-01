@@ -1,5 +1,6 @@
 use endianity::{Endianity, EndianBuf};
 use parser;
+use std::ffi;
 use std::marker::PhantomData;
 
 /// An offset into the `.debug_line` section.
@@ -206,7 +207,7 @@ pub struct LineNumberProgramHeader<'input, Endian>
     /// > of the compilation.
     /// >
     /// > The last entry is followed by a single null byte.
-    include_directories: Vec<&'input [u8]>,
+    include_directories: Vec<&'input ffi::CStr>,
 
     /// "Entries in this sequence describe source files that contribute to the
     /// line number information for this compilation unit or is used in other
@@ -294,7 +295,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
     ///
     /// The compilation's current directory is not included in the return value,
     /// but is implicitly considered to be in the set per spec.
-    pub fn include_directories(&self) -> &[&[u8]] {
+    pub fn include_directories(&self) -> &[&ffi::CStr] {
         &self.include_directories[..]
     }
 
@@ -397,7 +398,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
 pub struct FileEntry<'input> {
     /// "A null-terminated string containing the full or relative path name of a
     /// source file."
-    path_name: &'input [u8],
+    path_name: &'input ffi::CStr,
 
     /// "An unsigned LEB128 number representing the directory index of a
     /// directory in the `include_directories` [header] section."
@@ -456,6 +457,7 @@ mod tests {
     use super::*;
     use endianity::{EndianBuf, LittleEndian};
     use parser::Error;
+    use std::ffi;
 
     #[test]
     #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -529,20 +531,20 @@ mod tests {
         assert_eq!(header.standard_opcode_lengths(), &expected_lengths);
 
         let expected_include_directories = [
-            &b"/inc\0"[..],
-            &b"/inc2\0"[..],
+            ffi::CStr::from_bytes_with_nul(b"/inc\0").unwrap(),
+            ffi::CStr::from_bytes_with_nul(b"/inc2\0").unwrap(),
         ];
         assert_eq!(header.include_directories(), &expected_include_directories);
 
         let expected_file_names = [
             FileEntry {
-                path_name: &b"foo.rs\0"[..],
+                path_name: ffi::CStr::from_bytes_with_nul(b"foo.rs\0").unwrap(),
                 directory_index: 0,
                 last_modification: 0,
                 length: 0,
             },
             FileEntry {
-                path_name: &b"bar.h\0"[..],
+                path_name: ffi::CStr::from_bytes_with_nul(b"bar.h\0").unwrap(),
                 directory_index: 1,
                 last_modification: 0,
                 length: 0,

@@ -10,6 +10,7 @@ use endianity::{Endianity, EndianBuf};
 use endianity::LittleEndian;
 use std::cell::Cell;
 use std::error;
+use std::ffi;
 use std::fmt::{self, Debug};
 use std::io;
 use std::mem;
@@ -164,11 +165,17 @@ pub fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(Endian
 
 /// Parse a null-terminated slice from the input.
 #[doc(hidden)]
-pub fn parse_null_terminated_string(input: &[u8]) -> ParseResult<(&[u8], &[u8])> {
+pub fn parse_null_terminated_string(input: &[u8]) -> ParseResult<(&[u8], &ffi::CStr)> {
     let null_idx = input.iter().position(|ch| *ch == 0);
 
     if let Some(idx) = null_idx {
-        Ok((&input[idx + 1..], &input[0..idx + 1]))
+        let cstr = unsafe {
+            // It is safe to use the unchecked variant here because we know we
+            // grabbed the index of the first null byte in the input and
+            // therefore there can't be any interior null bytes in this slice.
+            ffi::CStr::from_bytes_with_nul_unchecked(&input[0..idx + 1])
+        };
+        Ok((&input[idx + 1..], cstr))
     } else {
         Err(Error::UnexpectedEof)
     }
@@ -1167,7 +1174,7 @@ pub enum AttributeValue<'input> {
 
     /// A null terminated C string, including the final null byte. Not
     /// guaranteed to be UTF-8 or anything like that.
-    String(&'input [u8]),
+    String(&'input ffi::CStr),
 }
 
 /// An attribute in a `DebuggingInformationEntry`, consisting of a name and
@@ -1816,7 +1823,7 @@ fn test_parse_attribute_string() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x0, 0x99, 0x99];
     let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_string;
-    let value = AttributeValue::String(&buf[..6]);
+    let value = AttributeValue::String(ffi::CStr::from_bytes_with_nul(&buf[..6]).unwrap());
     test_parse_attribute(&buf, 6, &unit, form, value);
 }
 
@@ -1944,7 +1951,8 @@ fn test_attrs_iter() {
             assert_eq!(attr,
                        Attribute {
                            name: constants::DW_AT_name,
-                           value: AttributeValue::String(b"foo\0"),
+                           value: AttributeValue::String(ffi::CStr::from_bytes_with_nul(b"foo\0")
+                               .unwrap()),
                        });
         }
         otherwise => {
@@ -2033,7 +2041,8 @@ fn test_attrs_iter_incomplete() {
             assert_eq!(attr,
                        Attribute {
                            name: constants::DW_AT_name,
-                           value: AttributeValue::String(b"foo\0"),
+                           value: AttributeValue::String(ffi::CStr::from_bytes_with_nul(b"foo\0")
+                               .unwrap()),
                        });
         }
         otherwise => {
