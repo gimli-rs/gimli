@@ -85,9 +85,12 @@ fn assert_next_sibling<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCurso
                                                        name: &'static str)
     where Endian: Endianity
 {
-    cursor.next_sibling()
-        .expect("Should parse next sibling")
-        .expect("Should not be done with traversal");
+    {
+        let entry = cursor.next_sibling()
+            .expect("Should parse next sibling")
+            .expect("Should not be done with traversal");
+        assert_entry_name(entry, name);
+    }
     assert_current_name(cursor, name);
 }
 

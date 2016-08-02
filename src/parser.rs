@@ -2266,7 +2266,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
 
     /// Move the cursor to the next sibling DIE of the current one.
     ///
-    /// Returns `Ok(Some(()))` when the cursor has been moved to
+    /// Returns `Ok(Some(entry))` when the cursor has been moved to
     /// the next sibling, `Ok(None)` when there is no next sibling.
     ///
     /// The depth of the cursor is never changed if this method returns `Ok`.
@@ -2370,7 +2370,9 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     ///     }
     /// }
     /// ```
-    pub fn next_sibling(&mut self) -> ParseResult<Option<()>> {
+    pub fn next_sibling<'me>
+        (&'me mut self)
+         -> ParseResult<Option<(&'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>)>> {
         if self.cached_current.is_some() {
             let sibling_ptr = self.current().unwrap().attr_value(constants::DW_AT_sibling);
             if let Some(AttributeValue::UnitRef(offset)) = sibling_ptr {
@@ -2380,11 +2382,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                     self.input = &self.unit.range_from(offset..);
                     self.cached_current = None;
                     try!(self.next_entry());
-                    if self.cached_current.is_some() {
-                        return Ok(Some(()));
-                    } else {
-                        return Ok(None);
-                    }
+                    return Ok(self.current());
                 }
             }
 
@@ -2402,11 +2400,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
 
             // The next entry will be the sibling, so parse it
             try!(self.next_entry());
-            if self.cached_current.is_some() {
-                Ok(Some(()))
-            } else {
-                Ok(None)
-            }
+            Ok(self.current())
         } else {
             Ok(None)
         }
