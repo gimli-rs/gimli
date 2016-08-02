@@ -1,16 +1,15 @@
 extern crate gimli;
-use gimli::{AttributeValue, DebugAbbrev, DebugInfo, Endianity, EntriesCursor, LittleEndian};
+use gimli::{AttributeValue, DebugAbbrev, DebugInfo, DebuggingInformationEntry, Endianity,
+            EntriesCursor, LittleEndian};
 
 #[cfg(test)]
-fn assert_current_name<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCursor<'input,
-                                                                                  'abbrev,
-                                                                                  'unit,
-                                                                                  Endian>,
-                                                       name: &'static str)
+fn assert_entry_name<'input, 'abbrev, 'unit, Endian>(entry: &DebuggingInformationEntry<'input,
+                                                                                       'abbrev,
+                                                                                       'unit,
+                                                                                       Endian>,
+                                                     name: &'static str)
     where Endian: Endianity
 {
-    let entry = cursor.current().expect("Should have an entry result");
-
     let value = entry.attr_value(gimli::DW_AT_name)
         .expect("Should have found the name attribute");
 
@@ -18,6 +17,18 @@ fn assert_current_name<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCurso
     with_null.push(0);
 
     assert_eq!(value, AttributeValue::String(&with_null));
+}
+
+#[cfg(test)]
+fn assert_current_name<'input, 'abbrev, 'unit, Endian>(cursor: &EntriesCursor<'input,
+                                                                              'abbrev,
+                                                                              'unit,
+                                                                              Endian>,
+                                                       name: &'static str)
+    where Endian: Endianity
+{
+    let entry = cursor.current().expect("Should have an entry result");
+    assert_entry_name(entry, name);
 }
 
 #[cfg(test)]
@@ -56,10 +67,13 @@ fn assert_next_dfs<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCursor<'i
                                                    depth: isize)
     where Endian: Endianity
 {
-    assert_eq!(cursor.next_dfs()
-                   .expect("Should parse next dfs")
-                   .expect("Should not be done with traversal"),
-               depth);
+    {
+        let (val, entry) = cursor.next_dfs()
+            .expect("Should parse next dfs")
+            .expect("Should not be done with traversal");
+        assert_eq!(val, depth);
+        assert_entry_name(entry, name);
+    }
     assert_current_name(cursor, name);
 }
 
