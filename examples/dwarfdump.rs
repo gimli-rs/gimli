@@ -26,6 +26,7 @@ fn dump_file<Endian>(file: obj::File)
 
     dump_info(&file, debug_abbrev);
     dump_types(&file, debug_abbrev);
+    dump_line(&file, debug_abbrev);
 }
 
 fn dump_info<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>)
@@ -87,6 +88,97 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>)
         while let Some(attr) = attrs.next().expect("Should parse attribute OK") {
             indent();
             println!("    {} = {:?}", attr.name(), attr.value());
+        }
+    }
+}
+
+fn dump_line<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>)
+    where Endian: gimli::Endianity
+{
+    let debug_line = obj::get_section(file, ".debug_line");
+    let debug_info = obj::get_section(file, ".debug_info");
+
+    if let (Some(debug_line), Some(debug_info)) = (debug_line, debug_info) {
+        println!(".debug_line");
+        println!("");
+
+        let debug_line = gimli::DebugLine::<Endian>::new(&debug_line);
+        let debug_info = gimli::DebugInfo::<Endian>::new(&debug_info);
+
+        for unit in debug_info.units() {
+            let unit = unit.expect("Should parse unit header OK");
+
+            let abbrevs = unit.abbreviations(debug_abbrev)
+                .expect("Error parsing abbreviations");
+
+            let mut cursor = unit.entries(&abbrevs);
+            cursor.next_dfs().expect("Should parse next dfs");
+
+            let root = cursor.current().expect("Should have a root DIE");
+            let value = root.attr_value(gimli::DW_AT_stmt_list);
+            let offset = gimli::DebugLineOffset(match value {
+                Some(gimli::AttributeValue::Data(data)) if data.len() == 4 => {
+                    Endian::read_u32(data) as u64
+                }
+                Some(gimli::AttributeValue::Data(data)) if data.len() == 8 => {
+                    Endian::read_u64(data)
+                }
+                Some(gimli::AttributeValue::SecOffset(offset)) => offset,
+                _ => continue,
+            });
+
+            let header =
+                gimli::LineNumberProgramHeader::new(debug_line, offset, unit.address_size());
+            if let Ok(header) = header {
+                println!("");
+                println!("Offset:                             0x{:x}", offset.0);
+                println!("Length:                             {}",
+                         header.unit_length());
+                println!("DWARF version:                      {}", header.version());
+                println!("Prologue length:                    {}",
+                         header.header_length());
+                println!("Minimum instruction length:         {}",
+                         header.minimum_instruction_length());
+                println!("Maximum operations per instruction: {}",
+                         header.maximum_operations_per_instruction());
+                println!("Default is_stmt:                    {}",
+                         header.default_is_stmt());
+                println!("Line base:                          {}", header.line_base());
+                println!("Line range:                         {}",
+                         header.line_range());
+                println!("Opcode base:                        {}",
+                         header.opcode_base());
+
+                println!("");
+                println!("Opcodes:");
+                for (i, length) in header.standard_opcode_lengths().iter().enumerate() {
+                    println!("  Opcode {} as {} args", i + 1, length);
+                }
+
+                println!("");
+                println!("The Directory Table:");
+                for (i, dir) in header.include_directories().iter().enumerate() {
+                    println!("  {} {}", i + 1, dir.to_string_lossy());
+                }
+
+                println!("");
+                println!("The File Name Table");
+                println!("  Entry\tDir\tTime\tSize\tName");
+                for (i, file) in header.file_names().iter().enumerate() {
+                    println!("  {}\t{}\t{}\t{}\t{}",
+                             i + 1,
+                             file.directory_index(),
+                             file.last_modification(),
+                             file.length(),
+                             file.path_name().to_string_lossy());
+                }
+
+                println!("");
+                println!("Line Number Statements:");
+                for opcode in header.opcodes() {
+                    println!("  {}", opcode.expect("Should parse opcode OK"));
+                }
+            }
         }
     }
 }

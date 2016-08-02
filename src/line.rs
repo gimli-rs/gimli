@@ -1,6 +1,9 @@
+use constants;
 use endianity::{Endianity, EndianBuf};
 use parser;
+use std::cell::{Ref, RefCell};
 use std::ffi;
+use std::fmt;
 use std::marker::PhantomData;
 
 /// An offset into the `.debug_line` section.
@@ -44,18 +47,620 @@ impl<'input, Endian> DebugLine<'input, Endian>
 /// "The hypothetical machine used by a consumer of the line number information
 /// to expand the byte-coded instruction stream into a matrix of line number
 /// information." -- Section 6.2.1
-#[allow(dead_code)] // TODO FITZGEN
-pub struct StateMachine {
+#[derive(Debug)]
+pub struct StateMachine<'input, 'header, Endian>
+    where Endian: 'header + Endianity,
+          'input: 'header
+{
+    header: &'header LineNumberProgramHeader<'input, Endian>,
+    registers: StateMachineRegisters,
+    opcodes: OpcodesIter<'header, 'input, Endian>,
+}
+
+impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
+    where Endian: Endianity
+{
+    /// Construct a new `StateMachine` for executing line programs and
+    /// generating the line information matrix.
+    pub fn new(header: &'header LineNumberProgramHeader<'input, Endian>) -> Self {
+        let mut registers = StateMachineRegisters::default();
+        registers.reset(header.default_is_stmt());
+        let opcodes = OpcodesIter {
+            header: header,
+            input: header.program_buf.0,
+        };
+        StateMachine {
+            header: header,
+            registers: registers,
+            opcodes: opcodes,
+        }
+    }
+
+    /// Step 2 of section 6.2.5.1
+    fn apply_operation_advance(&mut self, operation_advance: i64) {
+        let minimum_instruction_length = self.header.minimum_instruction_length as u64;
+        let maximum_operations_per_instruction =
+            self.header.maximum_operations_per_instruction as u64;
+
+        let op_index_with_advance = if operation_advance < 0 {
+            self.registers.op_index - (-operation_advance as u64)
+        } else {
+            self.registers.op_index + (operation_advance as u64)
+        };
+
+        self.registers.address = self.registers.address +
+                                 minimum_instruction_length *
+                                 (op_index_with_advance / maximum_operations_per_instruction);
+
+        self.registers.op_index = op_index_with_advance % maximum_operations_per_instruction;
+    }
+
+    fn adjust_opcode(&self, opcode: u8) -> i64 {
+        let opcode = opcode as i64;
+        let line_base = self.header.line_base as i64;
+        opcode - line_base
+    }
+
+    /// Section 6.2.5.1
+    fn exec_special_opcode(&mut self, opcode: u8) -> LineNumberRow<'input, 'header, Endian> {
+        let adjusted_opcode = self.adjust_opcode(opcode);
+
+        // Step 1
+
+        let line_base = self.header.line_base as i64;
+        let line_range = self.header.line_range as i64;
+        let line_increment = line_base + (adjusted_opcode % line_range);
+        if line_increment < 0 {
+            let decrement = -line_increment as u64;
+            if decrement <= self.registers.line {
+                self.registers.line -= decrement;
+            } else {
+                self.registers.line = 0;
+            }
+        } else {
+            self.registers.line += line_increment as u64;
+        }
+
+        // Step 2
+
+        let operation_advance = (adjusted_opcode as i64) / (self.header.line_range as i64);
+        self.apply_operation_advance(operation_advance);
+
+        // Step 3
+
+        let row = LineNumberRow::new(self.header, self.registers);
+
+        // Step 4
+
+        self.registers.basic_block = false;
+
+        // Step 5
+
+        self.registers.prologue_end = false;
+
+        // Step 6
+
+        self.registers.epilogue_begin = false;
+
+        // Step 7
+
+        self.registers.discriminator = 0;
+
+        row
+    }
+
+    /// Execute the given opcode, if a new row in the line number matrix is
+    /// generated, return it.
+    ///
+    /// Unknown opcodes are treated as no-ops.
+    pub fn execute(&mut self,
+                   opcode: Opcode<'input>)
+                   -> Option<LineNumberRow<'input, 'header, Endian>> {
+        match opcode {
+            Opcode::Special(opcode) => Some(self.exec_special_opcode(opcode)),
+
+            Opcode::Copy => {
+                let row = LineNumberRow::new(self.header, self.registers);
+                self.registers.discriminator = 0;
+                self.registers.basic_block = false;
+                self.registers.prologue_end = false;
+                self.registers.epilogue_begin = false;
+                Some(row)
+            }
+
+            Opcode::AdvancePc(operation_advance) => {
+                self.apply_operation_advance(operation_advance as i64);
+                None
+            }
+
+            Opcode::AdvanceLine(line_increment) => {
+                if line_increment < 0 {
+                    let decrement = -line_increment as u64;
+                    if decrement <= self.registers.line {
+                        self.registers.line -= decrement;
+                    } else {
+                        self.registers.line = 0;
+                    }
+                } else {
+                    self.registers.line += line_increment as u64;
+                }
+                None
+            }
+
+            Opcode::SetFile(file) => {
+                self.registers.file = file;
+                None
+            }
+
+            Opcode::SetColumn(column) => {
+                self.registers.column = column;
+                None
+            }
+
+            Opcode::NegateStatement => {
+                self.registers.is_stmt = !self.registers.is_stmt;
+                None
+            }
+
+            Opcode::SetBasicBlock => {
+                self.registers.basic_block = true;
+                None
+            }
+
+            Opcode::ConstAddPc => {
+                let adjusted = self.adjust_opcode(255);
+                let operation_advance = (adjusted as i64) / (self.header.line_range as i64);
+                self.apply_operation_advance(operation_advance);
+                None
+            }
+
+            Opcode::FixedAddPc(operand) => {
+                self.registers.address += operand as u64;
+                None
+            }
+
+            Opcode::SetPrologueEnd => {
+                self.registers.prologue_end = true;
+                None
+            }
+
+            Opcode::SetEpilogueBegin => {
+                self.registers.epilogue_begin = true;
+                None
+            }
+
+            Opcode::SetIsa(isa) => {
+                self.registers.isa = isa;
+                None
+            }
+
+            Opcode::EndSequence => {
+                self.registers.end_sequence = true;
+                let row = LineNumberRow::new(self.header, self.registers);
+                self.registers.reset(self.header.default_is_stmt);
+                Some(row)
+            }
+
+            Opcode::SetAddress(address) => {
+                self.registers.address = address;
+                self.registers.op_index = 0;
+                None
+            }
+
+            Opcode::DefineFile(entry) => {
+                self.header.file_names.borrow_mut().push(entry);
+                None
+            }
+
+            Opcode::SetDiscriminator(discriminator) => {
+                self.registers.discriminator = discriminator;
+                None
+            }
+
+            // Compatibility with future opcodes.
+            Opcode::UnknownStandard0(_) |
+            Opcode::UnknownStandard1(_, _) |
+            Opcode::UnknownStandardN(_, _) |
+            Opcode::UnknownExtended(_, _) => None,
+        }
+    }
+}
+
+impl<'input, 'header, Endian> Iterator for StateMachine<'input, 'header, Endian>
+    where Endian: 'header + Endianity,
+          'input: 'header
+{
+    type Item = parser::ParseResult<LineNumberRow<'input, 'header, Endian>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.opcodes.next() {
+                None => return None,
+                Some(Err(err)) => return Some(Err(err)),
+                Some(Ok(opcode)) => {
+                    if let Some(row) = self.execute(opcode) {
+                        return Some(Ok(row));
+                    }
+                    // Fall through, parse the next opcode, and see if that
+                    // yields a row.
+                }
+            }
+        }
+    }
+}
+
+/// A parsed line number program opcode.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Opcode<'input> {
+    /// > ### 6.2.5.1 Special Opcodes
+    /// >
+    /// > Each ubyte special opcode has the following effect on the state machine:
+    /// >
+    /// >   1. Add a signed integer to the line register.
+    /// >
+    /// >   2. Modify the operation pointer by incrementing the address and
+    /// >   op_index registers as described below.
+    /// >
+    /// >   3. Append a row to the matrix using the current values of the state
+    /// >   machine registers.
+    /// >
+    /// >   4. Set the basic_block register to “false.”
+    /// >
+    /// >   5. Set the prologue_end register to “false.”
+    /// >
+    /// >   6. Set the epilogue_begin register to “false.”
+    /// >
+    /// >   7. Set the discriminator register to 0.
+    /// >
+    /// > All of the special opcodes do those same seven things; they differ from
+    /// > one another only in what values they add to the line, address and
+    /// > op_index registers.
+    Special(u8),
+
+    /// "[`Opcode::Copy`] appends a row to the matrix using the current values of the state
+    /// machine registers. Then it sets the discriminator register to 0, and
+    /// sets the basic_block, prologue_end and epilogue_begin registers to
+    /// “false.”"
+    Copy,
+
+    /// "The DW_LNS_advance_pc opcode takes a single unsigned LEB128 operand as
+    /// the operation advance and modifies the address and op_index registers
+    /// [the same as `Opcode::Special`]"
+    AdvancePc(u64),
+
+    /// "The DW_LNS_advance_line opcode takes a single signed LEB128 operand and
+    /// adds that value to the line register of the state machine."
+    AdvanceLine(i64),
+
+    /// "The DW_LNS_set_file opcode takes a single unsigned LEB128 operand and
+    /// stores it in the file register of the state machine."
+    SetFile(u64),
+
+    /// "The DW_LNS_set_column opcode takes a single unsigned LEB128 operand and
+    /// stores it in the column register of the state machine."
+    SetColumn(u64),
+
+    /// "The DW_LNS_negate_stmt opcode takes no operands. It sets the is_stmt
+    /// register of the state machine to the logical negation of its current
+    /// value."
+    NegateStatement,
+
+    /// "The DW_LNS_set_basic_block opcode takes no operands. It sets the
+    /// basic_block register of the state machine to “true.”"
+    SetBasicBlock,
+
+    /// > The DW_LNS_const_add_pc opcode takes no operands. It advances the
+    /// > address and op_index registers by the increments corresponding to
+    /// > special opcode 255.
+    /// >
+    /// > When the line number program needs to advance the address by a small
+    /// > amount, it can use a single special opcode, which occupies a single
+    /// > byte. When it needs to advance the address by up to twice the range of
+    /// > the last special opcode, it can use DW_LNS_const_add_pc followed by a
+    /// > special opcode, for a total of two bytes. Only if it needs to advance
+    /// > the address by more than twice that range will it need to use both
+    /// > DW_LNS_advance_pc and a special opcode, requiring three or more bytes.
+    ConstAddPc,
+
+    /// > The DW_LNS_fixed_advance_pc opcode takes a single uhalf (unencoded)
+    /// > operand and adds it to the address register of the state machine and
+    /// > sets the op_index register to 0. This is the only standard opcode whose
+    /// > operand is not a variable length number. It also does not multiply the
+    /// > operand by the minimum_instruction_length field of the header.
+    FixedAddPc(u16),
+
+    /// "[`Opcode::SetPrologueEnd`] sets the prologue_end register to “true”."
+    SetPrologueEnd,
+
+    /// "[`Opcode::SetEpilogueBegin`] sets the epilogue_begin register to
+    /// “true”."
+    SetEpilogueBegin,
+
+    /// "The DW_LNS_set_isa opcode takes a single unsigned LEB128 operand and
+    /// stores that value in the isa register of the state machine."
+    SetIsa(u64),
+
+    /// An unknown standard opcode with zero operands.
+    UnknownStandard0(constants::DwLns),
+
+    /// An unknown standard opcode with one operand.
+    UnknownStandard1(constants::DwLns, u64),
+
+    /// An unknown standard opcode with multiple operands.
+    UnknownStandardN(constants::DwLns, Vec<u64>),
+
+    /// > [`Opcode::EndSequence`] sets the end_sequence register of the state
+    /// > machine to “true” and appends a row to the matrix using the current
+    /// > values of the state-machine registers. Then it resets the registers to
+    /// > the initial values specified above (see Section 6.2.2). Every line
+    /// > number program sequence must end with a DW_LNE_end_sequence instruction
+    /// > which creates a row whose address is that of the byte after the last
+    /// > target machine instruction of the sequence.
+    EndSequence,
+
+    /// > The DW_LNE_set_address opcode takes a single relocatable address as an
+    /// > operand. The size of the operand is the size of an address on the target
+    /// > machine. It sets the address register to the value given by the
+    /// > relocatable address and sets the op_index register to 0.
+    /// >
+    /// > All of the other line number program opcodes that affect the address
+    /// > register add a delta to it. This instruction stores a relocatable value
+    /// > into it instead.
+    SetAddress(u64),
+
+    /// Defines a new source file in the line number program and appends it to
+    /// the line number program header's list of source files.
+    DefineFile(FileEntry<'input>),
+
+    /// "The DW_LNE_set_discriminator opcode takes a single parameter, an
+    /// unsigned LEB128 integer. It sets the discriminator register to the new
+    /// value."
+    SetDiscriminator(u64),
+
+    /// An unknown extended opcode and the slice of its unparsed operands.
+    UnknownExtended(constants::DwLne, &'input [u8]),
+}
+
+impl<'input> Opcode<'input> {
+    fn parse<'header, Endian>(header: &'header LineNumberProgramHeader<'input, Endian>,
+                              input: &'input [u8])
+                              -> parser::ParseResult<(&'input [u8], Opcode<'input>)>
+        where Endian: 'header + Endianity,
+              'input: 'header
+    {
+        let (rest, opcode) = try!(parser::parse_u8(input));
+        if opcode == 0 {
+            let (rest, length) = try!(parser::parse_unsigned_leb(rest));
+            let length = length as usize;
+            if rest.len() < length {
+                return Err(parser::Error::UnexpectedEof);
+            }
+
+            let instr_rest = &rest[..length];
+            let rest = &rest[length..];
+            let (instr_rest, opcode) = try!(parser::parse_u8(instr_rest));
+
+            match constants::DwLne(opcode) {
+                constants::DW_LNE_end_sequence => Ok((rest, Opcode::EndSequence)),
+
+                constants::DW_LNE_set_address => {
+                    if instr_rest.len() < header.address_size as usize {
+                        return Err(parser::Error::UnexpectedEof);
+                    }
+
+                    match header.address_size {
+                        8 => {
+                            let address = Endian::read_u64(instr_rest);
+                            Ok((rest, Opcode::SetAddress(address)))
+                        }
+                        4 => {
+                            let address = Endian::read_u32(instr_rest) as u64;
+                            Ok((rest, Opcode::SetAddress(address)))
+                        }
+                        2 => {
+                            let address = Endian::read_u16(instr_rest) as u64;
+                            Ok((rest, Opcode::SetAddress(address)))
+                        }
+                        1 => {
+                            let address = instr_rest[0] as u64;
+                            Ok((rest, Opcode::SetAddress(address)))
+                        }
+                        otherwise => Err(parser::Error::UnsupportedAddressSize(otherwise)),
+                    }
+                }
+
+                constants::DW_LNE_define_file => {
+                    let (_, entry) = try!(FileEntry::parse(instr_rest));
+                    Ok((rest, Opcode::DefineFile(entry)))
+                }
+
+                constants::DW_LNE_set_discriminator => {
+                    let (_, discriminator) = try!(parser::parse_unsigned_leb(instr_rest));
+                    Ok((rest, Opcode::SetDiscriminator(discriminator)))
+                }
+
+                otherwise => Ok((rest, Opcode::UnknownExtended(otherwise, instr_rest))),
+            }
+        } else if opcode >= header.opcode_base {
+            Ok((rest, Opcode::Special(opcode)))
+        } else {
+            match constants::DwLns(opcode) {
+                constants::DW_LNS_copy => Ok((rest, Opcode::Copy)),
+
+                constants::DW_LNS_advance_pc => {
+                    let (rest, advance) = try!(parser::parse_unsigned_leb(rest));
+                    Ok((rest, Opcode::AdvancePc(advance)))
+                }
+
+                constants::DW_LNS_advance_line => {
+                    let (rest, increment) = try!(parser::parse_signed_leb(rest));
+                    Ok((rest, Opcode::AdvanceLine(increment)))
+                }
+
+                constants::DW_LNS_set_file => {
+                    let (rest, file) = try!(parser::parse_unsigned_leb(rest));
+                    Ok((rest, Opcode::SetFile(file)))
+                }
+
+                constants::DW_LNS_set_column => {
+                    let (rest, column) = try!(parser::parse_unsigned_leb(rest));
+                    Ok((rest, Opcode::SetColumn(column)))
+                }
+
+                constants::DW_LNS_negate_stmt => Ok((rest, Opcode::NegateStatement)),
+
+                constants::DW_LNS_set_basic_block => Ok((rest, Opcode::SetBasicBlock)),
+
+                constants::DW_LNS_const_add_pc => Ok((rest, Opcode::ConstAddPc)),
+
+                constants::DW_LNS_fixed_advance_pc => {
+                    let (rest, advance) = try!(parser::parse_u16(EndianBuf::<Endian>::new(rest)));
+                    Ok((rest.into(), Opcode::FixedAddPc(advance)))
+                }
+
+                constants::DW_LNS_set_prologue_end => Ok((rest, Opcode::SetPrologueEnd)),
+
+                constants::DW_LNS_set_epilogue_begin => Ok((rest, Opcode::SetEpilogueBegin)),
+
+                constants::DW_LNS_set_isa => {
+                    let (rest, isa) = try!(parser::parse_unsigned_leb(rest));
+                    Ok((rest, Opcode::SetIsa(isa)))
+                }
+
+                otherwise if header.standard_opcode_lengths[opcode as usize] == 0 => {
+                    Ok((rest, Opcode::UnknownStandard0(otherwise)))
+                }
+
+                otherwise if header.standard_opcode_lengths[opcode as usize] == 1 => {
+                    let (rest, arg) = try!(parser::parse_unsigned_leb(rest));
+                    Ok((rest, Opcode::UnknownStandard1(otherwise, arg)))
+                }
+
+                otherwise => {
+                    let num_args = header.standard_opcode_lengths[opcode as usize];
+                    let mut args = Vec::with_capacity(num_args as usize);
+                    let mut rest = rest;
+                    for _ in 0..num_args {
+                        let (rest1, arg) = try!(parser::parse_unsigned_leb(rest));
+                        args.push(arg);
+                        rest = rest1;
+                    }
+                    Ok((rest, Opcode::UnknownStandardN(otherwise, args)))
+                }
+            }
+        }
+    }
+}
+
+impl<'input> fmt::Display for Opcode<'input> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match *self {
+            Opcode::Special(opcode) => write!(f, "Special opcode {}", opcode),
+            Opcode::Copy => write!(f, "{}", constants::DW_LNS_copy),
+            Opcode::AdvancePc(advance) => {
+                write!(f, "{} by {}", constants::DW_LNS_advance_pc, advance)
+            }
+            Opcode::AdvanceLine(increment) => {
+                write!(f, "{} by {}", constants::DW_LNS_advance_line, increment)
+            }
+            Opcode::SetFile(file) => write!(f, "{} to {}", constants::DW_LNS_set_file, file),
+            Opcode::SetColumn(column) => {
+                write!(f, "{} to {}", constants::DW_LNS_set_column, column)
+            }
+            Opcode::NegateStatement => write!(f, "{}", constants::DW_LNS_negate_stmt),
+            Opcode::SetBasicBlock => write!(f, "{}", constants::DW_LNS_set_basic_block),
+            Opcode::ConstAddPc => write!(f, "{}", constants::DW_LNS_const_add_pc),
+            Opcode::FixedAddPc(advance) => {
+                write!(f, "{} by {}", constants::DW_LNS_fixed_advance_pc, advance)
+            }
+            Opcode::SetPrologueEnd => write!(f, "{}", constants::DW_LNS_set_prologue_end),
+            Opcode::SetEpilogueBegin => write!(f, "{}", constants::DW_LNS_set_epilogue_begin),
+            Opcode::SetIsa(isa) => write!(f, "{} to {}", constants::DW_LNS_set_isa, isa),
+            Opcode::UnknownStandard0(opcode) => write!(f, "Unknown {}", opcode),
+            Opcode::UnknownStandard1(opcode, arg) => {
+                write!(f, "Unknown {} with operand {}", opcode, arg)
+            }
+            Opcode::UnknownStandardN(opcode, ref args) => {
+                write!(f, "Unknown {} with operands {:?}", opcode, args)
+            }
+            Opcode::EndSequence => write!(f, "{}", constants::DW_LNE_end_sequence),
+            Opcode::SetAddress(address) => {
+                write!(f, "{} to {}", constants::DW_LNE_set_address, address)
+            }
+            Opcode::DefineFile(_) => write!(f, "{}", constants::DW_LNE_define_file),
+            Opcode::SetDiscriminator(discr) => {
+                write!(f, "{} to {}", constants::DW_LNE_set_discriminator, discr)
+            }
+            Opcode::UnknownExtended(opcode, _) => write!(f, "Unknown {}", opcode),
+        }
+    }
+}
+
+/// An iterator yielding parsed opcodes.
+///
+/// See
+/// [`LineNumberProgramHeader::opcodes`](./struct.LineNumberProgramHeader.html#method.opcodes)
+/// for more details.
+#[derive(Debug)]
+pub struct OpcodesIter<'header, 'input, Endian>
+    where Endian: 'header + Endianity,
+          'input: 'header
+{
+    header: &'header LineNumberProgramHeader<'input, Endian>,
+    input: &'input [u8],
+}
+
+impl<'header, 'input, Endian> Iterator for OpcodesIter<'header, 'input, Endian>
+    where Endian: 'header + Endianity,
+          'input: 'header
+{
+    type Item = parser::ParseResult<Opcode<'input>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.input.len() == 0 {
+            return None;
+        }
+
+        Some(Opcode::parse(self.header, self.input)
+            .map(|(rest, opcode)| {
+                self.input = rest;
+                opcode
+            })
+            .map_err(|err| {
+                self.input = &[];
+                err
+            }))
+    }
+}
+
+/// A row in the line number program's resulting matrix.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LineNumberRow<'input, 'header, Endian>
+    where Endian: 'header + Endianity,
+          'input: 'header
+{
+    header: &'header LineNumberProgramHeader<'input, Endian>,
     registers: StateMachineRegisters,
 }
 
-/// The registers for a state machine, as defined in section 6.2.2.
-#[derive(Default)]
-#[allow(dead_code)] // TODO FITZGEN
-struct StateMachineRegisters {
+impl<'input, 'header, Endian> LineNumberRow<'input, 'header, Endian>
+    where Endian: 'header + Endianity,
+          'input: 'header
+{
+    fn new(header: &'header LineNumberProgramHeader<'input, Endian>,
+           registers: StateMachineRegisters)
+           -> LineNumberRow<'input, 'header, Endian> {
+        LineNumberRow {
+            header: header,
+            registers: registers,
+        }
+    }
+
     /// "The program-counter value corresponding to a machine instruction
     /// generated by the compiler."
-    address: usize,
+    pub fn address(&self) -> u64 {
+        self.registers.address
+    }
 
     /// > An unsigned integer representing the index of an operation within a VLIW
     /// > instruction. The index of the first operation is 0. For non-VLIW
@@ -64,47 +669,78 @@ struct StateMachineRegisters {
     /// > The address and op_index registers, taken together, form an operation
     /// > pointer that can reference any individual operation with the
     /// > instruction stream.
-    op_index: usize,
+    pub fn op_index(&self) -> u64 {
+        self.registers.op_index
+    }
 
-    /// "An unsigned integer indicating the identity of the source file
-    /// corresponding to a machine instruction."
-    file: usize,
+    /// The source file corresponding to the current machine instruction.
+    pub fn file(&self) -> Option<Ref<FileEntry<'input>>> {
+        let file_names = self.header.file_names.borrow();
+        let file_idx = self.registers.file as usize;
+        if file_names.len() > file_idx {
+            Some(Ref::map(file_names, |names| &names[self.registers.file as usize]))
+        } else {
+            None
+        }
+    }
 
     /// "An unsigned integer indicating a source line number. Lines are numbered
     /// beginning at 1. The compiler may emit the value 0 in cases where an
     /// instruction cannot be attributed to any source line."
-    line: usize,
+    pub fn line(&self) -> Option<u64> {
+        if self.registers.line == 0 {
+            None
+        } else {
+            Some(self.registers.line)
+        }
+    }
 
     /// "An unsigned integer indicating a column number within a source
     /// line. Columns are numbered beginning at 1. The value 0 is reserved to
     /// indicate that a statement begins at the “left edge” of the line."
-    column: usize,
+    pub fn column(&self) -> ColumnType {
+        if self.registers.column == 0 {
+            ColumnType::LeftEdge
+        } else {
+            ColumnType::Column(self.registers.column)
+        }
+    }
 
     /// "A boolean indicating that the current instruction is a recommended
     /// breakpoint location. A recommended breakpoint location is intended to
     /// “represent” a line, a statement and/or a semantically distinct subpart
     /// of a statement."
-    is_stmt: bool,
+    pub fn is_stmt(&self) -> bool {
+        self.registers.is_stmt
+    }
 
     /// "A boolean indicating that the current instruction is the beginning of a
     /// basic block."
-    basic_block: bool,
+    pub fn basic_block(&self) -> bool {
+        self.registers.basic_block
+    }
 
     /// "A boolean indicating that the current address is that of the first byte
     /// after the end of a sequence of target machine instructions. end_sequence
     /// terminates a sequence of lines; therefore other information in the same
     /// row is not meaningful."
-    end_sequence: bool,
+    pub fn end_sequence(&self) -> bool {
+        self.registers.end_sequence
+    }
 
     /// "A boolean indicating that the current address is one (of possibly many)
     /// where execution should be suspended for an entry breakpoint of a
     /// function."
-    prologue_end: bool,
+    pub fn prologue_end(&self) -> bool {
+        self.registers.prologue_end
+    }
 
     /// "A boolean indicating that the current address is one (of possibly many)
     /// where execution should be suspended for an exit breakpoint of a
     /// function."
-    epilogue_begin: bool,
+    pub fn epilogue_begin(&self) -> bool {
+        self.registers.epilogue_begin
+    }
 
     /// Tag for the current instruction set architecture.
     ///
@@ -114,7 +750,9 @@ struct StateMachineRegisters {
     /// > The encoding of instruction sets should be shared by all users of a
     /// > given architecture. It is recommended that this encoding be defined by
     /// > the ABI authoring committee for each architecture.
-    isa: usize,
+    pub fn isa(&self) -> u64 {
+        self.registers.isa
+    }
 
     /// "An unsigned integer identifying the block to which the current
     /// instruction belongs. Discriminator values are assigned arbitrarily by
@@ -122,11 +760,39 @@ struct StateMachineRegisters {
     /// may all be associated with the same source file, line, and column. Where
     /// only one block exists for a given source position, the discriminator
     /// value should be zero."
-    discriminator: usize,
+    pub fn discriminator(&self) -> u64 {
+        self.registers.discriminator
+    }
+}
+
+/// The type of column that a row is referring to.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ColumnType {
+    /// The `LeftEdge` means that the statement begins at the start of the new
+    /// line.
+    LeftEdge,
+    /// A column number, whose range begins at 1.
+    Column(u64),
+}
+
+/// The registers for a state machine, as defined in section 6.2.2.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct StateMachineRegisters {
+    address: u64,
+    op_index: u64,
+    file: u64,
+    line: u64,
+    column: u64,
+    is_stmt: bool,
+    basic_block: bool,
+    end_sequence: bool,
+    prologue_end: bool,
+    epilogue_begin: bool,
+    isa: u64,
+    discriminator: u64,
 }
 
 impl StateMachineRegisters {
-    #[allow(dead_code)] // TODO FITZGEN
     fn reset(&mut self, default_is_stmt: bool) {
         // "At the beginning of each sequence within a line number program, the
         // state of the registers is:" -- Section 6.2.2
@@ -150,21 +816,19 @@ impl StateMachineRegisters {
     }
 }
 
-/// "A series of byte-coded line number information instructions representing
-/// one compilation unit." -- Section 6.2.1
-pub struct LineNumberProgram {
-
-}
-
 /// A header for a line number program in the `.debug_line` section, as defined
 /// in section 6.2.4 of the standard.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LineNumberProgramHeader<'input, Endian>
     where Endian: Endianity
 {
+    unit_length: u64,
+
     /// "A version number. This number is specific to the line number
     /// information and is independent of the DWARF version number."
     version: u16,
+
+    header_length: u64,
 
     /// "The size in bytes of the smallest target machine instruction. Line
     /// number program opcodes that alter the address and `op_index` registers
@@ -212,13 +876,16 @@ pub struct LineNumberProgramHeader<'input, Endian>
     /// "Entries in this sequence describe source files that contribute to the
     /// line number information for this compilation unit or is used in other
     /// contexts."
-    file_names: Vec<FileEntry<'input>>,
+    file_names: RefCell<Vec<FileEntry<'input>>>,
 
     /// Whether this line program is encoded in the 32- or 64-bit DWARF format.
     format: parser::Format,
 
     /// The encoded line program instructions.
-    line_number_program_buf: EndianBuf<'input, Endian>,
+    program_buf: EndianBuf<'input, Endian>,
+
+    /// The size of an address on the debuggee architecture, in bytes.
+    address_size: u8,
 }
 
 impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
@@ -234,23 +901,40 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
     /// # let read_debug_line_section_somehow = || &buf;
     /// let debug_line = DebugLine::<LittleEndian>::new(read_debug_line_section_somehow());
     ///
-    /// // In a real example, we'd grab this offset via a compilation unit
-    /// // entry's `DW_AT_stmt_list` attribute.
+    /// // In a real example, we'd grab the offset via a compilation unit
+    /// // entry's `DW_AT_stmt_list` attribute, and the address size from that
+    /// // unit directly.
     /// let offset = DebugLineOffset(0);
+    /// let address_size = 8;
     ///
-    /// let header = LineNumberProgramHeader::new(debug_line, offset)
+    /// let header = LineNumberProgramHeader::new(debug_line, offset, address_size)
     ///     .expect("should have found a header at that offset, and parsed it OK");
     /// ```
     pub fn new(debug_line: DebugLine<'input, Endian>,
-               offset: DebugLineOffset)
+               offset: DebugLineOffset,
+               address_size: u8)
                -> parser::ParseResult<LineNumberProgramHeader<'input, Endian>> {
         let offset = offset.0 as usize;
-        Self::parse(debug_line.debug_line_section.range_from(offset..)).map(|(_, header)| header)
+        let (_, mut header) = try!(Self::parse(debug_line.debug_line_section.range_from(offset..)));
+        header.address_size = address_size;
+        Ok(header)
+    }
+
+    /// Return the length of the line number program and header, not including
+    /// the length of the encoded length itself.
+    pub fn unit_length(&self) -> u64 {
+        self.unit_length
     }
 
     /// Get the version of this header's line program.
     pub fn version(&self) -> u16 {
         self.version
+    }
+
+    /// Get the length of the encoded line number program header, not including
+    /// the length of the encoded length itself.
+    pub fn header_length(&self) -> u64 {
+        self.header_length
     }
 
     /// Get the minimum instruction length any opcode in this header's line
@@ -300,8 +984,17 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
     }
 
     /// Get the list of source files that appear in this header's line program.
-    pub fn file_names(&self) -> &[FileEntry] {
-        &self.file_names
+    pub fn file_names(&self) -> Ref<[FileEntry]> {
+        Ref::map(self.file_names.borrow(), |names| &names[..])
+    }
+
+    /// Iterate over the opcodes in this header's line number program, parsing
+    /// them as we go.
+    pub fn opcodes<'me>(&'me self) -> OpcodesIter<'me, 'input, Endian> {
+        OpcodesIter {
+            header: self,
+            input: self.program_buf.0,
+        }
     }
 
     fn parse(input: EndianBuf<'input, Endian>)
@@ -328,18 +1021,26 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         if header_length > unit_length - size_of_unit_length {
             return Err(parser::Error::UnitHeaderLengthTooShort);
         }
-        let line_number_program_buf = rest.range_from(header_length as usize..);
+        let program_buf = rest.range_from(header_length as usize..);
         let rest = rest.range_to(..header_length as usize);
 
         let (rest, minimum_instruction_length) = try!(parser::parse_u8(rest.0));
-        let (rest, maximum_operations_per_instruction) = try!(parser::parse_u8(rest));
+
+        // This field did not exist before DWARF 4, but is specified to be 1 for
+        // non-VLIW architectures, which makes it a no-op.
+        let (rest, maximum_operations_per_instruction) = if version >= 4 {
+            try!(parser::parse_u8(rest))
+        } else {
+            (rest, 1)
+        };
+
         let (rest, default_is_stmt) = try!(parser::parse_u8(rest));
         let (rest, line_base) = try!(parser::parse_i8(rest));
         let (rest, line_range) = try!(parser::parse_i8(rest));
         let (rest, opcode_base) = try!(parser::parse_u8(rest));
 
         let mut rest = EndianBuf::<Endian>::new(rest);
-        let mut standard_opcode_lengths = Vec::with_capacity(opcode_base as usize);
+        let mut standard_opcode_lengths = Vec::with_capacity((opcode_base - 1) as usize);
         for _ in 1..opcode_base {
             let (rest1, opcode_length) = try!(parser::parse_unsigned_leb(rest.0));
             rest = EndianBuf::new(rest1);
@@ -370,7 +1071,9 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
 
             if rest[0] == 0 {
                 let header = LineNumberProgramHeader {
+                    unit_length: unit_length,
                     version: version,
+                    header_length: header_length,
                     minimum_instruction_length: minimum_instruction_length,
                     maximum_operations_per_instruction: maximum_operations_per_instruction,
                     default_is_stmt: default_is_stmt != 0,
@@ -379,9 +1082,10 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
                     opcode_base: opcode_base,
                     standard_opcode_lengths: standard_opcode_lengths,
                     include_directories: include_directories,
-                    file_names: file_names,
+                    file_names: RefCell::new(file_names),
                     format: format,
-                    line_number_program_buf: line_number_program_buf,
+                    program_buf: program_buf,
+                    address_size: 0,
                 };
                 return Ok((next_header_input, header));
             }
@@ -396,20 +1100,9 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
 /// An entry in the `LineNumberProgramHeader`'s `file_names` set.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct FileEntry<'input> {
-    /// "A null-terminated string containing the full or relative path name of a
-    /// source file."
     path_name: &'input ffi::CStr,
-
-    /// "An unsigned LEB128 number representing the directory index of a
-    /// directory in the `include_directories` [header] section."
     directory_index: u64,
-
-    /// "An unsigned LEB128 number representing the (implementation-defined)
-    /// time of last modification for the file, or 0 if not available."
     last_modification: u64,
-
-    /// "An unsigned LEB128 number representing the length in bytes of the file,
-    /// or 0 if not available."
     length: u64,
 }
 
@@ -428,6 +1121,42 @@ impl<'input> FileEntry<'input> {
         };
 
         Ok((rest, entry))
+    }
+
+    /// > A null-terminated string containing the full or relative path name of
+    /// > a source file. If the entry contains a file name or a relative path
+    /// > name, the file is located relative to either the compilation directory
+    /// > (as specified by the DW_AT_comp_dir attribute given in the compilation
+    /// > unit) or one of the directories in the include_directories section.
+    pub fn path_name(&self) -> &'input ffi::CStr {
+        self.path_name
+    }
+
+    /// > An unsigned LEB128 number representing the directory index of the
+    /// > directory in which the file was found.
+    /// >
+    /// > ...
+    /// >
+    /// > The directory index represents an entry in the include_directories
+    /// > section of the line number program header. The index is 0 if the file
+    /// > was found in the current directory of the compilation, 1 if it was found
+    /// > in the first directory in the include_directories section, and so
+    /// > on. The directory index is ignored for file names that represent full
+    /// > path names.
+    pub fn directory_index(&self) -> u64 {
+        self.directory_index
+    }
+
+    /// "An unsigned LEB128 number representing the time of last modification of
+    /// the file, or 0 if not available."
+    pub fn last_modification(&self) -> u64 {
+        self.last_modification
+    }
+
+    /// "An unsigned LEB128 number representing the length in bytes of the file,
+    /// or 0 if not available."
+    pub fn length(&self) -> u64 {
+        self.length
     }
 }
 
@@ -550,7 +1279,7 @@ mod tests {
                 length: 0,
             },
         ];
-        assert_eq!(header.file_names(), &expected_file_names);
+        assert_eq!(&*header.file_names(), &expected_file_names);
     }
 
     #[test]

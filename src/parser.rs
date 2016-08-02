@@ -50,6 +50,12 @@ pub enum Error {
     UnknownAbbreviation,
     /// Hit the end of input before it was expected.
     UnexpectedEof,
+    /// Found an unknown standard opcode.
+    UnknownStandardOpcode(constants::DwLns),
+    /// Found an unknown extended opcode.
+    UnknownExtendedOpcode(constants::DwLne),
+    /// The specified address size is not supported.
+    UnsupportedAddressSize(u8),
 }
 
 impl fmt::Display for Error {
@@ -88,6 +94,9 @@ impl error::Error for Error {
             }
             Error::UnknownAbbreviation => "Found a record with an unknown abbreviation code",
             Error::UnexpectedEof => "Hit the end of input before it was expected",
+            Error::UnknownStandardOpcode(_) => "Found an unknown standard opcode",
+            Error::UnknownExtendedOpcode(_) => "Found an unknown extended opcode",
+            Error::UnsupportedAddressSize(_) => "The specified address size is not supported",
         }
     }
 }

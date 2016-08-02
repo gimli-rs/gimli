@@ -3,7 +3,7 @@ extern crate gimli;
 
 use byteorder::ByteOrder;
 use gimli::{AttributeValue, DebugAbbrev, DebugInfo, DebugLine, DebugLineOffset, DW_AT_stmt_list,
-            LineNumberProgramHeader, LittleEndian};
+            LineNumberProgramHeader, LittleEndian, StateMachine};
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -82,8 +82,13 @@ fn test_parse_self_debug_line() {
             };
             let offset = DebugLineOffset(offset as u64);
 
-            LineNumberProgramHeader::new(debug_line, offset)
+            let header = LineNumberProgramHeader::new(debug_line, offset, unit.address_size())
                 .expect("should parse line number program header");
+
+            let state_machine = StateMachine::new(&header);
+            for row in state_machine {
+                row.expect("Should parse and execute all rows in the line number program");
+            }
         }
     }
 }
