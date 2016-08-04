@@ -1,18 +1,15 @@
 extern crate gimli;
-use gimli::{AttributeValue, DebugAbbrev, DebugInfo, Endianity, EntriesCursor, LittleEndian};
+use gimli::{AttributeValue, DebugAbbrev, DebugInfo, DebuggingInformationEntry, Endianity,
+            EntriesCursor, LittleEndian};
 
 #[cfg(test)]
-fn assert_current_name<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCursor<'input,
-                                                                                  'abbrev,
-                                                                                  'unit,
-                                                                                  Endian>,
-                                                       name: &'static str)
+fn assert_entry_name<'input, 'abbrev, 'unit, Endian>(entry: &DebuggingInformationEntry<'input,
+                                                                                       'abbrev,
+                                                                                       'unit,
+                                                                                       Endian>,
+                                                     name: &'static str)
     where Endian: Endianity
 {
-    let entry = cursor.current()
-        .expect("Should have an entry result")
-        .expect("and it should be ok");
-
     let value = entry.attr_value(gimli::DW_AT_name)
         .expect("Should have found the name attribute");
 
@@ -20,6 +17,45 @@ fn assert_current_name<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCurso
     with_null.push(0);
 
     assert_eq!(value, AttributeValue::String(&with_null));
+}
+
+#[cfg(test)]
+fn assert_current_name<'input, 'abbrev, 'unit, Endian>(cursor: &EntriesCursor<'input,
+                                                                              'abbrev,
+                                                                              'unit,
+                                                                              Endian>,
+                                                       name: &'static str)
+    where Endian: Endianity
+{
+    let entry = cursor.current().expect("Should have an entry result");
+    assert_entry_name(entry, name);
+}
+
+#[cfg(test)]
+fn assert_next_entry<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCursor<'input,
+                                                                                'abbrev,
+                                                                                'unit,
+                                                                                Endian>,
+                                                     name: &'static str)
+    where Endian: Endianity
+{
+    cursor.next_entry()
+        .expect("Should parse next entry")
+        .expect("Should have an entry");
+    assert_current_name(cursor, name);
+}
+
+#[cfg(test)]
+fn assert_next_entry_null<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCursor<'input,
+                                                                                     'abbrev,
+                                                                                     'unit,
+                                                                                     Endian>)
+    where Endian: Endianity
+{
+    cursor.next_entry()
+        .expect("Should parse next entry")
+        .expect("Should have an entry");
+    assert!(cursor.current().is_none());
 }
 
 #[cfg(test)]
@@ -31,8 +67,13 @@ fn assert_next_dfs<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCursor<'i
                                                    depth: isize)
     where Endian: Endianity
 {
-    assert_eq!(cursor.next_dfs().expect("Should not be done with traversal"),
-               depth);
+    {
+        let (val, entry) = cursor.next_dfs()
+            .expect("Should parse next dfs")
+            .expect("Should not be done with traversal");
+        assert_eq!(val, depth);
+        assert_entry_name(entry, name);
+    }
     assert_current_name(cursor, name);
 }
 
@@ -44,7 +85,12 @@ fn assert_next_sibling<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCurso
                                                        name: &'static str)
     where Endian: Endianity
 {
-    cursor.next_sibling().expect("Should not be done with traversal");
+    {
+        let entry = cursor.next_sibling()
+            .expect("Should parse next sibling")
+            .expect("Should not be done with traversal");
+        assert_entry_name(entry, name);
+    }
     assert_current_name(cursor, name);
 }
 
@@ -194,6 +240,49 @@ const ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF: [u8; 71] = [
 
 #[test]
 #[cfg_attr(rustfmt, rustfmt_skip)]
+fn test_cursor_next_entry() {
+    let info_buf = &ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF;
+    let debug_info = DebugInfo::<LittleEndian>::new(info_buf);
+
+    let unit = debug_info.units().next()
+        .expect("should have a unit result")
+        .expect("and it should be ok");
+
+    let abbrevs_buf = &ENTRIES_CURSOR_TESTS_ABBREV_BUF;
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(abbrevs_buf);
+
+    let abbrevs = unit.abbreviations(debug_abbrev)
+        .expect("Should parse abbreviations");
+
+    let mut cursor = unit.entries(&abbrevs);
+
+    assert_next_entry(&mut cursor, "001");
+    assert_next_entry(&mut cursor, "002");
+    assert_next_entry(&mut cursor, "003");
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry(&mut cursor, "004");
+    assert_next_entry(&mut cursor, "005");
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry(&mut cursor, "006");
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry(&mut cursor, "007");
+    assert_next_entry(&mut cursor, "008");
+    assert_next_entry(&mut cursor, "009");
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry(&mut cursor, "010");
+    assert_next_entry_null(&mut cursor);
+    assert_next_entry_null(&mut cursor);
+
+    assert!(cursor.next_entry().expect("Should parse next entry").is_none());
+    assert!(cursor.current().is_none());
+}
+
+#[test]
+#[cfg_attr(rustfmt, rustfmt_skip)]
 fn test_cursor_next_dfs() {
     let info_buf = &ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF;
     let debug_info = DebugInfo::<LittleEndian>::new(info_buf);
@@ -210,7 +299,7 @@ fn test_cursor_next_dfs() {
 
     let mut cursor = unit.entries(&abbrevs);
 
-    assert_current_name(&mut cursor, "001");
+    assert_next_dfs(&mut cursor, "001", 0);
     assert_next_dfs(&mut cursor, "002", 1);
     assert_next_dfs(&mut cursor, "003", 1);
     assert_next_dfs(&mut cursor, "004", -1);
@@ -221,7 +310,7 @@ fn test_cursor_next_dfs() {
     assert_next_dfs(&mut cursor, "009", 1);
     assert_next_dfs(&mut cursor, "010", -2);
 
-    assert!(cursor.next_dfs().is_none());
+    assert!(cursor.next_dfs().expect("Should parse next dfs").is_none());
     assert!(cursor.current().is_none());
 }
 
@@ -243,7 +332,7 @@ fn test_cursor_next_sibling_no_sibling_ptr() {
 
     let mut cursor = unit.entries(&abbrevs);
 
-    assert_current_name(&mut cursor, "001");
+    assert_next_dfs(&mut cursor, "001", 0);
 
     // Down to the first child of the root entry.
 
@@ -255,9 +344,54 @@ fn test_cursor_next_sibling_no_sibling_ptr() {
     assert_next_sibling(&mut cursor, "007");
     assert_next_sibling(&mut cursor, "010");
 
-    // And now the cursor should be exhausted.
+    // There should be no more siblings.
 
-    assert!(cursor.next_sibling().is_none());
+    assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+    assert!(cursor.current().is_none());
+}
+
+#[test]
+fn test_cursor_next_sibling_continuation() {
+    let info_buf = &ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF;
+    let debug_info = DebugInfo::<LittleEndian>::new(info_buf);
+
+    let unit = debug_info.units()
+        .next()
+        .expect("should have a unit result")
+        .expect("and it should be ok");
+
+    let abbrevs_buf = &ENTRIES_CURSOR_TESTS_ABBREV_BUF;
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(abbrevs_buf);
+
+    let abbrevs = unit.abbreviations(debug_abbrev)
+        .expect("Should parse abbreviations");
+
+    let mut cursor = unit.entries(&abbrevs);
+
+    assert_next_dfs(&mut cursor, "001", 0);
+
+    // Down to the first child of the root entry.
+
+    assert_next_dfs(&mut cursor, "002", 1);
+
+    // Get the next sibling, then iterate its children
+
+    assert_next_sibling(&mut cursor, "004");
+    assert_next_dfs(&mut cursor, "005", 1);
+    assert_next_sibling(&mut cursor, "006");
+    assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+    assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+    assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+    assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+
+    // And we should be able to continue with the children of the root entry.
+
+    assert_next_dfs(&mut cursor, "007", -1);
+    assert_next_sibling(&mut cursor, "010");
+
+    // There should be no more siblings.
+
+    assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
     assert!(cursor.current().is_none());
 }
 
@@ -407,7 +541,7 @@ fn test_cursor_next_sibling_with_sibling_ptr() {
 
     let mut cursor = unit.entries(&abbrevs);
 
-    assert_current_name(&mut cursor, "001");
+    assert_next_dfs(&mut cursor, "001", 0);
 
     // Down to the first child of the root.
 
@@ -418,8 +552,8 @@ fn test_cursor_next_sibling_with_sibling_ptr() {
     assert_next_sibling(&mut cursor, "004");
     assert_next_sibling(&mut cursor, "006");
 
-    // And now the cursor should be exhausted.
+    // There should be no more siblings.
 
-    assert!(cursor.next_sibling().is_none());
+    assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
     assert!(cursor.current().is_none());
 }

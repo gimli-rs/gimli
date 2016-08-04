@@ -43,16 +43,11 @@
 //! let mut entries = unit.entries(&abbrevs);
 //!
 //! // Keep iterating entries while the cursor is not exhausted.
-//! while let Some(entry) = entries.current() {
-//!     let entry = entry.expect("Should parse the entry OK");
-//!
+//! while let Some((_, entry)) = entries.next_dfs().expect("Should parse next entry") {
 //!     // If we find an entry for a function, print it.
 //!     if entry.tag() == gimli::DW_TAG_subprogram {
 //!         println!("Found a function: {:?}", entry);
 //!     }
-//!
-//!     // Advance the cursor to the next entry, in DFS order.
-//!     entries.next_dfs();
 //! }
 //! ```
 //!

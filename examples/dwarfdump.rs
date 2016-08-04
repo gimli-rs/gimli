@@ -72,9 +72,8 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>)
     where Endian: gimli::Endianity
 {
     let depth = Cell::new(0);
-    while let Some(entry) = entries.current() {
-        let entry = entry.expect("Should parse the entry OK");
-
+    while let Some((delta_depth, entry)) = entries.next_dfs().expect("Should parse next dfs") {
+        depth.set(depth.get() + delta_depth);
         let indent = || {
             for _ in 0..(depth.get() as usize) {
                 print!("        ");
@@ -89,10 +88,6 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>)
 
             indent();
             println!("    {} = {:?}", attr.name(), attr.value());
-        }
-
-        if let Some(delta_depth) = entries.next_dfs() {
-            depth.set(depth.get() + delta_depth);
         }
     }
 }

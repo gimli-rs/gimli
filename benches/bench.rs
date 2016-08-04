@@ -58,19 +58,9 @@ fn bench_parsing_debug_info(b: &mut test::Bencher) {
 
             let mut cursor = unit.entries(&abbrevs);
 
-            loop {
-                {
-                    let entry = cursor.current_ref()
-                        .expect("Should have a current entry")
-                        .expect("And should parse that entry OK");
-
-                    for attr in entry.attrs() {
-                        test::black_box(attr.expect("Should parse entry's attribute"));
-                    }
-                }
-
-                if let None = cursor.next_dfs() {
-                    break;
+            while let Some((_, entry)) = cursor.next_dfs().expect("Should parse next dfs") {
+                for attr in entry.attrs() {
+                    test::black_box(attr.expect("Should parse entry's attribute"));
                 }
             }
         }
