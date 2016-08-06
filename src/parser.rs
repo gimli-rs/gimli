@@ -151,8 +151,7 @@ pub fn parse_u8(input: &[u8]) -> ParseResult<(&[u8], u8)> {
     }
 }
 
-fn parse_u16<'input, Endian>(input: EndianBuf<'input, Endian>)
-                             -> ParseResult<(EndianBuf<'input, Endian>, u16)>
+fn parse_u16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u16)>
     where Endian: Endianity
 {
     if input.len() < 2 {
@@ -162,8 +161,7 @@ fn parse_u16<'input, Endian>(input: EndianBuf<'input, Endian>)
     }
 }
 
-fn parse_u32<'input, Endian>(input: EndianBuf<'input, Endian>)
-                             -> ParseResult<(EndianBuf<'input, Endian>, u32)>
+fn parse_u32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u32)>
     where Endian: Endianity
 {
     if input.len() < 4 {
@@ -173,8 +171,7 @@ fn parse_u32<'input, Endian>(input: EndianBuf<'input, Endian>)
     }
 }
 
-fn parse_u64<'input, Endian>(input: EndianBuf<'input, Endian>)
-                             -> ParseResult<(EndianBuf<'input, Endian>, u64)>
+fn parse_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
     if input.len() < 8 {
@@ -184,8 +181,7 @@ fn parse_u64<'input, Endian>(input: EndianBuf<'input, Endian>)
     }
 }
 
-fn parse_u32_as_u64<'input, Endian>(input: EndianBuf<'input, Endian>)
-                                    -> ParseResult<(EndianBuf<'input, Endian>, u64)>
+fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
     if input.len() < 4 {
@@ -423,8 +419,8 @@ const MAX_DWARF_32_UNIT_LENGTH: u64 = 0xfffffff0;
 const DWARF_64_INITIAL_UNIT_LENGTH: u64 = 0xffffffff;
 
 /// Parse the compilation unit header's length.
-fn parse_unit_length<'input, Endian>(input: EndianBuf<'input, Endian>)
-                                     -> ParseResult<(EndianBuf<'input, Endian>, (u64, Format))>
+fn parse_unit_length<Endian>(input: EndianBuf<Endian>)
+                             -> ParseResult<(EndianBuf<Endian>, (u64, Format))>
     where Endian: Endianity
 {
     let (rest, val) = try!(parse_u32_as_u64(input));
@@ -509,8 +505,7 @@ fn test_parse_unit_length_64_incomplete() {
 }
 
 /// Parse the DWARF version from the compilation unit header.
-fn parse_version<'input, Endian>(input: EndianBuf<'input, Endian>)
-                                 -> ParseResult<(EndianBuf<'input, Endian>, u16)>
+fn parse_version<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u16)>
     where Endian: Endianity
 {
     let (rest, val) = try!(parse_u16(input));
@@ -566,10 +561,9 @@ fn test_unit_version_incomplete() {
 }
 
 /// Parse the `debug_abbrev_offset` in the compilation unit header.
-fn parse_debug_abbrev_offset<'input, Endian>
-    (input: EndianBuf<'input, Endian>,
-     format: Format)
-     -> ParseResult<(EndianBuf<'input, Endian>, DebugAbbrevOffset)>
+fn parse_debug_abbrev_offset<Endian>(input: EndianBuf<Endian>,
+                                     format: Format)
+                                     -> ParseResult<(EndianBuf<Endian>, DebugAbbrevOffset)>
     where Endian: Endianity
 {
     let offset = match format {
@@ -862,17 +856,14 @@ impl<'input, Endian> UnitHeader<'input, Endian>
     /// let debug_abbrev = DebugAbbrev::<LittleEndian>::new(read_debug_abbrev_section_somehow());
     /// let abbrevs_for_unit = unit.abbreviations(debug_abbrev).unwrap();
     /// ```
-    pub fn abbreviations<'abbrev>(&self,
-                                  debug_abbrev: DebugAbbrev<'abbrev, Endian>)
-                                  -> ParseResult<Abbreviations> {
+    pub fn abbreviations(&self, debug_abbrev: DebugAbbrev<Endian>) -> ParseResult<Abbreviations> {
         debug_abbrev.abbreviations(self.debug_abbrev_offset())
     }
 }
 
 /// Parse a compilation unit header.
-fn parse_unit_header<'input, Endian>
-    (input: EndianBuf<'input, Endian>)
-     -> ParseResult<(EndianBuf<'input, Endian>, UnitHeader<'input, Endian>)>
+fn parse_unit_header<Endian>(input: EndianBuf<Endian>)
+                             -> ParseResult<(EndianBuf<Endian>, UnitHeader<Endian>)>
     where Endian: Endianity
 {
     let (rest, (unit_length, format)) = try!(parse_unit_length(input));
@@ -1232,16 +1223,14 @@ fn length_u8_value(input: &[u8]) -> ParseResult<(&[u8], &[u8])> {
     take(len as usize, rest)
 }
 
-fn length_u16_value<'input, Endian>(input: EndianBuf<'input, Endian>)
-                                    -> ParseResult<(EndianBuf<'input, Endian>, &'input [u8])>
+fn length_u16_value<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, &[u8])>
     where Endian: Endianity
 {
     let (rest, len) = try!(parse_u16(input));
     take(len as usize, rest.into()).map(|(rest, result)| (EndianBuf::new(rest), result))
 }
 
-fn length_u32_value<'input, Endian>(input: EndianBuf<'input, Endian>)
-                                    -> ParseResult<(EndianBuf<'input, Endian>, &'input [u8])>
+fn length_u32_value<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, &[u8])>
     where Endian: Endianity
 {
     let (rest, len) = try!(parse_u32(input));
@@ -2080,7 +2069,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     ///
     /// Returns `Some` if there is a next entry, even if this entry is null.
     /// If there is no next entry, then `None` is returned.
-    pub fn next_entry<'me>(&'me mut self) -> ParseResult<Option<()>> {
+    pub fn next_entry(&mut self) -> ParseResult<Option<()>> {
         let input = self.after_entry();
         if input.len() == 0 {
             self.input = input;
@@ -2383,7 +2372,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                 if self.unit.is_valid_offset(offset) {
                     // Fast path: this entry has a DW_AT_sibling
                     // attribute pointing to its sibling.
-                    self.input = &self.unit.range_from(offset..);
+                    self.input = self.unit.range_from(offset..);
                     self.cached_current = None;
                     try!(self.next_entry());
                     return Ok(self.current());
@@ -2413,8 +2402,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
 
 /// Parse a type unit header's unique type signature. Callers should handle
 /// unique-ness checking.
-fn parse_type_signature<'input, Endian>(input: EndianBuf<'input, Endian>)
-                                        -> ParseResult<(EndianBuf<'input, Endian>, u64)>
+fn parse_type_signature<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
     parse_u64(input)
@@ -2441,10 +2429,9 @@ fn test_parse_type_signature_incomplete() {
 }
 
 /// Parse a type unit header's type offset.
-fn parse_type_offset<'input, Endian>
-    (input: EndianBuf<'input, Endian>,
-     format: Format)
-     -> ParseResult<(EndianBuf<'input, Endian>, DebugTypesOffset)>
+fn parse_type_offset<Endian>(input: EndianBuf<Endian>,
+                             format: Format)
+                             -> ParseResult<(EndianBuf<Endian>, DebugTypesOffset)>
     where Endian: Endianity
 {
     let result = match format {
@@ -2758,17 +2745,14 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
     /// let debug_abbrev = DebugAbbrev::<LittleEndian>::new(read_debug_abbrev_section_somehow());
     /// let abbrevs_for_unit = unit.abbreviations(debug_abbrev).unwrap();
     /// ```
-    pub fn abbreviations<'abbrev>(&self,
-                                  debug_abbrev: DebugAbbrev<'abbrev, Endian>)
-                                  -> ParseResult<Abbreviations> {
+    pub fn abbreviations(&self, debug_abbrev: DebugAbbrev<Endian>) -> ParseResult<Abbreviations> {
         debug_abbrev.abbreviations(self.debug_abbrev_offset())
     }
 }
 
 /// Parse a type unit header.
-fn parse_type_unit_header<'input, Endian>
-    (input: EndianBuf<'input, Endian>)
-     -> ParseResult<(EndianBuf<'input, Endian>, TypeUnitHeader<'input, Endian>)>
+fn parse_type_unit_header<Endian>(input: EndianBuf<Endian>)
+                                  -> ParseResult<(EndianBuf<Endian>, TypeUnitHeader<Endian>)>
     where Endian: Endianity
 {
     let (rest, header) = try!(parse_unit_header(input));

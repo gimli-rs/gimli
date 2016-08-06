@@ -254,9 +254,7 @@ impl AttributeSpecification {
     ///
     /// Note that because some attributes are variably sized, the size cannot
     /// always be known without parsing, in which case we return `None`.
-    pub fn size<'me, 'input, 'unit, Endian>(&'me self,
-                                            header: &'unit UnitHeader<'input, Endian>)
-                                            -> Option<usize>
+    pub fn size<Endian>(&self, header: &UnitHeader<Endian>) -> Option<usize>
         where Endian: Endianity
     {
         match self.form {
