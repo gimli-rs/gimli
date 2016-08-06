@@ -2240,8 +2240,11 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                                &'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>)>> {
         let mut delta_depth = self.delta_depth;
         loop {
-            // Keep eating null entries that mark the end of an entry's
-            // children.
+            // Keep eating null entries that mark the end of an entry's children.
+            // This is a micro optimization; next_entry() can handle reading null
+            // entries, but this while loop is slightly more efficient.
+            // Note that this doesn't handle unusual LEB128 encodings of zero
+            // such as [0x80, 0x00]; they are still handled by next_entry().
             let mut input = self.after_entry();
             while input.len() > 0 && input[0] == 0 {
                 delta_depth -= 1;
@@ -2256,7 +2259,8 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                     return Ok(Some((delta_depth, entry)));
                 }
 
-                // Must have been a strange leb128 encoding of zero.
+                // next_entry() read a null entry.  These are normally handled above,
+                // so this must have been an unusual LEB 128 encoding of zero.
                 delta_depth += self.delta_depth;
             } else {
                 return Ok(None);
