@@ -57,10 +57,10 @@ fn bench_parsing_debug_info(b: &mut test::Bencher) {
                 .expect("Should parse abbreviations");
 
             let mut cursor = unit.entries(&abbrevs);
-
             while let Some((_, entry)) = cursor.next_dfs().expect("Should parse next dfs") {
-                for attr in entry.attrs() {
-                    test::black_box(attr.expect("Should parse entry's attribute"));
+                let mut attrs = entry.attrs();
+                while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+                    test::black_box(&attr);
                 }
             }
         }

@@ -240,6 +240,42 @@ const ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF: [u8; 71] = [
 
 #[test]
 #[cfg_attr(rustfmt, rustfmt_skip)]
+fn test_cursor_next_entry_incomplete() {
+    // Set short length in unit header.
+    let info_buf = &mut ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF;
+    info_buf[0] = 0x12;
+    let debug_info = DebugInfo::<LittleEndian>::new(info_buf);
+
+    let unit = debug_info.units().next()
+        .expect("should have a unit result")
+        .expect("and it should be ok");
+
+    let abbrevs_buf = &ENTRIES_CURSOR_TESTS_ABBREV_BUF;
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(abbrevs_buf);
+
+    let abbrevs = unit.abbreviations(debug_abbrev)
+        .expect("Should parse abbreviations");
+
+    let mut cursor = unit.entries(&abbrevs);
+
+    assert_next_entry(&mut cursor, "001");
+    assert_next_entry(&mut cursor, "002");
+
+    {
+        // Entry code is present, but none of the attributes.
+        cursor.next_entry()
+            .expect("Should parse next entry")
+            .expect("Should have an entry");
+        let entry = cursor.current().expect("Should have an entry result");
+        assert!(entry.attrs().next().is_err());
+    }
+
+    assert!(cursor.next_entry().is_err());
+    assert!(cursor.next_entry().is_err());
+}
+
+#[test]
+#[cfg_attr(rustfmt, rustfmt_skip)]
 fn test_cursor_next_entry() {
     let info_buf = &ENTRIES_CURSOR_TESTS_DEBUG_INFO_BUF;
     let debug_info = DebugInfo::<LittleEndian>::new(info_buf);

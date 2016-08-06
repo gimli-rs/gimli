@@ -1110,9 +1110,8 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
     ///
     /// // Finally, print the first entry's attributes.
     ///
-    /// for attr_result in entry.attrs() {
-    ///     let attr = attr_result.unwrap();
-    ///
+    /// let mut attrs = entry.attrs();
+    /// while let Some(attr) = attrs.next().unwrap() {
     ///     println!("Attribute name = {:?}", attr.name());
     ///     println!("Attribute value = {:?}", attr.value());
     /// }
@@ -1128,10 +1127,13 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
     /// Find the first attribute in this entry which has the given name,
     /// and return its value. Returns `Ok(None)` if no attribute is found.
     pub fn attr_value(&self, name: constants::DwAt) -> Option<AttributeValue<'input>> {
-        self.attrs()
-            .take_while(|res| res.is_ok())
-            .find(|res| res.unwrap().name() == name)
-            .map(|res| res.unwrap().value())
+        let mut attrs = self.attrs();
+        while let Ok(Some(attr)) = attrs.next() {
+            if attr.name() == name {
+                return Some(attr.value());
+            }
+        }
+        None
     }
 }
 
@@ -1895,16 +1897,15 @@ pub struct AttrsIter<'input, 'abbrev, 'entry, 'unit, Endian>
     entry: &'entry DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>,
 }
 
-impl<'input, 'abbrev, 'entry, 'unit, Endian> Iterator for AttrsIter<'input,
-                                                                    'abbrev,
-                                                                    'entry,
-                                                                    'unit,
-                                                                    Endian>
+impl<'input, 'abbrev, 'entry, 'unit, Endian> AttrsIter<'input, 'abbrev, 'entry, 'unit, Endian>
     where Endian: Endianity
 {
-    type Item = ParseResult<Attribute<'input>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    /// Advance the iterator and return the next attribute.
+    ///
+    /// Returns `None` when iteration is finished. If an error
+    /// occurs while parsing the next attribute, then this error
+    /// is returned on all subsequent calls.
+    pub fn next(&mut self) -> ParseResult<Option<Attribute<'input>>> {
         if self.attributes.len() == 0 {
             // Now that we have parsed all of the attributes, we know where
             // either (1) this entry's children start, if the abbreviation says
@@ -1916,21 +1917,14 @@ impl<'input, 'abbrev, 'entry, 'unit, Endian> Iterator for AttrsIter<'input,
                 self.entry.after_attrs.set(Some(self.input));
             }
 
-            return None;
+            return Ok(None);
         }
 
         let attr = self.attributes[0];
+        let (rest, attr) = try!(parse_attribute(EndianBuf::new(self.input), self.entry.unit, attr));
         self.attributes = &self.attributes[1..];
-        match parse_attribute(EndianBuf::new(self.input), self.entry.unit, attr) {
-            Ok((rest, attr)) => {
-                self.input = rest.into();
-                Some(Ok(attr))
-            }
-            Err(e) => {
-                self.attributes = &[];
-                Some(Err(e))
-            }
-        }
+        self.input = rest.into();
+        Ok(Some(attr))
     }
 }
 
@@ -1971,7 +1965,7 @@ fn test_attrs_iter() {
     };
 
     match attrs.next() {
-        Some(Ok(attr)) => {
+        Ok(Some(attr)) => {
             assert_eq!(attr,
                        Attribute {
                            name: constants::DW_AT_name,
@@ -1987,7 +1981,7 @@ fn test_attrs_iter() {
     assert!(entry.after_attrs.get().is_none());
 
     match attrs.next() {
-        Some(Ok(attr)) => {
+        Ok(Some(attr)) => {
             assert_eq!(attr,
                        Attribute {
                            name: constants::DW_AT_low_pc,
@@ -2003,7 +1997,7 @@ fn test_attrs_iter() {
     assert!(entry.after_attrs.get().is_none());
 
     match attrs.next() {
-        Some(Ok(attr)) => {
+        Ok(Some(attr)) => {
             assert_eq!(attr,
                        Attribute {
                            name: constants::DW_AT_high_pc,
@@ -2018,10 +2012,73 @@ fn test_attrs_iter() {
 
     assert!(entry.after_attrs.get().is_none());
 
-    assert!(attrs.next().is_none());
+    assert!(attrs.next().expect("should parse next").is_none());
     assert!(entry.after_attrs.get().is_some());
     assert_eq!(entry.after_attrs.get().expect("should have entry.after_attrs"),
                &buf[buf.len() - 4..])
+}
+
+#[test]
+fn test_attrs_iter_incomplete() {
+    let unit = UnitHeader::<LittleEndian>::new(7,
+                                               4,
+                                               DebugAbbrevOffset(0x08070605),
+                                               4,
+                                               Format::Dwarf32,
+                                               &[]);
+
+    let abbrev = Abbreviation::new(42,
+                                   constants::DW_TAG_subprogram,
+                                   constants::DW_CHILDREN_yes,
+                                   vec![
+            AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
+            AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr),
+            AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr),
+        ]);
+
+    // "foo"
+    let buf = [0x66, 0x6f, 0x6f, 0x00];
+
+    let entry = DebuggingInformationEntry {
+        attrs_slice: &buf,
+        after_attrs: Cell::new(None),
+        code: 1,
+        abbrev: &abbrev,
+        unit: &unit,
+    };
+
+    let mut attrs = AttrsIter {
+        input: &buf[..],
+        attributes: abbrev.attributes(),
+        entry: &entry,
+    };
+
+    match attrs.next() {
+        Ok(Some(attr)) => {
+            assert_eq!(attr,
+                       Attribute {
+                           name: constants::DW_AT_name,
+                           value: AttributeValue::String(b"foo\0"),
+                       });
+        }
+        otherwise => {
+            println!("Unexpected parse result = {:#?}", otherwise);
+            assert!(false);
+        }
+    }
+
+    assert!(entry.after_attrs.get().is_none());
+
+    // Return error for incomplete attribute.
+    assert!(attrs.next().is_err());
+    assert!(entry.after_attrs.get().is_none());
+
+    // Return error for all subsequent calls.
+    assert!(attrs.next().is_err());
+    assert!(attrs.next().is_err());
+    assert!(attrs.next().is_err());
+    assert!(attrs.next().is_err());
+    assert!(entry.after_attrs.get().is_none());
 }
 
 /// A cursor into the Debugging Information Entries tree for a compilation unit.
@@ -2051,17 +2108,20 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     }
 
     /// Return the input buffer after the current entry.
-    fn after_entry(&self) -> &'input [u8] {
+    fn after_entry(&self) -> ParseResult<&'input [u8]> {
         if let Some(ref current) = self.cached_current {
             if let Some(after_attrs) = current.after_attrs.get() {
-                after_attrs
+                Ok(after_attrs)
             } else {
-                for _ in current.attrs() {
+                let mut attrs = current.attrs();
+                while let Some(_) = try!(attrs.next()) {
                 }
-                current.after_attrs.get().expect("should have after_attrs after iterating attrs")
+                Ok(current.after_attrs
+                    .get()
+                    .expect("should have after_attrs after iterating attrs"))
             }
         } else {
-            self.input
+            Ok(self.input)
         }
     }
 
@@ -2070,7 +2130,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// Returns `Some` if there is a next entry, even if this entry is null.
     /// If there is no next entry, then `None` is returned.
     pub fn next_entry(&mut self) -> ParseResult<Option<()>> {
-        let input = self.after_entry();
+        let input = try!(self.after_entry());
         if input.len() == 0 {
             self.input = input;
             self.cached_current = None;
@@ -2234,7 +2294,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
             // entries, but this while loop is slightly more efficient.
             // Note that this doesn't handle unusual LEB128 encodings of zero
             // such as [0x80, 0x00]; they are still handled by next_entry().
-            let mut input = self.after_entry();
+            let mut input = try!(self.after_entry());
             while input.len() > 0 && input[0] == 0 {
                 delta_depth -= 1;
                 input = &input[1..];
