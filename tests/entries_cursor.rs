@@ -1,6 +1,6 @@
 extern crate gimli;
 use gimli::{AttributeValue, DebugAbbrev, DebugInfo, DebuggingInformationEntry, Endianity,
-            EntriesCursor, LittleEndian};
+            EntriesCursor, LittleEndian, UnitHeader};
 
 #[cfg(test)]
 fn assert_entry_name<'input, 'abbrev, 'unit, Endian>(entry: &DebuggingInformationEntry<'input,
@@ -92,6 +92,20 @@ fn assert_next_sibling<'input, 'abbrev, 'unit, Endian>(cursor: &mut EntriesCurso
         assert_entry_name(entry, name);
     }
     assert_current_name(cursor, name);
+}
+
+#[cfg(test)]
+fn assert_valid_sibling_ptr<Endian>(unit: &UnitHeader<Endian>, cursor: &EntriesCursor<Endian>)
+    where Endian: Endianity
+{
+    let sibling_ptr =
+        cursor.current().expect("Should have current entry").attr_value(gimli::DW_AT_sibling);
+    match sibling_ptr {
+        Some(AttributeValue::UnitRef(offset)) => {
+            unit.range_from(offset..);
+        }
+        _ => panic!("Invalid sibling pointer {:?}", sibling_ptr),
+    }
 }
 
 #[cfg(test)]
@@ -549,7 +563,9 @@ fn test_cursor_next_sibling_with_sibling_ptr() {
 
     // Now iterate all children of the root via `next_sibling`.
 
+    assert_valid_sibling_ptr(&unit, &cursor);
     assert_next_sibling(&mut cursor, "004");
+
     assert_next_sibling(&mut cursor, "006");
 
     // There should be no more siblings.
