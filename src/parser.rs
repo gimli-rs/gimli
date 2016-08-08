@@ -732,7 +732,7 @@ impl<'input, Endian> UnitHeader<'input, Endian>
 
     fn is_valid_offset(&self, offset: UnitOffset) -> bool {
         let size_of_header = Self::size_of_header(self.format);
-        if !offset.0 as usize >= size_of_header {
+        if (offset.0 as usize) < size_of_header {
             return false;
         }
 
