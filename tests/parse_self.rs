@@ -38,8 +38,8 @@ fn test_parse_self_debug_info() {
         while cursor.next_dfs().expect("Should parse next dfs").is_some() {
             let entry = cursor.current().expect("Should have a current entry");
 
-            for attr in entry.attrs() {
-                attr.expect("Should parse entry's attribute");
+            let mut attrs = entry.attrs();
+            while let Some(_) = attrs.next().expect("Should parse entry's attribute") {
             }
         }
     }
