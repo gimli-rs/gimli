@@ -1164,27 +1164,6 @@ impl<'input> FileEntry<'input> {
     }
 }
 
-/// A sequence of instructions without any internal jumps or entry points.
-///
-/// > A sequence of instructions where only the first instruction may be a branch
-/// > target and only the last instruction may transfer control. A procedure
-/// > invocation is defined to be an exit from a basic block.
-/// >
-/// > A basic block does not necessarily correspond to a specific source code
-/// > construct.
-///
-/// -- Section 6.2.1
-pub struct BasicBlock {
-
-}
-
-/// "A series of contiguous target machine instructions. One compilation unit
-/// may emit multiple sequences (that is, not all instructions within a
-/// compilation unit are assumed to be contiguous)." -- Section 6.2.1
-pub struct Sequence {
-
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
