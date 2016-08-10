@@ -1168,8 +1168,10 @@ impl<'input> FileEntry<'input> {
 mod tests {
     use super::*;
     use endianity::{EndianBuf, LittleEndian};
-    use parser::Error;
+    use parser::{Error, Format};
+    use std::cell::RefCell;
     use std::ffi;
+    use std::u8;
 
     #[test]
     #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -1384,6 +1386,42 @@ mod tests {
         match LineNumberProgramHeader::parse(input) {
             Err(Error::UnitHeaderLengthTooShort) => return,
             otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+    }
+
+    const OPCODE_BASE: u8 = 13;
+
+    fn make_test_header(buf: &[u8]) -> LineNumberProgramHeader<LittleEndian> {
+        LineNumberProgramHeader {
+            opcode_base: OPCODE_BASE,
+            address_size: 8,
+            minimum_instruction_length: 1,
+            maximum_operations_per_instruction: 1,
+            default_is_stmt: true,
+            program_buf: EndianBuf::new(buf),
+            version: 4,
+            header_length: 1,
+            file_names: RefCell::new(vec![]),
+            format: Format::Dwarf32,
+            line_base: -5,
+            unit_length: 1,
+            standard_opcode_lengths: vec![0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1],
+            include_directories: vec![],
+            line_range: 1,
+        }
+    }
+
+    #[test]
+    fn test_parse_special_opcodes() {
+        for i in OPCODE_BASE..u8::MAX {
+            let input = [i, 0, 0, 0];
+            let header = make_test_header(&input);
+
+            let (rest, opcode) = Opcode::parse(&header, &input)
+                .expect("Should parse the opcode OK");
+
+            assert_eq!(rest, &input[1..]);
+            assert_eq!(opcode, Opcode::Special(i));
         }
     }
 }
