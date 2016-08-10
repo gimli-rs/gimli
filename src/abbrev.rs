@@ -1,8 +1,10 @@
 //! Functions for parsing DWARF debugging abbreviations.
 
+#![deny(missing_docs)]
+
 use constants;
-use endianity::Endianity;
-use parser::{EndianBuf, Error, ParseResult, Format, UnitHeader};
+use endianity::{Endianity, EndianBuf};
+use parser::{Error, ParseResult, Format, UnitHeader};
 use parser::{parse_unsigned_leb, parse_u8};
 use std::collections::hash_map;
 

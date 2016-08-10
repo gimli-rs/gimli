@@ -1,7 +1,11 @@
 //! Types for compile-time endianity.
 
+#![deny(missing_docs)]
+
 use byteorder;
 use std::fmt::Debug;
+use std::marker::PhantomData;
+use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 
 /// A trait describing the endianity of some buffer.
 ///
@@ -77,3 +81,98 @@ impl byteorder::ByteOrder for BigEndian {
 }
 
 impl Endianity for BigEndian {}
+
+/// A `&[u8]` slice with compile-time endianity metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EndianBuf<'input, Endian>(pub &'input [u8], pub PhantomData<Endian>)
+    where Endian: Endianity;
+
+impl<'input, Endian> EndianBuf<'input, Endian>
+    where Endian: Endianity
+{
+    /// Construct a new `EndianBuf` with the given buffer.
+    pub fn new(buf: &'input [u8]) -> EndianBuf<'input, Endian> {
+        EndianBuf(buf, PhantomData)
+    }
+}
+
+/// # Range Methods
+///
+/// Unfortunately, `std::ops::Index` *must* return a reference, so we can't
+/// implement `Index<Range<usize>>` to return a new `EndianBuf` the way we would
+/// like to. Instead, we abandon fancy indexing operators and have these plain
+/// old methods.
+impl<'input, Endian> EndianBuf<'input, Endian>
+    where Endian: Endianity
+{
+    /// Take the given `start..end` range of the underlying buffer and return a
+    /// new `EndianBuf`.
+    ///
+    /// ```
+    /// use gimli::{EndianBuf, LittleEndian};
+    ///
+    /// let buf = [0x01, 0x02, 0x03, 0x04];
+    /// let endian_buf = EndianBuf::<LittleEndian>::new(&buf);
+    /// assert_eq!(endian_buf.range(1..3),
+    ///            EndianBuf::new(&buf[1..3]));
+    /// ```
+    pub fn range(&self, idx: Range<usize>) -> EndianBuf<'input, Endian> {
+        EndianBuf(&self.0[idx], self.1)
+    }
+
+    /// Take the given `start..` range of the underlying buffer and return a new
+    /// `EndianBuf`.
+    ///
+    /// ```
+    /// use gimli::{EndianBuf, LittleEndian};
+    ///
+    /// let buf = [0x01, 0x02, 0x03, 0x04];
+    /// let endian_buf = EndianBuf::<LittleEndian>::new(&buf);
+    /// assert_eq!(endian_buf.range_from(2..),
+    ///            EndianBuf::new(&buf[2..]));
+    /// ```
+    pub fn range_from(&self, idx: RangeFrom<usize>) -> EndianBuf<'input, Endian> {
+        EndianBuf(&self.0[idx], self.1)
+    }
+
+    /// Take the given `..end` range of the underlying buffer and return a new
+    /// `EndianBuf`.
+    ///
+    /// ```
+    /// use gimli::{EndianBuf, LittleEndian};
+    ///
+    /// let buf = [0x01, 0x02, 0x03, 0x04];
+    /// let endian_buf = EndianBuf::<LittleEndian>::new(&buf);
+    /// assert_eq!(endian_buf.range_to(..3),
+    ///            EndianBuf::new(&buf[..3]));
+    /// ```
+    pub fn range_to(&self, idx: RangeTo<usize>) -> EndianBuf<'input, Endian> {
+        EndianBuf(&self.0[idx], self.1)
+    }
+}
+
+impl<'input, Endian> Index<usize> for EndianBuf<'input, Endian>
+    where Endian: Endianity
+{
+    type Output = u8;
+    fn index(&self, idx: usize) -> &Self::Output {
+        &self.0[idx]
+    }
+}
+
+impl<'input, Endian> Deref for EndianBuf<'input, Endian>
+    where Endian: Endianity
+{
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl<'input, Endian> Into<&'input [u8]> for EndianBuf<'input, Endian>
+    where Endian: Endianity
+{
+    fn into(self) -> &'input [u8] {
+        self.0
+    }
+}

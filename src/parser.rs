@@ -1,17 +1,20 @@
 //! Functions for parsing DWARF debugging information.
 
+#![deny(missing_docs)]
+
 use constants;
 use leb128;
 use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation, AttributeSpecification};
-use endianity::Endianity;
+use endianity::{Endianity, EndianBuf};
 #[cfg(test)]
 use endianity::LittleEndian;
 use std::cell::Cell;
 use std::error;
+use std::ffi;
 use std::fmt::{self, Debug};
 use std::io;
 use std::marker::PhantomData;
-use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
+use std::ops::{Range, RangeFrom, RangeTo};
 
 /// An error that occurred when parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,6 +49,12 @@ pub enum Error {
     UnknownAbbreviation,
     /// Hit the end of input before it was expected.
     UnexpectedEof,
+    /// Found an unknown standard opcode.
+    UnknownStandardOpcode(constants::DwLns),
+    /// Found an unknown extended opcode.
+    UnknownExtendedOpcode(constants::DwLne),
+    /// The specified address size is not supported.
+    UnsupportedAddressSize(u8),
 }
 
 impl fmt::Display for Error {
@@ -84,6 +93,9 @@ impl error::Error for Error {
             }
             Error::UnknownAbbreviation => "Found a record with an unknown abbreviation code",
             Error::UnexpectedEof => "Hit the end of input before it was expected",
+            Error::UnknownStandardOpcode(_) => "Found an unknown standard opcode",
+            Error::UnknownExtendedOpcode(_) => "Found an unknown extended opcode",
+            Error::UnsupportedAddressSize(_) => "The specified address size is not supported",
         }
     }
 }
@@ -91,58 +103,8 @@ impl error::Error for Error {
 /// The result of a parse.
 pub type ParseResult<T> = Result<T, Error>;
 
-/// A &[u8] slice with compile-time endianity metadata.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EndianBuf<'input, Endian>(&'input [u8], PhantomData<Endian>) where Endian: Endianity;
-
-impl<'input, Endian> EndianBuf<'input, Endian>
-    where Endian: Endianity
-{
-    pub fn new(buf: &'input [u8]) -> EndianBuf<'input, Endian> {
-        EndianBuf(buf, PhantomData)
-    }
-
-    // Unfortunately, std::ops::Index *must* return a reference, so we can't
-    // implement Index<Range<usize>> to return a new EndianBuf the way we would
-    // like to. Instead, we abandon fancy indexing operators and have these
-    // plain old methods.
-
-    #[allow(dead_code)]
-    fn range_from(&self, idx: RangeFrom<usize>) -> EndianBuf<'input, Endian> {
-        EndianBuf(&self.0[idx], self.1)
-    }
-
-    fn range_to(&self, idx: RangeTo<usize>) -> EndianBuf<'input, Endian> {
-        EndianBuf(&self.0[idx], self.1)
-    }
-}
-
-impl<'input, Endian> Index<usize> for EndianBuf<'input, Endian>
-    where Endian: Endianity
-{
-    type Output = u8;
-    fn index(&self, idx: usize) -> &Self::Output {
-        &self.0[idx]
-    }
-}
-
-impl<'input, Endian> Deref for EndianBuf<'input, Endian>
-    where Endian: Endianity
-{
-    type Target = [u8];
-    fn deref(&self) -> &Self::Target {
-        self.0
-    }
-}
-
-impl<'input, Endian> Into<&'input [u8]> for EndianBuf<'input, Endian>
-    where Endian: Endianity
-{
-    fn into(self) -> &'input [u8] {
-        self.0
-    }
-}
-
+/// Parse a `u8` from the input.
+#[doc(hidden)]
 pub fn parse_u8(input: &[u8]) -> ParseResult<(&[u8], u8)> {
     if input.len() == 0 {
         Err(Error::UnexpectedEof)
@@ -151,7 +113,19 @@ pub fn parse_u8(input: &[u8]) -> ParseResult<(&[u8], u8)> {
     }
 }
 
-fn parse_u16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u16)>
+/// Parse a `i8` from the input.
+#[doc(hidden)]
+pub fn parse_i8(input: &[u8]) -> ParseResult<(&[u8], i8)> {
+    if input.len() == 0 {
+        Err(Error::UnexpectedEof)
+    } else {
+        Ok((&input[1..], input[0] as i8))
+    }
+}
+
+/// Parse a `u16` from the input.
+#[doc(hidden)]
+pub fn parse_u16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u16)>
     where Endian: Endianity
 {
     if input.len() < 2 {
@@ -161,7 +135,9 @@ fn parse_u16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>
     }
 }
 
-fn parse_u32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u32)>
+/// Parse a `u32` from the input.
+#[doc(hidden)]
+pub fn parse_u32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u32)>
     where Endian: Endianity
 {
     if input.len() < 4 {
@@ -171,7 +147,9 @@ fn parse_u32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>
     }
 }
 
-fn parse_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
+/// Parse a `u64` from the input.
+#[doc(hidden)]
+pub fn parse_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
     if input.len() < 8 {
@@ -181,13 +159,33 @@ fn parse_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>
     }
 }
 
-fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
+/// Parse a `u32` from the input and return it as a `u64`.
+#[doc(hidden)]
+pub fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
     if input.len() < 4 {
         Err(Error::UnexpectedEof)
     } else {
         Ok((input.range_from(4..), Endian::read_u32(&input) as u64))
+    }
+}
+
+/// Parse a null-terminated slice from the input.
+#[doc(hidden)]
+pub fn parse_null_terminated_string(input: &[u8]) -> ParseResult<(&[u8], &ffi::CStr)> {
+    let null_idx = input.iter().position(|ch| *ch == 0);
+
+    if let Some(idx) = null_idx {
+        let cstr = unsafe {
+            // It is safe to use the unchecked variant here because we know we
+            // grabbed the index of the first null byte in the input and
+            // therefore there can't be any interior null bytes in this slice.
+            ffi::CStr::from_bytes_with_nul_unchecked(&input[0..idx + 1])
+        };
+        Ok((&input[idx + 1..], cstr))
+    } else {
+        Err(Error::UnexpectedEof)
     }
 }
 
@@ -202,10 +200,6 @@ pub struct DebugStrOffset(pub u64);
 /// An offset into the `.debug_info` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DebugInfoOffset(pub u64);
-
-/// An offset into the `.debug_line` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugLineOffset(pub u64);
 
 /// An offset into the `.debug_loc` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -419,8 +413,9 @@ const MAX_DWARF_32_UNIT_LENGTH: u64 = 0xfffffff0;
 const DWARF_64_INITIAL_UNIT_LENGTH: u64 = 0xffffffff;
 
 /// Parse the compilation unit header's length.
-fn parse_unit_length<Endian>(input: EndianBuf<Endian>)
-                             -> ParseResult<(EndianBuf<Endian>, (u64, Format))>
+#[doc(hidden)]
+pub fn parse_unit_length<Endian>(input: EndianBuf<Endian>)
+                                 -> ParseResult<(EndianBuf<Endian>, (u64, Format))>
     where Endian: Endianity
 {
     let (rest, val) = try!(parse_u32_as_u64(input));
@@ -1187,7 +1182,7 @@ pub enum AttributeValue<'input> {
 
     /// A null terminated C string, including the final null byte. Not
     /// guaranteed to be UTF-8 or anything like that.
-    String(&'input [u8]),
+    String(&'input ffi::CStr),
 }
 
 /// An attribute in a `DebuggingInformationEntry`, consisting of a name and
@@ -1488,18 +1483,13 @@ fn parse_attribute<'input, 'unit, Endian>
                 });
             }
             constants::DW_FORM_string => {
-                let null_idx = input.iter().position(|ch| *ch == 0);
-
-                if let Some(idx) = null_idx {
-                    let buf: &[u8] = input.into();
-                    return Ok((input.range_from(idx + 1..),
-                               Attribute {
+                return parse_null_terminated_string(input.0).map(|(rest, string)| {
+                    let attr = Attribute {
                         name: spec.name(),
-                        value: AttributeValue::String(&buf[0..idx + 1]),
-                    }));
-                } else {
-                    return Err(Error::UnexpectedEof);
-                }
+                        value: AttributeValue::String(string),
+                    };
+                    (EndianBuf::new(rest), attr)
+                });
             }
             constants::DW_FORM_strp => {
                 return match unit.format() {
@@ -1841,7 +1831,7 @@ fn test_parse_attribute_string() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x0, 0x99, 0x99];
     let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_string;
-    let value = AttributeValue::String(&buf[..6]);
+    let value = AttributeValue::String(ffi::CStr::from_bytes_with_nul(&buf[..6]).unwrap());
     test_parse_attribute(&buf, 6, &unit, form, value);
 }
 
@@ -1969,7 +1959,8 @@ fn test_attrs_iter() {
             assert_eq!(attr,
                        Attribute {
                            name: constants::DW_AT_name,
-                           value: AttributeValue::String(b"foo\0"),
+                           value: AttributeValue::String(ffi::CStr::from_bytes_with_nul(b"foo\0")
+                               .unwrap()),
                        });
         }
         otherwise => {
@@ -2058,7 +2049,8 @@ fn test_attrs_iter_incomplete() {
             assert_eq!(attr,
                        Attribute {
                            name: constants::DW_AT_name,
-                           value: AttributeValue::String(b"foo\0"),
+                           value: AttributeValue::String(ffi::CStr::from_bytes_with_nul(b"foo\0")
+                               .unwrap()),
                        });
         }
         otherwise => {
