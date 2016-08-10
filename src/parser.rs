@@ -105,6 +105,7 @@ pub type ParseResult<T> = Result<T, Error>;
 
 /// Parse a `u8` from the input.
 #[doc(hidden)]
+#[inline]
 pub fn parse_u8(input: &[u8]) -> ParseResult<(&[u8], u8)> {
     if input.len() == 0 {
         Err(Error::UnexpectedEof)
@@ -115,6 +116,7 @@ pub fn parse_u8(input: &[u8]) -> ParseResult<(&[u8], u8)> {
 
 /// Parse a `i8` from the input.
 #[doc(hidden)]
+#[inline]
 pub fn parse_i8(input: &[u8]) -> ParseResult<(&[u8], i8)> {
     if input.len() == 0 {
         Err(Error::UnexpectedEof)
@@ -125,6 +127,7 @@ pub fn parse_i8(input: &[u8]) -> ParseResult<(&[u8], i8)> {
 
 /// Parse a `u16` from the input.
 #[doc(hidden)]
+#[inline]
 pub fn parse_u16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u16)>
     where Endian: Endianity
 {
@@ -137,6 +140,7 @@ pub fn parse_u16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<End
 
 /// Parse a `u32` from the input.
 #[doc(hidden)]
+#[inline]
 pub fn parse_u32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u32)>
     where Endian: Endianity
 {
@@ -149,6 +153,7 @@ pub fn parse_u32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<End
 
 /// Parse a `u64` from the input.
 #[doc(hidden)]
+#[inline]
 pub fn parse_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
@@ -161,6 +166,7 @@ pub fn parse_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<End
 
 /// Parse a `u32` from the input and return it as a `u64`.
 #[doc(hidden)]
+#[inline]
 pub fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
@@ -173,6 +179,7 @@ pub fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(Endian
 
 /// Parse a null-terminated slice from the input.
 #[doc(hidden)]
+#[inline]
 pub fn parse_null_terminated_string(input: &[u8]) -> ParseResult<(&[u8], &ffi::CStr)> {
     let null_idx = input.iter().position(|ch| *ch == 0);
 
@@ -378,6 +385,7 @@ fn test_units() {
 }
 
 /// Parse an unsigned LEB128 encoded integer.
+#[inline]
 pub fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<(&[u8], u64)> {
     match leb128::read::unsigned(&mut input) {
         Ok(val) => Ok((input, val)),
@@ -389,6 +397,7 @@ pub fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<(&[u8], u64)> {
 }
 
 /// Parse a signed LEB128 encoded integer.
+#[inline]
 pub fn parse_signed_leb(mut input: &[u8]) -> ParseResult<(&[u8], i64)> {
     match leb128::read::signed(&mut input) {
         Ok(val) => Ok((input, val)),
