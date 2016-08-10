@@ -83,8 +83,8 @@ fn bench_parsing_line_number_program_opcodes(b: &mut test::Bencher) {
         let header = LineNumberProgramHeader::new(debug_line, offset, address_size)
             .expect("Should parse line number program header");
 
-        for opcode in header.opcodes() {
-            let opcode = opcode.expect("Should parse opcode");
+        let mut opcodes = header.opcodes();
+        while let Some(opcode) = opcodes.next_opcode().expect("Should parse opcode") {
             test::black_box(opcode);
         }
     });

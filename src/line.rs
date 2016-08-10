@@ -279,10 +279,10 @@ impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
     /// then `Err(e)` is returned.
     pub fn next_row(&mut self) -> parser::ParseResult<Option<LineNumberRow<'input, 'header, Endian>>> {
         loop {
-            match self.opcodes.next() {
-                None => return Ok(None),
-                Some(Err(err)) => return Err(err),
-                Some(Ok(opcode)) => {
+            match self.opcodes.next_opcode() {
+                Err(err) => return Err(err),
+                Ok(None) => return Ok(None),
+                Ok(Some(opcode)) => {
                     if let Some(row) = self.execute(opcode) {
                         return Ok(Some(row));
                     }
@@ -615,26 +615,25 @@ pub struct OpcodesIter<'header, 'input, Endian>
     input: &'input [u8],
 }
 
-impl<'header, 'input, Endian> Iterator for OpcodesIter<'header, 'input, Endian>
+impl<'header, 'input, Endian> OpcodesIter<'header, 'input, Endian>
     where Endian: 'header + Endianity,
           'input: 'header
 {
-    type Item = parser::ParseResult<Opcode<'input>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    /// Advance the iterator and return the next opcode.
+    ///
+    /// Returns the newly parsed opcode as `Ok(Some(opcode))`. Returns
+    /// `Ok(None)` when iteration is complete and all opcodes have already been
+    /// parsed and yielded. If an error occurs while parsing the next attribute,
+    /// then this error is returned on all subsequent calls as `Err(e)`.
+    pub fn next_opcode(&mut self) -> parser::ParseResult<Option<Opcode<'input>>> {
         if self.input.len() == 0 {
-            return None;
+            return Ok(None);
         }
 
-        Some(Opcode::parse(self.header, self.input)
-            .map(|(rest, opcode)| {
-                self.input = rest;
-                opcode
-            })
-            .map_err(|err| {
-                self.input = &[];
-                err
-            }))
+        Opcode::parse(self.header, self.input).map(|(rest, opcode)| {
+            self.input = rest;
+            Some(opcode)
+        })
     }
 }
 

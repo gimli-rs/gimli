@@ -175,8 +175,9 @@ fn dump_line<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>)
 
                 println!("");
                 println!("Line Number Statements:");
-                for opcode in header.opcodes() {
-                    println!("  {}", opcode.expect("Should parse opcode OK"));
+                let mut opcodes = header.opcodes();
+                while let Some(opcode) = opcodes.next_opcode().expect("Should parse opcode OK") {
+                    println!("  {}", opcode);
                 }
             }
         }
