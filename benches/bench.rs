@@ -3,7 +3,8 @@
 extern crate gimli;
 extern crate test;
 
-use gimli::{DebugAbbrev, DebugInfo, LittleEndian};
+use gimli::{DebugAbbrev, DebugInfo, DebugLine, DebugLineOffset, LineNumberProgramHeader,
+            LittleEndian};
 
 use std::env;
 use std::fs::File;
@@ -63,6 +64,28 @@ fn bench_parsing_debug_info(b: &mut test::Bencher) {
                     test::black_box(&attr);
                 }
             }
+        }
+    });
+}
+
+#[bench]
+fn bench_parsing_line_number_program_opcodes(b: &mut test::Bencher) {
+    let debug_line = read_section("debug_line");
+    let debug_line = DebugLine::<LittleEndian>::new(&debug_line);
+
+    // We happen to know that there is a line number program and header at
+    // offset 0 and that address size is 8 bytes. No need to parse DIEs to grab
+    // this info off of the compilation units.
+    let offset = DebugLineOffset(0);
+    let address_size = 8;
+
+    b.iter(|| {
+        let header = LineNumberProgramHeader::new(debug_line, offset, address_size)
+            .expect("Should parse line number program header");
+
+        for opcode in header.opcodes() {
+            let opcode = opcode.expect("Should parse opcode");
+            test::black_box(opcode);
         }
     });
 }
