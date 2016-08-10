@@ -13,7 +13,6 @@ use std::error;
 use std::ffi;
 use std::fmt::{self, Debug};
 use std::io;
-use std::mem;
 use std::marker::PhantomData;
 use std::ops::{Range, RangeFrom, RangeTo};
 
@@ -120,7 +119,7 @@ pub fn parse_i8(input: &[u8]) -> ParseResult<(&[u8], i8)> {
     if input.len() == 0 {
         Err(Error::UnexpectedEof)
     } else {
-        Ok((&input[1..], unsafe { mem::transmute(input[0]) }))
+        Ok((&input[1..], input[0] as i8))
     }
 }
 
