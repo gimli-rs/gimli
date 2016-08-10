@@ -41,8 +41,8 @@ impl<'input, Endian> DebugLine<'input, Endian>
     }
 }
 
-/// Executes a `LineNumberProgram` to recreate and the mapping from instructions
-/// to source locations.
+/// Executes a `LineNumberProgram` to recreate the matrix mapping to and from
+/// instructions to source locations.
 ///
 /// "The hypothetical machine used by a consumer of the line number information
 /// to expand the byte-coded instruction stream into a matrix of line number
