@@ -266,20 +266,25 @@ impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
     }
 }
 
-impl<'input, 'header, Endian> Iterator for StateMachine<'input, 'header, Endian>
+impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
     where Endian: 'header + Endianity,
           'input: 'header
 {
-    type Item = parser::ParseResult<LineNumberRow<'input, 'header, Endian>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    /// Parse and execute the next opcodes in the line number program until
+    /// another row in the line number matrix is computed.
+    ///
+    /// The freshly computed row is returned as `Ok(Some(row))`. If the matrix
+    /// is complete, and there are no more new rows in the line number matrix,
+    /// then `Ok(None)` is returned. If there was an error parsing an opcode,
+    /// then `Err(e)` is returned.
+    pub fn next_row(&mut self) -> parser::ParseResult<Option<LineNumberRow<'input, 'header, Endian>>> {
         loop {
             match self.opcodes.next() {
-                None => return None,
-                Some(Err(err)) => return Some(Err(err)),
+                None => return Ok(None),
+                Some(Err(err)) => return Err(err),
                 Some(Ok(opcode)) => {
                     if let Some(row) = self.execute(opcode) {
-                        return Some(Ok(row));
+                        return Ok(Some(row));
                     }
                     // Fall through, parse the next opcode, and see if that
                     // yields a row.

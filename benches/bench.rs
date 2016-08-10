@@ -105,9 +105,9 @@ fn bench_executing_line_number_programs(b: &mut test::Bencher) {
         let header = LineNumberProgramHeader::new(debug_line, offset, address_size)
             .expect("Should parse line number program header");
 
-        let state_machine = StateMachine::new(&header);
-        for row in state_machine {
-            let row = row.expect("Should parse and execute all rows in the line number program");
+        let mut state_machine = StateMachine::new(&header);
+        while let Some(row) = state_machine.next_row()
+            .expect("Should parse and execute all rows in the line number program") {
             test::black_box(row);
         }
     });
