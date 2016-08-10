@@ -68,19 +68,19 @@ fn bench_parsing_debug_info(b: &mut test::Bencher) {
     });
 }
 
+// We happen to know that there is a line number program and header at
+// offset 0 and that address size is 8 bytes. No need to parse DIEs to grab
+// this info off of the compilation units.
+const OFFSET: DebugLineOffset = DebugLineOffset(0);
+const ADDRESS_SIZE: u8 = 8;
+
 #[bench]
 fn bench_parsing_line_number_program_opcodes(b: &mut test::Bencher) {
     let debug_line = read_section("debug_line");
     let debug_line = DebugLine::<LittleEndian>::new(&debug_line);
 
-    // We happen to know that there is a line number program and header at
-    // offset 0 and that address size is 8 bytes. No need to parse DIEs to grab
-    // this info off of the compilation units.
-    let offset = DebugLineOffset(0);
-    let address_size = 8;
-
     b.iter(|| {
-        let header = LineNumberProgramHeader::new(debug_line, offset, address_size)
+        let header = LineNumberProgramHeader::new(debug_line, OFFSET, ADDRESS_SIZE)
             .expect("Should parse line number program header");
 
         let mut opcodes = header.opcodes();
@@ -95,14 +95,8 @@ fn bench_executing_line_number_programs(b: &mut test::Bencher) {
     let debug_line = read_section("debug_line");
     let debug_line = DebugLine::<LittleEndian>::new(&debug_line);
 
-    // We happen to know that there is a line number program and header at
-    // offset 0 and that address size is 8 bytes. No need to parse DIEs to grab
-    // this info off of the compilation units.
-    let offset = DebugLineOffset(0);
-    let address_size = 8;
-
     b.iter(|| {
-        let header = LineNumberProgramHeader::new(debug_line, offset, address_size)
+        let header = LineNumberProgramHeader::new(debug_line, OFFSET, ADDRESS_SIZE)
             .expect("Should parse line number program header");
 
         let mut state_machine = StateMachine::new(&header);
