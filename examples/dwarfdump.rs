@@ -23,13 +23,17 @@ fn dump_file<Endian>(file: obj::File)
     let debug_abbrev = obj::get_section(&file, ".debug_abbrev")
         .expect("Does not have .debug_abbrev section");
     let debug_abbrev = gimli::DebugAbbrev::<Endian>::new(debug_abbrev);
+    let debug_str = obj::get_section(&file, ".debug_str")
+        .expect("Does not have .debug_str section");
+    let debug_str = gimli::DebugStr::<Endian>::new(debug_str);
 
-    dump_info(&file, debug_abbrev);
-    dump_types(&file, debug_abbrev);
+    dump_info(&file, debug_abbrev, debug_str);
+    dump_types(&file, debug_abbrev, debug_str);
     dump_line(&file, debug_abbrev);
 }
 
-fn dump_info<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>)
+fn dump_info<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>,
+                     debug_str: gimli::DebugStr<Endian>)
     where Endian: gimli::Endianity
 {
     if let Some(debug_info) = obj::get_section(file, ".debug_info") {
@@ -44,12 +48,13 @@ fn dump_info<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>)
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
-            dump_entries(unit.entries(&abbrevs));
+            dump_entries(unit.entries(&abbrevs), debug_str);
         }
     }
 }
 
-fn dump_types<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>)
+fn dump_types<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>,
+                      debug_str: gimli::DebugStr<Endian>)
     where Endian: gimli::Endianity
 {
     if let Some(debug_types) = obj::get_section(file, ".debug_types") {
@@ -64,12 +69,12 @@ fn dump_types<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
-            dump_entries(unit.entries(&abbrevs));
+            dump_entries(unit.entries(&abbrevs), debug_str);
         }
     }
 }
 
-fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>)
+fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>, debug_str: gimli::DebugStr<Endian>)
     where Endian: gimli::Endianity
 {
     let depth = Cell::new(0);
@@ -87,7 +92,14 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>)
         let mut attrs = entry.attrs();
         while let Some(attr) = attrs.next().expect("Should parse attribute OK") {
             indent();
-            println!("    {} = {:?}", attr.name(), attr.value());
+            let to_print: Option<gimli::AttributeValue> = match attr.value() {
+                gimli::AttributeValue::DebugStrRef(o) => match debug_str.get_str(o) {
+                    Ok(s) => Some(gimli::AttributeValue::String(s)),
+                    Err(_) => None,
+                },
+                otherwise => Some(otherwise),
+            };
+            println!("    {} = {:?}", attr.name(), to_print.expect("Error parsing attribute value"));
         }
     }
 }
