@@ -160,6 +160,15 @@ impl<'input, Endian> Index<usize> for EndianBuf<'input, Endian>
     }
 }
 
+impl<'input, Endian> Index<RangeFrom<usize>> for EndianBuf<'input, Endian>
+    where Endian: Endianity
+{
+    type Output = [u8];
+    fn index(&self, idx: RangeFrom<usize>) -> &Self::Output {
+        &self.0[idx]
+    }
+}
+
 impl<'input, Endian> Deref for EndianBuf<'input, Endian>
     where Endian: Endianity
 {
