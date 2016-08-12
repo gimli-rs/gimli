@@ -1,5 +1,5 @@
 extern crate gimli;
-
+use std::ffi::CStr;
 use std::cell::Cell;
 use std::env;
 
@@ -33,18 +33,20 @@ fn dump_info<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>)
     where Endian: gimli::Endianity
 {
     if let Some(debug_info) = obj::get_section(file, ".debug_info") {
-        println!(".debug_info");
-        println!("");
+        if let Some(debug_str) = obj::get_section(file, ".debug_str") {
+            println!(".debug_info");
+            println!("");
 
-        let debug_info = gimli::DebugInfo::<Endian>::new(&debug_info);
+            let debug_info = gimli::DebugInfo::<Endian>::new(&debug_info);
 
-        for unit in debug_info.units() {
-            let unit = unit.expect("Should parse the unit OK");
+            for unit in debug_info.units() {
+                let unit = unit.expect("Should parse the unit OK");
 
-            let abbrevs = unit.abbreviations(debug_abbrev)
+                let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
-            dump_entries(unit.entries(&abbrevs));
+                dump_entries(debug_str, unit.entries(&abbrevs));
+            }
         }
     }
 }
@@ -53,23 +55,43 @@ fn dump_types<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>
     where Endian: gimli::Endianity
 {
     if let Some(debug_types) = obj::get_section(file, ".debug_types") {
-        println!(".debug_types");
-        println!("");
+        if let Some(debug_str) = obj::get_section(file, ".debug_str") {
+            println!(".debug_types");
+            println!("");
 
-        let debug_types = gimli::DebugTypes::<Endian>::new(&debug_types);
+            let debug_types = gimli::DebugTypes::<Endian>::new(&debug_types);
 
-        for unit in debug_types.units() {
-            let unit = unit.expect("Should parse the unit OK");
+            for unit in debug_types.units() {
+                let unit = unit.expect("Should parse the unit OK");
 
-            let abbrevs = unit.abbreviations(debug_abbrev)
+                let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
-            dump_entries(unit.entries(&abbrevs));
+                dump_entries(debug_str, unit.entries(&abbrevs));
+            }
         }
     }
 }
 
-fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>)
+fn format_attr_value<'a>(debug_str: &'a [u8], value: gimli::AttributeValue) -> String {
+    match value {
+        gimli::AttributeValue::DebugStrRef(gimli::DebugStrOffset(offset)) => {
+            // Strings are stored as offsets into the debug_str section
+            // so here's how you get the actual string out
+            let ptr = &debug_str[offset as usize];
+            let cstring = unsafe {
+                CStr::from_ptr(ptr as *const u8 as *const i8)
+            };
+            format!("{:?}", cstring)
+        },
+        _ => {
+            // TODO: add more examples of how to format values prettily
+            format!("{:?}", value)
+        }
+    }
+}
+
+fn dump_entries<'a, Endian>(debug_str: &'a [u8], mut entries: gimli::EntriesCursor<Endian>)
     where Endian: gimli::Endianity
 {
     let depth = Cell::new(0);
@@ -87,7 +109,8 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>)
         let mut attrs = entry.attrs();
         while let Some(attr) = attrs.next().expect("Should parse attribute OK") {
             indent();
-            println!("    {} = {:?}", attr.name(), attr.value());
+            let formatted_value = format_attr_value(debug_str, attr.value());
+            println!("    {} = {}", attr.name(), formatted_value);
         }
     }
 }
