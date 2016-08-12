@@ -72,7 +72,6 @@ pub use parser::{DebugLocOffset, DebugMacinfoOffset, UnitOffset};
 pub use parser::{DebugInfo, DebugInfoOffset, UnitHeadersIter, UnitHeader};
 pub use parser::{DebugTypes, DebugTypesOffset, TypeUnitHeadersIter, TypeUnitHeader};
 pub use parser::{EntriesCursor, DebuggingInformationEntry, AttrsIter, Attribute, AttributeValue};
-pub use parser::{DebugStr, DebugStrOffset};
 
 mod abbrev;
 pub use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation,
@@ -80,3 +79,6 @@ pub use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation,
 
 mod line;
 pub use line::*;
+
+mod str;
+pub use str::*;
