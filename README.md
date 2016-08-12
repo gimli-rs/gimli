@@ -25,7 +25,7 @@ Either
 or add this to your `Cargo.toml`:
 
     [dependencies]
-    gimli = "0.2.0"
+    gimli = "0.5.0"
 
 ## Documentation
 
