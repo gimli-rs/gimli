@@ -87,7 +87,7 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>, debug_str: gi
         };
 
         indent();
-        println!("<{}> <{}>", entry.code(), entry.tag());
+        println!("<{}> <{}>", entry.offset(), entry.tag());
 
         let mut attrs = entry.attrs();
         while let Some(attr) = attrs.next().expect("Should parse attribute OK") {
