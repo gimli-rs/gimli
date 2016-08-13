@@ -615,15 +615,17 @@ fn test_parse_debug_abbrev_offset_64_incomplete() {
 }
 
 /// Parse the size of addresses (in bytes) on the target architecture.
-fn parse_address_size(input: &[u8]) -> ParseResult<(&[u8], u8)> {
-    parse_u8(input)
+fn parse_address_size<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u8)>
+    where Endian: Endianity
+{
+    parse_u8(input.into()).map(|(r, u)| (EndianBuf::new(r), u))
 }
 
 #[test]
 fn test_parse_address_size_ok() {
     let buf = [0x04];
 
-    match parse_address_size(&buf) {
+    match parse_address_size(EndianBuf::<LittleEndian>::new(&buf)) {
         Ok((_, val)) => assert_eq!(val, 4),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
@@ -884,14 +886,14 @@ fn parse_unit_header<Endian>(input: EndianBuf<Endian>)
         return Err(Error::UnexpectedEof);
     }
 
-    let entries_buf = &rest[..end];
-    Ok((EndianBuf::new(rest),
+    let entries_buf = rest.range_to(..end);
+    Ok((rest,
         UnitHeader::new(unit_length,
                         version,
                         offset,
                         address_size,
                         format,
-                        entries_buf)))
+                        entries_buf.into())))
 }
 
 #[test]
