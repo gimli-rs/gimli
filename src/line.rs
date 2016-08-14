@@ -532,17 +532,17 @@ impl<'input> Opcode<'input> {
                     Ok((rest, Opcode::SetIsa(isa)))
                 }
 
-                otherwise if header.standard_opcode_lengths[opcode as usize] == 0 => {
+                otherwise if header.standard_opcode_lengths[(opcode - 1) as usize] == 0 => {
                     Ok((rest, Opcode::UnknownStandard0(otherwise)))
                 }
 
-                otherwise if header.standard_opcode_lengths[opcode as usize] == 1 => {
+                otherwise if header.standard_opcode_lengths[(opcode - 1) as usize] == 1 => {
                     let (rest, arg) = try!(parser::parse_unsigned_leb(rest));
                     Ok((rest, Opcode::UnknownStandard1(otherwise, arg)))
                 }
 
                 otherwise => {
-                    let num_args = header.standard_opcode_lengths[opcode as usize];
+                    let num_args = header.standard_opcode_lengths[(opcode - 1) as usize];
                     let mut args = Vec::with_capacity(num_args as usize);
                     let mut rest = rest;
                     for _ in 0..num_args {
@@ -1167,6 +1167,7 @@ impl<'input> FileEntry<'input> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use constants;
     use endianity::{EndianBuf, LittleEndian};
     use parser::{Error, Format};
     use std::cell::RefCell;
@@ -1423,5 +1424,87 @@ mod tests {
             assert_eq!(rest, &input[1..]);
             assert_eq!(opcode, Opcode::Special(i));
         }
+    }
+
+    #[test]
+    fn test_parse_standard_opcodes() {
+        fn test<Operands>(raw: constants::DwLns, operands: Operands, expected: Opcode)
+            where Operands: AsRef<[u8]>
+        {
+            let mut input = Vec::new();
+            input.push(raw.0);
+            input.extend_from_slice(operands.as_ref());
+
+            let expected_rest = [0, 1, 2, 3, 4];
+            input.extend_from_slice(&expected_rest);
+
+            let header = make_test_header(&input);
+
+            let (rest, opcode) = Opcode::parse(&header, &input)
+                .expect("Should parse the opcode OK");
+
+            assert_eq!(opcode, expected);
+            assert_eq!(rest, &expected_rest);
+        }
+
+        test(constants::DW_LNS_copy, [], Opcode::Copy);
+        test(constants::DW_LNS_advance_pc, [42], Opcode::AdvancePc(42));
+        test(constants::DW_LNS_advance_line, [9], Opcode::AdvanceLine(9));
+        test(constants::DW_LNS_set_file, [7], Opcode::SetFile(7));
+        test(constants::DW_LNS_set_column, [1], Opcode::SetColumn(1));
+        test(constants::DW_LNS_negate_stmt, [], Opcode::NegateStatement);
+        test(constants::DW_LNS_set_basic_block, [], Opcode::SetBasicBlock);
+        test(constants::DW_LNS_const_add_pc, [], Opcode::ConstAddPc);
+        test(constants::DW_LNS_fixed_advance_pc,
+             [42, 0],
+             Opcode::FixedAddPc(42));
+        test(constants::DW_LNS_set_prologue_end,
+             [],
+             Opcode::SetPrologueEnd);
+        test(constants::DW_LNS_set_isa,
+             [57 + 0x80, 100],
+             Opcode::SetIsa(12857));
+    }
+
+    #[test]
+    fn test_parse_unknown_standard_opcode_no_args() {
+        let input = [OPCODE_BASE, 1, 2, 3];
+        let mut header = make_test_header(&input);
+        header.opcode_base += 1;
+        header.standard_opcode_lengths.push(0);
+
+        let (rest, opcode) = Opcode::parse(&header, &input).expect("Should parse the opcode OK");
+
+        assert_eq!(opcode,
+                   Opcode::UnknownStandard0(constants::DwLns(OPCODE_BASE)));
+        assert_eq!(rest, &input[1..]);
+    }
+
+    #[test]
+    fn test_parse_unknown_standard_opcode_one_arg() {
+        let input = [OPCODE_BASE, 1, 2, 3];
+        let mut header = make_test_header(&input);
+        header.opcode_base += 1;
+        header.standard_opcode_lengths.push(1);
+
+        let (rest, opcode) = Opcode::parse(&header, &input).expect("Should parse the opcode OK");
+
+        assert_eq!(opcode,
+                   Opcode::UnknownStandard1(constants::DwLns(OPCODE_BASE), 1));
+        assert_eq!(rest, &input[2..]);
+    }
+
+    #[test]
+    fn test_parse_unknown_standard_opcode_many_args() {
+        let input = [OPCODE_BASE, 1, 2, 3];
+        let mut header = make_test_header(&input);
+        header.opcode_base += 1;
+        header.standard_opcode_lengths.push(3);
+
+        let (rest, opcode) = Opcode::parse(&header, &input).expect("Should parse the opcode OK");
+
+        assert_eq!(opcode,
+                   Opcode::UnknownStandardN(constants::DwLns(OPCODE_BASE), vec![1, 2, 3]));
+        assert_eq!(rest, &[]);
     }
 }
