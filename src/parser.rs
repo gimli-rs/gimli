@@ -731,8 +731,12 @@ impl<'input, Endian> UnitHeader<'input, Endian>
         self.format
     }
 
+    fn header_size(&self) -> usize {
+        Self::size_of_header(self.format)
+    }
+
     fn is_valid_offset(&self, offset: UnitOffset) -> bool {
-        let size_of_header = Self::size_of_header(self.format);
+        let size_of_header = self.header_size();
         if (offset.0 as usize) < size_of_header {
             return false;
         }
@@ -960,6 +964,7 @@ pub struct DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>
     where 'input: 'unit,
           Endian: Endianity + 'unit
 {
+    offset: usize,
     attrs_slice: &'input [u8],
     after_attrs: Cell<Option<&'input [u8]>>,
     code: u64,
@@ -973,6 +978,11 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
     /// Get this entry's code.
     pub fn code(&self) -> u64 {
         self.code
+    }
+
+    /// Get this entry's offset.
+    pub fn offset(&self) -> usize {
+        self.offset
     }
 
     /// Get this entry's `DW_TAG_whatever` tag.
@@ -1947,6 +1957,7 @@ fn test_attrs_iter() {
                0xaa, 0xaa];
 
     let entry = DebuggingInformationEntry {
+        offset: 0,
         attrs_slice: &buf,
         after_attrs: Cell::new(None),
         code: 1,
@@ -2037,6 +2048,7 @@ fn test_attrs_iter_incomplete() {
     let buf = [0x66, 0x6f, 0x6f, 0x00];
 
     let entry = DebuggingInformationEntry {
+        offset: 0,
         attrs_slice: &buf,
         after_attrs: Cell::new(None),
         code: 1,
@@ -2123,6 +2135,13 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
         }
     }
 
+    /// Return the offset in bytes of the given array from the start of the compilation unit
+    fn get_offset(&self, input: &[u8]) -> usize {
+        let ptr = input.as_ptr() as *const u8 as usize;
+        let start_ptr = self.unit.entries_buf.as_ptr() as *const u8 as usize;
+        ptr - start_ptr + self.unit.header_size()
+    }
+
     /// Move the cursor to the next DIE in the tree.
     ///
     /// Returns `Some` if there is a next entry, even if this entry is null.
@@ -2136,6 +2155,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
             return Ok(None);
         }
 
+        let offset = self.get_offset(input);
         match try!(parse_unsigned_leb(input)) {
             (rest, 0) => {
                 self.input = rest;
@@ -2146,6 +2166,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
             (rest, code) => {
                 if let Some(abbrev) = self.abbreviations.get(code) {
                     self.cached_current = Some(DebuggingInformationEntry {
+                        offset: offset,
                         attrs_slice: rest,
                         after_attrs: Cell::new(None),
                         code: code,
