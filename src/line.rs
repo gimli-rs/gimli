@@ -841,7 +841,7 @@ pub struct LineNumberProgramHeader<'input, Endian>
     line_base: i8,
 
     /// "This parameter affects the meaning of the special opcodes."
-    line_range: i8,
+    line_range: u8,
 
     /// "The number assigned to the first special opcode."
     opcode_base: u8,
@@ -950,7 +950,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
     }
 
     /// Get the line range for this header's line program.
-    pub fn line_range(&self) -> i8 {
+    pub fn line_range(&self) -> u8 {
         self.line_range
     }
 
@@ -1030,7 +1030,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
 
         let (rest, default_is_stmt) = try!(parser::parse_u8(rest));
         let (rest, line_base) = try!(parser::parse_i8(rest));
-        let (rest, line_range) = try!(parser::parse_i8(rest));
+        let (rest, line_range) = try!(parser::parse_u8(rest));
         if line_range == 0 {
             return Err(parser::Error::LineRangeZero);
         }
