@@ -32,7 +32,8 @@ fn dump_file<Endian>(file: obj::File)
     dump_line(&file, debug_abbrev);
 }
 
-fn dump_info<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>,
+fn dump_info<Endian>(file: &obj::File,
+                     debug_abbrev: gimli::DebugAbbrev<Endian>,
                      debug_str: gimli::DebugStr<Endian>)
     where Endian: gimli::Endianity
 {
@@ -53,7 +54,8 @@ fn dump_info<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>,
     }
 }
 
-fn dump_types<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>,
+fn dump_types<Endian>(file: &obj::File,
+                      debug_abbrev: gimli::DebugAbbrev<Endian>,
                       debug_str: gimli::DebugStr<Endian>)
     where Endian: gimli::Endianity
 {
@@ -74,7 +76,8 @@ fn dump_types<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>
     }
 }
 
-fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>, debug_str: gimli::DebugStr<Endian>)
+fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
+                        debug_str: gimli::DebugStr<Endian>)
     where Endian: gimli::Endianity
 {
     let depth = Cell::new(0);
@@ -93,13 +96,17 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>, debug_str: gi
         while let Some(attr) = attrs.next().expect("Should parse attribute OK") {
             indent();
             let to_print: Option<gimli::AttributeValue> = match attr.value() {
-                gimli::AttributeValue::DebugStrRef(o) => match debug_str.get_str(o) {
-                    Ok(s) => Some(gimli::AttributeValue::String(s)),
-                    Err(_) => None,
-                },
+                gimli::AttributeValue::DebugStrRef(o) => {
+                    match debug_str.get_str(o) {
+                        Ok(s) => Some(gimli::AttributeValue::String(s)),
+                        Err(_) => None,
+                    }
+                }
                 otherwise => Some(otherwise),
             };
-            println!("    {} = {:?}", attr.name(), to_print.expect("Error parsing attribute value"));
+            println!("    {} = {:?}",
+                     attr.name(),
+                     to_print.expect("Error parsing attribute value"));
         }
     }
 }

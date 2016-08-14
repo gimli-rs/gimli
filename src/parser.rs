@@ -15,7 +15,7 @@ use std::fmt::{self, Debug};
 use std::io;
 use std::marker::PhantomData;
 use std::ops::{Range, RangeFrom, RangeTo};
-use str::{DebugStrOffset};
+use str::DebugStrOffset;
 
 /// An error that occurred when parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

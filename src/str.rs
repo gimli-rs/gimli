@@ -50,7 +50,7 @@ impl<'input, Endian> DebugStr<'input, Endian>
     /// println!("Found string {:?}", debug_str.get_str(debug_str_offset_somehow()));
     /// ```
     pub fn get_str(&self, offset: DebugStrOffset) -> ParseResult<&ffi::CStr> {
-        let result = parse_null_terminated_string(&self.debug_str_section[offset.0 as usize ..]);
+        let result = parse_null_terminated_string(&self.debug_str_section[offset.0 as usize..]);
         result.map(|(_, cstr)| cstr)
     }
 }
