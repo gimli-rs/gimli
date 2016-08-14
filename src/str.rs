@@ -1,5 +1,5 @@
 use endianity::{Endianity, EndianBuf};
-use parser::{parse_null_terminated_string, ParseResult};
+use parser::{parse_null_terminated_string, Error, ParseResult};
 use std::ffi;
 use std::marker::PhantomData;
 
@@ -50,6 +50,9 @@ impl<'input, Endian> DebugStr<'input, Endian>
     /// println!("Found string {:?}", debug_str.get_str(debug_str_offset_somehow()));
     /// ```
     pub fn get_str(&self, offset: DebugStrOffset) -> ParseResult<&ffi::CStr> {
+        if self.debug_str_section.len() < offset.0 as usize {
+            return Err(Error::UnexpectedEof);
+        }
         let result = parse_null_terminated_string(&self.debug_str_section[offset.0 as usize..]);
         result.map(|(_, cstr)| cstr)
     }
