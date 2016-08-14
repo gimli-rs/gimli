@@ -1006,8 +1006,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
             parser::Format::Dwarf64 => parser::parse_u64(rest),
         });
 
-        let size_of_unit_length = parser::UnitHeader::<Endian>::size_of_unit_length(format) as u64;
-        if header_length > unit_length - size_of_unit_length {
+        if header_length as usize > rest.len() {
             return Err(parser::Error::UnitHeaderLengthTooShort);
         }
         let program_buf = rest.range_from(header_length as usize..);
