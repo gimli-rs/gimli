@@ -95,8 +95,8 @@ impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
 
     fn adjust_opcode(&self, opcode: u8) -> i64 {
         let opcode = opcode as i64;
-        let line_base = self.row.header.line_base as i64;
-        opcode - line_base
+        let opcode_base = self.row.header.opcode_base as i64;
+        opcode - opcode_base
     }
 
     /// Section 6.2.5.1
