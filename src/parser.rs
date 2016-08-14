@@ -56,6 +56,14 @@ pub enum Error {
     UnknownExtendedOpcode(constants::DwLne),
     /// The specified address size is not supported.
     UnsupportedAddressSize(u8),
+    /// The minimum instruction length must not be zero.
+    MinimumInstructionLengthZero,
+    /// The maximum operations per instruction must not be zero.
+    MaximumOperationsPerInstructionZero,
+    /// The line range must not be zero.
+    LineRangeZero,
+    /// The opcode base must not be zero.
+    OpcodeBaseZero,
 }
 
 impl fmt::Display for Error {
@@ -97,6 +105,14 @@ impl error::Error for Error {
             Error::UnknownStandardOpcode(_) => "Found an unknown standard opcode",
             Error::UnknownExtendedOpcode(_) => "Found an unknown extended opcode",
             Error::UnsupportedAddressSize(_) => "The specified address size is not supported",
+            Error::MinimumInstructionLengthZero => {
+                "The minimum instruction length must not be zero."
+            }
+            Error::MaximumOperationsPerInstructionZero => {
+                "The maximum operations per instruction must not be zero."
+            }
+            Error::LineRangeZero => "The line range must not be zero.",
+            Error::OpcodeBaseZero => "The opcode base must not be zero.",
         }
     }
 }

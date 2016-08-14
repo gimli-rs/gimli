@@ -1013,6 +1013,9 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         let rest = rest.range_to(..header_length as usize);
 
         let (rest, minimum_instruction_length) = try!(parser::parse_u8(rest.0));
+        if minimum_instruction_length == 0 {
+            return Err(parser::Error::MinimumInstructionLengthZero);
+        }
 
         // This field did not exist before DWARF 4, but is specified to be 1 for
         // non-VLIW architectures, which makes it a no-op.
@@ -1021,11 +1024,21 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         } else {
             (rest, 1)
         };
+        if maximum_operations_per_instruction == 0 {
+            return Err(parser::Error::MaximumOperationsPerInstructionZero);
+        }
 
         let (rest, default_is_stmt) = try!(parser::parse_u8(rest));
         let (rest, line_base) = try!(parser::parse_i8(rest));
         let (rest, line_range) = try!(parser::parse_i8(rest));
+        if line_range == 0 {
+            return Err(parser::Error::LineRangeZero);
+        }
+
         let (rest, opcode_base) = try!(parser::parse_u8(rest));
+        if opcode_base == 0 {
+            return Err(parser::Error::OpcodeBaseZero);
+        }
 
         let standard_opcode_count = opcode_base as usize - 1;
         if rest.len() < standard_opcode_count {
@@ -1176,7 +1189,7 @@ mod tests {
             // Line base.
             0x00,
             // Line range.
-            0x00,
+            0x01,
             // Opcode base.
             0x03,
             // Standard opcode lengths for opcodes 1 .. opcode base - 1.
@@ -1222,7 +1235,7 @@ mod tests {
         assert_eq!(header.maximum_operations_per_instruction(), 1);
         assert_eq!(header.default_is_stmt(), true);
         assert_eq!(header.line_base(), 0);
-        assert_eq!(header.line_range(), 0);
+        assert_eq!(header.line_range(), 1);
         assert_eq!(header.opcode_base(), 3);
 
         let expected_lengths = [1, 2];
@@ -1270,7 +1283,7 @@ mod tests {
             // Line base.
             0x00,
             // Line range.
-            0x00,
+            0x01,
             // Opcode base.
             0x03,
             // Standard opcode lengths for opcodes 1 .. opcode base - 1.
@@ -1331,7 +1344,7 @@ mod tests {
             // Line base.
             0x00,
             // Line range.
-            0x00,
+            0x01,
             // Opcode base.
             0x03,
             // Standard opcode lengths for opcodes 1 .. opcode base - 1.
