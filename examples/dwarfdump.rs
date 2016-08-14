@@ -200,14 +200,12 @@ fn dump_line<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>)
 fn dump_aranges<Endian>(file: &obj::File)
     where Endian: gimli::Endianity
 {
-    let debug_aranges = obj::get_section(file, ".debug_aranges")
-        .expect("Does not have .debug_aranges section");
-    println!(".debug_aranges");
-    let debug_aranges = gimli::DebugAranges::<Endian>::new(debug_aranges);
+    if let Some(debug_aranges) = obj::get_section(file, ".debug_aranges") {
+        println!(".debug_aranges");
+        let debug_aranges = gimli::DebugAranges::<Endian>::new(debug_aranges);
 
-    let mut aranges = debug_aranges.aranges();
-    while let Some(arange) = aranges.next() {
-        for arange in arange.expect("Should parse arange OK") {
+        let mut aranges = debug_aranges.aranges();
+        while let Some(arange) = aranges.next_arange().expect("Should parse arange OK") {
             println!("arange starts at {}, length of {}, cu_die_offset = {:?}",
                      arange.start(), arange.len(), arange.debug_info_offset());
         }

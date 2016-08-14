@@ -49,34 +49,76 @@ impl<'input, Endian> DebugAranges<'input, Endian>
     ///   println!("arange starts at {}, has length {}", arange.start(), arange.len());
     /// }
     /// ```
-    pub fn aranges(&self) -> ArangesIter<Endian> {
-        ArangesIter { input: self.debug_aranges_section }
+    pub fn aranges(&self) -> ArangeEntryIter<Endian> {
+        ArangeEntryIter { current_header: None,
+                          current_set: EndianBuf::new(&[]),
+                          remaining_input: self.debug_aranges_section }
     }
 }
 
-pub struct ArangesIter<'input, Endian>
+/// An iterator over the aranges from a .debug_aranges section.
+pub struct ArangeEntryIter<'input, Endian>
     where Endian: Endianity
 {
-    input: EndianBuf<'input, Endian>
+    current_header: Option<Rc<ArangeHeader>>, // Only none at the very beginning and end.
+    current_set: EndianBuf<'input, Endian>,
+    remaining_input: EndianBuf<'input, Endian>,
 }
 
-impl<'input, Endian> Iterator for ArangesIter<'input, Endian>
+impl<'input, Endian> ArangeEntryIter<'input, Endian>
     where Endian: Endianity
 {
-    type Item = ParseResult<Vec<Arange>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.input.is_empty() {
-            None
+    /// Advance the iterator and return the next arange.
+    ///
+    /// Returns the newly parsed arange as `Ok(Some(arange))`. Returns
+    /// `Ok(None)` when iteration is complete and all aranges have already been
+    /// parsed and yielded. If an error occurs while parsing the next arange,
+    /// then this error is returned on all subsequent calls as `Err(e)`.
+    pub fn next_arange(&mut self) -> ParseResult<Option<ArangeEntry>> {
+        if self.current_set.is_empty() {
+            if self.remaining_input.is_empty() {
+                self.current_header = None;
+                Ok(None)
+            } else {
+                // Parse the next header.
+                match ArangeEntry::parse_header(self.remaining_input) {
+                    Ok((input, set, header)) => {
+                        self.remaining_input = input;
+                        self.current_set = set;
+                        self.current_header = Some(header);
+                        // Header is parsed, go parse the first entry.
+                        self.next_arange()
+                    }
+                    Err(e) => {
+                        self.remaining_input = self.remaining_input.range_to(..0);
+                        self.current_header = None;
+                        Err(e)
+                    }
+                }
+            }
         } else {
-            match Arange::parse(self.input) {
-                Ok((remaining_input, aranges)) => {
-                    self.input = remaining_input;
-                    Some(Ok(aranges))
+            match ArangeEntry::parse_one(self.current_set,
+                                         self.current_header.as_ref().expect("How did this happen?")) {
+                Ok((remaining_set, arange)) => {
+                    self.current_set = remaining_set;
+                    match arange {
+                        None => {
+                            // Last entry for this header, go around again and parse a new header.
+                            // NB: There could be padding, so we must explicitly truncate current_set.
+                            self.current_set = self.current_set.range_to(..0);
+                            self.next_arange()
+                        }
+                        Some(arange) => {
+                            Ok(Some(arange))
+                        }
+                    }
                 }
                 Err(e) => {
-                    self.input = self.input.range_to(..0);
-                    Some(Err(e))
+                    self.current_set = self.current_set.range_to(..0);
+                    self.current_header = None;
+                    // Should we blow away all other arange sets too? Maybe not ...
+                    self.remaining_input = self.remaining_input.range_to(..0);
+                    Err(e)
                 }
             }
         }
@@ -94,8 +136,9 @@ struct ArangeHeader
     segment_size: u8,
 }
 
+/// A single parsed arange.
 #[derive(Debug, Clone, Eq)]
-pub struct Arange
+pub struct ArangeEntry
 {
     segment: u64,
     offset: u64,
@@ -103,7 +146,7 @@ pub struct Arange
     header: Rc<ArangeHeader>,
 }
 
-impl Arange
+impl ArangeEntry
 {
     /// Parse an arange set header. Returns a tuple of the remaining arange sets, the aranges to be
     /// parsed for this set, and the newly created ArangeHeader struct.
@@ -141,8 +184,8 @@ impl Arange
     }
 
     /// Parse a single arange. Return `None` for the null arange, `Some` for an actual arange.
-    fn parse_range<'input, Endian>(input: EndianBuf<'input, Endian>, header: &Rc<ArangeHeader>)
-                                   -> ParseResult<(EndianBuf<'input, Endian>, Option<Arange>)>
+    fn parse_one<'input, Endian>(input: EndianBuf<'input, Endian>, header: &Rc<ArangeHeader>)
+                                 -> ParseResult<(EndianBuf<'input, Endian>, Option<ArangeEntry>)>
         where Endian: Endianity
     {
         let address_size = header.address_size;
@@ -154,42 +197,16 @@ impl Arange
 
         Ok((rest, match (segment, offset, length) {
             (0, 0, 0) => None,
-            _ => Some(Arange { segment: segment,
-                               offset: offset,
-                               length: length,
-                               header: header.clone() } ),
+            _ => Some(ArangeEntry { segment: segment,
+                                    offset: offset,
+                                    length: length,
+                                    header: header.clone() } ),
         }))
-    }
-
-    /// Parse a single set of aranges, including a header and all the aranges specified. Returns
-    /// the remaining arange sets and the series of parsed aranges.
-    fn parse<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, Vec<Arange>)>
-        where Endian: Endianity
-    {
-        let mut aranges = Vec::new();
-
-        // Parse the arange set headers.
-        let (rest, mut parse_point, header) = try!(Arange::parse_header(input));
-
-        loop {
-            match Arange::parse_range(parse_point, &header) {
-                Ok((advance, Some(arange))) => {
-                    aranges.push(arange);
-                    parse_point = advance;
-                },
-                Ok((_, None)) => {
-                    return Ok((rest, aranges));
-                },
-                Err(e) => {
-                    return Err(e);
-                },
-            }
-        }
     }
 
     /// Return the beginning address of this arange.
     pub fn start(&self) -> u64 {
-        assert!(self.segment == 0); // Dunno what to do with this
+        debug_assert!(self.segment == 0); // Dunno what to do with this
         self.offset
     }
 
@@ -204,16 +221,16 @@ impl Arange
     }
 }
 
-impl PartialEq for Arange
+impl PartialEq for ArangeEntry
 {
-    fn eq(&self, other: &Arange) -> bool
+    fn eq(&self, other: &ArangeEntry) -> bool
     {
         // The expected comparison, but verify that header matches if everything else does.
         match (self.segment == other.segment,
                self.offset == other.offset,
                self.length == other.length) {
             (true, true, true) => {
-                assert!(self.header == other.header);
+                debug_assert!(self.header == other.header);
                 true
             },
             _ => false,
@@ -221,17 +238,17 @@ impl PartialEq for Arange
     }
 }
 
-impl PartialOrd for Arange
+impl PartialOrd for ArangeEntry
 {
-    fn partial_cmp(&self, other: &Arange) -> Option<Ordering>
+    fn partial_cmp(&self, other: &ArangeEntry) -> Option<Ordering>
     {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for Arange
+impl Ord for ArangeEntry
 {
-    fn cmp(&self, other: &Arange) -> Ordering
+    fn cmp(&self, other: &ArangeEntry) -> Ordering
     {
         // The expected comparison, but ignore header.
         match (self.segment.cmp(&other.segment),

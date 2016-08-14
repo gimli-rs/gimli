@@ -78,7 +78,7 @@ pub use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation,
                  AttributeSpecification};
 
 mod aranges;
-pub use aranges::{DebugAranges};
+pub use aranges::{DebugAranges, ArangeEntryIter, ArangeEntry};
 
 mod line;
 pub use line::*;

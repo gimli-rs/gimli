@@ -68,6 +68,19 @@ fn bench_parsing_debug_info(b: &mut test::Bencher) {
     });
 }
 
+#[bench]
+fn bench_parsing_debug_aranges(b: &mut test::Bencher) {
+    let debug_aranges = read_section("debug_aranges");
+    let debug_aranges = DebugAranges::<LittleEndian>::new(&debug_aranges);
+
+    b.iter(|| {
+        let mut aranges = debug_aranges.aranges();
+        while let Some(arange) = aranges.next_arange().expect("Should parse arange OK") {
+            // Not really anything else we can check right now.
+        }
+    });
+}
+
 // We happen to know that there is a line number program and header at
 // offset 0 and that address size is 8 bytes. No need to parse DIEs to grab
 // this info off of the compilation units.
