@@ -52,8 +52,7 @@ pub struct StateMachine<'input, 'header, Endian>
     where Endian: 'header + Endianity,
           'input: 'header
 {
-    header: &'header LineNumberProgramHeader<'input, Endian>,
-    registers: StateMachineRegisters,
+    row: LineNumberRow<'input, 'header, Endian>,
     opcodes: OpcodesIter<'header, 'input, Endian>,
 }
 
@@ -70,198 +69,167 @@ impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
             input: header.program_buf.0,
         };
         StateMachine {
-            header: header,
-            registers: registers,
+            row: LineNumberRow::new(header, registers),
             opcodes: opcodes,
         }
     }
 
     /// Step 2 of section 6.2.5.1
     fn apply_operation_advance(&mut self, operation_advance: i64) {
-        let minimum_instruction_length = self.header.minimum_instruction_length as u64;
+        let minimum_instruction_length = self.row.header.minimum_instruction_length as u64;
         let maximum_operations_per_instruction =
-            self.header.maximum_operations_per_instruction as u64;
+            self.row.header.maximum_operations_per_instruction as u64;
 
         let op_index_with_advance = if operation_advance < 0 {
-            self.registers.op_index - (-operation_advance as u64)
+            self.row.registers.op_index - (-operation_advance as u64)
         } else {
-            self.registers.op_index + (operation_advance as u64)
+            self.row.registers.op_index + (operation_advance as u64)
         };
 
-        self.registers.address = self.registers.address +
-                                 minimum_instruction_length *
-                                 (op_index_with_advance / maximum_operations_per_instruction);
+        self.row.registers.address = self.row.registers.address +
+                                     minimum_instruction_length *
+                                     (op_index_with_advance / maximum_operations_per_instruction);
 
-        self.registers.op_index = op_index_with_advance % maximum_operations_per_instruction;
+        self.row.registers.op_index = op_index_with_advance % maximum_operations_per_instruction;
     }
 
     fn adjust_opcode(&self, opcode: u8) -> i64 {
         let opcode = opcode as i64;
-        let line_base = self.header.line_base as i64;
+        let line_base = self.row.header.line_base as i64;
         opcode - line_base
     }
 
     /// Section 6.2.5.1
-    fn exec_special_opcode(&mut self, opcode: u8) -> LineNumberRow<'input, 'header, Endian> {
+    fn exec_special_opcode(&mut self, opcode: u8) {
         let adjusted_opcode = self.adjust_opcode(opcode);
 
         // Step 1
 
-        let line_base = self.header.line_base as i64;
-        let line_range = self.header.line_range as i64;
+        let line_base = self.row.header.line_base as i64;
+        let line_range = self.row.header.line_range as i64;
         let line_increment = line_base + (adjusted_opcode % line_range);
         if line_increment < 0 {
             let decrement = -line_increment as u64;
-            if decrement <= self.registers.line {
-                self.registers.line -= decrement;
+            if decrement <= self.row.registers.line {
+                self.row.registers.line -= decrement;
             } else {
-                self.registers.line = 0;
+                self.row.registers.line = 0;
             }
         } else {
-            self.registers.line += line_increment as u64;
+            self.row.registers.line += line_increment as u64;
         }
 
         // Step 2
 
-        let operation_advance = (adjusted_opcode as i64) / (self.header.line_range as i64);
+        let operation_advance = (adjusted_opcode as i64) / (self.row.header.line_range as i64);
         self.apply_operation_advance(operation_advance);
-
-        // Step 3
-
-        let row = LineNumberRow::new(self.header, self.registers);
-
-        // Step 4
-
-        self.registers.basic_block = false;
-
-        // Step 5
-
-        self.registers.prologue_end = false;
-
-        // Step 6
-
-        self.registers.epilogue_begin = false;
-
-        // Step 7
-
-        self.registers.discriminator = 0;
-
-        row
     }
 
-    /// Execute the given opcode, if a new row in the line number matrix is
-    /// generated, return it.
+    /// Execute the given opcode, and return true if a new row in the
+    /// line number matrix needs to be generated.
     ///
     /// Unknown opcodes are treated as no-ops.
-    pub fn execute(&mut self,
-                   opcode: Opcode<'input>)
-                   -> Option<LineNumberRow<'input, 'header, Endian>> {
+    fn execute(&mut self, opcode: Opcode<'input>) -> bool {
         match opcode {
-            Opcode::Special(opcode) => Some(self.exec_special_opcode(opcode)),
-
-            Opcode::Copy => {
-                let row = LineNumberRow::new(self.header, self.registers);
-                self.registers.discriminator = 0;
-                self.registers.basic_block = false;
-                self.registers.prologue_end = false;
-                self.registers.epilogue_begin = false;
-                Some(row)
+            Opcode::Special(opcode) => {
+                self.exec_special_opcode(opcode);
+                true
             }
+
+            Opcode::Copy => true,
 
             Opcode::AdvancePc(operation_advance) => {
                 self.apply_operation_advance(operation_advance as i64);
-                None
+                false
             }
 
             Opcode::AdvanceLine(line_increment) => {
                 if line_increment < 0 {
                     let decrement = -line_increment as u64;
-                    if decrement <= self.registers.line {
-                        self.registers.line -= decrement;
+                    if decrement <= self.row.registers.line {
+                        self.row.registers.line -= decrement;
                     } else {
-                        self.registers.line = 0;
+                        self.row.registers.line = 0;
                     }
                 } else {
-                    self.registers.line += line_increment as u64;
+                    self.row.registers.line += line_increment as u64;
                 }
-                None
+                false
             }
 
             Opcode::SetFile(file) => {
-                self.registers.file = file;
-                None
+                self.row.registers.file = file;
+                false
             }
 
             Opcode::SetColumn(column) => {
-                self.registers.column = column;
-                None
+                self.row.registers.column = column;
+                false
             }
 
             Opcode::NegateStatement => {
-                self.registers.is_stmt = !self.registers.is_stmt;
-                None
+                self.row.registers.is_stmt = !self.row.registers.is_stmt;
+                false
             }
 
             Opcode::SetBasicBlock => {
-                self.registers.basic_block = true;
-                None
+                self.row.registers.basic_block = true;
+                false
             }
 
             Opcode::ConstAddPc => {
                 let adjusted = self.adjust_opcode(255);
-                let operation_advance = (adjusted as i64) / (self.header.line_range as i64);
+                let operation_advance = (adjusted as i64) / (self.row.header.line_range as i64);
                 self.apply_operation_advance(operation_advance);
-                None
+                false
             }
 
             Opcode::FixedAddPc(operand) => {
-                self.registers.address += operand as u64;
-                None
+                self.row.registers.address += operand as u64;
+                false
             }
 
             Opcode::SetPrologueEnd => {
-                self.registers.prologue_end = true;
-                None
+                self.row.registers.prologue_end = true;
+                false
             }
 
             Opcode::SetEpilogueBegin => {
-                self.registers.epilogue_begin = true;
-                None
+                self.row.registers.epilogue_begin = true;
+                false
             }
 
             Opcode::SetIsa(isa) => {
-                self.registers.isa = isa;
-                None
+                self.row.registers.isa = isa;
+                false
             }
 
             Opcode::EndSequence => {
-                self.registers.end_sequence = true;
-                let row = LineNumberRow::new(self.header, self.registers);
-                self.registers.reset(self.header.default_is_stmt);
-                Some(row)
+                self.row.registers.end_sequence = true;
+                true
             }
 
             Opcode::SetAddress(address) => {
-                self.registers.address = address;
-                self.registers.op_index = 0;
-                None
+                self.row.registers.address = address;
+                self.row.registers.op_index = 0;
+                false
             }
 
             Opcode::DefineFile(entry) => {
-                self.header.file_names.borrow_mut().push(entry);
-                None
+                self.row.header.file_names.borrow_mut().push(entry);
+                false
             }
 
             Opcode::SetDiscriminator(discriminator) => {
-                self.registers.discriminator = discriminator;
-                None
+                self.row.registers.discriminator = discriminator;
+                false
             }
 
             // Compatibility with future opcodes.
             Opcode::UnknownStandard0(_) |
             Opcode::UnknownStandard1(_, _) |
             Opcode::UnknownStandardN(_, _) |
-            Opcode::UnknownExtended(_, _) => None,
+            Opcode::UnknownExtended(_, _) => false,
         }
     }
 }
@@ -277,14 +245,31 @@ impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
     /// is complete, and there are no more new rows in the line number matrix,
     /// then `Ok(None)` is returned. If there was an error parsing an opcode,
     /// then `Err(e)` is returned.
-    pub fn next_row(&mut self) -> parser::ParseResult<Option<LineNumberRow<'input, 'header, Endian>>> {
+    pub fn next_row(&mut self)
+                    -> parser::ParseResult<Option<&LineNumberRow<'input, 'header, Endian>>> {
+        // Perform any reset that was required after copying the previous row.
+        if self.row.registers.end_sequence {
+            // Previous opcode was EndSequence, so reset everything
+            // as specified in Section 6.2.5.3.
+            self.row.registers.reset(self.row.header.default_is_stmt);
+        } else {
+            // Previous opcode was one of:
+            // - Special - specified in Section 6.2.5.1, steps 4-7
+            // - Copy - specified in Section 6.2.5.2
+            // The reset behaviour is the same in both cases.
+            self.row.registers.discriminator = 0;
+            self.row.registers.basic_block = false;
+            self.row.registers.prologue_end = false;
+            self.row.registers.epilogue_begin = false;
+        }
+
         loop {
             match self.opcodes.next_opcode() {
                 Err(err) => return Err(err),
                 Ok(None) => return Ok(None),
                 Ok(Some(opcode)) => {
-                    if let Some(row) = self.execute(opcode) {
-                        return Ok(Some(row));
+                    if self.execute(opcode) {
+                        return Ok(Some(&self.row));
                     }
                     // Fall through, parse the next opcode, and see if that
                     // yields a row.
