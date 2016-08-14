@@ -75,16 +75,12 @@ impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
     }
 
     /// Step 2 of section 6.2.5.1
-    fn apply_operation_advance(&mut self, operation_advance: i64) {
+    fn apply_operation_advance(&mut self, operation_advance: u64) {
         let minimum_instruction_length = self.row.header.minimum_instruction_length as u64;
         let maximum_operations_per_instruction =
             self.row.header.maximum_operations_per_instruction as u64;
 
-        let op_index_with_advance = if operation_advance < 0 {
-            self.row.registers.op_index - (-operation_advance as u64)
-        } else {
-            self.row.registers.op_index + (operation_advance as u64)
-        };
+        let op_index_with_advance = self.row.registers.op_index + operation_advance;
 
         self.row.registers.address = self.row.registers.address +
                                      minimum_instruction_length *
@@ -93,10 +89,8 @@ impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
         self.row.registers.op_index = op_index_with_advance % maximum_operations_per_instruction;
     }
 
-    fn adjust_opcode(&self, opcode: u8) -> i64 {
-        let opcode = opcode as i64;
-        let opcode_base = self.row.header.opcode_base as i64;
-        opcode - opcode_base
+    fn adjust_opcode(&self, opcode: u8) -> u8 {
+        opcode - self.row.header.opcode_base
     }
 
     /// Section 6.2.5.1
@@ -106,8 +100,8 @@ impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
         // Step 1
 
         let line_base = self.row.header.line_base as i64;
-        let line_range = self.row.header.line_range as i64;
-        let line_increment = line_base + (adjusted_opcode % line_range);
+        let line_range = self.row.header.line_range;
+        let line_increment = line_base + (adjusted_opcode % line_range) as i64;
         if line_increment < 0 {
             let decrement = -line_increment as u64;
             if decrement <= self.row.registers.line {
@@ -121,8 +115,8 @@ impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
 
         // Step 2
 
-        let operation_advance = (adjusted_opcode as i64) / (self.row.header.line_range as i64);
-        self.apply_operation_advance(operation_advance);
+        let operation_advance = adjusted_opcode / self.row.header.line_range;
+        self.apply_operation_advance(operation_advance as u64);
     }
 
     /// Execute the given opcode, and return true if a new row in the
@@ -139,7 +133,7 @@ impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
             Opcode::Copy => true,
 
             Opcode::AdvancePc(operation_advance) => {
-                self.apply_operation_advance(operation_advance as i64);
+                self.apply_operation_advance(operation_advance);
                 false
             }
 
@@ -179,8 +173,8 @@ impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
 
             Opcode::ConstAddPc => {
                 let adjusted = self.adjust_opcode(255);
-                let operation_advance = (adjusted as i64) / (self.row.header.line_range as i64);
-                self.apply_operation_advance(operation_advance);
+                let operation_advance = adjusted / self.row.header.line_range;
+                self.apply_operation_advance(operation_advance as u64);
                 false
             }
 
