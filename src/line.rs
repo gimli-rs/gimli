@@ -850,7 +850,7 @@ pub struct LineNumberProgramHeader<'input, Endian>
     /// standard opcodes. The first element of the array corresponds to the
     /// opcode whose value is 1, and the last element corresponds to the opcode
     /// whose value is `opcode_base - 1`."
-    standard_opcode_lengths: Vec<u64>,
+    standard_opcode_lengths: &'input [u8],
 
     /// > Entries in this sequence describe each path that was searched for
     /// > included source files in this compilation. (The paths include those
@@ -960,7 +960,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
     }
 
     /// The byte lengths of each standard opcode in this header's line program.
-    pub fn standard_opcode_lengths(&self) -> &[u64] {
+    pub fn standard_opcode_lengths(&self) -> &'input [u8] {
         &self.standard_opcode_lengths[..]
     }
 
@@ -1028,13 +1028,12 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         let (rest, line_range) = try!(parser::parse_i8(rest));
         let (rest, opcode_base) = try!(parser::parse_u8(rest));
 
-        let mut rest = EndianBuf::<Endian>::new(rest);
-        let mut standard_opcode_lengths = Vec::with_capacity((opcode_base - 1) as usize);
-        for _ in 1..opcode_base {
-            let (rest1, opcode_length) = try!(parser::parse_unsigned_leb(rest.0));
-            rest = EndianBuf::new(rest1);
-            standard_opcode_lengths.push(opcode_length);
+        let standard_opcode_count = opcode_base as usize - 1;
+        if rest.len() < standard_opcode_count {
+            return Err(parser::Error::UnexpectedEof);
         }
+        let standard_opcode_lengths = &rest[..standard_opcode_count];
+        let mut rest = EndianBuf::<Endian>::new(&rest[standard_opcode_count..]);
 
         let mut include_directories = Vec::new();
         loop {
@@ -1376,6 +1375,7 @@ mod tests {
     }
 
     const OPCODE_BASE: u8 = 13;
+    const STANDARD_OPCODE_LENGTHS: &'static [u8] = &[0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1];
 
     fn make_test_header(buf: &[u8]) -> LineNumberProgramHeader<LittleEndian> {
         LineNumberProgramHeader {
@@ -1391,7 +1391,7 @@ mod tests {
             format: Format::Dwarf32,
             line_base: -5,
             unit_length: 1,
-            standard_opcode_lengths: vec![0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1],
+            standard_opcode_lengths: STANDARD_OPCODE_LENGTHS,
             include_directories: vec![],
             line_range: 1,
         }
@@ -1454,9 +1454,12 @@ mod tests {
     #[test]
     fn test_parse_unknown_standard_opcode_no_args() {
         let input = [OPCODE_BASE, 1, 2, 3];
+        let mut standard_opcode_lengths = Vec::new();
         let mut header = make_test_header(&input);
+        standard_opcode_lengths.extend(header.standard_opcode_lengths);
+        standard_opcode_lengths.push(0);
         header.opcode_base += 1;
-        header.standard_opcode_lengths.push(0);
+        header.standard_opcode_lengths = &standard_opcode_lengths;
 
         let (rest, opcode) = Opcode::parse(&header, &input).expect("Should parse the opcode OK");
 
@@ -1468,9 +1471,12 @@ mod tests {
     #[test]
     fn test_parse_unknown_standard_opcode_one_arg() {
         let input = [OPCODE_BASE, 1, 2, 3];
+        let mut standard_opcode_lengths = Vec::new();
         let mut header = make_test_header(&input);
+        standard_opcode_lengths.extend(header.standard_opcode_lengths);
+        standard_opcode_lengths.push(1);
         header.opcode_base += 1;
-        header.standard_opcode_lengths.push(1);
+        header.standard_opcode_lengths = &standard_opcode_lengths;
 
         let (rest, opcode) = Opcode::parse(&header, &input).expect("Should parse the opcode OK");
 
@@ -1482,9 +1488,12 @@ mod tests {
     #[test]
     fn test_parse_unknown_standard_opcode_many_args() {
         let input = [OPCODE_BASE, 1, 2, 3];
+        let mut standard_opcode_lengths = Vec::new();
         let mut header = make_test_header(&input);
+        standard_opcode_lengths.extend(header.standard_opcode_lengths);
+        standard_opcode_lengths.push(3);
         header.opcode_base += 1;
-        header.standard_opcode_lengths.push(3);
+        header.standard_opcode_lengths = &standard_opcode_lengths;
 
         let (rest, opcode) = Opcode::parse(&header, &input).expect("Should parse the opcode OK");
 
