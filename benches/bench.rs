@@ -3,7 +3,7 @@
 extern crate gimli;
 extern crate test;
 
-use gimli::{DebugAbbrev, DebugInfo, DebugLine, DebugLineOffset, LineNumberProgramHeader,
+use gimli::{DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset, LineNumberProgramHeader,
             LittleEndian, StateMachine};
 
 use std::env;
