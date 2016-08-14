@@ -74,6 +74,20 @@ impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
         }
     }
 
+    /// Step 1 of section 6.2.5.1
+    fn apply_line_advance(&mut self, line_increment: i64) {
+        if line_increment < 0 {
+            let decrement = -line_increment as u64;
+            if decrement <= self.row.registers.line {
+                self.row.registers.line -= decrement;
+            } else {
+                self.row.registers.line = 0;
+            }
+        } else {
+            self.row.registers.line += line_increment as u64;
+        }
+    }
+
     /// Step 2 of section 6.2.5.1
     fn apply_operation_advance(&mut self, operation_advance: u64) {
         let minimum_instruction_length = self.row.header.minimum_instruction_length as u64;
@@ -102,16 +116,7 @@ impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
         let line_base = self.row.header.line_base as i64;
         let line_range = self.row.header.line_range;
         let line_increment = line_base + (adjusted_opcode % line_range) as i64;
-        if line_increment < 0 {
-            let decrement = -line_increment as u64;
-            if decrement <= self.row.registers.line {
-                self.row.registers.line -= decrement;
-            } else {
-                self.row.registers.line = 0;
-            }
-        } else {
-            self.row.registers.line += line_increment as u64;
-        }
+        self.apply_line_advance(line_increment);
 
         // Step 2
 
@@ -138,16 +143,7 @@ impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
             }
 
             Opcode::AdvanceLine(line_increment) => {
-                if line_increment < 0 {
-                    let decrement = -line_increment as u64;
-                    if decrement <= self.row.registers.line {
-                        self.row.registers.line -= decrement;
-                    } else {
-                        self.row.registers.line = 0;
-                    }
-                } else {
-                    self.row.registers.line += line_increment as u64;
-                }
+                self.apply_line_advance(line_increment);
                 false
             }
 
