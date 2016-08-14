@@ -95,18 +95,12 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
         let mut attrs = entry.attrs();
         while let Some(attr) = attrs.next().expect("Should parse attribute OK") {
             indent();
-            let to_print: Option<gimli::AttributeValue> = match attr.value() {
-                gimli::AttributeValue::DebugStrRef(o) => {
-                    match debug_str.get_str(o) {
-                        Ok(s) => Some(gimli::AttributeValue::String(s)),
-                        Err(_) => None,
-                    }
-                }
-                otherwise => Some(otherwise),
-            };
-            println!("    {} = {:?}",
-                     attr.name(),
-                     to_print.expect("Error parsing attribute value"));
+            let mut value = attr.value();
+            if let gimli::AttributeValue::DebugStrRef(o) = value {
+                let s = debug_str.get_str(o).expect("Should have valid str offset");
+                value = gimli::AttributeValue::String(s)
+            }
+            println!("    {} = {:?}", attr.name(), value);
         }
     }
 }
