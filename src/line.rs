@@ -1507,4 +1507,64 @@ mod tests {
                    Opcode::UnknownStandardN(constants::DwLns(OPCODE_BASE), vec![1, 2, 3]));
         assert_eq!(rest, &[]);
     }
+
+    #[test]
+    fn test_parse_extended_opcodes() {
+        fn test<Operands>(raw: constants::DwLne, operands: Operands, expected: Opcode)
+            where Operands: AsRef<[u8]>
+        {
+            let mut input = Vec::new();
+            input.push(0);
+
+            let operands = operands.as_ref();
+            input.push(1 + operands.len() as u8);
+
+            input.push(raw.0);
+            input.extend_from_slice(operands);
+
+            let expected_rest = [0, 1, 2, 3, 4];
+            input.extend_from_slice(&expected_rest);
+
+            let header = make_test_header(&input);
+
+            let (rest, opcode) = Opcode::parse(&header, &input)
+                .expect("Should parse the opcode OK");
+
+            assert_eq!(opcode, expected);
+            assert_eq!(rest, &expected_rest);
+        }
+
+        test(constants::DW_LNE_end_sequence, [], Opcode::EndSequence);
+        test(constants::DW_LNE_set_address,
+             [1, 2, 3, 4, 5, 6, 7, 8],
+             Opcode::SetAddress(578437695752307201));
+        test(constants::DW_LNE_set_discriminator,
+             [42],
+             Opcode::SetDiscriminator(42));
+
+        let mut file = Vec::new();
+        // "foo.c"
+        let path_name = [b'f', b'o', b'o', b'.', b'c', 0];
+        file.extend_from_slice(&path_name);
+        // Directory index.
+        file.push(0);
+        // Last modification of file.
+        file.push(1);
+        // Size of file.
+        file.push(2);
+
+        test(constants::DW_LNE_define_file,
+             file,
+             Opcode::DefineFile(FileEntry {
+                 path_name: ffi::CStr::from_bytes_with_nul(&path_name).unwrap(),
+                 directory_index: 0,
+                 last_modification: 1,
+                 length: 2,
+             }));
+
+        // Unknown extended opcode.
+        let operands = [1, 2, 3, 4, 5, 6];
+        let opcode = constants::DwLne(99);
+        test(opcode, operands, Opcode::UnknownExtended(opcode, &operands));
+    }
 }
