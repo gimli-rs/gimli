@@ -49,11 +49,12 @@ impl<'input, Endian> DebugStr<'input, Endian>
     /// let debug_str = DebugStr::<LittleEndian>::new(read_debug_str_section_somehow());
     /// println!("Found string {:?}", debug_str.get_str(debug_str_offset_somehow()));
     /// ```
-    pub fn get_str(&self, offset: DebugStrOffset) -> ParseResult<&ffi::CStr> {
+    pub fn get_str(&self, offset: DebugStrOffset) -> ParseResult<&'input ffi::CStr> {
         if self.debug_str_section.len() < offset.0 as usize {
             return Err(Error::UnexpectedEof);
         }
-        let result = parse_null_terminated_string(&self.debug_str_section[offset.0 as usize..]);
+        let buf = self.debug_str_section.range_from(offset.0 as usize..);
+        let result = parse_null_terminated_string(buf.0);
         result.map(|(_, cstr)| cstr)
     }
 }
