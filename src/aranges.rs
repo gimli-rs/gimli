@@ -38,8 +38,9 @@ impl<'input, Endian> DebugAranges<'input, Endian>
     }
 
     /// Iterate the aranges in the `.debug_aranges` section.
+    ///
     /// ```
-    /// use gimli{DebugAranges, LittleEndian};
+    /// use gimli::{DebugAranges, LittleEndian};
     ///
     /// # let buf = [];
     /// # let read_debug_aranges_section_somehow = || &buf;
@@ -124,6 +125,20 @@ impl<'input, Endian> ArangeEntryIter<'input, Endian>
                     Err(e)
                 }
             }
+        }
+    }
+}
+
+impl<'input, Endian> Iterator for ArangeEntryIter<'input, Endian>
+    where Endian: Endianity
+{
+    type Item = ParseResult<ArangeEntry>;
+
+    fn next(&mut self) -> Option<ParseResult<ArangeEntry>> {
+        match self.next_arange() {
+            Ok(None) => None,
+            Ok(Some(entry)) => Some(Ok(entry)),
+            Err(e) => Some(Err(e)),
         }
     }
 }
