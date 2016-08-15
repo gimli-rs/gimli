@@ -76,7 +76,7 @@ fn bench_parsing_debug_aranges(b: &mut test::Bencher) {
     b.iter(|| {
         let mut aranges = debug_aranges.aranges();
         while let Some(arange) = aranges.next_arange().expect("Should parse arange OK") {
-            // Not really anything else we can check right now.
+            test::black_box(arange);
         }
     });
 }
