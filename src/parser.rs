@@ -8,6 +8,7 @@ use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation, Attrib
 use endianity::{Endianity, EndianBuf};
 #[cfg(test)]
 use endianity::LittleEndian;
+use line::DebugLineOffset;
 use std::cell::Cell;
 use std::error;
 use std::ffi;
@@ -316,6 +317,22 @@ impl<'input, Endian> DebugInfo<'input, Endian>
     /// ```
     pub fn units(&self) -> UnitHeadersIter<'input, Endian> {
         UnitHeadersIter { input: self.debug_info_section }
+    }
+
+    /// Get the UnitHeader located at offset from this .debug_info section.
+    ///
+    ///
+    pub fn header_from_offset(&self, offset: DebugInfoOffset) -> ParseResult<UnitHeader<'input, Endian>> {
+        let offset = offset.0 as usize;
+        if self.debug_info_section.len() < offset {
+            return Err(Error::UnexpectedEof);
+        }
+
+        let input = self.debug_info_section.range_from(offset..);
+        match parse_unit_header(input) {
+            Ok((_, header)) => Ok(header),
+            Err(e) => Err(e)
+        }
     }
 }
 
@@ -1243,9 +1260,32 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
         }
     }
 
+    /// Run some common fixups to present DWARF attributes in more useful forms.
+    fn prettify_attr_value(&self, name: constants::DwAt, value: AttributeValue<'input>)
+                           -> AttributeValue<'input>
+    {
+        match name {
+            constants::DW_AT_stmt_list => {
+                let offset = DebugLineOffset(match value {
+                    AttributeValue::Data(data) if data.len() == 4 => {
+                        Endian::read_u32(data) as u64
+                    }
+                    AttributeValue::Data(data) if data.len() == 8 => {
+                        Endian::read_u64(data)
+                    }
+                    AttributeValue::SecOffset(offset) => offset,
+                    otherwise => return otherwise,
+                });
+                AttributeValue::DebugLineRef(offset)
+            },
+            _ => value,
+        }
+    }
+
     /// Find the first attribute in this entry which has the given name,
-    /// and return its value. Returns `Ok(None)` if no attribute is found.
-    pub fn attr_value(&self, name: constants::DwAt) -> Option<AttributeValue<'input>> {
+    /// and return its value, without any attempt to clean it up. Returns
+    /// `Ok(None)` if no attribute is found.
+    pub fn attr_value_raw(&self, name: constants::DwAt) -> Option<AttributeValue<'input>> {
         let mut attrs = self.attrs();
         while let Ok(Some(attr)) = attrs.next() {
             if attr.name() == name {
@@ -1253,6 +1293,13 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
             }
         }
         None
+    }
+
+    /// Find the first attribute in this entry which has the given name,
+    /// and return its value, after running `prettify_attr_value` on it.
+    /// Returns `Ok(None)` if no attribute is found.
+    pub fn attr_value(&self, name: constants::DwAt) -> Option<AttributeValue<'input>> {
+        self.attr_value_raw(name).map(|val| self.prettify_attr_value(name, val))
     }
 }
 
@@ -1297,6 +1344,9 @@ pub enum AttributeValue<'input> {
     /// An offset into the current `.debug_info` section, but possibly a
     /// different compilation unit from the current one.
     DebugInfoRef(DebugInfoOffset),
+
+    /// An offset into the `.debug_lines` section.
+    DebugLineRef(DebugLineOffset),
 
     /// An offset into the `.debug_types` section.
     DebugTypesRef(DebugTypesOffset),
