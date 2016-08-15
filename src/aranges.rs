@@ -1,8 +1,9 @@
 #![deny(missing_docs)]
 
 use endianity::{Endianity, EndianBuf};
-use parser::{parse_u16, parse_uN_as_u64, parse_unit_length, parse_debug_info_offset, parse_address_size, DebugInfoOffset, Format, ParseResult, Error};
-use std::cmp::{Ordering};
+use parser::{parse_u16, parse_uN_as_u64, parse_unit_length, parse_debug_info_offset,
+             parse_address_size, DebugInfoOffset, Format, ParseResult, Error};
+use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
@@ -50,9 +51,11 @@ impl<'input, Endian> DebugAranges<'input, Endian>
     /// }
     /// ```
     pub fn aranges(&self) -> ArangeEntryIter<Endian> {
-        ArangeEntryIter { current_header: None,
-                          current_set: EndianBuf::new(&[]),
-                          remaining_input: self.debug_aranges_section }
+        ArangeEntryIter {
+            current_header: None,
+            current_set: EndianBuf::new(&[]),
+            remaining_input: self.debug_aranges_section,
+        }
     }
 }
 
@@ -98,7 +101,9 @@ impl<'input, Endian> ArangeEntryIter<'input, Endian>
             }
         } else {
             match ArangeEntry::parse_one(self.current_set,
-                                         self.current_header.as_ref().expect("How did this happen?")) {
+                                         self.current_header
+                                             .as_ref()
+                                             .expect("How did this happen?")) {
                 Ok((remaining_set, arange)) => {
                     self.current_set = remaining_set;
                     match arange {
@@ -108,9 +113,7 @@ impl<'input, Endian> ArangeEntryIter<'input, Endian>
                             self.current_set = self.current_set.range_to(..0);
                             self.next_arange()
                         }
-                        Some(arange) => {
-                            Ok(Some(arange))
-                        }
+                        Some(arange) => Ok(Some(arange)),
                     }
                 }
                 Err(e) => {
@@ -126,8 +129,7 @@ impl<'input, Endian> ArangeEntryIter<'input, Endian>
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct ArangeHeader
-{
+struct ArangeHeader {
     format: Format,
     length: u64,
     version: u16,
@@ -138,29 +140,26 @@ struct ArangeHeader
 
 /// A single parsed arange.
 #[derive(Debug, Clone, Eq)]
-pub struct ArangeEntry
-{
+pub struct ArangeEntry {
     segment: u64,
     offset: u64,
     length: u64,
     header: Rc<ArangeHeader>,
 }
 
-impl ArangeEntry
-{
+impl ArangeEntry {
     /// Parse an arange set header. Returns a tuple of the remaining arange sets, the aranges to be
     /// parsed for this set, and the newly created ArangeHeader struct.
-    fn parse_header<Endian>(input: EndianBuf<Endian>)
-                            -> ParseResult<(EndianBuf<Endian>,
-                                            EndianBuf<Endian>,
-                                            Rc<ArangeHeader>)>
+    fn parse_header<Endian>
+        (input: EndianBuf<Endian>)
+         -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<ArangeHeader>)>
         where Endian: Endianity
     {
         let (rest, (length, format)) = try!(parse_unit_length(input.into()));
         let (rest, version) = try!(parse_u16(rest.into()));
 
         if version != 2 {
-            return Err(Error::UnknownVersion)
+            return Err(Error::UnknownVersion);
         }
 
         let (rest, offset) = try!(parse_debug_info_offset(rest.into(), format));
@@ -171,20 +170,24 @@ impl ArangeEntry
             Format::Dwarf32 => 8,
             Format::Dwarf64 => 12,
         };
-        let dividing_line: usize = try!(length.checked_sub(header_length).ok_or(Error::BadLength)) as usize;
+        let dividing_line: usize = try!(length.checked_sub(header_length)
+            .ok_or(Error::BadLength)) as usize;
 
         Ok((rest.range_from(dividing_line..),
             rest.range_to(..dividing_line),
-            Rc::new(ArangeHeader { format: format,
-                                   length: length,
-                                   version: version,
-                                   offset: offset,
-                                   address_size: address_size,
-                                   segment_size: segment_size } )))
+            Rc::new(ArangeHeader {
+            format: format,
+            length: length,
+            version: version,
+            offset: offset,
+            address_size: address_size,
+            segment_size: segment_size,
+        })))
     }
 
     /// Parse a single arange. Return `None` for the null arange, `Some` for an actual arange.
-    fn parse_one<'input, Endian>(input: EndianBuf<'input, Endian>, header: &Rc<ArangeHeader>)
+    fn parse_one<'input, Endian>(input: EndianBuf<'input, Endian>,
+                                 header: &Rc<ArangeHeader>)
                                  -> ParseResult<(EndianBuf<'input, Endian>, Option<ArangeEntry>)>
         where Endian: Endianity
     {
@@ -195,12 +198,17 @@ impl ArangeEntry
         let (rest, offset) = try!(parse_uN_as_u64(address_size, rest));
         let (rest, length) = try!(parse_uN_as_u64(address_size, rest));
 
-        Ok((rest, match (segment, offset, length) {
+        Ok((rest,
+            match (segment, offset, length) {
             (0, 0, 0) => None,
-            _ => Some(ArangeEntry { segment: segment,
-                                    offset: offset,
-                                    length: length,
-                                    header: header.clone() } ),
+            _ => {
+                Some(ArangeEntry {
+                    segment: segment,
+                    offset: offset,
+                    length: length,
+                    header: header.clone(),
+                })
+            }
         }))
     }
 
@@ -221,10 +229,8 @@ impl ArangeEntry
     }
 }
 
-impl PartialEq for ArangeEntry
-{
-    fn eq(&self, other: &ArangeEntry) -> bool
-    {
+impl PartialEq for ArangeEntry {
+    fn eq(&self, other: &ArangeEntry) -> bool {
         // The expected comparison, but verify that header matches if everything else does.
         match (self.segment == other.segment,
                self.offset == other.offset,
@@ -232,24 +238,20 @@ impl PartialEq for ArangeEntry
             (true, true, true) => {
                 debug_assert!(self.header == other.header);
                 true
-            },
+            }
             _ => false,
         }
     }
 }
 
-impl PartialOrd for ArangeEntry
-{
-    fn partial_cmp(&self, other: &ArangeEntry) -> Option<Ordering>
-    {
+impl PartialOrd for ArangeEntry {
+    fn partial_cmp(&self, other: &ArangeEntry) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for ArangeEntry
-{
-    fn cmp(&self, other: &ArangeEntry) -> Ordering
-    {
+impl Ord for ArangeEntry {
+    fn cmp(&self, other: &ArangeEntry) -> Ordering {
         // The expected comparison, but ignore header.
         match (self.segment.cmp(&other.segment),
                self.offset.cmp(&other.offset),

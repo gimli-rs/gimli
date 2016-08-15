@@ -192,7 +192,9 @@ pub fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(Endian
 #[doc(hidden)]
 #[inline]
 #[allow(non_snake_case)]
-pub fn parse_uN_as_u64<Endian>(size: u8, input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
+pub fn parse_uN_as_u64<Endian>(size: u8,
+                               input: EndianBuf<Endian>)
+                               -> ParseResult<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
     match size {
@@ -207,7 +209,7 @@ pub fn parse_uN_as_u64<Endian>(size: u8, input: EndianBuf<Endian>) -> ParseResul
             let (r, u) = try!(parse_u32_as_u64(input));
             let (r, v) = try!(parse_u32_as_u64(r));
             Ok((r, (u << 32) + v))
-        },
+        }
         _ => Err(Error::UnsupportedFieldSize(size)),
     }
 }
