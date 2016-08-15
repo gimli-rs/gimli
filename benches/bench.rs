@@ -3,7 +3,7 @@
 extern crate gimli;
 extern crate test;
 
-use gimli::{DebugAbbrev, DebugInfo, DebugLine, DebugLineOffset, LineNumberProgramHeader,
+use gimli::{DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset, LineNumberProgramHeader,
             LittleEndian, StateMachine};
 
 use std::env;
@@ -64,6 +64,19 @@ fn bench_parsing_debug_info(b: &mut test::Bencher) {
                     test::black_box(&attr);
                 }
             }
+        }
+    });
+}
+
+#[bench]
+fn bench_parsing_debug_aranges(b: &mut test::Bencher) {
+    let debug_aranges = read_section("debug_aranges");
+    let debug_aranges = DebugAranges::<LittleEndian>::new(&debug_aranges);
+
+    b.iter(|| {
+        let mut aranges = debug_aranges.aranges();
+        while let Some(arange) = aranges.next_arange().expect("Should parse arange OK") {
+            // Not really anything else we can check right now.
         }
     });
 }

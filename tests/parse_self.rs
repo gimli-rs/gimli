@@ -2,8 +2,8 @@ extern crate byteorder;
 extern crate gimli;
 
 use byteorder::ByteOrder;
-use gimli::{AttributeValue, DebugAbbrev, DebugInfo, DebugLine, DebugLineOffset, DW_AT_stmt_list,
-            LineNumberProgramHeader, LittleEndian, StateMachine};
+use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset,
+            DW_AT_stmt_list, LineNumberProgramHeader, LittleEndian, StateMachine};
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -90,5 +90,16 @@ fn test_parse_self_debug_line() {
                 .expect("Should parse and execute all rows in the line number program") {
             }
         }
+    }
+}
+
+#[test]
+fn test_parse_self_debug_aranges() {
+    let debug_aranges = read_section("debug_aranges");
+    let debug_aranges = DebugAranges::<LittleEndian>::new(&debug_aranges);
+
+    let mut aranges = debug_aranges.aranges();
+    while let Some(_) = aranges.next_arange().expect("Should parse arange OK") {
+        // Not really anything else we can check right now.
     }
 }

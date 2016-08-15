@@ -30,6 +30,7 @@ fn dump_file<Endian>(file: obj::File)
     dump_info(&file, debug_abbrev, debug_str);
     dump_types(&file, debug_abbrev, debug_str);
     dump_line(&file, debug_abbrev);
+    dump_aranges::<Endian>(&file);
 }
 
 fn dump_info<Endian>(file: &obj::File,
@@ -193,6 +194,21 @@ fn dump_line<Endian>(file: &obj::File, debug_abbrev: gimli::DebugAbbrev<Endian>)
                     println!("  {}", opcode);
                 }
             }
+        }
+    }
+}
+
+fn dump_aranges<Endian>(file: &obj::File)
+    where Endian: gimli::Endianity
+{
+    if let Some(debug_aranges) = obj::get_section(file, ".debug_aranges") {
+        println!(".debug_aranges");
+        let debug_aranges = gimli::DebugAranges::<Endian>::new(debug_aranges);
+
+        let mut aranges = debug_aranges.aranges();
+        while let Some(arange) = aranges.next_arange().expect("Should parse arange OK") {
+            println!("arange starts at {}, length of {}, cu_die_offset = {:?}",
+                     arange.start(), arange.len(), arange.debug_info_offset());
         }
     }
 }

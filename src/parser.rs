@@ -33,12 +33,16 @@ pub enum Error {
     /// The abbreviation's has-children byte was not one of
     /// `DW_CHILDREN_{yes,no}`.
     BadHasChildren,
+    /// The specified length is impossible.
+    BadLength,
     /// Found an unknown `DW_FORM_*` type.
     UnknownForm,
     /// Expected a zero, found something else.
     ExpectedZero,
     /// Found an abbreviation code that has already been used.
     DuplicateAbbreviationCode,
+    /// Found a duplicate arange.
+    DuplicateArange,
     /// Found an unknown reserved length value.
     UnknownReservedLength,
     /// Found an unknown DWARF version.
@@ -56,6 +60,8 @@ pub enum Error {
     UnknownExtendedOpcode(constants::DwLne),
     /// The specified address size is not supported.
     UnsupportedAddressSize(u8),
+    /// The specified field size is not supported.
+    UnsupportedFieldSize(u8),
 }
 
 impl fmt::Display for Error {
@@ -81,11 +87,13 @@ impl error::Error for Error {
                 "The abbreviation's has-children byte was not one of
                  `DW_CHILDREN_{yes,no}`"
             }
+            Error::BadLength => "The specified length is impossible",
             Error::UnknownForm => "Found an unknown `DW_FORM_*` type",
             Error::ExpectedZero => "Expected a zero, found something else",
             Error::DuplicateAbbreviationCode => {
                 "Found an abbreviation code that has already been used"
             }
+            Error::DuplicateArange => "Found a duplicate arange",
             Error::UnknownReservedLength => "Found an unknown reserved length value",
             Error::UnknownVersion => "Found an unknown DWARF version",
             Error::UnitHeaderLengthTooShort => {
@@ -97,6 +105,7 @@ impl error::Error for Error {
             Error::UnknownStandardOpcode(_) => "Found an unknown standard opcode",
             Error::UnknownExtendedOpcode(_) => "Found an unknown extended opcode",
             Error::UnsupportedAddressSize(_) => "The specified address size is not supported",
+            Error::UnsupportedFieldSize(_) => "The specified field size is not supported",
         }
     }
 }
@@ -175,6 +184,31 @@ pub fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(Endian
         Err(Error::UnexpectedEof)
     } else {
         Ok((input.range_from(4..), Endian::read_u32(&input) as u64))
+    }
+}
+
+/// Parse a variable length sequence and return it as a `u64`. Currently only supports lengths of
+/// 0, 1, 2, 4, and 8 bytes.
+#[doc(hidden)]
+#[inline]
+#[allow(non_snake_case)]
+pub fn parse_uN_as_u64<Endian>(size: u8, input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
+    where Endian: Endianity
+{
+    match size {
+        0 => Ok((input, 0)),
+        1 => parse_u8(input.into()).map(|(r, u)| (EndianBuf::new(r), u as u64)),
+        2 => parse_u16(input).map(|(r, u)| (r, u as u64)),
+        4 => parse_u32(input).map(|(r, u)| (r, u as u64)),
+        8 => {
+            // NB: DWARF stores 8 byte address in .debug_arange as two separate 32-bit
+            // words. Not sure yet if this happens elsewhere, or if it only happens in DWARF32,
+            // and not DWARF64.
+            let (r, u) = try!(parse_u32_as_u64(input));
+            let (r, v) = try!(parse_u32_as_u64(r));
+            Ok((r, (u << 32) + v))
+        },
+        _ => Err(Error::UnsupportedFieldSize(size)),
     }
 }
 
@@ -614,16 +648,72 @@ fn test_parse_debug_abbrev_offset_64_incomplete() {
     };
 }
 
+
+/// Parse the `debug_info_offset` in the arange header.
+pub fn parse_debug_info_offset<Endian>(input: EndianBuf<Endian>,
+                                       format: Format)
+                                       -> ParseResult<(EndianBuf<Endian>, DebugInfoOffset)>
+    where Endian: Endianity
+{
+    let offset = match format {
+        Format::Dwarf32 => parse_u32_as_u64(input),
+        Format::Dwarf64 => parse_u64(input),
+    };
+    offset.map(|(rest, offset)| (rest, DebugInfoOffset(offset)))
+}
+
+#[test]
+fn test_parse_debug_inro_offset_32() {
+    let buf = [0x01, 0x02, 0x03, 0x04];
+
+    match parse_debug_info_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
+        Ok((_, val)) => assert_eq!(val, DebugInfoOffset(0x04030201)),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
+    };
+}
+
+#[test]
+fn test_parse_debug_info_offset_32_incomplete() {
+    let buf = [0x01, 0x02];
+
+    match parse_debug_info_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
+        Err(Error::UnexpectedEof) => assert!(true),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
+    };
+}
+
+#[test]
+fn test_parse_debug_info_offset_64() {
+    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+
+    match parse_debug_info_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
+        Ok((_, val)) => assert_eq!(val, DebugInfoOffset(0x0807060504030201)),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
+    };
+}
+
+#[test]
+fn test_parse_debug_info_offset_64_incomplete() {
+    let buf = [0x01, 0x02];
+
+    match parse_debug_info_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
+        Err(Error::UnexpectedEof) => assert!(true),
+        otherwise => panic!("Unexpected result: {:?}", otherwise),
+    };
+}
+
 /// Parse the size of addresses (in bytes) on the target architecture.
-fn parse_address_size(input: &[u8]) -> ParseResult<(&[u8], u8)> {
-    parse_u8(input)
+pub fn parse_address_size<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u8)>
+    where Endian: Endianity
+{
+    parse_u8(input.into()).map(|(r, u)| (EndianBuf::new(r), u))
 }
 
 #[test]
 fn test_parse_address_size_ok() {
     let buf = [0x04];
 
-    match parse_address_size(&buf) {
+    match parse_address_size(EndianBuf::<LittleEndian>::new(&buf)) {
         Ok((_, val)) => assert_eq!(val, 4),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
@@ -888,14 +978,14 @@ fn parse_unit_header<Endian>(input: EndianBuf<Endian>)
         return Err(Error::UnexpectedEof);
     }
 
-    let entries_buf = &rest[..end];
-    Ok((EndianBuf::new(rest),
+    let entries_buf = rest.range_to(..end);
+    Ok((rest,
         UnitHeader::new(unit_length,
                         version,
                         offset,
                         address_size,
                         format,
-                        entries_buf)))
+                        entries_buf.into())))
 }
 
 #[test]
