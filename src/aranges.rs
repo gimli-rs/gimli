@@ -38,15 +38,16 @@ impl<'input, Endian> DebugAranges<'input, Endian>
     }
 
     /// Iterate the aranges in the `.debug_aranges` section.
+    ///
     /// ```
-    /// use gimli{DebugAranges, LittleEndian};
+    /// use gimli::{DebugAranges, LittleEndian};
     ///
     /// # let buf = [];
     /// # let read_debug_aranges_section_somehow = || &buf;
     /// let debug_aranges = DebugAranges::<LittleEndian>::new(read_debug_aranges_section_somehow());
     ///
-    /// for parse_result in debug_aranges.aranges() {
-    ///   let arange = parse_result.unwrap();
+    /// let mut iter = debug_aranges.aranges();
+    /// while let Some(arange) = iter.next_arange().unwrap() {
     ///   println!("arange starts at {}, has length {}", arange.start(), arange.len());
     /// }
     /// ```
