@@ -655,9 +655,10 @@ impl<'input, 'header, Endian> LineNumberRow<'input, 'header, Endian>
     /// The source file corresponding to the current machine instruction.
     pub fn file(&self) -> Option<Ref<FileEntry<'input>>> {
         let file_names = self.header.file_names.borrow();
-        let file_idx = self.registers.file as usize;
+        // NB: registers.file starts counting at 1.
+        let file_idx = self.registers.file as usize - 1;
         if file_names.len() > file_idx {
-            Some(Ref::map(file_names, |names| &names[self.registers.file as usize]))
+            Some(Ref::map(file_names, |names| &names[file_idx]))
         } else {
             None
         }
