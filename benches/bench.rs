@@ -97,7 +97,7 @@ fn bench_parsing_line_number_program_opcodes(b: &mut test::Bencher) {
             .expect("Should parse line number program header");
 
         let mut opcodes = header.opcodes();
-        while let Some(opcode) = opcodes.next_opcode().expect("Should parse opcode") {
+        while let Some(opcode) = opcodes.next_opcode(&header).expect("Should parse opcode") {
             test::black_box(opcode);
         }
     });
@@ -112,7 +112,7 @@ fn bench_executing_line_number_programs(b: &mut test::Bencher) {
         let header = LineNumberProgramHeader::new(debug_line, OFFSET, ADDRESS_SIZE)
             .expect("Should parse line number program header");
 
-        let mut state_machine = StateMachine::new(&header);
+        let mut state_machine = StateMachine::new(header);
         while let Some(row) = state_machine.next_row()
             .expect("Should parse and execute all rows in the line number program") {
             test::black_box(row);

@@ -74,7 +74,7 @@ fn test_parse_self_debug_line() {
             let header = LineNumberProgramHeader::new(debug_line, offset, unit.address_size())
                 .expect("should parse line number program header");
 
-            let mut state_machine = StateMachine::new(&header);
+            let mut state_machine = StateMachine::new(header);
             while let Some(_) = state_machine.next_row()
                 .expect("Should parse and execute all rows in the line number program") {
             }
