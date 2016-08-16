@@ -1023,10 +1023,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
             return Err(parser::Error::UnknownVersion);
         }
 
-        let (rest, header_length) = try!(match format {
-            parser::Format::Dwarf32 => parser::parse_u32_as_u64(rest),
-            parser::Format::Dwarf64 => parser::parse_u64(rest),
-        });
+        let (rest, header_length) = try!(parser::parse_word(rest, format));
 
         if header_length as usize > rest.len() {
             return Err(parser::Error::UnitHeaderLengthTooShort);

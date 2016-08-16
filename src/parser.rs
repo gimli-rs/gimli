@@ -231,6 +231,20 @@ pub fn parse_uN_as_u64<Endian>(size: u8,
     }
 }
 
+/// Parse a word-sized integer according to the DWARF format, and return it as a `u64`.
+#[doc(hidden)]
+#[inline]
+pub fn parse_word<Endian>(input: EndianBuf<Endian>,
+                             format: Format)
+                             -> ParseResult<(EndianBuf<Endian>, u64)>
+    where Endian: Endianity
+{
+    match format {
+        Format::Dwarf32 => parse_u32_as_u64(input),
+        Format::Dwarf64 => parse_u64(input),
+    }
+}
+
 /// Parse a null-terminated slice from the input.
 #[doc(hidden)]
 #[inline]
@@ -638,11 +652,7 @@ fn parse_debug_abbrev_offset<Endian>(input: EndianBuf<Endian>,
                                      -> ParseResult<(EndianBuf<Endian>, DebugAbbrevOffset)>
     where Endian: Endianity
 {
-    let offset = match format {
-        Format::Dwarf32 => parse_u32_as_u64(input),
-        Format::Dwarf64 => parse_u64(input),
-    };
-    offset.map(|(rest, offset)| (rest, DebugAbbrevOffset(offset)))
+    parse_word(input, format).map(|(rest, offset)| (rest, DebugAbbrevOffset(offset)))
 }
 
 #[test]
@@ -1555,26 +1565,13 @@ fn parse_attribute<'input, 'unit, Endian>
                 }));
             }
             constants::DW_FORM_sec_offset => {
-                return match unit.format() {
-                    Format::Dwarf32 => {
-                        parse_u32(input.into()).map(|(rest, offset)| {
-                            let attr = Attribute {
-                                name: spec.name(),
-                                value: AttributeValue::SecOffset(offset as u64),
-                            };
-                            (rest, attr)
-                        })
-                    }
-                    Format::Dwarf64 => {
-                        parse_u64(input.into()).map(|(rest, offset)| {
-                            let attr = Attribute {
-                                name: spec.name(),
-                                value: AttributeValue::SecOffset(offset),
-                            };
-                            (rest, attr)
-                        })
-                    }
-                };
+                return parse_word(input.into(), unit.format()).map(|(rest, offset)| {
+                    let attr = Attribute {
+                        name: spec.name(),
+                        value: AttributeValue::SecOffset(offset),
+                    };
+                    (rest, attr)
+                });
             }
             constants::DW_FORM_ref1 => {
                 return parse_u8(input.into()).map(|(rest, reference)| {
@@ -1622,28 +1619,14 @@ fn parse_attribute<'input, 'unit, Endian>
                 });
             }
             constants::DW_FORM_ref_addr => {
-                return match unit.format() {
-                    Format::Dwarf32 => {
-                        parse_u32(input.into()).map(|(rest, offset)| {
-                            let offset = DebugInfoOffset(offset as u64);
-                            let attr = Attribute {
-                                name: spec.name(),
-                                value: AttributeValue::DebugInfoRef(offset),
-                            };
-                            (rest, attr)
-                        })
-                    }
-                    Format::Dwarf64 => {
-                        parse_u64(input.into()).map(|(rest, offset)| {
-                            let offset = DebugInfoOffset(offset);
-                            let attr = Attribute {
-                                name: spec.name(),
-                                value: AttributeValue::DebugInfoRef(offset),
-                            };
-                            (rest, attr)
-                        })
-                    }
-                };
+                return parse_word(input.into(), unit.format()).map(|(rest, offset)| {
+                    let offset = DebugInfoOffset(offset);
+                    let attr = Attribute {
+                        name: spec.name(),
+                        value: AttributeValue::DebugInfoRef(offset),
+                    };
+                    (rest, attr)
+                });
             }
             constants::DW_FORM_ref_sig8 => {
                 return parse_u64(input.into()).map(|(rest, offset)| {
@@ -1665,28 +1648,14 @@ fn parse_attribute<'input, 'unit, Endian>
                 });
             }
             constants::DW_FORM_strp => {
-                return match unit.format() {
-                    Format::Dwarf32 => {
-                        parse_u32(input.into()).map(|(rest, offset)| {
-                            let offset = DebugStrOffset(offset as u64);
-                            let attr = Attribute {
-                                name: spec.name(),
-                                value: AttributeValue::DebugStrRef(offset),
-                            };
-                            (rest, attr)
-                        })
-                    }
-                    Format::Dwarf64 => {
-                        parse_u64(input.into()).map(|(rest, offset)| {
-                            let offset = DebugStrOffset(offset);
-                            let attr = Attribute {
-                                name: spec.name(),
-                                value: AttributeValue::DebugStrRef(offset),
-                            };
-                            (rest, attr)
-                        })
-                    }
-                };
+                return parse_word(input.into(), unit.format()).map(|(rest, offset)| {
+                    let offset = DebugStrOffset(offset);
+                    let attr = Attribute {
+                        name: spec.name(),
+                        value: AttributeValue::DebugStrRef(offset),
+                    };
+                    (rest, attr)
+                });
             }
             _ => {
                 return Err(Error::UnknownForm);
