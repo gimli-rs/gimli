@@ -322,7 +322,9 @@ impl<'input, Endian> DebugInfo<'input, Endian>
     /// Get the UnitHeader located at offset from this .debug_info section.
     ///
     ///
-    pub fn header_from_offset(&self, offset: DebugInfoOffset) -> ParseResult<UnitHeader<'input, Endian>> {
+    pub fn header_from_offset(&self,
+                              offset: DebugInfoOffset)
+                              -> ParseResult<UnitHeader<'input, Endian>> {
         let offset = offset.0 as usize;
         if self.debug_info_section.len() < offset {
             return Err(Error::UnexpectedEof);
@@ -331,7 +333,7 @@ impl<'input, Endian> DebugInfo<'input, Endian>
         let input = self.debug_info_section.range_from(offset..);
         match parse_unit_header(input) {
             Ok((_, header)) => Ok(header),
-            Err(e) => Err(e)
+            Err(e) => Err(e),
         }
     }
 }
@@ -1261,23 +1263,20 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
     }
 
     /// Run some common fixups to present DWARF attributes in more useful forms.
-    fn prettify_attr_value(&self, name: constants::DwAt, value: AttributeValue<'input>)
-                           -> AttributeValue<'input>
-    {
+    fn prettify_attr_value(&self,
+                           name: constants::DwAt,
+                           value: AttributeValue<'input>)
+                           -> AttributeValue<'input> {
         match name {
             constants::DW_AT_stmt_list => {
                 let offset = DebugLineOffset(match value {
-                    AttributeValue::Data(data) if data.len() == 4 => {
-                        Endian::read_u32(data) as u64
-                    }
-                    AttributeValue::Data(data) if data.len() == 8 => {
-                        Endian::read_u64(data)
-                    }
+                    AttributeValue::Data(data) if data.len() == 4 => Endian::read_u32(data) as u64,
+                    AttributeValue::Data(data) if data.len() == 8 => Endian::read_u64(data),
                     AttributeValue::SecOffset(offset) => offset,
                     otherwise => return otherwise,
                 });
                 AttributeValue::DebugLineRef(offset)
-            },
+            }
             _ => value,
         }
     }

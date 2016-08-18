@@ -6,7 +6,10 @@ use std::env;
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut opts = getopts::Options::new();
-    opts.optopt("e", "exe", "Set the input file name (default is a.out)", "<executable>");
+    opts.optopt("e",
+                "exe",
+                "Set the input file name (default is a.out)",
+                "<executable>");
 
     let matches = opts.parse(&args[1..]).unwrap();
     let file_path = matches.opt_str("e").unwrap_or("a.out".to_string());
@@ -18,8 +21,7 @@ fn main() {
     }
 }
 
-fn parse_uint_from_hex_string(string: &str) -> u64
-{
+fn parse_uint_from_hex_string(string: &str) -> u64 {
     if string.len() > 2 && string.starts_with("0x") {
         u64::from_str_radix(&string[2..], 16).expect("Failed to parse address")
     } else {
@@ -27,11 +29,13 @@ fn parse_uint_from_hex_string(string: &str) -> u64
     }
 }
 
-fn entry_offsets_for_addresses<Endian>(file: &obj::File, addrs: &Vec<u64>)
+fn entry_offsets_for_addresses<Endian>(file: &obj::File,
+                                       addrs: &Vec<u64>)
                                        -> Vec<Option<gimli::DebugInfoOffset>>
     where Endian: gimli::Endianity
 {
-    let aranges = obj::get_section(file, ".debug_aranges").expect("Can't addr2line with no aranges");
+    let aranges = obj::get_section(file, ".debug_aranges")
+        .expect("Can't addr2line with no aranges");
     let aranges = gimli::DebugAranges::<Endian>::new(aranges);
     let mut aranges = aranges.aranges();
 
@@ -50,7 +54,8 @@ fn entry_offsets_for_addresses<Endian>(file: &obj::File, addrs: &Vec<u64>)
     dies
 }
 
-fn line_offset_for_entry<Endian>(abbrevs: &gimli::DebugAbbrev<Endian>, header: &gimli::UnitHeader<Endian>)
+fn line_offset_for_entry<Endian>(abbrevs: &gimli::DebugAbbrev<Endian>,
+                                 header: &gimli::UnitHeader<Endian>)
                                  -> Option<gimli::DebugLineOffset>
     where Endian: gimli::Endianity
 {
@@ -65,7 +70,8 @@ fn line_offset_for_entry<Endian>(abbrevs: &gimli::DebugAbbrev<Endian>, header: &
     }
 }
 
-fn display_file<Endian>(header: &gimli::LineNumberProgramHeader<Endian>, row: &gimli::LineNumberRow<Endian>)
+fn display_file<Endian>(header: &gimli::LineNumberProgramHeader<Endian>,
+                        row: &gimli::LineNumberRow<Endian>)
     where Endian: gimli::Endianity
 {
     let file = row.file().unwrap();
@@ -76,7 +82,9 @@ fn display_file<Endian>(header: &gimli::LineNumberProgramHeader<Endian>, row: &g
                  file.path_name().to_string_lossy(),
                  row.line().unwrap());
     } else {
-        println!("{}:{}", file.path_name().to_string_lossy(), row.line().unwrap());
+        println!("{}:{}",
+                 file.path_name().to_string_lossy(),
+                 row.line().unwrap());
     }
 }
 
@@ -99,19 +107,22 @@ fn symbolicate<Endian>(file: &obj::File, matches: &getopts::Matches)
     for (info_offset, addr) in offsets.iter().zip(addrs.iter()) {
         match *info_offset {
             None => println!("Found nothing"),
-            Some(d) => match debug_info.header_from_offset(d) {
-                Err(_) => println!("Couldn't get DIE header"),
-                Ok(h) => {
-                    let line_offset = line_offset_for_entry(&debug_abbrev, &h)
-                        .expect("No offset into .debug_lines!?");
-                    let header =
-                        gimli::LineNumberProgramHeader::new(debug_line, line_offset, h.address_size());
-                    if let Ok(header) = header {
-                        let mut state_machine = gimli::StateMachine::new(&header);
-                        match state_machine.run_to_address(addr) {
-                            Err(_) => println!("Failed to run line number program!"),
-                            Ok(None) => println!("Failed to find matching line for {}", *addr),
-                            Ok(Some(row)) =>  display_file(&header, &row),
+            Some(d) => {
+                match debug_info.header_from_offset(d) {
+                    Err(_) => println!("Couldn't get DIE header"),
+                    Ok(h) => {
+                        let line_offset = line_offset_for_entry(&debug_abbrev, &h)
+                            .expect("No offset into .debug_lines!?");
+                        let header = gimli::LineNumberProgramHeader::new(debug_line,
+                                                                         line_offset,
+                                                                         h.address_size());
+                        if let Ok(header) = header {
+                            let mut state_machine = gimli::StateMachine::new(&header);
+                            match state_machine.run_to_address(addr) {
+                                Err(_) => println!("Failed to run line number program!"),
+                                Ok(None) => println!("Failed to find matching line for {}", *addr),
+                                Ok(Some(row)) => display_file(&header, &row),
+                            }
                         }
                     }
                 }
