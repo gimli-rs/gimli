@@ -70,15 +70,13 @@ fn line_offset_for_entry<Endian>(abbrevs: &gimli::DebugAbbrev<Endian>,
     }
 }
 
-fn display_file<Endian>(header: &gimli::LineNumberProgramHeader<Endian>,
-                        row: &gimli::LineNumberRow<Endian>)
+fn display_file<Endian>(row: gimli::LineNumberRow<Endian>)
     where Endian: gimli::Endianity
 {
     let file = row.file().unwrap();
-    let directory_index = file.directory_index();
-    if directory_index > 0 {
+    if let Some(directory) = file.directory(row.header()) {
         println!("{}/{}:{}",
-                 header.include_directories()[directory_index as usize - 1].to_string_lossy(),
+                 directory.to_string_lossy(),
                  file.path_name().to_string_lossy(),
                  row.line().unwrap());
     } else {
@@ -117,12 +115,12 @@ fn symbolicate<Endian>(file: &obj::File, matches: &getopts::Matches)
                                                                          line_offset,
                                                                          h.address_size());
                         if let Ok(header) = header {
-                            let mut state_machine = gimli::StateMachine::new(&header);
+                            let mut state_machine = gimli::StateMachine::new(header);
                             match state_machine.run_to_address(addr) {
                                 Err(_) => println!("Failed to run line number program!"),
                                 Ok(None) => println!("Failed to find matching line for {}", *addr),
-                                Ok(Some(row)) => display_file(&header, &row),
-                            }
+                                Ok(Some(row)) => display_file(row),
+                            };
                         }
                     }
                 }
