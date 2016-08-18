@@ -206,8 +206,8 @@ fn dump_aranges<Endian>(file: &obj::File)
         println!(".debug_aranges");
         let debug_aranges = gimli::DebugAranges::<Endian>::new(debug_aranges);
 
-        let mut aranges = debug_aranges.aranges();
-        while let Some(arange) = aranges.next_arange().expect("Should parse arange OK") {
+        let mut aranges = debug_aranges.items();
+        while let Some(arange) = aranges.next_entry().expect("Should parse arange OK") {
             println!("arange starts at {}, length of {}, cu_die_offset = {:?}",
                      arange.start(),
                      arange.len(),

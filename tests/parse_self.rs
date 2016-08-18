@@ -87,8 +87,8 @@ fn test_parse_self_debug_aranges() {
     let debug_aranges = read_section("debug_aranges");
     let debug_aranges = DebugAranges::<LittleEndian>::new(&debug_aranges);
 
-    let mut aranges = debug_aranges.aranges();
-    while let Some(_) = aranges.next_arange().expect("Should parse arange OK") {
+    let mut aranges = debug_aranges.items();
+    while let Some(_) = aranges.next_entry().expect("Should parse arange OK") {
         // Not really anything else we can check right now.
     }
 }

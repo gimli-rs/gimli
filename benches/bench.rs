@@ -74,8 +74,8 @@ fn bench_parsing_debug_aranges(b: &mut test::Bencher) {
     let debug_aranges = DebugAranges::<LittleEndian>::new(&debug_aranges);
 
     b.iter(|| {
-        let mut aranges = debug_aranges.aranges();
-        while let Some(arange) = aranges.next_arange().expect("Should parse arange OK") {
+        let mut aranges = debug_aranges.items();
+        while let Some(arange) = aranges.next_entry().expect("Should parse arange OK") {
             test::black_box(arange);
         }
     });
