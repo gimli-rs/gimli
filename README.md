@@ -31,7 +31,11 @@ or add this to your `Cargo.toml`:
 
 * [Rustdocs documentation](http://fitzgen.github.io/gimli/gimli/index.html)
 
-* [Example programs](./examples)
+* Example programs:
+
+  * [A `dwarfdump` clone](./examples/dwarfdump.rs)
+
+  * [An `addr2line` clone](./examples/addr2line.rs)
 
 ## License
 
