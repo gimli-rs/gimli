@@ -3,8 +3,8 @@
 extern crate gimli;
 extern crate test;
 
-use gimli::{DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset,
-            LineNumberProgramHeader, LittleEndian, StateMachine};
+use gimli::{DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset, DebugPubNames,
+            DebugPubTypes, LineNumberProgramHeader, LittleEndian, StateMachine};
 
 use std::env;
 use std::fs::File;
@@ -77,6 +77,32 @@ fn bench_parsing_debug_aranges(b: &mut test::Bencher) {
         let mut aranges = debug_aranges.items();
         while let Some(arange) = aranges.next_entry().expect("Should parse arange OK") {
             test::black_box(arange);
+        }
+    });
+}
+
+#[bench]
+fn bench_parsing_debug_pubnames(b: &mut test::Bencher) {
+    let debug_pubnames = read_section("debug_pubnames");
+    let debug_pubnames = DebugPubNames::<LittleEndian>::new(&debug_pubnames);
+
+    b.iter(|| {
+        let mut pubnames = debug_pubnames.items();
+        while let Some(pubname) = pubnames.next_entry().expect("Should parse pubname OK") {
+            test::black_box(pubname);
+        }
+    });
+}
+
+#[bench]
+fn bench_parsing_debug_types(b: &mut test::Bencher) {
+    let debug_pubtypes = read_section("debug_pubtypes");
+    let debug_pubtypes = DebugPubTypes::<LittleEndian>::new(&debug_pubtypes);
+
+    b.iter(|| {
+        let mut pubtypes = debug_pubtypes.items();
+        while let Some(pubtype) = pubtypes.next_entry().expect("Should parse pubtype OK") {
+            test::black_box(pubtype);
         }
     });
 }
