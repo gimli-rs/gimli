@@ -267,6 +267,26 @@ impl<'input, 'header, Endian> StateMachine<'input, 'header, Endian>
             }
         }
     }
+
+    /// Parse and execute opcodes until we reach a row matching `addr`, the end of the program,
+    /// or an error.
+    pub fn run_to_address(&mut self, addr: &u64)
+                          -> parser::ParseResult<Option<&LineNumberRow<'input, 'header, Endian>>> {
+        loop {
+            match self.next_row() {
+                Ok(Some(row)) => {
+                    if row.address() == *addr {
+                        // Can't return 'row' directly here because of rust-lang/rust#21906.
+                        break;
+                    }
+                },
+                Ok(None) => return Ok(None),
+                Err(err) => return Err(err),
+            };
+        }
+
+        Ok(Some(&self.row))
+    }
 }
 
 /// A parsed line number program opcode.

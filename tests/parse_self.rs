@@ -1,8 +1,7 @@
 extern crate byteorder;
 extern crate gimli;
 
-use byteorder::ByteOrder;
-use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset,
+use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine,
             DW_AT_stmt_list, LineNumberProgramHeader, LittleEndian, StateMachine};
 use std::env;
 use std::fs::File;
@@ -71,17 +70,7 @@ fn test_parse_self_debug_line() {
         let unit_entry = cursor.current()
             .expect("Should have a root entry");
 
-        if let Some(value) = unit_entry.attr_value(DW_AT_stmt_list) {
-            // rustc generates DWARF 2 by default, which doesn't have
-            // DW_FORM_sec_offset, so instead we get DW_FORM_data4
-            // values. Because of this, we have to turn the data into an offset
-            // manually.
-            let offset = match value {
-                AttributeValue::Data(data) => LittleEndian::read_u32(data),
-                otherwise => panic!("unexpected value form: {:?}", otherwise),
-            };
-            let offset = DebugLineOffset(offset as u64);
-
+        if let Some(AttributeValue::DebugLineRef(offset)) = unit_entry.attr_value(DW_AT_stmt_list) {
             let header = LineNumberProgramHeader::new(debug_line, offset, unit.address_size())
                 .expect("should parse line number program header");
 
