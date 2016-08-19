@@ -2,6 +2,7 @@ extern crate gimli;
 extern crate getopts;
 extern crate object;
 
+use object::Object;
 use std::env;
 
 fn main() {
@@ -14,8 +15,8 @@ fn main() {
 
     let matches = opts.parse(&args[1..]).unwrap();
     let file_path = matches.opt_str("e").unwrap_or("a.out".to_string());
-    let file = object::open(&file_path);
-    if object::is_little_endian(&file) {
+    let file = object::File::open(&file_path);
+    if file.is_little_endian() {
         symbolicate::<gimli::LittleEndian>(&file, &matches);
     } else {
         symbolicate::<gimli::BigEndian>(&file, &matches);
@@ -35,7 +36,7 @@ fn entry_offsets_for_addresses<Endian>(file: &object::File,
                                        -> Vec<Option<gimli::DebugInfoOffset>>
     where Endian: gimli::Endianity
 {
-    let aranges = object::get_section(file, ".debug_aranges")
+    let aranges = file.get_section(".debug_aranges")
         .expect("Can't addr2line with no aranges");
     let aranges = gimli::DebugAranges::<Endian>::new(aranges);
     let mut aranges = aranges.aranges();
@@ -93,13 +94,13 @@ fn symbolicate<Endian>(file: &object::File, matches: &getopts::Matches)
     let addrs: Vec<u64> = matches.free.iter().map(|x| parse_uint_from_hex_string(x)).collect();
 
     let offsets = entry_offsets_for_addresses::<Endian>(&file, &addrs);
-    let debug_info = object::get_section(file, ".debug_info")
+    let debug_info = file.get_section(".debug_info")
         .expect("Can't addr2line without .debug_info");
     let debug_info = gimli::DebugInfo::<Endian>::new(debug_info);
-    let debug_abbrev = object::get_section(&file, ".debug_abbrev")
+    let debug_abbrev = file.get_section(".debug_abbrev")
         .expect("Can't addr2line without .debug_abbrev");
     let debug_abbrev = gimli::DebugAbbrev::<Endian>::new(debug_abbrev);
-    let debug_line = object::get_section(file, ".debug_line")
+    let debug_line = file.get_section(".debug_line")
         .expect("Can't addr2line without .debug_line");
     let debug_line = gimli::DebugLine::<Endian>::new(&debug_line);
 

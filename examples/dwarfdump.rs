@@ -1,6 +1,7 @@
 extern crate gimli;
 extern crate object;
 
+use object::Object;
 use std::cell::Cell;
 use std::env;
 
@@ -9,8 +10,8 @@ fn main() {
         println!("{}", file_path);
         println!("");
 
-        let file = object::open(&file_path);
-        if object::is_little_endian(&file) {
+        let file = object::File::open(&file_path);
+        if file.is_little_endian() {
             dump_file::<gimli::LittleEndian>(file);
         } else {
             dump_file::<gimli::BigEndian>(file);
@@ -21,10 +22,10 @@ fn main() {
 fn dump_file<Endian>(file: object::File)
     where Endian: gimli::Endianity
 {
-    let debug_abbrev = object::get_section(&file, ".debug_abbrev")
+    let debug_abbrev = file.get_section(".debug_abbrev")
         .expect("Does not have .debug_abbrev section");
     let debug_abbrev = gimli::DebugAbbrev::<Endian>::new(debug_abbrev);
-    let debug_str = object::get_section(&file, ".debug_str")
+    let debug_str = file.get_section(".debug_str")
         .expect("Does not have .debug_str section");
     let debug_str = gimli::DebugStr::<Endian>::new(debug_str);
 
@@ -39,7 +40,7 @@ fn dump_info<Endian>(file: &object::File,
                      debug_str: gimli::DebugStr<Endian>)
     where Endian: gimli::Endianity
 {
-    if let Some(debug_info) = object::get_section(file, ".debug_info") {
+    if let Some(debug_info) = file.get_section(".debug_info") {
         println!(".debug_info");
         println!("");
 
@@ -61,7 +62,7 @@ fn dump_types<Endian>(file: &object::File,
                       debug_str: gimli::DebugStr<Endian>)
     where Endian: gimli::Endianity
 {
-    if let Some(debug_types) = object::get_section(file, ".debug_types") {
+    if let Some(debug_types) = file.get_section(".debug_types") {
         println!(".debug_types");
         println!("");
 
@@ -110,8 +111,8 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
 fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endian>)
     where Endian: gimli::Endianity
 {
-    let debug_line = object::get_section(file, ".debug_line");
-    let debug_info = object::get_section(file, ".debug_info");
+    let debug_line = file.get_section(".debug_line");
+    let debug_info = file.get_section(".debug_info");
 
     if let (Some(debug_line), Some(debug_info)) = (debug_line, debug_info) {
         println!(".debug_line");
@@ -203,7 +204,7 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
 fn dump_aranges<Endian>(file: &object::File)
     where Endian: gimli::Endianity
 {
-    if let Some(debug_aranges) = object::get_section(file, ".debug_aranges") {
+    if let Some(debug_aranges) = file.get_section(".debug_aranges") {
         println!(".debug_aranges");
         let debug_aranges = gimli::DebugAranges::<Endian>::new(debug_aranges);
 
