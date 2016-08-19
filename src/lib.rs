@@ -52,7 +52,7 @@
 //! ```
 //!
 //! See the
-//! [`examples/dwarfdump.rs`](https://github.com/fitzgen/gimli/blob/master/examples/dwarfdump.rs)
+//! [`examples/dwarfdump.rs`](https://github.com/gimli-rs/gimli/blob/master/examples/dwarfdump.rs)
 //! program for a complete example program.
 
 #![deny(missing_docs)]

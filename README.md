@@ -1,6 +1,6 @@
 # `gimli`
 
-[![](http://meritbadge.herokuapp.com/gimli) ![](https://img.shields.io/crates/d/gimli.png)](https://crates.io/crates/gimli) [![Build Status](https://travis-ci.org/fitzgen/gimli.png?branch=master)](https://travis-ci.org/fitzgen/gimli)
+[![](http://meritbadge.herokuapp.com/gimli) ![](https://img.shields.io/crates/d/gimli.png)](https://crates.io/crates/gimli) [![Build Status](https://travis-ci.org/gimli-rs/gimli.png?branch=master)](https://travis-ci.org/gimli-rs/gimli)
 
 A lazy, zero-copy parser for the DWARF debugging format.
 
@@ -29,7 +29,7 @@ or add this to your `Cargo.toml`:
 
 ## Documentation
 
-* [Rustdocs documentation](http://fitzgen.github.io/gimli/gimli/index.html)
+* [Rustdocs documentation](http://gimli-rs.github.io/gimli/gimli/index.html)
 
 * Example programs:
 
