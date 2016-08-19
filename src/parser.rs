@@ -235,8 +235,8 @@ pub fn parse_uN_as_u64<Endian>(size: u8,
 #[doc(hidden)]
 #[inline]
 pub fn parse_word<Endian>(input: EndianBuf<Endian>,
-                             format: Format)
-                             -> ParseResult<(EndianBuf<Endian>, u64)>
+                          format: Format)
+                          -> ParseResult<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
     match format {
