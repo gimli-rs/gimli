@@ -18,12 +18,7 @@ leb128 = "0.2.1"
 
 [dev-dependencies]
 getopts = "0.2"
-
-[target.'cfg(target_os="linux")'.dev-dependencies]
-elf = "0.0.9"
-
-[target.'cfg(target_os="macos")'.dev-dependencies]
-mach_o = "0.1.2"
+object = "0.0.1"
 
 [features]
 nightly = []
