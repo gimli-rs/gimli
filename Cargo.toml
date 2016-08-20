@@ -18,7 +18,8 @@ leb128 = "0.2.1"
 
 [dev-dependencies]
 getopts = "0.2"
-object = "0.0.2"
+memmap = "0.4.0"
+object = "0.1.0"
 
 [features]
 nightly = []

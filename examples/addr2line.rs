@@ -1,9 +1,11 @@
 extern crate gimli;
 extern crate getopts;
+extern crate memmap;
 extern crate object;
 
 use object::Object;
 use std::env;
+use std::fs;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -14,8 +16,13 @@ fn main() {
                 "<executable>");
 
     let matches = opts.parse(&args[1..]).unwrap();
+
     let file_path = matches.opt_str("e").unwrap_or("a.out".to_string());
-    let file = object::File::open(&file_path);
+    let file = fs::File::open(&file_path).expect("Should open file");
+    let file = memmap::Mmap::open(&file, memmap::Protection::Read)
+        .expect("Should create a mmap for file");
+    let file = object::File::parse(unsafe { file.as_slice() });
+
     if file.is_little_endian() {
         symbolicate::<gimli::LittleEndian>(&file, &matches);
     } else {

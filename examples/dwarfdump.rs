@@ -1,16 +1,22 @@
 extern crate gimli;
+extern crate memmap;
 extern crate object;
 
 use object::Object;
 use std::cell::Cell;
 use std::env;
+use std::fs;
 
 fn main() {
     for file_path in env::args().skip(1) {
         println!("{}", file_path);
         println!("");
 
-        let file = object::File::open(&file_path);
+        let file = fs::File::open(&file_path).expect("Should open file");
+        let file = memmap::Mmap::open(&file, memmap::Protection::Read)
+            .expect("Should create a mmap for file");
+        let file = object::File::parse(unsafe { file.as_slice() });
+
         if file.is_little_endian() {
             dump_file::<gimli::LittleEndian>(file);
         } else {
