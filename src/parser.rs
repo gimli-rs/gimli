@@ -2361,7 +2361,11 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                         abbrev: abbrev,
                         unit: self.unit,
                     });
-                    self.delta_depth = if abbrev.has_children() { 1 } else { 0 };
+                    self.delta_depth = if abbrev.has_children() {
+                        1
+                    } else {
+                        0
+                    };
 
                     Ok(Some(()))
                 } else {

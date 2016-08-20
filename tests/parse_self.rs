@@ -1,8 +1,8 @@
 extern crate byteorder;
 extern crate gimli;
 
-use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugPubNames, DebugPubTypes,
-            DW_AT_stmt_list, LineNumberProgramHeader, LittleEndian, StateMachine};
+use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugPubNames,
+            DebugPubTypes, DW_AT_stmt_list, LineNumberProgramHeader, LittleEndian, StateMachine};
 use std::env;
 use std::fs::File;
 use std::io::Read;
