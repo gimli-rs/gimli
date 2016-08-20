@@ -1234,6 +1234,11 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
         self.abbrev.tag()
     }
 
+    /// Return true if this entry's type can have children, false otherwise.
+    pub fn has_children(&self) -> bool {
+        self.abbrev.has_children()
+    }
+
     /// Iterate over this entry's set of attributes.
     ///
     /// ```
@@ -2264,8 +2269,17 @@ fn test_attrs_iter_incomplete() {
 
 /// A cursor into the Debugging Information Entries tree for a compilation unit.
 ///
-/// The `EntriesCursor` can traverse the DIE tree in either DFS order, or skip
-/// to the next sibling of the entry the cursor is currently pointing to.
+/// The `EntriesCursor` can traverse the DIE tree in DFS order using `next_dfs()`,
+/// or skip to the next sibling of the entry the cursor is currently pointing to
+/// using `next_sibling()`.
+///
+/// It is also possible to traverse the DIE tree at a lower abstraction level
+/// using `next_entry()`. This method does not skip over null entries, or provide
+/// any indication of the current tree depth. In this case, you must use `current()`
+/// to obtain the current entry, and `current().has_children()` to determine if
+/// the entry following the current entry will be a sibling or child. `current()`
+/// will return `None` if the current entry is a null entry, which signifies the
+/// end of the current tree depth.
 #[derive(Clone, Debug)]
 pub struct EntriesCursor<'input, 'abbrev, 'unit, Endian>
     where 'input: 'unit,
@@ -2282,6 +2296,9 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     where Endian: Endianity
 {
     /// Get a reference to the entry that the cursor is currently pointing to.
+    ///
+    /// If the cursor is not pointing at an entry, or if the current entry is a
+    /// null entry, then `None` is returned.
     pub fn current<'me>
         (&'me self)
          -> Option<&'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>> {
