@@ -1,8 +1,8 @@
 extern crate byteorder;
 extern crate gimli;
 
-use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DW_AT_stmt_list,
-            LineNumberProgramHeader, LittleEndian, StateMachine};
+use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugPubNames, DebugPubTypes,
+            DW_AT_stmt_list, LineNumberProgramHeader, LittleEndian, StateMachine};
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -87,8 +87,30 @@ fn test_parse_self_debug_aranges() {
     let debug_aranges = read_section("debug_aranges");
     let debug_aranges = DebugAranges::<LittleEndian>::new(&debug_aranges);
 
-    let mut aranges = debug_aranges.aranges();
-    while let Some(_) = aranges.next_arange().expect("Should parse arange OK") {
+    let mut aranges = debug_aranges.items();
+    while let Some(_) = aranges.next_entry().expect("Should parse arange OK") {
+        // Not really anything else we can check right now.
+    }
+}
+
+#[test]
+fn test_parse_self_debug_pubnames() {
+    let debug_pubnames = read_section("debug_pubnames");
+    let debug_pubnames = DebugPubNames::<LittleEndian>::new(&debug_pubnames);
+
+    let mut pubnames = debug_pubnames.items();
+    while let Some(_) = pubnames.next_entry().expect("Should parse pubname OK") {
+        // Not really anything else we can check right now.
+    }
+}
+
+#[test]
+fn test_parse_self_debug_pubtypes() {
+    let debug_pubtypes = read_section("debug_pubtypes");
+    let debug_pubtypes = DebugPubTypes::<LittleEndian>::new(&debug_pubtypes);
+
+    let mut pubtypes = debug_pubtypes.items();
+    while let Some(_) = pubtypes.next_entry().expect("Should parse pubtype OK") {
         // Not really anything else we can check right now.
     }
 }

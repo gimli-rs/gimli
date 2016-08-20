@@ -39,10 +39,10 @@ fn entry_offsets_for_addresses<Endian>(file: &object::File,
     let aranges = file.get_section(".debug_aranges")
         .expect("Can't addr2line with no aranges");
     let aranges = gimli::DebugAranges::<Endian>::new(aranges);
-    let mut aranges = aranges.aranges();
+    let mut aranges = aranges.items();
 
     let mut dies: Vec<Option<gimli::DebugInfoOffset>> = (0..addrs.len()).map(|_| None).collect();
-    while let Some(arange) = aranges.next_arange().expect("Should parse arange OK") {
+    while let Some(arange) = aranges.next_entry().expect("Should parse arange OK") {
         let start = arange.start();
         let end = start + arange.len();
 
