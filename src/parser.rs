@@ -1322,45 +1322,29 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
         }
     }
 
-    /// Run some common fixups to present DWARF attributes in more useful forms.
-    fn prettify_attr_value(&self,
-                           name: constants::DwAt,
-                           value: AttributeValue<'input, Endian>)
-                           -> AttributeValue<'input, Endian> {
-        match name {
-            constants::DW_AT_stmt_list => {
-                let offset = DebugLineOffset(match value {
-                    AttributeValue::Data(data) if data.len() == 4 => {
-                        Endian::read_u32(data.into()) as u64
-                    }
-                    AttributeValue::Data(data) if data.len() == 8 => Endian::read_u64(data.into()),
-                    AttributeValue::SecOffset(offset) => offset,
-                    otherwise => return otherwise,
-                });
-                AttributeValue::DebugLineRef(offset)
-            }
-            _ => value,
-        }
-    }
-
     /// Find the first attribute in this entry which has the given name,
-    /// and return its value, without any attempt to clean it up. Returns
-    /// `Ok(None)` if no attribute is found.
-    pub fn attr_value_raw(&self, name: constants::DwAt) -> Option<AttributeValue<'input, Endian>> {
+    /// and return it. Returns `Ok(None)` if no attribute is found.
+    pub fn attr(&self, name: constants::DwAt) -> Option<Attribute<'input, Endian>> {
         let mut attrs = self.attrs();
         while let Ok(Some(attr)) = attrs.next() {
             if attr.name() == name {
-                return Some(attr.value());
+                return Some(attr);
             }
         }
         None
     }
 
     /// Find the first attribute in this entry which has the given name,
-    /// and return its value, after running `prettify_attr_value` on it.
-    /// Returns `Ok(None)` if no attribute is found.
+    /// and return its raw value. Returns `Ok(None)` if no attribute is found.
+    pub fn attr_value_raw(&self, name: constants::DwAt) -> Option<AttributeValue<'input, Endian>> {
+        self.attr(name).map(|attr| attr.raw_value())
+    }
+
+    /// Find the first attribute in this entry which has the given name,
+    /// and return its normalized value.  Returns `Ok(None)` if no
+    /// attribute is found.
     pub fn attr_value(&self, name: constants::DwAt) -> Option<AttributeValue<'input, Endian>> {
-        self.attr_value_raw(name).map(|val| self.prettify_attr_value(name, val))
+        self.attr(name).map(|attr| attr.value())
     }
 }
 
@@ -1440,9 +1424,32 @@ impl<'input, Endian> Attribute<'input, Endian>
         self.name
     }
 
-    /// Get this attribute's value.
-    pub fn value(&self) -> AttributeValue<'input, Endian> {
+    /// Get this attribute's raw value.
+    pub fn raw_value(&self) -> AttributeValue<'input, Endian> {
         self.value
+    }
+
+    /// Get this attribute's normalized value.
+    ///
+    /// Attribute values can potentially be encoded in multiple equivalent forms,
+    /// and may have special meaning depending on the attribute name.  This method
+    /// converts the attribute value to a normalized form based on the attribute
+    /// name.
+    pub fn value(&self) -> AttributeValue<'input, Endian> {
+        match self.name {
+            constants::DW_AT_stmt_list => {
+                let offset = DebugLineOffset(match self.value {
+                    AttributeValue::Data(data) if data.len() == 4 => {
+                        Endian::read_u32(data.into()) as u64
+                    }
+                    AttributeValue::Data(data) if data.len() == 8 => Endian::read_u64(data.into()),
+                    AttributeValue::SecOffset(offset) => offset,
+                    otherwise => return otherwise,
+                });
+                AttributeValue::DebugLineRef(offset)
+            }
+            _ => self.value,
+        }
     }
 }
 
