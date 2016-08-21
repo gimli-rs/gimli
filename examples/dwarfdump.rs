@@ -4,7 +4,6 @@ extern crate memmap;
 extern crate object;
 
 use object::Object;
-use std::cell::Cell;
 use std::env;
 use std::io;
 use std::io::Write;
@@ -146,11 +145,11 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
                         debug_str: gimli::DebugStr<Endian>)
     where Endian: gimli::Endianity
 {
-    let depth = Cell::new(0);
+    let mut depth = 0;
     while let Some((delta_depth, entry)) = entries.next_dfs().expect("Should parse next dfs") {
-        depth.set(depth.get() + delta_depth);
+        depth += delta_depth;
         let indent = || {
-            for _ in 0..(depth.get() as usize) {
+            for _ in 0..depth as usize {
                 print!("        ");
             }
         };
