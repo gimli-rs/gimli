@@ -179,6 +179,19 @@ pub fn parse_u16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<End
     }
 }
 
+/// Parse a `i16` from the input.
+#[doc(hidden)]
+#[inline]
+pub fn parse_i16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, i16)>
+    where Endian: Endianity
+{
+    if input.len() < 2 {
+        Err(Error::UnexpectedEof)
+    } else {
+        Ok((input.range_from(2..), Endian::read_i16(&input)))
+    }
+}
+
 /// Parse a `u32` from the input.
 #[doc(hidden)]
 #[inline]
@@ -192,6 +205,19 @@ pub fn parse_u32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<End
     }
 }
 
+/// Parse a `i32` from the input.
+#[doc(hidden)]
+#[inline]
+pub fn parse_i32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, i32)>
+    where Endian: Endianity
+{
+    if input.len() < 4 {
+        Err(Error::UnexpectedEof)
+    } else {
+        Ok((input.range_from(4..), Endian::read_i32(&input)))
+    }
+}
+
 /// Parse a `u64` from the input.
 #[doc(hidden)]
 #[inline]
@@ -202,6 +228,19 @@ pub fn parse_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<End
         Err(Error::UnexpectedEof)
     } else {
         Ok((input.range_from(8..), Endian::read_u64(&input)))
+    }
+}
+
+/// Parse a `i64` from the input.
+#[doc(hidden)]
+#[inline]
+pub fn parse_i64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, i64)>
+    where Endian: Endianity
+{
+    if input.len() < 8 {
+        Err(Error::UnexpectedEof)
+    } else {
+        Ok((input.range_from(8..), Endian::read_i64(&input)))
     }
 }
 
