@@ -148,24 +148,26 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
     let mut depth = 0;
     while let Some((delta_depth, entry)) = entries.next_dfs().expect("Should parse next dfs") {
         depth += delta_depth;
-        let indent = || {
-            for _ in 0..depth as usize {
-                print!("        ");
-            }
-        };
-
-        indent();
-        println!("<{}> <{}>", entry.offset(), entry.tag());
+        let indent = depth as usize * 2 + 2;
+        println!("<{:2}><0x{:08x}>{:indent$}{}",
+                 depth,
+                 entry.offset(),
+                 "",
+                 entry.tag(),
+                 indent = indent);
 
         let mut attrs = entry.attrs();
         while let Some(attr) = attrs.next().expect("Should parse attribute OK") {
-            indent();
             let mut value = attr.value();
             if let gimli::AttributeValue::DebugStrRef(o) = value {
                 let s = debug_str.get_str(o).expect("Should have valid str offset");
                 value = gimli::AttributeValue::String(s)
             }
-            println!("    {} = {:?}", attr.name(), value);
+            println!("{:indent$}{:28}{:?}",
+                     "",
+                     attr.name(),
+                     value,
+                     indent = indent + 18);
         }
     }
 }

@@ -67,11 +67,11 @@ macro_rules! dw {
             fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
                 match *self {
                     $(
-                        $name => write!(f, stringify!($name)),
+                        $name => f.pad(stringify!($name)),
                     )+
-                    otherwise => write!(f, "Unknown {}: {}",
-                                        stringify!($struct_name),
-                                        otherwise.0),
+                    otherwise => f.pad(&format!("Unknown {}: {}",
+                                                stringify!($struct_name),
+                                                otherwise.0)),
                 }
             }
         }
