@@ -140,10 +140,10 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
             let value = root.attr_value(gimli::DW_AT_stmt_list);
             let offset = gimli::DebugLineOffset(match value {
                 Some(gimli::AttributeValue::Data(data)) if data.len() == 4 => {
-                    Endian::read_u32(data) as u64
+                    Endian::read_u32(data.into()) as u64
                 }
                 Some(gimli::AttributeValue::Data(data)) if data.len() == 8 => {
-                    Endian::read_u64(data)
+                    Endian::read_u64(data.into())
                 }
                 Some(gimli::AttributeValue::SecOffset(offset)) => offset,
                 _ => continue,
