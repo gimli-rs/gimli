@@ -1,14 +1,67 @@
 extern crate gimli;
+extern crate getopts;
 extern crate memmap;
 extern crate object;
 
 use object::Object;
 use std::cell::Cell;
 use std::env;
+use std::io;
+use std::io::Write;
 use std::fs;
+use std::process;
+
+#[derive(Default)]
+struct Flags {
+    info: bool,
+    line: bool,
+    aranges: bool,
+}
+
+fn print_usage(opts: &getopts::Options) -> ! {
+    let brief = format!("Usage: {} <options> <file>", env::args().next().unwrap());
+    write!(&mut io::stderr(), "{}", opts.usage(&brief)).ok();
+    process::exit(1);
+}
 
 fn main() {
-    for file_path in env::args().skip(1) {
+    let mut opts = getopts::Options::new();
+    opts.optflag("i", "", "print .debug_info and .debug_types sections");
+    opts.optflag("l", "", "print .debug_line section");
+    opts.optflag("r", "", "print .debug_aranges section");
+
+    let matches = match opts.parse(env::args().skip(1)) {
+        Ok(m) => m,
+        Err(e) => {
+            writeln!(&mut io::stderr(), "{:?}\n", e).ok();
+            print_usage(&opts);
+        }
+    };
+    if matches.free.is_empty() {
+        print_usage(&opts);
+    }
+
+    let mut all = true;
+    let mut flags = Flags::default();
+    if matches.opt_present("i") {
+        flags.info = true;
+        all = false;
+    }
+    if matches.opt_present("l") {
+        flags.line = true;
+        all = false;
+    }
+    if matches.opt_present("r") {
+        flags.aranges = true;
+        all = false;
+    }
+    if all {
+        flags.info = true;
+        flags.line = true;
+        flags.aranges = true;
+    }
+
+    for file_path in matches.free {
         println!("{}", file_path);
         println!("");
 
@@ -18,14 +71,14 @@ fn main() {
         let file = object::File::parse(unsafe { file.as_slice() });
 
         if file.is_little_endian() {
-            dump_file::<gimli::LittleEndian>(file);
+            dump_file::<gimli::LittleEndian>(file, &flags);
         } else {
-            dump_file::<gimli::BigEndian>(file);
+            dump_file::<gimli::BigEndian>(file, &flags);
         }
     }
 }
 
-fn dump_file<Endian>(file: object::File)
+fn dump_file<Endian>(file: object::File, flags: &Flags)
     where Endian: gimli::Endianity
 {
     let debug_abbrev = file.get_section(".debug_abbrev").unwrap_or(&[]);
@@ -33,10 +86,16 @@ fn dump_file<Endian>(file: object::File)
     let debug_str = file.get_section(".debug_str").unwrap_or(&[]);
     let debug_str = gimli::DebugStr::<Endian>::new(debug_str);
 
-    dump_info(&file, debug_abbrev, debug_str);
-    dump_types(&file, debug_abbrev, debug_str);
-    dump_line(&file, debug_abbrev);
-    dump_aranges::<Endian>(&file);
+    if flags.info {
+        dump_info(&file, debug_abbrev, debug_str);
+        dump_types(&file, debug_abbrev, debug_str);
+    }
+    if flags.line {
+        dump_line(&file, debug_abbrev);
+    }
+    if flags.aranges {
+        dump_aranges::<Endian>(&file);
+    }
 }
 
 fn dump_info<Endian>(file: &object::File,
