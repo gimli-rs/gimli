@@ -61,9 +61,11 @@ fn main() {
         flags.aranges = true;
     }
 
-    for file_path in matches.free {
-        println!("{}", file_path);
-        println!("");
+    for file_path in &matches.free {
+        if matches.free.len() != 1 {
+            println!("{}", file_path);
+            println!("");
+        }
 
         let file = fs::File::open(&file_path).expect("Should open file");
         let file = memmap::Mmap::open(&file, memmap::Protection::Read)
