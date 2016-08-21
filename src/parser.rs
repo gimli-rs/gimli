@@ -81,6 +81,25 @@ pub enum Error {
     NotCieId,
     /// Expected to find a pointer to a CIE, but found the CIE ID instead.
     NotCiePointer,
+    /// Invalid branch target for a DW_OP_bra or DW_OP_skip.
+    BadBranchTarget(usize),
+    /// DW_OP_push_object_address used but no address passed in.
+    InvalidPushObjectAddress,
+    /// Not enough items on the stack when evaluating an expression.
+    NotEnoughStackItems,
+    /// Too many iterations to compute the expression.
+    TooManyIterations,
+    /// An unrecognized operation was found while parsing a DWARF
+    /// expression.
+    InvalidExpression(constants::DwOp),
+    /// The expression had a piece followed by an expression
+    /// terminator without a piece.
+    InvalidPiece,
+    /// An expression-terminating operation was followed by something
+    /// other than the end of the expression or a piece operation.
+    InvalidExpressionTerminator(usize),
+    /// Division or modulus by zero when evaluating an expression.
+    DivisionByZero,
 }
 
 impl fmt::Display for Error {
@@ -137,6 +156,18 @@ impl error::Error for Error {
             Error::BadUtf8 => "Found an invalid UTF-8 string.",
             Error::NotCieId => "Expected to find the CIE ID, but found something else.",
             Error::NotCiePointer => "Expected to find a CIE pointer, but found the CIE ID instead.",
+            Error::BadBranchTarget(_) => "Invalid branch target in DWARF expression",
+            Error::InvalidPushObjectAddress => {
+                "DW_OP_push_object_address used but no object address given"
+            }
+            Error::NotEnoughStackItems => "Not enough items on stack when evaluating expression",
+            Error::TooManyIterations => "Too many iterations to evaluate DWARF expression",
+            Error::InvalidExpression(_) => "Invalid opcode in DWARF expression",
+            Error::InvalidPiece => {
+                "DWARF expression has piece followed by non-piece expression at end"
+            }
+            Error::InvalidExpressionTerminator(_) => "Expected DW_OP_piece or DW_OP_bit_piece",
+            Error::DivisionByZero => "Division or modulus by zero when evaluating expression",
         }
     }
 }
