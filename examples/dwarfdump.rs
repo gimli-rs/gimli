@@ -206,7 +206,7 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
                         gimli::ColumnType::Column(column) => column,
                         gimli::ColumnType::LeftEdge => 0,
                     };
-                    print!("0x{:08x}  [{:3},{:3}]", row.address(), line, column);
+                    print!("0x{:08x}  [{:4},{:2}]", row.address(), line, column);
                     if row.is_stmt() {
                         print!(" NS");
                     }
