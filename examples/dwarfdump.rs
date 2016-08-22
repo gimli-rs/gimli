@@ -233,11 +233,10 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
                         if let Some(file) = row.file() {
                             if let Some(directory) = file.directory(row.header()) {
                                 print!(" uri: \"{}/{}\"",
-                                         directory.to_string_lossy(),
-                                         file.path_name().to_string_lossy());
+                                       directory.to_string_lossy(),
+                                       file.path_name().to_string_lossy());
                             } else {
-                                print!(" uri: \"{}\"",
-                                         file.path_name().to_string_lossy());
+                                print!(" uri: \"{}\"", file.path_name().to_string_lossy());
                             }
                         }
                     }

@@ -684,7 +684,7 @@ impl<'statemachine, 'input, Endian> LineNumberRow<'statemachine, 'input, Endian>
         self.registers.op_index
     }
 
-    /// "An unsigned integer indicating the identity of the source file 
+    /// "An unsigned integer indicating the identity of the source file
     /// corresponding to a machine instruction."
     pub fn file_index(&self) -> u64 {
         self.registers.file
