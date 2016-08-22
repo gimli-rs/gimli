@@ -1375,8 +1375,8 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
 pub enum AttributeValue<'input, Endian>
     where Endian: Endianity
 {
-    /// A slice that is UnitHeaderHeader::address_size bytes long.
-    Addr(EndianBuf<'input, Endian>),
+    /// "Refers to some location in the address space of the described program."
+    Addr(u64),
 
     /// A slice of an arbitrary number of bytes.
     Block(EndianBuf<'input, Endian>),
@@ -1538,7 +1538,7 @@ fn parse_attribute<'input, 'unit, Endian>
                 continue;
             }
             constants::DW_FORM_addr => {
-                return take(unit.address_size() as usize, input.into()).map(|(rest, addr)| {
+                return parse_address(input, unit.address_size()).map(|(rest, addr)| {
                     let attr = Attribute {
                         name: spec.name(),
                         value: AttributeValue::Addr(addr),
@@ -1814,7 +1814,7 @@ fn test_parse_attribute_addr() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
     let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
     let form = constants::DW_FORM_addr;
-    let value = AttributeValue::Addr(EndianBuf::new(&buf[..4]));
+    let value = AttributeValue::Addr(0x04030201);
     test_parse_attribute(&buf, 4, &unit, form, value);
 }
 
@@ -1823,7 +1823,7 @@ fn test_parse_attribute_addr8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
     let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
     let form = constants::DW_FORM_addr;
-    let value = AttributeValue::Addr(EndianBuf::new(&buf[..8]));
+    let value = AttributeValue::Addr(0x0807060504030201);
     test_parse_attribute(&buf, 8, &unit, form, value);
 }
 
@@ -2218,7 +2218,7 @@ fn test_attrs_iter() {
             assert_eq!(attr,
                        Attribute {
                            name: constants::DW_AT_low_pc,
-                           value: AttributeValue::Addr(EndianBuf::new(&[0x2a, 0x00, 0x00, 0x00])),
+                           value: AttributeValue::Addr(0x2a),
                        });
         }
         otherwise => {
@@ -2234,7 +2234,7 @@ fn test_attrs_iter() {
             assert_eq!(attr,
                        Attribute {
                            name: constants::DW_AT_high_pc,
-                           value: AttributeValue::Addr(EndianBuf::new(&[0x39, 0x05, 0x00, 0x00])),
+                           value: AttributeValue::Addr(0x539),
                        });
         }
         otherwise => {
