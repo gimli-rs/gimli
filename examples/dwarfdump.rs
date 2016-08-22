@@ -193,6 +193,56 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
                     .expect("Should parse opcode OK") {
                     println!("  {}", opcode);
                 }
+
+                println!("");
+                println!("Line Number Rows:");
+                println!("<pc>        [lno,col]");
+                let mut state_machine = gimli::StateMachine::new(header);
+                let mut file_index = 0;
+                while let Some(row) = state_machine.next_row()
+                    .expect("Should parse row OK") {
+                    let line = row.line().unwrap_or(0);
+                    let column = match row.column() {
+                        gimli::ColumnType::Column(column) => column,
+                        gimli::ColumnType::LeftEdge => 0,
+                    };
+                    print!("0x{:08x}  [{:3},{:3}]", row.address(), line, column);
+                    if row.is_stmt() {
+                        print!(" NS");
+                    }
+                    if row.basic_block() {
+                        print!(" BB");
+                    }
+                    if row.end_sequence() {
+                        print!(" ET");
+                    }
+                    if row.prologue_end() {
+                        print!(" PE");
+                    }
+                    if row.epilogue_begin() {
+                        print!(" EB");
+                    }
+                    if row.isa() != 0 {
+                        print!(" IS={}", row.isa());
+                    }
+                    if row.discriminator() != 0 {
+                        print!(" DI={}", row.discriminator());
+                    }
+                    if file_index != row.file_index() {
+                        file_index = row.file_index();
+                        if let Some(file) = row.file() {
+                            if let Some(directory) = file.directory(row.header()) {
+                                print!(" uri: \"{}/{}\"",
+                                         directory.to_string_lossy(),
+                                         file.path_name().to_string_lossy());
+                            } else {
+                                print!(" uri: \"{}\"",
+                                         file.path_name().to_string_lossy());
+                            }
+                        }
+                    }
+                    println!("");
+                }
             }
         }
     }

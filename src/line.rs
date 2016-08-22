@@ -684,6 +684,12 @@ impl<'statemachine, 'input, Endian> LineNumberRow<'statemachine, 'input, Endian>
         self.registers.op_index
     }
 
+    /// "An unsigned integer indicating the identity of the source file 
+    /// corresponding to a machine instruction."
+    pub fn file_index(&self) -> u64 {
+        self.registers.file
+    }
+
     /// The source file corresponding to the current machine instruction.
     pub fn file(&self) -> Option<&'statemachine FileEntry<'input>> {
         // NB: registers.file starts counting at 1.
