@@ -137,17 +137,10 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
             cursor.next_dfs().expect("Should parse next dfs");
 
             let root = cursor.current().expect("Should have a root DIE");
-            let value = root.attr_value(gimli::DW_AT_stmt_list);
-            let offset = gimli::DebugLineOffset(match value {
-                Some(gimli::AttributeValue::Data(data)) if data.len() == 4 => {
-                    Endian::read_u32(data.into()) as u64
-                }
-                Some(gimli::AttributeValue::Data(data)) if data.len() == 8 => {
-                    Endian::read_u64(data.into())
-                }
-                Some(gimli::AttributeValue::SecOffset(offset)) => offset,
+            let offset = match root.attr_value(gimli::DW_AT_stmt_list) {
+                Some(gimli::AttributeValue::DebugLineRef(offset)) => offset,
                 _ => continue,
-            });
+            };
 
             let header =
                 gimli::LineNumberProgramHeader::new(debug_line, offset, unit.address_size());
