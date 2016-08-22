@@ -1322,54 +1322,42 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
         }
     }
 
-    /// Run some common fixups to present DWARF attributes in more useful forms.
-    fn prettify_attr_value(&self,
-                           name: constants::DwAt,
-                           value: AttributeValue<'input>)
-                           -> AttributeValue<'input> {
-        match name {
-            constants::DW_AT_stmt_list => {
-                let offset = DebugLineOffset(match value {
-                    AttributeValue::Data(data) if data.len() == 4 => Endian::read_u32(data) as u64,
-                    AttributeValue::Data(data) if data.len() == 8 => Endian::read_u64(data),
-                    AttributeValue::SecOffset(offset) => offset,
-                    otherwise => return otherwise,
-                });
-                AttributeValue::DebugLineRef(offset)
-            }
-            _ => value,
-        }
-    }
-
     /// Find the first attribute in this entry which has the given name,
-    /// and return its value, without any attempt to clean it up. Returns
-    /// `Ok(None)` if no attribute is found.
-    pub fn attr_value_raw(&self, name: constants::DwAt) -> Option<AttributeValue<'input>> {
+    /// and return it. Returns `Ok(None)` if no attribute is found.
+    pub fn attr(&self, name: constants::DwAt) -> Option<Attribute<'input, Endian>> {
         let mut attrs = self.attrs();
         while let Ok(Some(attr)) = attrs.next() {
             if attr.name() == name {
-                return Some(attr.value());
+                return Some(attr);
             }
         }
         None
     }
 
     /// Find the first attribute in this entry which has the given name,
-    /// and return its value, after running `prettify_attr_value` on it.
-    /// Returns `Ok(None)` if no attribute is found.
-    pub fn attr_value(&self, name: constants::DwAt) -> Option<AttributeValue<'input>> {
-        self.attr_value_raw(name).map(|val| self.prettify_attr_value(name, val))
+    /// and return its raw value. Returns `Ok(None)` if no attribute is found.
+    pub fn attr_value_raw(&self, name: constants::DwAt) -> Option<AttributeValue<'input, Endian>> {
+        self.attr(name).map(|attr| attr.raw_value())
+    }
+
+    /// Find the first attribute in this entry which has the given name,
+    /// and return its normalized value.  Returns `Ok(None)` if no
+    /// attribute is found.
+    pub fn attr_value(&self, name: constants::DwAt) -> Option<AttributeValue<'input, Endian>> {
+        self.attr(name).map(|attr| attr.value())
     }
 }
 
 /// The value of an attribute in a `DebuggingInformationEntry`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AttributeValue<'input> {
+pub enum AttributeValue<'input, Endian>
+    where Endian: Endianity
+{
     /// A slice that is UnitHeaderHeader::address_size bytes long.
-    Addr(&'input [u8]),
+    Addr(EndianBuf<'input, Endian>),
 
     /// A slice of an arbitrary number of bytes.
-    Block(&'input [u8]),
+    Block(EndianBuf<'input, Endian>),
 
     /// A one, two, four, or eight byte constant data value. How to interpret
     /// the bytes depends on context.
@@ -1377,7 +1365,7 @@ pub enum AttributeValue<'input> {
     /// From section 7 of the standard: "Depending on context, it may be a
     /// signed integer, an unsigned integer, a floating-point constant, or
     /// anything else."
-    Data(&'input [u8]),
+    Data(EndianBuf<'input, Endian>),
 
     /// A signed integer constant.
     Sdata(i64),
@@ -1387,7 +1375,7 @@ pub enum AttributeValue<'input> {
 
     /// "The information bytes contain a DWARF expression (see Section 2.5) or
     /// location description (see Section 2.6)."
-    Exprloc(&'input [u8]),
+    Exprloc(EndianBuf<'input, Endian>),
 
     /// A boolean typically used to describe the presence or absence of another
     /// attribute.
@@ -1421,62 +1409,101 @@ pub enum AttributeValue<'input> {
 /// An attribute in a `DebuggingInformationEntry`, consisting of a name and
 /// associated value.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Attribute<'input> {
+pub struct Attribute<'input, Endian>
+    where Endian: Endianity
+{
     name: constants::DwAt,
-    value: AttributeValue<'input>,
+    value: AttributeValue<'input, Endian>,
 }
 
-impl<'input> Attribute<'input> {
+impl<'input, Endian> Attribute<'input, Endian>
+    where Endian: Endianity
+{
     /// Get this attribute's name.
     pub fn name(&self) -> constants::DwAt {
         self.name
     }
 
-    /// Get this attribute's value.
-    pub fn value(&self) -> AttributeValue<'input> {
+    /// Get this attribute's raw value.
+    pub fn raw_value(&self) -> AttributeValue<'input, Endian> {
         self.value
+    }
+
+    /// Get this attribute's normalized value.
+    ///
+    /// Attribute values can potentially be encoded in multiple equivalent forms,
+    /// and may have special meaning depending on the attribute name.  This method
+    /// converts the attribute value to a normalized form based on the attribute
+    /// name.
+    pub fn value(&self) -> AttributeValue<'input, Endian> {
+        match self.name {
+            constants::DW_AT_stmt_list => {
+                let offset = DebugLineOffset(match self.value {
+                    AttributeValue::Data(data) if data.len() == 4 => {
+                        Endian::read_u32(data.into()) as u64
+                    }
+                    AttributeValue::Data(data) if data.len() == 8 => Endian::read_u64(data.into()),
+                    AttributeValue::SecOffset(offset) => offset,
+                    otherwise => return otherwise,
+                });
+                AttributeValue::DebugLineRef(offset)
+            }
+            _ => self.value,
+        }
     }
 }
 
 /// Take a slice of size `bytes` from the input.
 #[inline]
-fn take(bytes: usize, input: &[u8]) -> ParseResult<(&[u8], &[u8])> {
+fn take<Endian>(bytes: usize,
+                input: EndianBuf<Endian>)
+                -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>)>
+    where Endian: Endianity
+{
     if input.len() < bytes {
         Err(Error::UnexpectedEof)
     } else {
-        Ok((&input[bytes..], &input[0..bytes]))
+        Ok((input.range_from(bytes..), input.range_to(..bytes)))
     }
 }
 
-fn length_u8_value(input: &[u8]) -> ParseResult<(&[u8], &[u8])> {
-    let (rest, len) = try!(parse_u8(input));
-    take(len as usize, rest)
+fn length_u8_value<Endian>(input: EndianBuf<Endian>)
+                           -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>)>
+    where Endian: Endianity
+{
+    let (rest, len) = try!(parse_u8(input.into()));
+    take(len as usize, EndianBuf::new(rest))
 }
 
-fn length_u16_value<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, &[u8])>
+fn length_u16_value<Endian>(input: EndianBuf<Endian>)
+                            -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>)>
     where Endian: Endianity
 {
     let (rest, len) = try!(parse_u16(input));
-    take(len as usize, rest.into()).map(|(rest, result)| (EndianBuf::new(rest), result))
+    take(len as usize, rest)
 }
 
-fn length_u32_value<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, &[u8])>
+fn length_u32_value<Endian>(input: EndianBuf<Endian>)
+                            -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>)>
     where Endian: Endianity
 {
     let (rest, len) = try!(parse_u32(input));
-    take(len as usize, rest.into()).map(|(rest, result)| (EndianBuf::new(rest), result))
+    take(len as usize, rest)
 }
 
-fn length_leb_value(input: &[u8]) -> ParseResult<(&[u8], &[u8])> {
-    let (rest, len) = try!(parse_unsigned_leb(input));
-    take(len as usize, rest)
+fn length_leb_value<Endian>(input: EndianBuf<Endian>)
+                            -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>)>
+    where Endian: Endianity
+{
+    let (rest, len) = try!(parse_unsigned_leb(input.into()));
+    take(len as usize, EndianBuf::new(rest))
 }
 
 fn parse_attribute<'input, 'unit, Endian>
     (mut input: EndianBuf<'input, Endian>,
      unit: &'unit UnitHeader<'input, Endian>,
      spec: AttributeSpecification)
-     -> ParseResult<(EndianBuf<'input, Endian>, Attribute<'input>)>
+     -> ParseResult<(EndianBuf<'input, Endian>, Attribute<'input, Endian>)>
     where Endian: Endianity
 {
     let mut form = spec.form();
@@ -1494,7 +1521,7 @@ fn parse_attribute<'input, 'unit, Endian>
                         name: spec.name(),
                         value: AttributeValue::Addr(addr),
                     };
-                    (EndianBuf::new(rest), attr)
+                    (rest, attr)
                 });
             }
             constants::DW_FORM_block1 => {
@@ -1503,7 +1530,7 @@ fn parse_attribute<'input, 'unit, Endian>
                         name: spec.name(),
                         value: AttributeValue::Block(block),
                     };
-                    (EndianBuf::new(rest), attr)
+                    (rest, attr)
                 });
             }
             constants::DW_FORM_block2 => {
@@ -1530,7 +1557,7 @@ fn parse_attribute<'input, 'unit, Endian>
                         name: spec.name(),
                         value: AttributeValue::Block(block),
                     };
-                    (EndianBuf::new(rest), attr)
+                    (rest, attr)
                 });
             }
             constants::DW_FORM_data1 => {
@@ -1539,7 +1566,7 @@ fn parse_attribute<'input, 'unit, Endian>
                         name: spec.name(),
                         value: AttributeValue::Data(data),
                     };
-                    (EndianBuf::new(rest), attr)
+                    (rest, attr)
                 });
             }
             constants::DW_FORM_data2 => {
@@ -1548,7 +1575,7 @@ fn parse_attribute<'input, 'unit, Endian>
                         name: spec.name(),
                         value: AttributeValue::Data(data),
                     };
-                    (EndianBuf::new(rest), attr)
+                    (rest, attr)
                 });
             }
             constants::DW_FORM_data4 => {
@@ -1557,7 +1584,7 @@ fn parse_attribute<'input, 'unit, Endian>
                         name: spec.name(),
                         value: AttributeValue::Data(data),
                     };
-                    (EndianBuf::new(rest), attr)
+                    (rest, attr)
                 });
             }
             constants::DW_FORM_data8 => {
@@ -1566,7 +1593,7 @@ fn parse_attribute<'input, 'unit, Endian>
                         name: spec.name(),
                         value: AttributeValue::Data(data),
                     };
-                    (EndianBuf::new(rest), attr)
+                    (rest, attr)
                 });
             }
             constants::DW_FORM_udata => {
@@ -1593,7 +1620,7 @@ fn parse_attribute<'input, 'unit, Endian>
                         name: spec.name(),
                         value: AttributeValue::Exprloc(block),
                     };
-                    (EndianBuf::new(rest), attr)
+                    (rest, attr)
                 })
             }
             constants::DW_FORM_flag => {
@@ -1738,7 +1765,7 @@ fn test_parse_attribute<Endian>(buf: &[u8],
                                 len: usize,
                                 unit: &UnitHeader<Endian>,
                                 form: constants::DwForm,
-                                value: AttributeValue)
+                                value: AttributeValue<Endian>)
     where Endian: Endianity
 {
     let spec = AttributeSpecification::new(constants::DW_AT_low_pc, form);
@@ -1765,7 +1792,7 @@ fn test_parse_attribute_addr() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
     let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
     let form = constants::DW_FORM_addr;
-    let value = AttributeValue::Addr(&buf[..4]);
+    let value = AttributeValue::Addr(EndianBuf::new(&buf[..4]));
     test_parse_attribute(&buf, 4, &unit, form, value);
 }
 
@@ -1774,7 +1801,7 @@ fn test_parse_attribute_addr8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
     let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
     let form = constants::DW_FORM_addr;
-    let value = AttributeValue::Addr(&buf[..8]);
+    let value = AttributeValue::Addr(EndianBuf::new(&buf[..8]));
     test_parse_attribute(&buf, 8, &unit, form, value);
 }
 
@@ -1784,7 +1811,7 @@ fn test_parse_attribute_block1() {
     let buf = [0x03, 0x09, 0x09, 0x09, 0x00, 0x00];
     let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_block1;
-    let value = AttributeValue::Block(&buf[1..4]);
+    let value = AttributeValue::Block(EndianBuf::new(&buf[1..4]));
     test_parse_attribute(&buf, 4, &unit, form, value);
 }
 
@@ -1794,7 +1821,7 @@ fn test_parse_attribute_block2() {
     let buf = [0x02, 0x00, 0x09, 0x09, 0x00, 0x00];
     let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_block2;
-    let value = AttributeValue::Block(&buf[2..4]);
+    let value = AttributeValue::Block(EndianBuf::new(&buf[2..4]));
     test_parse_attribute(&buf, 4, &unit, form, value);
 }
 
@@ -1804,7 +1831,7 @@ fn test_parse_attribute_block4() {
     let buf = [0x02, 0x00, 0x00, 0x00, 0x99, 0x99];
     let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_block4;
-    let value = AttributeValue::Block(&buf[4..]);
+    let value = AttributeValue::Block(EndianBuf::new(&buf[4..]));
     test_parse_attribute(&buf, 6, &unit, form, value);
 }
 
@@ -1814,7 +1841,7 @@ fn test_parse_attribute_block() {
     let buf = [0x02, 0x99, 0x99];
     let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_block;
-    let value = AttributeValue::Block(&buf[1..]);
+    let value = AttributeValue::Block(EndianBuf::new(&buf[1..]));
     test_parse_attribute(&buf, 3, &unit, form, value);
 }
 
@@ -1823,7 +1850,7 @@ fn test_parse_attribute_data1() {
     let buf = [0x03];
     let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_data1;
-    let value = AttributeValue::Data(&buf[..]);
+    let value = AttributeValue::Data(EndianBuf::new(&buf[..]));
     test_parse_attribute(&buf, 1, &unit, form, value);
 }
 
@@ -1832,7 +1859,7 @@ fn test_parse_attribute_data2() {
     let buf = [0x02, 0x01, 0x0];
     let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_data2;
-    let value = AttributeValue::Data(&buf[..2]);
+    let value = AttributeValue::Data(EndianBuf::new(&buf[..2]));
     test_parse_attribute(&buf, 2, &unit, form, value);
 }
 
@@ -1841,7 +1868,7 @@ fn test_parse_attribute_data4() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
     let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_data4;
-    let value = AttributeValue::Data(&buf[..4]);
+    let value = AttributeValue::Data(EndianBuf::new(&buf[..4]));
     test_parse_attribute(&buf, 4, &unit, form, value);
 }
 
@@ -1850,7 +1877,7 @@ fn test_parse_attribute_data8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
     let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_data8;
-    let value = AttributeValue::Data(&buf[..8]);
+    let value = AttributeValue::Data(EndianBuf::new(&buf[..8]));
     test_parse_attribute(&buf, 8, &unit, form, value);
 }
 
@@ -1890,7 +1917,7 @@ fn test_parse_attribute_exprloc() {
     let buf = [0x02, 0x99, 0x99, 0x11];
     let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_exprloc;
-    let value = AttributeValue::Exprloc(&buf[1..3]);
+    let value = AttributeValue::Exprloc(EndianBuf::new(&buf[1..3]));
     test_parse_attribute(&buf, 3, &unit, form, value);
 }
 
@@ -2087,7 +2114,7 @@ impl<'input, 'abbrev, 'entry, 'unit, Endian> AttrsIter<'input, 'abbrev, 'entry, 
     /// Returns `None` when iteration is finished. If an error
     /// occurs while parsing the next attribute, then this error
     /// is returned on all subsequent calls.
-    pub fn next(&mut self) -> ParseResult<Option<Attribute<'input>>> {
+    pub fn next(&mut self) -> ParseResult<Option<Attribute<'input, Endian>>> {
         if self.attributes.len() == 0 {
             // Now that we have parsed all of the attributes, we know where
             // either (1) this entry's children start, if the abbreviation says
@@ -2169,7 +2196,7 @@ fn test_attrs_iter() {
             assert_eq!(attr,
                        Attribute {
                            name: constants::DW_AT_low_pc,
-                           value: AttributeValue::Addr(&[0x2a, 0x00, 0x00, 0x00]),
+                           value: AttributeValue::Addr(EndianBuf::new(&[0x2a, 0x00, 0x00, 0x00])),
                        });
         }
         otherwise => {
@@ -2185,7 +2212,7 @@ fn test_attrs_iter() {
             assert_eq!(attr,
                        Attribute {
                            name: constants::DW_AT_high_pc,
-                           value: AttributeValue::Addr(&[0x39, 0x05, 0x00, 0x00]),
+                           value: AttributeValue::Addr(EndianBuf::new(&[0x39, 0x05, 0x00, 0x00])),
                        });
         }
         otherwise => {
@@ -2361,11 +2388,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                         abbrev: abbrev,
                         unit: self.unit,
                     });
-                    self.delta_depth = if abbrev.has_children() {
-                        1
-                    } else {
-                        0
-                    };
+                    self.delta_depth = if abbrev.has_children() { 1 } else { 0 };
 
                     Ok(Some(()))
                 } else {
