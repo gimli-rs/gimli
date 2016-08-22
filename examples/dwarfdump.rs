@@ -28,11 +28,9 @@ fn main() {
 fn dump_file<Endian>(file: object::File)
     where Endian: gimli::Endianity
 {
-    let debug_abbrev = file.get_section(".debug_abbrev")
-        .expect("Does not have .debug_abbrev section");
+    let debug_abbrev = file.get_section(".debug_abbrev").unwrap_or(&[]);
     let debug_abbrev = gimli::DebugAbbrev::<Endian>::new(debug_abbrev);
-    let debug_str = file.get_section(".debug_str")
-        .expect("Does not have .debug_str section");
+    let debug_str = file.get_section(".debug_str").unwrap_or(&[]);
     let debug_str = gimli::DebugStr::<Endian>::new(debug_str);
 
     dump_info(&file, debug_abbrev, debug_str);
