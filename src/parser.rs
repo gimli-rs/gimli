@@ -245,6 +245,28 @@ pub fn parse_word<Endian>(input: EndianBuf<Endian>,
     }
 }
 
+/// Parse an address-sized integer, and return it as a `u64`.
+#[doc(hidden)]
+#[inline]
+pub fn parse_address<Endian>(input: EndianBuf<Endian>,
+                             address_size: u8)
+                             -> ParseResult<(EndianBuf<Endian>, u64)>
+    where Endian: Endianity
+{
+    if input.len() < address_size as usize {
+        Err(Error::UnexpectedEof)
+    } else {
+        let address = match address_size {
+            8 => Endian::read_u64(&input),
+            4 => Endian::read_u32(&input) as u64,
+            2 => Endian::read_u16(&input) as u64,
+            1 => input[0] as u64,
+            otherwise => return Err(Error::UnsupportedAddressSize(otherwise)),
+        };
+        Ok((input.range_from(address_size as usize..), address))
+    }
+}
+
 /// Parse a null-terminated slice from the input.
 #[doc(hidden)]
 #[inline]
