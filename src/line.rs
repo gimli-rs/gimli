@@ -451,29 +451,10 @@ impl<'input> Opcode<'input> {
                 constants::DW_LNE_end_sequence => Ok((rest, Opcode::EndSequence)),
 
                 constants::DW_LNE_set_address => {
-                    if instr_rest.len() < header.address_size as usize {
-                        return Err(parser::Error::UnexpectedEof);
-                    }
-
-                    match header.address_size {
-                        8 => {
-                            let address = Endian::read_u64(instr_rest);
-                            Ok((rest, Opcode::SetAddress(address)))
-                        }
-                        4 => {
-                            let address = Endian::read_u32(instr_rest) as u64;
-                            Ok((rest, Opcode::SetAddress(address)))
-                        }
-                        2 => {
-                            let address = Endian::read_u16(instr_rest) as u64;
-                            Ok((rest, Opcode::SetAddress(address)))
-                        }
-                        1 => {
-                            let address = instr_rest[0] as u64;
-                            Ok((rest, Opcode::SetAddress(address)))
-                        }
-                        otherwise => Err(parser::Error::UnsupportedAddressSize(otherwise)),
-                    }
+                    let (_, address) =
+                        try!(parser::parse_address(EndianBuf::<Endian>::new(instr_rest),
+                                                   header.address_size));
+                    Ok((rest, Opcode::SetAddress(address)))
                 }
 
                 constants::DW_LNE_define_file => {
