@@ -15,6 +15,7 @@ struct Flags {
     info: bool,
     line: bool,
     aranges: bool,
+    raw: bool,
 }
 
 fn print_usage(opts: &getopts::Options) -> ! {
@@ -28,6 +29,7 @@ fn main() {
     opts.optflag("i", "", "print .debug_info and .debug_types sections");
     opts.optflag("l", "", "print .debug_line section");
     opts.optflag("r", "", "print .debug_aranges section");
+    opts.optflag("", "raw", "print raw data values");
 
     let matches = match opts.parse(env::args().skip(1)) {
         Ok(m) => m,
@@ -53,6 +55,9 @@ fn main() {
     if matches.opt_present("r") {
         flags.aranges = true;
         all = false;
+    }
+    if matches.opt_present("raw") {
+        flags.raw = true;
     }
     if all {
         flags.info = true;
@@ -88,8 +93,8 @@ fn dump_file<Endian>(file: object::File, flags: &Flags)
     let debug_str = gimli::DebugStr::<Endian>::new(debug_str);
 
     if flags.info {
-        dump_info(&file, debug_abbrev, debug_str);
-        dump_types(&file, debug_abbrev, debug_str);
+        dump_info(&file, debug_abbrev, debug_str, flags);
+        dump_types(&file, debug_abbrev, debug_str, flags);
     }
     if flags.line {
         dump_line(&file, debug_abbrev);
@@ -101,7 +106,8 @@ fn dump_file<Endian>(file: object::File, flags: &Flags)
 
 fn dump_info<Endian>(file: &object::File,
                      debug_abbrev: gimli::DebugAbbrev<Endian>,
-                     debug_str: gimli::DebugStr<Endian>)
+                     debug_str: gimli::DebugStr<Endian>,
+                     flags: &Flags)
     where Endian: gimli::Endianity
 {
     if let Some(debug_info) = file.get_section(".debug_info") {
@@ -115,14 +121,15 @@ fn dump_info<Endian>(file: &object::File,
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
-            dump_entries(unit.entries(&abbrevs), debug_str);
+            dump_entries(unit.entries(&abbrevs), debug_str, flags);
         }
     }
 }
 
 fn dump_types<Endian>(file: &object::File,
                       debug_abbrev: gimli::DebugAbbrev<Endian>,
-                      debug_str: gimli::DebugStr<Endian>)
+                      debug_str: gimli::DebugStr<Endian>,
+                      flags: &Flags)
     where Endian: gimli::Endianity
 {
     if let Some(debug_types) = file.get_section(".debug_types") {
@@ -136,13 +143,14 @@ fn dump_types<Endian>(file: &object::File,
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
-            dump_entries(unit.entries(&abbrevs), debug_str);
+            dump_entries(unit.entries(&abbrevs), debug_str, flags);
         }
     }
 }
 
 fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
-                        debug_str: gimli::DebugStr<Endian>)
+                        debug_str: gimli::DebugStr<Endian>,
+                        flags: &Flags)
     where Endian: gimli::Endianity
 {
     let mut depth = 0;
@@ -158,17 +166,59 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
 
         let mut attrs = entry.attrs();
         while let Some(attr) = attrs.next().expect("Should parse attribute OK") {
-            let mut value = attr.value();
-            if let gimli::AttributeValue::DebugStrRef(o) = value {
-                let s = debug_str.get_str(o).expect("Should have valid str offset");
-                value = gimli::AttributeValue::String(s)
+            print!("{:indent$}{:28}", "", attr.name(), indent = indent + 18);
+            if flags.raw {
+                println!("{:?}", attr.raw_value());
+            } else {
+                dump_attr_value(attr, debug_str);
             }
-            println!("{:indent$}{:28}{:?}",
-                     "",
-                     attr.name(),
-                     value,
-                     indent = indent + 18);
         }
+    }
+}
+
+fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::DebugStr<Endian>)
+    where Endian: gimli::Endianity
+{
+    let value = attr.value();
+    match value {
+        gimli::AttributeValue::Addr(address) => {
+            println!("0x{:08x}", address);
+        }
+        gimli::AttributeValue::Sdata(data) => {
+            println!("0x{:08x}", data);
+        }
+        gimli::AttributeValue::Udata(data) => {
+            println!("0x{:08x}", data);
+        }
+        gimli::AttributeValue::Flag(true) => {
+            println!("yes(1)");
+        }
+        gimli::AttributeValue::Flag(false) => {
+            println!("no(0)");
+        }
+        gimli::AttributeValue::UnitRef(gimli::UnitOffset(offset)) => {
+            println!("<0x{:08x}>", offset);
+        }
+        gimli::AttributeValue::DebugInfoRef(gimli::DebugInfoOffset(offset)) => {
+            println!("0x{:08x}", offset);
+        }
+        gimli::AttributeValue::DebugLineRef(gimli::DebugLineOffset(offset)) => {
+            println!("0x{:08x}", offset);
+        }
+        gimli::AttributeValue::DebugTypesRef(gimli::DebugTypesOffset(offset)) => {
+            println!("0x{:08x}", offset);
+        }
+        gimli::AttributeValue::DebugStrRef(offset) => {
+            if let Ok(s) = debug_str.get_str(offset) {
+                println!("\"{}\"", s.to_string_lossy());
+            } else {
+                println!("{:?}", value);
+            }
+        }
+        gimli::AttributeValue::String(s) => {
+            println!("\"{}\"", s.to_string_lossy());
+        }
+        _ => println!("{:?}", value),
     }
 }
 
