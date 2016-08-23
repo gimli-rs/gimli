@@ -395,13 +395,8 @@ impl<'input, Endian> Iterator for UnitHeadersIter<'input, Endian>
             None
         } else {
             match parse_unit_header(self.input) {
-                Ok((_, header)) => {
-                    let unit_len = header.length_including_self() as usize;
-                    if self.input.len() < unit_len {
-                        self.input = self.input.range_to(..0);
-                    } else {
-                        self.input = self.input.range_from(unit_len..);
-                    }
+                Ok((rest, header)) => {
+                    self.input = rest;
                     Some(Ok(header))
                 }
                 Err(e) => {
@@ -1076,30 +1071,23 @@ fn parse_unit_header<Endian>(input: EndianBuf<Endian>)
     where Endian: Endianity
 {
     let (rest, (unit_length, format)) = try!(parse_unit_length(input));
+    if unit_length as usize > rest.len() {
+        return Err(Error::UnexpectedEof);
+    }
+    let after_unit = rest.range_from(unit_length as usize..);
+    let rest = rest.range_to(..unit_length as usize);
+
     let (rest, version) = try!(parse_version(rest));
     let (rest, offset) = try!(parse_debug_abbrev_offset(rest, format));
     let (rest, address_size) = try!(parse_address_size(rest.into()));
 
-    let size_of_unit_length = UnitHeader::<Endian>::size_of_unit_length(format);
-    let size_of_header = UnitHeader::<Endian>::size_of_header(format);
-
-    if unit_length as usize + size_of_unit_length < size_of_header {
-        return Err(Error::UnitHeaderLengthTooShort);
-    }
-
-    let end = unit_length as usize + size_of_unit_length - size_of_header;
-    if end > rest.len() {
-        return Err(Error::UnexpectedEof);
-    }
-
-    let entries_buf = rest.range_to(..end);
-    Ok((rest,
+    Ok((after_unit,
         UnitHeader::new(unit_length,
                         version,
                         offset,
                         address_size,
                         format,
-                        entries_buf.into())))
+                        rest.into())))
 }
 
 #[test]
@@ -2856,13 +2844,8 @@ impl<'input, Endian> Iterator for TypeUnitHeadersIter<'input, Endian>
             None
         } else {
             match parse_type_unit_header(self.input) {
-                Ok((_, header)) => {
-                    let unit_len = header.length_including_self() as usize;
-                    if self.input.len() < unit_len {
-                        self.input = self.input.range_to(..0);
-                    } else {
-                        self.input = self.input.range_from(unit_len..);
-                    }
+                Ok((rest, header)) => {
+                    self.input = rest;
                     Some(Ok(header))
                 }
                 Err(e) => {
@@ -2888,17 +2871,10 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
     where Endian: Endianity
 {
     /// Construct a new `TypeUnitHeader`.
-    fn new(mut header: UnitHeader<'input, Endian>,
+    fn new(header: UnitHeader<'input, Endian>,
            type_signature: u64,
            type_offset: DebugTypesOffset)
            -> TypeUnitHeader<'input, Endian> {
-        // First, fix up the header's entries_buf. Currently it points
-        // right after end of the header, but since this is a type
-        // unit header, there are two more fields before entries
-        // begin to account for.
-        let additional = Self::additional_header_size(header.format);
-        header.entries_buf = header.entries_buf.range_from(additional..);
-
         TypeUnitHeader {
             header: header,
             type_signature: type_signature,
@@ -3062,10 +3038,11 @@ fn parse_type_unit_header<Endian>(input: EndianBuf<Endian>)
                                   -> ParseResult<(EndianBuf<Endian>, TypeUnitHeader<Endian>)>
     where Endian: Endianity
 {
-    let (rest, header) = try!(parse_unit_header(input));
-    let (rest, signature) = try!(parse_type_signature(rest));
+    let (after_unit, mut header) = try!(parse_unit_header(input));
+    let (rest, signature) = try!(parse_type_signature(header.entries_buf));
     let (rest, offset) = try!(parse_type_offset(rest, header.format()));
-    Ok((rest, TypeUnitHeader::new(header, signature, offset)))
+    header.entries_buf = rest;
+    Ok((after_unit, TypeUnitHeader::new(header, signature, offset)))
 }
 
 #[test]
@@ -3098,7 +3075,7 @@ fn test_parse_type_unit_header_64_ok() {
                                                            DebugAbbrevOffset(0x0807060504030201),
                                                            8,
                                                            Format::Dwarf64,
-                                                           &buf[buf.len() - 16..]),
+                                                           &[]),
                                            0xdeadbeefdeadbeef,
                                            DebugTypesOffset(0x7856341278563412)))
         },
