@@ -204,33 +204,6 @@ pub fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(Endian
     }
 }
 
-/// Parse a variable length sequence and return it as a `u64`. Currently only supports lengths of
-/// 0, 1, 2, 4, and 8 bytes.
-#[doc(hidden)]
-#[inline]
-#[allow(non_snake_case)]
-pub fn parse_uN_as_u64<Endian>(size: u8,
-                               input: EndianBuf<Endian>)
-                               -> ParseResult<(EndianBuf<Endian>, u64)>
-    where Endian: Endianity
-{
-    match size {
-        0 => Ok((input, 0)),
-        1 => parse_u8(input.into()).map(|(r, u)| (EndianBuf::new(r), u as u64)),
-        2 => parse_u16(input).map(|(r, u)| (r, u as u64)),
-        4 => parse_u32(input).map(|(r, u)| (r, u as u64)),
-        8 => {
-            // NB: DWARF stores 8 byte address in .debug_arange as two separate 32-bit
-            // words. Not sure yet if this happens elsewhere, or if it only happens in DWARF32,
-            // and not DWARF64.
-            let (r, u) = try!(parse_u32_as_u64(input));
-            let (r, v) = try!(parse_u32_as_u64(r));
-            Ok((r, (u << 32) + v))
-        }
-        _ => Err(Error::UnsupportedFieldSize(size)),
-    }
-}
-
 /// Parse a word-sized integer according to the DWARF format, and return it as a `u64`.
 #[doc(hidden)]
 #[inline]
@@ -395,13 +368,8 @@ impl<'input, Endian> Iterator for UnitHeadersIter<'input, Endian>
             None
         } else {
             match parse_unit_header(self.input) {
-                Ok((_, header)) => {
-                    let unit_len = header.length_including_self() as usize;
-                    if self.input.len() < unit_len {
-                        self.input = self.input.range_to(..0);
-                    } else {
-                        self.input = self.input.range_from(unit_len..);
-                    }
+                Ok((rest, header)) => {
+                    self.input = rest;
                     Some(Ok(header))
                 }
                 Err(e) => {
@@ -1076,30 +1044,23 @@ fn parse_unit_header<Endian>(input: EndianBuf<Endian>)
     where Endian: Endianity
 {
     let (rest, (unit_length, format)) = try!(parse_unit_length(input));
+    if unit_length as usize > rest.len() {
+        return Err(Error::UnexpectedEof);
+    }
+    let after_unit = rest.range_from(unit_length as usize..);
+    let rest = rest.range_to(..unit_length as usize);
+
     let (rest, version) = try!(parse_version(rest));
     let (rest, offset) = try!(parse_debug_abbrev_offset(rest, format));
     let (rest, address_size) = try!(parse_address_size(rest.into()));
 
-    let size_of_unit_length = UnitHeader::<Endian>::size_of_unit_length(format);
-    let size_of_header = UnitHeader::<Endian>::size_of_header(format);
-
-    if unit_length as usize + size_of_unit_length < size_of_header {
-        return Err(Error::UnitHeaderLengthTooShort);
-    }
-
-    let end = unit_length as usize + size_of_unit_length - size_of_header;
-    if end > rest.len() {
-        return Err(Error::UnexpectedEof);
-    }
-
-    let entries_buf = rest.range_to(..end);
-    Ok((rest,
+    Ok((after_unit,
         UnitHeader::new(unit_length,
                         version,
                         offset,
                         address_size,
                         format,
-                        entries_buf.into())))
+                        rest.into())))
 }
 
 #[test]
@@ -2856,13 +2817,8 @@ impl<'input, Endian> Iterator for TypeUnitHeadersIter<'input, Endian>
             None
         } else {
             match parse_type_unit_header(self.input) {
-                Ok((_, header)) => {
-                    let unit_len = header.length_including_self() as usize;
-                    if self.input.len() < unit_len {
-                        self.input = self.input.range_to(..0);
-                    } else {
-                        self.input = self.input.range_from(unit_len..);
-                    }
+                Ok((rest, header)) => {
+                    self.input = rest;
                     Some(Ok(header))
                 }
                 Err(e) => {
@@ -2888,17 +2844,10 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
     where Endian: Endianity
 {
     /// Construct a new `TypeUnitHeader`.
-    fn new(mut header: UnitHeader<'input, Endian>,
+    fn new(header: UnitHeader<'input, Endian>,
            type_signature: u64,
            type_offset: DebugTypesOffset)
            -> TypeUnitHeader<'input, Endian> {
-        // First, fix up the header's entries_buf. Currently it points
-        // right after end of the header, but since this is a type
-        // unit header, there are two more fields before entries
-        // begin to account for.
-        let additional = Self::additional_header_size(header.format);
-        header.entries_buf = header.entries_buf.range_from(additional..);
-
         TypeUnitHeader {
             header: header,
             type_signature: type_signature,
@@ -3062,10 +3011,11 @@ fn parse_type_unit_header<Endian>(input: EndianBuf<Endian>)
                                   -> ParseResult<(EndianBuf<Endian>, TypeUnitHeader<Endian>)>
     where Endian: Endianity
 {
-    let (rest, header) = try!(parse_unit_header(input));
-    let (rest, signature) = try!(parse_type_signature(rest));
+    let (after_unit, mut header) = try!(parse_unit_header(input));
+    let (rest, signature) = try!(parse_type_signature(header.entries_buf));
     let (rest, offset) = try!(parse_type_offset(rest, header.format()));
-    Ok((rest, TypeUnitHeader::new(header, signature, offset)))
+    header.entries_buf = rest;
+    Ok((after_unit, TypeUnitHeader::new(header, signature, offset)))
 }
 
 #[test]
@@ -3098,7 +3048,7 @@ fn test_parse_type_unit_header_64_ok() {
                                                            DebugAbbrevOffset(0x0807060504030201),
                                                            8,
                                                            Format::Dwarf64,
-                                                           &buf[buf.len() - 16..]),
+                                                           &[]),
                                            0xdeadbeefdeadbeef,
                                            DebugTypesOffset(0x7856341278563412)))
         },

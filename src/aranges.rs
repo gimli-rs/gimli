@@ -3,7 +3,7 @@
 use endianity::{Endianity, EndianBuf};
 use lookup::{LookupParser, LookupEntryIter, DebugLookup};
 use parser::{parse_address_size, parse_debug_info_offset, parse_unit_length, parse_u16,
-             parse_uN_as_u64, Error, Format, DebugInfoOffset, ParseResult};
+             parse_address, Error, Format, DebugInfoOffset, ParseResult};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::rc::Rc;
@@ -100,26 +100,44 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
     /// parsed for this set, and the newly created ArangeHeader struct.
     fn parse_header(input: EndianBuf<Endian>)
                     -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<Self::Header>)> {
-        let (rest, (length, format)) = try!(parse_unit_length(input.into()));
-        let (rest, version) = try!(parse_u16(rest.into()));
+        let (rest, (length, format)) = try!(parse_unit_length(input));
+        if length as usize > rest.len() {
+            return Err(Error::UnexpectedEof);
+        }
+        let after_set = rest.range_from(length as usize..);
+        let rest = rest.range_to(..length as usize);
 
+        let (rest, version) = try!(parse_u16(rest));
         if version != 2 {
             return Err(Error::UnknownVersion);
         }
 
-        let (rest, offset) = try!(parse_debug_info_offset(rest.into(), format));
-        let (rest, address_size) = try!(parse_address_size(rest.into()));
-        let (rest, segment_size) = try!(parse_address_size(rest.into()));
+        let (rest, offset) = try!(parse_debug_info_offset(rest, format));
+        let (rest, address_size) = try!(parse_address_size(rest));
+        let (rest, segment_size) = try!(parse_address_size(rest));
 
+        // unit_length + version + offset + address_size + segment_size
         let header_length = match format {
-            Format::Dwarf32 => 8,
-            Format::Dwarf64 => 12,
+            Format::Dwarf32 => 4 + 2 + 4 + 1 + 1,
+            Format::Dwarf64 => 12 + 2 + 8 + 1 + 1,
         };
-        let dividing_line: usize = try!(length.checked_sub(header_length)
-            .ok_or(Error::BadLength)) as usize;
 
-        Ok((rest.range_from(dividing_line..),
-            rest.range_to(..dividing_line),
+        // The first tuple following the header in each set begins at an offset that is
+        // a multiple of the size of a single tuple (that is, the size of a segment selector
+        // plus twice the size of an address).
+        let tuple_length = (2 * address_size + segment_size) as usize;
+        let padding = if header_length % tuple_length == 0 {
+            0
+        } else {
+            tuple_length - header_length % tuple_length
+        };
+        if padding > rest.len() {
+            return Err(Error::UnexpectedEof);
+        }
+        let rest = rest.range_from(padding..);
+
+        Ok((after_set,
+            rest,
             Rc::new(ArangeHeader {
             format: format,
             length: length,
@@ -137,9 +155,13 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
         let address_size = header.address_size;
         let segment_size = header.segment_size; // May be zero!
 
-        let (rest, segment) = try!(parse_uN_as_u64(segment_size, input));
-        let (rest, offset) = try!(parse_uN_as_u64(address_size, rest));
-        let (rest, length) = try!(parse_uN_as_u64(address_size, rest));
+        let (rest, segment) = if segment_size != 0 {
+            try!(parse_address(input, segment_size))
+        } else {
+            (input, 0)
+        };
+        let (rest, offset) = try!(parse_address(rest, address_size));
+        let (rest, length) = try!(parse_address(rest, address_size));
 
         Ok((rest,
             match (segment, offset, length) {
