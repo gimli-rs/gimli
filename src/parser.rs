@@ -204,33 +204,6 @@ pub fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(Endian
     }
 }
 
-/// Parse a variable length sequence and return it as a `u64`. Currently only supports lengths of
-/// 0, 1, 2, 4, and 8 bytes.
-#[doc(hidden)]
-#[inline]
-#[allow(non_snake_case)]
-pub fn parse_uN_as_u64<Endian>(size: u8,
-                               input: EndianBuf<Endian>)
-                               -> ParseResult<(EndianBuf<Endian>, u64)>
-    where Endian: Endianity
-{
-    match size {
-        0 => Ok((input, 0)),
-        1 => parse_u8(input.into()).map(|(r, u)| (EndianBuf::new(r), u as u64)),
-        2 => parse_u16(input).map(|(r, u)| (r, u as u64)),
-        4 => parse_u32(input).map(|(r, u)| (r, u as u64)),
-        8 => {
-            // NB: DWARF stores 8 byte address in .debug_arange as two separate 32-bit
-            // words. Not sure yet if this happens elsewhere, or if it only happens in DWARF32,
-            // and not DWARF64.
-            let (r, u) = try!(parse_u32_as_u64(input));
-            let (r, v) = try!(parse_u32_as_u64(r));
-            Ok((r, (u << 32) + v))
-        }
-        _ => Err(Error::UnsupportedFieldSize(size)),
-    }
-}
-
 /// Parse a word-sized integer according to the DWARF format, and return it as a `u64`.
 #[doc(hidden)]
 #[inline]

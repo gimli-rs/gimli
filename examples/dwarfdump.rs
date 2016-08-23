@@ -256,7 +256,7 @@ fn dump_aranges<Endian>(file: &object::File)
 
         let mut aranges = debug_aranges.items();
         while let Some(arange) = aranges.next_entry().expect("Should parse arange OK") {
-            println!("arange starts at {}, length of {}, cu_die_offset = {:?}",
+            println!("arange starts at 0x{:08x}, length of 0x{:08x}, cu_die_offset = {:?}",
                      arange.start(),
                      arange.len(),
                      arange.debug_info_offset());
