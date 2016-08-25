@@ -71,6 +71,8 @@ pub enum Error {
     LineRangeZero,
     /// The opcode base must not be zero.
     OpcodeBaseZero,
+    /// The specified file index was out of bounds.
+    BadFileIndex,
 }
 
 impl fmt::Display for Error {
@@ -123,6 +125,7 @@ impl error::Error for Error {
             }
             Error::LineRangeZero => "The line range must not be zero.",
             Error::OpcodeBaseZero => "The opcode base must not be zero.",
+            Error::BadFileIndex => "The specified file index was out of bounds.",
         }
     }
 }

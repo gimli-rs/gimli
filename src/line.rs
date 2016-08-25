@@ -672,13 +672,13 @@ impl<'statemachine, 'input, Endian> LineNumberRow<'statemachine, 'input, Endian>
     }
 
     /// The source file corresponding to the current machine instruction.
-    pub fn file(&self) -> Option<&'statemachine FileEntry<'input>> {
+    pub fn file(&self) -> parser::ParseResult<&'statemachine FileEntry<'input>> {
         // NB: registers.file starts counting at 1.
-        let file_idx = self.registers.file as usize - 1;
-        if self.header.file_names.len() > file_idx {
-            Some(&self.header.file_names[file_idx])
+        let file = self.registers.file as usize;
+        if 0 < file && file <= self.header.file_names.len() {
+            Ok(&self.header.file_names[file - 1])
         } else {
-            None
+            Err(parser::Error::BadFileIndex)
         }
     }
 
@@ -1422,7 +1422,20 @@ mod tests {
             program_buf: EndianBuf::new(buf),
             version: 4,
             header_length: 1,
-            file_names: vec![],
+            file_names: vec![FileEntry {
+                                 path_name: ffi::CStr::from_bytes_with_nul(&b"foo.c\0"[..])
+                                     .unwrap(),
+                                 directory_index: 0,
+                                 last_modification: 0,
+                                 length: 0,
+                             },
+                             FileEntry {
+                                 path_name: ffi::CStr::from_bytes_with_nul(&b"bar.rs\0"[..])
+                                     .unwrap(),
+                                 directory_index: 0,
+                                 last_modification: 0,
+                                 length: 0,
+                             }],
             format: Format::Dwarf32,
             line_base: -3,
             unit_length: 1,
@@ -1743,5 +1756,112 @@ mod tests {
         expected_registers.line = 0;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
+    }
+
+    #[test]
+    fn test_exec_copy() {
+        let header = make_test_header(&[]);
+
+        let mut initial_registers = new_registers();
+        initial_registers.address = 1337;
+        initial_registers.line = 42;
+
+        let opcode = Opcode::Copy;
+
+        let expected_registers = initial_registers.clone();
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
+    }
+
+    #[test]
+    fn test_exec_advance_pc() {
+        let header = make_test_header(&[]);
+        let initial_registers = new_registers();
+        let opcode = Opcode::AdvancePc(42);
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.address += 42;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
+    fn test_exec_advance_line() {
+        let header = make_test_header(&[]);
+        let initial_registers = new_registers();
+        let opcode = Opcode::AdvanceLine(42);
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.line += 42;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
+    fn test_exec_set_file_in_bounds() {
+        for file_idx in 1..3 {
+            let header = make_test_header(&[]);
+            let initial_registers = new_registers();
+            let opcode = Opcode::SetFile(file_idx);
+
+            let mut expected_registers = initial_registers.clone();
+            expected_registers.file = file_idx;
+
+            assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+        }
+    }
+
+    #[test]
+    fn test_exec_set_file_out_of_bounds() {
+        let header = make_test_header(&[]);
+        let initial_registers = new_registers();
+        let opcode = Opcode::SetFile(100);
+
+        // The spec doesn't say anything about rejecting input programs
+        // that set the file register out of bounds of the actual number
+        // of files that have been defined. Instead, we cross our
+        // fingers and hope that one gets defined before
+        // `LineNumberRow::file` gets called and handle the error at
+        // that time if need be.
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.file = 100;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
+    fn test_file_entry_file_index_out_of_bounds() {
+        // These indices are 1-based, so 0 is invalid. 100 is way more than the
+        // number of files defined in the header.
+        let out_of_bounds_indices = [0, 100];
+
+        for file_idx in &out_of_bounds_indices[..] {
+            let header = make_test_header(&[]);
+            let mut regs = new_registers();
+
+            regs.file = *file_idx;
+
+            let row = LineNumberRow {
+                header: &header,
+                registers: &regs,
+            };
+
+            assert_eq!(row.file(), Err(Error::BadFileIndex));
+        }
+    }
+
+    #[test]
+    fn test_file_entry_file_index_in_bounds() {
+        let header = make_test_header(&[]);
+        let mut regs = new_registers();
+
+        regs.file = 2;
+
+        let row = LineNumberRow {
+            header: &header,
+            registers: &regs,
+        };
+
+        assert_eq!(row.file(), Ok(&header.file_names()[1]));
     }
 }

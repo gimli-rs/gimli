@@ -230,7 +230,7 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
                     }
                     if file_index != row.file_index() {
                         file_index = row.file_index();
-                        if let Some(file) = row.file() {
+                        if let Ok(file) = row.file() {
                             if let Some(directory) = file.directory(row.header()) {
                                 print!(" uri: \"{}/{}\"",
                                        directory.to_string_lossy(),
