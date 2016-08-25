@@ -1,6 +1,6 @@
 # `gimli`
 
-[![](http://meritbadge.herokuapp.com/gimli) ![](https://img.shields.io/crates/d/gimli.png)](https://crates.io/crates/gimli) [![Build Status](https://travis-ci.org/gimli-rs/gimli.png?branch=master)](https://travis-ci.org/gimli-rs/gimli)
+[![](http://meritbadge.herokuapp.com/gimli) ![](https://img.shields.io/crates/d/gimli.png)](https://crates.io/crates/gimli) [![Build Status](https://travis-ci.org/gimli-rs/gimli.png?branch=master)](https://travis-ci.org/gimli-rs/gimli) [![Coverage Status](https://coveralls.io/repos/github/gimli-rs/gimli/badge.svg?branch=master)](https://coveralls.io/github/gimli-rs/gimli?branch=master)
 
 A lazy, zero-copy parser for the DWARF debugging format.
 
