@@ -1981,8 +1981,11 @@ fn length_u32_value<Endian>(input: EndianBuf<Endian>)
     take(len as usize, rest)
 }
 
-fn length_leb_value<Endian>(input: EndianBuf<Endian>)
-                            -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>)>
+/// Parse a length as an unsigned LEB128 from the input, then take
+/// that many bytes from the input.  These bytes are returned as the
+/// second element of the result tuple.
+pub fn parse_length_uleb_value<Endian>(input: EndianBuf<Endian>)
+                                       -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>)>
     where Endian: Endianity
 {
     let (rest, len) = try!(parse_unsigned_leb(input.into()));
@@ -2042,7 +2045,7 @@ fn parse_attribute<'input, 'unit, Endian>
                 });
             }
             constants::DW_FORM_block => {
-                return length_leb_value(input.into()).map(|(rest, block)| {
+                return parse_length_uleb_value(input.into()).map(|(rest, block)| {
                     let attr = Attribute {
                         name: spec.name(),
                         value: AttributeValue::Block(block),
@@ -2105,7 +2108,7 @@ fn parse_attribute<'input, 'unit, Endian>
                 });
             }
             constants::DW_FORM_exprloc => {
-                return length_leb_value(input.into()).map(|(rest, block)| {
+                return parse_length_uleb_value(input.into()).map(|(rest, block)| {
                     let attr = Attribute {
                         name: spec.name(),
                         value: AttributeValue::Exprloc(block),
