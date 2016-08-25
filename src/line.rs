@@ -1186,6 +1186,7 @@ impl<'input> FileEntry<'input> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::StateMachineRegisters;
     use constants;
     use endianity::{EndianBuf, LittleEndian};
     use parser::{Error, Format};
@@ -1423,11 +1424,11 @@ mod tests {
             header_length: 1,
             file_names: vec![],
             format: Format::Dwarf32,
-            line_base: -5,
+            line_base: -3,
             unit_length: 1,
             standard_opcode_lengths: STANDARD_OPCODE_LENGTHS,
             include_directories: vec![],
-            line_range: 1,
+            line_range: 12,
         }
     }
 
@@ -1618,5 +1619,129 @@ mod tests {
         // Now test the compilation's current directory.
         file.directory_index = 0;
         assert_eq!(file.directory(&header), None);
+    }
+
+
+    fn new_registers() -> StateMachineRegisters {
+        let mut regs = StateMachineRegisters::default();
+        regs.reset(true);
+        regs
+    }
+
+    fn assert_exec_opcode(header: LineNumberProgramHeader<LittleEndian>,
+                          initial_registers: StateMachineRegisters,
+                          opcode: Opcode,
+                          expected_registers: StateMachineRegisters,
+                          expect_new_row: bool) {
+        let mut sm = StateMachine::new(header);
+        sm.registers = initial_registers;
+
+        let is_new_row = sm.execute(opcode);
+
+        assert_eq!(is_new_row, expect_new_row);
+        assert_eq!(sm.registers, expected_registers);
+    }
+
+    #[test]
+    fn test_exec_special_noop() {
+        let header = make_test_header(&[]);
+
+        let initial_registers = new_registers();
+        let opcode = Opcode::Special(16);
+        let expected_registers = initial_registers.clone();
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
+    }
+
+    #[test]
+    fn test_exec_special_negative_line_advance() {
+        let header = make_test_header(&[]);
+
+        let mut initial_registers = new_registers();
+        initial_registers.line = 10;
+
+        let opcode = Opcode::Special(13);
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.line -= 3;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
+    }
+
+    #[test]
+    fn test_exec_special_positive_line_advance() {
+        let header = make_test_header(&[]);
+
+        let initial_registers = new_registers();
+
+        let opcode = Opcode::Special(19);
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.line += 3;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
+    }
+
+    #[test]
+    fn test_exec_special_positive_address_advance() {
+        let header = make_test_header(&[]);
+
+        let initial_registers = new_registers();
+
+        let opcode = Opcode::Special(52);
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.address += 3;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
+    }
+
+    #[test]
+    fn test_exec_special_positive_address_and_line_advance() {
+        let header = make_test_header(&[]);
+
+        let initial_registers = new_registers();
+
+        let opcode = Opcode::Special(55);
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.address += 3;
+        expected_registers.line += 3;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
+    }
+
+    #[test]
+    fn test_exec_special_positive_address_and_negative_line_advance() {
+        let header = make_test_header(&[]);
+
+        let mut initial_registers = new_registers();
+        initial_registers.line = 10;
+
+        let opcode = Opcode::Special(49);
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.address += 3;
+        expected_registers.line -= 3;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
+    }
+
+    #[test]
+    fn test_exec_special_line_underflow() {
+        let header = make_test_header(&[]);
+
+        let mut initial_registers = new_registers();
+        initial_registers.line = 2;
+
+        // -3 line advance.
+        let opcode = Opcode::Special(13);
+
+        let mut expected_registers = initial_registers.clone();
+        // Clamp at 0. No idea if this is the best way to handle this situation
+        // or not...
+        expected_registers.line = 0;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
     }
 }
