@@ -176,6 +176,7 @@ impl<'input, Endian> StateMachine<'input, Endian>
 
             Opcode::FixedAddPc(operand) => {
                 self.registers.address += operand as u64;
+                self.registers.op_index = 0;
                 false
             }
 
@@ -1863,5 +1864,190 @@ mod tests {
         };
 
         assert_eq!(row.file(), Ok(&header.file_names()[1]));
+    }
+
+    #[test]
+    fn test_exec_set_column() {
+        let header = make_test_header(&[]);
+        let initial_registers = new_registers();
+        let opcode = Opcode::SetColumn(42);
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.column = 42;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
+    fn test_exec_negate_statement() {
+        let header = make_test_header(&[]);
+        let initial_registers = new_registers();
+        let opcode = Opcode::NegateStatement;
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.is_stmt = !initial_registers.is_stmt;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
+    fn test_exec_set_basic_block() {
+        let header = make_test_header(&[]);
+
+        let mut initial_registers = new_registers();
+        initial_registers.basic_block = false;
+
+        let opcode = Opcode::SetBasicBlock;
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.basic_block = true;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
+    fn test_exec_const_add_pc() {
+        let header = make_test_header(&[]);
+        let initial_registers = new_registers();
+        let opcode = Opcode::ConstAddPc;
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.address += 20;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
+    fn test_exec_fixed_add_pc() {
+        let header = make_test_header(&[]);
+
+        let mut initial_registers = new_registers();
+        initial_registers.op_index = 1;
+
+        let opcode = Opcode::FixedAddPc(10);
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.address += 10;
+        expected_registers.op_index = 0;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
+    fn test_exec_set_prologue_end() {
+        let header = make_test_header(&[]);
+
+        let mut initial_registers = new_registers();
+        initial_registers.prologue_end = false;
+
+        let opcode = Opcode::SetPrologueEnd;
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.prologue_end = true;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
+    fn test_exec_set_isa() {
+        let header = make_test_header(&[]);
+        let initial_registers = new_registers();
+        let opcode = Opcode::SetIsa(1993);
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.isa = 1993;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
+    fn test_exec_unknown_standard_0() {
+        let header = make_test_header(&[]);
+        let initial_registers = new_registers();
+        let opcode = Opcode::UnknownStandard0(constants::DwLns(111));
+        let expected_registers = initial_registers.clone();
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
+    fn test_exec_unknown_standard_1() {
+        let header = make_test_header(&[]);
+        let initial_registers = new_registers();
+        let opcode = Opcode::UnknownStandard1(constants::DwLns(111), 2);
+        let expected_registers = initial_registers.clone();
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
+    fn test_exec_unknown_standard_n() {
+        let header = make_test_header(&[]);
+        let initial_registers = new_registers();
+        let opcode = Opcode::UnknownStandardN(constants::DwLns(111), vec![2, 2, 2]);
+        let expected_registers = initial_registers.clone();
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
+    fn test_exec_end_sequence() {
+        let header = make_test_header(&[]);
+        let initial_registers = new_registers();
+        let opcode = Opcode::EndSequence;
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.end_sequence = true;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
+    }
+
+    #[test]
+    fn test_exec_set_address() {
+        let header = make_test_header(&[]);
+        let initial_registers = new_registers();
+        let opcode = Opcode::SetAddress(3030);
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.address = 3030;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
+    fn test_exec_define_file() {
+        let header = make_test_header(&[]);
+        let mut sm = StateMachine::new(header);
+
+        let file = FileEntry {
+            path_name: ffi::CStr::from_bytes_with_nul(&b"test.cpp\0"[..]).unwrap(),
+            directory_index: 0,
+            last_modification: 0,
+            length: 0,
+        };
+
+        let opcode = Opcode::DefineFile(file.clone());
+        let is_new_row = sm.execute(opcode);
+
+        assert_eq!(is_new_row, false);
+        assert_eq!(Some(&file), sm.header().file_names.last());
+    }
+
+    #[test]
+    fn test_exec_set_discriminator() {
+        let header = make_test_header(&[]);
+        let initial_registers = new_registers();
+        let opcode = Opcode::SetDiscriminator(9);
+
+        let mut expected_registers = initial_registers.clone();
+        expected_registers.discriminator = 9;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
+    fn test_exec_unknown_extended() {
+        let header = make_test_header(&[]);
+        let initial_registers = new_registers();
+        let opcode = Opcode::UnknownExtended(constants::DwLne(74), &[]);
+        let expected_registers = initial_registers.clone();
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }
 }
