@@ -182,7 +182,8 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
 /// found in the `.debug_aranges` section.
 ///
 /// Provides:
-///   new(input: EndianBuf<'input, Endian>) -> DebugAranges<'input, Endian>
+///
+/// * `new(input: EndianBuf<'input, Endian>) -> DebugAranges<'input, Endian>`
 ///
 ///   Construct a new `DebugAranges` instance from the data in the `.debug_aranges`
 ///   section.
@@ -195,11 +196,11 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
 ///   use gimli::{DebugAranges, LittleEndian};
 ///
 ///   # let buf = [];
-///   # let read_debug_aranges_section_somehow = || &buf;
-///   let debug_aranges = DebugAranges::<LittleEndian>::new(read_debug_aranges_section_somehow());
+///   # let read_debug_aranges_section = || &buf;
+///   let debug_aranges = DebugAranges::<LittleEndian>::new(read_debug_aranges_section());
 ///   ```
 ///
-///   items(&self) -> ArangeEntryIter<'input, Endian>
+/// * `items(&self) -> ArangeEntryIter<'input, Endian>`
 ///
 ///   Iterate the aranges in the `.debug_aranges` section.
 ///
@@ -207,12 +208,12 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
 ///   use gimli::{DebugAranges, LittleEndian};
 ///
 ///   # let buf = [];
-///   # let read_debug_aranges_section_somehow = || &buf;
-///   let debug_aranges = DebugAranges::<LittleEndian>::new(read_debug_aranges_section_somehow());
+///   # let read_debug_aranges_section = || &buf;
+///   let debug_aranges = DebugAranges::<LittleEndian>::new(read_debug_aranges_section());
 ///
 ///   let mut iter = debug_aranges.items();
-///   while let Some(arange) = iter.next_entry().unwrap() {
-///     println!("arange starts at {}, has length {}", arange.start(), arange.len());
+///   while let Some(arange) = iter.next().unwrap() {
+///       println!("arange starts at {}, has length {}", arange.start(), arange.len());
 ///   }
 ///   ```
 pub type DebugAranges<'input, Endian> = DebugLookup<'input, Endian, ArangeParser<'input, Endian>>;
@@ -220,14 +221,18 @@ pub type DebugAranges<'input, Endian> = DebugLookup<'input, Endian, ArangeParser
 /// An iterator over the aranges from a .debug_aranges section.
 ///
 /// Provides:
-///   next_entry(self: &mut) -> ParseResult<Option<ArangeEntry>>
+///
+/// * `next(self: &mut) -> ParseResult<Option<ArangeEntry>>`
 ///
 ///   Advance the iterator and return the next arange.
 ///
-///   Returns the newly parsed arange as `Ok(Some(arange))`. Returns
-///   `Ok(None)` when iteration is complete and all aranges have already been
-///   parsed and yielded. If an error occurs while parsing the next arange,
-///   then this error is returned on all subsequent calls as `Err(e)`.
+///   Returns the newly parsed arange as `Ok(Some(arange))`. Returns `Ok(None)`
+///   when iteration is complete and all aranges have already been parsed and
+///   yielded. If an error occurs while parsing the next arange, then this error
+///   is returned on all subsequent calls as `Err(e)`.
+///
+///   Can be [used with
+///   `FallibleIterator`](./index.html#using-with-fallibleiterator).
 pub type ArangeEntryIter<'input, Endian> = LookupEntryIter<'input,
                                                            Endian,
                                                            ArangeParser<'input, Endian>>;

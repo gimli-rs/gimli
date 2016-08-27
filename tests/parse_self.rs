@@ -30,8 +30,8 @@ fn test_parse_self_debug_info() {
     let debug_abbrev = read_section("debug_abbrev");
     let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&debug_abbrev);
 
-    for unit in debug_info.units() {
-        let unit = unit.expect("Should parse compilation unit");
+    let mut iter = debug_info.units();
+    while let Some(unit) = iter.next().expect("Should parse compilation unit") {
         let abbrevs = unit.abbreviations(debug_abbrev)
             .expect("Should parse abbreviations");
 
@@ -58,9 +58,8 @@ fn test_parse_self_debug_line() {
     let debug_line = read_section("debug_line");
     let debug_line = DebugLine::<LittleEndian>::new(&debug_line);
 
-    for unit in debug_info.units() {
-        let unit = unit.expect("Should parse the unit OK");
-
+    let mut iter = debug_info.units();
+    while let Some(unit) = iter.next().expect("Should parse compilation unit") {
         let abbrevs = unit.abbreviations(debug_abbrev)
             .expect("Should parse abbreviations");
 
@@ -88,7 +87,7 @@ fn test_parse_self_debug_aranges() {
     let debug_aranges = DebugAranges::<LittleEndian>::new(&debug_aranges);
 
     let mut aranges = debug_aranges.items();
-    while let Some(_) = aranges.next_entry().expect("Should parse arange OK") {
+    while let Some(_) = aranges.next().expect("Should parse arange OK") {
         // Not really anything else we can check right now.
     }
 }
@@ -99,7 +98,7 @@ fn test_parse_self_debug_pubnames() {
     let debug_pubnames = DebugPubNames::<LittleEndian>::new(&debug_pubnames);
 
     let mut pubnames = debug_pubnames.items();
-    while let Some(_) = pubnames.next_entry().expect("Should parse pubname OK") {
+    while let Some(_) = pubnames.next().expect("Should parse pubname OK") {
         // Not really anything else we can check right now.
     }
 }
@@ -110,7 +109,7 @@ fn test_parse_self_debug_pubtypes() {
     let debug_pubtypes = DebugPubTypes::<LittleEndian>::new(&debug_pubtypes);
 
     let mut pubtypes = debug_pubtypes.items();
-    while let Some(_) = pubtypes.next_entry().expect("Should parse pubtype OK") {
+    while let Some(_) = pubtypes.next().expect("Should parse pubtype OK") {
         // Not really anything else we can check right now.
     }
 }

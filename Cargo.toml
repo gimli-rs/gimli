@@ -15,6 +15,7 @@ version = "0.6.0"
 [dependencies]
 byteorder = "0.5.3"
 leb128 = "0.2.1"
+fallible-iterator = "0.1.2"
 
 [dev-dependencies]
 getopts = "0.2"

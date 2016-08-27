@@ -49,7 +49,7 @@ fn entry_offsets_for_addresses<Endian>(file: &object::File,
     let mut aranges = aranges.items();
 
     let mut dies: Vec<Option<gimli::DebugInfoOffset>> = (0..addrs.len()).map(|_| None).collect();
-    while let Some(arange) = aranges.next_entry().expect("Should parse arange OK") {
+    while let Some(arange) = aranges.next().expect("Should parse arange OK") {
         let start = arange.start();
         let end = start + arange.len();
 

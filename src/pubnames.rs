@@ -91,7 +91,8 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for NamesSwitch<'input, 
 /// found in the `.debug_pubnames` section.
 ///
 /// Provides:
-///   new(input: EndianBuf<'input, Endian>) -> DebugPubNames<'input, Endian>
+///
+/// * `new(input: EndianBuf<'input, Endian>) -> DebugPubNames<'input, Endian>`
 ///
 ///   Construct a new `DebugPubNames` instance from the data in the `.debug_pubnames`
 ///   section.
@@ -109,7 +110,7 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for NamesSwitch<'input, 
 ///       DebugPubNames::<LittleEndian>::new(read_debug_pubnames_section_somehow());
 ///   ```
 ///
-///   items(&self) -> PubNamesEntryIter<'input, Endian>
+/// * `items(&self) -> PubNamesEntryIter<'input, Endian>`
 ///
 ///   Iterate the pubnames in the `.debug_pubnames` section.
 ///
@@ -122,7 +123,7 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for NamesSwitch<'input, 
 ///       DebugPubNames::<LittleEndian>::new(read_debug_pubnames_section_somehow());
 ///
 ///   let mut iter = debug_pubnames.items();
-///   while let Some(pubname) = iter.next_entry().unwrap() {
+///   while let Some(pubname) = iter.next().unwrap() {
 ///     println!("pubname {} found!", pubname.name().to_string_lossy());
 ///   }
 ///   ```
@@ -135,7 +136,8 @@ pub type DebugPubNames<'input, Endian> = DebugLookup<'input,
 /// An iterator over the pubnames from a .debug_pubnames section.
 ///
 /// Provides:
-///   next_entry(self: &mut) -> ParseResult<Option<PubNamesEntry>>
+///
+/// * `next_entry(self: &mut) -> ParseResult<Option<PubNamesEntry>>`
 ///
 ///   Advance the iterator and return the next pubname.
 ///
@@ -143,6 +145,9 @@ pub type DebugPubNames<'input, Endian> = DebugLookup<'input,
 ///   `Ok(None)` when iteration is complete and all pubnames have already been
 ///   parsed and yielded. If an error occurs while parsing the next pubname,
 ///   then this error is returned on all subsequent calls as `Err(e)`.
+///
+///   Can be [used with
+///   `FallibleIterator`](./index.html#using-with-fallibleiterator).
 pub type PubNamesEntryIter<'input, Endian> = LookupEntryIter<'input,
                                                              Endian,
                                                              PubStuffParser<'input,

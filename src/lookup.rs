@@ -1,6 +1,7 @@
 #![deny(missing_docs)]
 
 use endianity::{Endianity, EndianBuf};
+use fallible_iterator::FallibleIterator;
 use parser::{parse_null_terminated_string, parse_unit_length, parse_u16, parse_word, Format,
              ParseResult, Error};
 use std::ffi;
@@ -37,6 +38,7 @@ pub trait LookupParser<'input, Endian>
                    -> ParseResult<(EndianBuf<'input, Endian>, Option<Self::Entry>)>;
 }
 
+#[allow(missing_docs)]
 pub struct DebugLookup<'input, Endian, Parser>
     where Endian: Endianity,
           Parser: LookupParser<'input, Endian>
@@ -49,6 +51,7 @@ impl<'input, Endian, Parser> DebugLookup<'input, Endian, Parser>
     where Endian: Endianity,
           Parser: LookupParser<'input, Endian>
 {
+    #[allow(missing_docs)]
     pub fn new(input_buffer: &'input [u8]) -> DebugLookup<'input, Endian, Parser> {
         DebugLookup {
             input_buffer: EndianBuf(input_buffer, PhantomData),
@@ -56,6 +59,7 @@ impl<'input, Endian, Parser> DebugLookup<'input, Endian, Parser>
         }
     }
 
+    #[allow(missing_docs)]
     pub fn items(&self) -> LookupEntryIter<'input, Endian, Parser> {
         LookupEntryIter {
             current_header: None,
@@ -65,6 +69,7 @@ impl<'input, Endian, Parser> DebugLookup<'input, Endian, Parser>
     }
 }
 
+#[allow(missing_docs)]
 pub struct LookupEntryIter<'input, Endian, Parser>
     where Endian: Endianity,
           Parser: LookupParser<'input, Endian>
@@ -84,7 +89,9 @@ impl<'input, Endian, Parser> LookupEntryIter<'input, Endian, Parser>
     /// `Ok(None)` when iteration is complete and all entries have already been
     /// parsed and yielded. If an error occurs while parsing the next entry,
     /// then this error is returned on all subsequent calls as `Err(e)`.
-    pub fn next_entry(&mut self) -> ParseResult<Option<Parser::Entry>> {
+    ///
+    /// Can be [used with `FallibleIterator`](./index.html#using-with-fallibleiterator).
+    pub fn next(&mut self) -> ParseResult<Option<Parser::Entry>> {
         if self.current_set.is_empty() {
             if self.remaining_input.is_empty() {
                 self.current_header = None;
@@ -97,7 +104,7 @@ impl<'input, Endian, Parser> LookupEntryIter<'input, Endian, Parser>
                         self.current_set = set;
                         self.current_header = Some(header);
                         // Header is parsed, go parse the first entry.
-                        self.next_entry()
+                        self.next()
                     }
                     Err(e) => {
                         self.remaining_input = self.remaining_input.range_to(..0);
@@ -117,7 +124,7 @@ impl<'input, Endian, Parser> LookupEntryIter<'input, Endian, Parser>
                             // NB: There could be padding, so we must explicitly truncate
                             // current_set.
                             self.current_set = self.current_set.range_to(..0);
-                            self.next_entry()
+                            self.next()
                         }
                         Some(entry) => Ok(Some(entry)),
                     }
@@ -131,6 +138,18 @@ impl<'input, Endian, Parser> LookupEntryIter<'input, Endian, Parser>
                 }
             }
         }
+    }
+}
+
+impl<'input, Endian, Parser> FallibleIterator for LookupEntryIter<'input, Endian, Parser>
+    where Endian: Endianity,
+          Parser: LookupParser<'input, Endian>
+{
+    type Item = Parser::Entry;
+    type Error = Error;
+
+    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+        LookupEntryIter::next(self)
     }
 }
 
