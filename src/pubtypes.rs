@@ -90,7 +90,8 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for TypesSwitch<'input, 
 /// found in the `.debug_types` section.
 ///
 /// Provides:
-///   new(input: EndianBuf<'input, Endian>) -> DebugPubTypes<'input, Endian>
+///
+/// * `new(input: EndianBuf<'input, Endian>) -> DebugPubTypes<'input, Endian>`
 ///
 ///   Construct a new `DebugPubTypes` instance from the data in the `.debug_pubtypes`
 ///   section.
@@ -103,12 +104,11 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for TypesSwitch<'input, 
 ///   use gimli::{DebugPubTypes, LittleEndian};
 ///
 ///   # let buf = [];
-///   # let read_debug_pubtypes_section_somehow = || &buf;
-///   let debug_pubtypes =
-///       DebugPubTypes::<LittleEndian>::new(read_debug_pubtypes_section_somehow());
+///   # let read_debug_pubtypes_somehow = || &buf;
+///   let debug_pubtypes = DebugPubTypes::<LittleEndian>::new(read_debug_pubtypes_somehow());
 ///   ```
 ///
-///   items(&self) -> PubTypesEntryIter<'input, Endian>
+/// * `items(&self) -> PubTypesEntryIter<'input, Endian>`
 ///
 ///   Iterate the pubtypes in the `.debug_pubtypes` section.
 ///
@@ -121,7 +121,7 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for TypesSwitch<'input, 
 ///       DebugPubTypes::<LittleEndian>::new(read_debug_pubtypes_section_somehow());
 ///
 ///   let mut iter = debug_pubtypes.items();
-///   while let Some(pubtype) = iter.next_entry().unwrap() {
+///   while let Some(pubtype) = iter.next().unwrap() {
 ///     println!("pubtype {} found!", pubtype.name().to_string_lossy());
 ///   }
 ///   ```
@@ -134,7 +134,8 @@ pub type DebugPubTypes<'input, Endian> = DebugLookup<'input,
 /// An iterator over the pubtypes from a .debug_pubtypes section.
 ///
 /// Provides:
-///   next_entry(self: &mut) -> ParseResult<Option<PubTypesEntry>>
+///
+/// * `next_entry(self: &mut) -> ParseResult<Option<PubTypesEntry>>`
 ///
 ///   Advance the iterator and return the next pubtype.
 ///
@@ -142,6 +143,9 @@ pub type DebugPubTypes<'input, Endian> = DebugLookup<'input,
 ///   `Ok(None)` when iteration is complete and all pubtypes have already been
 ///   parsed and yielded. If an error occurs while parsing the next pubtype,
 ///   then this error is returned on all subsequent calls as `Err(e)`.
+///
+///   Can be [used with
+///   `FallibleIterator`](./index.html#using-with-fallibleiterator).
 pub type PubTypesEntryIter<'input, Endian> = LookupEntryIter<'input,
                                                              Endian,
                                                              PubStuffParser<'input,

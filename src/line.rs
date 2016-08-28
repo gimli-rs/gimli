@@ -241,6 +241,9 @@ impl<'input, Endian> StateMachine<'input, Endian>
     /// is complete, and there are no more new rows in the line number matrix,
     /// then `Ok(None)` is returned. If there was an error parsing an opcode,
     /// then `Err(e)` is returned.
+    ///
+    /// Unfortunately, the `'me` lifetime means that this cannot be a
+    /// `FallibleIterator`.
     pub fn next_row<'me>(&'me mut self)
                          -> parser::ParseResult<Option<LineNumberRow<'me, 'input, Endian>>> {
         // Perform any reset that was required after copying the previous row.
@@ -607,6 +610,9 @@ impl<'input, Endian> OpcodesIter<'input, Endian>
     /// `Ok(None)` when iteration is complete and all opcodes have already been
     /// parsed and yielded. If an error occurs while parsing the next attribute,
     /// then this error is returned on all subsequent calls as `Err(e)`.
+    ///
+    /// Unfortunately, the `header` parameter means that this cannot be a
+    /// `FallibleIterator`.
     pub fn next_opcode(&mut self,
                        header: &LineNumberProgramHeader<'input, Endian>)
                        -> parser::ParseResult<Option<Opcode<'input>>> {

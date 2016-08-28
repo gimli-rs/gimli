@@ -5,7 +5,6 @@ extern crate test;
 
 use gimli::{DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset, DebugPubNames,
             DebugPubTypes, LineNumberProgramHeader, LittleEndian, StateMachine};
-
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -52,8 +51,8 @@ fn bench_parsing_debug_info(b: &mut test::Bencher) {
     b.iter(|| {
         let debug_info = DebugInfo::<LittleEndian>::new(&debug_info);
 
-        for unit in debug_info.units() {
-            let unit = unit.expect("Should parse compilation unit");
+        let mut iter = debug_info.units();
+        while let Some(unit) = iter.next().expect("Should parse compilation unit") {
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Should parse abbreviations");
 
@@ -75,7 +74,7 @@ fn bench_parsing_debug_aranges(b: &mut test::Bencher) {
 
     b.iter(|| {
         let mut aranges = debug_aranges.items();
-        while let Some(arange) = aranges.next_entry().expect("Should parse arange OK") {
+        while let Some(arange) = aranges.next().expect("Should parse arange OK") {
             test::black_box(arange);
         }
     });
@@ -88,7 +87,7 @@ fn bench_parsing_debug_pubnames(b: &mut test::Bencher) {
 
     b.iter(|| {
         let mut pubnames = debug_pubnames.items();
-        while let Some(pubname) = pubnames.next_entry().expect("Should parse pubname OK") {
+        while let Some(pubname) = pubnames.next().expect("Should parse pubname OK") {
             test::black_box(pubname);
         }
     });
@@ -101,7 +100,7 @@ fn bench_parsing_debug_types(b: &mut test::Bencher) {
 
     b.iter(|| {
         let mut pubtypes = debug_pubtypes.items();
-        while let Some(pubtype) = pubtypes.next_entry().expect("Should parse pubtype OK") {
+        while let Some(pubtype) = pubtypes.next().expect("Should parse pubtype OK") {
             test::black_box(pubtype);
         }
     });

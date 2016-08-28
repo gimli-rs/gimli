@@ -50,9 +50,8 @@ fn dump_info<Endian>(file: &object::File,
 
         let debug_info = gimli::DebugInfo::<Endian>::new(&debug_info);
 
-        for unit in debug_info.units() {
-            let unit = unit.expect("Should parse the unit OK");
-
+        let mut iter = debug_info.units();
+        while let Some(unit) = iter.next().expect("Should parse compilation unit") {
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
@@ -72,9 +71,8 @@ fn dump_types<Endian>(file: &object::File,
 
         let debug_types = gimli::DebugTypes::<Endian>::new(&debug_types);
 
-        for unit in debug_types.units() {
-            let unit = unit.expect("Should parse the unit OK");
-
+        let mut iter = debug_types.units();
+        while let Some(unit) = iter.next().expect("Should parse the unit OK") {
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
@@ -125,9 +123,8 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
         let debug_line = gimli::DebugLine::<Endian>::new(&debug_line);
         let debug_info = gimli::DebugInfo::<Endian>::new(&debug_info);
 
-        for unit in debug_info.units() {
-            let unit = unit.expect("Should parse unit header OK");
-
+        let mut iter = debug_info.units();
+        while let Some(unit) = iter.next().expect("Should parse unit header OK") {
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
@@ -255,7 +252,7 @@ fn dump_aranges<Endian>(file: &object::File)
         let debug_aranges = gimli::DebugAranges::<Endian>::new(debug_aranges);
 
         let mut aranges = debug_aranges.items();
-        while let Some(arange) = aranges.next_entry().expect("Should parse arange OK") {
+        while let Some(arange) = aranges.next().expect("Should parse arange OK") {
             println!("arange starts at 0x{:08x}, length of 0x{:08x}, cu_die_offset = {:?}",
                      arange.start(),
                      arange.len(),

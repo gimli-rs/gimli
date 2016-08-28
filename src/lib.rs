@@ -51,13 +51,60 @@
 //! }
 //! ```
 //!
-//! See the
-//! [`examples/dwarfdump.rs`](https://github.com/gimli-rs/gimli/blob/master/examples/dwarfdump.rs)
-//! program for a complete example program.
+//! See the [example
+//! programs](https://github.com/gimli-rs/gimli/blob/master/examples/) for
+//! complete examples.
+//!
+//! ## Using with `FallibleIterator`
+//!
+//! The standard library's `Iterator` trait and related APIs do not play well
+//! with iterators where the `next` operation is fallible. One can make the
+//! `Iterator`'s associated `Item` type be a `Result<T, E>`, however the
+//! provided methods cannot gracefully handle the case when an `Err` is
+//! returned.
+//!
+//! This situation led to the
+//! [`fallible-iterator`](https://crates.io/crates/fallible-iterator) crate's
+//! existence. You can read more of the rationale for its existence in its
+//! docs. The crate provides the helpers you have come to expect (eg `map`,
+//! `filter`, etc) for iterators that can fail.
+//!
+//! `gimli`'s many lazy parsing iterators are a perfect match for the
+//! `fallible-iterator` crate's `FallibleIterator` trait because parsing is not
+//! done eagerly. Parse errors later in the input might only be discovered after
+//! having iterated through many items.
+//!
+//! To use `gimli` iterators with `FallibleIterator`, import the crate and trait
+//! into your code:
+//!
+//! ```
+//! // Add the `fallinle-iterator` crate. Don't forget to add it to your
+//! // `Cargo.toml`, too!
+//! extern crate fallible_iterator;
+//! extern crate gimli;
+//!
+//! // Use the `FallibleIterator` trait so its methods are in scope!
+//! use fallible_iterator::FallibleIterator;
+//! use gimli::{DebugAranges, LittleEndian, ParseResult};
+//!
+//! fn find_sum_of_address_range_lengths(aranges: DebugAranges<LittleEndian>)
+//!     -> ParseResult<u64>
+//! {
+//!     // `DebugAranges::items` returns a `FallibleIterator`!
+//!     aranges.items()
+//!         // `map` is provided by `FallibleIterator`!
+//!         .map(|arange| arange.len())
+//!         // `fold` is provided by `FallibleIterator`!
+//!         .fold(0, |sum, len| sum + len)
+//! }
+//!
+//! # fn main() {}
+//! ```
 
 #![deny(missing_docs)]
 
 extern crate byteorder;
+extern crate fallible_iterator;
 extern crate leb128;
 
 mod constants;

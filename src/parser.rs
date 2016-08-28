@@ -8,6 +8,7 @@ use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation, Attrib
 use endianity::{Endianity, EndianBuf};
 #[cfg(test)]
 use endianity::LittleEndian;
+use fallible_iterator::FallibleIterator;
 use line::DebugLineOffset;
 use std::cell::Cell;
 use std::error;
@@ -322,11 +323,14 @@ impl<'input, Endian> DebugInfo<'input, Endian>
     /// # let read_debug_info_section_somehow = || &buf;
     /// let debug_info = DebugInfo::<LittleEndian>::new(read_debug_info_section_somehow());
     ///
-    /// for parse_result in debug_info.units() {
-    ///     let unit = parse_result.unwrap();
+    /// let mut iter = debug_info.units();
+    /// while let Some(unit) = iter.next().unwrap() {
     ///     println!("unit's length is {}", unit.unit_length());
     /// }
     /// ```
+    ///
+    /// Can be [used with
+    /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn units(&self) -> UnitHeadersIter<'input, Endian> {
         UnitHeadersIter { input: self.debug_info_section }
     }
@@ -353,34 +357,43 @@ impl<'input, Endian> DebugInfo<'input, Endian>
 /// An iterator over the compilation- and partial-units of a section.
 ///
 /// See the [documentation on
-/// `DebugInfo::units`](./struct.DebugInfo.html#method.units)
-/// for more detail.
+/// `DebugInfo::units`](./struct.DebugInfo.html#method.units) for more detail.
 pub struct UnitHeadersIter<'input, Endian>
     where Endian: Endianity
 {
     input: EndianBuf<'input, Endian>,
 }
 
-impl<'input, Endian> Iterator for UnitHeadersIter<'input, Endian>
+impl<'input, Endian> UnitHeadersIter<'input, Endian>
     where Endian: Endianity
 {
-    type Item = ParseResult<UnitHeader<'input, Endian>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    /// Advance the iterator to the next unit header.
+    pub fn next(&mut self) -> ParseResult<Option<UnitHeader<'input, Endian>>> {
         if self.input.is_empty() {
-            None
+            Ok(None)
         } else {
             match parse_unit_header(self.input) {
                 Ok((rest, header)) => {
                     self.input = rest;
-                    Some(Ok(header))
+                    Ok(Some(header))
                 }
                 Err(e) => {
                     self.input = self.input.range_to(..0);
-                    Some(Err(e))
+                    Err(e)
                 }
             }
         }
+    }
+}
+
+impl<'input, Endian> FallibleIterator for UnitHeadersIter<'input, Endian>
+    where Endian: Endianity
+{
+    type Item = UnitHeader<'input, Endian>;
+    type Error = Error;
+
+    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+        UnitHeadersIter::next(self)
     }
 }
 
@@ -429,7 +442,7 @@ fn test_units() {
     let mut units = debug_info.units();
 
     match units.next() {
-        Some(Ok(header)) => {
+        Ok(Some(header)) => {
             let expected = UnitHeader::<LittleEndian>::new(0x000000000000002b,
                                                 4,
                                                 DebugAbbrevOffset(0x0102030405060708),
@@ -443,7 +456,7 @@ fn test_units() {
     }
 
     match units.next() {
-        Some(Ok(header)) => {
+        Ok(Some(header)) => {
             let expected =
                 UnitHeader::new(0x00000027,
                                      4,
@@ -456,7 +469,7 @@ fn test_units() {
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 
-    assert!(units.next().is_none());
+    assert!(units.next().unwrap().is_none());
 }
 
 /// Parse an unsigned LEB128 encoded integer.
@@ -1300,6 +1313,9 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
     ///     println!("Attribute value = {:?}", attr.value());
     /// }
     /// ```
+    ///
+    /// Can be [used with
+    /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn attrs<'me>(&'me self) -> AttrsIter<'input, 'abbrev, 'me, 'unit, Endian> {
         AttrsIter {
             input: self.attrs_slice,
@@ -2080,6 +2096,9 @@ fn test_parse_attribute_indirect() {
 /// See [the documentation for
 /// `DebuggingInformationEntry::attrs()`](./struct.DebuggingInformationEntry.html#method.attrs)
 /// for details.
+///
+/// Can be [used with
+/// `FallibleIterator`](./index.html#using-with-fallibleiterator).
 #[derive(Clone, Copy, Debug)]
 pub struct AttrsIter<'input, 'abbrev, 'entry, 'unit, Endian>
     where 'input: 'entry + 'unit,
@@ -2122,6 +2141,22 @@ impl<'input, 'abbrev, 'entry, 'unit, Endian> AttrsIter<'input, 'abbrev, 'entry, 
         Ok(Some(attr))
     }
 }
+
+impl<'input, 'abbrev, 'entry, 'unit, Endian> FallibleIterator for AttrsIter<'input,
+                                                                            'abbrev,
+                                                                            'entry,
+                                                                            'unit,
+                                                                            Endian>
+    where Endian: Endianity
+{
+    type Item = Attribute<'input, Endian>;
+    type Error = Error;
+
+    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+        AttrsIter::next(self)
+    }
+}
+
 
 #[test]
 fn test_attrs_iter() {
@@ -2789,11 +2824,14 @@ impl<'input, Endian> DebugTypes<'input, Endian>
     /// # let read_debug_types_section_somehow = || &buf;
     /// let debug_types = DebugTypes::<LittleEndian>::new(read_debug_types_section_somehow());
     ///
-    /// for parse_result in debug_types.units() {
-    ///     let unit = parse_result.unwrap();
+    /// let mut iter = debug_types.units();
+    /// while let Some(unit) = iter.next().unwrap() {
     ///     println!("unit's length is {}", unit.unit_length());
     /// }
     /// ```
+    ///
+    /// Can be [used with
+    /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn units(&self) -> TypeUnitHeadersIter<'input, Endian> {
         TypeUnitHeadersIter { input: self.debug_types_section }
     }
@@ -2810,26 +2848,36 @@ pub struct TypeUnitHeadersIter<'input, Endian>
     input: EndianBuf<'input, Endian>,
 }
 
-impl<'input, Endian> Iterator for TypeUnitHeadersIter<'input, Endian>
+impl<'input, Endian> TypeUnitHeadersIter<'input, Endian>
     where Endian: Endianity
 {
-    type Item = ParseResult<TypeUnitHeader<'input, Endian>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    /// Advance the iterator to the next type unit header.
+    pub fn next(&mut self) -> ParseResult<Option<TypeUnitHeader<'input, Endian>>> {
         if self.input.is_empty() {
-            None
+            Ok(None)
         } else {
             match parse_type_unit_header(self.input) {
                 Ok((rest, header)) => {
                     self.input = rest;
-                    Some(Ok(header))
+                    Ok(Some(header))
                 }
                 Err(e) => {
                     self.input = self.input.range_to(..0);
-                    Some(Err(e))
+                    Err(e)
                 }
             }
         }
+    }
+}
+
+impl<'input, Endian> FallibleIterator for TypeUnitHeadersIter<'input, Endian>
+    where Endian: Endianity
+{
+    type Item = TypeUnitHeader<'input, Endian>;
+    type Error = Error;
+
+    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+        TypeUnitHeadersIter::next(self)
     }
 }
 
