@@ -22,20 +22,28 @@ pub struct ArangeHeader {
 #[derive(Debug, Clone, Eq)]
 pub struct ArangeEntry {
     segment: u64,
-    offset: u64,
+    address: u64,
     length: u64,
     header: Rc<ArangeHeader>,
 }
 
 impl ArangeEntry {
+    /// Return the segment selector of this arange.
+    pub fn segment(&self) -> Option<u64> {
+        if self.header.segment_size != 0 {
+            Some(self.segment)
+        } else {
+            None
+        }
+    }
+
     /// Return the beginning address of this arange.
-    pub fn start(&self) -> u64 {
-        debug_assert!(self.segment == 0); // Dunno what to do with this
-        self.offset
+    pub fn address(&self) -> u64 {
+        self.address
     }
 
     /// Return the length of this arange.
-    pub fn len(&self) -> u64 {
+    pub fn length(&self) -> u64 {
         self.length
     }
 
@@ -49,7 +57,7 @@ impl PartialEq for ArangeEntry {
     fn eq(&self, other: &ArangeEntry) -> bool {
         // The expected comparison, but verify that header matches if everything else does.
         match (self.segment == other.segment,
-               self.offset == other.offset,
+               self.address == other.address,
                self.length == other.length) {
             (true, true, true) => {
                 debug_assert!(self.header == other.header);
@@ -70,7 +78,7 @@ impl Ord for ArangeEntry {
     fn cmp(&self, other: &ArangeEntry) -> Ordering {
         // The expected comparison, but ignore header.
         match (self.segment.cmp(&other.segment),
-               self.offset.cmp(&other.offset),
+               self.address.cmp(&other.address),
                self.length.cmp(&other.length)) {
             (Ordering::Equal, Ordering::Equal, Ordering::Equal) => Ordering::Equal,
             (Ordering::Less, _, _) |
@@ -160,16 +168,16 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
         } else {
             (input, 0)
         };
-        let (rest, offset) = try!(parse_address(rest, address_size));
+        let (rest, address) = try!(parse_address(rest, address_size));
         let (rest, length) = try!(parse_address(rest, address_size));
 
         Ok((rest,
-            match (segment, offset, length) {
+            match (segment, address, length) {
             (0, 0, 0) => None,
             _ => {
                 Some(ArangeEntry {
                     segment: segment,
-                    offset: offset,
+                    address: address,
                     length: length,
                     header: header.clone(),
                 })
@@ -213,7 +221,7 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
 ///
 ///   let mut iter = debug_aranges.items();
 ///   while let Some(arange) = iter.next().unwrap() {
-///       println!("arange starts at {}, has length {}", arange.start(), arange.len());
+///       println!("arange starts at {}, has length {}", arange.address(), arange.length());
 ///   }
 ///   ```
 pub type DebugAranges<'input, Endian> = DebugLookup<'input, Endian, ArangeParser<'input, Endian>>;

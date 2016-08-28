@@ -93,7 +93,7 @@
 //!     // `DebugAranges::items` returns a `FallibleIterator`!
 //!     aranges.items()
 //!         // `map` is provided by `FallibleIterator`!
-//!         .map(|arange| arange.len())
+//!         .map(|arange| arange.length())
 //!         // `fold` is provided by `FallibleIterator`!
 //!         .fold(0, |sum, len| sum + len)
 //! }
