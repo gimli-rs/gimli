@@ -247,16 +247,37 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
 fn dump_aranges<Endian>(file: &object::File)
     where Endian: gimli::Endianity
 {
-    if let Some(debug_aranges) = file.get_section(".debug_aranges") {
-        println!(".debug_aranges");
-        let debug_aranges = gimli::DebugAranges::<Endian>::new(debug_aranges);
+    let debug_aranges = file.get_section(".debug_aranges");
+    let debug_info = file.get_section(".debug_info");
 
+    if let (Some(debug_aranges), Some(debug_info)) = (debug_aranges, debug_info) {
+        println!(".debug_aranges");
+        println!("");
+
+        let debug_aranges = gimli::DebugAranges::<Endian>::new(debug_aranges);
+        let debug_info = gimli::DebugInfo::<Endian>::new(debug_info);
+
+        let mut cu_die_offset = gimli::DebugInfoOffset(0);
+        let mut prev_cu_offset = None;
         let mut aranges = debug_aranges.items();
         while let Some(arange) = aranges.next().expect("Should parse arange OK") {
-            println!("arange starts at 0x{:08x}, length of 0x{:08x}, cu_die_offset = {:?}",
-                     arange.start(),
-                     arange.len(),
-                     arange.debug_info_offset());
+            let cu_offset = arange.debug_info_offset();
+            if Some(cu_offset) != prev_cu_offset {
+                let cu = debug_info.header_from_offset(cu_offset)
+                    .expect("Should parse unit header OK");
+                cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size() as u64);
+                prev_cu_offset = Some(cu_offset);
+            }
+            if let Some(segment) = arange.segment() {
+                print!("arange starts at seg,off 0x{:08x},0x{:08x}, ",
+                       segment,
+                       arange.address());
+            } else {
+                print!("arange starts at 0x{:08x}, ", arange.address());
+            }
+            println!("length of 0x{:08x}, cu_die_offset = 0x{:08x}",
+                     arange.length(),
+                     cu_die_offset.0);
         }
     }
 }

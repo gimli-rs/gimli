@@ -98,44 +98,20 @@ impl<'input, Endian, Parser> LookupEntryIter<'input, Endian, Parser>
                 Ok(None)
             } else {
                 // Parse the next header.
-                match Parser::parse_header(self.remaining_input) {
-                    Ok((input, set, header)) => {
-                        self.remaining_input = input;
-                        self.current_set = set;
-                        self.current_header = Some(header);
-                        // Header is parsed, go parse the first entry.
-                        self.next()
-                    }
-                    Err(e) => {
-                        self.remaining_input = self.remaining_input.range_to(..0);
-                        self.current_header = None;
-                        Err(e)
-                    }
-                }
+                let (input, set, header) = try!(Parser::parse_header(self.remaining_input));
+                self.remaining_input = input;
+                self.current_set = set;
+                self.current_header = Some(header);
+                // Header is parsed, go parse the first entry.
+                self.next()
             }
         } else {
-            match Parser::parse_entry(self.current_set,
-                                      self.current_header.as_ref().expect("How did this happen?")) {
-                Ok((remaining_set, entry)) => {
-                    self.current_set = remaining_set;
-                    match entry {
-                        None => {
-                            // Last entry for this header, go around again and parse a new header.
-                            // NB: There could be padding, so we must explicitly truncate
-                            // current_set.
-                            self.current_set = self.current_set.range_to(..0);
-                            self.next()
-                        }
-                        Some(entry) => Ok(Some(entry)),
-                    }
-                }
-                Err(e) => {
-                    self.current_set = self.current_set.range_to(..0);
-                    self.current_header = None;
-                    // Should we blow away all other sets too? Maybe not ...
-                    self.remaining_input = self.remaining_input.range_to(..0);
-                    Err(e)
-                }
+            let (remaining_set, entry) =
+                try!(Parser::parse_entry(self.current_set, self.current_header.as_ref().unwrap()));
+            self.current_set = remaining_set;
+            match entry {
+                None => self.next(),
+                Some(entry) => Ok(Some(entry)),
             }
         }
     }
@@ -225,7 +201,7 @@ impl<'input, Endian, Switch> LookupParser<'input, Endian> for PubStuffParser<'in
         let (rest, offset) = try!(parse_word(input.into(), Switch::format_from(header)));
 
         if offset == 0 {
-            Ok((rest, None))
+            Ok((EndianBuf::new(&[]), None))
         } else {
             let (rest, name) = try!(parse_null_terminated_string(rest.into()));
 

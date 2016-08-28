@@ -919,7 +919,8 @@ impl<'input, Endian> UnitHeader<'input, Endian>
         self.format
     }
 
-    fn header_size(&self) -> usize {
+    /// The serialized size of the header for this compilation unit.
+    pub fn header_size(&self) -> usize {
         Self::size_of_header(self.format)
     }
 

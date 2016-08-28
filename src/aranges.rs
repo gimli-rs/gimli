@@ -22,20 +22,28 @@ pub struct ArangeHeader {
 #[derive(Debug, Clone, Eq)]
 pub struct ArangeEntry {
     segment: u64,
-    offset: u64,
+    address: u64,
     length: u64,
     header: Rc<ArangeHeader>,
 }
 
 impl ArangeEntry {
+    /// Return the segment selector of this arange.
+    pub fn segment(&self) -> Option<u64> {
+        if self.header.segment_size != 0 {
+            Some(self.segment)
+        } else {
+            None
+        }
+    }
+
     /// Return the beginning address of this arange.
-    pub fn start(&self) -> u64 {
-        debug_assert!(self.segment == 0); // Dunno what to do with this
-        self.offset
+    pub fn address(&self) -> u64 {
+        self.address
     }
 
     /// Return the length of this arange.
-    pub fn len(&self) -> u64 {
+    pub fn length(&self) -> u64 {
         self.length
     }
 
@@ -49,7 +57,7 @@ impl PartialEq for ArangeEntry {
     fn eq(&self, other: &ArangeEntry) -> bool {
         // The expected comparison, but verify that header matches if everything else does.
         match (self.segment == other.segment,
-               self.offset == other.offset,
+               self.address == other.address,
                self.length == other.length) {
             (true, true, true) => {
                 debug_assert!(self.header == other.header);
@@ -70,7 +78,7 @@ impl Ord for ArangeEntry {
     fn cmp(&self, other: &ArangeEntry) -> Ordering {
         // The expected comparison, but ignore header.
         match (self.segment.cmp(&other.segment),
-               self.offset.cmp(&other.offset),
+               self.address.cmp(&other.address),
                self.length.cmp(&other.length)) {
             (Ordering::Equal, Ordering::Equal, Ordering::Equal) => Ordering::Equal,
             (Ordering::Less, _, _) |
@@ -91,7 +99,7 @@ pub struct ArangeParser<'input, Endian>
 }
 
 impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endian>
-    where Endian: Endianity
+    where Endian: 'input + Endianity
 {
     type Header = ArangeHeader;
     type Entry = ArangeEntry;
@@ -155,26 +163,34 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
         let address_size = header.address_size;
         let segment_size = header.segment_size; // May be zero!
 
+        let tuple_length = (2 * address_size + segment_size) as usize;
+        if tuple_length > input.len() {
+            return Ok((EndianBuf::new(&[]), None));
+        }
+
         let (rest, segment) = if segment_size != 0 {
             try!(parse_address(input, segment_size))
         } else {
             (input, 0)
         };
-        let (rest, offset) = try!(parse_address(rest, address_size));
+        let (rest, address) = try!(parse_address(rest, address_size));
         let (rest, length) = try!(parse_address(rest, address_size));
 
-        Ok((rest,
-            match (segment, offset, length) {
-            (0, 0, 0) => None,
+        match (segment, address, length) {
+            // There may be multiple sets of tuples, each terminated by a zero tuple.
+            // It's not clear what purpose these zero tuples serve.  For now, we
+            // simply skip them.
+            (0, 0, 0) => Self::parse_entry(rest, header),
             _ => {
-                Some(ArangeEntry {
+                Ok((rest,
+                    Some(ArangeEntry {
                     segment: segment,
-                    offset: offset,
+                    address: address,
                     length: length,
                     header: header.clone(),
-                })
+                })))
             }
-        }))
+        }
     }
 }
 
@@ -213,7 +229,7 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
 ///
 ///   let mut iter = debug_aranges.items();
 ///   while let Some(arange) = iter.next().unwrap() {
-///       println!("arange starts at {}, has length {}", arange.start(), arange.len());
+///       println!("arange starts at {}, has length {}", arange.address(), arange.length());
 ///   }
 ///   ```
 pub type DebugAranges<'input, Endian> = DebugLookup<'input, Endian, ArangeParser<'input, Endian>>;
@@ -236,3 +252,154 @@ pub type DebugAranges<'input, Endian> = DebugLookup<'input, Endian, ArangeParser
 pub type ArangeEntryIter<'input, Endian> = LookupEntryIter<'input,
                                                            Endian,
                                                            ArangeParser<'input, Endian>>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lookup::LookupParser;
+    use endianity::{EndianBuf, LittleEndian};
+    use parser::{Format, DebugInfoOffset};
+    use std::rc::Rc;
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_parse_header_ok() {
+        let buf = [
+            // 32-bit length = 32.
+            0x20, 0x00, 0x00, 0x00,
+            // Version.
+            0x02, 0x00,
+            // Offset.
+            0x01, 0x02, 0x03, 0x04,
+            // Address size.
+            0x08,
+            // Segment size.
+            0x04,
+            // Length to here = 12, tuple length = 20.
+            // Padding to tuple length multiple = 4.
+            0x10, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+
+            // Dummy arange tuple data.
+            0x20, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+
+            // Dummy next arange.
+            0x30, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
+
+        let input = EndianBuf::<LittleEndian>::new(&buf);
+
+        let (rest, tuples, header) = ArangeParser::parse_header(input)
+            .expect("should parse header ok");
+
+        assert_eq!(rest, EndianBuf::new(&buf[buf.len() - 16..]));
+        assert_eq!(tuples, EndianBuf::new(&buf[buf.len() - 32..buf.len() - 16]));
+        assert_eq!(*header,
+                   ArangeHeader {
+                       format: Format::Dwarf32,
+                       length: 0x20,
+                       version: 2,
+                       offset: DebugInfoOffset(0x04030201),
+                       address_size: 8,
+                       segment_size: 4,
+                   });
+    }
+
+    #[test]
+    fn test_parse_entry_ok() {
+        let header = Rc::new(ArangeHeader {
+            format: Format::Dwarf32,
+            length: 0,
+            version: 2,
+            offset: DebugInfoOffset(0),
+            address_size: 4,
+            segment_size: 0,
+        });
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
+        let input = EndianBuf::<LittleEndian>::new(&buf);
+        let (rest, entry) = ArangeParser::parse_entry(input, &header)
+            .expect("should parse entry ok");
+        assert_eq!(rest, EndianBuf::new(&buf[buf.len() - 1..]));
+        assert_eq!(entry,
+                   Some(ArangeEntry {
+                       segment: 0,
+                       address: 0x04030201,
+                       length: 0x08070605,
+                       header: header.clone(),
+                   }));
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_parse_entry_segment() {
+        let header = Rc::new(ArangeHeader {
+            format: Format::Dwarf32,
+            length: 0,
+            version: 2,
+            offset: DebugInfoOffset(0),
+            address_size: 4,
+            segment_size: 8,
+        });
+        let buf = [
+            // Segment.
+            0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+            // Address.
+            0x01, 0x02, 0x03, 0x04,
+            // Length.
+            0x05, 0x06, 0x07, 0x08,
+            // Next tuple.
+            0x09
+        ];
+        let input = EndianBuf::<LittleEndian>::new(&buf);
+        let (rest, entry) = ArangeParser::parse_entry(input, &header)
+            .expect("should parse entry ok");
+        assert_eq!(rest, EndianBuf::new(&buf[buf.len() - 1..]));
+        assert_eq!(entry,
+                   Some(ArangeEntry {
+                       segment: 0x1817161514131211,
+                       address: 0x04030201,
+                       length: 0x08070605,
+                       header: header.clone(),
+                   }));
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_parse_entry_zero() {
+        let header = Rc::new(ArangeHeader {
+            format: Format::Dwarf32,
+            length: 0,
+            version: 2,
+            offset: DebugInfoOffset(0),
+            address_size: 4,
+            segment_size: 0,
+        });
+        let buf = [
+            // Zero tuple.
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Address.
+            0x01, 0x02, 0x03, 0x04,
+            // Length.
+            0x05, 0x06, 0x07, 0x08,
+            // Next tuple.
+            0x09
+        ];
+        let input = EndianBuf::<LittleEndian>::new(&buf);
+        let (rest, entry) = ArangeParser::parse_entry(input, &header)
+            .expect("should parse entry ok");
+        assert_eq!(rest, EndianBuf::new(&buf[buf.len() - 1..]));
+        assert_eq!(entry,
+                   Some(ArangeEntry {
+                       segment: 0,
+                       address: 0x04030201,
+                       length: 0x08070605,
+                       header: header.clone(),
+                   }));
+    }
+}
