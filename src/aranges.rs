@@ -244,3 +244,120 @@ pub type DebugAranges<'input, Endian> = DebugLookup<'input, Endian, ArangeParser
 pub type ArangeEntryIter<'input, Endian> = LookupEntryIter<'input,
                                                            Endian,
                                                            ArangeParser<'input, Endian>>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lookup::LookupParser;
+    use endianity::{EndianBuf, LittleEndian};
+    use parser::{Format, DebugInfoOffset};
+    use std::rc::Rc;
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_parse_header_ok() {
+        let buf = [
+            // 32-bit length = 32.
+            0x20, 0x00, 0x00, 0x00,
+            // Version.
+            0x02, 0x00,
+            // Offset.
+            0x01, 0x02, 0x03, 0x04,
+            // Address size.
+            0x08,
+            // Segment size.
+            0x04,
+            // Length to here = 12, tuple length = 20.
+            // Padding to tuple length multiple = 4.
+            0x10, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+
+            // Dummy arange tuple data.
+            0x20, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+
+            // Dummy next arange.
+            0x30, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
+
+        let input = EndianBuf::<LittleEndian>::new(&buf);
+
+        let (rest, tuples, header) = ArangeParser::parse_header(input)
+            .expect("should parse header ok");
+
+        assert_eq!(rest, EndianBuf::new(&buf[buf.len() - 16..]));
+        assert_eq!(tuples, EndianBuf::new(&buf[buf.len() - 32..buf.len() - 16]));
+        assert_eq!(*header,
+                   ArangeHeader {
+                       format: Format::Dwarf32,
+                       length: 0x20,
+                       version: 2,
+                       offset: DebugInfoOffset(0x04030201),
+                       address_size: 8,
+                       segment_size: 4,
+                   });
+    }
+
+    #[test]
+    fn test_parse_entry_ok() {
+        let header = Rc::new(ArangeHeader {
+            format: Format::Dwarf32,
+            length: 0,
+            version: 2,
+            offset: DebugInfoOffset(0),
+            address_size: 4,
+            segment_size: 0,
+        });
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
+        let input = EndianBuf::<LittleEndian>::new(&buf);
+        let (rest, entry) = ArangeParser::parse_entry(input, &header)
+            .expect("should parse entry ok");
+        assert_eq!(rest, EndianBuf::new(&buf[buf.len() - 1..]));
+        assert_eq!(entry,
+                   Some(ArangeEntry {
+                       segment: 0,
+                       address: 0x04030201,
+                       length: 0x08070605,
+                       header: header.clone(),
+                   }));
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_parse_entry_segment() {
+        let header = Rc::new(ArangeHeader {
+            format: Format::Dwarf32,
+            length: 0,
+            version: 2,
+            offset: DebugInfoOffset(0),
+            address_size: 4,
+            segment_size: 8,
+        });
+        let buf = [
+            // Segment.
+            0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+            // Address.
+            0x01, 0x02, 0x03, 0x04,
+            // Length.
+            0x05, 0x06, 0x07, 0x08,
+            // Next tuple.
+            0x09
+        ];
+        let input = EndianBuf::<LittleEndian>::new(&buf);
+        let (rest, entry) = ArangeParser::parse_entry(input, &header)
+            .expect("should parse entry ok");
+        assert_eq!(rest, EndianBuf::new(&buf[buf.len() - 1..]));
+        assert_eq!(entry,
+                   Some(ArangeEntry {
+                       segment: 0x1817161514131211,
+                       address: 0x04030201,
+                       length: 0x08070605,
+                       header: header.clone(),
+                   }));
+    }
+}
