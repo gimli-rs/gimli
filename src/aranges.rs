@@ -171,18 +171,18 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
         let (rest, address) = try!(parse_address(rest, address_size));
         let (rest, length) = try!(parse_address(rest, address_size));
 
-        Ok((rest,
-            match (segment, address, length) {
-            (0, 0, 0) => None,
+        match (segment, address, length) {
+            (0, 0, 0) => Ok((EndianBuf::new(&[]), None)),
             _ => {
-                Some(ArangeEntry {
+                Ok((rest,
+                    Some(ArangeEntry {
                     segment: segment,
                     address: address,
                     length: length,
                     header: header.clone(),
-                })
+                })))
             }
-        }))
+        }
     }
 }
 
