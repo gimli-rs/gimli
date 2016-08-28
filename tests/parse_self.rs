@@ -1,4 +1,3 @@
-extern crate byteorder;
 extern crate gimli;
 
 use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugPubNames,
