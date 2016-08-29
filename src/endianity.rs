@@ -82,6 +82,12 @@ impl byteorder::ByteOrder for BigEndian {
 
 impl Endianity for BigEndian {}
 
+/// The native endianity for the target platform.
+#[cfg(target_endian = "little")]
+pub type NativeEndian = LittleEndian;
+#[cfg(target_endian = "big")]
+pub type NativeEndian = BigEndian;
+
 /// A `&[u8]` slice with compile-time endianity metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EndianBuf<'input, Endian>(pub &'input [u8], pub PhantomData<Endian>)
