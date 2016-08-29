@@ -23,10 +23,12 @@ fn main() {
         .expect("Should create a mmap for file");
     let file = object::File::parse(unsafe { file.as_slice() });
 
+    let addrs = matches.free.iter().map(|x| parse_uint_from_hex_string(x)).collect();
+
     if file.is_little_endian() {
-        symbolicate::<gimli::LittleEndian>(&file, &matches);
+        symbolicate::<gimli::LittleEndian>(&file, addrs);
     } else {
-        symbolicate::<gimli::BigEndian>(&file, &matches);
+        symbolicate::<gimli::BigEndian>(&file, addrs);
     }
 }
 
@@ -35,47 +37,6 @@ fn parse_uint_from_hex_string(string: &str) -> u64 {
         u64::from_str_radix(&string[2..], 16).expect("Failed to parse address")
     } else {
         u64::from_str_radix(string, 16).expect("Failed to parse address")
-    }
-}
-
-fn entry_offsets_for_addresses<Endian>(file: &object::File,
-                                       addrs: &Vec<u64>)
-                                       -> Vec<Option<gimli::DebugInfoOffset>>
-    where Endian: gimli::Endianity
-{
-    let aranges = file.get_section(".debug_aranges")
-        .expect("Can't addr2line with no aranges");
-    let aranges = gimli::DebugAranges::<Endian>::new(aranges);
-    let mut aranges = aranges.items();
-
-    let mut dies: Vec<Option<gimli::DebugInfoOffset>> = (0..addrs.len()).map(|_| None).collect();
-    while let Some(arange) = aranges.next().expect("Should parse arange OK") {
-        let start = arange.address();
-        let end = start + arange.length();
-
-        for (i, addr) in addrs.iter().enumerate() {
-            if *addr >= start && *addr < end {
-                dies[i] = Some(arange.debug_info_offset());
-            }
-        }
-    }
-
-    dies
-}
-
-fn line_offset_for_entry<Endian>(abbrevs: &gimli::DebugAbbrev<Endian>,
-                                 header: &gimli::UnitHeader<Endian>)
-                                 -> Option<gimli::DebugLineOffset>
-    where Endian: gimli::Endianity
-{
-    let abbrev = abbrevs.abbreviations(header.debug_abbrev_offset()).expect("Fail");
-    let mut entries = header.entries(&abbrev);
-    let (_, entry) = entries.next_dfs()
-        .expect("Should parse first entry OK")
-        .expect("And first entry should exist!");
-    match entry.attr_value(gimli::DW_AT_stmt_list) {
-        Some(gimli::AttributeValue::DebugLineRef(offset)) => Some(offset),
-        _ => None,
     }
 }
 
@@ -95,12 +56,9 @@ fn display_file<Endian>(row: gimli::LineNumberRow<Endian>)
     }
 }
 
-fn symbolicate<Endian>(file: &object::File, matches: &getopts::Matches)
+fn symbolicate<Endian>(file: &object::File, addrs: Vec<u64>)
     where Endian: gimli::Endianity
 {
-    let addrs: Vec<u64> = matches.free.iter().map(|x| parse_uint_from_hex_string(x)).collect();
-
-    let offsets = entry_offsets_for_addresses::<Endian>(&file, &addrs);
     let debug_info = file.get_section(".debug_info")
         .expect("Can't addr2line without .debug_info");
     let debug_info = gimli::DebugInfo::<Endian>::new(debug_info);
@@ -111,29 +69,87 @@ fn symbolicate<Endian>(file: &object::File, matches: &getopts::Matches)
         .expect("Can't addr2line without .debug_line");
     let debug_line = gimli::DebugLine::<Endian>::new(&debug_line);
 
-    for (info_offset, addr) in offsets.iter().zip(addrs.iter()) {
-        match *info_offset {
-            None => println!("Found nothing"),
-            Some(d) => {
-                match debug_info.header_from_offset(d) {
-                    Err(_) => println!("Couldn't get DIE header"),
-                    Ok(h) => {
-                        let line_offset = line_offset_for_entry(&debug_abbrev, &h)
-                            .expect("No offset into .debug_lines!?");
-                        let header = gimli::LineNumberProgramHeader::new(debug_line,
-                                                                         line_offset,
-                                                                         h.address_size());
-                        if let Ok(header) = header {
-                            let mut state_machine = gimli::StateMachine::new(header);
-                            match state_machine.run_to_address(addr) {
-                                Err(_) => println!("Failed to run line number program!"),
-                                Ok(None) => println!("Failed to find matching line for {}", *addr),
-                                Ok(Some(row)) => display_file(row),
-                            };
-                        }
-                    }
-                }
+    let mut units = Vec::new();
+    let mut headers = debug_info.units();
+    while let Some(header) = headers.next().expect("Couldn't get DIE header") {
+        if let Some(unit) = Unit::parse(&debug_abbrev, &header) {
+            units.push(unit);
+        }
+    }
+
+    for addr in addrs {
+        find_address(debug_line, &units, addr);
+    }
+}
+
+fn find_address<Endian>(debug_line: gimli::DebugLine<Endian>, units: &[Unit], addr: u64)
+    where Endian: gimli::Endianity
+{
+    for unit in units {
+        if unit.contains_address(addr) {
+            if let Ok(mut lines) = unit.lines(debug_line) {
+                if let Ok(Some(row)) = lines.run_to_address(&addr) {
+                    display_file(row);
+                    return;
+                };
             }
         }
+    }
+    println!("Failed to find matching line for {}", addr);
+}
+
+struct Unit {
+    address_size: u8,
+    low_pc: u64,
+    high_pc: u64,
+    line_offset: gimli::DebugLineOffset,
+}
+
+impl Unit {
+    fn parse<Endian>(abbrevs: &gimli::DebugAbbrev<Endian>,
+                     header: &gimli::UnitHeader<Endian>)
+                     -> Option<Unit>
+        where Endian: gimli::Endianity
+    {
+        let abbrev = abbrevs.abbreviations(header.debug_abbrev_offset()).expect("Fail");
+        let mut entries = header.entries(&abbrev);
+        let (_, entry) = entries.next_dfs()
+            .expect("Should parse first entry OK")
+            .expect("And first entry should exist!");
+
+        let low_pc = match entry.attr_value(gimli::DW_AT_low_pc) {
+            Some(gimli::AttributeValue::Addr(addr)) => addr,
+            _ => 0,
+        };
+        let high_pc = match entry.attr_value(gimli::DW_AT_high_pc) {
+            Some(gimli::AttributeValue::Addr(addr)) => addr,
+            _ => 0,
+        };
+        // TODO: handle DW_AT_ranges
+        let line_offset = match entry.attr_value(gimli::DW_AT_stmt_list) {
+            Some(gimli::AttributeValue::DebugLineRef(offset)) => offset,
+            _ => return None,
+        };
+        Some(Unit {
+            address_size: header.address_size(),
+            low_pc: low_pc,
+            high_pc: high_pc,
+            line_offset: line_offset,
+        })
+    }
+
+    fn contains_address(&self, address: u64) -> bool {
+        self.high_pc == 0 || address >= self.low_pc && address <= self.high_pc
+    }
+
+    fn lines<'a, Endian>(&self,
+                         debug_line: gimli::DebugLine<'a, Endian>)
+                         -> gimli::ParseResult<gimli::StateMachine<'a, Endian>>
+        where Endian: gimli::Endianity
+    {
+        let header = try!(gimli::LineNumberProgramHeader::new(debug_line,
+                                                              self.line_offset,
+                                                              self.address_size));
+        Ok(gimli::StateMachine::new(header))
     }
 }
