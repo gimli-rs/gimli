@@ -1499,6 +1499,11 @@ impl<'input, Endian> Attribute<'input, Endian>
                     return AttributeValue::DebugLineRef(DebugLineOffset(offset));
                 }
             }
+            constants::DW_AT_high_pc => {
+                if let Some(data) = self.udata_value() {
+                    return AttributeValue::Udata(data);
+                }
+            }
             constants::DW_AT_language => {
                 if let Some(value) = self.u16_value() {
                     return AttributeValue::Language(constants::DwLang(value));

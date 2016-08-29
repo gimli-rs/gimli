@@ -189,6 +189,9 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
         }
         gimli::AttributeValue::Udata(data) => {
             match attr.name() {
+                gimli::DW_AT_high_pc => {
+                    println!("<offset-from-lowpc>{}", data);
+                }
                 gimli::DW_AT_data_member_location |
                 gimli::DW_AT_lower_bound |
                 gimli::DW_AT_upper_bound => {
