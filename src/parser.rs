@@ -17,6 +17,7 @@ use std::fmt::{self, Debug};
 use std::io;
 use std::marker::PhantomData;
 use std::ops::{Range, RangeFrom, RangeTo};
+use std::{u8, u16};
 use str::DebugStrOffset;
 
 /// An error that occurred when parsing.
@@ -1407,6 +1408,45 @@ pub enum AttributeValue<'input, Endian>
     /// A null terminated C string, including the final null byte. Not
     /// guaranteed to be UTF-8 or anything like that.
     String(&'input ffi::CStr),
+
+    /// The value of a `DW_AT_encoding` attribute.
+    Encoding(constants::DwAte),
+
+    /// The value of a `DW_AT_decimal_sign` attribute.
+    DecimalSign(constants::DwDs),
+
+    /// The value of a `DW_AT_endianity` attribute.
+    Endianity(constants::DwEnd),
+
+    /// The value of a `DW_AT_accessibility` attribute.
+    Accessibility(constants::DwAccess),
+
+    /// The value of a `DW_AT_visibility` attribute.
+    Visibility(constants::DwVis),
+
+    /// The value of a `DW_AT_virtuality` attribute.
+    Virtuality(constants::DwVirtuality),
+
+    /// The value of a `DW_AT_language` attribute.
+    Language(constants::DwLang),
+
+    /// The value of a `DW_AT_address_class` attribute.
+    AddressClass(constants::DwAddr),
+
+    /// The value of a `DW_AT_identifier_case` attribute.
+    IdentifierCase(constants::DwId),
+
+    /// The value of a `DW_AT_calling_convention` attribute.
+    CallingConvention(constants::DwCc),
+
+    /// The value of a `DW_AT_inline` attribute.
+    Inline(constants::DwInl),
+
+    /// The value of a `DW_AT_ordering` attribute.
+    Ordering(constants::DwOrd),
+
+    /// The value of a `DW_AT_discr_list` attribute.
+    DiscrList(constants::DwDsc),
 }
 
 /// An attribute in a `DebuggingInformationEntry`, consisting of a name and
@@ -1438,21 +1478,149 @@ impl<'input, Endian> Attribute<'input, Endian>
     /// and may have special meaning depending on the attribute name.  This method
     /// converts the attribute value to a normalized form based on the attribute
     /// name.
+    ///
+    /// See "Figure 20. Attribute encodings" and "Figure 21. Attribute form encodings".
     pub fn value(&self) -> AttributeValue<'input, Endian> {
         match self.name {
-            constants::DW_AT_stmt_list => {
-                let offset = DebugLineOffset(match self.value {
-                    AttributeValue::Data(data) if data.len() == 4 => {
-                        Endian::read_u32(data.into()) as u64
-                    }
-                    AttributeValue::Data(data) if data.len() == 8 => Endian::read_u64(data.into()),
-                    AttributeValue::SecOffset(offset) => offset,
-                    otherwise => return otherwise,
-                });
-                AttributeValue::DebugLineRef(offset)
+            constants::DW_AT_ordering => {
+                if let Some(value) = self.u8_value() {
+                    return AttributeValue::Ordering(constants::DwOrd(value));
+                }
             }
-            _ => self.value,
+            constants::DW_AT_byte_size |
+            constants::DW_AT_bit_offset |
+            constants::DW_AT_bit_size => {
+                if let Some(data) = self.udata_value() {
+                    return AttributeValue::Udata(data);
+                }
+            }
+            constants::DW_AT_stmt_list => {
+                if let Some(offset) = self.offset_value() {
+                    return AttributeValue::DebugLineRef(DebugLineOffset(offset));
+                }
+            }
+            constants::DW_AT_language => {
+                if let Some(value) = self.u16_value() {
+                    return AttributeValue::Language(constants::DwLang(value));
+                }
+            }
+            constants::DW_AT_visibility => {
+                if let Some(value) = self.u8_value() {
+                    return AttributeValue::Visibility(constants::DwVis(value));
+                }
+            }
+            constants::DW_AT_inline => {
+                if let Some(value) = self.u8_value() {
+                    return AttributeValue::Inline(constants::DwInl(value));
+                }
+            }
+            constants::DW_AT_lower_bound |
+            constants::DW_AT_upper_bound |
+            constants::DW_AT_count => {
+                if let Some(data) = self.udata_value() {
+                    return AttributeValue::Udata(data);
+                }
+            }
+            constants::DW_AT_accessibility => {
+                if let Some(value) = self.u8_value() {
+                    return AttributeValue::Accessibility(constants::DwAccess(value));
+                }
+            }
+            constants::DW_AT_address_class => {
+                if let Some(value) = self.udata_value() {
+                    return AttributeValue::AddressClass(constants::DwAddr(value));
+                }
+            }
+            constants::DW_AT_calling_convention => {
+                if let Some(value) = self.u8_value() {
+                    return AttributeValue::CallingConvention(constants::DwCc(value));
+                }
+            }
+            constants::DW_AT_data_member_location |
+            constants::DW_AT_decl_column |
+            constants::DW_AT_decl_file |
+            constants::DW_AT_decl_line => {
+                if let Some(data) = self.udata_value() {
+                    return AttributeValue::Udata(data);
+                }
+            }
+            constants::DW_AT_discr_list => {
+                if let Some(value) = self.u8_value() {
+                    return AttributeValue::DiscrList(constants::DwDsc(value));
+                }
+            }
+            constants::DW_AT_encoding => {
+                if let Some(value) = self.u8_value() {
+                    return AttributeValue::Encoding(constants::DwAte(value));
+                }
+            }
+            constants::DW_AT_identifier_case => {
+                if let Some(value) = self.u8_value() {
+                    return AttributeValue::IdentifierCase(constants::DwId(value));
+                }
+            }
+            constants::DW_AT_virtuality => {
+                if let Some(value) = self.u8_value() {
+                    return AttributeValue::Virtuality(constants::DwVirtuality(value));
+                }
+            }
+            constants::DW_AT_decimal_sign => {
+                if let Some(value) = self.u8_value() {
+                    return AttributeValue::DecimalSign(constants::DwDs(value));
+                }
+            }
+            constants::DW_AT_endianity => {
+                if let Some(value) = self.u8_value() {
+                    return AttributeValue::Endianity(constants::DwEnd(value));
+                }
+            }
+            _ => {}
         }
+        self.value
+    }
+
+    /// Try to convert this attribute's value to a u8.
+    pub fn u8_value(&self) -> Option<u8> {
+        if let Some(value) = self.udata_value() {
+            if value <= u8::MAX as u64 {
+                return Some(value as u8);
+            }
+        }
+        None
+    }
+
+    /// Try to convert this attribute's value to a u16.
+    pub fn u16_value(&self) -> Option<u16> {
+        if let Some(value) = self.udata_value() {
+            if value <= u16::MAX as u64 {
+                return Some(value as u16);
+            }
+        }
+        None
+    }
+
+    /// Try to convert this attribute's value to an unsigned integer.
+    pub fn udata_value(&self) -> Option<u64> {
+        Some(match self.value {
+            AttributeValue::Data(data) if data.len() == 1 => data[0] as u64,
+            AttributeValue::Data(data) if data.len() == 2 => Endian::read_u16(data.into()) as u64,
+            AttributeValue::Data(data) if data.len() == 4 => Endian::read_u32(data.into()) as u64,
+            AttributeValue::Data(data) if data.len() == 8 => Endian::read_u64(data.into()),
+            AttributeValue::Udata(data) => data,
+            _ => return None,
+        })
+    }
+
+    /// Try to convert this attribute's value to an offset.
+    ///
+    /// Offsets will be `Data` in DWARF version 2/3, and `SecOffset` otherwise.
+    pub fn offset_value(&self) -> Option<u64> {
+        Some(match self.value {
+            AttributeValue::Data(data) if data.len() == 4 => Endian::read_u32(data.into()) as u64,
+            AttributeValue::Data(data) if data.len() == 8 => Endian::read_u64(data.into()),
+            AttributeValue::SecOffset(offset) => offset,
+            _ => return None,
+        })
     }
 }
 

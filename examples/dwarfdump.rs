@@ -188,13 +188,25 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
             println!("0x{:08x}", data);
         }
         gimli::AttributeValue::Udata(data) => {
-            println!("0x{:08x}", data);
+            match attr.name() {
+                gimli::DW_AT_data_member_location |
+                gimli::DW_AT_lower_bound |
+                gimli::DW_AT_upper_bound => {
+                    println!("{}", data);
+                }
+                _ => {
+                    println!("0x{:08x}", data);
+                }
+            };
         }
         gimli::AttributeValue::Flag(true) => {
             println!("yes(1)");
         }
         gimli::AttributeValue::Flag(false) => {
             println!("no(0)");
+        }
+        gimli::AttributeValue::SecOffset(offset) => {
+            println!("0x{:08x}", offset);
         }
         gimli::AttributeValue::UnitRef(gimli::UnitOffset(offset)) => {
             println!("<0x{:08x}>", offset);
@@ -217,6 +229,45 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
         }
         gimli::AttributeValue::String(s) => {
             println!("\"{}\"", s.to_string_lossy());
+        }
+        gimli::AttributeValue::Encoding(value) => {
+            println!("{}", value);
+        }
+        gimli::AttributeValue::DecimalSign(value) => {
+            println!("{}", value);
+        }
+        gimli::AttributeValue::Endianity(value) => {
+            println!("{}", value);
+        }
+        gimli::AttributeValue::Accessibility(value) => {
+            println!("{}", value);
+        }
+        gimli::AttributeValue::Visibility(value) => {
+            println!("{}", value);
+        }
+        gimli::AttributeValue::Virtuality(value) => {
+            println!("{}", value);
+        }
+        gimli::AttributeValue::Language(value) => {
+            println!("{}", value);
+        }
+        gimli::AttributeValue::AddressClass(value) => {
+            println!("{}", value);
+        }
+        gimli::AttributeValue::IdentifierCase(value) => {
+            println!("{}", value);
+        }
+        gimli::AttributeValue::CallingConvention(value) => {
+            println!("{}", value);
+        }
+        gimli::AttributeValue::Inline(value) => {
+            println!("{}", value);
+        }
+        gimli::AttributeValue::Ordering(value) => {
+            println!("{}", value);
+        }
+        gimli::AttributeValue::DiscrList(value) => {
+            println!("{}", value);
         }
         _ => println!("{:?}", value),
     }
