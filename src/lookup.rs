@@ -2,7 +2,7 @@
 
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
-use parser::{parse_null_terminated_string, parse_unit_length, parse_u16, parse_word, Format,
+use parser::{parse_null_terminated_string, parse_initial_length, parse_u16, parse_word, Format,
              ParseResult, Error};
 use std::ffi;
 use std::marker::PhantomData;
@@ -172,7 +172,7 @@ impl<'input, Endian, Switch> LookupParser<'input, Endian> for PubStuffParser<'in
     /// pubthings to be parsed for this set, and the newly created PubThingHeader struct.
     fn parse_header(input: EndianBuf<Endian>)
                     -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<Self::Header>)> {
-        let (rest, (set_length, format)) = try!(parse_unit_length(input.into()));
+        let (rest, (set_length, format)) = try!(parse_initial_length(input.into()));
         let (rest, version) = try!(parse_u16(rest.into()));
 
         if version != 2 {

@@ -1005,7 +1005,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
     fn parse(input: EndianBuf<'input, Endian>)
              -> parser::ParseResult<(EndianBuf<'input, Endian>,
                                      LineNumberProgramHeader<'input, Endian>)> {
-        let (rest, (unit_length, format)) = try!(parser::parse_unit_length(input));
+        let (rest, (unit_length, format)) = try!(parser::parse_initial_length(input));
         if (rest.len() as u64) < unit_length {
             return Err(parser::Error::UnexpectedEof);
         }

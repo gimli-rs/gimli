@@ -2,7 +2,7 @@
 
 use endianity::{Endianity, EndianBuf};
 use lookup::{LookupParser, LookupEntryIter, DebugLookup};
-use parser::{parse_address_size, parse_debug_info_offset, parse_unit_length, parse_u16,
+use parser::{parse_address_size, parse_debug_info_offset, parse_initial_length, parse_u16,
              parse_address, Error, Format, DebugInfoOffset, ParseResult};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
@@ -108,7 +108,7 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
     /// parsed for this set, and the newly created ArangeHeader struct.
     fn parse_header(input: EndianBuf<Endian>)
                     -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<Self::Header>)> {
-        let (rest, (length, format)) = try!(parse_unit_length(input));
+        let (rest, (length, format)) = try!(parse_initial_length(input));
         if length as usize > rest.len() {
             return Err(Error::UnexpectedEof);
         }
