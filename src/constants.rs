@@ -67,11 +67,11 @@ macro_rules! dw {
             fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
                 match *self {
                     $(
-                        $name => write!(f, stringify!($name)),
+                        $name => f.pad(stringify!($name)),
                     )+
-                    otherwise => write!(f, "Unknown {}: {}",
-                                        stringify!($struct_name),
-                                        otherwise.0),
+                    otherwise => f.pad(&format!("Unknown {}: {}",
+                                                stringify!($struct_name),
+                                                otherwise.0)),
                 }
             }
         }
@@ -82,11 +82,15 @@ macro_rules! dw {
     };
 }
 
+/// The child determination encodings for DIE attributes.
+/// See section 7.5.4, Figure 19.
 dw!(DwChildren(u8) {
     DW_CHILDREN_no = 0,
     DW_CHILDREN_yes = 1,
 });
 
+/// The tag encodings for DIE attributes.
+/// See section 7.5.4, Figure 18.
 dw!(DwTag(u64) {
     DW_TAG_null = 0x00,
 
@@ -155,6 +159,8 @@ dw!(DwTag(u64) {
     DW_TAG_hi_user = 0xffff,
 });
 
+/// The attribute encodings for DIE attributes.
+/// See section 7.5.4, Figure 20.
 dw!(DwAt(u64) {
     DW_AT_null = 0x00,
 
@@ -255,6 +261,8 @@ dw!(DwAt(u64) {
     DW_AT_hi_user = 0x3fff,
 });
 
+/// The attribute form encodings for DIE attributes.
+/// See section 7.5.4, Figure 21.
 dw!(DwForm(u64) {
     DW_FORM_null = 0x00,
 
@@ -285,6 +293,151 @@ dw!(DwForm(u64) {
     DW_FORM_ref_sig8 = 0x20,
 });
 
+/// The encodings of the constants used in the `DW_AT_encoding` attribute.
+/// See Section 7.8, Figure 25.
+dw!(DwAte(u8) {
+    DW_ATE_address = 0x01,
+    DW_ATE_boolean = 0x02,
+    DW_ATE_complex_float = 0x03,
+    DW_ATE_float = 0x04,
+    DW_ATE_signed = 0x05,
+    DW_ATE_signed_char = 0x06,
+    DW_ATE_unsigned = 0x07,
+    DW_ATE_unsigned_char = 0x08,
+    DW_ATE_imaginary_float = 0x09,
+    DW_ATE_packed_decimal = 0x0a,
+    DW_ATE_numeric_string = 0x0b,
+    DW_ATE_edited = 0x0c,
+    DW_ATE_signed_fixed = 0x0d,
+    DW_ATE_unsigned_fixed = 0x0e,
+    DW_ATE_decimal_float = 0x0f ,
+    DW_ATE_UTF = 0x10,
+    DW_ATE_lo_user = 0x80,
+    DW_ATE_hi_user = 0xff,
+});
+
+/// The encodings of the constants used in the `DW_AT_decimal_sign` attribute.
+/// See Section 7.8, Figure 26.
+dw!(DwDs(u8) {
+    DW_DS_unsigned = 0x01,
+    DW_DS_leading_overpunch = 0x02,
+    DW_DS_trailing_overpunch = 0x03,
+    DW_DS_leading_separate = 0x04,
+    DW_DS_trailing_separate = 0x05,
+});
+
+/// The encodings of the constants used in the `DW_AT_endianity` attribute.
+/// See Section 7.8, Figure 27.
+dw!(DwEnd(u8) {
+    DW_END_public = 0x00,
+    DW_END_protected = 0x01,
+    DW_END_private = 0x02,
+    DW_END_lo_user = 0x40,
+    DW_END_hi_user = 0xff,
+});
+
+/// The encodings of the constants used in the `DW_AT_accessibility` attribute.
+/// See Section 7.9, Figure 28.
+dw!(DwAccess(u8) {
+    DW_ACCESS_public = 0x01,
+    DW_ACCESS_protected = 0x02,
+    DW_ACCESS_private = 0x03,
+});
+
+/// The encodings of the constants used in the `DW_AT_visibility` attribute.
+/// See Section 7.10, Figure 29.
+dw!(DwVis(u8) {
+    DW_VIS_local = 0x01,
+    DW_VIS_exported = 0x02,
+    DW_VIS_qualified = 0x03,
+});
+
+/// The encodings of the constants used in the `DW_AT_virtuality` attribute.
+/// See Section 7.11, Figure 30.
+dw!(DwVirtuality(u8) {
+    DW_VIRTUALITY_none = 0x00,
+    DW_VIRTUALITY_virtual = 0x01,
+    DW_VIRTUALITY_pure_virtual = 0x02,
+});
+
+/// The encodings of the constants used in the `DW_AT_language` attribute.
+/// See Section 7.12, Figure 31.
+dw!(DwLang(u16) {
+    DW_LANG_C89 = 0x0001,
+    DW_LANG_C = 0x0002,
+    DW_LANG_Ada83 = 0x0003,
+    DW_LANG_C_plus_plus = 0x0004,
+    DW_LANG_Cobol74 = 0x0005,
+    DW_LANG_Cobol85 = 0x0006,
+    DW_LANG_Fortran77 = 0x0007,
+    DW_LANG_Fortran90 = 0x0008,
+    DW_LANG_Pascal83 = 0x0009,
+    DW_LANG_Modula2 = 0x000a,
+    DW_LANG_Java = 0x000b,
+    DW_LANG_C99 = 0x000c,
+    DW_LANG_Ada95 = 0x000d,
+    DW_LANG_Fortran95 = 0x000e,
+    DW_LANG_PLI = 0x000f,
+    DW_LANG_ObjC = 0x0010,
+    DW_LANG_ObjC_plus_plus = 0x0011,
+    DW_LANG_UPC = 0x0012,
+    DW_LANG_D = 0x0013,
+    DW_LANG_Python = 0x0014,
+    DW_LANG_lo_user = 0x8000,
+    DW_LANG_hi_user = 0xffff,
+});
+
+/// The encodings of the constants used in the `DW_AT_address_class` attribute.
+/// There is only one value that is common to all target architectures.
+/// See Section 7.13.
+dw!(DwAddr(u64) {
+    DW_ADDR_none = 0x00,
+});
+
+/// The encodings of the constants used in the `DW_AT_identifier_case` attribute.
+/// See Section 7.14, Figure 32.
+dw!(DwId(u8) {
+    DW_ID_case_sensitive = 0x00,
+    DW_ID_up_case = 0x01,
+    DW_ID_down_case = 0x02,
+    DW_ID_case_insensitive = 0x03,
+});
+
+/// The encodings of the constants used in the `DW_AT_calling_convention` attribute.
+/// See Section 7.15, Figure 33.
+dw!(DwCc(u8) {
+    DW_CC_normal = 0x01,
+    DW_CC_program = 0x02,
+    DW_CC_nocall = 0x03,
+    DW_CC_lo_user = 0x40,
+    DW_CC_hi_user = 0xff,
+});
+
+/// The encodings of the constants used in the `DW_AT_inline` attribute.
+/// See Section 7.16, Figure 34.
+dw!(DwInl(u8) {
+    DW_INL_not_inlined = 0x00,
+    DW_INL_inlined = 0x01,
+    DW_INL_declared_not_inlined = 0x02,
+    DW_INL_declared_inlined = 0x03,
+});
+
+/// The encodings of the constants used in the `DW_AT_ordering` attribute.
+/// See Section 7.17, Figure 35.
+dw!(DwOrd(u8) {
+    DW_ORD_row_major = 0x00,
+    DW_ORD_col_major = 0x01,
+});
+
+/// The encodings of the constants used in the `DW_AT_discr_list` attribute.
+/// See Section 7.18, Figure 36.
+dw!(DwDsc(u8) {
+    DW_DSC_label = 0x00,
+    DW_DSC_range = 0x01,
+});
+
+/// The encodings for the standard opcodes for line number information.
+/// See Section 7.21, Figure 37.
 dw!(DwLns(u8) {
     DW_LNS_copy = 0x01,
     DW_LNS_advance_pc = 0x02,
@@ -300,6 +453,8 @@ dw!(DwLns(u8) {
     DW_LNS_set_isa = 0x0c,
 });
 
+/// The encodings for the extended opcodes for line number information.
+/// See Section 7.21, Figure 38.
 dw!(DwLne(u8) {
     DW_LNE_end_sequence = 0x01,
     DW_LNE_set_address = 0x02,
