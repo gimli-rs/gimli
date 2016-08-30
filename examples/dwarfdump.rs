@@ -204,10 +204,11 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
             };
         }
         gimli::AttributeValue::Flag(true) => {
+            // We don't record what the value was, so assume 1.
             println!("yes(1)");
         }
         gimli::AttributeValue::Flag(false) => {
-            println!("no(0)");
+            println!("no");
         }
         gimli::AttributeValue::SecOffset(offset) => {
             println!("0x{:08x}", offset);
