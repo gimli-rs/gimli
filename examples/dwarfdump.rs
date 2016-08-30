@@ -217,7 +217,7 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
             println!("<0x{:08x}>", offset);
         }
         gimli::AttributeValue::DebugInfoRef(gimli::DebugInfoOffset(offset)) => {
-            println!("0x{:08x}", offset);
+            println!("<GOFF=0x{:08x}>", offset);
         }
         gimli::AttributeValue::DebugLineRef(gimli::DebugLineOffset(offset)) => {
             println!("0x{:08x}", offset);
@@ -227,13 +227,13 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
         }
         gimli::AttributeValue::DebugStrRef(offset) => {
             if let Ok(s) = debug_str.get_str(offset) {
-                println!("\"{}\"", s.to_string_lossy());
+                println!("{}", s.to_string_lossy());
             } else {
                 println!("{:?}", value);
             }
         }
         gimli::AttributeValue::String(s) => {
-            println!("\"{}\"", s.to_string_lossy());
+            println!("{}", s.to_string_lossy());
         }
         gimli::AttributeValue::Encoding(value) => {
             println!("{}", value);
