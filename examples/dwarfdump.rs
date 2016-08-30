@@ -156,6 +156,7 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
     let mut depth = 0;
     while let Some((delta_depth, entry)) = entries.next_dfs().expect("Should parse next dfs") {
         depth += delta_depth;
+        assert!(depth >= 0);
         let indent = depth as usize * 2 + 2;
         println!("<{:2}><0x{:08x}>{:indent$}{}",
                  depth,
@@ -184,6 +185,12 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
         gimli::AttributeValue::Addr(address) => {
             println!("0x{:08x}", address);
         }
+        gimli::AttributeValue::Block(_) => {
+            println!("{:?}", value);
+        }
+        gimli::AttributeValue::Data(_) => {
+            println!("{:?}", value);
+        }
         gimli::AttributeValue::Sdata(data) => {
             println!("0x{:08x}", data);
         }
@@ -202,11 +209,15 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
                 }
             };
         }
+        gimli::AttributeValue::Exprloc(_) => {
+            println!("{:?}", value);
+        }
         gimli::AttributeValue::Flag(true) => {
+            // We don't record what the value was, so assume 1.
             println!("yes(1)");
         }
         gimli::AttributeValue::Flag(false) => {
-            println!("no(0)");
+            println!("no");
         }
         gimli::AttributeValue::SecOffset(offset) => {
             println!("0x{:08x}", offset);
@@ -215,23 +226,35 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
             println!("<0x{:08x}>", offset);
         }
         gimli::AttributeValue::DebugInfoRef(gimli::DebugInfoOffset(offset)) => {
-            println!("0x{:08x}", offset);
+            println!("<GOFF=0x{:08x}>", offset);
         }
         gimli::AttributeValue::DebugLineRef(gimli::DebugLineOffset(offset)) => {
             println!("0x{:08x}", offset);
+        }
+        gimli::AttributeValue::DebugLocRef(gimli::DebugLocOffset(offset)) => {
+            println!("<loclist at offset 0x{:08x} with {} entries follows>",
+                     offset,
+                     0);
+            // TODO: print loclist
+        }
+        gimli::AttributeValue::DebugMacinfoRef(gimli::DebugMacinfoOffset(offset)) => {
+            println!("{}", offset);
+        }
+        gimli::AttributeValue::DebugRangesRef(gimli::DebugRangesOffset(offset)) => {
+            println!("{}", offset);
         }
         gimli::AttributeValue::DebugTypesRef(gimli::DebugTypesOffset(offset)) => {
             println!("0x{:08x}", offset);
         }
         gimli::AttributeValue::DebugStrRef(offset) => {
             if let Ok(s) = debug_str.get_str(offset) {
-                println!("\"{}\"", s.to_string_lossy());
+                println!("{}", s.to_string_lossy());
             } else {
                 println!("{:?}", value);
             }
         }
         gimli::AttributeValue::String(s) => {
-            println!("\"{}\"", s.to_string_lossy());
+            println!("{}", s.to_string_lossy());
         }
         gimli::AttributeValue::Encoding(value) => {
             println!("{}", value);
@@ -269,10 +292,6 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
         gimli::AttributeValue::Ordering(value) => {
             println!("{}", value);
         }
-        gimli::AttributeValue::DiscrList(value) => {
-            println!("{}", value);
-        }
-        _ => println!("{:?}", value),
     }
 }
 
