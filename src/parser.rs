@@ -75,6 +75,12 @@ pub enum Error {
     OpcodeBaseZero,
     /// The specified file index was out of bounds.
     BadFileIndex,
+    /// Found an invalid UTF-8 string.
+    BadUtf8,
+    /// Expected to find the CIE ID, but found something else.
+    NotCieId,
+    /// Expected to find a pointer to a CIE, but found the CIE ID instead.
+    NotCiePointer,
 }
 
 impl fmt::Display for Error {
@@ -128,6 +134,9 @@ impl error::Error for Error {
             Error::LineRangeZero => "The line range must not be zero.",
             Error::OpcodeBaseZero => "The opcode base must not be zero.",
             Error::BadFileIndex => "The specified file index was out of bounds.",
+            Error::BadUtf8 => "Found an invalid UTF-8 string.",
+            Error::NotCieId => "Expected to find the CIE ID, but found something else.",
+            Error::NotCiePointer => "Expected to find a CIE pointer, but found the CIE ID instead.",
         }
     }
 }
@@ -513,7 +522,7 @@ const DWARF_64_INITIAL_UNIT_LENGTH: u64 = 0xffffffff;
 /// Parse the compilation unit header's length.
 #[doc(hidden)]
 pub fn parse_initial_length<Endian>(input: EndianBuf<Endian>)
-                                 -> ParseResult<(EndianBuf<Endian>, (u64, Format))>
+                                    -> ParseResult<(EndianBuf<Endian>, (u64, Format))>
     where Endian: Endianity
 {
     let (rest, val) = try!(parse_u32_as_u64(input));
