@@ -1457,9 +1457,6 @@ pub enum AttributeValue<'input, Endian>
 
     /// The value of a `DW_AT_ordering` attribute.
     Ordering(constants::DwOrd),
-
-    /// The value of a `DW_AT_discr_list` attribute.
-    DiscrList(constants::DwDsc),
 }
 
 /// An attribute in a `DebuggingInformationEntry`, consisting of a name and
@@ -1625,11 +1622,6 @@ impl<'input, Endian> Attribute<'input, Endian>
             }
             // DW_AT_declaration: flag
             // DW_AT_discr_list: block
-            constants::DW_AT_discr_list => {
-                if let Some(value) = self.u8_value() {
-                    return AttributeValue::DiscrList(constants::DwDsc(value));
-                }
-            }
             // DW_AT_encoding: constant
             constants::DW_AT_encoding => {
                 if let Some(value) = self.u8_value() {

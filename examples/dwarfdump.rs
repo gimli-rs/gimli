@@ -292,9 +292,6 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
         gimli::AttributeValue::Ordering(value) => {
             println!("{}", value);
         }
-        gimli::AttributeValue::DiscrList(value) => {
-            println!("{}", value);
-        }
     }
 }
 
