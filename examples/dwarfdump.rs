@@ -185,6 +185,12 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
         gimli::AttributeValue::Addr(address) => {
             println!("0x{:08x}", address);
         }
+        gimli::AttributeValue::Block(_) => {
+            println!("{:?}", value);
+        }
+        gimli::AttributeValue::Data(_) => {
+            println!("{:?}", value);
+        }
         gimli::AttributeValue::Sdata(data) => {
             println!("0x{:08x}", data);
         }
@@ -202,6 +208,9 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
                     println!("0x{:08x}", data);
                 }
             };
+        }
+        gimli::AttributeValue::Exprloc(_) => {
+            println!("{:?}", value);
         }
         gimli::AttributeValue::Flag(true) => {
             // We don't record what the value was, so assume 1.
@@ -221,6 +230,18 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
         }
         gimli::AttributeValue::DebugLineRef(gimli::DebugLineOffset(offset)) => {
             println!("0x{:08x}", offset);
+        }
+        gimli::AttributeValue::DebugLocRef(gimli::DebugLocOffset(offset)) => {
+            println!("<loclist at offset 0x{:08x} with {} entries follows>",
+                     offset,
+                     0);
+            // TODO: print loclist
+        }
+        gimli::AttributeValue::DebugMacinfoRef(gimli::DebugMacinfoOffset(offset)) => {
+            println!("{}", offset);
+        }
+        gimli::AttributeValue::DebugRangesRef(gimli::DebugRangesOffset(offset)) => {
+            println!("{}", offset);
         }
         gimli::AttributeValue::DebugTypesRef(gimli::DebugTypesOffset(offset)) => {
             println!("0x{:08x}", offset);
@@ -274,7 +295,6 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
         gimli::AttributeValue::DiscrList(value) => {
             println!("{}", value);
         }
-        _ => println!("{:?}", value),
     }
 }
 
