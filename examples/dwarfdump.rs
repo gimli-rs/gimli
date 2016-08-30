@@ -156,6 +156,7 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
     let mut depth = 0;
     while let Some((delta_depth, entry)) = entries.next_dfs().expect("Should parse next dfs") {
         depth += delta_depth;
+        assert!(depth >= 0);
         let indent = depth as usize * 2 + 2;
         println!("<{:2}><0x{:08x}>{:indent$}{}",
                  depth,
