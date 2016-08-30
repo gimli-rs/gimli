@@ -111,7 +111,7 @@ mod constants;
 pub use constants::*;
 
 mod endianity;
-pub use endianity::{Endianity, EndianBuf, LittleEndian, BigEndian};
+pub use endianity::{Endianity, EndianBuf, LittleEndian, BigEndian, NativeEndian};
 
 mod parser;
 pub use parser::{Error, ParseResult, Format};
