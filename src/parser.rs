@@ -1491,228 +1491,356 @@ impl<'input, Endian> Attribute<'input, Endian>
     ///
     /// See "Figure 20. Attribute encodings" and "Figure 21. Attribute form encodings".
     pub fn value(&self) -> AttributeValue<'input, Endian> {
-        // The following are already normalized: address, exprloc, flag, reference, string.
-        match self.name {
-            // DW_AT_sibling: reference
-            // DW_AT_location: exprloc, loclistptr
-            constants::DW_AT_location => {
+        macro_rules! address {
+            () => ();
+        }
+        macro_rules! block {
+            () => ();
+        }
+        macro_rules! constant {
+            ($value:ident, $variant:ident) => (
+                if let Some(value) = self.$value() {
+                    return AttributeValue::$variant(value);
+                });
+            ($value:ident, $variant:ident, $constant:ident) => (
+                if let Some(value) = self.$value() {
+                    return AttributeValue::$variant(constants::$constant(value));
+                });
+        }
+        macro_rules! exprloc {
+            () => ();
+        }
+        macro_rules! flag {
+            () => ();
+        }
+        macro_rules! loclistptr {
+            () => (
                 if let Some(offset) = self.offset_value() {
                     return AttributeValue::DebugLocRef(DebugLocOffset(offset));
-                }
+                });
+        }
+        macro_rules! lineptr {
+            () => (
+                if let Some(offset) = self.offset_value() {
+                    return AttributeValue::DebugLineRef(DebugLineOffset(offset));
+                });
+        }
+        macro_rules! macptr {
+            () => (
+                if let Some(offset) = self.offset_value() {
+                    return AttributeValue::DebugMacinfoRef(DebugMacinfoOffset(offset));
+                });
+        }
+        macro_rules! rangelistptr {
+            () => (
+                if let Some(offset) = self.offset_value() {
+                    return AttributeValue::DebugRangesRef(DebugRangesOffset(offset));
+                });
+        }
+        macro_rules! reference {
+            () => ();
+        }
+        macro_rules! string {
+            () => ();
+        }
+
+        match self.name {
+            constants::DW_AT_sibling => {
+                reference!();
             }
-            // DW_AT_name: string
-            // DW_AT_ordering: constant
+            constants::DW_AT_location => {
+                exprloc!();
+                loclistptr!();
+            }
+            constants::DW_AT_name => {
+                string!();
+            }
             constants::DW_AT_ordering => {
-                if let Some(value) = self.u8_value() {
-                    return AttributeValue::Ordering(constants::DwOrd(value));
-                }
+                constant!(u8_value, Ordering, DwOrd);
             }
-            // DW_AT_byte_size: constant, exprloc, reference
-            // DW_AT_bit_offset: constant, exprloc, reference
-            // DW_AT_bit_size: constant, exprloc, reference
             constants::DW_AT_byte_size |
             constants::DW_AT_bit_offset |
             constants::DW_AT_bit_size => {
-                if let Some(data) = self.udata_value() {
-                    return AttributeValue::Udata(data);
-                }
+                constant!(udata_value, Udata);
+                exprloc!();
+                reference!();
             }
-            // DW_AT_stmt_list: lineptr
             constants::DW_AT_stmt_list => {
-                if let Some(offset) = self.offset_value() {
-                    return AttributeValue::DebugLineRef(DebugLineOffset(offset));
-                }
+                lineptr!();
             }
-            // DW_AT_low_pc: address
-            // DW_AT_high_pc: address, constant
+            constants::DW_AT_low_pc => {
+                address!();
+            }
             constants::DW_AT_high_pc => {
-                if let Some(data) = self.udata_value() {
-                    return AttributeValue::Udata(data);
-                }
+                address!();
+                constant!(udata_value, Udata);
             }
-            // DW_AT_language: constant
             constants::DW_AT_language => {
-                if let Some(value) = self.u16_value() {
-                    return AttributeValue::Language(constants::DwLang(value));
-                }
+                constant!(u16_value, Language, DwLang);
             }
-            // DW_AT_discr: reference
-            // DW_AT_discr_value: constant: depends on type of DW_TAG_variant_part,
-            // so caller must normalize.
-            // DW_AT_visibility: constant
+            constants::DW_AT_discr => {
+                reference!();
+            }
+            constants::DW_AT_discr_value => {
+                // constant: depends on type of DW_TAG_variant_part,
+                // so caller must normalize.
+            }
             constants::DW_AT_visibility => {
-                if let Some(value) = self.u8_value() {
-                    return AttributeValue::Visibility(constants::DwVis(value));
-                }
+                constant!(u8_value, Visibility, DwVis);
             }
-            // DW_AT_import: reference
-            // DW_AT_string_length: exprloc, loclistptr
+            constants::DW_AT_import => {
+                reference!();
+            }
             constants::DW_AT_string_length => {
-                if let Some(offset) = self.offset_value() {
-                    return AttributeValue::DebugLocRef(DebugLocOffset(offset));
-                }
+                exprloc!();
+                loclistptr!();
             }
-            // DW_AT_common_reference: reference
-            // DW_AT_comp_dir: string
-            // DW_AT_const_value: block, constant, string
-            // DW_AT_containing_type: reference
-            // DW_AT_default_value: reference
-            // DW_AT_inline: constant
+            constants::DW_AT_common_reference => {
+                reference!();
+            }
+            constants::DW_AT_comp_dir => {
+                string!();
+            }
+            constants::DW_AT_const_value => {
+                // block, constant, string
+            }
+            constants::DW_AT_containing_type => {
+                reference!();
+            }
+            constants::DW_AT_default_value => {
+                reference!();
+            }
             constants::DW_AT_inline => {
-                if let Some(value) = self.u8_value() {
-                    return AttributeValue::Inline(constants::DwInl(value));
-                }
+                constant!(u8_value, Inline, DwInl);
             }
-            // DW_AT_is_optional: flag
-            // DW_AT_lower_bound: constant, exprloc, reference
+            constants::DW_AT_is_optional => {
+                flag!();
+            }
             constants::DW_AT_lower_bound => {
-                if let Some(data) = self.udata_value() {
-                    return AttributeValue::Udata(data);
-                }
+                constant!(udata_value, Udata);
+                exprloc!();
+                reference!();
             }
-            // DW_AT_producer: string
-            // DW_AT_prototyped: flag
-            // DW_AT_return_addr: exprloc, loclistptr
-            // DW_AT_start_scope: constant, rangelistptr
-            // DW_AT_bit_stride: constant, exprloc, reference
-            // DW_AT_upper_bound: constant, exprloc, reference
+            constants::DW_AT_producer => {
+                string!();
+            }
+            constants::DW_AT_prototyped => {
+                flag!();
+            }
+            constants::DW_AT_return_addr => {
+                exprloc!();
+                loclistptr!();
+            }
+            constants::DW_AT_start_scope => {
+                // TODO: constant
+                rangelistptr!();
+            }
+            constants::DW_AT_bit_stride => {
+                constant!(udata_value, Udata);
+                exprloc!();
+                reference!();
+            }
             constants::DW_AT_upper_bound => {
-                if let Some(data) = self.udata_value() {
-                    return AttributeValue::Udata(data);
-                }
+                constant!(udata_value, Udata);
+                exprloc!();
+                reference!();
             }
-            // DW_AT_abstract_origin: reference
-            // DW_AT_accessibility: constant
+            constants::DW_AT_abstract_origin => {
+                reference!();
+            }
             constants::DW_AT_accessibility => {
-                if let Some(value) = self.u8_value() {
-                    return AttributeValue::Accessibility(constants::DwAccess(value));
-                }
+                constant!(u8_value, Accessibility, DwAccess);
             }
-            // DW_AT_address_class: constant
             constants::DW_AT_address_class => {
-                if let Some(value) = self.udata_value() {
-                    return AttributeValue::AddressClass(constants::DwAddr(value));
-                }
+                constant!(udata_value, AddressClass, DwAddr);
             }
-            // DW_AT_artificial: flag
-            // DW_AT_base_types: reference
-            // DW_AT_calling_convention: constant
+            constants::DW_AT_artificial => {
+                flag!();
+            }
+            constants::DW_AT_base_types => {
+                reference!();
+            }
             constants::DW_AT_calling_convention => {
-                if let Some(value) = self.u8_value() {
-                    return AttributeValue::CallingConvention(constants::DwCc(value));
-                }
+                constant!(u8_value, CallingConvention, DwCc);
             }
-            // DW_AT_count: constant, exprloc, reference
             constants::DW_AT_count => {
-                if let Some(data) = self.udata_value() {
-                    return AttributeValue::Udata(data);
-                }
+                // TODO: constant
+                exprloc!();
+                reference!();
             }
-            // DW_AT_data_member_location: constant, exprloc, loclistptr
-            // DW_AT_decl_column: constant
-            // DW_AT_decl_file: constant
-            // DW_AT_decl_line: constant
-            constants::DW_AT_data_member_location |
+            constants::DW_AT_data_member_location => {
+                // TODO: constant
+                exprloc!();
+                loclistptr!();
+            }
             constants::DW_AT_decl_column |
             constants::DW_AT_decl_file |
             constants::DW_AT_decl_line => {
-                if let Some(data) = self.udata_value() {
-                    return AttributeValue::Udata(data);
-                }
+                constant!(udata_value, Udata);
             }
-            // DW_AT_declaration: flag
-            // DW_AT_discr_list: block
-            // DW_AT_encoding: constant
+            constants::DW_AT_declaration => {
+                flag!();
+            }
+            constants::DW_AT_discr_list => {
+                block!();
+            }
             constants::DW_AT_encoding => {
-                if let Some(value) = self.u8_value() {
-                    return AttributeValue::Encoding(constants::DwAte(value));
-                }
+                constant!(u8_value, Encoding, DwAte);
             }
-            // DW_AT_external: flag
-            // DW_AT_frame_base: exprloc, loclistptr
-            // DW_AT_friend: reference
-            // DW_AT_identifier_case: constant
+            constants::DW_AT_external => {
+                flag!();
+            }
+            constants::DW_AT_frame_base => {
+                exprloc!();
+                loclistptr!();
+            }
+            constants::DW_AT_friend => {
+                reference!();
+            }
             constants::DW_AT_identifier_case => {
-                if let Some(value) = self.u8_value() {
-                    return AttributeValue::IdentifierCase(constants::DwId(value));
-                }
+                constant!(u8_value, IdentifierCase, DwId);
             }
-            // DW_AT_macro_info: macptr
             constants::DW_AT_macro_info => {
-                if let Some(offset) = self.offset_value() {
-                    return AttributeValue::DebugMacinfoRef(DebugMacinfoOffset(offset));
-                }
+                macptr!();
             }
-            // DW_AT_namelist_item: reference
-            // DW_AT_priority: reference
-            // DW_AT_segment: exprloc, loclistptr
-            // DW_AT_specification: reference
-            // DW_AT_static_link: exprloc, loclistptr
-            // DW_AT_type: reference
-            // DW_AT_use_location: exprloc, loclistptr
-            // DW_AT_variable_parameter: flag
-            // DW_AT_virtuality: constant
+            constants::DW_AT_namelist_item => {
+                reference!();
+            }
+            constants::DW_AT_priority => {
+                reference!();
+            }
+            constants::DW_AT_segment => {
+                exprloc!();
+                loclistptr!();
+            }
+            constants::DW_AT_specification => {
+                reference!();
+            }
+            constants::DW_AT_static_link => {
+                exprloc!();
+                loclistptr!();
+            }
+            constants::DW_AT_type => {
+                reference!();
+            }
+            constants::DW_AT_use_location => {
+                exprloc!();
+                loclistptr!();
+            }
+            constants::DW_AT_variable_parameter => {
+                flag!();
+            }
             constants::DW_AT_virtuality => {
-                if let Some(value) = self.u8_value() {
-                    return AttributeValue::Virtuality(constants::DwVirtuality(value));
-                }
+                constant!(u8_value, Virtuality, DwVirtuality);
             }
-            // DW_AT_vtable_elem_location: exprloc, loclistptr
-            // DW_AT_allocated: constant, exprloc, reference
-            // DW_AT_associated: constant, exprloc, reference
-            // DW_AT_data_location: exprloc
-            // DW_AT_byte_stride: constant, exprloc, reference
-            // DW_AT_entry_pc: address
-            // DW_AT_use_UTF8: flag
-            // DW_AT_extension: reference
-            // DW_AT_ranges: rangelistptr
+            constants::DW_AT_vtable_elem_location => {
+                exprloc!();
+                loclistptr!();
+            }
+            constants::DW_AT_allocated => {
+                // TODO: constant
+                exprloc!();
+                reference!();
+            }
+            constants::DW_AT_associated => {
+                // TODO: constant
+                exprloc!();
+                reference!();
+            }
+            constants::DW_AT_data_location => {
+                exprloc!();
+            }
+            constants::DW_AT_byte_stride => {
+                constant!(udata_value, Udata);
+                exprloc!();
+                reference!();
+            }
+            constants::DW_AT_entry_pc => {
+                address!();
+            }
+            constants::DW_AT_use_UTF8 => {
+                flag!();
+            }
+            constants::DW_AT_extension => {
+                reference!();
+            }
             constants::DW_AT_ranges => {
-                if let Some(offset) = self.offset_value() {
-                    return AttributeValue::DebugRangesRef(DebugRangesOffset(offset));
-                }
+                rangelistptr!();
             }
-            // DW_AT_trampoline: address, flag, reference, string
-            // DW_AT_call_column: constant
-            // DW_AT_call_file: constant
-            // DW_AT_call_line: constant
+            constants::DW_AT_trampoline => {
+                address!();
+                flag!();
+                reference!();
+                string!();
+            }
             constants::DW_AT_call_column |
             constants::DW_AT_call_file |
             constants::DW_AT_call_line => {
-                if let Some(data) = self.udata_value() {
-                    return AttributeValue::Udata(data);
-                }
+                constant!(udata_value, Udata);
             }
-            // DW_AT_description: string
-            // DW_AT_binary_scale: constant
-            // DW_AT_decimal_scale: constant
-            // DW_AT_small: reference
-            // DW_AT_decimal_sign: constant
+            constants::DW_AT_description => {
+                string!();
+            }
+            constants::DW_AT_binary_scale => {
+                // TODO: constant
+            }
+            constants::DW_AT_decimal_scale => {
+                // TODO: constant
+            }
+            constants::DW_AT_small => {
+                reference!();
+            }
             constants::DW_AT_decimal_sign => {
-                if let Some(value) = self.u8_value() {
-                    return AttributeValue::DecimalSign(constants::DwDs(value));
-                }
+                constant!(u8_value, DecimalSign, DwDs);
             }
-            // DW_AT_digit_count: constant
-            // DW_AT_picture_string: string
-            // DW_AT_mutable: flag
-            // DW_AT_threads_scaled: flag
-            // DW_AT_explicit: flag
-            // DW_AT_object_pointer: reference
-            // DW_AT_endianity: constant
+            constants::DW_AT_digit_count => {
+                // TODO: constant
+            }
+            constants::DW_AT_picture_string => {
+                string!();
+            }
+            constants::DW_AT_mutable => {
+                flag!();
+            }
+            constants::DW_AT_threads_scaled => {
+                flag!();
+            }
+            constants::DW_AT_explicit => {
+                flag!();
+            }
+            constants::DW_AT_object_pointer => {
+                reference!();
+            }
             constants::DW_AT_endianity => {
-                if let Some(value) = self.u8_value() {
-                    return AttributeValue::Endianity(constants::DwEnd(value));
-                }
+                constant!(u8_value, Endianity, DwEnd);
             }
-            // DW_AT_elemental: flag
-            // DW_AT_pure: flag
-            // DW_AT_recursive: flag
-            // DW_AT_signature: reference
-            // DW_AT_main_subprogram: flag
-            // DW_AT_data_bit_offset: constant
-            // DW_AT_const_expr: flag
-            // DW_AT_enum_class: flag
-            // DW_AT_linkage_name: string
+            constants::DW_AT_elemental => {
+                flag!();
+            }
+            constants::DW_AT_pure => {
+                flag!();
+            }
+            constants::DW_AT_recursive => {
+                flag!();
+            }
+            constants::DW_AT_signature => {
+                reference!();
+            }
+            constants::DW_AT_main_subprogram => {
+                flag!();
+            }
+            constants::DW_AT_data_bit_offset => {
+                // TODO: constant
+            }
+            constants::DW_AT_const_expr => {
+                flag!();
+            }
+            constants::DW_AT_enum_class => {
+                flag!();
+            }
+            constants::DW_AT_linkage_name => {
+                string!();
+            }
             _ => {}
         }
         self.value
