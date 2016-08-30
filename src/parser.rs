@@ -1872,14 +1872,28 @@ fn parse_attribute<'input, 'unit, Endian>
                 });
             }
             constants::DW_FORM_ref_addr => {
-                return parse_word(input.into(), unit.format()).map(|(rest, offset)| {
-                    let offset = DebugInfoOffset(offset);
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::DebugInfoRef(offset),
-                    };
-                    (rest, attr)
-                });
+                // This is an offset, but DWARF version 2 specifies that DW_FORM_ref_addr 
+                // has the same size as an address on the target system.  This was changed
+                // in DWARF version 3.
+                if unit.version() == 2 {
+                    return parse_address(input, unit.address_size()).map(|(rest, offset)| {
+                        let offset = DebugInfoOffset(offset);
+                        let attr = Attribute {
+                            name: spec.name(),
+                            value: AttributeValue::DebugInfoRef(offset),
+                        };
+                        (rest, attr)
+                    });
+                } else {
+                    return parse_word(input, unit.format()).map(|(rest, offset)| {
+                        let offset = DebugInfoOffset(offset);
+                        let attr = Attribute {
+                            name: spec.name(),
+                            value: AttributeValue::DebugInfoRef(offset),
+                        };
+                        (rest, attr)
+                    });
+                }
             }
             constants::DW_FORM_ref_sig8 => {
                 return parse_u64(input.into()).map(|(rest, offset)| {
@@ -2209,6 +2223,26 @@ fn test_parse_attribute_refaddr_64() {
     let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf64);
     let form = constants::DW_FORM_ref_addr;
     let value = AttributeValue::DebugInfoRef(DebugInfoOffset(578437695752307201));
+    test_parse_attribute(&buf, 8, &unit, form, value);
+}
+
+#[test]
+fn test_parse_attribute_refaddr_version2() {
+    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+    let mut unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+    unit.version = 2;
+    let form = constants::DW_FORM_ref_addr;
+    let value = AttributeValue::DebugInfoRef(DebugInfoOffset(0x04030201));
+    test_parse_attribute(&buf, 4, &unit, form, value);
+}
+
+#[test]
+fn test_parse_attribute_refaddr8_version2() {
+    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+    let mut unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
+    unit.version = 2;
+    let form = constants::DW_FORM_ref_addr;
+    let value = AttributeValue::DebugInfoRef(DebugInfoOffset(0x0807060504030201));
     test_parse_attribute(&buf, 8, &unit, form, value);
 }
 
