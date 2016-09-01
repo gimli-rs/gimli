@@ -1,8 +1,10 @@
+use constants;
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use parser::{Error, Format, ParseResult, parse_address, parse_initial_length,
-             parse_null_terminated_string, parse_signed_leb, parse_u8, parse_unsigned_leb,
-             parse_word};
+             parse_length_uleb_value, parse_null_terminated_string, parse_signed_leb,
+             parse_signed_lebe, parse_u8, parse_u8e, parse_u16, parse_u32, parse_unsigned_leb,
+             parse_unsigned_lebe, parse_word};
 use std::marker::PhantomData;
 use std::str;
 
@@ -311,6 +313,14 @@ impl<'input, Endian> CommonInformationEntry<'input, Endian>
 
         Ok(entry)
     }
+
+    /// Iterate over this CIE's initial instructions.
+    ///
+    /// Can be [used with
+    /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
+    pub fn instructions(&self) -> CallFrameInstructionIter<'input, Endian> {
+        CallFrameInstructionIter { input: self.initial_instructions }
+    }
 }
 
 /// A partially parsed `FrameDescriptionEntry`.
@@ -431,6 +441,20 @@ impl<'input, Endian> FrameDescriptionEntry<'input, Endian>
 
         Ok(entry)
     }
+
+    /// Get a reference to this FDE's CIE.
+    pub fn cie<'me>(&'me self) -> &'me CommonInformationEntry<'input, Endian> {
+        &self.cie
+    }
+
+    /// Iterate over this FDE's instructions. Does not include the CIE's initial
+    /// instructions.
+    ///
+    /// Can be [used with
+    /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
+    pub fn instructions(&self) -> CallFrameInstructionIter<'input, Endian> {
+        CallFrameInstructionIter { input: self.instructions }
+    }
 }
 
 /// An entry in the abstract CFI table that describes how to find the value of a
@@ -473,6 +497,517 @@ pub enum RegisterRule<'input, Endian>
 
     /// "The rule is defined externally to this specification by the augmenter."
     Architectural,
+}
+
+/// A parsed call frame instruction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CallFrameInstruction<'input, Endian>
+    where Endian: Endianity
+{
+    // 6.4.2.1 Row Creation Methods
+    /// > 1. DW_CFA_set_loc
+    /// >
+    /// > The DW_CFA_set_loc instruction takes a single operand that represents
+    /// > a target address. The required action is to create a new table row
+    /// > using the specified address as the location. All other values in the
+    /// > new row are initially identical to the current row. The new location
+    /// > value is always greater than the current one. If the segment_size
+    /// > field of this FDE's CIE is non- zero, the initial location is preceded
+    /// > by a segment selector of the given length.
+    SetLoc {
+        /// The target address.
+        address: u64,
+    },
+
+    /// The `AdvanceLoc` instruction is used for all of `DW_CFA_advance_loc` and
+    /// `DW_CFA_advance_loc{1,2,4}`.
+    ///
+    /// > 2. DW_CFA_advance_loc
+    /// >
+    /// > The DW_CFA_advance instruction takes a single operand (encoded with
+    /// > the opcode) that represents a constant delta. The required action is
+    /// > to create a new table row with a location value that is computed by
+    /// > taking the current entry’s location value and adding the value of
+    /// > delta * code_alignment_factor. All other values in the new row are
+    /// > initially identical to the current row.
+    AdvanceLoc {
+        /// The delta to be added to the current address.
+        delta: u32,
+    },
+
+    // 6.4.2.2 CFA Definition Methods
+    /// > 1. DW_CFA_def_cfa
+    /// >
+    /// > The DW_CFA_def_cfa instruction takes two unsigned LEB128 operands
+    /// > representing a register number and a (non-factored) offset. The
+    /// > required action is to define the current CFA rule to use the provided
+    /// > register and offset.
+    DefCfa {
+        /// The target register's number.
+        register: u64,
+        /// The non-factored offset.
+        offset: u64,
+    },
+
+    /// > 2. DW_CFA_def_cfa_sf
+    /// >
+    /// > The DW_CFA_def_cfa_sf instruction takes two operands: an unsigned
+    /// > LEB128 value representing a register number and a signed LEB128
+    /// > factored offset. This instruction is identical to DW_CFA_def_cfa
+    /// > except that the second operand is signed and factored. The resulting
+    /// > offset is factored_offset * data_alignment_factor.
+    DefCfaSf {
+        /// The target register's number.
+        register: u64,
+        /// The factored offset.
+        factored_offset: i64,
+    },
+
+    /// > 3. DW_CFA_def_cfa_register
+    /// >
+    /// > The DW_CFA_def_cfa_register instruction takes a single unsigned LEB128
+    /// > operand representing a register number. The required action is to
+    /// > define the current CFA rule to use the provided register (but to keep
+    /// > the old offset). This operation is valid only if the current CFA rule
+    /// > is defined to use a register and offset.
+    DefCfaRegister {
+        /// The target register's number.
+        register: u64,
+    },
+
+    /// > 4. DW_CFA_def_cfa_offset
+    /// >
+    /// > The DW_CFA_def_cfa_offset instruction takes a single unsigned LEB128
+    /// > operand representing a (non-factored) offset. The required action is
+    /// > to define the current CFA rule to use the provided offset (but to keep
+    /// > the old register). This operation is valid only if the current CFA
+    /// > rule is defined to use a register and offset.
+    DefCfaOffset {
+        /// The non-factored offset.
+        offset: u64,
+    },
+
+    /// > 5. DW_CFA_def_cfa_offset_sf
+    /// >
+    /// > The DW_CFA_def_cfa_offset_sf instruction takes a signed LEB128 operand
+    /// > representing a factored offset. This instruction is identical to
+    /// > DW_CFA_def_cfa_offset except that the operand is signed and
+    /// > factored. The resulting offset is factored_offset *
+    /// > data_alignment_factor. This operation is valid only if the current CFA
+    /// > rule is defined to use a register and offset.
+    DefCfaOffsetSf {
+        /// The factored offset.
+        factored_offset: i64,
+    },
+
+    /// > 6. DW_CFA_def_cfa_expression
+    /// >
+    /// > The DW_CFA_def_cfa_expression instruction takes a single operand
+    /// > encoded as a DW_FORM_exprloc value representing a DWARF
+    /// > expression. The required action is to establish that expression as the
+    /// > means by which the current CFA is computed.
+    DefCfaExpression {
+        /// The DWARF expression.
+        expression: EndianBuf<'input, Endian>,
+    },
+
+    // 6.4.2.3 Register Rule Instructions
+    /// > 1. DW_CFA_undefined
+    /// >
+    /// > The DW_CFA_undefined instruction takes a single unsigned LEB128
+    /// > operand that represents a register number. The required action is to
+    /// > set the rule for the specified register to “undefined.”
+    Undefined {
+        /// The target register's number.
+        register: u64,
+    },
+
+    /// > 2. DW_CFA_same_value
+    /// >
+    /// > The DW_CFA_same_value instruction takes a single unsigned LEB128
+    /// > operand that represents a register number. The required action is to
+    /// > set the rule for the specified register to “same value.”
+    SameValue {
+        /// The target register's number.
+        register: u64,
+    },
+
+    /// The `Offset` instruction represents both `DW_CFA_offset` and
+    /// `DW_CFA_offset_extended`.
+    ///
+    /// > 3. DW_CFA_offset
+    /// >
+    /// > The DW_CFA_offset instruction takes two operands: a register number
+    /// > (encoded with the opcode) and an unsigned LEB128 constant representing
+    /// > a factored offset. The required action is to change the rule for the
+    /// > register indicated by the register number to be an offset(N) rule
+    /// > where the value of N is factored offset * data_alignment_factor.
+    Offset {
+        /// The target register's number.
+        register: u64,
+        /// The factored offset.
+        factored_offset: u64,
+    },
+
+    /// > 5. DW_CFA_offset_extended_sf
+    /// >
+    /// > The DW_CFA_offset_extended_sf instruction takes two operands: an
+    /// > unsigned LEB128 value representing a register number and a signed
+    /// > LEB128 factored offset. This instruction is identical to
+    /// > DW_CFA_offset_extended except that the second operand is signed and
+    /// > factored. The resulting offset is factored_offset *
+    /// > data_alignment_factor.
+    OffsetExtendedSf {
+        /// The target register's number.
+        register: u64,
+        /// The factored offset.
+        factored_offset: i64,
+    },
+
+    /// > 6. DW_CFA_val_offset
+    /// >
+    /// > The DW_CFA_val_offset instruction takes two unsigned LEB128 operands
+    /// > representing a register number and a factored offset. The required
+    /// > action is to change the rule for the register indicated by the
+    /// > register number to be a val_offset(N) rule where the value of N is
+    /// > factored_offset * data_alignment_factor.
+    ValOffset {
+        /// The target register's number.
+        register: u64,
+        /// The factored offset.
+        factored_offset: u64,
+    },
+
+    /// > 7. DW_CFA_val_offset_sf
+    /// >
+    /// > The DW_CFA_val_offset_sf instruction takes two operands: an unsigned
+    /// > LEB128 value representing a register number and a signed LEB128
+    /// > factored offset. This instruction is identical to DW_CFA_val_offset
+    /// > except that the second operand is signed and factored. The resulting
+    /// > offset is factored_offset * data_alignment_factor.
+    ValOffsetSf {
+        /// The target register's number.
+        register: u64,
+        /// The factored offset.
+        factored_offset: i64,
+    },
+
+    /// > 8. DW_CFA_register
+    /// >
+    /// > The DW_CFA_register instruction takes two unsigned LEB128 operands
+    /// > representing register numbers. The required action is to set the rule
+    /// > for the first register to be register(R) where R is the second
+    /// > register.
+    Register {
+        /// The number of the register whose rule is being changed.
+        dest_register: u64,
+        /// The number of the register where the other register's value can be
+        /// found.
+        src_register: u64,
+    },
+
+    /// > 9. DW_CFA_expression
+    /// >
+    /// > The DW_CFA_expression instruction takes two operands: an unsigned
+    /// > LEB128 value representing a register number, and a DW_FORM_block value
+    /// > representing a DWARF expression. The required action is to change the
+    /// > rule for the register indicated by the register number to be an
+    /// > expression(E) rule where E is the DWARF expression. That is, the DWARF
+    /// > expression computes the address. The value of the CFA is pushed on the
+    /// > DWARF evaluation stack prior to execution of the DWARF expression.
+    Expression {
+        /// The target register's number.
+        register: u64,
+        /// The DWARF expression.
+        expression: EndianBuf<'input, Endian>,
+    },
+
+    /// > 10. DW_CFA_val_expression
+    /// >
+    /// > The DW_CFA_val_expression instruction takes two operands: an unsigned
+    /// > LEB128 value representing a register number, and a DW_FORM_block value
+    /// > representing a DWARF expression. The required action is to change the
+    /// > rule for the register indicated by the register number to be a
+    /// > val_expression(E) rule where E is the DWARF expression. That is, the
+    /// > DWARF expression computes the value of the given register. The value
+    /// > of the CFA is pushed on the DWARF evaluation stack prior to execution
+    /// > of the DWARF expression.
+    ValExpression {
+        /// The target register's number.
+        register: u64,
+        /// The DWARF expression.
+        expression: EndianBuf<'input, Endian>,
+    },
+
+    /// The `Restore` instruction represents both `DW_CFA_restore` and
+    /// `DW_CFA_restore_extended`.
+    ///
+    /// > 11. DW_CFA_restore
+    /// >
+    /// > The DW_CFA_restore instruction takes a single operand (encoded with
+    /// > the opcode) that represents a register number. The required action is
+    /// > to change the rule for the indicated register to the rule assigned it
+    /// > by the initial_instructions in the CIE.
+    Restore {
+        /// The register to be reset.
+        register: u64,
+    },
+
+    // 6.4.2.4 Row State Instructions
+    /// > 1. DW_CFA_remember_state
+    /// >
+    /// > The DW_CFA_remember_state instruction takes no operands. The required
+    /// > action is to push the set of rules for every register onto an implicit
+    /// > stack.
+    RememberState,
+
+    /// > 2. DW_CFA_restore_state
+    /// >
+    /// > The DW_CFA_restore_state instruction takes no operands. The required
+    /// > action is to pop the set of rules off the implicit stack and place
+    /// > them in the current row.
+    RestoreState,
+
+    // 6.4.2.5 Padding Instruction
+    /// > 1. DW_CFA_nop
+    /// >
+    /// > The DW_CFA_nop instruction has no operands and no required actions. It
+    /// > is used as padding to make a CIE or FDE an appropriate size.
+    Nop,
+}
+
+const CFI_INSTRUCTION_HIGH_BITS_MASK: u8 = 0b11000000;
+const CFI_INSTRUCTION_LOW_BITS_MASK: u8 = !CFI_INSTRUCTION_HIGH_BITS_MASK;
+
+impl<'input, Endian> CallFrameInstruction<'input, Endian>
+    where Endian: Endianity
+{
+    fn parse(input: EndianBuf<'input, Endian>)
+             -> ParseResult<(EndianBuf<'input, Endian>, CallFrameInstruction<'input, Endian>)> {
+        let (rest, instruction) = try!(parse_u8e(input));
+        let high_bits = instruction & CFI_INSTRUCTION_HIGH_BITS_MASK;
+
+        if high_bits == constants::DW_CFA_advance_loc.0 {
+            let delta = instruction & CFI_INSTRUCTION_LOW_BITS_MASK;
+            return Ok((rest, CallFrameInstruction::AdvanceLoc { delta: delta as u32 }));
+        }
+
+        if high_bits == constants::DW_CFA_offset.0 {
+            let register = instruction & CFI_INSTRUCTION_LOW_BITS_MASK;
+            let (rest, offset) = try!(parse_unsigned_lebe(rest));
+            return Ok((rest,
+                       CallFrameInstruction::Offset {
+                register: register as u64,
+                factored_offset: offset,
+            }));
+        }
+
+        if high_bits == constants::DW_CFA_restore.0 {
+            let register = instruction & CFI_INSTRUCTION_LOW_BITS_MASK;
+            return Ok((rest, CallFrameInstruction::Restore { register: register as u64 }));
+        }
+
+        debug_assert!(high_bits == 0);
+        let instruction = constants::DwCfa(instruction);
+
+        match instruction {
+            constants::DW_CFA_nop => Ok((rest, CallFrameInstruction::Nop)),
+
+            constants::DW_CFA_set_loc => {
+                let (rest, address) = try!(parse_unsigned_lebe(rest));
+                Ok((rest, CallFrameInstruction::SetLoc { address: address }))
+            }
+
+            constants::DW_CFA_advance_loc1 => {
+                let (rest, delta) = try!(parse_u8e(rest));
+                Ok((rest, CallFrameInstruction::AdvanceLoc { delta: delta as u32 }))
+            }
+
+            constants::DW_CFA_advance_loc2 => {
+                let (rest, delta) = try!(parse_u16(rest));
+                Ok((rest, CallFrameInstruction::AdvanceLoc { delta: delta as u32 }))
+            }
+
+            constants::DW_CFA_advance_loc4 => {
+                let (rest, delta) = try!(parse_u32(rest));
+                Ok((rest, CallFrameInstruction::AdvanceLoc { delta: delta }))
+            }
+
+            constants::DW_CFA_offset_extended => {
+                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, offset) = try!(parse_unsigned_lebe(rest));
+                Ok((rest,
+                    CallFrameInstruction::Offset {
+                    register: register,
+                    factored_offset: offset,
+                }))
+            }
+
+            constants::DW_CFA_restore_extended => {
+                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                Ok((rest, CallFrameInstruction::Restore { register: register }))
+            }
+
+            constants::DW_CFA_undefined => {
+                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                Ok((rest, CallFrameInstruction::Undefined { register: register }))
+            }
+
+            constants::DW_CFA_same_value => {
+                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                Ok((rest, CallFrameInstruction::SameValue { register: register }))
+            }
+
+            constants::DW_CFA_register => {
+                let (rest, dest) = try!(parse_unsigned_lebe(rest));
+                let (rest, src) = try!(parse_unsigned_lebe(rest));
+                Ok((rest,
+                    CallFrameInstruction::Register {
+                    dest_register: dest,
+                    src_register: src,
+                }))
+            }
+
+            constants::DW_CFA_remember_state => Ok((rest, CallFrameInstruction::RememberState)),
+
+            constants::DW_CFA_restore_state => Ok((rest, CallFrameInstruction::RestoreState)),
+
+            constants::DW_CFA_def_cfa => {
+                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, offset) = try!(parse_unsigned_lebe(rest));
+                Ok((rest,
+                    CallFrameInstruction::DefCfa {
+                    register: register,
+                    offset: offset,
+                }))
+            }
+
+            constants::DW_CFA_def_cfa_register => {
+                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                Ok((rest, CallFrameInstruction::DefCfaRegister { register: register }))
+            }
+
+            constants::DW_CFA_def_cfa_offset => {
+                let (rest, offset) = try!(parse_unsigned_lebe(rest));
+                Ok((rest, CallFrameInstruction::DefCfaOffset { offset: offset }))
+            }
+
+            constants::DW_CFA_def_cfa_expression => {
+                let (rest, expression) = try!(parse_length_uleb_value(rest));
+                Ok((rest, CallFrameInstruction::DefCfaExpression { expression: expression }))
+            }
+
+            constants::DW_CFA_expression => {
+                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, expression) = try!(parse_length_uleb_value(rest));
+                Ok((rest,
+                    CallFrameInstruction::Expression {
+                    register: register,
+                    expression: expression,
+                }))
+            }
+
+            constants::DW_CFA_offset_extended_sf => {
+                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, offset) = try!(parse_signed_lebe(rest));
+                Ok((rest,
+                    CallFrameInstruction::OffsetExtendedSf {
+                    register: register,
+                    factored_offset: offset,
+                }))
+            }
+
+            constants::DW_CFA_def_cfa_sf => {
+                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, offset) = try!(parse_signed_lebe(rest));
+                Ok((rest,
+                    CallFrameInstruction::DefCfaSf {
+                    register: register,
+                    factored_offset: offset,
+                }))
+            }
+
+            constants::DW_CFA_def_cfa_offset_sf => {
+                let (rest, offset) = try!(parse_signed_lebe(rest));
+                Ok((rest, CallFrameInstruction::DefCfaOffsetSf { factored_offset: offset }))
+            }
+
+            constants::DW_CFA_val_offset => {
+                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, offset) = try!(parse_unsigned_lebe(rest));
+                Ok((rest,
+                    CallFrameInstruction::ValOffset {
+                    register: register,
+                    factored_offset: offset,
+                }))
+            }
+
+            constants::DW_CFA_val_offset_sf => {
+                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, offset) = try!(parse_signed_lebe(rest));
+                Ok((rest,
+                    CallFrameInstruction::ValOffsetSf {
+                    register: register,
+                    factored_offset: offset,
+                }))
+            }
+
+            constants::DW_CFA_val_expression => {
+                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, expression) = try!(parse_length_uleb_value(rest));
+                Ok((rest,
+                    CallFrameInstruction::ValExpression {
+                    register: register,
+                    expression: expression,
+                }))
+            }
+
+            otherwise => Err(Error::UnknownCallFrameInstruction(otherwise)),
+        }
+    }
+}
+
+/// A lazy iterator parsing call frame instructions.
+///
+/// Can be [used with
+/// `FallibleIterator`](./index.html#using-with-fallibleiterator).
+pub struct CallFrameInstructionIter<'input, Endian>
+    where Endian: Endianity
+{
+    input: EndianBuf<'input, Endian>,
+}
+
+impl<'input, Endian> CallFrameInstructionIter<'input, Endian>
+    where Endian: Endianity
+{
+    /// Parse the next call frame instruction.
+    pub fn next(&mut self) -> ParseResult<Option<CallFrameInstruction<'input, Endian>>> {
+        if self.input.len() == 0 {
+            return Ok(None);
+        }
+
+        match CallFrameInstruction::parse(self.input) {
+            Ok((rest, instruction)) => {
+                self.input = rest;
+                Ok(Some(instruction))
+            }
+            Err(e) => {
+                self.input = EndianBuf::new(&[]);
+                Err(e)
+            }
+        }
+    }
+}
+
+impl<'input, Endian> FallibleIterator for CallFrameInstructionIter<'input, Endian>
+    where Endian: Endianity
+{
+    type Item = CallFrameInstruction<'input, Endian>;
+    type Error = Error;
+
+    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+        CallFrameInstructionIter::next(self)
+    }
 }
 
 #[cfg(test)]
@@ -1284,5 +1819,531 @@ mod tests {
         let debug_frame = DebugFrame::<LittleEndian>::new(&contents);
 
         assert_eq!(debug_frame.cie_from_offset(cie_offset), Ok(cie));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_advance_loc() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_delta = 42;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_advance_loc.0 | expected_delta)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::AdvanceLoc { delta: expected_delta as u32 })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_offset() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_reg = 3;
+        let expected_offset = 1997;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_offset.0 | expected_reg)
+            .uleb(expected_offset)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::Offset {
+                       register: expected_reg as u64,
+                       factored_offset: expected_offset,
+                   })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_restore() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_reg = 3;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_restore.0 | expected_reg)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::Restore { register: expected_reg as u64 })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_nop() {
+        let expected_rest = [1, 2, 3, 4];
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_nop.0)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest), CallFrameInstruction::Nop)));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_set_loc() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_addr = 0xdeadbeef;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_set_loc.0)
+            .uleb(expected_addr)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::SetLoc { address: expected_addr })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_advance_loc1() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_delta = 8;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_advance_loc1.0)
+            .D8(expected_delta)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::AdvanceLoc { delta: expected_delta as u32 })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_advance_loc2() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_delta = 500;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_advance_loc2.0)
+            .L16(expected_delta)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::AdvanceLoc { delta: expected_delta as u32 })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_advance_loc4() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_delta = 1 << 20;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_advance_loc4.0)
+            .L32(expected_delta)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::AdvanceLoc { delta: expected_delta })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_offset_extended() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_reg = 7;
+        let expected_offset = 33;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_offset_extended.0)
+            .uleb(expected_reg)
+            .uleb(expected_offset)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::Offset {
+                       register: expected_reg,
+                       factored_offset: expected_offset,
+                   })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_restore_extended() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_reg = 7;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_restore_extended.0)
+            .uleb(expected_reg)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::Restore { register: expected_reg })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_undefined() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_reg = 7;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_undefined.0)
+            .uleb(expected_reg)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::Undefined { register: expected_reg })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_same_value() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_reg = 7;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_same_value.0)
+            .uleb(expected_reg)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::SameValue { register: expected_reg })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_register() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_dest_reg = 7;
+        let expected_src_reg = 8;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_register.0)
+            .uleb(expected_dest_reg)
+            .uleb(expected_src_reg)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::Register {
+                       dest_register: expected_dest_reg,
+                       src_register: expected_src_reg,
+                   })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_remember_state() {
+        let expected_rest = [1, 2, 3, 4];
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_remember_state.0)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest), CallFrameInstruction::RememberState)));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_restore_state() {
+        let expected_rest = [1, 2, 3, 4];
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_restore_state.0)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest), CallFrameInstruction::RestoreState)));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_def_cfa() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_reg = 2;
+        let expected_offset = 0;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_def_cfa.0)
+            .uleb(expected_reg)
+            .uleb(expected_offset)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::DefCfa {
+                       register: expected_reg,
+                       offset: expected_offset,
+                   })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_def_cfa_register() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_reg = 2;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_def_cfa_register.0)
+            .uleb(expected_reg)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::DefCfaRegister { register: expected_reg })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_def_cfa_offset() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_offset = 23;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_def_cfa_offset.0)
+            .uleb(expected_offset)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::DefCfaOffset { offset: expected_offset })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_def_cfa_expression() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_expr = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+
+        let length = Label::new();
+        let start = Label::new();
+        let end = Label::new();
+
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_def_cfa_expression.0)
+            .D8(&length)
+            .mark(&start)
+            .append_bytes(&expected_expr)
+            .mark(&end)
+            .append_bytes(&expected_rest);
+
+        length.set_const((&end - &start) as u64);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::DefCfaExpression {
+                       expression: EndianBuf::new(&expected_expr),
+                   })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_expression() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_reg = 99;
+        let expected_expr = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+
+        let length = Label::new();
+        let start = Label::new();
+        let end = Label::new();
+
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_expression.0)
+            .uleb(expected_reg)
+            .D8(&length)
+            .mark(&start)
+            .append_bytes(&expected_expr)
+            .mark(&end)
+            .append_bytes(&expected_rest);
+
+        length.set_const((&end - &start) as u64);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::Expression {
+                       register: expected_reg,
+                       expression: EndianBuf::new(&expected_expr),
+                   })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_offset_extended_sf() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_reg = 7;
+        let expected_offset = -33;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_offset_extended_sf.0)
+            .uleb(expected_reg)
+            .sleb(expected_offset)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::OffsetExtendedSf {
+                       register: expected_reg,
+                       factored_offset: expected_offset,
+                   })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_def_cfa_sf() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_reg = 2;
+        let expected_offset = -9999;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_def_cfa_sf.0)
+            .uleb(expected_reg)
+            .sleb(expected_offset)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::DefCfaSf {
+                       register: expected_reg,
+                       factored_offset: expected_offset,
+                   })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_def_cfa_offset_sf() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_offset = -123;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_def_cfa_offset_sf.0)
+            .sleb(expected_offset)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::DefCfaOffsetSf { factored_offset: expected_offset })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_val_offset() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_reg = 5000;
+        let expected_offset = 23;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_val_offset.0)
+            .uleb(expected_reg)
+            .uleb(expected_offset)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::ValOffset {
+                       register: expected_reg,
+                       factored_offset: expected_offset,
+                   })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_val_offset_sf() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_reg = 5000;
+        let expected_offset = -23;
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_val_offset_sf.0)
+            .uleb(expected_reg)
+            .sleb(expected_offset)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::ValOffsetSf {
+                       register: expected_reg,
+                       factored_offset: expected_offset,
+                   })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_val_expression() {
+        let expected_rest = [1, 2, 3, 4];
+        let expected_reg = 5000;
+        let expected_expr = [2, 2, 1, 1, 5, 5];
+
+        let length = Label::new();
+        let start = Label::new();
+        let end = Label::new();
+
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_val_expression.0)
+            .uleb(expected_reg)
+            .D8(&length)
+            .mark(&start)
+            .append_bytes(&expected_expr)
+            .mark(&end)
+            .append_bytes(&expected_rest);
+
+        length.set_const((&end - &start) as u64);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Ok((EndianBuf::new(&expected_rest),
+                       CallFrameInstruction::ValExpression {
+                       register: expected_reg,
+                       expression: EndianBuf::new(&expected_expr),
+                   })));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_unknown_instruction() {
+        let expected_rest = [1, 2, 3, 4];
+        let unknown_instr = constants::DwCfa(0b00111111);
+        let section = Section::with_endian(Endian::Little)
+            .D8(unknown_instr.0)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&contents);
+        assert_eq!(CallFrameInstruction::parse(input),
+                   Err(Error::UnknownCallFrameInstruction(unknown_instr)));
+    }
+
+    #[test]
+    fn test_call_frame_instruction_iter_ok() {
+        let expected_reg = 5000;
+        let expected_expr = [2, 2, 1, 1, 5, 5];
+        let expected_delta = 230;
+
+        let length = Label::new();
+        let start = Label::new();
+        let end = Label::new();
+
+        let section = Section::with_endian(Endian::Big)
+            .D8(constants::DW_CFA_val_expression.0)
+            .uleb(expected_reg)
+            .D8(&length)
+            .mark(&start)
+            .append_bytes(&expected_expr)
+            .mark(&end)
+            .D8(constants::DW_CFA_advance_loc1.0)
+            .D8(expected_delta);
+
+        length.set_const((&end - &start) as u64);
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<BigEndian>::new(&contents);
+        let mut iter = CallFrameInstructionIter { input: input };
+
+        assert_eq!(iter.next(),
+                   Ok(Some(CallFrameInstruction::ValExpression {
+                       register: expected_reg,
+                       expression: EndianBuf::new(&expected_expr),
+                   })));
+
+        assert_eq!(iter.next(),
+                   Ok(Some(CallFrameInstruction::AdvanceLoc { delta: expected_delta as u32 })));
+
+        assert_eq!(iter.next(), Ok(None));
+    }
+
+    #[test]
+    fn test_call_frame_instruction_iter_err() {
+        // DW_CFA_advance_loc1 without an operand.
+        let section = Section::with_endian(Endian::Big).D8(constants::DW_CFA_advance_loc1.0);
+
+        let contents = section.get_contents().unwrap();
+        let input = EndianBuf::<BigEndian>::new(&contents);
+        let mut iter = CallFrameInstructionIter { input: input };
+
+        assert_eq!(iter.next(), Err(Error::UnexpectedEof));
+        assert_eq!(iter.next(), Ok(None));
     }
 }
