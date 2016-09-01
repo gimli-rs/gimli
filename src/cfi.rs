@@ -1,4 +1,5 @@
 use endianity::{Endianity, EndianBuf};
+use fallible_iterator::FallibleIterator;
 use parser::{Error, Format, ParseResult, parse_address, parse_initial_length,
              parse_null_terminated_string, parse_signed_leb, parse_u8, parse_unsigned_leb,
              parse_word};
@@ -37,6 +38,58 @@ impl<'input, Endian> DebugFrame<'input, Endian>
     /// ```
     pub fn new(debug_frame_section: &'input [u8]) -> DebugFrame<'input, Endian> {
         DebugFrame { debug_frame_section: EndianBuf(debug_frame_section, PhantomData) }
+    }
+
+    /// Iterate over the `CommonInformationEntry`s and `FrameDescriptionEntry`s
+    /// in this `.debug_frame` section.
+    ///
+    /// Can be [used with
+    /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
+    pub fn entries(&self) -> CfiEntriesIter<'input, Endian> {
+        CfiEntriesIter { input: self.debug_frame_section }
+    }
+}
+
+/// An iterator over CIE and FDE entries in a `.debug_frame` section.
+///
+/// Can be [used with
+/// `FallibleIterator`](./index.html#using-with-fallibleiterator).
+pub struct CfiEntriesIter<'input, Endian>
+    where Endian: Endianity
+{
+    input: EndianBuf<'input, Endian>,
+}
+
+impl<'input, Endian> CfiEntriesIter<'input, Endian>
+    where Endian: Endianity
+{
+    /// Advance the iterator to the next entry.
+    pub fn next(&mut self) -> ParseResult<Option<CieOrFde<'input, Endian>>> {
+        if self.input.len() == 0 {
+            return Ok(None);
+        }
+
+        match parse_cfi_entry(self.input) {
+            Err(e) => {
+                self.input = EndianBuf::new(&[]);
+                Err(e)
+            }
+            Ok((rest, entry)) => {
+                self.input = rest;
+                Ok(Some(entry))
+            }
+        }
+    }
+}
+
+impl<'input, Endian> FallibleIterator for CfiEntriesIter<'input, Endian>
+    where Endian: Endianity
+{
+    type Item = CieOrFde<'input, Endian>;
+    type Error = Error;
+
+    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+        CfiEntriesIter::next(self)
     }
 }
 
@@ -81,7 +134,6 @@ pub enum CieOrFde<'input, Endian>
     Fde(PartialFrameDescriptionEntry<'input, Endian>),
 }
 
-#[allow(dead_code)]
 fn parse_cfi_entry<'input, Endian>
     (input: EndianBuf<'input, Endian>)
      -> ParseResult<(EndianBuf<'input, Endian>, CieOrFde<'input, Endian>)>
@@ -420,7 +472,7 @@ mod tests {
     use constants;
     use endianity::{BigEndian, Endianity, EndianBuf, LittleEndian};
     use parser::{Error, Format};
-    use self::test_assembler::{Endian, Label, LabelMaker, Section, ToLabelOrNum};
+    use self::test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};
 
     // Mixin methods for `Section` to help define binary test data.
 
@@ -434,12 +486,13 @@ mod tests {
                           cie: &mut CommonInformationEntry<'input, E>)
                           -> Self
             where E: Endianity;
-        fn fde<'input, E>(self,
-                          endian: Endian,
-                          cie_offset: u64,
-                          fde: &mut FrameDescriptionEntry<'input, E>)
-                          -> Self
-            where E: Endianity;
+        fn fde<'a, 'input, E, T>(self,
+                                 endian: Endian,
+                                 cie_offset: T,
+                                 fde: &mut FrameDescriptionEntry<'input, E>)
+                                 -> Self
+            where E: Endianity,
+                  T: ToLabelOrNum<'a, u64>;
     }
 
     impl CfiSectionMethods for Section {
@@ -517,12 +570,13 @@ mod tests {
             section
         }
 
-        fn fde<'input, E>(self,
-                          endian: Endian,
-                          cie_offset: u64,
-                          fde: &mut FrameDescriptionEntry<'input, E>)
-                          -> Self
-            where E: Endianity
+        fn fde<'a, 'input, E, T>(self,
+                                 endian: Endian,
+                                 cie_offset: T,
+                                 fde: &mut FrameDescriptionEntry<'input, E>)
+                                 -> Self
+            where E: Endianity,
+                  T: ToLabelOrNum<'a, u64>
         {
             let length = Label::new();
             let start = Label::new();
@@ -531,9 +585,12 @@ mod tests {
             assert_eq!(fde.format, fde.cie.format);
             let section = match fde.format {
                 Format::Dwarf32 => {
-                    self.e32(endian, &length)
-                        .mark(&start)
-                        .e32(endian, cie_offset as u32)
+                    let section = self.e32(endian, &length)
+                        .mark(&start);
+                    match cie_offset.to_labelornum() {
+                        LabelOrNum::Label(ref l) => section.e32(endian, l),
+                        LabelOrNum::Num(o) => section.e32(endian, o as u32),
+                    }
                 }
                 Format::Dwarf64 => {
                     let section = self.e32(endian, 0xffffffff);
@@ -1050,5 +1107,132 @@ mod tests {
             }
             otherwise => panic!("Unexpected result: {:#?}", otherwise),
         }
+    }
+
+    #[test]
+    fn test_cfi_entries_iter() {
+        let expected_instrs1: Vec<_> = (0..4)
+            .map(|_| constants::DW_CFA_nop.0)
+            .collect();
+
+        let expected_instrs2: Vec<_> = (0..8)
+            .map(|_| constants::DW_CFA_nop.0)
+            .collect();
+
+        let expected_instrs3: Vec<_> = (0..12)
+            .map(|_| constants::DW_CFA_nop.0)
+            .collect();
+
+        let expected_instrs4: Vec<_> = (0..16)
+            .map(|_| constants::DW_CFA_nop.0)
+            .collect();
+
+        let mut cie1 = CommonInformationEntry {
+            length: 0,
+            format: Format::Dwarf32,
+            version: 4,
+            augmentation: None,
+            address_size: 4,
+            segment_size: 0,
+            code_alignment_factor: 1,
+            data_alignment_factor: 2,
+            return_address_register: 3,
+            initial_instructions: EndianBuf::new(&expected_instrs1),
+        };
+
+        let mut cie2 = CommonInformationEntry {
+            length: 0,
+            format: Format::Dwarf32,
+            version: 4,
+            augmentation: None,
+            address_size: 4,
+            segment_size: 0,
+            code_alignment_factor: 3,
+            data_alignment_factor: 2,
+            return_address_register: 1,
+            initial_instructions: EndianBuf::new(&expected_instrs2),
+        };
+
+        let cie1_location = Label::new();
+        let cie2_location = Label::new();
+
+        // Write the CIEs first so that their length gets set before we clone
+        // them into the FDEs and our equality assertions down the line end up
+        // with all the CIEs always having he correct length.
+        let section = Section::with_endian(Endian::Big)
+            .mark(&cie1_location)
+            .cie(Endian::Big, &mut cie1)
+            .mark(&cie2_location)
+            .cie(Endian::Big, &mut cie2);
+
+        let mut fde1 = FrameDescriptionEntry {
+            length: 0,
+            format: Format::Dwarf32,
+            cie: cie1.clone(),
+            initial_segment: 0,
+            initial_address: 0xfeedbeef,
+            address_range: 39,
+            instructions: EndianBuf::<BigEndian>::new(&expected_instrs3),
+        };
+
+        let mut fde2 = FrameDescriptionEntry {
+            length: 0,
+            format: Format::Dwarf32,
+            cie: cie2.clone(),
+            initial_segment: 0,
+            initial_address: 0xfeedface,
+            address_range: 9000,
+            instructions: EndianBuf::<BigEndian>::new(&expected_instrs4),
+        };
+
+        let section = section.fde(Endian::Big, &cie1_location, &mut fde1)
+            .fde(Endian::Big, &cie2_location, &mut fde2);
+
+        // TODO: the fact that we have to explicitly set this seems like a bug
+        // in test-assembler... Need to file a bug there.
+        section.start().set_const(0);
+
+        let cie1_offset = cie1_location.value().unwrap();
+        let cie2_offset = cie2_location.value().unwrap();
+
+        let contents = section.get_contents().unwrap();
+        let debug_frame = DebugFrame::<BigEndian>::new(&contents);
+
+        let mut entries = debug_frame.entries();
+
+        assert_eq!(entries.next(), Ok(Some(CieOrFde::Cie(cie1.clone()))));
+        assert_eq!(entries.next(), Ok(Some(CieOrFde::Cie(cie2.clone()))));
+
+        match entries.next() {
+            Ok(Some(CieOrFde::Fde(partial))) => {
+                assert_eq!(partial.length, fde1.length);
+                assert_eq!(partial.format, fde1.format);
+                assert_eq!(partial.cie_offset, DebugFrameOffset(cie1_offset));
+
+                let get_cie = |offset| {
+                    assert_eq!(offset, DebugFrameOffset(cie1_offset));
+                    Ok(cie1.clone())
+                };
+                assert_eq!(partial.parse(get_cie), Ok(fde1));
+            }
+            otherwise => panic!("Unexpected result: {:#?}", otherwise),
+        }
+
+        match entries.next() {
+            Ok(Some(CieOrFde::Fde(partial))) => {
+                assert_eq!(partial.length, fde2.length);
+                assert_eq!(partial.format, fde2.format);
+                assert_eq!(partial.cie_offset, DebugFrameOffset(cie2_offset));
+
+                let get_cie = |offset| {
+                    assert_eq!(offset, DebugFrameOffset(cie2_offset));
+                    Ok(cie2.clone())
+                };
+                assert_eq!(partial.parse(get_cie), Ok(fde2));
+            }
+            otherwise => panic!("Unexpected result: {:#?}", otherwise),
+        }
+
+        assert_eq!(entries.next(), Ok(None));
     }
 }
