@@ -68,6 +68,40 @@ fn is_cie_id(format: Format, id: u64) -> bool {
     }
 }
 
+/// Either a `CommonInformationEntry` (CIE) or a `FrameDescriptionEntry` (FDE).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CieOrFde<'input, Endian>
+    where Endian: Endianity
+{
+    /// This CFI entry is a `CommonInformationEntry`.
+    Cie(CommonInformationEntry<'input, Endian>),
+    /// This CFI entry is a `FrameDescriptionEntry`, however fully parsing it
+    /// requires parsing its CIE first, so it is left in a partially parsed
+    /// state.
+    Fde(PartialFrameDescriptionEntry<'input, Endian>),
+}
+
+#[allow(dead_code)]
+fn parse_cfi_entry<'input, Endian>
+    (input: EndianBuf<'input, Endian>)
+     -> ParseResult<(EndianBuf<'input, Endian>, CieOrFde<'input, Endian>)>
+    where Endian: Endianity
+{
+    let (rest_rest, (length, format, cie_id_or_offset, rest)) = try!(parse_cfi_entry_common(input));
+    if is_cie_id(format, cie_id_or_offset) {
+        let cie = try!(CommonInformationEntry::parse_rest(length, format, cie_id_or_offset, rest));
+        Ok((rest_rest, CieOrFde::Cie(cie)))
+    } else {
+        let fde = PartialFrameDescriptionEntry {
+            length: length,
+            format: format,
+            cie_offset: DebugFrameOffset(cie_id_or_offset),
+            rest: rest,
+        };
+        Ok((rest_rest, CieOrFde::Fde(fde)))
+    }
+}
+
 /// > A Common Information Entry holds information that is shared among many
 /// > Frame Description Entries. There is at least one CIE in every non-empty
 /// > `.debug_frame` section.
@@ -214,6 +248,38 @@ impl<'input, Endian> CommonInformationEntry<'input, Endian>
     }
 }
 
+/// A partially parsed `FrameDescriptionEntry`.
+///
+/// Fully parsing this FDE requires first parsing its CIE.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PartialFrameDescriptionEntry<'input, Endian>
+    where Endian: Endianity
+{
+    length: u64,
+    format: Format,
+    cie_offset: DebugFrameOffset,
+    rest: EndianBuf<'input, Endian>,
+}
+
+impl<'input, Endian> PartialFrameDescriptionEntry<'input, Endian>
+    where Endian: Endianity
+{
+    /// Fully parse this FDE.
+    ///
+    /// You must provide a function get its associated CIE (either by parsing it
+    /// on demand, or looking it up in some table mapping offsets to CIEs that
+    /// you've already parsed, etc.)
+    pub fn parse<F>(&self, get_cie: F) -> ParseResult<FrameDescriptionEntry<'input, Endian>>
+        where F: FnMut(DebugFrameOffset) -> ParseResult<CommonInformationEntry<'input, Endian>>
+    {
+        FrameDescriptionEntry::parse_rest(self.length,
+                                          self.format,
+                                          self.cie_offset.0,
+                                          self.rest,
+                                          get_cie)
+    }
+}
+
 /// A `FrameDescriptionEntry` is a set of CFA instructions for an address range.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FrameDescriptionEntry<'input, Endian>
@@ -350,6 +416,7 @@ mod tests {
     extern crate test_assembler;
 
     use super::*;
+    use super::parse_cfi_entry;
     use constants;
     use endianity::{BigEndian, Endianity, EndianBuf, LittleEndian};
     use parser::{Error, Format};
@@ -897,5 +964,91 @@ mod tests {
 
         assert_eq!(FrameDescriptionEntry::parse(contents, get_cie),
                    Ok((EndianBuf::new(&expected_rest), fde)));
+    }
+
+    #[test]
+    fn test_parse_cfi_entry_on_cie_32_ok() {
+        let expected_rest = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let expected_instrs: Vec<_> = (0..4)
+            .map(|_| constants::DW_CFA_nop.0)
+            .collect();
+
+        let mut cie = CommonInformationEntry {
+            length: 0,
+            format: Format::Dwarf32,
+            version: 4,
+            augmentation: None,
+            address_size: 4,
+            segment_size: 0,
+            code_alignment_factor: 16,
+            data_alignment_factor: 32,
+            return_address_register: 1,
+            initial_instructions: EndianBuf::new(&expected_instrs),
+        };
+
+        let section = Section::with_endian(Endian::Big)
+            .cie(Endian::Big, &mut cie)
+            .append_bytes(&expected_rest);
+
+        let contents = section.get_contents().unwrap();
+
+        assert_eq!(parse_cfi_entry(EndianBuf::<BigEndian>::new(&contents)),
+                   Ok((EndianBuf::new(&expected_rest), CieOrFde::Cie(cie))));
+    }
+
+    #[test]
+    fn test_parse_cfi_entry_on_fde_32_ok() {
+        let cie_offset = 0x12345678;
+        let expected_rest = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let expected_instrs: Vec<_> = (0..4)
+            .map(|_| constants::DW_CFA_nop.0)
+            .collect();
+
+        let cie = CommonInformationEntry {
+            length: 0,
+            format: Format::Dwarf32,
+            version: 4,
+            augmentation: None,
+            address_size: 4,
+            segment_size: 0,
+            code_alignment_factor: 16,
+            data_alignment_factor: 32,
+            return_address_register: 1,
+            initial_instructions: EndianBuf::new(&[]),
+        };
+
+        let mut fde = FrameDescriptionEntry {
+            length: 0,
+            format: Format::Dwarf32,
+            cie: cie.clone(),
+            initial_segment: 0,
+            initial_address: 0xfeedbeef,
+            address_range: 39,
+            instructions: EndianBuf::<BigEndian>::new(&expected_instrs),
+        };
+
+        let section = Section::with_endian(Endian::Big)
+            .fde(Endian::Big, cie_offset, &mut fde)
+            .append_bytes(&expected_rest);
+
+        let contents = section.get_contents().unwrap();
+
+        match parse_cfi_entry(EndianBuf::<BigEndian>::new(&contents)) {
+            Ok((rest, CieOrFde::Fde(partial))) => {
+                assert_eq!(rest, EndianBuf::new(&expected_rest));
+
+                assert_eq!(partial.length, fde.length);
+                assert_eq!(partial.format, fde.format);
+                assert_eq!(partial.cie_offset, DebugFrameOffset(cie_offset));
+
+                let get_cie = |offset| {
+                    assert_eq!(offset, DebugFrameOffset(cie_offset));
+                    Ok(cie.clone())
+                };
+
+                assert_eq!(partial.parse(get_cie), Ok(fde));
+            }
+            otherwise => panic!("Unexpected result: {:#?}", otherwise),
+        }
     }
 }
