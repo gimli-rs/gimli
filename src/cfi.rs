@@ -141,6 +141,15 @@ impl<'input, Endian> CommonInformationEntry<'input, Endian>
         (input: EndianBuf<'input, Endian>)
          -> ParseResult<(EndianBuf<'input, Endian>, CommonInformationEntry<'input, Endian>)> {
         let (rest_rest, (length, format, cie_id, rest)) = try!(parse_cfi_entry_common(input));
+        let entry = try!(Self::parse_rest(length, format, cie_id, rest));
+        Ok((rest_rest, entry))
+    }
+
+    fn parse_rest(length: u64,
+                  format: Format,
+                  cie_id: u64,
+                  rest: EndianBuf<'input, Endian>)
+                  -> ParseResult<CommonInformationEntry<'input, Endian>> {
         if !is_cie_id(format, cie_id) {
             return Err(Error::NotCieId);
         }
@@ -177,7 +186,7 @@ impl<'input, Endian> CommonInformationEntry<'input, Endian>
                 initial_instructions: EndianBuf::new(&[]),
             };
 
-            return Ok((rest_rest, entry));
+            return Ok(entry);
         }
 
         let augmentation = None;
@@ -201,7 +210,7 @@ impl<'input, Endian> CommonInformationEntry<'input, Endian>
             initial_instructions: EndianBuf::new(rest),
         };
 
-        Ok((rest_rest, entry))
+        Ok(entry)
     }
 }
 
@@ -246,11 +255,23 @@ impl<'input, Endian> FrameDescriptionEntry<'input, Endian>
     #[allow(dead_code)]
     fn parse<F>
         (input: EndianBuf<'input, Endian>,
-         mut get_cie: F)
+         get_cie: F)
          -> ParseResult<(EndianBuf<'input, Endian>, FrameDescriptionEntry<'input, Endian>)>
         where F: FnMut(DebugFrameOffset) -> ParseResult<CommonInformationEntry<'input, Endian>>
     {
         let (rest_rest, (length, format, cie_pointer, rest)) = try!(parse_cfi_entry_common(input));
+        let entry = try!(Self::parse_rest(length, format, cie_pointer, rest, get_cie));
+        Ok((rest_rest, entry))
+    }
+
+    fn parse_rest<F>(length: u64,
+                     format: Format,
+                     cie_pointer: u64,
+                     rest: EndianBuf<'input, Endian>,
+                     mut get_cie: F)
+                     -> ParseResult<FrameDescriptionEntry<'input, Endian>>
+        where F: FnMut(DebugFrameOffset) -> ParseResult<CommonInformationEntry<'input, Endian>>
+    {
         if is_cie_id(format, cie_pointer) {
             return Err(Error::NotCiePointer);
         }
@@ -277,7 +298,7 @@ impl<'input, Endian> FrameDescriptionEntry<'input, Endian>
             instructions: rest,
         };
 
-        Ok((rest_rest, entry))
+        Ok(entry)
     }
 }
 
