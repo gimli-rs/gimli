@@ -48,6 +48,20 @@ impl<'input, Endian> DebugFrame<'input, Endian>
     pub fn entries(&self) -> CfiEntriesIter<'input, Endian> {
         CfiEntriesIter { input: self.debug_frame_section }
     }
+
+    /// Parse the `CommonInformationEntry` at the given offset.
+    pub fn cie_from_offset(&self,
+                           offset: DebugFrameOffset)
+                           -> ParseResult<CommonInformationEntry<'input, Endian>> {
+        let offset = offset.0 as usize;
+        if self.debug_frame_section.len() < offset {
+            return Err(Error::UnexpectedEof);
+        }
+
+        let input = self.debug_frame_section.range_from(offset..);
+        let (_, entry) = try!(CommonInformationEntry::parse(input));
+        Ok(entry)
+    }
 }
 
 /// An iterator over CIE and FDE entries in a `.debug_frame` section.
@@ -1234,5 +1248,42 @@ mod tests {
         }
 
         assert_eq!(entries.next(), Ok(None));
+    }
+
+    #[test]
+    fn test_parse_cie_from_offset() {
+        let filler = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let instrs: Vec<_> = (0..5).map(|_| constants::DW_CFA_nop.0).collect();
+
+        let mut cie = CommonInformationEntry {
+            length: 0,
+            format: Format::Dwarf64,
+            version: 4,
+            augmentation: None,
+            address_size: 4,
+            segment_size: 0,
+            code_alignment_factor: 4,
+            data_alignment_factor: 8,
+            return_address_register: 12,
+            initial_instructions: EndianBuf::new(&instrs),
+        };
+
+        let cie_location = Label::new();
+
+        let section = Section::with_endian(Endian::Little)
+            .append_bytes(&filler)
+            .mark(&cie_location)
+            .cie(Endian::Little, &mut cie)
+            .append_bytes(&filler);
+
+        // TODO: Again, I don't think we should have to do this...
+        section.start().set_const(0);
+
+        let cie_offset = DebugFrameOffset(cie_location.value().unwrap());
+
+        let contents = section.get_contents().unwrap();
+        let debug_frame = DebugFrame::<LittleEndian>::new(&contents);
+
+        assert_eq!(debug_frame.cie_from_offset(cie_offset), Ok(cie));
     }
 }
