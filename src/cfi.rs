@@ -40,6 +40,27 @@ impl<'input, Endian> DebugFrame<'input, Endian>
     }
 }
 
+/// Parse the common start shared between both CIEs and FDEs. Return a tuple of
+/// the form `(next_entry_input, (length, format, cie_id_or_offset,
+/// rest_of_this_entry_input))`.
+fn parse_cfi_entry_common<'input, Endian>
+    (input: EndianBuf<'input, Endian>)
+     -> ParseResult<(EndianBuf<'input, Endian>, (u64, Format, u64, EndianBuf<'input, Endian>))>
+    where Endian: Endianity
+{
+    let (rest, (length, format)) = try!(parse_initial_length(input));
+    if length as usize > rest.len() {
+        return Err(Error::BadLength);
+    }
+
+    let rest_rest = rest.range_from(length as usize..);
+    let rest = rest.range_to(..length as usize);
+
+    let (rest, cie_id_or_offset) = try!(parse_word(rest, format));
+
+    Ok((rest_rest, (length, format, cie_id_or_offset, rest)))
+}
+
 fn is_cie_id(format: Format, id: u64) -> bool {
     match format {
         Format::Dwarf32 => id == 0xffffffff,
@@ -119,15 +140,7 @@ impl<'input, Endian> CommonInformationEntry<'input, Endian>
     fn parse
         (input: EndianBuf<'input, Endian>)
          -> ParseResult<(EndianBuf<'input, Endian>, CommonInformationEntry<'input, Endian>)> {
-        let (rest, (length, format)) = try!(parse_initial_length(input));
-        if length as usize > rest.len() {
-            return Err(Error::BadLength);
-        }
-
-        let rest_rest = rest.range_from(length as usize..);
-        let rest = rest.range_to(..length as usize);
-
-        let (rest, cie_id) = try!(parse_word(rest, format));
+        let (rest_rest, (length, format, cie_id, rest)) = try!(parse_cfi_entry_common(input));
         if !is_cie_id(format, cie_id) {
             return Err(Error::NotCieId);
         }
@@ -237,14 +250,7 @@ impl<'input, Endian> FrameDescriptionEntry<'input, Endian>
          -> ParseResult<(EndianBuf<'input, Endian>, FrameDescriptionEntry<'input, Endian>)>
         where F: FnMut(DebugFrameOffset) -> ParseResult<CommonInformationEntry<'input, Endian>>
     {
-        let (rest, (length, format)) = try!(parse_initial_length(input));
-        if length as usize > rest.len() {
-            return Err(Error::BadLength);
-        }
-        let rest_rest = rest.range_from(length as usize..);
-        let rest = rest.range_to(..length as usize);
-
-        let (rest, cie_pointer) = try!(parse_word(rest, format));
+        let (rest_rest, (length, format, cie_pointer, rest)) = try!(parse_cfi_entry_common(input));
         if is_cie_id(format, cie_pointer) {
             return Err(Error::NotCiePointer);
         }
