@@ -75,6 +75,12 @@ pub enum Error {
     OpcodeBaseZero,
     /// The specified file index was out of bounds.
     BadFileIndex,
+    /// Found an invalid UTF-8 string.
+    BadUtf8,
+    /// Expected to find the CIE ID, but found something else.
+    NotCieId,
+    /// Expected to find a pointer to a CIE, but found the CIE ID instead.
+    NotCiePointer,
 }
 
 impl fmt::Display for Error {
@@ -128,6 +134,9 @@ impl error::Error for Error {
             Error::LineRangeZero => "The line range must not be zero.",
             Error::OpcodeBaseZero => "The opcode base must not be zero.",
             Error::BadFileIndex => "The specified file index was out of bounds.",
+            Error::BadUtf8 => "Found an invalid UTF-8 string.",
+            Error::NotCieId => "Expected to find the CIE ID, but found something else.",
+            Error::NotCiePointer => "Expected to find a CIE pointer, but found the CIE ID instead.",
         }
     }
 }
@@ -516,8 +525,8 @@ const DWARF_64_INITIAL_UNIT_LENGTH: u64 = 0xffffffff;
 
 /// Parse the compilation unit header's length.
 #[doc(hidden)]
-pub fn parse_unit_length<Endian>(input: EndianBuf<Endian>)
-                                 -> ParseResult<(EndianBuf<Endian>, (u64, Format))>
+pub fn parse_initial_length<Endian>(input: EndianBuf<Endian>)
+                                    -> ParseResult<(EndianBuf<Endian>, (u64, Format))>
     where Endian: Endianity
 {
     let (rest, val) = try!(parse_u32_as_u64(input));
@@ -532,10 +541,10 @@ pub fn parse_unit_length<Endian>(input: EndianBuf<Endian>)
 }
 
 #[test]
-fn test_parse_unit_length_32_ok() {
+fn test_parse_initial_length_32_ok() {
     let buf = [0x12, 0x34, 0x56, 0x78];
 
-    match parse_unit_length(EndianBuf::<LittleEndian>::new(&buf)) {
+    match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
         Ok((rest, (length, format))) => {
             assert_eq!(rest.len(), 0);
             assert_eq!(format, Format::Dwarf32);
@@ -547,7 +556,7 @@ fn test_parse_unit_length_32_ok() {
 
 #[test]
 #[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_parse_unit_length_64_ok() {
+fn test_parse_initial_length_64_ok() {
     let buf = [
         // Dwarf_64_INITIAL_UNIT_LENGTH
         0xff, 0xff, 0xff, 0xff,
@@ -555,7 +564,7 @@ fn test_parse_unit_length_64_ok() {
         0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff
     ];
 
-    match parse_unit_length(EndianBuf::<LittleEndian>::new(&buf)) {
+    match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
         Ok((rest, (length, format))) => {
             assert_eq!(rest.len(), 0);
             assert_eq!(format, Format::Dwarf64);
@@ -566,20 +575,20 @@ fn test_parse_unit_length_64_ok() {
 }
 
 #[test]
-fn test_parse_unit_length_unknown_reserved_value() {
+fn test_parse_initial_length_unknown_reserved_value() {
     let buf = [0xfe, 0xff, 0xff, 0xff];
 
-    match parse_unit_length(EndianBuf::<LittleEndian>::new(&buf)) {
+    match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
         Err(Error::UnknownReservedLength) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
 }
 
 #[test]
-fn test_parse_unit_length_incomplete() {
+fn test_parse_initial_length_incomplete() {
     let buf = [0xff, 0xff, 0xff]; // Need at least 4 bytes.
 
-    match parse_unit_length(EndianBuf::<LittleEndian>::new(&buf)) {
+    match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
         Err(Error::UnexpectedEof) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
@@ -587,7 +596,7 @@ fn test_parse_unit_length_incomplete() {
 
 #[test]
 #[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_parse_unit_length_64_incomplete() {
+fn test_parse_initial_length_64_incomplete() {
     let buf = [
         // DWARF_64_INITIAL_UNIT_LENGTH
         0xff, 0xff, 0xff, 0xff,
@@ -595,7 +604,7 @@ fn test_parse_unit_length_64_incomplete() {
         0x12, 0x34, 0x56, 0x78
     ];
 
-    match parse_unit_length(EndianBuf::<LittleEndian>::new(&buf)) {
+    match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
         Err(Error::UnexpectedEof) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
@@ -1065,7 +1074,7 @@ fn parse_unit_header<Endian>(input: EndianBuf<Endian>)
                              -> ParseResult<(EndianBuf<Endian>, UnitHeader<Endian>)>
     where Endian: Endianity
 {
-    let (rest, (unit_length, format)) = try!(parse_unit_length(input));
+    let (rest, (unit_length, format)) = try!(parse_initial_length(input));
     if unit_length as usize > rest.len() {
         return Err(Error::UnexpectedEof);
     }

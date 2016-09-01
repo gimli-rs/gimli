@@ -107,6 +107,9 @@ extern crate byteorder;
 extern crate fallible_iterator;
 extern crate leb128;
 
+mod cfi;
+pub use cfi::*;
+
 mod constants;
 pub use constants::*;
 
