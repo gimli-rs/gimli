@@ -120,7 +120,8 @@ mod parser;
 pub use parser::{Error, ParseResult, Format};
 pub use parser::{DebugLocOffset, DebugMacinfoOffset, DebugRangesOffset, UnitOffset};
 pub use parser::{DebugInfo, DebugInfoOffset, UnitHeadersIter, UnitHeader};
-pub use parser::{DebugTypes, DebugTypesOffset, TypeUnitHeadersIter, TypeUnitHeader};
+pub use parser::{DebugTypes, DebugTypesOffset, DebugTypeSignature, TypeUnitHeadersIter,
+                 TypeUnitHeader};
 pub use parser::{EntriesCursor, DebuggingInformationEntry, AttrsIter, Attribute, AttributeValue};
 
 mod abbrev;

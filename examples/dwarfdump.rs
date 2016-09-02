@@ -243,7 +243,7 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
         gimli::AttributeValue::DebugRangesRef(gimli::DebugRangesOffset(offset)) => {
             println!("{}", offset);
         }
-        gimli::AttributeValue::DebugTypesRef(gimli::DebugTypesOffset(offset)) => {
+        gimli::AttributeValue::DebugTypesRef(gimli::DebugTypeSignature(offset)) => {
             println!("0x{:08x}", offset);
         }
         gimli::AttributeValue::DebugStrRef(offset) => {

@@ -277,6 +277,10 @@ pub fn parse_null_terminated_string(input: &[u8]) -> ParseResult<(&[u8], &ffi::C
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DebugTypesOffset(pub u64);
 
+/// A type signature as used in the `.debug_types` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugTypeSignature(pub u64);
+
 /// An offset into the `.debug_info` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DebugInfoOffset(pub u64);
@@ -1421,8 +1425,8 @@ pub enum AttributeValue<'input, Endian>
     /// An offset into the `.debug_ranges` section.
     DebugRangesRef(DebugRangesOffset),
 
-    /// An offset into the `.debug_types` section.
-    DebugTypesRef(DebugTypesOffset),
+    /// A type signature.
+    DebugTypesRef(DebugTypeSignature),
 
     /// An offset into the `.debug_str` section.
     DebugStrRef(DebugStrOffset),
@@ -2167,11 +2171,11 @@ fn parse_attribute<'input, 'unit, Endian>
                 }
             }
             constants::DW_FORM_ref_sig8 => {
-                return parse_u64(input.into()).map(|(rest, offset)| {
-                    let offset = DebugTypesOffset(offset);
+                return parse_u64(input.into()).map(|(rest, signature)| {
+                    let signature = DebugTypeSignature(signature);
                     let attr = Attribute {
                         name: spec.name(),
-                        value: AttributeValue::DebugTypesRef(offset),
+                        value: AttributeValue::DebugTypesRef(signature),
                     };
                     (rest, attr)
                 });
@@ -2522,7 +2526,7 @@ fn test_parse_attribute_refsig8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
     let unit = test_parse_attribute_unit_default();
     let form = constants::DW_FORM_ref_sig8;
-    let value = AttributeValue::DebugTypesRef(DebugTypesOffset(578437695752307201));
+    let value = AttributeValue::DebugTypesRef(DebugTypeSignature(578437695752307201));
     test_parse_attribute(&buf, 8, &unit, form, value);
 }
 
@@ -3192,10 +3196,12 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
 
 /// Parse a type unit header's unique type signature. Callers should handle
 /// unique-ness checking.
-fn parse_type_signature<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
+fn parse_type_signature<Endian>(input: EndianBuf<Endian>)
+                                -> ParseResult<(EndianBuf<Endian>, DebugTypeSignature)>
     where Endian: Endianity
 {
-    parse_u64(input)
+    let (rest, offset) = try!(parse_u64(input));
+    Ok((rest, DebugTypeSignature(offset)))
 }
 
 #[test]
@@ -3203,7 +3209,7 @@ fn test_parse_type_signature_ok() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
     match parse_type_signature(EndianBuf::<LittleEndian>::new(&buf)) {
-        Ok((_, val)) => assert_eq!(val, 0x0807060504030201),
+        Ok((_, val)) => assert_eq!(val, DebugTypeSignature(0x0807060504030201)),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 }
@@ -3366,7 +3372,7 @@ pub struct TypeUnitHeader<'input, Endian>
     where Endian: Endianity
 {
     header: UnitHeader<'input, Endian>,
-    type_signature: u64,
+    type_signature: DebugTypeSignature,
     type_offset: DebugTypesOffset,
 }
 
@@ -3375,7 +3381,7 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
 {
     /// Construct a new `TypeUnitHeader`.
     fn new(header: UnitHeader<'input, Endian>,
-           type_signature: u64,
+           type_signature: DebugTypeSignature,
            type_offset: DebugTypesOffset)
            -> TypeUnitHeader<'input, Endian> {
         TypeUnitHeader {
@@ -3427,7 +3433,7 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
     }
 
     /// Get the unique type signature for this type unit.
-    pub fn type_signature(&self) -> u64 {
+    pub fn type_signature(&self) -> DebugTypeSignature {
         self.type_signature
     }
 
@@ -3579,7 +3585,7 @@ fn test_parse_type_unit_header_64_ok() {
                                                            8,
                                                            Format::Dwarf64,
                                                            &[]),
-                                           0xdeadbeefdeadbeef,
+                                           DebugTypeSignature(0xdeadbeefdeadbeef),
                                            DebugTypesOffset(0x7856341278563412)))
         },
         otherwise => panic!("Unexpected result: {:?}", otherwise),
