@@ -81,6 +81,25 @@ pub enum Error {
     NotCieId,
     /// Expected to find a pointer to a CIE, but found the CIE ID instead.
     NotCiePointer,
+    /// Invalid branch target for a DW_OP_bra or DW_OP_skip.
+    BadBranchTarget(usize),
+    /// DW_OP_push_object_address used but no address passed in.
+    InvalidPushObjectAddress,
+    /// Not enough items on the stack when evaluating an expression.
+    NotEnoughStackItems,
+    /// Too many iterations to compute the expression.
+    TooManyIterations,
+    /// An unrecognized operation was found while parsing a DWARF
+    /// expression.
+    InvalidExpression(constants::DwOp),
+    /// The expression had a piece followed by an expression
+    /// terminator without a piece.
+    InvalidPiece,
+    /// An expression-terminating operation was followed by something
+    /// other than the end of the expression or a piece operation.
+    InvalidExpressionTerminator(usize),
+    /// Division or modulus by zero when evaluating an expression.
+    DivisionByZero,
 }
 
 impl fmt::Display for Error {
@@ -137,6 +156,18 @@ impl error::Error for Error {
             Error::BadUtf8 => "Found an invalid UTF-8 string.",
             Error::NotCieId => "Expected to find the CIE ID, but found something else.",
             Error::NotCiePointer => "Expected to find a CIE pointer, but found the CIE ID instead.",
+            Error::BadBranchTarget(_) => "Invalid branch target in DWARF expression",
+            Error::InvalidPushObjectAddress => {
+                "DW_OP_push_object_address used but no object address given"
+            }
+            Error::NotEnoughStackItems => "Not enough items on stack when evaluating expression",
+            Error::TooManyIterations => "Too many iterations to evaluate DWARF expression",
+            Error::InvalidExpression(_) => "Invalid opcode in DWARF expression",
+            Error::InvalidPiece => {
+                "DWARF expression has piece followed by non-piece expression at end"
+            }
+            Error::InvalidExpressionTerminator(_) => "Expected DW_OP_piece or DW_OP_bit_piece",
+            Error::DivisionByZero => "Division or modulus by zero when evaluating expression",
         }
     }
 }
@@ -179,6 +210,19 @@ pub fn parse_u16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<End
     }
 }
 
+/// Parse a `i16` from the input.
+#[doc(hidden)]
+#[inline]
+pub fn parse_i16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, i16)>
+    where Endian: Endianity
+{
+    if input.len() < 2 {
+        Err(Error::UnexpectedEof)
+    } else {
+        Ok((input.range_from(2..), Endian::read_i16(&input)))
+    }
+}
+
 /// Parse a `u32` from the input.
 #[doc(hidden)]
 #[inline]
@@ -192,6 +236,19 @@ pub fn parse_u32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<End
     }
 }
 
+/// Parse a `i32` from the input.
+#[doc(hidden)]
+#[inline]
+pub fn parse_i32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, i32)>
+    where Endian: Endianity
+{
+    if input.len() < 4 {
+        Err(Error::UnexpectedEof)
+    } else {
+        Ok((input.range_from(4..), Endian::read_i32(&input)))
+    }
+}
+
 /// Parse a `u64` from the input.
 #[doc(hidden)]
 #[inline]
@@ -202,6 +259,19 @@ pub fn parse_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<End
         Err(Error::UnexpectedEof)
     } else {
         Ok((input.range_from(8..), Endian::read_u64(&input)))
+    }
+}
+
+/// Parse a `i64` from the input.
+#[doc(hidden)]
+#[inline]
+pub fn parse_i64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, i64)>
+    where Endian: Endianity
+{
+    if input.len() < 8 {
+        Err(Error::UnexpectedEof)
+    } else {
+        Ok((input.range_from(8..), Endian::read_i64(&input)))
     }
 }
 
@@ -1942,8 +2012,11 @@ fn length_u32_value<Endian>(input: EndianBuf<Endian>)
     take(len as usize, rest)
 }
 
-fn length_leb_value<Endian>(input: EndianBuf<Endian>)
-                            -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>)>
+/// Parse a length as an unsigned LEB128 from the input, then take
+/// that many bytes from the input.  These bytes are returned as the
+/// second element of the result tuple.
+pub fn parse_length_uleb_value<Endian>(input: EndianBuf<Endian>)
+                                       -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>)>
     where Endian: Endianity
 {
     let (rest, len) = try!(parse_unsigned_leb(input.into()));
@@ -2003,7 +2076,7 @@ fn parse_attribute<'input, 'unit, Endian>
                 });
             }
             constants::DW_FORM_block => {
-                return length_leb_value(input.into()).map(|(rest, block)| {
+                return parse_length_uleb_value(input.into()).map(|(rest, block)| {
                     let attr = Attribute {
                         name: spec.name(),
                         value: AttributeValue::Block(block),
@@ -2066,7 +2139,7 @@ fn parse_attribute<'input, 'unit, Endian>
                 });
             }
             constants::DW_FORM_exprloc => {
-                return length_leb_value(input.into()).map(|(rest, block)| {
+                return parse_length_uleb_value(input.into()).map(|(rest, block)| {
                     let attr = Attribute {
                         name: spec.name(),
                         value: AttributeValue::Exprloc(block),
