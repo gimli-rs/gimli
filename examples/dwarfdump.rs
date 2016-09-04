@@ -121,7 +121,11 @@ fn dump_info<Endian>(file: &object::File,
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
-            dump_entries(unit.entries(&abbrevs), debug_str, flags);
+            dump_entries(unit.entries(&abbrevs),
+                         unit.address_size(),
+                         unit.format(),
+                         debug_str,
+                         flags);
         }
     }
 }
@@ -143,12 +147,18 @@ fn dump_types<Endian>(file: &object::File,
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
-            dump_entries(unit.entries(&abbrevs), debug_str, flags);
+            dump_entries(unit.entries(&abbrevs),
+                         unit.address_size(),
+                         unit.format(),
+                         debug_str,
+                         flags);
         }
     }
 }
 
 fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
+                        address_size: u8,
+                        format: gimli::Format,
                         debug_str: gimli::DebugStr<Endian>,
                         flags: &Flags)
     where Endian: gimli::Endianity
@@ -171,13 +181,16 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
             if flags.raw {
                 println!("{:?}", attr.raw_value());
             } else {
-                dump_attr_value(attr, debug_str);
+                dump_attr_value(attr, address_size, format, debug_str);
             }
         }
     }
 }
 
-fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::DebugStr<Endian>)
+fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
+                           address_size: u8,
+                           format: gimli::Format,
+                           debug_str: gimli::DebugStr<Endian>)
     where Endian: gimli::Endianity
 {
     let value = attr.value();
@@ -209,8 +222,16 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
                 }
             };
         }
-        gimli::AttributeValue::Exprloc(_) => {
-            println!("{:?}", value);
+        gimli::AttributeValue::Exprloc(data) => {
+            if let gimli::AttributeValue::Exprloc(_) = attr.raw_value() {
+                print!("len 0x{:04x}: ", data.len());
+                for byte in data.0 {
+                    print!("{:02x}", byte);
+                }
+                print!(": ");
+            }
+            dump_exprloc(data, address_size, format);
+            println!("");
         }
         gimli::AttributeValue::Flag(true) => {
             // We don't record what the value was, so assume 1.
@@ -244,7 +265,14 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
             println!("{}", offset);
         }
         gimli::AttributeValue::DebugTypesRef(gimli::DebugTypeSignature(offset)) => {
-            println!("0x{:08x}", offset);
+            // Convert back to bytes so we can match libdwarf-dwarfdump output.
+            let mut buf = [0; 8];
+            Endian::write_u64(&mut buf, offset);
+            print!("0x");
+            for byte in &buf {
+                print!("{:02x}", byte);
+            }
+            println!(" <type signature>");
         }
         gimli::AttributeValue::DebugStrRef(offset) => {
             if let Ok(s) = debug_str.get_str(offset) {
@@ -292,6 +320,105 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
         gimli::AttributeValue::Ordering(value) => {
             println!("{}", value);
         }
+    }
+}
+
+fn dump_exprloc<Endian>(data: gimli::EndianBuf<Endian>, address_size: u8, format: gimli::Format)
+    where Endian: gimli::Endianity
+{
+    let mut pc = data;
+    let mut space = false;
+    while pc.len() != 0 {
+        let dwop = gimli::DwOp(pc[0]);
+        let (newpc, op) = gimli::Operation::parse(pc, data.0, address_size, format)
+            .expect("Should parse op");
+        if space {
+            print!(" ");
+        } else {
+            space = true;
+        }
+        dump_op(dwop, op, data.0);
+        pc = newpc;
+    }
+}
+
+fn dump_op<Endian>(dwop: gimli::DwOp, op: gimli::Operation<Endian>, data: &[u8])
+    where Endian: gimli::Endianity
+{
+    print!("{}", dwop);
+    match op {
+        gimli::Operation::Deref { size, space: _ } => {
+            if dwop == gimli::DW_OP_deref_size || dwop == gimli::DW_OP_xderef_size {
+                print!(" {}", size);
+            }
+        }
+        gimli::Operation::Pick { index } => {
+            if dwop == gimli::DW_OP_pick {
+                print!(" {}", index);
+            }
+        }
+        gimli::Operation::PlusConstant { value } => {
+            print!(" {}", value as i64);
+        }
+        gimli::Operation::Bra { target } => {
+            let offset = data.len() as isize - target.len() as isize;
+            print!(" {}", offset);
+        }
+        gimli::Operation::Skip { target } => {
+            let offset = data.len() as isize - target.len() as isize;
+            print!(" {}", offset);
+        }
+        gimli::Operation::Literal { value } => {
+            match dwop {
+                gimli::DW_OP_addr => {
+                    print!(" 0x{:08x}", value);
+                }
+                gimli::DW_OP_const1s |
+                gimli::DW_OP_const2s |
+                gimli::DW_OP_const4s |
+                gimli::DW_OP_const8s |
+                gimli::DW_OP_consts => {
+                    print!(" {}", value as i64);
+                }
+                _ => {
+                    print!(" {}", value);
+                }
+            }
+        }
+        gimli::Operation::Register { register } => {
+            if dwop == gimli::DW_OP_regx {
+                print!(" {}", register);
+            }
+        }
+        gimli::Operation::RegisterOffset { register: _, offset } => {
+            print!("{:+}", offset);
+        }
+        gimli::Operation::FrameOffset { offset } => {
+            print!(" {}", offset);
+        }
+        gimli::Operation::Call { offset } => {
+            match offset {
+                gimli::DieReference::UnitRef(gimli::UnitOffset(offset)) => {
+                    print!(" 0x{:08x}", offset);
+                }
+                gimli::DieReference::DebugInfoRef(gimli::DebugInfoOffset(offset)) => {
+                    print!(" 0x{:08x}", offset);
+                }
+            }
+        }
+        gimli::Operation::Piece { size_in_bits, bit_offset: None } => {
+            print!(" {}", size_in_bits / 8);
+        }
+        gimli::Operation::Piece { size_in_bits, bit_offset: Some(bit_offset) } => {
+            print!(" 0x{:08x} offset 0x{:08x}", size_in_bits, bit_offset);
+        }
+        gimli::Operation::ImplicitValue { data } => {
+            print!(" 0x{:08x} 0x", data.len());
+            for byte in data {
+                print!("{:02x}", byte);
+            }
+        }
+        _ => {}
     }
 }
 
