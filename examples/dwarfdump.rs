@@ -244,7 +244,14 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>, debug_str: gimli::Deb
             println!("{}", offset);
         }
         gimli::AttributeValue::DebugTypesRef(gimli::DebugTypeSignature(offset)) => {
-            println!("0x{:08x}", offset);
+            // Convert back to bytes so we can match libdwarf-dwarfdump output.
+            let mut buf = [0;8];
+            Endian::write_u64(&mut buf, offset);
+            print!("0x");
+            for byte in &buf {
+                print!("{:02x}", byte);
+            }
+            println!(" <type signature>");
         }
         gimli::AttributeValue::DebugStrRef(offset) => {
             if let Ok(s) = debug_str.get_str(offset) {
