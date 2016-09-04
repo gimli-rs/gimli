@@ -236,7 +236,6 @@ pub struct CommonInformationEntry<'input, Endian>
 impl<'input, Endian> CommonInformationEntry<'input, Endian>
     where Endian: Endianity
 {
-    #[allow(dead_code)]
     fn parse
         (input: EndianBuf<'input, Endian>)
          -> ParseResult<(EndianBuf<'input, Endian>, CommonInformationEntry<'input, Endian>)> {
