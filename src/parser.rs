@@ -1591,7 +1591,10 @@ impl<'input, Endian> Attribute<'input, Endian>
                 });
         }
         macro_rules! exprloc {
-            () => ();
+            () => (
+                if let Some(value) = self.exprloc_value() {
+                    return AttributeValue::Exprloc(value);
+                });
         }
         macro_rules! flag {
             () => ();
@@ -1971,6 +1974,38 @@ impl<'input, Endian> Attribute<'input, Endian>
             AttributeValue::SecOffset(offset) => offset,
             _ => return None,
         })
+    }
+
+    /// Try to convert this attribute's value to an expression or location.
+    ///
+    /// Expressions and locations may be `DW_FORM_block*` or `DW_FORM_exprloc`.
+    /// The standard doesn't mention `DW_FORM_block*` as a possible form, but
+    /// it is encountered in practice.
+    fn exprloc_value(&self) -> Option<EndianBuf<'input, Endian>> {
+        Some(match self.value {
+            AttributeValue::Block(data) => data,
+            AttributeValue::Exprloc(data) => data,
+            _ => return None,
+        })
+    }
+}
+
+#[test]
+fn test_attribute_value() {
+    let bytes = [0, 1, 2, 3];
+    let buf = EndianBuf::<LittleEndian>::new(&bytes);
+
+    let tests = [(constants::DW_AT_data_member_location,
+                  AttributeValue::Block(buf),
+                  AttributeValue::Exprloc(buf))];
+
+    for test in tests.iter() {
+        let (name, value, expect) = *test;
+        let attribute = Attribute {
+            name: name,
+            value: value,
+        };
+        assert_eq!(attribute.value(), expect);
     }
 }
 
@@ -3503,6 +3538,11 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
     /// The size of addresses (in bytes) in this type-unit.
     pub fn address_size(&self) -> u8 {
         self.header.address_size
+    }
+
+    /// Whether this type unit is encoded in 64- or 32-bit DWARF.
+    pub fn format(&self) -> Format {
+        self.header.format
     }
 
     /// Get the unique type signature for this type unit.
