@@ -1574,6 +1574,21 @@ impl<'input, Endian> Attribute<'input, Endian>
     ///
     /// See "Figure 20. Attribute encodings" and "Figure 21. Attribute form encodings".
     pub fn value(&self) -> AttributeValue<'input, Endian> {
+        // Figure 20 shows the possible attribute classes for each name.
+        // Figure 21 shows the possible attribute classes for each form.
+        // For each attribute name, we need to match on the form, and
+        // convert it to one of the classes that is allowed for both
+        // the name and the form.
+        //
+        // The individual class conversions rarely vary for each name,
+        // so for each class conversion we define a macro that matches
+        // on the allowed forms for that class.
+        //
+        // For some classes, we don't need to do any conversion, so their
+        // macro is empty.  In the future we may want to fill them in to
+        // provide strict checking of the forms for each class.  For now,
+        // they simply provide a way to document the allowed classes for
+        // each name.
         macro_rules! address {
             () => ();
         }
@@ -1630,6 +1645,7 @@ impl<'input, Endian> Attribute<'input, Endian>
             () => ();
         }
 
+        // Perform the allowed class conversions for each attribute name.
         match self.name {
             constants::DW_AT_sibling => {
                 reference!();
