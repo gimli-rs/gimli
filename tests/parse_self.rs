@@ -8,8 +8,11 @@ use std::io::Read;
 use std::path::PathBuf;
 
 fn read_section(section: &str) -> Vec<u8> {
-    let mut path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    path.push("./fixtures/self/");
+    let mut path = PathBuf::new();
+    if let Ok(dir) = env::var("CARGO_MANIFEST_DIR") {
+        path.push(dir);
+    }
+    path.push("fixtures/self");
     path.push(section);
 
     println!("Reading section \"{}\" at path {:?}", section, path);
