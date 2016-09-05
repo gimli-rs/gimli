@@ -3,9 +3,10 @@
 #![deny(missing_docs)]
 
 use constants;
-use parser::{Error, ParseResult, UnitOffset, DebugInfoOffset, Format, parse_u8, parse_i8,
-             parse_u16, parse_i16, parse_u32, parse_i32, parse_u64, parse_i64, parse_unsigned_leb,
-             parse_signed_leb, parse_word, parse_address, parse_length_uleb_value};
+use parser::{Error, ParseResult, UnitOffset, DebugInfoOffset, Format, parse_u8e, parse_i8e,
+             parse_u16, parse_i16, parse_u32, parse_i32, parse_u64, parse_i64,
+             parse_unsigned_lebe, parse_signed_lebe, parse_word, parse_address,
+             parse_length_uleb_value};
 use endianity::{Endianity, EndianBuf};
 use std::marker::PhantomData;
 #[cfg(test)]
@@ -304,44 +305,6 @@ fn test_compute_pc() {
         }
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
-}
-
-// Like parse_u8 but takes and returns an EndianBuf for convenience.
-fn parse_u8e<'input, Endian>(bytes: EndianBuf<'input, Endian>)
-                             -> ParseResult<(EndianBuf<'input, Endian>, u8)>
-    where Endian: Endianity
-{
-    let (bytes, value) = try!(parse_u8(bytes.into()));
-    Ok((EndianBuf::new(bytes), value))
-}
-
-// Like parse_i8 but takes and returns an EndianBuf for convenience.
-fn parse_i8e<'input, Endian>(bytes: EndianBuf<'input, Endian>)
-                             -> ParseResult<(EndianBuf<'input, Endian>, i8)>
-    where Endian: Endianity
-{
-    let (bytes, value) = try!(parse_i8(bytes.into()));
-    Ok((EndianBuf::new(bytes), value))
-}
-
-// Like parse_unsigned_leb but takes and returns an EndianBuf for
-// convenience.
-fn parse_unsigned_lebe<'input, Endian>(bytes: EndianBuf<'input, Endian>)
-                                       -> ParseResult<(EndianBuf<'input, Endian>, u64)>
-    where Endian: Endianity
-{
-    let (bytes, value) = try!(parse_unsigned_leb(bytes.into()));
-    Ok((EndianBuf::new(bytes), value))
-}
-
-// Like parse_signed_leb but takes and returns an EndianBuf for
-// convenience.
-fn parse_signed_lebe<'input, Endian>(bytes: EndianBuf<'input, Endian>)
-                                     -> ParseResult<(EndianBuf<'input, Endian>, i64)>
-    where Endian: Endianity
-{
-    let (bytes, value) = try!(parse_signed_leb(bytes.into()));
-    Ok((EndianBuf::new(bytes), value))
 }
 
 impl<'input, Endian> Operation<'input, Endian>
@@ -1487,11 +1450,10 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
         match self.stack.pop() {
             Some(value) => {
                 let mut value = value & self.addr_mask;
-                if self.address_size < 8 &&
-                    (value & (1u64 << (8 * self.address_size - 1))) != 0 {
-                        // Sign extend.
-                        value = value | !self.addr_mask;
-                    }
+                if self.address_size < 8 && (value & (1u64 << (8 * self.address_size - 1))) != 0 {
+                    // Sign extend.
+                    value = value | !self.addr_mask;
+                }
                 Ok(value as i64)
             }
             None => Err(Error::NotEnoughStackItems),
@@ -1502,9 +1464,9 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
         self.stack.push(value);
     }
 
-    fn evaluate_one_operation(&mut self, operation: &Operation<'input, Endian>)
-                              -> ParseResult<(bool, bool, Location<'input>)>
-    {
+    fn evaluate_one_operation(&mut self,
+                              operation: &Operation<'input, Endian>)
+                              -> ParseResult<(bool, bool, Location<'input>)> {
         let mut terminated = false;
         let mut piece_end = false;
         let mut current_location = Location::Empty;
@@ -1512,11 +1474,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
         match *operation {
             Operation::Deref { size, space } => {
                 let addr = try!(self.pop());
-                let addr_space = if space {
-                    Some(try!(self.pop()))
-                } else {
-                    None
-                };
+                let addr_space = if space { Some(try!(self.pop())) } else { None };
                 let addr = try!(self.callbacks.read_memory(addr, size, addr_space));
                 self.push(addr);
             }
@@ -1703,7 +1661,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
 
             Operation::TLS => {
                 let value = try!(self.pop());
-                let addr = try!(self.callbacks.read_tls(value)); 
+                let addr = try!(self.callbacks.read_tls(value));
                 self.push(addr);
             }
 
@@ -1771,7 +1729,8 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
                 try!(Operation::parse(self.pc, self.bytecode, self.address_size, self.format));
             self.pc = newpc;
 
-            let (piece_end, terminated, mut current_location) = try!(self.evaluate_one_operation(&operation));
+            let (piece_end, terminated, mut current_location) =
+                try!(self.evaluate_one_operation(&operation));
 
             if piece_end || terminated {
                 // If we saw a piece end, like Piece, then we want to use
@@ -1789,8 +1748,10 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
                         current_location = Location::Address { address: try!(self.pop()) };
                     }
                 } else if !eof {
-                    let (newpc, operation) =
-                        try!(Operation::parse(self.pc, self.bytecode, self.address_size, self.format));
+                    let (newpc, operation) = try!(Operation::parse(self.pc,
+                                                                   self.bytecode,
+                                                                   self.address_size,
+                                                                   self.format));
                     self.pc = newpc;
                     pieceop = operation;
                 }

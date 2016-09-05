@@ -275,6 +275,50 @@ pub fn parse_i64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<End
     }
 }
 
+/// Like parse_u8 but takes and returns an EndianBuf for convenience.
+#[doc(hidden)]
+#[inline]
+pub fn parse_u8e<'input, Endian>(bytes: EndianBuf<'input, Endian>)
+                                 -> ParseResult<(EndianBuf<'input, Endian>, u8)>
+    where Endian: Endianity
+{
+    let (bytes, value) = try!(parse_u8(bytes.into()));
+    Ok((EndianBuf::new(bytes), value))
+}
+
+/// Like parse_i8 but takes and returns an EndianBuf for convenience.
+#[doc(hidden)]
+#[inline]
+pub fn parse_i8e<'input, Endian>(bytes: EndianBuf<'input, Endian>)
+                                 -> ParseResult<(EndianBuf<'input, Endian>, i8)>
+    where Endian: Endianity
+{
+    let (bytes, value) = try!(parse_i8(bytes.into()));
+    Ok((EndianBuf::new(bytes), value))
+}
+
+/// Like parse_unsigned_leb but takes and returns an EndianBuf for convenience.
+#[doc(hidden)]
+#[inline]
+pub fn parse_unsigned_lebe<'input, Endian>(bytes: EndianBuf<'input, Endian>)
+                                           -> ParseResult<(EndianBuf<'input, Endian>, u64)>
+    where Endian: Endianity
+{
+    let (bytes, value) = try!(parse_unsigned_leb(bytes.into()));
+    Ok((EndianBuf::new(bytes), value))
+}
+
+/// Like parse_signed_leb but takes and returns an EndianBuf for convenience.
+#[doc(hidden)]
+#[inline]
+pub fn parse_signed_lebe<'input, Endian>(bytes: EndianBuf<'input, Endian>)
+                                         -> ParseResult<(EndianBuf<'input, Endian>, i64)>
+    where Endian: Endianity
+{
+    let (bytes, value) = try!(parse_signed_leb(bytes.into()));
+    Ok((EndianBuf::new(bytes), value))
+}
+
 /// Parse a `u32` from the input and return it as a `u64`.
 #[doc(hidden)]
 #[inline]
