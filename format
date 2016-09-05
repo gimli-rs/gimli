@@ -15,9 +15,9 @@ function maybe_set() {
     fi
 }
 
-maybe_set ~/.multirust/toolchains/nightly/cargo/bin/rustfmt
 maybe_set ~/.cargo/bin/rustfmt
 maybe_set $(which rustfmt)
+maybe_set ~/.multirust/toolchains/nightly/cargo/bin/rustfmt
 
 if [[ $RUSTFMT == "" ]]; then
     echo "$0: error: could not find an appropriate rustfmt binary!"
