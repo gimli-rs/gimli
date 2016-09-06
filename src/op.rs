@@ -808,6 +808,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     Operation::Call { offset: DieReference::DebugInfoRef(DebugInfoOffset(value)) }))
             }
             constants::DW_OP_form_tls_address => Ok((bytes, Operation::TLS)),
+            constants::DW_OP_GNU_push_tls_address => Ok((bytes, Operation::TLS)),
             constants::DW_OP_call_frame_cfa => Ok((bytes, Operation::CallFrameCFA)),
             constants::DW_OP_bit_piece => {
                 let (newbytes, size) = try!(parse_unsigned_lebe(bytes));
@@ -971,6 +972,7 @@ fn test_op_parse_onebyte() {
                   (constants::DW_OP_nop, Operation::Nop),
                   (constants::DW_OP_push_object_address, Operation::PushObjectAddress),
                   (constants::DW_OP_form_tls_address, Operation::TLS),
+                  (constants::DW_OP_GNU_push_tls_address, Operation::TLS),
                   (constants::DW_OP_call_frame_cfa, Operation::CallFrameCFA),
                   (constants::DW_OP_stack_value, Operation::StackValue)];
 
@@ -2362,6 +2364,12 @@ fn test_eval_memory() {
 
         Op(DW_OP_lit17),
         Op(DW_OP_form_tls_address),
+        Op(DW_OP_constu), Uleb(!17),
+        Op(DW_OP_ne),
+        Op(DW_OP_bra), Branch(fail),
+
+        Op(DW_OP_lit17),
+        Op(DW_OP_GNU_push_tls_address),
         Op(DW_OP_constu), Uleb(!17),
         Op(DW_OP_ne),
         Op(DW_OP_bra), Branch(fail),
