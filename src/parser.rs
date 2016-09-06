@@ -100,6 +100,8 @@ pub enum Error {
     InvalidExpressionTerminator(usize),
     /// Division or modulus by zero when evaluating an expression.
     DivisionByZero,
+    /// An unknown DW_CFA_* instruction.
+    UnknownCallFrameInstruction(constants::DwCfa),
 }
 
 impl fmt::Display for Error {
@@ -168,6 +170,7 @@ impl error::Error for Error {
             }
             Error::InvalidExpressionTerminator(_) => "Expected DW_OP_piece or DW_OP_bit_piece",
             Error::DivisionByZero => "Division or modulus by zero when evaluating expression",
+            Error::UnknownCallFrameInstruction(_) => "An unknown DW_CFA_* instructiion",
         }
     }
 }
@@ -2110,6 +2113,7 @@ fn length_u32_value<Endian>(input: EndianBuf<Endian>)
 /// Parse a length as an unsigned LEB128 from the input, then take
 /// that many bytes from the input.  These bytes are returned as the
 /// second element of the result tuple.
+#[doc(hidden)]
 pub fn parse_length_uleb_value<Endian>(input: EndianBuf<Endian>)
                                        -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>)>
     where Endian: Endianity
