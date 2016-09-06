@@ -3,47 +3,28 @@
 #![deny(missing_docs)]
 
 use constants;
-use endianity::{Endianity, EndianBuf};
+use endianity::Endianity;
 use parser::{Error, ParseResult, Format};
 use parser::{parse_unsigned_leb, parse_u8};
+use section::{SectionData, SectionOffset};
 use unit::UnitHeader;
 use std::collections::hash_map;
 
-/// An offset into the `.debug_abbrev` section.
+/// The type of a `.debug_abbrev` section, used to match offsets with data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugAbbrevOffset(pub u64);
+pub enum DebugAbbrevSection {}
+
+/// An offset into the `.debug_abbrev` section.
+pub type DebugAbbrevOffset = SectionOffset<DebugAbbrevSection>;
 
 /// The `DebugAbbrev` struct represents the abbreviations describing
 /// `DebuggingInformationEntry`s' attribute names and forms found in the
 /// `.debug_abbrev` section.
-#[derive(Debug, Clone, Copy)]
-pub struct DebugAbbrev<'input, Endian>
-    where Endian: Endianity
-{
-    debug_abbrev_section: EndianBuf<'input, Endian>,
-}
+pub type DebugAbbrev<'input, Endian> = SectionData<'input, Endian, DebugAbbrevSection>;
 
 impl<'input, Endian> DebugAbbrev<'input, Endian>
     where Endian: Endianity
 {
-    /// Construct a new `DebugAbbrev` instance from the data in the `.debug_abbrev`
-    /// section.
-    ///
-    /// It is the caller's responsibility to read the `.debug_abbrev` section and
-    /// present it as a `&[u8]` slice. That means using some ELF loader on
-    /// Linux, a Mach-O loader on OSX, etc.
-    ///
-    /// ```
-    /// use gimli::{DebugAbbrev, LittleEndian};
-    ///
-    /// # let buf = [0x00, 0x01, 0x02, 0x03];
-    /// # let read_debug_abbrev_section_somehow = || &buf;
-    /// let debug_abbrev = DebugAbbrev::<LittleEndian>::new(read_debug_abbrev_section_somehow());
-    /// ```
-    pub fn new(debug_abbrev_section: &'input [u8]) -> DebugAbbrev<'input, Endian> {
-        DebugAbbrev { debug_abbrev_section: EndianBuf::new(debug_abbrev_section) }
-    }
-
     /// Parse the abbreviations at the given `offset` within this
     /// `.debug_abbrev` section.
     ///
@@ -51,7 +32,7 @@ impl<'input, Endian> DebugAbbrev<'input, Endian>
     pub fn abbreviations(&self,
                          debug_abbrev_offset: DebugAbbrevOffset)
                          -> ParseResult<Abbreviations> {
-        let input: &[u8] = self.debug_abbrev_section.into();
+        let input: &[u8] = self.data().into();
         Abbreviations::parse(&input[debug_abbrev_offset.0 as usize..]).map(|(_, abbrevs)| abbrevs)
     }
 }
@@ -409,7 +390,7 @@ mod tests {
             ]);
 
         let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&buf);
-        let debug_abbrev_offset = DebugAbbrevOffset(4);
+        let debug_abbrev_offset = DebugAbbrevOffset::new(4);
         let abbrevs = debug_abbrev.abbreviations(debug_abbrev_offset)
             .expect("Should parse abbreviations");
         assert_eq!(abbrevs.get(1), Some(&abbrev1));

@@ -15,6 +15,7 @@ use parser::{Error, ParseResult, Format, DebugLocOffset, DebugMacinfoOffset, Deb
              parse_u8, parse_u16, parse_u32, parse_u64, parse_unsigned_leb, parse_signed_leb,
              parse_word, parse_address, parse_address_size, parse_initial_length,
              parse_length_uleb_value, parse_null_terminated_string, take};
+use section::{SectionData, SectionOffset};
 use std::cell::Cell;
 use std::ffi;
 use std::marker::PhantomData;
@@ -22,17 +23,23 @@ use std::ops::{Range, RangeFrom, RangeTo};
 use std::{u8, u16};
 use str::DebugStrOffset;
 
-/// An offset into the `.debug_types` section.
+/// The type of a `.debug_info` section, used to match offsets with data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugTypesOffset(pub u64);
+pub enum DebugInfoSection {}
+
+/// An offset into the `.debug_info` section.
+pub type DebugInfoOffset = SectionOffset<DebugInfoSection>;
+
+/// The type of a `.debug_types` section, used to match offsets with data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DebugTypesSection {}
+
+/// An offset into the `.debug_types` section.
+pub type DebugTypesOffset = SectionOffset<DebugTypesSection>;
 
 /// A type signature as used in the `.debug_types` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DebugTypeSignature(pub u64);
-
-/// An offset into the `.debug_info` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugInfoOffset(pub u64);
 
 /// An offset into the current compilation or type unit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
@@ -40,34 +47,11 @@ pub struct UnitOffset(pub u64);
 
 /// The `DebugInfo` struct represents the DWARF debugging information found in
 /// the `.debug_info` section.
-#[derive(Debug, Clone, Copy)]
-pub struct DebugInfo<'input, Endian>
-    where Endian: Endianity
-{
-    debug_info_section: EndianBuf<'input, Endian>,
-}
+pub type DebugInfo<'input, Endian> = SectionData<'input, Endian, DebugInfoSection>;
 
 impl<'input, Endian> DebugInfo<'input, Endian>
     where Endian: Endianity
 {
-    /// Construct a new `DebugInfo` instance from the data in the `.debug_info`
-    /// section.
-    ///
-    /// It is the caller's responsibility to read the `.debug_info` section and
-    /// present it as a `&[u8]` slice. That means using some ELF loader on
-    /// Linux, a Mach-O loader on OSX, etc.
-    ///
-    /// ```
-    /// use gimli::{DebugInfo, LittleEndian};
-    ///
-    /// # let buf = [0x00, 0x01, 0x02, 0x03];
-    /// # let read_debug_info_section_somehow = || &buf;
-    /// let debug_info = DebugInfo::<LittleEndian>::new(read_debug_info_section_somehow());
-    /// ```
-    pub fn new(debug_info_section: &'input [u8]) -> DebugInfo<'input, Endian> {
-        DebugInfo { debug_info_section: EndianBuf(debug_info_section, PhantomData) }
-    }
-
     /// Iterate the compilation- and partial-units in this
     /// `.debug_info` section.
     ///
@@ -87,7 +71,7 @@ impl<'input, Endian> DebugInfo<'input, Endian>
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn units(&self) -> UnitHeadersIter<'input, Endian> {
-        UnitHeadersIter { input: self.debug_info_section }
+        UnitHeadersIter { input: self.data() }
     }
 
     /// Get the UnitHeader located at offset from this .debug_info section.
@@ -97,11 +81,11 @@ impl<'input, Endian> DebugInfo<'input, Endian>
                               offset: DebugInfoOffset)
                               -> ParseResult<UnitHeader<'input, Endian>> {
         let offset = offset.0 as usize;
-        if self.debug_info_section.len() < offset {
+        if self.data().len() < offset {
             return Err(Error::UnexpectedEof);
         }
 
-        let input = self.debug_info_section.range_from(offset..);
+        let input = self.data().range_from(offset..);
         match parse_unit_header(input) {
             Ok((_, header)) => Ok(header),
             Err(e) => Err(e),
@@ -200,7 +184,7 @@ fn test_units() {
         Ok(Some(header)) => {
             let expected = UnitHeader::<LittleEndian>::new(0x000000000000002b,
                                                 4,
-                                                DebugAbbrevOffset(0x0102030405060708),
+                                                DebugAbbrevOffset::new(0x0102030405060708),
                                                 8,
                                                 Format::Dwarf64,
                                                 &buf[23..23+32]);
@@ -215,7 +199,7 @@ fn test_units() {
             let expected =
                 UnitHeader::new(0x00000027,
                                      4,
-                                     DebugAbbrevOffset(0x08070605),
+                                     DebugAbbrevOffset::new(0x08070605),
                                      4,
                                      Format::Dwarf32,
                                      &buf[buf.len()-32..]);
@@ -278,154 +262,6 @@ fn test_unit_version_incomplete() {
     let buf = [0x04];
 
     match parse_version(EndianBuf::<LittleEndian>::new(&buf)) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-/// Parse the `debug_abbrev_offset` in the compilation unit header.
-fn parse_debug_abbrev_offset<Endian>(input: EndianBuf<Endian>,
-                                     format: Format)
-                                     -> ParseResult<(EndianBuf<Endian>, DebugAbbrevOffset)>
-    where Endian: Endianity
-{
-    parse_word(input, format).map(|(rest, offset)| (rest, DebugAbbrevOffset(offset)))
-}
-
-#[test]
-fn test_parse_debug_abbrev_offset_32() {
-    let buf = [0x01, 0x02, 0x03, 0x04];
-
-    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-        Ok((_, val)) => assert_eq!(val, DebugAbbrevOffset(0x04030201)),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_debug_abbrev_offset_32_incomplete() {
-    let buf = [0x01, 0x02];
-
-    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_debug_abbrev_offset_64() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-
-    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
-        Ok((_, val)) => assert_eq!(val, DebugAbbrevOffset(0x0807060504030201)),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_debug_abbrev_offset_64_incomplete() {
-    let buf = [0x01, 0x02];
-
-    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-
-/// Parse the `debug_info_offset` in the arange header.
-pub fn parse_debug_info_offset<Endian>(input: EndianBuf<Endian>,
-                                       format: Format)
-                                       -> ParseResult<(EndianBuf<Endian>, DebugInfoOffset)>
-    where Endian: Endianity
-{
-    parse_word(input, format).map(|(rest, offset)| (rest, DebugInfoOffset(offset)))
-}
-
-#[test]
-fn test_parse_debug_inro_offset_32() {
-    let buf = [0x01, 0x02, 0x03, 0x04];
-
-    match parse_debug_info_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-        Ok((_, val)) => assert_eq!(val, DebugInfoOffset(0x04030201)),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_debug_info_offset_32_incomplete() {
-    let buf = [0x01, 0x02];
-
-    match parse_debug_info_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_debug_info_offset_64() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-
-    match parse_debug_info_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
-        Ok((_, val)) => assert_eq!(val, DebugInfoOffset(0x0807060504030201)),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_debug_info_offset_64_incomplete() {
-    let buf = [0x01, 0x02];
-
-    match parse_debug_info_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-/// Parse the `debug_types_offset` in the pubtypes header.
-pub fn parse_debug_types_offset<Endian>(input: EndianBuf<Endian>,
-                                        format: Format)
-                                        -> ParseResult<(EndianBuf<Endian>, DebugTypesOffset)>
-    where Endian: Endianity
-{
-    parse_word(input, format).map(|(rest, offset)| (rest, DebugTypesOffset(offset)))
-}
-
-#[test]
-fn test_parse_debug_types_offset_32() {
-    let buf = [0x01, 0x02, 0x03, 0x04];
-
-    match parse_debug_types_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-        Ok((_, val)) => assert_eq!(val, DebugTypesOffset(0x04030201)),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_debug_types_offset_32_incomplete() {
-    let buf = [0x01, 0x02];
-
-    match parse_debug_types_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_debug_types_offset_64() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-
-    match parse_debug_types_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
-        Ok((_, val)) => assert_eq!(val, DebugTypesOffset(0x0807060504030201)),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_debug_types_offset_64_incomplete() {
-    let buf = [0x01, 0x02];
-
-    match parse_debug_types_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
         Err(Error::UnexpectedEof) => assert!(true),
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     };
@@ -682,7 +518,7 @@ fn parse_unit_header<Endian>(input: EndianBuf<Endian>)
     let rest = rest.range_to(..unit_length as usize);
 
     let (rest, version) = try!(parse_version(rest));
-    let (rest, offset) = try!(parse_debug_abbrev_offset(rest, format));
+    let (rest, offset) = try!(DebugAbbrevOffset::parse(rest, format));
     let (rest, address_size) = try!(parse_address_size(rest.into()));
 
     Ok((after_unit,
@@ -713,7 +549,7 @@ fn test_parse_unit_header_32_ok() {
             assert_eq!(header,
                        UnitHeader::new(7,
                                             4,
-                                            DebugAbbrevOffset(0x08070605),
+                                            DebugAbbrevOffset::new(0x08070605),
                                             4,
                                             Format::Dwarf32,
                                             &[]))
@@ -742,7 +578,7 @@ fn test_parse_unit_header_64_ok() {
         Ok((_, header)) => {
             let expected = UnitHeader::new(11,
                                                 4,
-                                                DebugAbbrevOffset(0x0102030405060708),
+                                                DebugAbbrevOffset::new(0x0102030405060708),
                                                 8,
                                                 Format::Dwarf64,
                                                 &[]);
@@ -1777,7 +1613,7 @@ fn parse_attribute<'input, 'unit, Endian>
                 // in DWARF version 3.
                 if unit.version() == 2 {
                     return parse_address(input, unit.address_size()).map(|(rest, offset)| {
-                        let offset = DebugInfoOffset(offset);
+                        let offset = DebugInfoOffset::new(offset);
                         let attr = Attribute {
                             name: spec.name(),
                             value: AttributeValue::DebugInfoRef(offset),
@@ -1785,8 +1621,7 @@ fn parse_attribute<'input, 'unit, Endian>
                         (rest, attr)
                     });
                 } else {
-                    return parse_word(input, unit.format()).map(|(rest, offset)| {
-                        let offset = DebugInfoOffset(offset);
+                    return DebugInfoOffset::parse(input, unit.format()).map(|(rest, offset)| {
                         let attr = Attribute {
                             name: spec.name(),
                             value: AttributeValue::DebugInfoRef(offset),
@@ -1839,7 +1674,7 @@ fn test_parse_attribute_unit<Endian>(address_size: u8,
 {
     UnitHeader::<Endian>::new(7,
                               4,
-                              DebugAbbrevOffset(0x08070605),
+                              DebugAbbrevOffset::new(0x08070605),
                               address_size,
                               format,
                               &[])
@@ -2113,7 +1948,7 @@ fn test_parse_attribute_refaddr_32() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
     let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
     let form = constants::DW_FORM_ref_addr;
-    let value = AttributeValue::DebugInfoRef(DebugInfoOffset(67305985));
+    let value = AttributeValue::DebugInfoRef(DebugInfoOffset::new(67305985));
     test_parse_attribute(&buf, 4, &unit, form, value);
 }
 
@@ -2122,7 +1957,7 @@ fn test_parse_attribute_refaddr_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
     let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf64);
     let form = constants::DW_FORM_ref_addr;
-    let value = AttributeValue::DebugInfoRef(DebugInfoOffset(578437695752307201));
+    let value = AttributeValue::DebugInfoRef(DebugInfoOffset::new(578437695752307201));
     test_parse_attribute(&buf, 8, &unit, form, value);
 }
 
@@ -2132,7 +1967,7 @@ fn test_parse_attribute_refaddr_version2() {
     let mut unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
     unit.version = 2;
     let form = constants::DW_FORM_ref_addr;
-    let value = AttributeValue::DebugInfoRef(DebugInfoOffset(0x04030201));
+    let value = AttributeValue::DebugInfoRef(DebugInfoOffset::new(0x04030201));
     test_parse_attribute(&buf, 4, &unit, form, value);
 }
 
@@ -2142,7 +1977,7 @@ fn test_parse_attribute_refaddr8_version2() {
     let mut unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
     unit.version = 2;
     let form = constants::DW_FORM_ref_addr;
-    let value = AttributeValue::DebugInfoRef(DebugInfoOffset(0x0807060504030201));
+    let value = AttributeValue::DebugInfoRef(DebugInfoOffset::new(0x0807060504030201));
     test_parse_attribute(&buf, 8, &unit, form, value);
 }
 
@@ -2270,7 +2105,7 @@ impl<'input, 'abbrev, 'entry, 'unit, Endian> FallibleIterator for AttrsIter<'inp
 fn test_attrs_iter() {
     let unit = UnitHeader::<LittleEndian>::new(7,
                                                4,
-                                               DebugAbbrevOffset(0x08070605),
+                                               DebugAbbrevOffset::new(0x08070605),
                                                4,
                                                Format::Dwarf32,
                                                &[]);
@@ -2362,7 +2197,7 @@ fn test_attrs_iter() {
 fn test_attrs_iter_incomplete() {
     let unit = UnitHeader::<LittleEndian>::new(7,
                                                4,
-                                               DebugAbbrevOffset(0x08070605),
+                                               DebugAbbrevOffset::new(0x08070605),
                                                4,
                                                Format::Dwarf32,
                                                &[]);
@@ -2849,82 +2684,13 @@ fn test_parse_type_signature_incomplete() {
     }
 }
 
-/// Parse a type unit header's type offset.
-fn parse_type_offset<Endian>(input: EndianBuf<Endian>,
-                             format: Format)
-                             -> ParseResult<(EndianBuf<Endian>, DebugTypesOffset)>
-    where Endian: Endianity
-{
-    parse_word(input, format).map(|(rest, offset)| (rest, DebugTypesOffset(offset)))
-}
-
-#[test]
-fn test_parse_type_offset_32_ok() {
-    let buf = [0x12, 0x34, 0x56, 0x78, 0x00];
-
-    match parse_type_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-        Ok((rest, offset)) => {
-            assert_eq!(rest.len(), 1);
-            assert_eq!(DebugTypesOffset(0x78563412), offset);
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-}
-
-#[test]
-fn test_parse_type_offset_64_ok() {
-    let buf = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff, 0x00];
-
-    match parse_type_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
-        Ok((rest, offset)) => {
-            assert_eq!(rest.len(), 1);
-            assert_eq!(DebugTypesOffset(0xffdebc9a78563412), offset);
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-}
-
-#[test]
-fn test_parse_type_offset_incomplete() {
-    // Need at least 4 bytes.
-    let buf = [0xff, 0xff, 0xff];
-
-    match parse_type_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
 /// The `DebugTypes` struct represents the DWARF type information
 /// found in the `.debug_types` section.
-#[derive(Debug, Clone, Copy)]
-pub struct DebugTypes<'input, Endian>
-    where Endian: Endianity
-{
-    debug_types_section: EndianBuf<'input, Endian>,
-}
+pub type DebugTypes<'input, Endian> = SectionData<'input, Endian, DebugTypesSection>;
 
 impl<'input, Endian> DebugTypes<'input, Endian>
     where Endian: Endianity
 {
-    /// Construct a new `DebugTypes` instance from the data in the `.debug_types`
-    /// section.
-    ///
-    /// It is the caller's responsibility to read the `.debug_types` section and
-    /// present it as a `&[u8]` slice. That means using some ELF loader on
-    /// Linux, a Mach-O loader on OSX, etc.
-    ///
-    /// ```
-    /// use gimli::{DebugTypes, LittleEndian};
-    ///
-    /// # let buf = [0x00, 0x01, 0x02, 0x03];
-    /// # let read_debug_types_section_somehow = || &buf;
-    /// let debug_types = DebugTypes::<LittleEndian>::new(read_debug_types_section_somehow());
-    /// ```
-    pub fn new(debug_types_section: &'input [u8]) -> DebugTypes<'input, Endian> {
-        DebugTypes { debug_types_section: EndianBuf(debug_types_section, PhantomData) }
-    }
-
     /// Iterate the type-units in this `.debug_types` section.
     ///
     /// ```
@@ -2943,7 +2709,7 @@ impl<'input, Endian> DebugTypes<'input, Endian>
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn units(&self) -> TypeUnitHeadersIter<'input, Endian> {
-        TypeUnitHeadersIter { input: self.debug_types_section }
+        TypeUnitHeadersIter { input: self.data() }
     }
 }
 
@@ -3179,7 +2945,7 @@ fn parse_type_unit_header<Endian>(input: EndianBuf<Endian>)
 {
     let (after_unit, mut header) = try!(parse_unit_header(input));
     let (rest, signature) = try!(parse_type_signature(header.entries_buf));
-    let (rest, offset) = try!(parse_type_offset(rest, header.format()));
+    let (rest, offset) = try!(DebugTypesOffset::parse(rest, header.format()));
     header.entries_buf = rest;
     Ok((after_unit, TypeUnitHeader::new(header, signature, offset)))
 }
@@ -3211,12 +2977,12 @@ fn test_parse_type_unit_header_64_ok() {
             assert_eq!(header,
                        TypeUnitHeader::new(UnitHeader::new(27,
                                                            4,
-                                                           DebugAbbrevOffset(0x0807060504030201),
+                                                           DebugAbbrevOffset::new(0x0807060504030201),
                                                            8,
                                                            Format::Dwarf64,
                                                            &[]),
                                            DebugTypeSignature(0xdeadbeefdeadbeef),
-                                           DebugTypesOffset(0x7856341278563412)))
+                                           DebugTypesOffset::new(0x7856341278563412)))
         },
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
