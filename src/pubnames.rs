@@ -2,7 +2,8 @@
 
 use endianity::{Endianity, EndianBuf};
 use lookup::{PubStuffParser, LookupEntryIter, DebugLookup, NamesOrTypesSwitch};
-use parser::{parse_debug_info_offset, Format, DebugInfoOffset, ParseResult};
+use parser::{Format, ParseResult};
+use unit::{DebugInfoOffset, parse_debug_info_offset};
 use std::ffi;
 use std::marker::PhantomData;
 use std::rc::Rc;

@@ -2,8 +2,9 @@
 
 use endianity::{Endianity, EndianBuf};
 use lookup::{LookupParser, LookupEntryIter, DebugLookup};
-use parser::{parse_address_size, parse_debug_info_offset, parse_initial_length, parse_u16,
-             parse_address, Error, Format, DebugInfoOffset, ParseResult};
+use parser::{parse_address_size, parse_initial_length, parse_u16, parse_address, Error, Format,
+             ParseResult};
+use unit::{DebugInfoOffset, parse_debug_info_offset};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::rc::Rc;
@@ -258,7 +259,8 @@ mod tests {
     use super::*;
     use lookup::LookupParser;
     use endianity::{EndianBuf, LittleEndian};
-    use parser::{Format, DebugInfoOffset};
+    use parser::Format;
+    use unit::DebugInfoOffset;
     use std::rc::Rc;
 
     #[test]

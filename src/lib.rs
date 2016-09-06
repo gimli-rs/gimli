@@ -156,15 +156,9 @@ pub use constants::*;
 mod endianity;
 pub use endianity::{Endianity, EndianBuf, LittleEndian, BigEndian, NativeEndian};
 
-mod parser {
-    pub use unit::*;
-}
+mod parser;
 pub use parser::{Error, ParseResult, Format};
-pub use parser::{DebugLocOffset, DebugMacinfoOffset, DebugRangesOffset, UnitOffset};
-pub use parser::{DebugInfo, DebugInfoOffset, UnitHeadersIter, UnitHeader};
-pub use parser::{DebugTypes, DebugTypesOffset, DebugTypeSignature, TypeUnitHeadersIter,
-                 TypeUnitHeader};
-pub use parser::{EntriesCursor, DebuggingInformationEntry, AttrsIter, Attribute, AttributeValue};
+pub use parser::{DebugLocOffset, DebugMacinfoOffset, DebugRangesOffset};
 
 mod abbrev;
 pub use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation,
@@ -178,6 +172,9 @@ pub use line::*;
 
 mod lookup;
 
+mod op;
+pub use op::*;
+
 mod pubnames;
 pub use pubnames::{DebugPubNames, PubNamesEntryIter, PubNamesEntry};
 
@@ -187,7 +184,8 @@ pub use pubtypes::{DebugPubTypes, PubTypesEntryIter, PubTypesEntry};
 mod str;
 pub use str::*;
 
-mod op;
-pub use op::*;
-
 mod unit;
+pub use unit::{DebugInfo, DebugInfoOffset, UnitHeadersIter, UnitHeader, UnitOffset};
+pub use unit::{DebugTypes, DebugTypesOffset, DebugTypeSignature, TypeUnitHeadersIter,
+               TypeUnitHeader};
+pub use unit::{EntriesCursor, DebuggingInformationEntry, AttrsIter, Attribute, AttributeValue};

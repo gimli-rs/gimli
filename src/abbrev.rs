@@ -4,8 +4,9 @@
 
 use constants;
 use endianity::{Endianity, EndianBuf};
-use parser::{Error, ParseResult, Format, UnitHeader};
+use parser::{Error, ParseResult, Format};
 use parser::{parse_unsigned_leb, parse_u8};
+use unit::UnitHeader;
 use std::collections::hash_map;
 
 /// An offset into the `.debug_abbrev` section.
