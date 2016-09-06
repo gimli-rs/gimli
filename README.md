@@ -4,17 +4,21 @@
 
 A lazy, zero-copy parser for the DWARF debugging format.
 
-* Zero copy: everything is just a reference to the original input buffer. No
+* **Zero copy:** everything is just a reference to the original input buffer. No
   copies of the input data get made.
 
-* Lazy: you can iterate compilation units without parsing their
+* **Lazy:** you can iterate compilation units without parsing their
   contents. Parse only as many debugging information entry (DIE) trees as you
   iterate over. `gimli` also uses `DW_AT_sibling` references to avoid parsing a
   DIE's children to find its next sibling, when possible.
 
-* Bring your own object file loader: `gimli` makes no assumptions about what
-  kind of object file you're working with. The flipside to that is that it's up
-  to you to provide an ELF loader on Linux or Mach-O loader on OSX.
+* **Cross-platform:** `gimli` makes no assumptions about what kind of object
+  file you're working with. The flipside to that is that it's up to you to
+  provide an ELF loader on Linux or Mach-O loader on OSX.
+
+  * Unsure which object file parser to use? Try the cross-platform
+  [`object`](https://github.com/gimli-rs/object) crate. See the
+  [`examples/`](./examples) directory for usage with `gimli`.
 
 ## Install
 
