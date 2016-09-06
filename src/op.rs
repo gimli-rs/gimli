@@ -4,7 +4,7 @@
 
 use constants;
 use parser::{Error, ParseResult, Format, parse_u8e, parse_i8e, parse_u16, parse_i16, parse_u32,
-             parse_i32, parse_u64, parse_i64, parse_unsigned_lebe, parse_signed_lebe, parse_word,
+             parse_i32, parse_u64, parse_i64, parse_unsigned_lebe, parse_signed_lebe,
              parse_address, parse_length_uleb_value};
 use endianity::{Endianity, EndianBuf};
 use unit::{UnitOffset, DebugInfoOffset};
@@ -803,9 +803,8 @@ impl<'input, Endian> Operation<'input, Endian>
                     Operation::Call { offset: DieReference::UnitRef(UnitOffset(value as u64)) }))
             }
             constants::DW_OP_call_ref => {
-                let (newbytes, value) = try!(parse_word(bytes, format));
-                Ok((newbytes,
-                    Operation::Call { offset: DieReference::DebugInfoRef(DebugInfoOffset(value)) }))
+                let (newbytes, value) = try!(DebugInfoOffset::parse(bytes, format));
+                Ok((newbytes, Operation::Call { offset: DieReference::DebugInfoRef(value) }))
             }
             constants::DW_OP_form_tls_address => Ok((bytes, Operation::TLS)),
             constants::DW_OP_call_frame_cfa => Ok((bytes, Operation::CallFrameCFA)),
@@ -1118,7 +1117,7 @@ fn test_op_parse_fivebyte() {
           Operation::Call { offset: DieReference::UnitRef(UnitOffset(0x12345678)) }),
          (constants::DW_OP_call_ref,
           0x12345678,
-          Operation::Call { offset: DieReference::DebugInfoRef(DebugInfoOffset(0x12345678)) })];
+          Operation::Call { offset: DieReference::DebugInfoRef(DebugInfoOffset::new(0x12345678)) })];
 
     for item in inputs.iter() {
         let (op, mut val, ref expect) = *item;
@@ -1157,7 +1156,7 @@ fn test_op_parse_ninebyte() {
                   (constants::DW_OP_call_ref,
                    0x1234567812345678,
                    Operation::Call {
-                      offset: DieReference::DebugInfoRef(DebugInfoOffset(0x1234567812345678)),
+                      offset: DieReference::DebugInfoRef(DebugInfoOffset::new(0x1234567812345678)),
                   })];
 
     for item in inputs.iter() {

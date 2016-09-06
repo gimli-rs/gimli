@@ -246,8 +246,8 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
         gimli::AttributeValue::UnitRef(gimli::UnitOffset(offset)) => {
             println!("<0x{:08x}>", offset);
         }
-        gimli::AttributeValue::DebugInfoRef(gimli::DebugInfoOffset(offset)) => {
-            println!("<GOFF=0x{:08x}>", offset);
+        gimli::AttributeValue::DebugInfoRef(offset) => {
+            println!("<GOFF=0x{:08x}>", offset.0);
         }
         gimli::AttributeValue::DebugLineRef(gimli::DebugLineOffset(offset)) => {
             println!("0x{:08x}", offset);
@@ -398,11 +398,11 @@ fn dump_op<Endian>(dwop: gimli::DwOp, op: gimli::Operation<Endian>, data: &[u8])
         }
         gimli::Operation::Call { offset } => {
             match offset {
-                gimli::DieReference::UnitRef(gimli::UnitOffset(offset)) => {
-                    print!(" 0x{:08x}", offset);
+                gimli::DieReference::UnitRef(offset) => {
+                    print!(" 0x{:08x}", offset.0);
                 }
-                gimli::DieReference::DebugInfoRef(gimli::DebugInfoOffset(offset)) => {
-                    print!(" 0x{:08x}", offset);
+                gimli::DieReference::DebugInfoRef(offset) => {
+                    print!(" 0x{:08x}", offset.0);
                 }
             }
         }
@@ -569,7 +569,7 @@ fn dump_aranges<Endian>(file: &object::File)
         let debug_aranges = gimli::DebugAranges::<Endian>::new(debug_aranges);
         let debug_info = gimli::DebugInfo::<Endian>::new(debug_info);
 
-        let mut cu_die_offset = gimli::DebugInfoOffset(0);
+        let mut cu_die_offset = gimli::DebugInfoOffset::new(0);
         let mut prev_cu_offset = None;
         let mut aranges = debug_aranges.items();
         while let Some(arange) = aranges.next().expect("Should parse arange OK") {
@@ -577,7 +577,7 @@ fn dump_aranges<Endian>(file: &object::File)
             if Some(cu_offset) != prev_cu_offset {
                 let cu = debug_info.header_from_offset(cu_offset)
                     .expect("Should parse unit header OK");
-                cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size() as u64);
+                cu_die_offset = gimli::DebugInfoOffset::new(cu_offset.0 + cu.header_size() as u64);
                 prev_cu_offset = Some(cu_offset);
             }
             if let Some(segment) = arange.segment() {

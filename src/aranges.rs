@@ -4,7 +4,7 @@ use endianity::{Endianity, EndianBuf};
 use lookup::{LookupParser, LookupEntryIter, DebugLookup};
 use parser::{parse_address_size, parse_initial_length, parse_u16, parse_address, Error, Format,
              ParseResult};
-use unit::{DebugInfoOffset, parse_debug_info_offset};
+use unit::DebugInfoOffset;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::rc::Rc;
@@ -121,7 +121,7 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
             return Err(Error::UnknownVersion);
         }
 
-        let (rest, offset) = try!(parse_debug_info_offset(rest, format));
+        let (rest, offset) = try!(DebugInfoOffset::parse(rest, format));
         let (rest, address_size) = try!(parse_address_size(rest));
         let (rest, segment_size) = try!(parse_address_size(rest));
 
@@ -307,7 +307,7 @@ mod tests {
                        format: Format::Dwarf32,
                        length: 0x20,
                        version: 2,
-                       offset: DebugInfoOffset(0x04030201),
+                       offset: DebugInfoOffset::new(0x04030201),
                        address_size: 8,
                        segment_size: 4,
                    });
@@ -319,7 +319,7 @@ mod tests {
             format: Format::Dwarf32,
             length: 0,
             version: 2,
-            offset: DebugInfoOffset(0),
+            offset: DebugInfoOffset::new(0),
             address_size: 4,
             segment_size: 0,
         });
@@ -344,7 +344,7 @@ mod tests {
             format: Format::Dwarf32,
             length: 0,
             version: 2,
-            offset: DebugInfoOffset(0),
+            offset: DebugInfoOffset::new(0),
             address_size: 4,
             segment_size: 8,
         });
@@ -378,7 +378,7 @@ mod tests {
             format: Format::Dwarf32,
             length: 0,
             version: 2,
-            offset: DebugInfoOffset(0),
+            offset: DebugInfoOffset::new(0),
             address_size: 4,
             segment_size: 0,
         });

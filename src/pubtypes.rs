@@ -3,7 +3,7 @@
 use endianity::{Endianity, EndianBuf};
 use lookup::{PubStuffParser, LookupEntryIter, DebugLookup, NamesOrTypesSwitch};
 use parser::{Format, ParseResult};
-use unit::{DebugTypesOffset, parse_debug_types_offset};
+use unit::DebugTypesOffset;
 use std::ffi;
 use std::marker::PhantomData;
 use std::rc::Rc;
@@ -79,7 +79,7 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for TypesSwitch<'input, 
     fn parse_offset(input: EndianBuf<Endian>,
                     format: Format)
                     -> ParseResult<(EndianBuf<Endian>, Self::Offset)> {
-        parse_debug_types_offset(input, format)
+        DebugTypesOffset::parse(input, format)
     }
 
     fn format_from(header: &PubTypesHeader) -> Format {

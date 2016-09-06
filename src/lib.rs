@@ -181,6 +181,9 @@ pub use pubnames::{DebugPubNames, PubNamesEntryIter, PubNamesEntry};
 mod pubtypes;
 pub use pubtypes::{DebugPubTypes, PubTypesEntryIter, PubTypesEntry};
 
+mod section;
+pub use section::{SectionData, SectionOffset};
+
 mod str;
 pub use str::*;
 
