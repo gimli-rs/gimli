@@ -3,11 +3,11 @@
 #![deny(missing_docs)]
 
 use constants;
-use parser::{Error, ParseResult, UnitOffset, DebugInfoOffset, Format, parse_u8e, parse_i8e,
-             parse_u16, parse_i16, parse_u32, parse_i32, parse_u64, parse_i64,
-             parse_unsigned_lebe, parse_signed_lebe, parse_word, parse_address,
-             parse_length_uleb_value};
+use parser::{Error, ParseResult, Format, parse_u8e, parse_i8e, parse_u16, parse_i16, parse_u32,
+             parse_i32, parse_u64, parse_i64, parse_unsigned_lebe, parse_signed_lebe, parse_word,
+             parse_address, parse_length_uleb_value};
 use endianity::{Endianity, EndianBuf};
+use unit::{UnitOffset, DebugInfoOffset};
 use std::marker::PhantomData;
 #[cfg(test)]
 use endianity::LittleEndian;
