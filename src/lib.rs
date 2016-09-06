@@ -78,7 +78,7 @@
 //! into your code:
 //!
 //! ```
-//! // Add the `fallinle-iterator` crate. Don't forget to add it to your
+//! // Add the `fallible-iterator` crate. Don't forget to add it to your
 //! // `Cargo.toml`, too!
 //! extern crate fallible_iterator;
 //! extern crate gimli;
