@@ -156,7 +156,9 @@ pub use constants::*;
 mod endianity;
 pub use endianity::{Endianity, EndianBuf, LittleEndian, BigEndian, NativeEndian};
 
-mod parser;
+mod parser {
+    pub use unit::*;
+}
 pub use parser::{Error, ParseResult, Format};
 pub use parser::{DebugLocOffset, DebugMacinfoOffset, DebugRangesOffset, UnitOffset};
 pub use parser::{DebugInfo, DebugInfoOffset, UnitHeadersIter, UnitHeader};
@@ -187,3 +189,5 @@ pub use str::*;
 
 mod op;
 pub use op::*;
+
+mod unit;
