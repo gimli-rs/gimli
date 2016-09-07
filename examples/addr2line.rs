@@ -1,8 +1,10 @@
+extern crate fallible_iterator;
 extern crate gimli;
 extern crate getopts;
 extern crate memmap;
 extern crate object;
 
+use fallible_iterator::FallibleIterator;
 use object::Object;
 use std::env;
 use std::fs;
@@ -67,12 +69,14 @@ fn symbolicate<Endian>(file: &object::File, addrs: Vec<u64>)
     let debug_abbrev = gimli::DebugAbbrev::<Endian>::new(debug_abbrev);
     let debug_line = file.get_section(".debug_line")
         .expect("Can't addr2line without .debug_line");
-    let debug_line = gimli::DebugLine::<Endian>::new(&debug_line);
+    let debug_line = gimli::DebugLine::<Endian>::new(debug_line);
+    let debug_ranges = file.get_section(".debug_ranges").unwrap_or(&[]);
+    let debug_ranges = gimli::DebugRanges::<Endian>::new(debug_ranges);
 
     let mut units = Vec::new();
     let mut headers = debug_info.units();
     while let Some(header) = headers.next().expect("Couldn't get DIE header") {
-        if let Some(unit) = Unit::parse(&debug_abbrev, &header) {
+        if let Some(unit) = Unit::parse(&debug_abbrev, &debug_ranges, &header) {
             units.push(unit);
         }
     }
@@ -98,48 +102,98 @@ fn find_address<Endian>(debug_line: gimli::DebugLine<Endian>, units: &[Unit], ad
     println!("Failed to find matching line for {}", addr);
 }
 
+// TODO: most of this should be moved to the main library.
 struct Unit {
     address_size: u8,
-    low_pc: u64,
-    high_pc: u64,
+    ranges: Vec<gimli::Range>,
     line_offset: gimli::DebugLineOffset,
 }
 
 impl Unit {
-    fn parse<Endian>(abbrevs: &gimli::DebugAbbrev<Endian>,
+    fn parse<Endian>(debug_abbrev: &gimli::DebugAbbrev<Endian>,
+                     debug_ranges: &gimli::DebugRanges<Endian>,
                      header: &gimli::UnitHeader<Endian>)
                      -> Option<Unit>
         where Endian: gimli::Endianity
     {
-        let abbrev = abbrevs.abbreviations(header.debug_abbrev_offset()).expect("Fail");
+        let abbrev = debug_abbrev.abbreviations(header.debug_abbrev_offset()).expect("Fail");
         let mut entries = header.entries(&abbrev);
         let (_, entry) = entries.next_dfs()
             .expect("Should parse first entry OK")
             .expect("And first entry should exist!");
+        assert_eq!(entry.tag(), gimli::DW_TAG_compile_unit);
 
-        let low_pc = match entry.attr_value(gimli::DW_AT_low_pc) {
-            Some(gimli::AttributeValue::Addr(addr)) => addr,
-            _ => 0,
+        let ranges = if let Some(ranges) =
+                            Self::parse_noncontiguous_ranges(entry,
+                                                             debug_ranges,
+                                                             header.address_size()) {
+            ranges
+        } else if let Some(range) = Self::parse_contiguous_range(entry) {
+            vec![range]
+        } else {
+            return None;
         };
-        let high_pc = match entry.attr_value(gimli::DW_AT_high_pc) {
-            Some(gimli::AttributeValue::Addr(addr)) => addr,
-            _ => 0,
-        };
-        // TODO: handle DW_AT_ranges
+
         let line_offset = match entry.attr_value(gimli::DW_AT_stmt_list) {
             Some(gimli::AttributeValue::DebugLineRef(offset)) => offset,
             _ => return None,
         };
+
         Some(Unit {
             address_size: header.address_size(),
-            low_pc: low_pc,
-            high_pc: high_pc,
+            ranges: ranges,
             line_offset: line_offset,
         })
     }
 
+    // This must be checked before `parse_contiguous_range`.
+    fn parse_noncontiguous_ranges<Endian>(entry: &gimli::DebuggingInformationEntry<Endian>,
+                                          debug_ranges: &gimli::DebugRanges<Endian>,
+                                          address_size: u8)
+                                          -> Option<Vec<gimli::Range>>
+        where Endian: gimli::Endianity
+    {
+        let offset = match entry.attr_value(gimli::DW_AT_ranges) {
+            Some(gimli::AttributeValue::DebugRangesRef(offset)) => offset,
+            _ => return None,
+        };
+        let base_address = match entry.attr_value(gimli::DW_AT_low_pc) {
+            Some(gimli::AttributeValue::Addr(addr)) => addr,
+            _ => 0,
+        };
+        let ranges = debug_ranges.ranges(offset, address_size, base_address)
+            .expect("Range offset should be valid");
+        Some(ranges.collect().expect("Should parse ranges"))
+    }
+
+    fn parse_contiguous_range<Endian>(entry: &gimli::DebuggingInformationEntry<Endian>)
+                                      -> Option<gimli::Range>
+        where Endian: gimli::Endianity
+    {
+        debug_assert!(entry.attr_value(gimli::DW_AT_ranges).is_none());
+
+        let low_pc = match entry.attr_value(gimli::DW_AT_low_pc) {
+            Some(gimli::AttributeValue::Addr(addr)) => addr,
+            _ => return None,
+        };
+
+        let high_pc = match entry.attr_value(gimli::DW_AT_high_pc) {
+            Some(gimli::AttributeValue::Addr(addr)) => addr,
+            Some(gimli::AttributeValue::Udata(size)) => low_pc.wrapping_add(size),
+            None => low_pc.wrapping_add(1),
+            _ => return None,
+        };
+
+        // TODO: convert to error
+        assert!(low_pc < high_pc);
+        Some(gimli::Range {
+            begin: low_pc,
+            end: high_pc,
+        })
+    }
+
     fn contains_address(&self, address: u64) -> bool {
-        self.high_pc == 0 || address >= self.low_pc && address <= self.high_pc
+        self.ranges.iter().any(|range| address >= range.begin && address < range.end)
     }
 
     fn lines<'a, Endian>(&self,

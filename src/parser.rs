@@ -95,6 +95,8 @@ pub enum Error {
     DivisionByZero,
     /// An unknown DW_CFA_* instruction.
     UnknownCallFrameInstruction(constants::DwCfa),
+    /// The end of an address range was before the beginning.
+    InvalidAddressRange,
 }
 
 impl fmt::Display for Error {
@@ -164,6 +166,9 @@ impl error::Error for Error {
             Error::InvalidExpressionTerminator(_) => "Expected DW_OP_piece or DW_OP_bit_piece",
             Error::DivisionByZero => "Division or modulus by zero when evaluating expression",
             Error::UnknownCallFrameInstruction(_) => "An unknown DW_CFA_* instructiion",
+            Error::InvalidAddressRange => {
+                "The end of an address range must not be before the beginning."
+            }
         }
     }
 }
@@ -390,10 +395,6 @@ pub struct DebugLocOffset(pub u64);
 /// An offset into the `.debug_macinfo` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DebugMacinfoOffset(pub u64);
-
-/// An offset into the `.debug_ranges` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugRangesOffset(pub u64);
 
 /// Parse an unsigned LEB128 encoded integer.
 #[inline]
