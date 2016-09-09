@@ -90,13 +90,24 @@ fn symbolicate<Endian>(file: &object::File, addrs: Vec<u64>)
 fn find_address<Endian>(debug_line: gimli::DebugLine<Endian>, units: &[Unit], addr: u64)
     where Endian: gimli::Endianity
 {
+    let mut current = None;
     for unit in units {
         if unit.contains_address(addr) {
             if let Ok(mut lines) = unit.lines(debug_line) {
-                if let Ok(Some((header, row))) = lines.run_to_address(&addr) {
-                    display_file(header, row);
-                    return;
-                };
+                while let Ok(Some((header, row))) = lines.next_row() {
+                    if row.address() > addr {
+                        if let Some(ref row) = current {
+                            display_file(header, row);
+                            return;
+                        }
+                        break;
+                    }
+                    if row.end_sequence() {
+                        current = None;
+                    } else {
+                        current = Some(row.clone());
+                    }
+                }
             }
         }
     }
