@@ -250,7 +250,7 @@ fn dump_entries<Endian>(offset: u64,
             unit.comp_dir = match entry.attr(gimli::DW_AT_comp_dir) {
                 Some(attr) => {
                     attr.string_value(&debug_str)
-                    .map(|dir| dir.to_string_lossy().into_owned())
+                        .map(|dir| dir.to_string_lossy().into_owned())
                 }
                 _ => None,
             };
