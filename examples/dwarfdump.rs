@@ -1,8 +1,10 @@
+extern crate fallible_iterator;
 extern crate gimli;
 extern crate getopts;
 extern crate memmap;
 extern crate object;
 
+use fallible_iterator::FallibleIterator;
 use object::Object;
 use std::env;
 use std::io;
@@ -89,12 +91,14 @@ fn dump_file<Endian>(file: object::File, flags: &Flags)
 {
     let debug_abbrev = file.get_section(".debug_abbrev").unwrap_or(&[]);
     let debug_abbrev = gimli::DebugAbbrev::<Endian>::new(debug_abbrev);
+    let debug_ranges = file.get_section(".debug_ranges").unwrap_or(&[]);
+    let debug_ranges = gimli::DebugRanges::<Endian>::new(debug_ranges);
     let debug_str = file.get_section(".debug_str").unwrap_or(&[]);
     let debug_str = gimli::DebugStr::<Endian>::new(debug_str);
 
     if flags.info {
-        dump_info(&file, debug_abbrev, debug_str, flags);
-        dump_types(&file, debug_abbrev, debug_str, flags);
+        dump_info(&file, debug_abbrev, debug_ranges, debug_str, flags);
+        dump_types(&file, debug_abbrev, debug_ranges, debug_str, flags);
     }
     if flags.line {
         dump_line(&file, debug_abbrev);
@@ -106,6 +110,7 @@ fn dump_file<Endian>(file: object::File, flags: &Flags)
 
 fn dump_info<Endian>(file: &object::File,
                      debug_abbrev: gimli::DebugAbbrev<Endian>,
+                     debug_ranges: gimli::DebugRanges<Endian>,
                      debug_str: gimli::DebugStr<Endian>,
                      flags: &Flags)
     where Endian: gimli::Endianity
@@ -124,6 +129,7 @@ fn dump_info<Endian>(file: &object::File,
             dump_entries(unit.entries(&abbrevs),
                          unit.address_size(),
                          unit.format(),
+                         debug_ranges,
                          debug_str,
                          flags);
         }
@@ -132,6 +138,7 @@ fn dump_info<Endian>(file: &object::File,
 
 fn dump_types<Endian>(file: &object::File,
                       debug_abbrev: gimli::DebugAbbrev<Endian>,
+                      debug_ranges: gimli::DebugRanges<Endian>,
                       debug_str: gimli::DebugStr<Endian>,
                       flags: &Flags)
     where Endian: gimli::Endianity
@@ -150,6 +157,7 @@ fn dump_types<Endian>(file: &object::File,
             dump_entries(unit.entries(&abbrevs),
                          unit.address_size(),
                          unit.format(),
+                         debug_ranges,
                          debug_str,
                          flags);
         }
@@ -159,6 +167,7 @@ fn dump_types<Endian>(file: &object::File,
 fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
                         address_size: u8,
                         format: gimli::Format,
+                        debug_ranges: gimli::DebugRanges<Endian>,
                         debug_str: gimli::DebugStr<Endian>,
                         flags: &Flags)
     where Endian: gimli::Endianity
@@ -181,7 +190,7 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
             if flags.raw {
                 println!("{:?}", attr.raw_value());
             } else {
-                dump_attr_value(attr, address_size, format, debug_str);
+                dump_attr_value(attr, address_size, format, debug_ranges, debug_str);
             }
         }
     }
@@ -190,6 +199,7 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
 fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
                            address_size: u8,
                            format: gimli::Format,
+                           debug_ranges: gimli::DebugRanges<Endian>,
                            debug_str: gimli::DebugStr<Endian>)
     where Endian: gimli::Endianity
 {
@@ -261,8 +271,9 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
         gimli::AttributeValue::DebugMacinfoRef(gimli::DebugMacinfoOffset(offset)) => {
             println!("{}", offset);
         }
-        gimli::AttributeValue::DebugRangesRef(gimli::DebugRangesOffset(offset)) => {
-            println!("{}", offset);
+        gimli::AttributeValue::DebugRangesRef(offset) => {
+            println!("0x{:08x}", offset.0);
+            dump_range_list(debug_ranges, offset, address_size);
         }
         gimli::AttributeValue::DebugTypesRef(gimli::DebugTypeSignature(offset)) => {
             // Convert back to bytes so we can match libdwarf-dwarfdump output.
@@ -419,6 +430,32 @@ fn dump_op<Endian>(dwop: gimli::DwOp, op: gimli::Operation<Endian>, data: &[u8])
             }
         }
         _ => {}
+    }
+}
+
+fn dump_range_list<Endian>(debug_ranges: gimli::DebugRanges<Endian>,
+                           offset: gimli::DebugRangesOffset,
+                           address_size: u8)
+    where Endian: gimli::Endianity
+{
+    let ranges = debug_ranges.raw_ranges(offset, address_size)
+        .expect("Should have valid range offset");
+    let ranges: Vec<_> = ranges.collect().expect("Should parse ranges");
+    println!("\t\tranges: {} at .debug_ranges offset {} (0x{:08x}) ({} bytes)",
+             ranges.len(),
+             offset.0,
+             offset.0,
+             ranges.len() * address_size as usize * 2);
+    for (i, range) in ranges.iter().enumerate() {
+        print!("\t\t\t[{:2}] ", i);
+        if range.is_end() {
+            print!("range end     ");
+        } else if range.is_base_address(address_size) {
+            print!("addr selection");
+        } else {
+            print!("range entry   ");
+        }
+        println!(" 0x{:08x} 0x{:08x}", range.begin, range.end);
     }
 }
 
