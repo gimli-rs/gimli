@@ -4,6 +4,7 @@ use std::error;
 use std::ffi;
 use std::fmt::{self, Debug};
 use std::io;
+use std::result;
 
 use constants;
 use endianity::{Endianity, EndianBuf};
@@ -98,7 +99,7 @@ pub enum Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
         Debug::fmt(self, f)
     }
 }
@@ -172,12 +173,12 @@ impl error::Error for Error {
 }
 
 /// The result of a parse.
-pub type ParseResult<T> = Result<T, Error>;
+pub type Result<T> = result::Result<T, Error>;
 
 /// Parse a `u8` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_u8(input: &[u8]) -> ParseResult<(&[u8], u8)> {
+pub fn parse_u8(input: &[u8]) -> Result<(&[u8], u8)> {
     if input.len() == 0 {
         Err(Error::UnexpectedEof)
     } else {
@@ -188,7 +189,7 @@ pub fn parse_u8(input: &[u8]) -> ParseResult<(&[u8], u8)> {
 /// Parse a `i8` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_i8(input: &[u8]) -> ParseResult<(&[u8], i8)> {
+pub fn parse_i8(input: &[u8]) -> Result<(&[u8], i8)> {
     if input.len() == 0 {
         Err(Error::UnexpectedEof)
     } else {
@@ -199,7 +200,7 @@ pub fn parse_i8(input: &[u8]) -> ParseResult<(&[u8], i8)> {
 /// Parse a `u16` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_u16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u16)>
+pub fn parse_u16<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u16)>
     where Endian: Endianity
 {
     if input.len() < 2 {
@@ -212,7 +213,7 @@ pub fn parse_u16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<End
 /// Parse a `i16` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_i16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, i16)>
+pub fn parse_i16<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, i16)>
     where Endian: Endianity
 {
     if input.len() < 2 {
@@ -225,7 +226,7 @@ pub fn parse_i16<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<End
 /// Parse a `u32` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_u32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u32)>
+pub fn parse_u32<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u32)>
     where Endian: Endianity
 {
     if input.len() < 4 {
@@ -238,7 +239,7 @@ pub fn parse_u32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<End
 /// Parse a `i32` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_i32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, i32)>
+pub fn parse_i32<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, i32)>
     where Endian: Endianity
 {
     if input.len() < 4 {
@@ -251,7 +252,7 @@ pub fn parse_i32<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<End
 /// Parse a `u64` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
+pub fn parse_u64<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
     if input.len() < 8 {
@@ -264,7 +265,7 @@ pub fn parse_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<End
 /// Parse a `i64` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_i64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, i64)>
+pub fn parse_i64<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, i64)>
     where Endian: Endianity
 {
     if input.len() < 8 {
@@ -278,7 +279,7 @@ pub fn parse_i64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<End
 #[doc(hidden)]
 #[inline]
 pub fn parse_u8e<'input, Endian>(bytes: EndianBuf<'input, Endian>)
-                                 -> ParseResult<(EndianBuf<'input, Endian>, u8)>
+                                 -> Result<(EndianBuf<'input, Endian>, u8)>
     where Endian: Endianity
 {
     let (bytes, value) = try!(parse_u8(bytes.into()));
@@ -289,7 +290,7 @@ pub fn parse_u8e<'input, Endian>(bytes: EndianBuf<'input, Endian>)
 #[doc(hidden)]
 #[inline]
 pub fn parse_i8e<'input, Endian>(bytes: EndianBuf<'input, Endian>)
-                                 -> ParseResult<(EndianBuf<'input, Endian>, i8)>
+                                 -> Result<(EndianBuf<'input, Endian>, i8)>
     where Endian: Endianity
 {
     let (bytes, value) = try!(parse_i8(bytes.into()));
@@ -300,7 +301,7 @@ pub fn parse_i8e<'input, Endian>(bytes: EndianBuf<'input, Endian>)
 #[doc(hidden)]
 #[inline]
 pub fn parse_unsigned_lebe<'input, Endian>(bytes: EndianBuf<'input, Endian>)
-                                           -> ParseResult<(EndianBuf<'input, Endian>, u64)>
+                                           -> Result<(EndianBuf<'input, Endian>, u64)>
     where Endian: Endianity
 {
     let (bytes, value) = try!(parse_unsigned_leb(bytes.into()));
@@ -311,7 +312,7 @@ pub fn parse_unsigned_lebe<'input, Endian>(bytes: EndianBuf<'input, Endian>)
 #[doc(hidden)]
 #[inline]
 pub fn parse_signed_lebe<'input, Endian>(bytes: EndianBuf<'input, Endian>)
-                                         -> ParseResult<(EndianBuf<'input, Endian>, i64)>
+                                         -> Result<(EndianBuf<'input, Endian>, i64)>
     where Endian: Endianity
 {
     let (bytes, value) = try!(parse_signed_leb(bytes.into()));
@@ -321,7 +322,7 @@ pub fn parse_signed_lebe<'input, Endian>(bytes: EndianBuf<'input, Endian>)
 /// Parse a `u32` from the input and return it as a `u64`.
 #[doc(hidden)]
 #[inline]
-pub fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u64)>
+pub fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
     if input.len() < 4 {
@@ -336,7 +337,7 @@ pub fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> ParseResult<(Endian
 #[inline]
 pub fn parse_word<Endian>(input: EndianBuf<Endian>,
                           format: Format)
-                          -> ParseResult<(EndianBuf<Endian>, u64)>
+                          -> Result<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
     match format {
@@ -350,7 +351,7 @@ pub fn parse_word<Endian>(input: EndianBuf<Endian>,
 #[inline]
 pub fn parse_address<Endian>(input: EndianBuf<Endian>,
                              address_size: u8)
-                             -> ParseResult<(EndianBuf<Endian>, u64)>
+                             -> Result<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
     if input.len() < address_size as usize {
@@ -370,7 +371,7 @@ pub fn parse_address<Endian>(input: EndianBuf<Endian>,
 /// Parse a null-terminated slice from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_null_terminated_string(input: &[u8]) -> ParseResult<(&[u8], &ffi::CStr)> {
+pub fn parse_null_terminated_string(input: &[u8]) -> Result<(&[u8], &ffi::CStr)> {
     let null_idx = input.iter().position(|ch| *ch == 0);
 
     if let Some(idx) = null_idx {
@@ -396,7 +397,7 @@ pub struct DebugMacinfoOffset(pub u64);
 
 /// Parse an unsigned LEB128 encoded integer.
 #[inline]
-pub fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<(&[u8], u64)> {
+pub fn parse_unsigned_leb(mut input: &[u8]) -> Result<(&[u8], u64)> {
     match leb128::read::unsigned(&mut input) {
         Ok(val) => Ok((input, val)),
         Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
@@ -408,7 +409,7 @@ pub fn parse_unsigned_leb(mut input: &[u8]) -> ParseResult<(&[u8], u64)> {
 
 /// Parse a signed LEB128 encoded integer.
 #[inline]
-pub fn parse_signed_leb(mut input: &[u8]) -> ParseResult<(&[u8], i64)> {
+pub fn parse_signed_leb(mut input: &[u8]) -> Result<(&[u8], i64)> {
     match leb128::read::signed(&mut input) {
         Ok(val) => Ok((input, val)),
         Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
@@ -434,7 +435,7 @@ const DWARF_64_INITIAL_UNIT_LENGTH: u64 = 0xffffffff;
 /// Parse the compilation unit header's length.
 #[doc(hidden)]
 pub fn parse_initial_length<Endian>(input: EndianBuf<Endian>)
-                                    -> ParseResult<(EndianBuf<Endian>, (u64, Format))>
+                                    -> Result<(EndianBuf<Endian>, (u64, Format))>
     where Endian: Endianity
 {
     let (rest, val) = try!(parse_u32_as_u64(input));
@@ -519,7 +520,7 @@ fn test_parse_initial_length_64_incomplete() {
 }
 
 /// Parse the size of addresses (in bytes) on the target architecture.
-pub fn parse_address_size<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u8)>
+pub fn parse_address_size<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u8)>
     where Endian: Endianity
 {
     parse_u8(input.into()).map(|(r, u)| (EndianBuf::new(r), u))
@@ -539,7 +540,7 @@ fn test_parse_address_size_ok() {
 #[inline]
 pub fn take<Endian>(bytes: usize,
                     input: EndianBuf<Endian>)
-                    -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>)>
+                    -> Result<(EndianBuf<Endian>, EndianBuf<Endian>)>
     where Endian: Endianity
 {
     if input.len() < bytes {
@@ -554,7 +555,7 @@ pub fn take<Endian>(bytes: usize,
 /// second element of the result tuple.
 #[doc(hidden)]
 pub fn parse_length_uleb_value<Endian>(input: EndianBuf<Endian>)
-                                       -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>)>
+                                       -> Result<(EndianBuf<Endian>, EndianBuf<Endian>)>
     where Endian: Endianity
 {
     let (rest, len) = try!(parse_unsigned_leb(input.into()));

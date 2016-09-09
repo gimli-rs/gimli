@@ -1,10 +1,9 @@
 use constants;
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
-use parser::{Error, Format, ParseResult, parse_address, parse_initial_length,
-             parse_length_uleb_value, parse_null_terminated_string, parse_signed_leb,
-             parse_signed_lebe, parse_u8, parse_u8e, parse_u16, parse_u32, parse_unsigned_leb,
-             parse_unsigned_lebe, parse_word};
+use parser::{Error, Format, Result, parse_address, parse_initial_length, parse_length_uleb_value,
+             parse_null_terminated_string, parse_signed_leb, parse_signed_lebe, parse_u8,
+             parse_u8e, parse_u16, parse_u32, parse_unsigned_leb, parse_unsigned_lebe, parse_word};
 use std::marker::PhantomData;
 use std::str;
 
@@ -54,7 +53,7 @@ impl<'input, Endian> DebugFrame<'input, Endian>
     /// Parse the `CommonInformationEntry` at the given offset.
     pub fn cie_from_offset(&self,
                            offset: DebugFrameOffset)
-                           -> ParseResult<CommonInformationEntry<'input, Endian>> {
+                           -> Result<CommonInformationEntry<'input, Endian>> {
         let offset = offset.0 as usize;
         if self.debug_frame_section.len() < offset {
             return Err(Error::UnexpectedEof);
@@ -80,7 +79,7 @@ impl<'input, Endian> CfiEntriesIter<'input, Endian>
     where Endian: Endianity
 {
     /// Advance the iterator to the next entry.
-    pub fn next(&mut self) -> ParseResult<Option<CieOrFde<'input, Endian>>> {
+    pub fn next(&mut self) -> Result<Option<CieOrFde<'input, Endian>>> {
         if self.input.len() == 0 {
             return Ok(None);
         }
@@ -104,7 +103,7 @@ impl<'input, Endian> FallibleIterator for CfiEntriesIter<'input, Endian>
     type Item = CieOrFde<'input, Endian>;
     type Error = Error;
 
-    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
         CfiEntriesIter::next(self)
     }
 }
@@ -114,7 +113,7 @@ impl<'input, Endian> FallibleIterator for CfiEntriesIter<'input, Endian>
 /// rest_of_this_entry_input))`.
 fn parse_cfi_entry_common<'input, Endian>
     (input: EndianBuf<'input, Endian>)
-     -> ParseResult<(EndianBuf<'input, Endian>, (u64, Format, u64, EndianBuf<'input, Endian>))>
+     -> Result<(EndianBuf<'input, Endian>, (u64, Format, u64, EndianBuf<'input, Endian>))>
     where Endian: Endianity
 {
     let (rest, (length, format)) = try!(parse_initial_length(input));
@@ -152,7 +151,7 @@ pub enum CieOrFde<'input, Endian>
 
 fn parse_cfi_entry<'input, Endian>
     (input: EndianBuf<'input, Endian>)
-     -> ParseResult<(EndianBuf<'input, Endian>, CieOrFde<'input, Endian>)>
+     -> Result<(EndianBuf<'input, Endian>, CieOrFde<'input, Endian>)>
     where Endian: Endianity
 {
     let (rest_rest, (length, format, cie_id_or_offset, rest)) = try!(parse_cfi_entry_common(input));
@@ -238,9 +237,8 @@ pub struct CommonInformationEntry<'input, Endian>
 impl<'input, Endian> CommonInformationEntry<'input, Endian>
     where Endian: Endianity
 {
-    fn parse
-        (input: EndianBuf<'input, Endian>)
-         -> ParseResult<(EndianBuf<'input, Endian>, CommonInformationEntry<'input, Endian>)> {
+    fn parse(input: EndianBuf<'input, Endian>)
+             -> Result<(EndianBuf<'input, Endian>, CommonInformationEntry<'input, Endian>)> {
         let (rest_rest, (length, format, cie_id, rest)) = try!(parse_cfi_entry_common(input));
         let entry = try!(Self::parse_rest(length, format, cie_id, rest));
         Ok((rest_rest, entry))
@@ -250,7 +248,7 @@ impl<'input, Endian> CommonInformationEntry<'input, Endian>
                   format: Format,
                   cie_id: u64,
                   rest: EndianBuf<'input, Endian>)
-                  -> ParseResult<CommonInformationEntry<'input, Endian>> {
+                  -> Result<CommonInformationEntry<'input, Endian>> {
         if !is_cie_id(format, cie_id) {
             return Err(Error::NotCieId);
         }
@@ -344,8 +342,8 @@ impl<'input, Endian> PartialFrameDescriptionEntry<'input, Endian>
     /// You must provide a function get its associated CIE (either by parsing it
     /// on demand, or looking it up in some table mapping offsets to CIEs that
     /// you've already parsed, etc.)
-    pub fn parse<F>(&self, get_cie: F) -> ParseResult<FrameDescriptionEntry<'input, Endian>>
-        where F: FnMut(DebugFrameOffset) -> ParseResult<CommonInformationEntry<'input, Endian>>
+    pub fn parse<F>(&self, get_cie: F) -> Result<FrameDescriptionEntry<'input, Endian>>
+        where F: FnMut(DebugFrameOffset) -> Result<CommonInformationEntry<'input, Endian>>
     {
         FrameDescriptionEntry::parse_rest(self.length,
                                           self.format,
@@ -394,11 +392,10 @@ impl<'input, Endian> FrameDescriptionEntry<'input, Endian>
     where Endian: Endianity
 {
     #[allow(dead_code)]
-    fn parse<F>
-        (input: EndianBuf<'input, Endian>,
-         get_cie: F)
-         -> ParseResult<(EndianBuf<'input, Endian>, FrameDescriptionEntry<'input, Endian>)>
-        where F: FnMut(DebugFrameOffset) -> ParseResult<CommonInformationEntry<'input, Endian>>
+    fn parse<F>(input: EndianBuf<'input, Endian>,
+                get_cie: F)
+                -> Result<(EndianBuf<'input, Endian>, FrameDescriptionEntry<'input, Endian>)>
+        where F: FnMut(DebugFrameOffset) -> Result<CommonInformationEntry<'input, Endian>>
     {
         let (rest_rest, (length, format, cie_pointer, rest)) = try!(parse_cfi_entry_common(input));
         let entry = try!(Self::parse_rest(length, format, cie_pointer, rest, get_cie));
@@ -410,8 +407,8 @@ impl<'input, Endian> FrameDescriptionEntry<'input, Endian>
                      cie_pointer: u64,
                      rest: EndianBuf<'input, Endian>,
                      mut get_cie: F)
-                     -> ParseResult<FrameDescriptionEntry<'input, Endian>>
-        where F: FnMut(DebugFrameOffset) -> ParseResult<CommonInformationEntry<'input, Endian>>
+                     -> Result<FrameDescriptionEntry<'input, Endian>>
+        where F: FnMut(DebugFrameOffset) -> Result<CommonInformationEntry<'input, Endian>>
     {
         if is_cie_id(format, cie_pointer) {
             return Err(Error::NotCiePointer);
@@ -783,7 +780,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
     where Endian: Endianity
 {
     fn parse(input: EndianBuf<'input, Endian>)
-             -> ParseResult<(EndianBuf<'input, Endian>, CallFrameInstruction<'input, Endian>)> {
+             -> Result<(EndianBuf<'input, Endian>, CallFrameInstruction<'input, Endian>)> {
         let (rest, instruction) = try!(parse_u8e(input));
         let high_bits = instruction & CFI_INSTRUCTION_HIGH_BITS_MASK;
 
@@ -981,7 +978,7 @@ impl<'input, Endian> CallFrameInstructionIter<'input, Endian>
     where Endian: Endianity
 {
     /// Parse the next call frame instruction.
-    pub fn next(&mut self) -> ParseResult<Option<CallFrameInstruction<'input, Endian>>> {
+    pub fn next(&mut self) -> Result<Option<CallFrameInstruction<'input, Endian>>> {
         if self.input.len() == 0 {
             return Ok(None);
         }
@@ -1005,7 +1002,7 @@ impl<'input, Endian> FallibleIterator for CallFrameInstructionIter<'input, Endia
     type Item = CallFrameInstruction<'input, Endian>;
     type Error = Error;
 
-    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
         CallFrameInstructionIter::next(self)
     }
 }

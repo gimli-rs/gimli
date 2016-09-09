@@ -1,7 +1,7 @@
 //! Functions for parsing and evaluating DWARF expressions.
 
 use constants;
-use parser::{Error, ParseResult, Format, parse_u8e, parse_i8e, parse_u16, parse_i16, parse_u32,
+use parser::{Error, Result, Format, parse_u8e, parse_i8e, parse_u16, parse_i16, parse_u32,
              parse_i32, parse_u64, parse_i64, parse_unsigned_lebe, parse_signed_lebe, parse_word,
              parse_address, parse_length_uleb_value};
 use endianity::{Endianity, EndianBuf};
@@ -32,19 +32,19 @@ pub trait EvaluationContext<'input> {
     ///
     /// If not `None`, the "space" argument is a target-specific
     /// address space value.
-    fn read_memory(&self, address: u64, size: u8, space: Option<u64>) -> ParseResult<u64>;
+    fn read_memory(&self, address: u64, size: u8, space: Option<u64>) -> Result<u64>;
     /// Read the indicated register and return its value.
-    fn read_register(&self, register: u64) -> ParseResult<u64>;
+    fn read_register(&self, register: u64) -> Result<u64>;
     /// Compute the frame base using `DW_AT_frame_base`.
-    fn frame_base(&self) -> ParseResult<u64>;
+    fn frame_base(&self) -> Result<u64>;
     /// Compute the address of a thread-local variable.
-    fn read_tls(&self, index: u64) -> ParseResult<u64>;
+    fn read_tls(&self, index: u64) -> Result<u64>;
     /// Compute the call frame CFA.
-    fn call_frame_cfa(&self) -> ParseResult<u64>;
+    fn call_frame_cfa(&self) -> Result<u64>;
     /// Find the `DW_AT_location` attribute of the given DIE and
     /// return the corresponding DWARF expression.  If no expression
     /// can be found, this should return an empty slice.
-    fn get_at_location(&self, die: DieReference) -> ParseResult<&'input [u8]>;
+    fn get_at_location(&self, die: DieReference) -> Result<&'input [u8]>;
 }
 
 /// A single decoded DWARF expression operation.
@@ -246,7 +246,7 @@ pub struct Piece<'input> {
 fn compute_pc<'input, Endian>(pc: EndianBuf<'input, Endian>,
                               bytecode: &'input [u8],
                               offset: i16)
-                              -> ParseResult<EndianBuf<'input, Endian>>
+                              -> Result<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     let pcbytes: &[u8] = pc.into();
@@ -320,7 +320,7 @@ impl<'input, Endian> Operation<'input, Endian>
                  bytecode: &'input [u8],
                  address_size: u8,
                  format: Format)
-                 -> ParseResult<(EndianBuf<'input, Endian>, Operation<'input, Endian>)>
+                 -> Result<(EndianBuf<'input, Endian>, Operation<'input, Endian>)>
         where Endian: Endianity
     {
         let (bytes, opcode) = try!(parse_u8e(bytes));
@@ -1439,14 +1439,14 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
         self.max_iterations = Some(value);
     }
 
-    fn pop(&mut self) -> ParseResult<u64> {
+    fn pop(&mut self) -> Result<u64> {
         match self.stack.pop() {
             Some(value) => Ok(value & self.addr_mask),
             None => Err(Error::NotEnoughStackItems),
         }
     }
 
-    fn pop_signed(&mut self) -> ParseResult<i64> {
+    fn pop_signed(&mut self) -> Result<i64> {
         match self.stack.pop() {
             Some(value) => {
                 let mut value = value & self.addr_mask;
@@ -1466,7 +1466,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
 
     fn evaluate_one_operation(&mut self,
                               operation: &Operation<'input, Endian>)
-                              -> ParseResult<(bool, bool, Location<'input>)> {
+                              -> Result<(bool, bool, Location<'input>)> {
         let mut terminated = false;
         let mut piece_end = false;
         let mut current_location = Location::Empty;
@@ -1694,7 +1694,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
     }
 
     /// Evaluate a DWARF expression.
-    pub fn evaluate(&mut self) -> ParseResult<Vec<Piece<'input>>>
+    pub fn evaluate(&mut self) -> Result<Vec<Piece<'input>>>
         where Endian: Endianity
     {
         if let Some(value) = self.initial_value {
@@ -1804,9 +1804,9 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
 #[cfg(test)]
 #[derive(Clone, Copy)]
 struct TestEvaluationContext {
-    base: ParseResult<u64>,
-    cfa: ParseResult<u64>,
-    at_location: ParseResult<&'static [u8]>,
+    base: Result<u64>,
+    cfa: Result<u64>,
+    at_location: Result<&'static [u8]>,
 
     object_address: Option<u64>,
     initial_value: Option<u64>,
@@ -1815,26 +1815,26 @@ struct TestEvaluationContext {
 
 #[cfg(test)]
 impl<'input> EvaluationContext<'input> for TestEvaluationContext {
-    fn read_memory(&self, addr: u64, nbytes: u8, space: Option<u64>) -> ParseResult<u64> {
+    fn read_memory(&self, addr: u64, nbytes: u8, space: Option<u64>) -> Result<u64> {
         let mut result = addr << 2;
         if let Some(value) = space {
             result += value;
         }
         Ok(result & ((1u64 << 8 * nbytes) - 1))
     }
-    fn read_register(&self, regno: u64) -> ParseResult<u64> {
+    fn read_register(&self, regno: u64) -> Result<u64> {
         Ok(regno.wrapping_neg())
     }
-    fn frame_base(&self) -> ParseResult<u64> {
+    fn frame_base(&self) -> Result<u64> {
         self.base
     }
-    fn read_tls(&self, slot: u64) -> ParseResult<u64> {
+    fn read_tls(&self, slot: u64) -> Result<u64> {
         Ok(!slot)
     }
-    fn call_frame_cfa(&self) -> ParseResult<u64> {
+    fn call_frame_cfa(&self) -> Result<u64> {
         self.cfa
     }
-    fn get_at_location(&self, _: DieReference) -> ParseResult<&'input [u8]> {
+    fn get_at_location(&self, _: DieReference) -> Result<&'input [u8]> {
         self.at_location
     }
 }
@@ -1917,7 +1917,7 @@ fn assemble(entries: &[AssemblerEntry]) -> Vec<u8> {
 
 #[cfg(test)]
 fn check_eval_with_context(program: &[AssemblerEntry],
-                           expect: ParseResult<&[Piece]>,
+                           expect: Result<&[Piece]>,
                            address_size: u8,
                            format: Format,
                            context: TestEvaluationContext) {
@@ -1952,7 +1952,7 @@ fn check_eval_with_context(program: &[AssemblerEntry],
 
 #[cfg(test)]
 fn check_eval(program: &[AssemblerEntry],
-              expect: ParseResult<&[Piece]>,
+              expect: Result<&[Piece]>,
               address_size: u8,
               format: Format) {
     let context = TestEvaluationContext {

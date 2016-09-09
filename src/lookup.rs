@@ -1,7 +1,7 @@
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use parser::{parse_null_terminated_string, parse_initial_length, parse_u16, parse_word, Format,
-             ParseResult, Error};
+             Result, Error};
 use std::ffi;
 use std::marker::PhantomData;
 use std::rc::Rc;
@@ -27,13 +27,13 @@ pub trait LookupParser<'input, Endian>
     /// all of its entries, `input` sliced to contain just the entries corresponding to this
     /// header (without the header itself), and the parsed representation of the header itself.
     fn parse_header(input: EndianBuf<Endian>)
-                    -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<Self::Header>)>;
+                    -> Result<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<Self::Header>)>;
 
     /// Parse a single entry from `input`. Returns a tuple of the amount of `input` remaining
     /// and either a parsed representation of the entry or None if `input` is exhausted.
     fn parse_entry(input: EndianBuf<'input, Endian>,
                    header: &Rc<Self::Header>)
-                   -> ParseResult<(EndianBuf<'input, Endian>, Option<Self::Entry>)>;
+                   -> Result<(EndianBuf<'input, Endian>, Option<Self::Entry>)>;
 }
 
 #[allow(missing_docs)]
@@ -89,7 +89,7 @@ impl<'input, Endian, Parser> LookupEntryIter<'input, Endian, Parser>
     /// then this error is returned on all subsequent calls as `Err(e)`.
     ///
     /// Can be [used with `FallibleIterator`](./index.html#using-with-fallibleiterator).
-    pub fn next(&mut self) -> ParseResult<Option<Parser::Entry>> {
+    pub fn next(&mut self) -> Result<Option<Parser::Entry>> {
         if self.current_set.is_empty() {
             if self.remaining_input.is_empty() {
                 self.current_header = None;
@@ -122,7 +122,7 @@ impl<'input, Endian, Parser> FallibleIterator for LookupEntryIter<'input, Endian
     type Item = Parser::Entry;
     type Error = Error;
 
-    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
         LookupEntryIter::next(self)
     }
 }
@@ -146,7 +146,7 @@ pub trait NamesOrTypesSwitch<'input, Endian>
 
     fn parse_offset(input: EndianBuf<Endian>,
                     format: Format)
-                    -> ParseResult<(EndianBuf<Endian>, Self::Offset)>;
+                    -> Result<(EndianBuf<Endian>, Self::Offset)>;
 
     fn format_from(header: &Self::Header) -> Format;
 }
@@ -169,7 +169,7 @@ impl<'input, Endian, Switch> LookupParser<'input, Endian> for PubStuffParser<'in
     /// Parse an pubthings set header. Returns a tuple of the remaining pubthings sets, the
     /// pubthings to be parsed for this set, and the newly created PubThingHeader struct.
     fn parse_header(input: EndianBuf<Endian>)
-                    -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<Self::Header>)> {
+                    -> Result<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<Self::Header>)> {
         let (rest, (set_length, format)) = try!(parse_initial_length(input.into()));
         let (rest, version) = try!(parse_u16(rest.into()));
 
@@ -195,7 +195,7 @@ impl<'input, Endian, Switch> LookupParser<'input, Endian> for PubStuffParser<'in
     /// Parse a single pubthing. Return `None` for the null pubthing, `Some` for an actual pubthing.
     fn parse_entry(input: EndianBuf<'input, Endian>,
                    header: &Rc<Self::Header>)
-                   -> ParseResult<(EndianBuf<'input, Endian>, Option<Self::Entry>)> {
+                   -> Result<(EndianBuf<'input, Endian>, Option<Self::Entry>)> {
         let (rest, offset) = try!(parse_word(input.into(), Switch::format_from(header)));
 
         if offset == 0 {

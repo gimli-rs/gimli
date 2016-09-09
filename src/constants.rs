@@ -658,6 +658,6 @@ dw!(DwOp(u8) {
     DW_OP_implicit_value = 0x9e,
     DW_OP_stack_value = 0x9f,
 
-    // GNU extensions that are supported by our expression evaluator.
+// GNU extensions that are supported by our expression evaluator.
     DW_OP_GNU_push_tls_address = 0xe0,
 });
