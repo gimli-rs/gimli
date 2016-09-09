@@ -1,5 +1,3 @@
-#![deny(missing_docs)]
-
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use parser::{parse_null_terminated_string, parse_initial_length, parse_u16, parse_word, Format,

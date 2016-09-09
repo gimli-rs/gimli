@@ -1,7 +1,5 @@
 //! Functions for parsing DWARF `.debug_info` and `.debug_types` sections.
 
-#![deny(missing_docs)]
-
 use constants;
 #[cfg(test)]
 use leb128;

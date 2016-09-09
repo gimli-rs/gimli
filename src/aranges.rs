@@ -1,5 +1,3 @@
-#![deny(missing_docs)]
-
 use endianity::{Endianity, EndianBuf};
 use lookup::{LookupParser, LookupEntryIter, DebugLookup};
 use parser::{parse_address_size, parse_initial_length, parse_u16, parse_address, Error, Format,

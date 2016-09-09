@@ -1,7 +1,5 @@
 //! Functions for parsing DWARF debugging information.
 
-#![deny(missing_docs)]
-
 use std::error;
 use std::ffi;
 use std::fmt::{self, Debug};
