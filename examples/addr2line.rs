@@ -42,17 +42,27 @@ fn parse_uint_from_hex_string(string: &str) -> u64 {
     }
 }
 
-fn display_file<Endian>(header: &gimli::LineNumberProgramHeader<Endian>,
+fn display_file<Endian>(unit: &Unit,
+                        header: &gimli::LineNumberProgramHeader<Endian>,
                         row: &gimli::LineNumberRow)
     where Endian: gimli::Endianity
 {
     let file = row.file(header).unwrap();
     if let Some(directory) = file.directory(header) {
+        let directory = directory.to_string_lossy();
+        if !directory.starts_with("/") {
+            if let Some(comp_dir) = unit.comp_dir() {
+                print!("{}/", comp_dir);
+            }
+        }
         println!("{}/{}:{}",
-                 directory.to_string_lossy(),
+                 directory,
                  file.path_name().to_string_lossy(),
                  row.line().unwrap());
     } else {
+        if let Some(comp_dir) = unit.comp_dir() {
+            print!("{}/", comp_dir);
+        }
         println!("{}:{}",
                  file.path_name().to_string_lossy(),
                  row.line().unwrap());
@@ -73,11 +83,13 @@ fn symbolicate<Endian>(file: &object::File, addrs: Vec<u64>)
     let debug_line = gimli::DebugLine::<Endian>::new(debug_line);
     let debug_ranges = file.get_section(".debug_ranges").unwrap_or(&[]);
     let debug_ranges = gimli::DebugRanges::<Endian>::new(debug_ranges);
+    let debug_str = file.get_section(".debug_str").unwrap_or(&[]);
+    let debug_str = gimli::DebugStr::<Endian>::new(debug_str);
 
     let mut units = Vec::new();
     let mut headers = debug_info.units();
     while let Some(header) = headers.next().expect("Couldn't get DIE header") {
-        if let Some(unit) = Unit::parse(&debug_abbrev, &debug_ranges, &header) {
+        if let Some(unit) = Unit::parse(&debug_abbrev, &debug_ranges, &debug_str, &header) {
             units.push(unit);
         }
     }
@@ -97,7 +109,7 @@ fn find_address<Endian>(debug_line: gimli::DebugLine<Endian>, units: &[Unit], ad
                 while let Ok(Some((header, row))) = lines.next_row() {
                     if row.address() > addr {
                         if let Some(ref row) = current {
-                            display_file(header, row);
+                            display_file(unit, header, row);
                             return;
                         }
                         break;
@@ -119,11 +131,13 @@ struct Unit {
     address_size: u8,
     ranges: Vec<gimli::Range>,
     line_offset: gimli::DebugLineOffset,
+    comp_dir: Option<String>,
 }
 
 impl Unit {
     fn parse<Endian>(debug_abbrev: &gimli::DebugAbbrev<Endian>,
                      debug_ranges: &gimli::DebugRanges<Endian>,
+                     debug_str: &gimli::DebugStr<Endian>,
                      header: &gimli::UnitHeader<Endian>)
                      -> Option<Unit>
         where Endian: gimli::Endianity
@@ -151,10 +165,18 @@ impl Unit {
             _ => return None,
         };
 
+        let comp_dir = match entry.attr_value(gimli::DW_AT_comp_dir) {
+                Some(gimli::AttributeValue::String(dir)) => Some(dir),
+                Some(gimli::AttributeValue::DebugStrRef(offset)) => debug_str.get_str(offset).ok(),
+                _ => None,
+            }
+            .map(|dir| dir.to_string_lossy().into_owned());
+
         Some(Unit {
             address_size: header.address_size(),
             ranges: ranges,
             line_offset: line_offset,
+            comp_dir: comp_dir,
         })
     }
 
@@ -217,5 +239,9 @@ impl Unit {
                                                               self.line_offset,
                                                               self.address_size));
         Ok(gimli::StateMachine::new(header))
+    }
+
+    fn comp_dir(&self) -> Option<&String> {
+        self.comp_dir.as_ref()
     }
 }
