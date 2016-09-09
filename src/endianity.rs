@@ -1,7 +1,5 @@
 //! Types for compile-time endianity.
 
-#![deny(missing_docs)]
-
 use byteorder;
 use std::fmt::Debug;
 use std::marker::PhantomData;

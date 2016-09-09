@@ -1,5 +1,3 @@
-#![deny(missing_docs)]
-
 use endianity::{Endianity, EndianBuf};
 use lookup::{PubStuffParser, LookupEntryIter, DebugLookup, NamesOrTypesSwitch};
 use parser::{Format, ParseResult};

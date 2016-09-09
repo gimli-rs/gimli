@@ -1,7 +1,5 @@
 //! Functions for parsing and evaluating DWARF expressions.
 
-#![deny(missing_docs)]
-
 use constants;
 use parser::{Error, ParseResult, Format, parse_u8e, parse_i8e, parse_u16, parse_i16, parse_u32,
              parse_i32, parse_u64, parse_i64, parse_unsigned_lebe, parse_signed_lebe, parse_word,
