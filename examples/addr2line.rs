@@ -42,11 +42,12 @@ fn parse_uint_from_hex_string(string: &str) -> u64 {
     }
 }
 
-fn display_file<Endian>(row: gimli::LineNumberRow<Endian>)
+fn display_file<Endian>(header: &gimli::LineNumberProgramHeader<Endian>,
+                        row: &gimli::LineNumberRow)
     where Endian: gimli::Endianity
 {
-    let file = row.file().unwrap();
-    if let Some(directory) = file.directory(row.header()) {
+    let file = row.file(header).unwrap();
+    if let Some(directory) = file.directory(header) {
         println!("{}/{}:{}",
                  directory.to_string_lossy(),
                  file.path_name().to_string_lossy(),
@@ -92,8 +93,8 @@ fn find_address<Endian>(debug_line: gimli::DebugLine<Endian>, units: &[Unit], ad
     for unit in units {
         if unit.contains_address(addr) {
             if let Ok(mut lines) = unit.lines(debug_line) {
-                if let Ok(Some(row)) = lines.run_to_address(&addr) {
-                    display_file(row);
+                if let Ok(Some((header, row))) = lines.run_to_address(&addr) {
+                    display_file(header, row);
                     return;
                 };
             }

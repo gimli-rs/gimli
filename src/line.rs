@@ -51,7 +51,7 @@ pub struct StateMachine<'input, Endian>
     where Endian: Endianity
 {
     header: LineNumberProgramHeader<'input, Endian>,
-    registers: StateMachineRegisters,
+    row: LineNumberRow,
     opcodes: OpcodesIter<'input, Endian>,
 }
 
@@ -61,15 +61,15 @@ impl<'input, Endian> StateMachine<'input, Endian>
     /// Construct a new `StateMachine` for executing line programs and
     /// generating the line information matrix.
     pub fn new(header: LineNumberProgramHeader<'input, Endian>) -> Self {
-        let mut registers = StateMachineRegisters::default();
-        registers.reset(header.default_is_stmt());
+        let mut row = LineNumberRow::default();
+        row.registers.reset(header.default_is_stmt());
         let opcodes = OpcodesIter {
             input: header.program_buf.0,
             endian: PhantomData,
         };
         StateMachine {
             header: header,
-            registers: registers,
+            row: row,
             opcodes: opcodes,
         }
     }
@@ -78,13 +78,13 @@ impl<'input, Endian> StateMachine<'input, Endian>
     fn apply_line_advance(&mut self, line_increment: i64) {
         if line_increment < 0 {
             let decrement = -line_increment as u64;
-            if decrement <= self.registers.line {
-                self.registers.line -= decrement;
+            if decrement <= self.row.registers.line {
+                self.row.registers.line -= decrement;
             } else {
-                self.registers.line = 0;
+                self.row.registers.line = 0;
             }
         } else {
-            self.registers.line += line_increment as u64;
+            self.row.registers.line += line_increment as u64;
         }
     }
 
@@ -94,13 +94,13 @@ impl<'input, Endian> StateMachine<'input, Endian>
         let maximum_operations_per_instruction =
             self.header.maximum_operations_per_instruction as u64;
 
-        let op_index_with_advance = self.registers.op_index + operation_advance;
+        let op_index_with_advance = self.row.registers.op_index + operation_advance;
 
-        self.registers.address = self.registers.address +
-                                 minimum_instruction_length *
-                                 (op_index_with_advance / maximum_operations_per_instruction);
+        self.row.registers.address = self.row.registers.address +
+                                     minimum_instruction_length *
+                                     (op_index_with_advance / maximum_operations_per_instruction);
 
-        self.registers.op_index = op_index_with_advance % maximum_operations_per_instruction;
+        self.row.registers.op_index = op_index_with_advance % maximum_operations_per_instruction;
     }
 
     fn adjust_opcode(&self, opcode: u8) -> u8 {
@@ -148,22 +148,22 @@ impl<'input, Endian> StateMachine<'input, Endian>
             }
 
             Opcode::SetFile(file) => {
-                self.registers.file = file;
+                self.row.registers.file = file;
                 false
             }
 
             Opcode::SetColumn(column) => {
-                self.registers.column = column;
+                self.row.registers.column = column;
                 false
             }
 
             Opcode::NegateStatement => {
-                self.registers.is_stmt = !self.registers.is_stmt;
+                self.row.registers.is_stmt = !self.row.registers.is_stmt;
                 false
             }
 
             Opcode::SetBasicBlock => {
-                self.registers.basic_block = true;
+                self.row.registers.basic_block = true;
                 false
             }
 
@@ -175,34 +175,34 @@ impl<'input, Endian> StateMachine<'input, Endian>
             }
 
             Opcode::FixedAddPc(operand) => {
-                self.registers.address += operand as u64;
-                self.registers.op_index = 0;
+                self.row.registers.address += operand as u64;
+                self.row.registers.op_index = 0;
                 false
             }
 
             Opcode::SetPrologueEnd => {
-                self.registers.prologue_end = true;
+                self.row.registers.prologue_end = true;
                 false
             }
 
             Opcode::SetEpilogueBegin => {
-                self.registers.epilogue_begin = true;
+                self.row.registers.epilogue_begin = true;
                 false
             }
 
             Opcode::SetIsa(isa) => {
-                self.registers.isa = isa;
+                self.row.registers.isa = isa;
                 false
             }
 
             Opcode::EndSequence => {
-                self.registers.end_sequence = true;
+                self.row.registers.end_sequence = true;
                 true
             }
 
             Opcode::SetAddress(address) => {
-                self.registers.address = address;
-                self.registers.op_index = 0;
+                self.row.registers.address = address;
+                self.row.registers.op_index = 0;
                 false
             }
 
@@ -212,7 +212,7 @@ impl<'input, Endian> StateMachine<'input, Endian>
             }
 
             Opcode::SetDiscriminator(discriminator) => {
-                self.registers.discriminator = discriminator;
+                self.row.registers.discriminator = discriminator;
                 false
             }
 
@@ -237,29 +237,30 @@ impl<'input, Endian> StateMachine<'input, Endian>
     /// Parse and execute the next opcodes in the line number program until
     /// another row in the line number matrix is computed.
     ///
-    /// The freshly computed row is returned as `Ok(Some(row))`. If the matrix
-    /// is complete, and there are no more new rows in the line number matrix,
-    /// then `Ok(None)` is returned. If there was an error parsing an opcode,
-    /// then `Err(e)` is returned.
+    /// The freshly computed row is returned as `Ok(Some((header, row)))`.
+    /// If the matrix is complete, and there are no more new rows in the line
+    /// number matrix, then `Ok(None)` is returned. If there was an error parsing
+    /// an opcode, then `Err(e)` is returned.
     ///
-    /// Unfortunately, the `'me` lifetime means that this cannot be a
+    /// Unfortunately, the references mean that this cannot be a
     /// `FallibleIterator`.
-    pub fn next_row<'me>(&'me mut self)
-                         -> parser::Result<Option<LineNumberRow<'me, 'input, Endian>>> {
+    pub fn next_row
+        (&mut self)
+         -> parser::Result<Option<(&LineNumberProgramHeader<'input, Endian>, &LineNumberRow)>> {
         // Perform any reset that was required after copying the previous row.
-        if self.registers.end_sequence {
+        if self.row.registers.end_sequence {
             // Previous opcode was EndSequence, so reset everything
             // as specified in Section 6.2.5.3.
-            self.registers.reset(self.header.default_is_stmt);
+            self.row.registers.reset(self.header.default_is_stmt);
         } else {
             // Previous opcode was one of:
             // - Special - specified in Section 6.2.5.1, steps 4-7
             // - Copy - specified in Section 6.2.5.2
             // The reset behaviour is the same in both cases.
-            self.registers.discriminator = 0;
-            self.registers.basic_block = false;
-            self.registers.prologue_end = false;
-            self.registers.epilogue_begin = false;
+            self.row.registers.discriminator = 0;
+            self.row.registers.basic_block = false;
+            self.row.registers.prologue_end = false;
+            self.row.registers.epilogue_begin = false;
         }
 
         loop {
@@ -268,7 +269,7 @@ impl<'input, Endian> StateMachine<'input, Endian>
                 Ok(None) => return Ok(None),
                 Ok(Some(opcode)) => {
                     if self.execute(opcode) {
-                        return Ok(Some(LineNumberRow::new(&self.header, &self.registers)));
+                        return Ok(Some((&self.header, &self.row)));
                     }
                     // Fall through, parse the next opcode, and see if that
                     // yields a row.
@@ -279,12 +280,13 @@ impl<'input, Endian> StateMachine<'input, Endian>
 
     /// Parse and execute opcodes until we reach a row matching `addr`, the end of the program,
     /// or an error.
-    pub fn run_to_address<'me>(&'me mut self,
-                               addr: &u64)
-                               -> parser::Result<Option<LineNumberRow<'me, 'input, Endian>>> {
+    pub fn run_to_address
+        (&mut self,
+         addr: &u64)
+         -> parser::Result<Option<(&LineNumberProgramHeader<'input, Endian>, &LineNumberRow)>> {
         loop {
             match self.next_row() {
-                Ok(Some(row)) => {
+                Ok(Some((_, row))) => {
                     if row.address() == *addr {
                         // Can't return 'row' directly here because of rust-lang/rust#21906.
                         break;
@@ -295,7 +297,7 @@ impl<'input, Endian> StateMachine<'input, Endian>
             };
         }
 
-        Ok(Some(LineNumberRow::new(&self.header, &self.registers)))
+        Ok(Some((&self.header, &self.row)))
     }
 }
 
@@ -627,33 +629,12 @@ impl<'input, Endian> OpcodesIter<'input, Endian>
 }
 
 /// A row in the line number program's resulting matrix.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LineNumberRow<'statemachine, 'input, Endian>
-    where Endian: 'statemachine + Endianity,
-          'input: 'statemachine
-{
-    header: &'statemachine LineNumberProgramHeader<'input, Endian>,
-    registers: &'statemachine StateMachineRegisters,
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LineNumberRow {
+    registers: StateMachineRegisters,
 }
 
-impl<'statemachine, 'input, Endian> LineNumberRow<'statemachine, 'input, Endian>
-    where Endian: 'statemachine + Endianity,
-          'input: 'statemachine
-{
-    fn new(header: &'statemachine LineNumberProgramHeader<'input, Endian>,
-           registers: &'statemachine StateMachineRegisters)
-           -> LineNumberRow<'statemachine, 'input, Endian> {
-        LineNumberRow {
-            header: header,
-            registers: registers,
-        }
-    }
-
-    /// Get the header for this row's line number program.
-    pub fn header(&self) -> &'statemachine LineNumberProgramHeader<'input, Endian> {
-        self.header
-    }
-
+impl LineNumberRow {
     /// "The program-counter value corresponding to a machine instruction
     /// generated by the compiler."
     pub fn address(&self) -> u64 {
@@ -678,14 +659,12 @@ impl<'statemachine, 'input, Endian> LineNumberRow<'statemachine, 'input, Endian>
     }
 
     /// The source file corresponding to the current machine instruction.
-    pub fn file(&self) -> parser::Result<&'statemachine FileEntry<'input>> {
-        // NB: registers.file starts counting at 1.
-        let file = self.registers.file as usize;
-        if 0 < file && file <= self.header.file_names.len() {
-            Ok(&self.header.file_names[file - 1])
-        } else {
-            Err(parser::Error::BadFileIndex)
-        }
+    pub fn file<'header, 'input, Endian>(&self,
+                                         header: &'header LineNumberProgramHeader<'input, Endian>)
+                                         -> parser::Result<&'header FileEntry<'input>>
+        where Endian: Endianity
+    {
+        header.file(self.registers.file)
     }
 
     /// "An unsigned integer indicating a source line number. Lines are numbered
@@ -990,6 +969,17 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
     /// Get the list of source files that appear in this header's line program.
     pub fn file_names(&self) -> &[FileEntry] {
         &self.file_names[..]
+    }
+
+    /// The source file with the given file index.
+    pub fn file(&self, file: u64) -> parser::Result<&FileEntry<'input>> {
+        // NB: file starts counting at 1.
+        let file = file as usize;
+        if 0 < file && file <= self.file_names.len() {
+            Ok(&self.file_names[file - 1])
+        } else {
+            Err(parser::Error::BadFileIndex)
+        }
     }
 
     /// Iterate over the opcodes in this header's line number program, parsing
@@ -1653,12 +1643,12 @@ mod tests {
                           expected_registers: StateMachineRegisters,
                           expect_new_row: bool) {
         let mut sm = StateMachine::new(header);
-        sm.registers = initial_registers;
+        sm.row.registers = initial_registers;
 
         let is_new_row = sm.execute(opcode);
 
         assert_eq!(is_new_row, expect_new_row);
-        assert_eq!(sm.registers, expected_registers);
+        assert_eq!(sm.row.registers, expected_registers);
     }
 
     #[test]
@@ -1847,12 +1837,9 @@ mod tests {
 
             regs.file = *file_idx;
 
-            let row = LineNumberRow {
-                header: &header,
-                registers: &regs,
-            };
+            let row = LineNumberRow { registers: regs };
 
-            assert_eq!(row.file(), Err(Error::BadFileIndex));
+            assert_eq!(row.file(&header), Err(Error::BadFileIndex));
         }
     }
 
@@ -1863,12 +1850,9 @@ mod tests {
 
         regs.file = 2;
 
-        let row = LineNumberRow {
-            header: &header,
-            registers: &regs,
-        };
+        let row = LineNumberRow { registers: regs };
 
-        assert_eq!(row.file(), Ok(&header.file_names()[1]));
+        assert_eq!(row.file(&header), Ok(&header.file_names()[1]));
     }
 
     #[test]

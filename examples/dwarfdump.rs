@@ -545,7 +545,7 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
                 println!("<pc>        [lno,col]");
                 let mut state_machine = gimli::StateMachine::new(header);
                 let mut file_index = 0;
-                while let Some(row) = state_machine.next_row()
+                while let Some((header, row)) = state_machine.next_row()
                     .expect("Should parse row OK") {
                     let line = row.line().unwrap_or(0);
                     let column = match row.column() {
@@ -576,8 +576,8 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
                     }
                     if file_index != row.file_index() {
                         file_index = row.file_index();
-                        if let Ok(file) = row.file() {
-                            if let Some(directory) = file.directory(row.header()) {
+                        if let Ok(file) = row.file(header) {
+                            if let Some(directory) = file.directory(header) {
                                 print!(" uri: \"{}/{}\"",
                                        directory.to_string_lossy(),
                                        file.path_name().to_string_lossy());
