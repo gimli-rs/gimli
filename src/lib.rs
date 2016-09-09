@@ -127,10 +127,10 @@
 //!
 //! // Use the `FallibleIterator` trait so its methods are in scope!
 //! use fallible_iterator::FallibleIterator;
-//! use gimli::{DebugAranges, LittleEndian, ParseResult};
+//! use gimli::{DebugAranges, LittleEndian};
 //!
 //! fn find_sum_of_address_range_lengths(aranges: DebugAranges<LittleEndian>)
-//!     -> ParseResult<u64>
+//!     -> gimli::Result<u64>
 //! {
 //!     // `DebugAranges::items` returns a `FallibleIterator`!
 //!     aranges.items()
@@ -159,7 +159,7 @@ mod endianity;
 pub use endianity::{Endianity, EndianBuf, LittleEndian, BigEndian, NativeEndian};
 
 mod parser;
-pub use parser::{Error, ParseResult, Format};
+pub use parser::{Error, Result, Format};
 pub use parser::{DebugLocOffset, DebugMacinfoOffset};
 
 mod abbrev;

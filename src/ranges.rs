@@ -1,6 +1,6 @@
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
-use parser::{Error, ParseResult, parse_address};
+use parser::{Error, Result, parse_address};
 use std::marker::PhantomData;
 
 /// An offset into the `.debug_ranges` section.
@@ -50,7 +50,7 @@ impl<'input, Endian> DebugRanges<'input, Endian>
                   offset: DebugRangesOffset,
                   address_size: u8,
                   base_address: u64)
-                  -> ParseResult<RangesIter<Endian>> {
+                  -> Result<RangesIter<Endian>> {
         let offset = offset.0 as usize;
         if self.debug_ranges_section.len() < offset {
             return Err(Error::UnexpectedEof);
@@ -72,7 +72,7 @@ impl<'input, Endian> DebugRanges<'input, Endian>
     pub fn raw_ranges(&self,
                       offset: DebugRangesOffset,
                       address_size: u8)
-                      -> ParseResult<RawRangesIter<Endian>> {
+                      -> Result<RawRangesIter<Endian>> {
         let offset = offset.0 as usize;
         if self.debug_ranges_section.len() < offset {
             return Err(Error::UnexpectedEof);
@@ -109,7 +109,7 @@ impl<'input, Endian> RawRangesIter<'input, Endian>
     }
 
     /// Advance the iterator to the next range.
-    pub fn next(&mut self) -> ParseResult<Option<Range>> {
+    pub fn next(&mut self) -> Result<Option<Range>> {
         if self.input.is_empty() {
             return Ok(None);
         }
@@ -137,7 +137,7 @@ impl<'input, Endian> FallibleIterator for RawRangesIter<'input, Endian>
     type Item = Range;
     type Error = Error;
 
-    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
         RawRangesIter::next(self)
     }
 }
@@ -166,7 +166,7 @@ impl<'input, Endian> RangesIter<'input, Endian>
     }
 
     /// Advance the iterator to the next range.
-    pub fn next(&mut self) -> ParseResult<Option<Range>> {
+    pub fn next(&mut self) -> Result<Option<Range>> {
         loop {
             let range = match try!(self.raw.next()) {
                 Some(range) => range,
@@ -210,7 +210,7 @@ impl<'input, Endian> FallibleIterator for RangesIter<'input, Endian>
     type Item = Range;
     type Error = Error;
 
-    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
         RangesIter::next(self)
     }
 }

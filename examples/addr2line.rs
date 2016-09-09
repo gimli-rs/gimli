@@ -198,7 +198,7 @@ impl Unit {
 
     fn lines<'a, Endian>(&self,
                          debug_line: gimli::DebugLine<'a, Endian>)
-                         -> gimli::ParseResult<gimli::StateMachine<'a, Endian>>
+                         -> gimli::Result<gimli::StateMachine<'a, Endian>>
         where Endian: gimli::Endianity
     {
         let header = try!(gimli::LineNumberProgramHeader::new(debug_line,

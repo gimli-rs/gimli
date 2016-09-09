@@ -2,7 +2,7 @@
 
 use constants;
 use endianity::{Endianity, EndianBuf};
-use parser::{Error, ParseResult, Format};
+use parser::{Error, Result, Format};
 use parser::{parse_unsigned_leb, parse_u8};
 use unit::UnitHeader;
 use std::collections::hash_map;
@@ -46,9 +46,7 @@ impl<'input, Endian> DebugAbbrev<'input, Endian>
     /// `.debug_abbrev` section.
     ///
     /// The `offset` should generally be retrieved from a unit header.
-    pub fn abbreviations(&self,
-                         debug_abbrev_offset: DebugAbbrevOffset)
-                         -> ParseResult<Abbreviations> {
+    pub fn abbreviations(&self, debug_abbrev_offset: DebugAbbrevOffset) -> Result<Abbreviations> {
         let input: &[u8] = self.debug_abbrev_section.into();
         Abbreviations::parse(&input[debug_abbrev_offset.0 as usize..]).map(|(_, abbrevs)| abbrevs)
     }
@@ -75,7 +73,7 @@ impl Abbreviations {
     /// Returns `Ok` if it is the first abbreviation in the set with its code,
     /// `Err` if the code is a duplicate and there already exists an
     /// abbreviation in the set with the given abbreviation's code.
-    fn insert(&mut self, abbrev: Abbreviation) -> Result<(), ()> {
+    fn insert(&mut self, abbrev: Abbreviation) -> ::std::result::Result<(), ()> {
         match self.abbrevs.entry(abbrev.code) {
             hash_map::Entry::Occupied(_) => Err(()),
             hash_map::Entry::Vacant(entry) => {
@@ -92,7 +90,7 @@ impl Abbreviations {
     }
 
     /// Parse a series of abbreviations, terminated by a null abbreviation.
-    fn parse(mut input: &[u8]) -> ParseResult<(&[u8], Abbreviations)> {
+    fn parse(mut input: &[u8]) -> Result<(&[u8], Abbreviations)> {
         let mut abbrevs = Abbreviations::empty();
 
         loop {
@@ -168,7 +166,7 @@ impl Abbreviation {
     }
 
     /// Parse an abbreviation's tag.
-    fn parse_tag(input: &[u8]) -> ParseResult<(&[u8], constants::DwTag)> {
+    fn parse_tag(input: &[u8]) -> Result<(&[u8], constants::DwTag)> {
         let (rest, val) = try!(parse_unsigned_leb(input));
         if val == 0 {
             Err(Error::AbbreviationTagZero)
@@ -178,7 +176,7 @@ impl Abbreviation {
     }
 
     /// Parse an abbreviation's "does the type have children?" byte.
-    fn parse_has_children(input: &[u8]) -> ParseResult<(&[u8], constants::DwChildren)> {
+    fn parse_has_children(input: &[u8]) -> Result<(&[u8], constants::DwChildren)> {
         let (rest, val) = try!(parse_u8(input));
         let val = constants::DwChildren(val);
         if val == constants::DW_CHILDREN_no || val == constants::DW_CHILDREN_yes {
@@ -190,7 +188,7 @@ impl Abbreviation {
 
     /// Parse a series of attribute specifications, terminated by a null attribute
     /// specification.
-    fn parse_attributes(mut input: &[u8]) -> ParseResult<(&[u8], Vec<AttributeSpecification>)> {
+    fn parse_attributes(mut input: &[u8]) -> Result<(&[u8], Vec<AttributeSpecification>)> {
         let mut attrs = Vec::new();
 
         loop {
@@ -208,7 +206,7 @@ impl Abbreviation {
 
     /// Parse an abbreviation. Return `None` for the null abbreviation, `Some`
     /// for an actual abbreviation.
-    fn parse(input: &[u8]) -> ParseResult<(&[u8], Option<Abbreviation>)> {
+    fn parse(input: &[u8]) -> Result<(&[u8], Option<Abbreviation>)> {
         let (rest, code) = try!(parse_unsigned_leb(input));
         if code == 0 {
             return Ok((rest, None));
@@ -302,7 +300,7 @@ impl AttributeSpecification {
     }
 
     /// Parse an attribute's form.
-    fn parse_form(input: &[u8]) -> ParseResult<(&[u8], constants::DwForm)> {
+    fn parse_form(input: &[u8]) -> Result<(&[u8], constants::DwForm)> {
         let (rest, val) = try!(parse_unsigned_leb(input));
         if val == 0 {
             Err(Error::AttributeFormZero)
@@ -313,7 +311,7 @@ impl AttributeSpecification {
 
     /// Parse an attribute specification. Returns `None` for the null attribute
     /// specification, `Some` for an actual attribute specification.
-    fn parse(input: &[u8]) -> ParseResult<(&[u8], Option<AttributeSpecification>)> {
+    fn parse(input: &[u8]) -> Result<(&[u8], Option<AttributeSpecification>)> {
         let (rest, name) = try!(parse_unsigned_leb(input));
         if name == 0 {
             // Parse the null attribute specification.

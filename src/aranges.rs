@@ -1,7 +1,7 @@
 use endianity::{Endianity, EndianBuf};
 use lookup::{LookupParser, LookupEntryIter, DebugLookup};
 use parser::{parse_address_size, parse_initial_length, parse_u16, parse_address, Error, Format,
-             ParseResult};
+             Result};
 use unit::{DebugInfoOffset, parse_debug_info_offset};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
@@ -106,7 +106,7 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
     /// Parse an arange set header. Returns a tuple of the remaining arange sets, the aranges to be
     /// parsed for this set, and the newly created ArangeHeader struct.
     fn parse_header(input: EndianBuf<Endian>)
-                    -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<Self::Header>)> {
+                    -> Result<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<Self::Header>)> {
         let (rest, (length, format)) = try!(parse_initial_length(input));
         if length as usize > rest.len() {
             return Err(Error::UnexpectedEof);
@@ -158,7 +158,7 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
     /// Parse a single arange. Return `None` for the null arange, `Some` for an actual arange.
     fn parse_entry(input: EndianBuf<'input, Endian>,
                    header: &Rc<Self::Header>)
-                   -> ParseResult<(EndianBuf<'input, Endian>, Option<Self::Entry>)> {
+                   -> Result<(EndianBuf<'input, Endian>, Option<Self::Entry>)> {
         let address_size = header.address_size;
         let segment_size = header.segment_size; // May be zero!
 
@@ -237,7 +237,7 @@ pub type DebugAranges<'input, Endian> = DebugLookup<'input, Endian, ArangeParser
 ///
 /// Provides:
 ///
-/// * `next(self: &mut) -> ParseResult<Option<ArangeEntry>>`
+/// * `next(self: &mut) -> gimli::Result<Option<ArangeEntry>>`
 ///
 ///   Advance the iterator and return the next arange.
 ///

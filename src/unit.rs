@@ -9,7 +9,7 @@ use endianity::{Endianity, EndianBuf};
 use endianity::LittleEndian;
 use fallible_iterator::FallibleIterator;
 use line::DebugLineOffset;
-use parser::{Error, ParseResult, Format, DebugLocOffset, DebugMacinfoOffset, parse_u8, parse_u16,
+use parser::{Error, Result, Format, DebugLocOffset, DebugMacinfoOffset, parse_u8, parse_u16,
              parse_u32, parse_u64, parse_unsigned_leb, parse_signed_leb, parse_word,
              parse_address, parse_address_size, parse_initial_length, parse_length_uleb_value,
              parse_null_terminated_string, take};
@@ -94,7 +94,7 @@ impl<'input, Endian> DebugInfo<'input, Endian>
     ///
     pub fn header_from_offset(&self,
                               offset: DebugInfoOffset)
-                              -> ParseResult<UnitHeader<'input, Endian>> {
+                              -> Result<UnitHeader<'input, Endian>> {
         let offset = offset.0 as usize;
         if self.debug_info_section.len() < offset {
             return Err(Error::UnexpectedEof);
@@ -122,7 +122,7 @@ impl<'input, Endian> UnitHeadersIter<'input, Endian>
     where Endian: Endianity
 {
     /// Advance the iterator to the next unit header.
-    pub fn next(&mut self) -> ParseResult<Option<UnitHeader<'input, Endian>>> {
+    pub fn next(&mut self) -> Result<Option<UnitHeader<'input, Endian>>> {
         if self.input.is_empty() {
             Ok(None)
         } else {
@@ -146,7 +146,7 @@ impl<'input, Endian> FallibleIterator for UnitHeadersIter<'input, Endian>
     type Item = UnitHeader<'input, Endian>;
     type Error = Error;
 
-    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
         UnitHeadersIter::next(self)
     }
 }
@@ -227,7 +227,7 @@ fn test_units() {
 }
 
 /// Parse the DWARF version from the compilation unit header.
-fn parse_version<Endian>(input: EndianBuf<Endian>) -> ParseResult<(EndianBuf<Endian>, u16)>
+fn parse_version<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u16)>
     where Endian: Endianity
 {
     let (rest, val) = try!(parse_u16(input));
@@ -285,7 +285,7 @@ fn test_unit_version_incomplete() {
 /// Parse the `debug_abbrev_offset` in the compilation unit header.
 fn parse_debug_abbrev_offset<Endian>(input: EndianBuf<Endian>,
                                      format: Format)
-                                     -> ParseResult<(EndianBuf<Endian>, DebugAbbrevOffset)>
+                                     -> Result<(EndianBuf<Endian>, DebugAbbrevOffset)>
     where Endian: Endianity
 {
     parse_word(input, format).map(|(rest, offset)| (rest, DebugAbbrevOffset(offset)))
@@ -335,7 +335,7 @@ fn test_parse_debug_abbrev_offset_64_incomplete() {
 /// Parse the `debug_info_offset` in the arange header.
 pub fn parse_debug_info_offset<Endian>(input: EndianBuf<Endian>,
                                        format: Format)
-                                       -> ParseResult<(EndianBuf<Endian>, DebugInfoOffset)>
+                                       -> Result<(EndianBuf<Endian>, DebugInfoOffset)>
     where Endian: Endianity
 {
     parse_word(input, format).map(|(rest, offset)| (rest, DebugInfoOffset(offset)))
@@ -384,7 +384,7 @@ fn test_parse_debug_info_offset_64_incomplete() {
 /// Parse the `debug_types_offset` in the pubtypes header.
 pub fn parse_debug_types_offset<Endian>(input: EndianBuf<Endian>,
                                         format: Format)
-                                        -> ParseResult<(EndianBuf<Endian>, DebugTypesOffset)>
+                                        -> Result<(EndianBuf<Endian>, DebugTypesOffset)>
     where Endian: Endianity
 {
     parse_word(input, format).map(|(rest, offset)| (rest, DebugTypesOffset(offset)))
@@ -663,14 +663,14 @@ impl<'input, Endian> UnitHeader<'input, Endian>
     /// let debug_abbrev = DebugAbbrev::<LittleEndian>::new(read_debug_abbrev_section_somehow());
     /// let abbrevs_for_unit = unit.abbreviations(debug_abbrev).unwrap();
     /// ```
-    pub fn abbreviations(&self, debug_abbrev: DebugAbbrev<Endian>) -> ParseResult<Abbreviations> {
+    pub fn abbreviations(&self, debug_abbrev: DebugAbbrev<Endian>) -> Result<Abbreviations> {
         debug_abbrev.abbreviations(self.debug_abbrev_offset())
     }
 }
 
 /// Parse a compilation unit header.
 fn parse_unit_header<Endian>(input: EndianBuf<Endian>)
-                             -> ParseResult<(EndianBuf<Endian>, UnitHeader<Endian>)>
+                             -> Result<(EndianBuf<Endian>, UnitHeader<Endian>)>
     where Endian: Endianity
 {
     let (rest, (unit_length, format)) = try!(parse_initial_length(input));
@@ -1551,7 +1551,7 @@ fn test_attribute_value() {
 }
 
 fn length_u8_value<Endian>(input: EndianBuf<Endian>)
-                           -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>)>
+                           -> Result<(EndianBuf<Endian>, EndianBuf<Endian>)>
     where Endian: Endianity
 {
     let (rest, len) = try!(parse_u8(input.into()));
@@ -1559,7 +1559,7 @@ fn length_u8_value<Endian>(input: EndianBuf<Endian>)
 }
 
 fn length_u16_value<Endian>(input: EndianBuf<Endian>)
-                            -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>)>
+                            -> Result<(EndianBuf<Endian>, EndianBuf<Endian>)>
     where Endian: Endianity
 {
     let (rest, len) = try!(parse_u16(input));
@@ -1567,7 +1567,7 @@ fn length_u16_value<Endian>(input: EndianBuf<Endian>)
 }
 
 fn length_u32_value<Endian>(input: EndianBuf<Endian>)
-                            -> ParseResult<(EndianBuf<Endian>, EndianBuf<Endian>)>
+                            -> Result<(EndianBuf<Endian>, EndianBuf<Endian>)>
     where Endian: Endianity
 {
     let (rest, len) = try!(parse_u32(input));
@@ -1578,7 +1578,7 @@ fn parse_attribute<'input, 'unit, Endian>
     (mut input: EndianBuf<'input, Endian>,
      unit: &'unit UnitHeader<'input, Endian>,
      spec: AttributeSpecification)
-     -> ParseResult<(EndianBuf<'input, Endian>, Attribute<'input, Endian>)>
+     -> Result<(EndianBuf<'input, Endian>, Attribute<'input, Endian>)>
     where Endian: Endianity
 {
     let mut form = spec.form();
@@ -2226,7 +2226,7 @@ impl<'input, 'abbrev, 'entry, 'unit, Endian> AttrsIter<'input, 'abbrev, 'entry, 
     /// Returns `None` when iteration is finished. If an error
     /// occurs while parsing the next attribute, then this error
     /// is returned on all subsequent calls.
-    pub fn next(&mut self) -> ParseResult<Option<Attribute<'input, Endian>>> {
+    pub fn next(&mut self) -> Result<Option<Attribute<'input, Endian>>> {
         if self.attributes.len() == 0 {
             // Now that we have parsed all of the attributes, we know where
             // either (1) this entry's children start, if the abbreviation says
@@ -2259,7 +2259,7 @@ impl<'input, 'abbrev, 'entry, 'unit, Endian> FallibleIterator for AttrsIter<'inp
     type Item = Attribute<'input, Endian>;
     type Error = Error;
 
-    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
         AttrsIter::next(self)
     }
 }
@@ -2461,7 +2461,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     }
 
     /// Return the input buffer after the current entry.
-    fn after_entry(&self) -> ParseResult<&'input [u8]> {
+    fn after_entry(&self) -> Result<&'input [u8]> {
         if let Some(ref current) = self.cached_current {
             if let Some(after_attrs) = current.after_attrs.get() {
                 Ok(after_attrs)
@@ -2489,7 +2489,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     ///
     /// Returns `Some` if there is a next entry, even if this entry is null.
     /// If there is no next entry, then `None` is returned.
-    pub fn next_entry(&mut self) -> ParseResult<Option<()>> {
+    pub fn next_entry(&mut self) -> Result<Option<()>> {
         let input = try!(self.after_entry());
         if input.len() == 0 {
             self.input = input;
@@ -2642,9 +2642,9 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// println!("The first entry with no children is {:?}",
     ///          first_entry_with_no_children.unwrap());
     /// ```
-    pub fn next_dfs<'me>(&'me mut self)
-        -> ParseResult<Option<(isize,
-                               &'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>)>> {
+    pub fn next_dfs<'me>
+        (&'me mut self)
+         -> Result<Option<(isize, &'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>)>> {
         let mut delta_depth = self.delta_depth;
         loop {
             // Keep eating null entries that mark the end of an entry's children.
@@ -2783,7 +2783,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// ```
     pub fn next_sibling<'me>
         (&'me mut self)
-         -> ParseResult<Option<(&'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>)>> {
+         -> Result<Option<(&'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>)>> {
         if self.cached_current.is_some() {
             let sibling_ptr = self.current().unwrap().attr_value(constants::DW_AT_sibling);
             if let Some(AttributeValue::UnitRef(offset)) = sibling_ptr {
@@ -2821,7 +2821,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
 /// Parse a type unit header's unique type signature. Callers should handle
 /// unique-ness checking.
 fn parse_type_signature<Endian>(input: EndianBuf<Endian>)
-                                -> ParseResult<(EndianBuf<Endian>, DebugTypeSignature)>
+                                -> Result<(EndianBuf<Endian>, DebugTypeSignature)>
     where Endian: Endianity
 {
     let (rest, offset) = try!(parse_u64(input));
@@ -2851,7 +2851,7 @@ fn test_parse_type_signature_incomplete() {
 /// Parse a type unit header's type offset.
 fn parse_type_offset<Endian>(input: EndianBuf<Endian>,
                              format: Format)
-                             -> ParseResult<(EndianBuf<Endian>, DebugTypesOffset)>
+                             -> Result<(EndianBuf<Endian>, DebugTypesOffset)>
     where Endian: Endianity
 {
     parse_word(input, format).map(|(rest, offset)| (rest, DebugTypesOffset(offset)))
@@ -2961,7 +2961,7 @@ impl<'input, Endian> TypeUnitHeadersIter<'input, Endian>
     where Endian: Endianity
 {
     /// Advance the iterator to the next type unit header.
-    pub fn next(&mut self) -> ParseResult<Option<TypeUnitHeader<'input, Endian>>> {
+    pub fn next(&mut self) -> Result<Option<TypeUnitHeader<'input, Endian>>> {
         if self.input.is_empty() {
             Ok(None)
         } else {
@@ -2985,7 +2985,7 @@ impl<'input, Endian> FallibleIterator for TypeUnitHeadersIter<'input, Endian>
     type Item = TypeUnitHeader<'input, Endian>;
     type Error = Error;
 
-    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
         TypeUnitHeadersIter::next(self)
     }
 }
@@ -3166,14 +3166,14 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
     /// let debug_abbrev = DebugAbbrev::<LittleEndian>::new(read_debug_abbrev_section_somehow());
     /// let abbrevs_for_unit = unit.abbreviations(debug_abbrev).unwrap();
     /// ```
-    pub fn abbreviations(&self, debug_abbrev: DebugAbbrev<Endian>) -> ParseResult<Abbreviations> {
+    pub fn abbreviations(&self, debug_abbrev: DebugAbbrev<Endian>) -> Result<Abbreviations> {
         debug_abbrev.abbreviations(self.debug_abbrev_offset())
     }
 }
 
 /// Parse a type unit header.
 fn parse_type_unit_header<Endian>(input: EndianBuf<Endian>)
-                                  -> ParseResult<(EndianBuf<Endian>, TypeUnitHeader<Endian>)>
+                                  -> Result<(EndianBuf<Endian>, TypeUnitHeader<Endian>)>
     where Endian: Endianity
 {
     let (after_unit, mut header) = try!(parse_unit_header(input));

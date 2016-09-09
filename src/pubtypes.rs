@@ -1,6 +1,6 @@
 use endianity::{Endianity, EndianBuf};
 use lookup::{PubStuffParser, LookupEntryIter, DebugLookup, NamesOrTypesSwitch};
-use parser::{Format, ParseResult};
+use parser::{Format, Result};
 use unit::{DebugTypesOffset, parse_debug_types_offset};
 use std::ffi;
 use std::marker::PhantomData;
@@ -76,7 +76,7 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for TypesSwitch<'input, 
 
     fn parse_offset(input: EndianBuf<Endian>,
                     format: Format)
-                    -> ParseResult<(EndianBuf<Endian>, Self::Offset)> {
+                    -> Result<(EndianBuf<Endian>, Self::Offset)> {
         parse_debug_types_offset(input, format)
     }
 
@@ -134,7 +134,7 @@ pub type DebugPubTypes<'input, Endian> = DebugLookup<'input,
 ///
 /// Provides:
 ///
-/// * `next_entry(self: &mut) -> ParseResult<Option<PubTypesEntry>>`
+/// * `next_entry(self: &mut) -> gimli::Result<Option<PubTypesEntry>>`
 ///
 ///   Advance the iterator and return the next pubtype.
 ///

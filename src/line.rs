@@ -245,7 +245,7 @@ impl<'input, Endian> StateMachine<'input, Endian>
     /// Unfortunately, the `'me` lifetime means that this cannot be a
     /// `FallibleIterator`.
     pub fn next_row<'me>(&'me mut self)
-                         -> parser::ParseResult<Option<LineNumberRow<'me, 'input, Endian>>> {
+                         -> parser::Result<Option<LineNumberRow<'me, 'input, Endian>>> {
         // Perform any reset that was required after copying the previous row.
         if self.registers.end_sequence {
             // Previous opcode was EndSequence, so reset everything
@@ -279,10 +279,9 @@ impl<'input, Endian> StateMachine<'input, Endian>
 
     /// Parse and execute opcodes until we reach a row matching `addr`, the end of the program,
     /// or an error.
-    pub fn run_to_address<'me>
-        (&'me mut self,
-         addr: &u64)
-         -> parser::ParseResult<Option<LineNumberRow<'me, 'input, Endian>>> {
+    pub fn run_to_address<'me>(&'me mut self,
+                               addr: &u64)
+                               -> parser::Result<Option<LineNumberRow<'me, 'input, Endian>>> {
         loop {
             match self.next_row() {
                 Ok(Some(row)) => {
@@ -435,7 +434,7 @@ pub enum Opcode<'input> {
 impl<'input> Opcode<'input> {
     fn parse<'header, Endian>(header: &'header LineNumberProgramHeader<'input, Endian>,
                               input: &'input [u8])
-                              -> parser::ParseResult<(&'input [u8], Opcode<'input>)>
+                              -> parser::Result<(&'input [u8], Opcode<'input>)>
         where Endian: 'header + Endianity,
               'input: 'header
     {
@@ -615,7 +614,7 @@ impl<'input, Endian> OpcodesIter<'input, Endian>
     /// `FallibleIterator`.
     pub fn next_opcode(&mut self,
                        header: &LineNumberProgramHeader<'input, Endian>)
-                       -> parser::ParseResult<Option<Opcode<'input>>> {
+                       -> parser::Result<Option<Opcode<'input>>> {
         if self.input.len() == 0 {
             return Ok(None);
         }
@@ -679,7 +678,7 @@ impl<'statemachine, 'input, Endian> LineNumberRow<'statemachine, 'input, Endian>
     }
 
     /// The source file corresponding to the current machine instruction.
-    pub fn file(&self) -> parser::ParseResult<&'statemachine FileEntry<'input>> {
+    pub fn file(&self) -> parser::Result<&'statemachine FileEntry<'input>> {
         // NB: registers.file starts counting at 1.
         let file = self.registers.file as usize;
         if 0 < file && file <= self.header.file_names.len() {
@@ -918,7 +917,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
     pub fn new(debug_line: DebugLine<'input, Endian>,
                offset: DebugLineOffset,
                address_size: u8)
-               -> parser::ParseResult<LineNumberProgramHeader<'input, Endian>> {
+               -> parser::Result<LineNumberProgramHeader<'input, Endian>> {
         let offset = offset.0 as usize;
         let (_, mut header) = try!(Self::parse(debug_line.debug_line_section.range_from(offset..)));
         header.address_size = address_size;
@@ -1002,9 +1001,9 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         }
     }
 
-    fn parse(input: EndianBuf<'input, Endian>)
-             -> parser::ParseResult<(EndianBuf<'input, Endian>,
-                                     LineNumberProgramHeader<'input, Endian>)> {
+    fn parse
+        (input: EndianBuf<'input, Endian>)
+         -> parser::Result<(EndianBuf<'input, Endian>, LineNumberProgramHeader<'input, Endian>)> {
         let (rest, (unit_length, format)) = try!(parser::parse_initial_length(input));
         if (rest.len() as u64) < unit_length {
             return Err(parser::Error::UnexpectedEof);
@@ -1120,7 +1119,7 @@ pub struct FileEntry<'input> {
 }
 
 impl<'input> FileEntry<'input> {
-    fn parse(input: &'input [u8]) -> parser::ParseResult<(&'input [u8], FileEntry<'input>)> {
+    fn parse(input: &'input [u8]) -> parser::Result<(&'input [u8], FileEntry<'input>)> {
         let (rest, path_name) = try!(parser::parse_null_terminated_string(input));
         let (rest, directory_index) = try!(parser::parse_unsigned_leb(rest));
         let (rest, last_modification) = try!(parser::parse_unsigned_leb(rest));
