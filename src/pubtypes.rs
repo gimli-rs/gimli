@@ -134,7 +134,7 @@ pub type DebugPubTypes<'input, Endian> = DebugLookup<'input,
 ///
 /// Provides:
 ///
-/// * `next_entry(self: &mut) -> gimli::Result<Option<PubTypesEntry>>`
+/// * `next(self: &mut) -> gimli::Result<Option<PubTypesEntry>>`
 ///
 ///   Advance the iterator and return the next pubtype.
 ///

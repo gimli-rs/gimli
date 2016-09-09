@@ -136,7 +136,7 @@ pub type DebugPubNames<'input, Endian> = DebugLookup<'input,
 ///
 /// Provides:
 ///
-/// * `next_entry(self: &mut) -> gimli::Result<Option<PubNamesEntry>>`
+/// * `next(self: &mut) -> gimli::Result<Option<PubNamesEntry>>`
 ///
 ///   Advance the iterator and return the next pubname.
 ///
