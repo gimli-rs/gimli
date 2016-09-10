@@ -47,8 +47,8 @@ script:
 
 after_success:
 - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then travis-cargo --only stable doc-upload; fi
-- if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then travis-cargo coveralls --no-sudo --verify; fi
-- if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then KCOV=./kcov/build/src/kcov ./coverage; fi
+- if [[ "$TRAVIS_OS_NAME" == "linux" && "$TRAVIS_RUST_VERSION" == "nightly" ]]; then travis-cargo coveralls --no-sudo --verify; fi
+- if [[ "$TRAVIS_OS_NAME" == "linux" && "$TRAVIS_RUST_VERSION" == "nightly" ]]; then KCOV=./kcov/build/src/kcov ./coverage; fi
 
 env:
   global:
