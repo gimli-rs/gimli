@@ -74,6 +74,8 @@
 //!
 //!   * [`DebugLine`](./struct.DebugLine.html): The `.debug_line` section.
 //!
+//!   * [`DebugLoc`](./struct.DebugLoc.html): The `.debug_loc` section.
+//!
 //!   * [`DebugPubNames`](./type.DebugPubNames.html): The `.debug_pubnames`
 //!   section.
 //!
@@ -160,7 +162,7 @@ pub use endianity::{Endianity, EndianBuf, LittleEndian, BigEndian, NativeEndian}
 
 mod parser;
 pub use parser::{Error, Result, Format};
-pub use parser::{DebugLocOffset, DebugMacinfoOffset};
+pub use parser::DebugMacinfoOffset;
 
 mod abbrev;
 pub use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation,
@@ -171,6 +173,9 @@ pub use aranges::{DebugAranges, ArangeEntryIter, ArangeEntry};
 
 mod line;
 pub use line::*;
+
+mod loc;
+pub use loc::{DebugLoc, DebugLocOffset, LocationListIter, RawLocationListIter, LocationListEntry};
 
 mod lookup;
 
@@ -184,7 +189,7 @@ mod pubtypes;
 pub use pubtypes::{DebugPubTypes, PubTypesEntryIter, PubTypesEntry};
 
 mod ranges;
-pub use ranges::{DebugRanges, DebugRangesOffset, RangesIter, Range};
+pub use ranges::{DebugRanges, DebugRangesOffset, RangesIter, RawRangesIter, Range};
 
 mod str;
 pub use str::*;

@@ -96,6 +96,8 @@ pub enum Error {
     UnknownCallFrameInstruction(constants::DwCfa),
     /// The end of an address range was before the beginning.
     InvalidAddressRange,
+    /// The end offset of a loc list entry was before the beginning.
+    InvalidLocationAddressRange,
 }
 
 impl fmt::Display for Error {
@@ -167,6 +169,9 @@ impl error::Error for Error {
             Error::UnknownCallFrameInstruction(_) => "An unknown DW_CFA_* instructiion",
             Error::InvalidAddressRange => {
                 "The end of an address range must not be before the beginning."
+            }
+            Error::InvalidLocationAddressRange => {
+                "The end offset of a location list entry must not be before the beginning."
             }
         }
     }
@@ -386,10 +391,6 @@ pub fn parse_null_terminated_string(input: &[u8]) -> Result<(&[u8], &ffi::CStr)>
         Err(Error::UnexpectedEof)
     }
 }
-
-/// An offset into the `.debug_loc` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugLocOffset(pub u64);
 
 /// An offset into the `.debug_macinfo` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -40,9 +40,8 @@ impl<'input, Endian> DebugRanges<'input, Endian>
     /// Iterate over the `Range` list entries starting at the given offset.
     ///
     /// The `address_size` must be match the compilation unit for this range list.
-    /// The `base_address` should be obtained from the `DebuggingInformationEntry`
-    /// that this range list applies to.  Generally this will be a `DW_AT_low_pc`
-    /// attribute within the entry.
+    /// The `base_address` should be obtained from the `DW_AT_low_pc` attribute in the
+    /// `DW_TAG_compile_unit` entry for the compilation unit that contains this range list.
     ///
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
@@ -83,7 +82,7 @@ impl<'input, Endian> DebugRanges<'input, Endian>
     }
 }
 
-/// An raw iterator over an address range list.
+/// A raw iterator over an address range list.
 ///
 /// This iterator does not perform any processing of the range entries,
 /// such as handling base addresses.
@@ -99,9 +98,7 @@ impl<'input, Endian> RawRangesIter<'input, Endian>
     where Endian: Endianity
 {
     /// Construct a `RawRangesIter`.
-    pub fn new(input: EndianBuf<'input, Endian>,
-               address_size: u8)
-               -> RawRangesIter<'input, Endian> {
+    fn new(input: EndianBuf<'input, Endian>, address_size: u8) -> RawRangesIter<'input, Endian> {
         RawRangesIter {
             input: input,
             address_size: address_size,
@@ -114,13 +111,7 @@ impl<'input, Endian> RawRangesIter<'input, Endian>
             return Ok(None);
         }
 
-        let (rest, begin) = try!(parse_address(self.input, self.address_size));
-        let (rest, end) = try!(parse_address(rest, self.address_size));
-        let range = Range {
-            begin: begin,
-            end: end,
-        };
-
+        let (rest, range) = try!(Range::parse(self.input, self.address_size));
         if range.is_end() {
             self.input = EndianBuf::new(&[]);
         } else {
@@ -143,6 +134,10 @@ impl<'input, Endian> FallibleIterator for RawRangesIter<'input, Endian>
 }
 
 /// An iterator over an address range list.
+///
+/// This iterator internally handles processing of base address selection entries
+/// and range end entries.  Thus, it only returns range entries that are valid
+/// and already adjusted for the base address.
 #[derive(Debug)]
 pub struct RangesIter<'input, Endian>
     where Endian: Endianity
@@ -155,10 +150,10 @@ impl<'input, Endian> RangesIter<'input, Endian>
     where Endian: Endianity
 {
     /// Construct a `RangesIter`.
-    pub fn new(input: EndianBuf<'input, Endian>,
-               address_size: u8,
-               base_address: u64)
-               -> RangesIter<'input, Endian> {
+    fn new(input: EndianBuf<'input, Endian>,
+           address_size: u8,
+           base_address: u64)
+           -> RangesIter<'input, Endian> {
         RangesIter {
             raw: RawRangesIter::new(input, address_size),
             base_address: base_address,
@@ -168,7 +163,7 @@ impl<'input, Endian> RangesIter<'input, Endian>
     /// Advance the iterator to the next range.
     pub fn next(&mut self) -> Result<Option<Range>> {
         loop {
-            let range = match try!(self.raw.next()) {
+            let mut range = match try!(self.raw.next()) {
                 Some(range) => range,
                 None => return Ok(None),
             };
@@ -182,24 +177,18 @@ impl<'input, Endian> RangesIter<'input, Endian>
                 continue;
             }
 
-            let mask = !0 >> (64 - self.raw.address_size * 8);
-            let begin = self.base_address.wrapping_add(range.begin) & mask;
-            let end = self.base_address.wrapping_add(range.end) & mask;
-
-            if begin == end {
+            if range.begin == range.end {
                 // An empty range list entry, skip it.
                 continue;
             }
 
-            if begin > end {
+            range.add_base_address(self.base_address, self.raw.address_size);
+            if range.begin > range.end {
                 self.raw.input = EndianBuf::new(&[]);
                 return Err(Error::InvalidAddressRange);
             }
 
-            return Ok(Some(Range {
-                begin: begin,
-                end: end,
-            }));
+            return Ok(Some(range));
         }
     }
 }
@@ -240,6 +229,34 @@ impl Range {
     pub fn is_base_address(&self, address_size: u8) -> bool {
         self.begin == !0 >> (64 - address_size * 8)
     }
+
+    /// Add a base address to this range.
+    ///
+    /// This should only be called for raw ranges.
+    pub fn add_base_address(&mut self, base_address: u64, address_size: u8) {
+        debug_assert!(!self.is_end());
+        debug_assert!(!self.is_base_address(address_size));
+        let mask = !0 >> (64 - address_size * 8);
+        self.begin = base_address.wrapping_add(self.begin) & mask;
+        self.end = base_address.wrapping_add(self.end) & mask;
+    }
+
+    /// Parse an address range entry from `.debug_ranges` or `.debug_loc`.
+    #[doc(hidden)]
+    #[inline]
+    pub fn parse<Endian>(input: EndianBuf<Endian>,
+                         address_size: u8)
+                         -> Result<(EndianBuf<Endian>, Range)>
+        where Endian: Endianity
+    {
+        let (rest, begin) = try!(parse_address(input, address_size));
+        let (rest, end) = try!(parse_address(rest, address_size));
+        let range = Range {
+            begin: begin,
+            end: end,
+        };
+        Ok((rest, range))
+    }
 }
 
 #[cfg(test)]
@@ -249,7 +266,7 @@ mod tests {
     use super::*;
     use endianity::LittleEndian;
     use parser::Error;
-    use self::test_assembler::{Endian, Section};
+    use self::test_assembler::{Endian, Label, LabelMaker, Section};
 
     #[test]
     fn test_range() {
@@ -285,9 +302,13 @@ mod tests {
 
     #[test]
     fn test_ranges_32() {
+        let start = Label::new();
+        let first = Label::new();
         let section = Section::with_endian(Endian::Little)
             // A range before the offset.
+            .mark(&start)
             .L32(0x10000).L32(0x10100)
+            .mark(&first)
             // A normal range.
             .L32(0x10200).L32(0x10300)
             // A base address selection followed by a normal range.
@@ -308,7 +329,8 @@ mod tests {
 
         let buf = section.get_contents().unwrap();
         let debug_ranges = DebugRanges::<LittleEndian>::new(&buf);
-        let mut ranges = debug_ranges.ranges(DebugRangesOffset(0x8), 4, 0x01000000).unwrap();
+        let offset = DebugRangesOffset((&first - &start) as u64);
+        let mut ranges = debug_ranges.ranges(offset, 4, 0x01000000).unwrap();
 
         // A normal range.
         assert_eq!(ranges.next(),
@@ -356,9 +378,13 @@ mod tests {
 
     #[test]
     fn test_ranges_64() {
+        let start = Label::new();
+        let first = Label::new();
         let section = Section::with_endian(Endian::Little)
             // A range before the offset.
+            .mark(&start)
             .L64(0x10000).L64(0x10100)
+            .mark(&first)
             // A normal range.
             .L64(0x10200).L64(0x10300)
             // A base address selection followed by a normal range.
@@ -379,7 +405,8 @@ mod tests {
 
         let buf = section.get_contents().unwrap();
         let debug_ranges = DebugRanges::<LittleEndian>::new(&buf);
-        let mut ranges = debug_ranges.ranges(DebugRangesOffset(0x10), 8, 0x01000000).unwrap();
+        let offset = DebugRangesOffset((&first - &start) as u64);
+        let mut ranges = debug_ranges.ranges(offset, 8, 0x01000000).unwrap();
 
         // A normal range.
         assert_eq!(ranges.next(),
