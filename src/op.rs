@@ -1518,10 +1518,10 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
             Operation::Div => {
                 let v1 = try!(self.pop_signed());
                 let v2 = try!(self.pop_signed());
-                if v2 == 0 {
+                if v1 == 0 {
                     return Err(Error::DivisionByZero);
                 }
-                self.push((v2 / v1) as u64);
+                self.push(v2.wrapping_div(v1) as u64);
             }
             Operation::Minus => {
                 let v1 = try!(self.pop());
@@ -1531,19 +1531,19 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
             Operation::Mod => {
                 let v1 = try!(self.pop());
                 let v2 = try!(self.pop());
-                if v2 == 0 {
+                if v1 == 0 {
                     return Err(Error::DivisionByZero);
                 }
-                self.push(v2 % v1);
+                self.push(v2.wrapping_rem(v1));
             }
             Operation::Mul => {
                 let v1 = try!(self.pop());
                 let v2 = try!(self.pop());
-                self.push(v2 * v1);
+                self.push(v2.wrapping_mul(v1));
             }
             Operation::Neg => {
-                let v = try!(self.pop_signed());
-                self.push(-v as u64);
+                let v = try!(self.pop());
+                self.push(v.wrapping_neg());
             }
             Operation::Not => {
                 let value = try!(self.pop());
@@ -1566,17 +1566,39 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
             Operation::Shl => {
                 let v1 = try!(self.pop());
                 let v2 = try!(self.pop());
-                self.push(v2 << v1);
+                // Because wrapping_shl takes a u32, not a u64, we do
+                // the check by hand.
+                if v1 >= 64 {
+                    self.push(0);
+                } else {
+                    self.push(v2 << v1)
+                }
             }
             Operation::Shr => {
                 let v1 = try!(self.pop());
                 let v2 = try!(self.pop());
-                self.push(v2 >> v1);
+                // Because wrapping_shr takes a u32, not a u64, we do
+                // the check by hand.
+                if v1 >= 64 {
+                    self.push(0);
+                } else {
+                    self.push(v2 >> v1)
+                }
             }
             Operation::Shra => {
-                let v1 = try!(self.pop_signed());
-                let v2 = try!(self.pop());
-                self.push((v2 >> v1) as u64);
+                let v1 = try!(self.pop());
+                let v2 = try!(self.pop_signed());
+                // Because wrapping_shr takes a u32, not a u64, we do
+                // the check by hand.
+                if v1 >= 64 {
+                    if v2 < 0 {
+                        self.push(!0u64);
+                    } else {
+                        self.push(0);
+                    }
+                } else {
+                    self.push((v2 >> v1) as u64);
+                }
             }
             Operation::Xor => {
                 let v1 = try!(self.pop());
@@ -2036,76 +2058,84 @@ fn test_eval_arith() {
         Op(DW_OP_const1s), U8(2),
         Op(DW_OP_div),
         Op(DW_OP_plus_uconst), Uleb(1),
-        Op(DW_OP_skip), Branch(done),
+        Op(DW_OP_bra), Branch(fail),
 
         // Mod is unsigned.
-        Op(DW_OP_const1s), U8(0xfe),
+        Op(DW_OP_const1s), U8(0xfd),
         Op(DW_OP_const1s), U8(2),
         Op(DW_OP_mod),
         Op(DW_OP_neg),
         Op(DW_OP_plus_uconst), Uleb(1),
-        Op(DW_OP_skip), Branch(done),
+        Op(DW_OP_bra), Branch(fail),
 
         // Overflow is defined for multiplication.
         Op(DW_OP_const4u), U32(0x80000001),
         Op(DW_OP_lit2),
         Op(DW_OP_mul),
         Op(DW_OP_lit2),
-        Op(DW_OP_eq),
-        Op(DW_OP_skip), Branch(done),
+        Op(DW_OP_ne),
+        Op(DW_OP_bra), Branch(fail),
 
         Op(DW_OP_const4u), U32(0xf0f0f0f0),
         Op(DW_OP_const4u), U32(0xf0f0f0f0),
         Op(DW_OP_xor),
-        Op(DW_OP_skip), Branch(done),
+        Op(DW_OP_bra), Branch(fail),
 
         Op(DW_OP_const4u), U32(0xf0f0f0f0),
-        Op(DW_OP_const4u), U32(0xf0f0f0f0),
+        Op(DW_OP_const4u), U32(0x0f0f0f0f),
         Op(DW_OP_or),
         Op(DW_OP_not),
-        Op(DW_OP_skip), Branch(done),
+        Op(DW_OP_bra), Branch(fail),
 
         // In 32 bit mode, values are truncated.
         Op(DW_OP_const8u), U64(0xffffffff00000000),
         Op(DW_OP_lit2),
         Op(DW_OP_div),
-        Op(DW_OP_skip), Branch(done),
+        Op(DW_OP_bra), Branch(fail),
 
         Op(DW_OP_const1u), U8(0xff),
         Op(DW_OP_lit1),
         Op(DW_OP_shl),
         Op(DW_OP_const2u), U16(0x1fe),
-        Op(DW_OP_eq),
-        Op(DW_OP_skip), Branch(done),
+        Op(DW_OP_ne),
+        Op(DW_OP_bra), Branch(fail),
 
         Op(DW_OP_const1u), U8(0xff),
         Op(DW_OP_const1u), U8(50),
         Op(DW_OP_shl),
-        Op(DW_OP_skip), Branch(done),
+        Op(DW_OP_bra), Branch(fail),
 
         // Absurd shift.
         Op(DW_OP_const1u), U8(0xff),
         Op(DW_OP_const1s), U8(0xff),
         Op(DW_OP_shl),
-        Op(DW_OP_skip), Branch(done),
+        Op(DW_OP_bra), Branch(fail),
 
         Op(DW_OP_const1s), U8(0xff),
         Op(DW_OP_lit1),
         Op(DW_OP_shr),
         Op(DW_OP_const4u), U32(0x7fffffff),
-        Op(DW_OP_eq),
-        Op(DW_OP_skip), Branch(done),
+        Op(DW_OP_ne),
+        Op(DW_OP_bra), Branch(fail),
 
         Op(DW_OP_const1s), U8(0xff),
         Op(DW_OP_const1u), U8(0xff),
         Op(DW_OP_shr),
-        Op(DW_OP_skip), Branch(done),
+        Op(DW_OP_bra), Branch(fail),
 
         Op(DW_OP_const1s), U8(0xff),
         Op(DW_OP_lit1),
         Op(DW_OP_shra),
-        Op(DW_OP_not),
-        Op(DW_OP_skip), Branch(done),
+        Op(DW_OP_const1s), U8(0xff),
+        Op(DW_OP_ne),
+        Op(DW_OP_bra), Branch(fail),
+
+        Op(DW_OP_const1s), U8(0xff),
+        Op(DW_OP_const1u), U8(0xff),
+        Op(DW_OP_shra),
+        Op(DW_OP_const1s), U8(0xff),
+        Op(DW_OP_ne),
+        Op(DW_OP_bra), Branch(fail),
 
         // Success.
         Op(DW_OP_lit0),
@@ -2159,6 +2189,26 @@ fn test_eval_arith64() {
         Op(DW_OP_lit1),
         Op(DW_OP_neg),
         Op(DW_OP_not),
+        Op(DW_OP_bra), Branch(fail),
+
+        Op(DW_OP_const8u), U64(0x8000000000000000),
+        Op(DW_OP_const1u), U8(63),
+        Op(DW_OP_shr),
+        Op(DW_OP_lit1),
+        Op(DW_OP_ne),
+        Op(DW_OP_bra), Branch(fail),
+
+        Op(DW_OP_const8u), U64(0x8000000000000000),
+        Op(DW_OP_const1u), U8(62),
+        Op(DW_OP_shra),
+        Op(DW_OP_plus_uconst), Uleb(2),
+        Op(DW_OP_bra), Branch(fail),
+
+        Op(DW_OP_lit1),
+        Op(DW_OP_const1u), U8(63),
+        Op(DW_OP_shl),
+        Op(DW_OP_const8u), U64(0x8000000000000000),
+        Op(DW_OP_ne),
         Op(DW_OP_bra), Branch(fail),
 
         // Success.
