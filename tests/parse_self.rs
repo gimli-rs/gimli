@@ -1,7 +1,7 @@
 extern crate gimli;
 
 use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugPubNames,
-            DebugPubTypes, DW_AT_stmt_list, LineNumberProgramHeader, LittleEndian, StateMachine};
+            DebugPubTypes, DW_AT_stmt_list, LittleEndian, StateMachine};
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -72,7 +72,7 @@ fn test_parse_self_debug_line() {
             .expect("Should have a root entry");
 
         if let Some(AttributeValue::DebugLineRef(offset)) = unit_entry.attr_value(DW_AT_stmt_list) {
-            let header = LineNumberProgramHeader::new(debug_line, offset, unit.address_size())
+            let header = debug_line.header(offset, unit.address_size())
                 .expect("should parse line number program header");
 
             let mut state_machine = StateMachine::new(header);

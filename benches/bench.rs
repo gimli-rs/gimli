@@ -4,7 +4,7 @@ extern crate gimli;
 extern crate test;
 
 use gimli::{DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset, DebugPubNames,
-            DebugPubTypes, LineNumberProgramHeader, LittleEndian, StateMachine};
+            DebugPubTypes, LittleEndian, StateMachine};
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -118,7 +118,7 @@ fn bench_parsing_line_number_program_opcodes(b: &mut test::Bencher) {
     let debug_line = DebugLine::<LittleEndian>::new(&debug_line);
 
     b.iter(|| {
-        let header = LineNumberProgramHeader::new(debug_line, OFFSET, ADDRESS_SIZE)
+        let header = debug_line.header(OFFSET, ADDRESS_SIZE)
             .expect("Should parse line number program header");
 
         let mut opcodes = header.opcodes();
@@ -134,7 +134,7 @@ fn bench_executing_line_number_programs(b: &mut test::Bencher) {
     let debug_line = DebugLine::<LittleEndian>::new(&debug_line);
 
     b.iter(|| {
-        let header = LineNumberProgramHeader::new(debug_line, OFFSET, ADDRESS_SIZE)
+        let header = debug_line.header(OFFSET, ADDRESS_SIZE)
             .expect("Should parse line number program header");
 
         let mut state_machine = StateMachine::new(header);

@@ -235,9 +235,7 @@ impl Unit {
                          -> gimli::Result<gimli::StateMachine<'a, Endian>>
         where Endian: gimli::Endianity
     {
-        let header = try!(gimli::LineNumberProgramHeader::new(debug_line,
-                                                              self.line_offset,
-                                                              self.address_size));
+        let header = try!(debug_line.header(self.line_offset, self.address_size));
         Ok(gimli::StateMachine::new(header))
     }
 

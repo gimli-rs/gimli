@@ -569,8 +569,7 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
                 _ => continue,
             };
 
-            let header =
-                gimli::LineNumberProgramHeader::new(debug_line, offset, unit.address_size());
+            let header = debug_line.header(offset, unit.address_size());
             if let Ok(header) = header {
                 println!("");
                 println!("Offset:                             0x{:x}", offset.0);
