@@ -92,9 +92,7 @@ pub struct StateMachine<'input, Endian>
 impl<'input, Endian> StateMachine<'input, Endian>
     where Endian: Endianity
 {
-    /// Construct a new `StateMachine` for executing line programs and
-    /// generating the line information matrix.
-    pub fn new(header: LineNumberProgramHeader<'input, Endian>) -> Self {
+    fn new(header: LineNumberProgramHeader<'input, Endian>) -> Self {
         let mut row = LineNumberRow::default();
         row.registers.reset(header.default_is_stmt());
         let opcodes = OpcodesIter {
@@ -996,6 +994,12 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         }
     }
 
+    /// Construct a new `StateMachine` for executing line programs and
+    /// generating the line information matrix.
+    pub fn rows(self) -> StateMachine<'input, Endian> {
+        StateMachine::new(self)
+    }
+
     fn parse
         (input: EndianBuf<'input, Endian>,
          address_size: u8)
@@ -1648,7 +1652,7 @@ mod tests {
                           opcode: Opcode,
                           expected_registers: StateMachineRegisters,
                           expect_new_row: bool) {
-        let mut sm = StateMachine::new(header);
+        let mut sm = header.rows();
         sm.row.registers = initial_registers;
 
         let is_new_row = sm.execute(opcode);
@@ -2009,7 +2013,7 @@ mod tests {
     #[test]
     fn test_exec_define_file() {
         let header = make_test_header(&[]);
-        let mut sm = StateMachine::new(header);
+        let mut sm = header.rows();
 
         let file = FileEntry {
             path_name: ffi::CStr::from_bytes_with_nul(&b"test.cpp\0"[..]).unwrap(),

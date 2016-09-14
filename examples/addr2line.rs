@@ -105,8 +105,8 @@ fn find_address<Endian>(debug_line: gimli::DebugLine<Endian>, units: &[Unit], ad
     let mut current = None;
     for unit in units {
         if unit.contains_address(addr) {
-            if let Ok(mut lines) = unit.lines(debug_line) {
-                while let Ok(Some((header, row))) = lines.next_row() {
+            if let Ok(mut rows) = unit.line_rows(debug_line) {
+                while let Ok(Some((header, row))) = rows.next_row() {
                     if row.address() > addr {
                         if let Some(ref row) = current {
                             display_file(unit, header, row);
@@ -230,13 +230,13 @@ impl Unit {
         self.ranges.iter().any(|range| address >= range.begin && address < range.end)
     }
 
-    fn lines<'a, Endian>(&self,
-                         debug_line: gimli::DebugLine<'a, Endian>)
-                         -> gimli::Result<gimli::StateMachine<'a, Endian>>
+    fn line_rows<'a, Endian>(&self,
+                             debug_line: gimli::DebugLine<'a, Endian>)
+                             -> gimli::Result<gimli::StateMachine<'a, Endian>>
         where Endian: gimli::Endianity
     {
         let header = try!(debug_line.header(self.line_offset, self.address_size));
-        Ok(gimli::StateMachine::new(header))
+        Ok(header.rows())
     }
 
     fn comp_dir(&self) -> Option<&String> {

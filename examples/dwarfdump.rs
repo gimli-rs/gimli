@@ -625,9 +625,9 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
                 println!("");
                 println!("Line Number Rows:");
                 println!("<pc>        [lno,col]");
-                let mut state_machine = gimli::StateMachine::new(header);
+                let mut rows = header.rows();
                 let mut file_index = 0;
-                while let Some((header, row)) = state_machine.next_row()
+                while let Some((header, row)) = rows.next_row()
                     .expect("Should parse row OK") {
                     let line = row.line().unwrap_or(0);
                     let column = match row.column() {

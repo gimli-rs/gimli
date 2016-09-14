@@ -1,7 +1,7 @@
 extern crate gimli;
 
 use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugPubNames,
-            DebugPubTypes, DW_AT_stmt_list, LittleEndian, StateMachine};
+            DebugPubTypes, DW_AT_stmt_list, LittleEndian};
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -75,8 +75,8 @@ fn test_parse_self_debug_line() {
             let header = debug_line.header(offset, unit.address_size())
                 .expect("should parse line number program header");
 
-            let mut state_machine = StateMachine::new(header);
-            while let Some(_) = state_machine.next_row()
+            let mut rows = header.rows();
+            while let Some(_) = rows.next_row()
                 .expect("Should parse and execute all rows in the line number program") {
             }
         }
