@@ -180,6 +180,13 @@ fn dump_types<Endian>(file: &object::File,
     }
 }
 
+// TODO: most of this should be moved to the main library.
+struct Unit {
+    format: gimli::Format,
+    address_size: u8,
+    base_address: u64,
+}
+
 fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
                         address_size: u8,
                         format: gimli::Format,
@@ -189,8 +196,13 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
                         flags: &Flags)
     where Endian: gimli::Endianity
 {
+    let mut unit = Unit {
+        format: format,
+        address_size: address_size,
+        base_address: 0,
+    };
+
     let mut depth = 0;
-    let mut base_address = 0;
     while let Some((delta_depth, entry)) = entries.next_dfs().expect("Should parse next dfs") {
         depth += delta_depth;
         assert!(depth >= 0);
@@ -205,7 +217,7 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
         if entry.tag() == gimli::DW_TAG_compile_unit {
             if let Some(gimli::AttributeValue::Addr(address)) =
                    entry.attr_value(gimli::DW_AT_low_pc) {
-                base_address = address;
+                unit.base_address = address;
             }
         }
 
@@ -215,22 +227,14 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
             if flags.raw {
                 println!("{:?}", attr.raw_value());
             } else {
-                dump_attr_value(attr,
-                                base_address,
-                                address_size,
-                                format,
-                                debug_loc,
-                                debug_ranges,
-                                debug_str);
+                dump_attr_value(attr, &unit, debug_loc, debug_ranges, debug_str);
             }
         }
     }
 }
 
 fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
-                           base_address: u64,
-                           address_size: u8,
-                           format: gimli::Format,
+                           unit: &Unit,
                            debug_loc: gimli::DebugLoc<Endian>,
                            debug_ranges: gimli::DebugRanges<Endian>,
                            debug_str: gimli::DebugStr<Endian>)
@@ -273,7 +277,7 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
                 }
                 print!(": ");
             }
-            dump_exprloc(data, address_size, format);
+            dump_exprloc(data, unit);
             println!("");
         }
         gimli::AttributeValue::Flag(true) => {
@@ -296,14 +300,14 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
             println!("0x{:08x}", offset);
         }
         gimli::AttributeValue::DebugLocRef(offset) => {
-            dump_loc_list(debug_loc, offset, base_address, address_size, format);
+            dump_loc_list(debug_loc, offset, unit);
         }
         gimli::AttributeValue::DebugMacinfoRef(gimli::DebugMacinfoOffset(offset)) => {
             println!("{}", offset);
         }
         gimli::AttributeValue::DebugRangesRef(offset) => {
             println!("0x{:08x}", offset.0);
-            dump_range_list(debug_ranges, offset, address_size);
+            dump_range_list(debug_ranges, offset, unit);
         }
         gimli::AttributeValue::DebugTypesRef(gimli::DebugTypeSignature(offset)) => {
             // Convert back to bytes so we can match libdwarf-dwarfdump output.
@@ -364,14 +368,14 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
     }
 }
 
-fn dump_exprloc<Endian>(data: gimli::EndianBuf<Endian>, address_size: u8, format: gimli::Format)
+fn dump_exprloc<Endian>(data: gimli::EndianBuf<Endian>, unit: &Unit)
     where Endian: gimli::Endianity
 {
     let mut pc = data;
     let mut space = false;
     while pc.len() != 0 {
         let dwop = gimli::DwOp(pc[0]);
-        let (newpc, op) = gimli::Operation::parse(pc, data.0, address_size, format)
+        let (newpc, op) = gimli::Operation::parse(pc, data.0, unit.address_size, unit.format)
             .expect("Should parse op");
         if space {
             print!(" ");
@@ -470,12 +474,10 @@ fn dump_op<Endian>(dwop: gimli::DwOp, op: gimli::Operation<Endian>, newpc: &[u8]
 
 fn dump_loc_list<Endian>(debug_loc: gimli::DebugLoc<Endian>,
                          offset: gimli::DebugLocOffset,
-                         mut base_address: u64,
-                         address_size: u8,
-                         format: gimli::Format)
+                         unit: &Unit)
     where Endian: gimli::Endianity
 {
-    let locations = debug_loc.raw_locations(offset, address_size)
+    let locations = debug_loc.raw_locations(offset, unit.address_size)
         .expect("Should have valid loc offset");
     let mut locations: Vec<_> = locations.collect().expect("Should parse locations");
 
@@ -492,16 +494,17 @@ fn dump_loc_list<Endian>(debug_loc: gimli::DebugLoc<Endian>,
     println!("<loclist at offset 0x{:08x} with {} entries follows>",
              offset.0,
              locations.len());
+    let mut base_address = unit.base_address;
     for (i, location) in locations.iter().enumerate() {
         print!("\t\t\t[{:2}]", i);
         if location.range.is_end() {
             println!("<end-of-list>");
-        } else if location.range.is_base_address(address_size) {
+        } else if location.range.is_base_address(unit.address_size) {
             println!("<new base address 0x{:08x}>", location.range.end);
             base_address = location.range.end;
         } else {
             let mut range = location.range;
-            range.add_base_address(base_address, address_size);
+            range.add_base_address(base_address, unit.address_size);
             // This messed up formatting matches libdwarf-dwarfdump.
             print!("< offset pair \
                     low-off : 0x{:08x} addr  0x{:08x} \
@@ -510,7 +513,7 @@ fn dump_loc_list<Endian>(debug_loc: gimli::DebugLoc<Endian>,
                    range.begin,
                    location.range.end,
                    range.end);
-            dump_exprloc(location.data, address_size, format);
+            dump_exprloc(location.data, unit);
             println!("");
         }
     }
@@ -518,22 +521,22 @@ fn dump_loc_list<Endian>(debug_loc: gimli::DebugLoc<Endian>,
 
 fn dump_range_list<Endian>(debug_ranges: gimli::DebugRanges<Endian>,
                            offset: gimli::DebugRangesOffset,
-                           address_size: u8)
+                           unit: &Unit)
     where Endian: gimli::Endianity
 {
-    let ranges = debug_ranges.raw_ranges(offset, address_size)
+    let ranges = debug_ranges.raw_ranges(offset, unit.address_size)
         .expect("Should have valid range offset");
     let ranges: Vec<_> = ranges.collect().expect("Should parse ranges");
     println!("\t\tranges: {} at .debug_ranges offset {} (0x{:08x}) ({} bytes)",
              ranges.len(),
              offset.0,
              offset.0,
-             ranges.len() * address_size as usize * 2);
+             ranges.len() * unit.address_size as usize * 2);
     for (i, range) in ranges.iter().enumerate() {
         print!("\t\t\t[{:2}] ", i);
         if range.is_end() {
             print!("range end     ");
-        } else if range.is_base_address(address_size) {
+        } else if range.is_base_address(unit.address_size) {
             print!("addr selection");
         } else {
             print!("range entry   ");
