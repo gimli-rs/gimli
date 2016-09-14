@@ -165,11 +165,8 @@ impl Unit {
             _ => return None,
         };
 
-        let comp_dir = match entry.attr_value(gimli::DW_AT_comp_dir) {
-                Some(gimli::AttributeValue::String(dir)) => Some(dir),
-                Some(gimli::AttributeValue::DebugStrRef(offset)) => debug_str.get_str(offset).ok(),
-                _ => None,
-            }
+        let comp_dir = entry.attr(gimli::DW_AT_comp_dir)
+            .and_then(|attr| attr.string_value(debug_str))
             .map(|dir| dir.to_string_lossy().into_owned());
 
         Some(Unit {

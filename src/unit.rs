@@ -19,7 +19,7 @@ use std::ffi;
 use std::marker::PhantomData;
 use std::ops::{Range, RangeFrom, RangeTo};
 use std::{u8, u16};
-use str::DebugStrOffset;
+use str::{DebugStr, DebugStrOffset};
 
 /// An offset into the `.debug_types` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1517,7 +1517,7 @@ impl<'input, Endian> Attribute<'input, Endian>
         })
     }
 
-    /// Try to convert this attribute's value to an expression or location.
+    /// Try to convert this attribute's value to an expression or location buffer.
     ///
     /// Expressions and locations may be `DW_FORM_block*` or `DW_FORM_exprloc`.
     /// The standard doesn't mention `DW_FORM_block*` as a possible form, but
@@ -1528,6 +1528,20 @@ impl<'input, Endian> Attribute<'input, Endian>
             AttributeValue::Exprloc(data) => data,
             _ => return None,
         })
+    }
+
+    /// Try to return this attribute's value as a string reference.
+    ///
+    /// If this attribute's value is either an inline `DW_FORM_string` string,
+    /// or a `DW_FORM_strp` reference to an offset into the `.debug_str`
+    /// section, return the attribute's string value as `Some`. Other attribute
+    /// value forms are returned as `None`.
+    pub fn string_value(&self, debug_str: &DebugStr<'input, Endian>) -> Option<&'input ffi::CStr> {
+        match self.value {
+            AttributeValue::String(string) => Some(string),
+            AttributeValue::DebugStrRef(offset) => debug_str.get_str(offset).ok(),
+            _ => None,
+        }
     }
 }
 
