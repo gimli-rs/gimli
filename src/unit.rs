@@ -1065,6 +1065,10 @@ pub enum AttributeValue<'input, Endian>
 
     /// The value of a `DW_AT_ordering` attribute.
     Ordering(constants::DwOrd),
+
+    /// An index into the filename entries from the line number information
+    /// table for the compilation unit containing this value.
+    FileIndex(u64),
 }
 
 /// An attribute in a `DebuggingInformationEntry`, consisting of a name and
@@ -1300,8 +1304,12 @@ impl<'input, Endian> Attribute<'input, Endian>
                 exprloc!();
                 loclistptr!();
             }
-            constants::DW_AT_decl_column |
-            constants::DW_AT_decl_file |
+            constants::DW_AT_decl_column => {
+                constant!(udata_value, Udata);
+            }
+            constants::DW_AT_decl_file => {
+                constant!(udata_value, FileIndex);
+            }
             constants::DW_AT_decl_line => {
                 constant!(udata_value, Udata);
             }
@@ -1400,8 +1408,12 @@ impl<'input, Endian> Attribute<'input, Endian>
                 reference!();
                 string!();
             }
-            constants::DW_AT_call_column |
-            constants::DW_AT_call_file |
+            constants::DW_AT_call_column => {
+                constant!(udata_value, Udata);
+            }
+            constants::DW_AT_call_file => {
+                constant!(udata_value, FileIndex);
+            }
             constants::DW_AT_call_line => {
                 constant!(udata_value, Udata);
             }
