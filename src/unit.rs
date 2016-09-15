@@ -9,10 +9,10 @@ use endianity::{Endianity, EndianBuf};
 use endianity::LittleEndian;
 use fallible_iterator::FallibleIterator;
 use line::DebugLineOffset;
-use parser::{Error, Result, Format, DebugLocOffset, DebugMacinfoOffset, parse_u8, parse_u16,
-             parse_u32, parse_u64, parse_unsigned_leb, parse_signed_leb, parse_word,
-             parse_address, parse_address_size, parse_initial_length, parse_length_uleb_value,
-             parse_null_terminated_string, take};
+use loc::DebugLocOffset;
+use parser::{Error, Result, Format, DebugMacinfoOffset, parse_u8, parse_u16, parse_u32, parse_u64,
+             parse_unsigned_leb, parse_signed_leb, parse_word, parse_address, parse_address_size,
+             parse_initial_length, parse_length_uleb_value, parse_null_terminated_string, take};
 use ranges::DebugRangesOffset;
 use std::cell::Cell;
 use std::ffi;
