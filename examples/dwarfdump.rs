@@ -134,17 +134,18 @@ fn dump_info<Endian>(file: &object::File,
     where Endian: gimli::Endianity
 {
     if let Some(debug_info) = file.get_section(".debug_info") {
-        println!(".debug_info");
-        println!("");
+        println!("\n.debug_info");
 
         let debug_info = gimli::DebugInfo::<Endian>::new(&debug_info);
 
+        let mut offset = 0;
         let mut iter = debug_info.units();
         while let Some(unit) = iter.next().expect("Should parse compilation unit") {
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
-            dump_entries(unit.entries(&abbrevs),
+            dump_entries(offset,
+                         unit.entries(&abbrevs),
                          unit.address_size(),
                          unit.format(),
                          debug_line,
@@ -152,6 +153,7 @@ fn dump_info<Endian>(file: &object::File,
                          debug_ranges,
                          debug_str,
                          flags);
+            offset += unit.length_including_self();
         }
     }
 }
@@ -166,17 +168,18 @@ fn dump_types<Endian>(file: &object::File,
     where Endian: gimli::Endianity
 {
     if let Some(debug_types) = file.get_section(".debug_types") {
-        println!(".debug_types");
-        println!("");
+        println!("\n.debug_types");
 
         let debug_types = gimli::DebugTypes::<Endian>::new(&debug_types);
 
+        let mut offset = 0;
         let mut iter = debug_types.units();
         while let Some(unit) = iter.next().expect("Should parse the unit OK") {
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
-            dump_entries(unit.entries(&abbrevs),
+            dump_entries(offset,
+                         unit.entries(&abbrevs),
                          unit.address_size(),
                          unit.format(),
                          debug_line,
@@ -184,6 +187,7 @@ fn dump_types<Endian>(file: &object::File,
                          debug_ranges,
                          debug_str,
                          flags);
+            offset += unit.length_including_self();
         }
     }
 }
@@ -199,7 +203,8 @@ struct Unit<'input, Endian>
     comp_dir: Option<String>,
 }
 
-fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
+fn dump_entries<Endian>(offset: u64,
+                        mut entries: gimli::EntriesCursor<Endian>,
                         address_size: u8,
                         format: gimli::Format,
                         debug_line: gimli::DebugLine<Endian>,
@@ -217,11 +222,19 @@ fn dump_entries<Endian>(mut entries: gimli::EntriesCursor<Endian>,
         comp_dir: None,
     };
 
+    let mut print_local = true;
     let mut depth = 0;
     while let Some((delta_depth, entry)) = entries.next_dfs().expect("Should parse next dfs") {
         depth += delta_depth;
         assert!(depth >= 0);
         let indent = depth as usize * 2 + 2;
+        if depth == 0 {
+            println!("\nCOMPILE_UNIT<header overall offset = 0x{:08x}>:", offset);
+            print_local = true;
+        } else if print_local {
+            println!("\nLOCAL_SYMBOLS:");
+            print_local = false;
+        }
         println!("<{:2}><0x{:08x}>{:indent$}{}",
                  depth,
                  entry.offset(),
