@@ -90,6 +90,7 @@ impl Ord for ArangeEntry {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct ArangeParser<'input, Endian>
     where Endian: 'input + Endianity
 {

@@ -37,6 +37,7 @@ pub trait LookupParser<'input, Endian>
 }
 
 #[allow(missing_docs)]
+#[derive(Clone, Debug)]
 pub struct DebugLookup<'input, Endian, Parser>
     where Endian: Endianity,
           Parser: LookupParser<'input, Endian>
@@ -68,6 +69,7 @@ impl<'input, Endian, Parser> DebugLookup<'input, Endian, Parser>
 }
 
 #[allow(missing_docs)]
+#[derive(Clone, Debug)]
 pub struct LookupEntryIter<'input, Endian, Parser>
     where Endian: Endianity,
           Parser: LookupParser<'input, Endian>
@@ -151,6 +153,7 @@ pub trait NamesOrTypesSwitch<'input, Endian>
     fn format_from(header: &Self::Header) -> Format;
 }
 
+#[derive(Clone, Debug)]
 pub struct PubStuffParser<'input, Endian, Switch>
     where Endian: 'input + Endianity,
           Switch: 'input + NamesOrTypesSwitch<'input, Endian>

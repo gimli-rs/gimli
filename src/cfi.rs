@@ -69,6 +69,7 @@ impl<'input, Endian> DebugFrame<'input, Endian>
 ///
 /// Can be [used with
 /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
+#[derive(Clone, Debug)]
 pub struct CfiEntriesIter<'input, Endian>
     where Endian: Endianity
 {
