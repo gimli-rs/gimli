@@ -29,7 +29,7 @@ Either
 or add this to your `Cargo.toml`:
 
     [dependencies]
-    gimli = "0.7.0"
+    gimli = "0.8.0"
 
 ## Documentation
 
