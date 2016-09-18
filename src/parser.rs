@@ -98,6 +98,12 @@ pub enum Error {
     InvalidAddressRange,
     /// The end offset of a loc list entry was before the beginning.
     InvalidLocationAddressRange,
+    /// Encountered a call frame instruction in a context in which it is not
+    /// valid.
+    CfiInstructionInInvalidContext,
+    /// When evaluating call frame instructions, found a `DW_CFA_restore_state`
+    /// stack pop instruction, but the stack was empty, and had nothing to pop.
+    PopWithEmptyStack,
 }
 
 impl fmt::Display for Error {
@@ -172,6 +178,13 @@ impl error::Error for Error {
             }
             Error::InvalidLocationAddressRange => {
                 "The end offset of a location list entry must not be before the beginning."
+            }
+            Error::CfiInstructionInInvalidContext => {
+                "Encountered a call frame instruction in a context in which it is not valid."
+            }
+            Error::PopWithEmptyStack => {
+                "When evaluating call frame instructions, found a `DW_CFA_restore_state` stack pop \
+                 instruction, but the stack was empty, and had nothing to pop."
             }
         }
     }

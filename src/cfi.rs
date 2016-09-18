@@ -444,13 +444,668 @@ impl<'input, Endian> FrameDescriptionEntry<'input, Endian>
         &self.cie
     }
 
-    /// Iterate over this FDE's instructions. Does not include the CIE's initial
-    /// instructions.
+    /// Iterate over this FDE's instructions.
+    ///
+    /// Will not include the CIE's initial instructions, if you want those do
+    /// `fde.cie().instructions()` first.
     ///
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn instructions(&self) -> CallFrameInstructionIter<'input, Endian> {
         CallFrameInstructionIter { input: self.instructions }
+    }
+}
+
+/// Common context needed when evaluating the call frame unwinding information.
+///
+/// To avoid re-allocating the context multiple times when evaluating multiple
+/// CFI programs, it can be reused. At first, a context is uninitialized
+/// (`UninitializedUnwindContext`). It can be initialized by providing the
+/// `CommonInformationEntry` for the CFI program about to be evaluated and
+/// calling `UninitializedUnwindContext::initialize`. The result is an
+/// `InitializedUnwindContext`, which can be used to evaluate and run a
+/// `FrameDescriptionEntry`'s CFI program. When the CFI program is complete, the
+/// context can be de-initialized by calling `InitializedUnwindContext::reset`.
+///
+/// ```
+/// use gimli::{UninitializedUnwindContext, UnwindTable};
+///
+/// # fn foo<'a>(some_fde: gimli::FrameDescriptionEntry<'a, gimli::LittleEndian>) -> gimli::Result<()> {
+/// // An uninitialized context.
+/// let ctx = UninitializedUnwindContext::new();
+///
+/// // Initialize the context by evaluating the CIE's initial instruction program.
+/// let mut ctx = try!(ctx.initialize(some_fde.cie()));
+///
+/// {
+///     // The initialized context can now be used to generate the unwind table.
+///     let mut table = UnwindTable::new(&mut ctx, &some_fde);
+///     while let Some(row) = try!(table.next_row()) {
+///         // Do stuff with each row...
+/// #       let _ = row;
+///     }
+/// }
+///
+/// // Reset the context to the uninitialized state and re-use it with other CFI
+/// // programs.
+/// let ctx = ctx.reset();
+/// # let _ = ctx;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// In general, the states will flow from one to the other in accordance to the
+/// following diagram:
+///
+/// ```text
+///         +-------+
+///         | Start |
+///         +-------+
+///             |
+///             |
+/// UninitializedUnwindContext::new()
+///             |
+///             |
+///             V
+/// +----------------------------+
+/// | UninitializedUnwindContext |<---------------.
+/// +----------------------------+                |
+///             |                                 |
+///             |                                 |
+///    ctx.initialize(&cie)              Use with UnwindTable,
+///             |                        and then do ctx.reset()
+///             |                                 |
+///             V                                 |
+///  +--------------------------+                 |
+///  | InitializedUnwindContext |-----------------'
+///  +--------------------------+
+///             |
+///             |
+///            Drop
+///             |
+///             |
+///             V
+///          +-----+
+///          | End |
+///          +-----+
+/// ```
+#[derive(Clone, Debug)]
+pub struct UninitializedUnwindContext<'input, Endian>(UnwindContext<'input, Endian>)
+    where Endian: Endianity;
+
+impl<'input, Endian> UninitializedUnwindContext<'input, Endian>
+    where Endian: Endianity
+{
+    /// Construct a new call frame unwinding context.
+    pub fn new() -> UninitializedUnwindContext<'input, Endian> {
+        UninitializedUnwindContext(UnwindContext::new())
+    }
+
+    /// Run the CIE's initial instructions, creating an
+    /// `InitializedUnwindContext`.
+    pub fn initialize(mut self,
+                      cie: &CommonInformationEntry<'input, Endian>)
+                      -> Result<InitializedUnwindContext<'input, Endian>> {
+        self.0.assert_fully_uninitialized();
+
+        {
+            let mut table = UnwindTable::new_internal(&mut self.0, cie, None);
+            while let Some(_) = try!(table.next_row()) {}
+        }
+
+        self.0.save_initial_rules();
+        Ok(InitializedUnwindContext(self.0))
+    }
+}
+
+/// An initialized unwinding context.
+///
+/// See the documentation for
+/// [`UninitializedUnwindContext`](./struct.UninitializedUnwindContext.html) for
+/// more details.
+#[derive(Clone, Debug)]
+pub struct InitializedUnwindContext<'input, Endian>(UnwindContext<'input, Endian>)
+    where Endian: Endianity;
+
+impl<'input, Endian> InitializedUnwindContext<'input, Endian>
+    where Endian: Endianity
+{
+    /// Reset this context to the uninitialized state.
+    pub fn reset(mut self) -> UninitializedUnwindContext<'input, Endian> {
+        self.0.reset();
+        UninitializedUnwindContext(self.0)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct UnwindContext<'input, Endian>
+    where Endian: Endianity
+{
+    // Stack of rows. The last row is the row currently being built by the
+    // program. There is always at least one row. The vast majority of CFI
+    // programs will only ever have one row on the stack.
+    stack: Vec<UnwindTableRow<'input, Endian>>,
+
+    // If we are evaluating an FDE's instructions, then `is_initialized` will be
+    // `true` and `initial_rules` will contain the initial register rules
+    // described by the CIE's initial instructions. These rules are used by
+    // `DW_CFA_restore`. Otherwise, when we are currently evaluating a CIE's
+    // initial instructions, `is_initialized` will be `false` and
+    // `initial_rules` is not to be read from.
+    is_initialized: bool,
+    initial_rules: Vec<RegisterRule<'input, Endian>>,
+}
+
+impl<'input, Endian> UnwindContext<'input, Endian>
+    where Endian: Endianity
+{
+    fn new() -> UnwindContext<'input, Endian> {
+        let mut ctx = UnwindContext {
+            stack: Vec::with_capacity(1),
+            is_initialized: false,
+            initial_rules: Default::default(),
+        };
+        ctx.reset();
+        ctx
+    }
+
+    fn reset(&mut self) {
+        self.stack.clear();
+        self.stack.push(UnwindTableRow::default());
+
+        self.initial_rules.clear();
+        self.is_initialized = false;
+
+        self.assert_fully_uninitialized();
+    }
+
+    // Asserts that we are fully uninitialized, ie not initialized *and* not in
+    // the process of initializing.
+    #[inline]
+    fn assert_fully_uninitialized(&self) {
+        assert_eq!(self.is_initialized, false);
+        assert_eq!(self.initial_rules.len(), 0);
+        assert_eq!(self.stack.len(), 1);
+        assert_eq!(self.stack[0], UnwindTableRow::default());
+    }
+
+    fn row(&self) -> &UnwindTableRow<'input, Endian> {
+        self.stack.last().unwrap()
+    }
+
+    fn row_mut(&mut self) -> &mut UnwindTableRow<'input, Endian> {
+        self.stack.last_mut().unwrap()
+    }
+
+    fn save_initial_rules(&mut self) {
+        assert_eq!(self.is_initialized, false);
+        self.initial_rules.clone_from(&self.stack.last().unwrap().registers);
+        self.is_initialized = true;
+    }
+
+    fn fill_undefined_to(&mut self, idx: usize) {
+        let mut row = self.row_mut();
+        while row.registers.len() <= idx {
+            row.registers.push(RegisterRule::Undefined);
+        }
+    }
+
+    fn start_address(&self) -> u64 {
+        self.row().start_address
+    }
+
+    fn set_start_address(&mut self, start_address: u64) {
+        let row = self.row_mut();
+        row.start_address = start_address;
+    }
+
+    fn set_register_rule(&mut self, register: u64, rule: RegisterRule<'input, Endian>) {
+        let register = register as usize;
+        self.fill_undefined_to(register);
+        let row = self.row_mut();
+        row.registers[register] = rule;
+    }
+
+    /// Returns `None` if we have not completed evaluation of a CIE's initial
+    /// instructions.
+    fn get_initial_rule(&self, register: u64) -> Option<RegisterRule<'input, Endian>> {
+        if !self.is_initialized {
+            return None;
+        }
+
+        self.initial_rules
+            .get(register as usize)
+            .map(|r| r.clone())
+            .or(Some(RegisterRule::Undefined))
+    }
+
+    fn set_cfa(&mut self, cfa: CfaRule<'input, Endian>) {
+        self.row_mut().cfa = cfa;
+    }
+
+    fn cfa_mut(&mut self) -> &mut CfaRule<'input, Endian> {
+        &mut self.row_mut().cfa
+    }
+
+    fn push_row(&mut self) {
+        let new_row = self.row().clone();
+        self.stack.push(new_row);
+    }
+
+    fn pop_row(&mut self) {
+        assert!(self.stack.len() > 1);
+        self.stack.pop();
+    }
+}
+
+/// The `UnwindTable` iteratively evaluates a `FrameDescriptionEntry`'s
+/// `CallFrameInstruction` program, yielding the each row one at a time.
+///
+/// > 6.4.1 Structure of Call Frame Information
+/// >
+/// > DWARF supports virtual unwinding by defining an architecture independent
+/// > basis for recording how procedures save and restore registers during their
+/// > lifetimes. This basis must be augmented on some machines with specific
+/// > information that is defined by an architecture specific ABI authoring
+/// > committee, a hardware vendor, or a compiler producer. The body defining a
+/// > specific augmentation is referred to below as the “augmenter.”
+/// >
+/// > Abstractly, this mechanism describes a very large table that has the
+/// > following structure:
+/// >
+/// > <table>
+/// >   <tr>
+/// >     <th>LOC</th><th>CFA</th><th>R0</th><th>R1</th><td>...</td><th>RN</th>
+/// >   </tr>
+/// >   <tr>
+/// >     <th>L0</th> <td></td>   <td></td>  <td></td>  <td></td>   <td></td>
+/// >   </tr>
+/// >   <tr>
+/// >     <th>L1</th> <td></td>   <td></td>  <td></td>  <td></td>   <td></td>
+/// >   </tr>
+/// >   <tr>
+/// >     <td>...</td><td></td>   <td></td>  <td></td>  <td></td>   <td></td>
+/// >   </tr>
+/// >   <tr>
+/// >     <th>LN</th> <td></td>   <td></td>  <td></td>  <td></td>   <td></td>
+/// >   </tr>
+/// > </table>
+/// >
+/// > The first column indicates an address for every location that contains code
+/// > in a program. (In shared objects, this is an object-relative offset.) The
+/// > remaining columns contain virtual unwinding rules that are associated with
+/// > the indicated location.
+/// >
+/// > The CFA column defines the rule which computes the Canonical Frame Address
+/// > value; it may be either a register and a signed offset that are added
+/// > together, or a DWARF expression that is evaluated.
+/// >
+/// > The remaining columns are labeled by register number. This includes some
+/// > registers that have special designation on some architectures such as the PC
+/// > and the stack pointer register. (The actual mapping of registers for a
+/// > particular architecture is defined by the augmenter.) The register columns
+/// > contain rules that describe whether a given register has been saved and the
+/// > rule to find the value for the register in the previous frame.
+/// >
+/// > ...
+/// >
+/// > This table would be extremely large if actually constructed as
+/// > described. Most of the entries at any point in the table are identical to
+/// > the ones above them. The whole table can be represented quite compactly by
+/// > recording just the differences starting at the beginning address of each
+/// > subroutine in the program.
+#[derive(Debug)]
+pub struct UnwindTable<'input, 'cie, 'fde, 'ctx, Endian>
+    where Endian: 'cie + 'fde + 'ctx + Endianity,
+          'input: 'cie + 'fde + 'ctx
+{
+    cie: &'cie CommonInformationEntry<'input, Endian>,
+    next_start_address: u64,
+    returned_last_row: bool,
+    instructions: CallFrameInstructionIter<'input, Endian>,
+    ctx: &'ctx mut UnwindContext<'input, Endian>,
+    // If this is `None`, then we are executing a CIE's initial_instructions. If
+    // this is `Some`, then we are executing an FDE's instructions.
+    fde: Option<&'fde FrameDescriptionEntry<'input, Endian>>,
+}
+
+impl<'input, 'fde, 'ctx, Endian> UnwindTable<'input, 'fde, 'fde, 'ctx, Endian>
+    where Endian: Endianity
+{
+    /// Construct a new `UnwindTable` for the given
+    /// `FrameDescriptionEntry`'s CFI unwinding program.
+    pub fn new(ctx: &'ctx mut InitializedUnwindContext<'input, Endian>,
+               fde: &'fde FrameDescriptionEntry<'input, Endian>)
+               -> UnwindTable<'input, 'fde, 'fde, 'ctx, Endian> {
+        assert!(ctx.0.is_initialized);
+        Self::new_internal(&mut ctx.0, fde.cie(), Some(fde))
+    }
+}
+
+impl<'input, 'cie, 'fde, 'ctx, Endian> UnwindTable<'input, 'cie, 'fde, 'ctx, Endian>
+    where Endian: Endianity
+{
+    fn new_internal(ctx: &'ctx mut UnwindContext<'input, Endian>,
+                    cie: &'cie CommonInformationEntry<'input, Endian>,
+                    fde: Option<&'fde FrameDescriptionEntry<'input, Endian>>)
+                    -> UnwindTable<'input, 'cie, 'fde, 'ctx, Endian> {
+        assert!(ctx.stack.len() >= 1);
+        let next_start_address = fde.map(|fde| fde.initial_address).unwrap_or(0);
+        let instructions = fde.map(|fde| fde.instructions()).unwrap_or_else(|| cie.instructions());
+        UnwindTable {
+            ctx: ctx,
+            cie: cie,
+            next_start_address: next_start_address,
+            returned_last_row: false,
+            instructions: instructions,
+            fde: fde,
+        }
+    }
+
+    /// Evaluate call frame instructions until the next row of the table is
+    /// completed, and return it.
+    ///
+    /// Unfortunately, this cannot be used with `FallibleIterator` because of
+    /// the restricted lifetime of the yielded item.
+    pub fn next_row(&mut self) -> Result<Option<&UnwindTableRow<'input, Endian>>> {
+        assert!(self.ctx.stack.len() >= 1);
+        self.ctx.set_start_address(self.next_start_address);
+
+        loop {
+            match self.instructions.next() {
+                Err(e) => return Err(e),
+
+                Ok(None) => {
+                    if self.returned_last_row {
+                        return Ok(None);
+                    }
+
+                    let row = self.ctx.row_mut();
+                    row.end_address = if let Some(fde) = self.fde {
+                        fde.initial_address + fde.address_range
+                    } else {
+                        0
+                    };
+
+                    self.returned_last_row = true;
+                    return Ok(Some(row));
+                }
+
+                Ok(Some(instruction)) => {
+                    if try!(self.evaluate(instruction)) {
+                        return Ok(Some(self.ctx.row()));
+                    }
+                }
+            };
+        }
+    }
+
+    /// Evaluate one call frame instruction. Return `Ok(true)` if the row is
+    /// complete, `Ok(false)` otherwise.
+    fn evaluate(&mut self, instruction: CallFrameInstruction<'input, Endian>) -> Result<bool> {
+        use CallFrameInstruction::*;
+
+        match instruction {
+            // Instructions that complete the current row and advance the
+            // address for the next row.
+            SetLoc { address } => {
+                if address < self.ctx.start_address() {
+                    return Err(Error::InvalidAddressRange);
+                }
+
+                self.next_start_address = address;
+                self.ctx.row_mut().end_address = self.next_start_address;
+                return Ok(true);
+            }
+            AdvanceLoc { delta } => {
+                self.next_start_address = self.ctx.start_address() + delta as u64;
+                self.ctx.row_mut().end_address = self.next_start_address;
+                return Ok(true);
+            }
+
+            // Instructions that modify the CFA.
+            DefCfa { register, offset } => {
+                self.ctx.set_cfa(CfaRule::RegisterAndOffset {
+                    register: register,
+                    offset: offset as i64,
+                });
+            }
+            DefCfaSf { register, factored_offset } => {
+                let data_align = self.cie.data_alignment_factor as i64;
+                self.ctx.set_cfa(CfaRule::RegisterAndOffset {
+                    register: register,
+                    offset: factored_offset * data_align,
+                });
+            }
+            DefCfaRegister { register } => {
+                if let CfaRule::RegisterAndOffset { register: ref mut reg, .. } = *self.ctx
+                    .cfa_mut() {
+                    *reg = register;
+                } else {
+                    return Err(Error::CfiInstructionInInvalidContext);
+                }
+            }
+            DefCfaOffset { offset } => {
+                if let CfaRule::RegisterAndOffset { offset: ref mut off, .. } = *self.ctx
+                    .cfa_mut() {
+                    *off = offset as i64;
+                } else {
+                    return Err(Error::CfiInstructionInInvalidContext);
+                }
+            }
+            DefCfaOffsetSf { factored_offset } => {
+                if let CfaRule::RegisterAndOffset { offset: ref mut off, .. } = *self.ctx
+                    .cfa_mut() {
+                    let data_align = self.cie.data_alignment_factor as i64;
+                    *off = factored_offset * data_align;
+                } else {
+                    return Err(Error::CfiInstructionInInvalidContext);
+                }
+            }
+            DefCfaExpression { expression } => {
+                self.ctx.set_cfa(CfaRule::Expression(expression));
+            }
+
+            // Instructions that define register rules.
+            Undefined { register } => {
+                self.ctx.fill_undefined_to(register as usize);
+            }
+            SameValue { register } => {
+                self.ctx.set_register_rule(register, RegisterRule::SameValue);
+            }
+            Offset { register, factored_offset } => {
+                let offset = factored_offset as i64 * self.cie.data_alignment_factor;
+                self.ctx.set_register_rule(register, RegisterRule::Offset(offset));
+            }
+            OffsetExtendedSf { register, factored_offset } => {
+                let offset = factored_offset * self.cie.data_alignment_factor;
+                self.ctx.set_register_rule(register, RegisterRule::Offset(offset));
+            }
+            ValOffset { register, factored_offset } => {
+                let offset = factored_offset as i64 * self.cie.data_alignment_factor;
+                self.ctx.set_register_rule(register, RegisterRule::ValOffset(offset))
+            }
+            ValOffsetSf { register, factored_offset } => {
+                let offset = factored_offset * self.cie.data_alignment_factor;
+                self.ctx.set_register_rule(register, RegisterRule::ValOffset(offset));
+            }
+            Register { dest_register, src_register } => {
+                self.ctx.set_register_rule(dest_register, RegisterRule::Register(src_register));
+            }
+            Expression { register, expression } => {
+                self.ctx
+                    .set_register_rule(register, RegisterRule::Expression(expression));
+            }
+            ValExpression { register, expression } => {
+                self.ctx.set_register_rule(register, RegisterRule::ValExpression(expression));
+            }
+            Restore { register } => {
+                let initial_rule = if let Some(rule) = self.ctx.get_initial_rule(register) {
+                    rule
+                } else {
+                    // Can't restore the initial rule when we are
+                    // evaluating the initial rules!
+                    return Err(Error::CfiInstructionInInvalidContext);
+                };
+
+                self.ctx.set_register_rule(register, initial_rule);
+            }
+
+            // Row push and pop instructions.
+            RememberState => {
+                self.ctx.push_row();
+            }
+            RestoreState => {
+                assert!(self.ctx.stack.len() > 0);
+                if self.ctx.stack.len() == 1 {
+                    return Err(Error::PopWithEmptyStack);
+                }
+                self.ctx.pop_row();
+            }
+
+            // No operation.
+            Nop => {}
+        };
+
+        Ok(false)
+    }
+}
+
+/// A row in the virtual unwind table that describes how to find the values of
+/// the registers in the *previous* frame for a range of PC addresses.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnwindTableRow<'input, Endian>
+    where Endian: Endianity
+{
+    start_address: u64,
+    end_address: u64,
+    cfa: CfaRule<'input, Endian>,
+    registers: Vec<RegisterRule<'input, Endian>>,
+}
+
+impl<'input, Endian> Default for UnwindTableRow<'input, Endian>
+    where Endian: Endianity
+{
+    fn default() -> Self {
+        UnwindTableRow {
+            start_address: 0,
+            end_address: 0,
+            cfa: Default::default(),
+            registers: Vec::new(),
+        }
+    }
+}
+
+impl<'input, Endian> UnwindTableRow<'input, Endian>
+    where Endian: Endianity
+{
+    /// Get the starting PC address that this row applies to.
+    pub fn start_address(&self) -> u64 {
+        self.start_address
+    }
+
+    /// Get the end PC address where this row's register rules become
+    /// unapplicable.
+    ///
+    /// In other words, this row describes how to recover the last frame's
+    /// registers for all PCs where `row.start_address() <= PC <
+    /// row.end_address()`. This row does NOT describe how to recover registers
+    /// when `PC == row.end_address()`.
+    pub fn end_address(&self) -> u64 {
+        self.end_address
+    }
+
+    /// Return `true` if the given `address` is within this row's address range,
+    /// `false` otherwise.
+    pub fn contains(&self, address: u64) -> bool {
+        self.start_address <= address && address < self.end_address
+    }
+
+    /// Get the canonical frame address (CFA) recovery rule for this row.
+    pub fn cfa(&self) -> &CfaRule<'input, Endian> {
+        &self.cfa
+    }
+
+    /// Get the register recovery rules for this row.
+    ///
+    /// The rule at index `i` of the slice is the rule for register `i`. The
+    /// slice is **not** guaranteed to have length equal to the number of
+    /// registers on the target architecture. It is only as long as the largest
+    /// numbered register for which a recovery rule is defined in this row. All
+    /// others are implied to be `Undefined`.
+    ///
+    /// The register number mapping is architecture dependent. For example, in
+    /// the x86-64 ABI the register number mapping is defined in Figure 3.36:
+    ///
+    /// > Figure 3.36: DWARF Register Number Mapping
+    /// >
+    /// > <table>
+    /// >   <tr><th>Register Name</th>                    <th>Number</th>  <th>Abbreviation</th></tr>
+    /// >   <tr><td>General Purpose Register RAX</td>     <td>0</td>       <td>%rax</td></tr>
+    /// >   <tr><td>General Purpose Register RDX</td>     <td>1</td>       <td>%rdx</td></tr>
+    /// >   <tr><td>General Purpose Register RCX</td>     <td>2</td>       <td>%rcx</td></tr>
+    /// >   <tr><td>General Purpose Register RBX</td>     <td>3</td>       <td>%rbx</td></tr>
+    /// >   <tr><td>General Purpose Register RSI</td>     <td>4</td>       <td>%rsi</td></tr>
+    /// >   <tr><td>General Purpose Register RDI</td>     <td>5</td>       <td>%rdi</td></tr>
+    /// >   <tr><td>General Purpose Register RBP</td>     <td>6</td>       <td>%rbp</td></tr>
+    /// >   <tr><td>Stack Pointer Register RSP</td>       <td>7</td>       <td>%rsp</td></tr>
+    /// >   <tr><td>Extended Integer Registers 8-15</td>  <td>8-15</td>    <td>%r8-%r15</td></tr>
+    /// >   <tr><td>Return Address RA</td>                <td>16</td>      <td></td></tr>
+    /// >   <tr><td>Vector Registers 0–7</td>             <td>17-24</td>   <td>%xmm0–%xmm7</td></tr>
+    /// >   <tr><td>Extended Vector Registers 8–15</td>   <td>25-32</td>   <td>%xmm8–%xmm15</td></tr>
+    /// >   <tr><td>Floating Point Registers 0–7</td>     <td>33-40</td>   <td>%st0–%st7</td></tr>
+    /// >   <tr><td>MMX Registers 0–7</td>                <td>41-48</td>   <td>%mm0–%mm7</td></tr>
+    /// >   <tr><td>Flag Register</td>                    <td>49</td>      <td>%rFLAGS</td></tr>
+    /// >   <tr><td>Segment Register ES</td>              <td>50</td>      <td>%es</td></tr>
+    /// >   <tr><td>Segment Register CS</td>              <td>51</td>      <td>%cs</td></tr>
+    /// >   <tr><td>Segment Register SS</td>              <td>52</td>      <td>%ss</td></tr>
+    /// >   <tr><td>Segment Register DS</td>              <td>53</td>      <td>%ds</td></tr>
+    /// >   <tr><td>Segment Register FS</td>              <td>54</td>      <td>%fs</td></tr>
+    /// >   <tr><td>Segment Register GS</td>              <td>55</td>      <td>%gs</td></tr>
+    /// >   <tr><td>Reserved</td>                         <td>56-57</td>   <td></td></tr>
+    /// >   <tr><td>FS Base address</td>                  <td>58</td>      <td>%fs.base</td></tr>
+    /// >   <tr><td>GS Base address</td>                  <td>59</td>      <td>%gs.base</td></tr>
+    /// >   <tr><td>Reserved</td>                         <td>60-61</td>   <td></td></tr>
+    /// >   <tr><td>Task Register</td>                    <td>62</td>      <td>%tr</td></tr>
+    /// >   <tr><td>LDT Register</td>                     <td>63</td>      <td>%ldtr</td></tr>
+    /// >   <tr><td>128-bit Media Control and Status</td> <td>64</td>      <td>%mxcsr</td></tr>
+    /// >   <tr><td>x87 Control Word</td>                 <td>65</td>      <td>%fcw</td></tr>
+    /// >   <tr><td>x87 Status Word</td>                  <td>66</td>      <td>%fsw</td></tr>
+    /// >   <tr><td>Upper Vector Registers 16–31</td>     <td>67-82</td>   <td>%xmm16–%xmm31</td></tr>
+    /// >   <tr><td>Reserved</td>                         <td>83-117</td>  <td></td></tr>
+    /// >   <tr><td>Vector Mask Registers 0–7</td>        <td>118-125</td> <td>%k0–%k7</td></tr>
+    /// >   <tr><td>Reserved</td>                         <td>126-129</td> <td></td></tr>
+    /// > </table>
+    pub fn registers(&self) -> &[RegisterRule<'input, Endian>] {
+        &self.registers[..]
+    }
+}
+
+/// The canonical frame address (CFA) recovery rules.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CfaRule<'input, Endian>
+    where Endian: Endianity
+{
+    /// The CFA is given offset from the given register's value.
+    RegisterAndOffset {
+        /// The register containing the base value.
+        register: u64,
+        /// The offset from the register's base value.
+        offset: i64,
+    },
+    /// The CFA is obtained by evaluating this `EndianBuf` as a DWARF expression
+    /// program.
+    Expression(EndianBuf<'input, Endian>),
+}
+
+impl<'input, Endian> Default for CfaRule<'input, Endian>
+    where Endian: Endianity
+{
+    fn default() -> Self {
+        CfaRule::RegisterAndOffset {
+            register: 0,
+            offset: 0,
+        }
     }
 }
 
@@ -460,6 +1115,7 @@ impl<'input, Endian> FrameDescriptionEntry<'input, Endian>
 /// "The register columns contain rules that describe whether a given register
 /// has been saved and the rule to find the value for the register in the
 /// previous frame."
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RegisterRule<'input, Endian>
     where Endian: Endianity
 {
@@ -968,6 +1624,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
 ///
 /// Can be [used with
 /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
+#[derive(Clone, Debug)]
 pub struct CallFrameInstructionIter<'input, Endian>
     where Endian: Endianity
 {
@@ -1013,10 +1670,10 @@ mod tests {
     extern crate test_assembler;
 
     use super::*;
-    use super::parse_cfi_entry;
+    use super::{parse_cfi_entry, UnwindContext};
     use constants;
     use endianity::{BigEndian, Endianity, EndianBuf, LittleEndian};
-    use parser::{Error, Format};
+    use parser::{Error, Format, Result};
     use self::test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};
 
     // Mixin methods for `Section` to help define binary test data.
@@ -1733,8 +2390,6 @@ mod tests {
         let section = section.fde(Endian::Big, &cie1_location, &mut fde1)
             .fde(Endian::Big, &cie2_location, &mut fde2);
 
-        // TODO: the fact that we have to explicitly set this seems like a bug
-        // in test-assembler... Need to file a bug there.
         section.start().set_const(0);
 
         let cie1_offset = cie1_location.value().unwrap();
@@ -1807,7 +2462,6 @@ mod tests {
             .cie(Endian::Little, &mut cie)
             .append_bytes(&filler);
 
-        // TODO: Again, I don't think we should have to do this...
         section.start().set_const(0);
 
         let cie_offset = DebugFrameOffset(cie_location.value().unwrap());
@@ -2342,5 +2996,500 @@ mod tests {
 
         assert_eq!(iter.next(), Err(Error::UnexpectedEof));
         assert_eq!(iter.next(), Ok(None));
+    }
+
+    fn assert_eval<'a, I>(mut initial_ctx: UnwindContext<'a, LittleEndian>,
+                          expected_ctx: UnwindContext<'a, LittleEndian>,
+                          cie: CommonInformationEntry<'a, LittleEndian>,
+                          fde: Option<FrameDescriptionEntry<'a, LittleEndian>>,
+                          instructions: I)
+        where I: AsRef<[(Result<bool>, CallFrameInstruction<'a, LittleEndian>)]>
+    {
+        {
+            let mut table = UnwindTable::new_internal(&mut initial_ctx, &cie, fde.as_ref());
+            for &(ref expected_result, ref instruction) in instructions.as_ref() {
+                assert_eq!(*expected_result, table.evaluate(instruction.clone()));
+            }
+        }
+
+        assert_eq!(expected_ctx, initial_ctx);
+    }
+
+    fn make_test_cie<'a>() -> CommonInformationEntry<'a, LittleEndian> {
+        CommonInformationEntry {
+            format: Format::Dwarf64,
+            length: 0,
+            return_address_register: 0,
+            version: 4,
+            address_size: 8,
+            initial_instructions: EndianBuf::new(&[]),
+            augmentation: None,
+            segment_size: 0,
+            data_alignment_factor: 2,
+            code_alignment_factor: 3,
+        }
+    }
+
+    #[test]
+    fn test_eval_set_loc() {
+        let cie = make_test_cie();
+        let ctx = UnwindContext::new();
+        let mut expected = ctx.clone();
+        expected.row_mut().end_address = 42;
+        let instructions = [(Ok(true), CallFrameInstruction::SetLoc { address: 42 })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_set_loc_backwards() {
+        let cie = make_test_cie();
+        let mut ctx = UnwindContext::new();
+        ctx.row_mut().start_address = 999;
+        let expected = ctx.clone();
+        let instructions = [(Err(Error::InvalidAddressRange),
+                             CallFrameInstruction::SetLoc { address: 42 })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_advance_loc() {
+        let cie = make_test_cie();
+        let mut ctx = UnwindContext::new();
+        ctx.row_mut().start_address = 3;
+        let mut expected = ctx.clone();
+        expected.row_mut().end_address = 4;
+        let instructions = [(Ok(true), CallFrameInstruction::AdvanceLoc { delta: 1 })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_def_cfa() {
+        let cie = make_test_cie();
+        let ctx = UnwindContext::new();
+        let mut expected = ctx.clone();
+        expected.set_cfa(CfaRule::RegisterAndOffset {
+            register: 1993,
+            offset: 36,
+        });
+        let instructions = [(Ok(false),
+                             CallFrameInstruction::DefCfa {
+                                register: 1993,
+                                offset: 36,
+                            })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_def_cfa_sf() {
+        let cie = make_test_cie();
+        let ctx = UnwindContext::new();
+        let mut expected = ctx.clone();
+        expected.set_cfa(CfaRule::RegisterAndOffset {
+            register: 1993,
+            offset: 36 * cie.data_alignment_factor as i64,
+        });
+        let instructions = [(Ok(false),
+                             CallFrameInstruction::DefCfaSf {
+                                register: 1993,
+                                factored_offset: 36,
+                            })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_def_cfa_register() {
+        let cie = make_test_cie();
+        let mut ctx = UnwindContext::new();
+        ctx.set_cfa(CfaRule::RegisterAndOffset {
+            register: 3,
+            offset: 8,
+        });
+        let mut expected = ctx.clone();
+        expected.set_cfa(CfaRule::RegisterAndOffset {
+            register: 1993,
+            offset: 8,
+        });
+        let instructions = [(Ok(false), CallFrameInstruction::DefCfaRegister { register: 1993 })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_def_cfa_register_invalid_context() {
+        let cie = make_test_cie();
+        let mut ctx = UnwindContext::new();
+        ctx.set_cfa(CfaRule::Expression(EndianBuf::new(&[])));
+        let expected = ctx.clone();
+        let instructions = [(Err(Error::CfiInstructionInInvalidContext),
+                             CallFrameInstruction::DefCfaRegister { register: 1993 })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_def_cfa_offset() {
+        let cie = make_test_cie();
+        let mut ctx = UnwindContext::new();
+        ctx.set_cfa(CfaRule::RegisterAndOffset {
+            register: 3,
+            offset: 8,
+        });
+        let mut expected = ctx.clone();
+        expected.set_cfa(CfaRule::RegisterAndOffset {
+            register: 3,
+            offset: 42,
+        });
+        let instructions = [(Ok(false), CallFrameInstruction::DefCfaOffset { offset: 42 })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_def_cfa_offset_invalid_context() {
+        let cie = make_test_cie();
+        let mut ctx = UnwindContext::new();
+        ctx.set_cfa(CfaRule::Expression(EndianBuf::new(&[])));
+        let expected = ctx.clone();
+        let instructions = [(Err(Error::CfiInstructionInInvalidContext),
+                             CallFrameInstruction::DefCfaOffset { offset: 1993 })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_def_cfa_expression() {
+        let expr = [1, 2, 3, 4];
+        let cie = make_test_cie();
+        let ctx = UnwindContext::new();
+        let mut expected = ctx.clone();
+        expected.set_cfa(CfaRule::Expression(EndianBuf::new(&expr)));
+        let instructions =
+            [(Ok(false),
+              CallFrameInstruction::DefCfaExpression { expression: EndianBuf::new(&expr) })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_undefined() {
+        let cie = make_test_cie();
+        let ctx = UnwindContext::new();
+        let mut expected = ctx.clone();
+        expected.set_register_rule(5, RegisterRule::Undefined);
+        let instructions = [(Ok(false), CallFrameInstruction::Undefined { register: 5 })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_same_value() {
+        let cie = make_test_cie();
+        let ctx = UnwindContext::new();
+        let mut expected = ctx.clone();
+        expected.set_register_rule(0, RegisterRule::SameValue);
+        let instructions = [(Ok(false), CallFrameInstruction::SameValue { register: 0 })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_offset() {
+        let cie = make_test_cie();
+        let ctx = UnwindContext::new();
+        let mut expected = ctx.clone();
+        expected.set_register_rule(2, RegisterRule::Offset(3 * cie.data_alignment_factor));
+        let instructions = [(Ok(false),
+                             CallFrameInstruction::Offset {
+                                register: 2,
+                                factored_offset: 3,
+                            })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_offset_extended_sf() {
+        let cie = make_test_cie();
+        let ctx = UnwindContext::new();
+        let mut expected = ctx.clone();
+        expected.set_register_rule(4, RegisterRule::Offset(-3 * cie.data_alignment_factor));
+        let instructions = [(Ok(false),
+                             CallFrameInstruction::OffsetExtendedSf {
+                                register: 4,
+                                factored_offset: -3,
+                            })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_val_offset() {
+        let cie = make_test_cie();
+        let ctx = UnwindContext::new();
+        let mut expected = ctx.clone();
+        expected.set_register_rule(5, RegisterRule::ValOffset(7 * cie.data_alignment_factor));
+        let instructions = [(Ok(false),
+                             CallFrameInstruction::ValOffset {
+                                register: 5,
+                                factored_offset: 7,
+                            })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_val_offset_sf() {
+        let cie = make_test_cie();
+        let ctx = UnwindContext::new();
+        let mut expected = ctx.clone();
+        expected.set_register_rule(5, RegisterRule::ValOffset(-7 * cie.data_alignment_factor));
+        let instructions = [(Ok(false),
+                             CallFrameInstruction::ValOffsetSf {
+                                register: 5,
+                                factored_offset: -7,
+                            })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_expression() {
+        let expr = [1, 2, 3, 4];
+        let cie = make_test_cie();
+        let ctx = UnwindContext::new();
+        let mut expected = ctx.clone();
+        expected.set_register_rule(9, RegisterRule::Expression(EndianBuf::new(&expr)));
+        let instructions = [(Ok(false),
+                             CallFrameInstruction::Expression {
+                                register: 9,
+                                expression: EndianBuf::new(&expr),
+                            })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_val_expression() {
+        let expr = [1, 2, 3, 4];
+        let cie = make_test_cie();
+        let ctx = UnwindContext::new();
+        let mut expected = ctx.clone();
+        expected.set_register_rule(9, RegisterRule::ValExpression(EndianBuf::new(&expr)));
+        let instructions = [(Ok(false),
+                             CallFrameInstruction::ValExpression {
+                                register: 9,
+                                expression: EndianBuf::new(&expr),
+                            })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_restore() {
+        let cie = make_test_cie();
+        let fde = FrameDescriptionEntry {
+            format: Format::Dwarf64,
+            length: 0,
+            address_range: 0,
+            initial_address: 0,
+            initial_segment: 0,
+            cie: cie.clone(),
+            instructions: EndianBuf::new(&[]),
+        };
+
+        let mut ctx = UnwindContext::new();
+        ctx.set_register_rule(0, RegisterRule::Offset(1));
+        ctx.save_initial_rules();
+        let expected = ctx.clone();
+        ctx.set_register_rule(0, RegisterRule::Offset(2));
+
+        let instructions = [(Ok(false), CallFrameInstruction::Restore { register: 0 })];
+        assert_eval(ctx, expected, cie, Some(fde), instructions);
+    }
+
+    #[test]
+    fn test_eval_restore_havent_saved_initial_context() {
+        let cie = make_test_cie();
+        let ctx = UnwindContext::new();
+        let expected = ctx.clone();
+        let instructions = [(Err(Error::CfiInstructionInInvalidContext),
+                             CallFrameInstruction::Restore { register: 0 })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_remember_state() {
+        let cie = make_test_cie();
+        let ctx = UnwindContext::new();
+        let mut expected = ctx.clone();
+        expected.push_row();
+        let instructions = [(Ok(false), CallFrameInstruction::RememberState)];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_restore_state() {
+        let cie = make_test_cie();
+
+        let mut ctx = UnwindContext::new();
+        ctx.set_register_rule(0, RegisterRule::SameValue);
+        let expected = ctx.clone();
+        ctx.push_row();
+        ctx.set_register_rule(0, RegisterRule::Offset(16));
+
+        let instructions = [// First one pops just fine.
+                            (Ok(false), CallFrameInstruction::RestoreState),
+                            // Second pop would try to pop out of bounds.
+                            (Err(Error::PopWithEmptyStack), CallFrameInstruction::RestoreState)];
+
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_nop() {
+        let cie = make_test_cie();
+        let ctx = UnwindContext::new();
+        let expected = ctx.clone();
+        let instructions = [(Ok(false), CallFrameInstruction::Nop)];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_unwind_table_next_row() {
+        let initial_instructions = Section::with_endian(Endian::Little)
+            // The CFA is -12 from register 4.
+            .D8(constants::DW_CFA_def_cfa_sf.0)
+            .uleb(4)
+            .sleb(-12)
+            // Register 0 is 8 from the CFA.
+            .D8(constants::DW_CFA_offset.0 | 0)
+            .uleb(8)
+            // Register 3 is 4 from the CFA.
+            .D8(constants::DW_CFA_offset.0 | 3)
+            .uleb(4)
+            .append_repeated(constants::DW_CFA_nop.0, 4);
+        let initial_instructions = initial_instructions.get_contents().unwrap();
+
+        let cie = CommonInformationEntry {
+            length: 0,
+            format: Format::Dwarf32,
+            version: 4,
+            augmentation: None,
+            address_size: 4,
+            segment_size: 0,
+            code_alignment_factor: 1,
+            data_alignment_factor: 1,
+            return_address_register: 3,
+            initial_instructions: EndianBuf::<LittleEndian>::new(&initial_instructions),
+        };
+
+        let instructions = Section::with_endian(Endian::Little)
+            // Initial instructions form a row, advance the address by 1.
+            .D8(constants::DW_CFA_advance_loc1.0)
+            .D8(1)
+            // Register 0 is -16 from the CFA.
+            .D8(constants::DW_CFA_offset_extended_sf.0)
+            .uleb(0)
+            .sleb(-16)
+            // Finish this row, advance the address by 32.
+            .D8(constants::DW_CFA_advance_loc1.0)
+            .D8(32)
+            // Register 3 is -4 from the CFA.
+            .D8(constants::DW_CFA_offset_extended_sf.0)
+            .uleb(3)
+            .sleb(-4)
+            // Finish this row, advance the address by 64.
+            .D8(constants::DW_CFA_advance_loc1.0)
+            .D8(64)
+            // Register 5 is 4 from the CFA.
+            .D8(constants::DW_CFA_offset.0 | 5)
+            .uleb(4)
+            // A bunch of nop padding.
+            .append_repeated(constants::DW_CFA_nop.0, 8);
+        let instructions = instructions.get_contents().unwrap();
+
+        let fde = FrameDescriptionEntry {
+            length: 0,
+            format: Format::Dwarf32,
+            cie: cie.clone(),
+            initial_segment: 0,
+            initial_address: 0,
+            address_range: 100,
+            instructions: EndianBuf::<LittleEndian>::new(&instructions),
+        };
+
+        let ctx = UninitializedUnwindContext::new();
+        ctx.0.assert_fully_uninitialized();
+        let mut ctx = ctx.initialize(&cie).expect("Should run initial program OK");
+
+        assert!(ctx.0.is_initialized);
+        let expected_initial_rules = [RegisterRule::Offset(8),
+                                      RegisterRule::Undefined,
+                                      RegisterRule::Undefined,
+                                      RegisterRule::Offset(4)];
+        assert_eq!(&ctx.0.initial_rules[..], &expected_initial_rules[..]);
+
+        let mut table = UnwindTable::new(&mut ctx, &fde);
+
+        {
+            let row = table.next_row().expect("Should evaluate first row OK");
+            let expected = UnwindTableRow {
+                start_address: 0,
+                end_address: 1,
+                cfa: CfaRule::RegisterAndOffset {
+                    register: 4,
+                    offset: -12,
+                },
+                registers: vec![RegisterRule::Offset(8),
+                                RegisterRule::Undefined,
+                                RegisterRule::Undefined,
+                                RegisterRule::Offset(4)],
+            };
+            assert_eq!(Some(&expected), row);
+        }
+
+        {
+            let row = table.next_row().expect("Should evaluate second row OK");
+            let expected = UnwindTableRow {
+                start_address: 1,
+                end_address: 33,
+                cfa: CfaRule::RegisterAndOffset {
+                    register: 4,
+                    offset: -12,
+                },
+                registers: vec![RegisterRule::Offset(-16),
+                                RegisterRule::Undefined,
+                                RegisterRule::Undefined,
+                                RegisterRule::Offset(4)],
+            };
+            assert_eq!(Some(&expected), row);
+        }
+
+        {
+            let row = table.next_row().expect("Should evaluate third row OK");
+            let expected = UnwindTableRow {
+                start_address: 33,
+                end_address: 97,
+                cfa: CfaRule::RegisterAndOffset {
+                    register: 4,
+                    offset: -12,
+                },
+                registers: vec![RegisterRule::Offset(-16),
+                                RegisterRule::Undefined,
+                                RegisterRule::Undefined,
+                                RegisterRule::Offset(-4)],
+            };
+            assert_eq!(Some(&expected), row);
+        }
+
+        {
+            let row = table.next_row().expect("Should evaluate fourth row OK");
+            let expected = UnwindTableRow {
+                start_address: 97,
+                end_address: 100,
+                cfa: CfaRule::RegisterAndOffset {
+                    register: 4,
+                    offset: -12,
+                },
+                registers: vec![RegisterRule::Offset(-16),
+                                RegisterRule::Undefined,
+                                RegisterRule::Undefined,
+                                RegisterRule::Offset(-4),
+                                RegisterRule::Undefined,
+                                RegisterRule::Offset(4)],
+            };
+            assert_eq!(Some(&expected), row);
+        }
+
+        // All done!
+        assert_eq!(Ok(None), table.next_row());
+        assert_eq!(Ok(None), table.next_row());
     }
 }
