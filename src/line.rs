@@ -38,6 +38,40 @@ impl<'input, Endian> DebugLine<'input, Endian>
     pub fn new(debug_line_section: &'input [u8]) -> DebugLine<'input, Endian> {
         DebugLine { debug_line_section: EndianBuf(debug_line_section, PhantomData) }
     }
+
+    /// Parse the line number program header at the given `offset` in the
+    /// `.debug_line` section.
+    ///
+    /// The `address_size` must match the compilation unit that the lines apply to.
+    ///
+    /// ```rust,no_run
+    /// use gimli::{DebugLine, DebugLineOffset, LineNumberProgramHeader, LittleEndian};
+    ///
+    /// # let buf = [];
+    /// # let read_debug_line_section_somehow = || &buf;
+    /// let debug_line = DebugLine::<LittleEndian>::new(read_debug_line_section_somehow());
+    ///
+    /// // In a real example, we'd grab the offset via a compilation unit
+    /// // entry's `DW_AT_stmt_list` attribute, and the address size from that
+    /// // unit directly.
+    /// let offset = DebugLineOffset(0);
+    /// let address_size = 8;
+    ///
+    /// let header = debug_line.header(offset, address_size)
+    ///     .expect("should have found a header at that offset, and parsed it OK");
+    /// ```
+    pub fn header(&self,
+                  offset: DebugLineOffset,
+                  address_size: u8)
+                  -> parser::Result<LineNumberProgramHeader<'input, Endian>> {
+        let offset = offset.0 as usize;
+        if self.debug_line_section.len() < offset {
+            return Err(parser::Error::UnexpectedEof);
+        }
+        let input = self.debug_line_section.range_from(offset..);
+        let (_, header) = try!(LineNumberProgramHeader::parse(input, address_size));
+        Ok(header)
+    }
 }
 
 /// Executes a `LineNumberProgram` to recreate the matrix mapping to and from
@@ -58,9 +92,7 @@ pub struct StateMachine<'input, Endian>
 impl<'input, Endian> StateMachine<'input, Endian>
     where Endian: Endianity
 {
-    /// Construct a new `StateMachine` for executing line programs and
-    /// generating the line information matrix.
-    pub fn new(header: LineNumberProgramHeader<'input, Endian>) -> Self {
+    fn new(header: LineNumberProgramHeader<'input, Endian>) -> Self {
         let mut row = LineNumberRow::default();
         row.registers.reset(header.default_is_stmt());
         let opcodes = OpcodesIter {
@@ -874,35 +906,6 @@ pub struct LineNumberProgramHeader<'input, Endian>
 impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
     where Endian: Endianity
 {
-    /// Parse the line number program header at the given `offset` in the
-    /// `.debug_line` section.
-    ///
-    /// ```rust,no_run
-    /// use gimli::{DebugLine, DebugLineOffset, LineNumberProgramHeader, LittleEndian};
-    ///
-    /// # let buf = [];
-    /// # let read_debug_line_section_somehow = || &buf;
-    /// let debug_line = DebugLine::<LittleEndian>::new(read_debug_line_section_somehow());
-    ///
-    /// // In a real example, we'd grab the offset via a compilation unit
-    /// // entry's `DW_AT_stmt_list` attribute, and the address size from that
-    /// // unit directly.
-    /// let offset = DebugLineOffset(0);
-    /// let address_size = 8;
-    ///
-    /// let header = LineNumberProgramHeader::new(debug_line, offset, address_size)
-    ///     .expect("should have found a header at that offset, and parsed it OK");
-    /// ```
-    pub fn new(debug_line: DebugLine<'input, Endian>,
-               offset: DebugLineOffset,
-               address_size: u8)
-               -> parser::Result<LineNumberProgramHeader<'input, Endian>> {
-        let offset = offset.0 as usize;
-        let (_, mut header) = try!(Self::parse(debug_line.debug_line_section.range_from(offset..)));
-        header.address_size = address_size;
-        Ok(header)
-    }
-
     /// Return the length of the line number program and header, not including
     /// the length of the encoded length itself.
     pub fn unit_length(&self) -> u64 {
@@ -991,8 +994,15 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         }
     }
 
+    /// Construct a new `StateMachine` for executing line programs and
+    /// generating the line information matrix.
+    pub fn rows(self) -> StateMachine<'input, Endian> {
+        StateMachine::new(self)
+    }
+
     fn parse
-        (input: EndianBuf<'input, Endian>)
+        (input: EndianBuf<'input, Endian>,
+         address_size: u8)
          -> parser::Result<(EndianBuf<'input, Endian>, LineNumberProgramHeader<'input, Endian>)> {
         let (rest, (unit_length, format)) = try!(parser::parse_initial_length(input));
         if (rest.len() as u64) < unit_length {
@@ -1087,7 +1097,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
                     file_names: file_names,
                     format: format,
                     program_buf: program_buf,
-                    address_size: 0,
+                    address_size: address_size,
                 };
                 return Ok((next_header_input, header));
             }
@@ -1244,7 +1254,7 @@ mod tests {
 
         let input = EndianBuf::<LittleEndian>::new(&buf);
 
-        let (rest, header) = LineNumberProgramHeader::parse(input)
+        let (rest, header) = LineNumberProgramHeader::parse(input, 4)
             .expect("should parse header ok");
 
         assert_eq!(rest, EndianBuf::new(&buf[buf.len() - 16..]));
@@ -1338,7 +1348,7 @@ mod tests {
 
         let input = EndianBuf::<LittleEndian>::new(&buf);
 
-        match LineNumberProgramHeader::parse(input) {
+        match LineNumberProgramHeader::parse(input, 4) {
             Err(Error::UnexpectedEof) => return,
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
@@ -1399,7 +1409,7 @@ mod tests {
 
         let input = EndianBuf::<LittleEndian>::new(&buf);
 
-        match LineNumberProgramHeader::parse(input) {
+        match LineNumberProgramHeader::parse(input, 4) {
             Err(Error::UnitHeaderLengthTooShort) => return,
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
@@ -1642,7 +1652,7 @@ mod tests {
                           opcode: Opcode,
                           expected_registers: StateMachineRegisters,
                           expect_new_row: bool) {
-        let mut sm = StateMachine::new(header);
+        let mut sm = header.rows();
         sm.row.registers = initial_registers;
 
         let is_new_row = sm.execute(opcode);
@@ -2003,7 +2013,7 @@ mod tests {
     #[test]
     fn test_exec_define_file() {
         let header = make_test_header(&[]);
-        let mut sm = StateMachine::new(header);
+        let mut sm = header.rows();
 
         let file = FileEntry {
             path_name: ffi::CStr::from_bytes_with_nul(&b"test.cpp\0"[..]).unwrap(),
