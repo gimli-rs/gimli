@@ -112,6 +112,7 @@ impl<'input, Endian> DebugInfo<'input, Endian>
 ///
 /// See the [documentation on
 /// `DebugInfo::units`](./struct.DebugInfo.html#method.units) for more detail.
+#[derive(Clone, Debug)]
 pub struct UnitHeadersIter<'input, Endian>
     where Endian: Endianity
 {
@@ -2977,6 +2978,7 @@ impl<'input, Endian> DebugTypes<'input, Endian>
 /// See the [documentation on
 /// `DebugTypes::units`](./struct.DebugTypes.html#method.units) for
 /// more detail.
+#[derive(Clone, Debug)]
 pub struct TypeUnitHeadersIter<'input, Endian>
     where Endian: Endianity
 {

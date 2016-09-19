@@ -36,6 +36,7 @@ impl<'input> PubNamesEntry<'input> {
 }
 
 
+#[derive(Clone, Debug)]
 pub struct NamesSwitch<'input, Endian>
     where Endian: 'input + Endianity
 {

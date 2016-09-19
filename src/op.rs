@@ -11,6 +11,7 @@ use std::marker::PhantomData;
 use endianity::LittleEndian;
 #[cfg(test)]
 use leb128;
+use std::fmt;
 #[cfg(test)]
 use std::io::Write;
 
@@ -25,7 +26,7 @@ pub enum DieReference {
 }
 
 /// Supply information to a DWARF expression evaluation.
-pub trait EvaluationContext<'input> {
+pub trait EvaluationContext<'input>: fmt::Debug {
     /// Read the indicated number of bytes from memory at the
     /// indicated address.  The number of bytes is guaranteed to be
     /// less than the word size of the target architecture.
@@ -1357,6 +1358,7 @@ fn test_op_parse_implicit_value() {
 }
 
 /// A DWARF expression evaluation.
+#[derive(Debug)]
 pub struct Evaluation<'context, 'input, Endian>
     where Endian: 'context + Endianity,
           'input: 'context
@@ -1824,7 +1826,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
 }
 
 #[cfg(test)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct TestEvaluationContext {
     base: Result<u64>,
     cfa: Result<u64>,

@@ -35,6 +35,7 @@ impl<'input> PubTypesEntry<'input> {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct TypesSwitch<'input, Endian>
     where Endian: 'input + Endianity
 {
