@@ -200,7 +200,8 @@ struct Unit<'input, Endian>
     address_size: u8,
     base_address: u64,
     line_header: Option<gimli::LineNumberProgramHeader<'input, Endian>>,
-    comp_dir: Option<String>,
+    comp_dir: Option<&'input std::ffi::CStr>,
+    comp_name: Option<&'input std::ffi::CStr>,
 }
 
 fn dump_entries<Endian>(offset: u64,
@@ -220,6 +221,7 @@ fn dump_entries<Endian>(offset: u64,
         base_address: 0,
         line_header: None,
         comp_dir: None,
+        comp_name: None,
     };
 
     let mut print_local = true;
@@ -247,16 +249,13 @@ fn dump_entries<Endian>(offset: u64,
                 Some(gimli::AttributeValue::Addr(address)) => address,
                 _ => 0,
             };
-            unit.comp_dir = match entry.attr(gimli::DW_AT_comp_dir) {
-                Some(attr) => {
-                    attr.string_value(&debug_str)
-                        .map(|dir| dir.to_string_lossy().into_owned())
-                }
-                _ => None,
-            };
+            unit.comp_dir = entry.attr(gimli::DW_AT_comp_dir)
+                .and_then(|attr| attr.string_value(&debug_str));
+            unit.comp_name = entry.attr(gimli::DW_AT_name)
+                .and_then(|attr| attr.string_value(&debug_str));
             unit.line_header = match entry.attr_value(gimli::DW_AT_stmt_list) {
                 Some(gimli::AttributeValue::DebugLineRef(offset)) => {
-                    debug_line.header(offset, unit.address_size).ok()
+                    debug_line.header(offset, unit.address_size, unit.comp_dir, unit.comp_name).ok()
                 }
                 _ => None,
             }
@@ -430,14 +429,10 @@ fn dump_file_index<Endian>(file: u64, unit: &Unit<Endian>)
         let directory = directory.to_string_lossy();
         if !directory.starts_with("/") {
             if let Some(ref comp_dir) = unit.comp_dir {
-                print!("{}/", comp_dir);
+                print!("{}/", comp_dir.to_string_lossy());
             }
         }
         print!("{}/", directory);
-    } else {
-        if let Some(ref comp_dir) = unit.comp_dir {
-            print!("{}/", comp_dir);
-        }
     }
     print!("{}", file.path_name().to_string_lossy());
 }
@@ -624,6 +619,7 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
 {
     let debug_line = file.get_section(".debug_line");
     let debug_info = file.get_section(".debug_info");
+    let debug_str = file.get_section(".debug_str").unwrap_or(&[]);
 
     if let (Some(debug_line), Some(debug_info)) = (debug_line, debug_info) {
         println!(".debug_line");
@@ -631,6 +627,7 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
 
         let debug_line = gimli::DebugLine::<Endian>::new(&debug_line);
         let debug_info = gimli::DebugInfo::<Endian>::new(&debug_info);
+        let debug_str = gimli::DebugStr::<Endian>::new(&debug_str);
 
         let mut iter = debug_info.units();
         while let Some(unit) = iter.next().expect("Should parse unit header OK") {
@@ -645,8 +642,12 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
                 Some(gimli::AttributeValue::DebugLineRef(offset)) => offset,
                 _ => continue,
             };
+            let comp_dir = root.attr(gimli::DW_AT_comp_dir)
+                .and_then(|attr| attr.string_value(&debug_str));
+            let comp_name = root.attr(gimli::DW_AT_name)
+                .and_then(|attr| attr.string_value(&debug_str));
 
-            let header = debug_line.header(offset, unit.address_size());
+            let header = debug_line.header(offset, unit.address_size(), comp_dir, comp_name);
             if let Ok(header) = header {
                 println!("");
                 println!("Offset:                             0x{:x}", offset.0);
@@ -735,7 +736,7 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
                     }
                     if file_index != row.file_index() {
                         file_index = row.file_index();
-                        if let Ok(file) = row.file(header) {
+                        if let Some(file) = row.file(header) {
                             if let Some(directory) = file.directory(header) {
                                 print!(" uri: \"{}/{}\"",
                                        directory.to_string_lossy(),

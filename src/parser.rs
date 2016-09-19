@@ -65,8 +65,6 @@ pub enum Error {
     LineRangeZero,
     /// The opcode base must not be zero.
     OpcodeBaseZero,
-    /// The specified file index was out of bounds.
-    BadFileIndex,
     /// Found an invalid UTF-8 string.
     BadUtf8,
     /// Expected to find the CIE ID, but found something else.
@@ -156,7 +154,6 @@ impl error::Error for Error {
             }
             Error::LineRangeZero => "The line range must not be zero.",
             Error::OpcodeBaseZero => "The opcode base must not be zero.",
-            Error::BadFileIndex => "The specified file index was out of bounds.",
             Error::BadUtf8 => "Found an invalid UTF-8 string.",
             Error::NotCieId => "Expected to find the CIE ID, but found something else.",
             Error::NotCiePointer => "Expected to find a CIE pointer, but found the CIE ID instead.",

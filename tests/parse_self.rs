@@ -1,7 +1,7 @@
 extern crate gimli;
 
 use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugPubNames,
-            DebugPubTypes, DW_AT_stmt_list, LittleEndian};
+            DebugPubTypes, DebugStr, LittleEndian};
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -60,6 +60,9 @@ fn test_parse_self_debug_line() {
     let debug_line = read_section("debug_line");
     let debug_line = DebugLine::<LittleEndian>::new(&debug_line);
 
+    let debug_str = read_section("debug_str");
+    let debug_str = DebugStr::<LittleEndian>::new(&debug_str);
+
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
         let abbrevs = unit.abbreviations(debug_abbrev)
@@ -71,8 +74,14 @@ fn test_parse_self_debug_line() {
         let unit_entry = cursor.current()
             .expect("Should have a root entry");
 
-        if let Some(AttributeValue::DebugLineRef(offset)) = unit_entry.attr_value(DW_AT_stmt_list) {
-            let header = debug_line.header(offset, unit.address_size())
+        let comp_dir = unit_entry.attr(gimli::DW_AT_comp_dir)
+            .and_then(|attr| attr.string_value(&debug_str));
+        let comp_name = unit_entry.attr(gimli::DW_AT_name)
+            .and_then(|attr| attr.string_value(&debug_str));
+
+        if let Some(AttributeValue::DebugLineRef(offset)) =
+               unit_entry.attr_value(gimli::DW_AT_stmt_list) {
+            let header = debug_line.header(offset, unit.address_size(), comp_dir, comp_name)
                 .expect("should parse line number program header");
 
             let mut rows = header.rows();

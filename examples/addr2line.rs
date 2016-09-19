@@ -52,21 +52,14 @@ fn display_file<Endian>(unit: &Unit,
         let directory = directory.to_string_lossy();
         if !directory.starts_with("/") {
             if let Some(comp_dir) = unit.comp_dir() {
-                print!("{}/", comp_dir);
+                print!("{}/", comp_dir.to_string_lossy());
             }
         }
-        println!("{}/{}:{}",
-                 directory,
-                 file.path_name().to_string_lossy(),
-                 row.line().unwrap());
-    } else {
-        if let Some(comp_dir) = unit.comp_dir() {
-            print!("{}/", comp_dir);
-        }
-        println!("{}:{}",
-                 file.path_name().to_string_lossy(),
-                 row.line().unwrap());
+        print!("{}/", directory);
     }
+    println!("{}:{}",
+             file.path_name().to_string_lossy(),
+             row.line().unwrap());
 }
 
 fn symbolicate<Endian>(file: &object::File, addrs: Vec<u64>)
@@ -127,19 +120,20 @@ fn find_address<Endian>(debug_line: gimli::DebugLine<Endian>, units: &[Unit], ad
 }
 
 // TODO: most of this should be moved to the main library.
-struct Unit {
+struct Unit<'input> {
     address_size: u8,
     ranges: Vec<gimli::Range>,
     line_offset: gimli::DebugLineOffset,
-    comp_dir: Option<String>,
+    comp_dir: Option<&'input std::ffi::CStr>,
+    comp_name: Option<&'input std::ffi::CStr>,
 }
 
-impl Unit {
+impl<'input> Unit<'input> {
     fn parse<Endian>(debug_abbrev: &gimli::DebugAbbrev<Endian>,
                      debug_ranges: &gimli::DebugRanges<Endian>,
-                     debug_str: &gimli::DebugStr<Endian>,
-                     header: &gimli::UnitHeader<Endian>)
-                     -> Option<Unit>
+                     debug_str: &gimli::DebugStr<'input, Endian>,
+                     header: &gimli::UnitHeader<'input, Endian>)
+                     -> Option<Unit<'input>>
         where Endian: gimli::Endianity
     {
         let abbrev = debug_abbrev.abbreviations(header.debug_abbrev_offset()).expect("Fail");
@@ -164,16 +158,17 @@ impl Unit {
             Some(gimli::AttributeValue::DebugLineRef(offset)) => offset,
             _ => return None,
         };
-
         let comp_dir = entry.attr(gimli::DW_AT_comp_dir)
-            .and_then(|attr| attr.string_value(debug_str))
-            .map(|dir| dir.to_string_lossy().into_owned());
+            .and_then(|attr| attr.string_value(debug_str));
+        let comp_name = entry.attr(gimli::DW_AT_name)
+            .and_then(|attr| attr.string_value(debug_str));
 
         Some(Unit {
             address_size: header.address_size(),
             ranges: ranges,
             line_offset: line_offset,
             comp_dir: comp_dir,
+            comp_name: comp_name,
         })
     }
 
@@ -227,16 +222,19 @@ impl Unit {
         self.ranges.iter().any(|range| address >= range.begin && address < range.end)
     }
 
-    fn line_rows<'a, Endian>(&self,
-                             debug_line: gimli::DebugLine<'a, Endian>)
-                             -> gimli::Result<gimli::StateMachine<'a, Endian>>
+    fn line_rows<Endian>(&self,
+                         debug_line: gimli::DebugLine<'input, Endian>)
+                         -> gimli::Result<gimli::StateMachine<'input, Endian>>
         where Endian: gimli::Endianity
     {
-        let header = try!(debug_line.header(self.line_offset, self.address_size));
+        let header = try!(debug_line.header(self.line_offset,
+                                            self.address_size,
+                                            self.comp_dir,
+                                            self.comp_name));
         Ok(header.rows())
     }
 
-    fn comp_dir(&self) -> Option<&String> {
-        self.comp_dir.as_ref()
+    fn comp_dir(&self) -> Option<&std::ffi::CStr> {
+        self.comp_dir
     }
 }
