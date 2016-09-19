@@ -43,6 +43,9 @@ impl<'input, Endian> DebugLine<'input, Endian>
     /// `.debug_line` section.
     ///
     /// The `address_size` must match the compilation unit that the lines apply to.
+    /// The `comp_dir` should be from the `DW_AT_comp_dir` attribute of the compilation
+    /// unit. The `comp_name` should be from the `DW_AT_name` attribute of the
+    /// compilation unit.
     ///
     /// ```rust,no_run
     /// use gimli::{DebugLine, DebugLineOffset, LineNumberProgramHeader, LittleEndian};
@@ -57,19 +60,22 @@ impl<'input, Endian> DebugLine<'input, Endian>
     /// let offset = DebugLineOffset(0);
     /// let address_size = 8;
     ///
-    /// let header = debug_line.header(offset, address_size)
+    /// let header = debug_line.header(offset, address_size, None, None)
     ///     .expect("should have found a header at that offset, and parsed it OK");
     /// ```
     pub fn header(&self,
                   offset: DebugLineOffset,
-                  address_size: u8)
+                  address_size: u8,
+                  comp_dir: Option<&'input ffi::CStr>,
+                  comp_name: Option<&'input ffi::CStr>)
                   -> parser::Result<LineNumberProgramHeader<'input, Endian>> {
         let offset = offset.0 as usize;
         if self.debug_line_section.len() < offset {
             return Err(parser::Error::UnexpectedEof);
         }
         let input = self.debug_line_section.range_from(offset..);
-        let (_, header) = try!(LineNumberProgramHeader::parse(input, address_size));
+        let (_, header) =
+            try!(LineNumberProgramHeader::parse(input, address_size, comp_dir, comp_name));
         Ok(header)
     }
 }
@@ -693,7 +699,7 @@ impl LineNumberRow {
     /// The source file corresponding to the current machine instruction.
     pub fn file<'header, 'input, Endian>(&self,
                                          header: &'header LineNumberProgramHeader<'input, Endian>)
-                                         -> parser::Result<&'header FileEntry<'input>>
+                                         -> Option<&'header FileEntry<'input>>
         where Endian: Endianity
     {
         header.file(self.registers.file)
@@ -901,6 +907,12 @@ pub struct LineNumberProgramHeader<'input, Endian>
 
     /// The size of an address on the debuggee architecture, in bytes.
     address_size: u8,
+
+    /// The `DW_AT_comp_dir` value from the compilation unit.
+    comp_dir: Option<&'input ffi::CStr>,
+
+    /// The `DW_AT_name` value from the compilation unit.
+    comp_name: Option<FileEntry<'input>>,
 }
 
 impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
@@ -969,19 +981,32 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         &self.include_directories[..]
     }
 
+    /// The include directory with the given directory index.
+    ///
+    /// A directory index of 0 corresponds to the compilation unit directory.
+    pub fn directory(&self, directory: u64) -> Option<&'input ffi::CStr> {
+        if directory == 0 {
+            self.comp_dir
+        } else {
+            let directory = directory as usize - 1;
+            self.include_directories.get(directory).map(|d| *d)
+        }
+    }
+
     /// Get the list of source files that appear in this header's line program.
     pub fn file_names(&self) -> &[FileEntry] {
         &self.file_names[..]
     }
 
     /// The source file with the given file index.
-    pub fn file(&self, file: u64) -> parser::Result<&FileEntry<'input>> {
-        // NB: file starts counting at 1.
-        let file = file as usize;
-        if 0 < file && file <= self.file_names.len() {
-            Ok(&self.file_names[file - 1])
+    ///
+    /// A file index of 0 corresponds to the compilation unit file.
+    pub fn file(&self, file: u64) -> Option<&FileEntry<'input>> {
+        if file == 0 {
+            self.comp_name.as_ref()
         } else {
-            Err(parser::Error::BadFileIndex)
+            let file = file as usize - 1;
+            self.file_names.get(file)
         }
     }
 
@@ -1002,7 +1027,9 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
 
     fn parse
         (input: EndianBuf<'input, Endian>,
-         address_size: u8)
+         address_size: u8,
+         comp_dir: Option<&'input ffi::CStr>,
+         comp_name: Option<&'input ffi::CStr>)
          -> parser::Result<(EndianBuf<'input, Endian>, LineNumberProgramHeader<'input, Endian>)> {
         let (rest, (unit_length, format)) = try!(parser::parse_initial_length(input));
         if (rest.len() as u64) < unit_length {
@@ -1082,6 +1109,14 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
             }
 
             if rest[0] == 0 {
+                let comp_name = comp_name.map(|name| {
+                    FileEntry {
+                        path_name: name,
+                        directory_index: 0,
+                        last_modification: 0,
+                        length: 0,
+                    }
+                });
                 let header = LineNumberProgramHeader {
                     unit_length: unit_length,
                     version: version,
@@ -1098,6 +1133,8 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
                     format: format,
                     program_buf: program_buf,
                     address_size: address_size,
+                    comp_dir: comp_dir,
+                    comp_name: comp_name,
                 };
                 return Ok((next_header_input, header));
             }
@@ -1161,19 +1198,13 @@ impl<'input> FileEntry<'input> {
 
     /// Get this file's directory.
     ///
-    /// If this file's directory index is 0, meaning that it was found in
-    /// the current directory of compilation, return `None`.
+    /// A directory index of 0 corresponds to the compilation unit directory.
     pub fn directory<Endian>(&self,
                              header: &LineNumberProgramHeader<'input, Endian>)
                              -> Option<&'input ffi::CStr>
         where Endian: Endianity
     {
-        if self.directory_index == 0 {
-            None
-        } else {
-            let idx = self.directory_index - 1;
-            Some(&header.include_directories[idx as usize])
-        }
+        header.directory(self.directory_index)
     }
 
     /// "An unsigned LEB128 number representing the time of last modification of
@@ -1253,8 +1284,10 @@ mod tests {
         ];
 
         let input = EndianBuf::<LittleEndian>::new(&buf);
+        let comp_dir = ffi::CStr::from_bytes_with_nul(b"/comp_dir\0").unwrap();
+        let comp_name = ffi::CStr::from_bytes_with_nul(b"/comp_name\0").unwrap();
 
-        let (rest, header) = LineNumberProgramHeader::parse(input, 4)
+        let (rest, header) = LineNumberProgramHeader::parse(input, 4, Some(&comp_dir), Some(&comp_name))
             .expect("should parse header ok");
 
         assert_eq!(rest, EndianBuf::new(&buf[buf.len() - 16..]));
@@ -1266,6 +1299,8 @@ mod tests {
         assert_eq!(header.line_base(), 0);
         assert_eq!(header.line_range(), 1);
         assert_eq!(header.opcode_base(), 3);
+        assert_eq!(header.directory(0), Some(comp_dir));
+        assert_eq!(header.file(0).unwrap().path_name, comp_name);
 
         let expected_lengths = [1, 2];
         assert_eq!(header.standard_opcode_lengths(), &expected_lengths);
@@ -1348,7 +1383,7 @@ mod tests {
 
         let input = EndianBuf::<LittleEndian>::new(&buf);
 
-        match LineNumberProgramHeader::parse(input, 4) {
+        match LineNumberProgramHeader::parse(input, 4, None, None) {
             Err(Error::UnexpectedEof) => return,
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
@@ -1409,7 +1444,7 @@ mod tests {
 
         let input = EndianBuf::<LittleEndian>::new(&buf);
 
-        match LineNumberProgramHeader::parse(input, 4) {
+        match LineNumberProgramHeader::parse(input, 4, None, None) {
             Err(Error::UnitHeaderLengthTooShort) => return,
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
@@ -1448,6 +1483,8 @@ mod tests {
             standard_opcode_lengths: STANDARD_OPCODE_LENGTHS,
             include_directories: vec![],
             line_range: 12,
+            comp_dir: None,
+            comp_name: None,
         }
     }
 
@@ -1849,7 +1886,7 @@ mod tests {
 
             let row = LineNumberRow { registers: regs };
 
-            assert_eq!(row.file(&header), Err(Error::BadFileIndex));
+            assert_eq!(row.file(&header), None);
         }
     }
 
@@ -1862,7 +1899,7 @@ mod tests {
 
         let row = LineNumberRow { registers: regs };
 
-        assert_eq!(row.file(&header), Ok(&header.file_names()[1]));
+        assert_eq!(row.file(&header), Some(&header.file_names()[1]));
     }
 
     #[test]

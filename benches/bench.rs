@@ -118,7 +118,7 @@ fn bench_parsing_line_number_program_opcodes(b: &mut test::Bencher) {
     let debug_line = DebugLine::<LittleEndian>::new(&debug_line);
 
     b.iter(|| {
-        let header = debug_line.header(OFFSET, ADDRESS_SIZE)
+        let header = debug_line.header(OFFSET, ADDRESS_SIZE, None, None)
             .expect("Should parse line number program header");
 
         let mut opcodes = header.opcodes();
@@ -134,7 +134,7 @@ fn bench_executing_line_number_programs(b: &mut test::Bencher) {
     let debug_line = DebugLine::<LittleEndian>::new(&debug_line);
 
     b.iter(|| {
-        let header = debug_line.header(OFFSET, ADDRESS_SIZE)
+        let header = debug_line.header(OFFSET, ADDRESS_SIZE, None, None)
             .expect("Should parse line number program header");
 
         let mut rows = header.rows();
