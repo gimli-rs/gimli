@@ -86,7 +86,10 @@ impl<'input, Endian> DebugInfo<'input, Endian>
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn units(&self) -> CompilationUnitHeadersIter<'input, Endian> {
-        CompilationUnitHeadersIter { input: self.debug_info_section }
+        CompilationUnitHeadersIter {
+            input: self.debug_info_section,
+            offset: DebugInfoOffset(0),
+        }
     }
 
     /// Get the CompilationUnitHeader located at offset from this .debug_info section.
@@ -95,13 +98,12 @@ impl<'input, Endian> DebugInfo<'input, Endian>
     pub fn header_from_offset(&self,
                               offset: DebugInfoOffset)
                               -> Result<CompilationUnitHeader<'input, Endian>> {
-        let offset = offset.0 as usize;
-        if self.debug_info_section.len() < offset {
+        if self.debug_info_section.len() < offset.0 as usize {
             return Err(Error::UnexpectedEof);
         }
 
-        let input = self.debug_info_section.range_from(offset..);
-        match CompilationUnitHeader::parse(input) {
+        let input = self.debug_info_section.range_from(offset.0 as usize..);
+        match CompilationUnitHeader::parse(input, offset) {
             Ok((_, header)) => Ok(header),
             Err(e) => Err(e),
         }
@@ -117,6 +119,7 @@ pub struct CompilationUnitHeadersIter<'input, Endian>
     where Endian: Endianity
 {
     input: EndianBuf<'input, Endian>,
+    offset: DebugInfoOffset,
 }
 
 impl<'input, Endian> CompilationUnitHeadersIter<'input, Endian>
@@ -127,8 +130,9 @@ impl<'input, Endian> CompilationUnitHeadersIter<'input, Endian>
         if self.input.is_empty() {
             Ok(None)
         } else {
-            match CompilationUnitHeader::parse(self.input) {
+            match CompilationUnitHeader::parse(self.input, self.offset) {
                 Ok((rest, header)) => {
+                    self.offset.0 += self.input.len() as u64 - rest.len() as u64;
                     self.input = rest;
                     Ok(Some(header))
                 }
@@ -204,7 +208,11 @@ fn test_units() {
                                                 8,
                                                 Format::Dwarf64,
                                                 &buf[23..23+32]);
-            assert_eq!(header.header, expected);
+            let expected = CompilationUnitHeader {
+                header: expected,
+                offset: DebugInfoOffset(0),
+            };
+            assert_eq!(header, expected);
 
         }
         otherwise => panic!("Unexpected result: {:?}", otherwise),
@@ -219,7 +227,11 @@ fn test_units() {
                                      4,
                                      Format::Dwarf32,
                                      &buf[buf.len()-32..]);
-            assert_eq!(header.header, expected);
+            let expected = CompilationUnitHeader {
+                header: expected,
+                offset: DebugInfoOffset(55),
+            };
+            assert_eq!(header, expected);
         }
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
@@ -233,11 +245,17 @@ pub struct CompilationUnitHeader<'input, Endian>
     where Endian: Endianity
 {
     header: UnitHeader<'input, Endian>,
+    offset: DebugInfoOffset,
 }
 
 impl<'input, Endian> CompilationUnitHeader<'input, Endian>
     where Endian: Endianity
 {
+    /// Get the offset of this compilation unit within the .debug_info section.
+    pub fn offset(&self) -> DebugInfoOffset {
+        self.offset
+    }
+
     /// Get the length of the debugging info for this compilation unit, not
     /// including the byte length of the encoded length itself.
     pub fn unit_length(&self) -> u64 {
@@ -366,10 +384,15 @@ impl<'input, Endian> CompilationUnitHeader<'input, Endian>
     }
 
     /// Parse a compilation unit header.
-    fn parse(input: EndianBuf<Endian>)
+    fn parse(input: EndianBuf<Endian>,
+             offset: DebugInfoOffset)
              -> Result<(EndianBuf<Endian>, CompilationUnitHeader<Endian>)> {
         let (after_unit, header) = try!(parse_unit_header(input));
-        Ok((after_unit, CompilationUnitHeader { header: header }))
+        Ok((after_unit,
+            CompilationUnitHeader {
+            header: header,
+            offset: offset,
+        }))
     }
 }
 
@@ -3040,7 +3063,10 @@ impl<'input, Endian> DebugTypes<'input, Endian>
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn units(&self) -> TypeUnitHeadersIter<'input, Endian> {
-        TypeUnitHeadersIter { input: self.debug_types_section }
+        TypeUnitHeadersIter {
+            input: self.debug_types_section,
+            offset: DebugTypesOffset(0),
+        }
     }
 }
 
@@ -3054,6 +3080,7 @@ pub struct TypeUnitHeadersIter<'input, Endian>
     where Endian: Endianity
 {
     input: EndianBuf<'input, Endian>,
+    offset: DebugTypesOffset,
 }
 
 impl<'input, Endian> TypeUnitHeadersIter<'input, Endian>
@@ -3064,8 +3091,9 @@ impl<'input, Endian> TypeUnitHeadersIter<'input, Endian>
         if self.input.is_empty() {
             Ok(None)
         } else {
-            match parse_type_unit_header(self.input) {
+            match parse_type_unit_header(self.input, self.offset) {
                 Ok((rest, header)) => {
+                    self.offset.0 += self.input.len() as u64 - rest.len() as u64;
                     self.input = rest;
                     Ok(Some(header))
                 }
@@ -3095,6 +3123,7 @@ pub struct TypeUnitHeader<'input, Endian>
     where Endian: Endianity
 {
     header: UnitHeader<'input, Endian>,
+    offset: DebugTypesOffset,
     type_signature: DebugTypeSignature,
     type_offset: UnitOffset,
 }
@@ -3104,14 +3133,21 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
 {
     /// Construct a new `TypeUnitHeader`.
     fn new(header: UnitHeader<'input, Endian>,
+           offset: DebugTypesOffset,
            type_signature: DebugTypeSignature,
            type_offset: UnitOffset)
            -> TypeUnitHeader<'input, Endian> {
         TypeUnitHeader {
             header: header,
+            offset: offset,
             type_signature: type_signature,
             type_offset: type_offset,
         }
+    }
+
+    /// Get the offset of this compilation unit within the .debug_info section.
+    pub fn offset(&self) -> DebugTypesOffset {
+        self.offset
     }
 
     /// Get the length of the debugging info for this type-unit.
@@ -3265,15 +3301,16 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
 }
 
 /// Parse a type unit header.
-fn parse_type_unit_header<Endian>(input: EndianBuf<Endian>)
+fn parse_type_unit_header<Endian>(input: EndianBuf<Endian>,
+                                  offset: DebugTypesOffset)
                                   -> Result<(EndianBuf<Endian>, TypeUnitHeader<Endian>)>
     where Endian: Endianity
 {
     let (after_unit, mut header) = try!(parse_unit_header(input));
     let (rest, signature) = try!(parse_type_signature(header.entries_buf));
-    let (rest, offset) = try!(parse_type_offset(rest, header.format()));
+    let (rest, type_offset) = try!(parse_type_offset(rest, header.format()));
     header.entries_buf = rest;
-    Ok((after_unit, TypeUnitHeader::new(header, signature, offset)))
+    Ok((after_unit, TypeUnitHeader::new(header, offset, signature, type_offset)))
 }
 
 #[test]
@@ -3296,7 +3333,8 @@ fn test_parse_type_unit_header_64_ok() {
         0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x56, 0x78
     ];
 
-    let result = parse_type_unit_header(EndianBuf::<LittleEndian>::new(&buf));
+    let offset = DebugTypesOffset(0);
+    let result = parse_type_unit_header(EndianBuf::<LittleEndian>::new(&buf), offset);
 
     match result {
         Ok((_, header)) => {
@@ -3307,6 +3345,7 @@ fn test_parse_type_unit_header_64_ok() {
                                                            8,
                                                            Format::Dwarf64,
                                                            &[]),
+                                           offset,
                                            DebugTypeSignature(0xdeadbeefdeadbeef),
                                            UnitOffset(0x7856341278563412)))
         },
