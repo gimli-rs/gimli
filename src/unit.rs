@@ -2878,10 +2878,10 @@ fn test_parse_type_signature_incomplete() {
 /// Parse a type unit header's type offset.
 fn parse_type_offset<Endian>(input: EndianBuf<Endian>,
                              format: Format)
-                             -> Result<(EndianBuf<Endian>, DebugTypesOffset)>
+                             -> Result<(EndianBuf<Endian>, UnitOffset)>
     where Endian: Endianity
 {
-    parse_word(input, format).map(|(rest, offset)| (rest, DebugTypesOffset(offset)))
+    parse_word(input, format).map(|(rest, offset)| (rest, UnitOffset(offset)))
 }
 
 #[test]
@@ -2891,7 +2891,7 @@ fn test_parse_type_offset_32_ok() {
     match parse_type_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
         Ok((rest, offset)) => {
             assert_eq!(rest.len(), 1);
-            assert_eq!(DebugTypesOffset(0x78563412), offset);
+            assert_eq!(UnitOffset(0x78563412), offset);
         }
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
@@ -2904,7 +2904,7 @@ fn test_parse_type_offset_64_ok() {
     match parse_type_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
         Ok((rest, offset)) => {
             assert_eq!(rest.len(), 1);
-            assert_eq!(DebugTypesOffset(0xffdebc9a78563412), offset);
+            assert_eq!(UnitOffset(0xffdebc9a78563412), offset);
         }
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
@@ -3025,7 +3025,7 @@ pub struct TypeUnitHeader<'input, Endian>
 {
     header: UnitHeader<'input, Endian>,
     type_signature: DebugTypeSignature,
-    type_offset: DebugTypesOffset,
+    type_offset: UnitOffset,
 }
 
 impl<'input, Endian> TypeUnitHeader<'input, Endian>
@@ -3034,7 +3034,7 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
     /// Construct a new `TypeUnitHeader`.
     fn new(header: UnitHeader<'input, Endian>,
            type_signature: DebugTypeSignature,
-           type_offset: DebugTypesOffset)
+           type_offset: UnitOffset)
            -> TypeUnitHeader<'input, Endian> {
         TypeUnitHeader {
             header: header,
@@ -3095,7 +3095,7 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
     }
 
     /// Get the offset within this type unit where the type is defined.
-    pub fn type_offset(&self) -> DebugTypesOffset {
+    pub fn type_offset(&self) -> UnitOffset {
         self.type_offset
     }
 
@@ -3243,7 +3243,7 @@ fn test_parse_type_unit_header_64_ok() {
                                                            Format::Dwarf64,
                                                            &[]),
                                            DebugTypeSignature(0xdeadbeefdeadbeef),
-                                           DebugTypesOffset(0x7856341278563412)))
+                                           UnitOffset(0x7856341278563412)))
         },
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
