@@ -102,6 +102,8 @@ pub enum Error {
     /// When evaluating call frame instructions, found a `DW_CFA_restore_state`
     /// stack pop instruction, but the stack was empty, and had nothing to pop.
     PopWithEmptyStack,
+    /// Do not have unwind info for the given address.
+    NoUnwindInfoForAddress,
 }
 
 impl fmt::Display for Error {
@@ -183,6 +185,7 @@ impl error::Error for Error {
                 "When evaluating call frame instructions, found a `DW_CFA_restore_state` stack pop \
                  instruction, but the stack was empty, and had nothing to pop."
             }
+            Error::NoUnwindInfoForAddress => "Do not have unwind info for the given address.",
         }
     }
 }

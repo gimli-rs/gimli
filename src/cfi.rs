@@ -63,6 +63,78 @@ impl<'input, Endian> DebugFrame<'input, Endian>
         let (_, entry) = try!(CommonInformationEntry::parse(input));
         Ok(entry)
     }
+
+    /// Find the frame unwind information for the given address.
+    ///
+    /// If found, the unwind information is returned along with the reset
+    /// context in the form `Ok((unwind_info, context))`. If not found,
+    /// `Err(gimli::Error::NoUnwindInfoForAddress)` is returned. If parsing or
+    /// CFI evaluation fails, the error is returned.
+    ///
+    /// ```
+    /// use gimli::{DebugFrame, NativeEndian, UninitializedUnwindContext};
+    ///
+    /// # fn foo() -> gimli::Result<()> {
+    /// # let read_debug_frame_section = || unimplemented!();
+    /// // Get the `.debug_frame` section from the object file.
+    /// let debug_frame = DebugFrame::<NativeEndian>::new(read_debug_frame_section());
+    ///
+    /// # let get_frame_pc = || unimplemented!();
+    /// // Get the address of the PC for a frame you'd like to unwind.
+    /// let address = get_frame_pc();
+    ///
+    /// // This context is reusable, which cuts down on heap allocations.
+    /// let ctx = UninitializedUnwindContext::new();
+    ///
+    /// let (unwind_info, ctx) = try!(debug_frame.unwind_info_for_address(ctx, address));
+    /// # let do_stuff_with = |_| unimplemented!();
+    /// do_stuff_with(unwind_info);
+    /// # let _ = ctx;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn unwind_info_for_address
+        (&self,
+         ctx: UninitializedUnwindContext<'input, Endian>,
+         address: u64)
+         -> Result<(UnwindTableRow<'input, Endian>, UninitializedUnwindContext<'input, Endian>)> {
+        let mut target_fde = None;
+
+        let mut entries = self.entries();
+        while let Some(entry) = try!(entries.next()) {
+            match entry {
+                CieOrFde::Cie(_) => continue,
+                CieOrFde::Fde(partial) => {
+                    let fde = try!(partial.parse(|offset| self.cie_from_offset(offset)));
+                    if fde.contains(address) {
+                        target_fde = Some(fde);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if let Some(fde) = target_fde {
+            let mut result_row = None;
+            let mut ctx = try!(ctx.initialize(fde.cie()));
+
+            {
+                let mut table = UnwindTable::new(&mut ctx, &fde);
+                while let Some(row) = try!(table.next_row()) {
+                    if row.contains(address) {
+                        result_row = Some(row.clone());
+                        break;
+                    }
+                }
+            }
+
+            if let Some(row) = result_row {
+                return Ok((row, ctx.reset()));
+            }
+        }
+
+        Err(Error::NoUnwindInfoForAddress)
+    }
 }
 
 /// An iterator over CIE and FDE entries in a `.debug_frame` section.
@@ -454,6 +526,14 @@ impl<'input, Endian> FrameDescriptionEntry<'input, Endian>
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn instructions(&self) -> CallFrameInstructionIter<'input, Endian> {
         CallFrameInstructionIter { input: self.instructions }
+    }
+
+    /// Return `true` if the given address is within this FDE, `false`
+    /// otherwise.
+    pub fn contains(&self, address: u64) -> bool {
+        let start = self.initial_address;
+        let end = start + self.address_range;
+        start <= address && address < end
     }
 }
 
@@ -1673,7 +1753,7 @@ mod tests {
     use super::*;
     use super::{parse_cfi_entry, UnwindContext};
     use constants;
-    use endianity::{BigEndian, Endianity, EndianBuf, LittleEndian};
+    use endianity::{BigEndian, Endianity, EndianBuf, LittleEndian, NativeEndian};
     use parser::{Error, Format, Result};
     use self::test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};
 
@@ -3492,5 +3572,124 @@ mod tests {
         // All done!
         assert_eq!(Ok(None), table.next_row());
         assert_eq!(Ok(None), table.next_row());
+    }
+
+    #[test]
+    fn test_unwind_info_for_address_ok() {
+        let instrs1 = Section::with_endian(Endian::Big)
+            // The CFA is -12 from register 4.
+            .D8(constants::DW_CFA_def_cfa_sf.0)
+            .uleb(4)
+            .sleb(-12);
+        let instrs1 = instrs1.get_contents().unwrap();
+
+        let instrs2: Vec<_> = (0..8)
+            .map(|_| constants::DW_CFA_nop.0)
+            .collect();
+
+        let instrs3 = Section::with_endian(Endian::Big)
+            // Initial instructions form a row, advance the address by 100.
+            .D8(constants::DW_CFA_advance_loc1.0)
+            .D8(100)
+            // Register 0 is -16 from the CFA.
+            .D8(constants::DW_CFA_offset_extended_sf.0)
+            .uleb(0)
+            .sleb(-16);
+        let instrs3 = instrs3.get_contents().unwrap();
+
+        let instrs4: Vec<_> = (0..16)
+            .map(|_| constants::DW_CFA_nop.0)
+            .collect();
+
+        let mut cie1 = CommonInformationEntry {
+            length: 0,
+            format: Format::Dwarf32,
+            version: 4,
+            augmentation: None,
+            address_size: 4,
+            segment_size: 0,
+            code_alignment_factor: 1,
+            data_alignment_factor: 1,
+            return_address_register: 3,
+            initial_instructions: EndianBuf::new(&instrs1),
+        };
+
+        let mut cie2 = CommonInformationEntry {
+            length: 0,
+            format: Format::Dwarf32,
+            version: 4,
+            augmentation: None,
+            address_size: 4,
+            segment_size: 0,
+            code_alignment_factor: 1,
+            data_alignment_factor: 1,
+            return_address_register: 1,
+            initial_instructions: EndianBuf::new(&instrs2),
+        };
+
+        let cie1_location = Label::new();
+        let cie2_location = Label::new();
+
+        // Write the CIEs first so that their length gets set before we clone
+        // them into the FDEs and our equality assertions down the line end up
+        // with all the CIEs always having he correct length.
+        let section = Section::with_endian(Endian::Big)
+            .mark(&cie1_location)
+            .cie(Endian::Big, &mut cie1)
+            .mark(&cie2_location)
+            .cie(Endian::Big, &mut cie2);
+
+        let mut fde1 = FrameDescriptionEntry {
+            length: 0,
+            format: Format::Dwarf32,
+            cie: cie1.clone(),
+            initial_segment: 0,
+            initial_address: 0xfeedbeef,
+            address_range: 200,
+            instructions: EndianBuf::<BigEndian>::new(&instrs3),
+        };
+
+        let mut fde2 = FrameDescriptionEntry {
+            length: 0,
+            format: Format::Dwarf32,
+            cie: cie2.clone(),
+            initial_segment: 0,
+            initial_address: 0xfeedface,
+            address_range: 9000,
+            instructions: EndianBuf::<BigEndian>::new(&instrs4),
+        };
+
+        let section = section.fde(Endian::Big, &cie1_location, &mut fde1)
+            .fde(Endian::Big, &cie2_location, &mut fde2);
+        section.start().set_const(0);
+
+        let contents = section.get_contents().unwrap();
+        let debug_frame = DebugFrame::<BigEndian>::new(&contents);
+
+        // Get the second row of the unwind table in `instrs3`.
+        let ctx = UninitializedUnwindContext::new();
+        let result = debug_frame.unwind_info_for_address(ctx, 0xfeedbeef + 150);
+        assert!(result.is_ok());
+        let (unwind_info, _) = result.unwrap();
+
+        assert_eq!(unwind_info,
+                   UnwindTableRow {
+                       start_address: fde1.initial_address + 100,
+                       end_address: fde1.initial_address + fde1.address_range,
+                       cfa: CfaRule::RegisterAndOffset {
+                           register: 4,
+                           offset: -12,
+                       },
+                       registers: vec![RegisterRule::Offset(-16)],
+                   });
+    }
+
+    #[test]
+    fn test_unwind_info_for_address_not_found() {
+        let debug_frame = DebugFrame::<NativeEndian>::new(&[]);
+        let ctx = UninitializedUnwindContext::new();
+        let result = debug_frame.unwind_info_for_address(ctx, 0xbadbad99);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), Error::NoUnwindInfoForAddress);
     }
 }
