@@ -89,19 +89,19 @@ impl<'input, Endian> DebugInfo<'input, Endian>
         CompilationUnitHeadersIter { input: self.debug_info_section }
     }
 
-    /// Get the UnitHeader located at offset from this .debug_info section.
+    /// Get the CompilationUnitHeader located at offset from this .debug_info section.
     ///
     ///
     pub fn header_from_offset(&self,
                               offset: DebugInfoOffset)
-                              -> Result<UnitHeader<'input, Endian>> {
+                              -> Result<CompilationUnitHeader<'input, Endian>> {
         let offset = offset.0 as usize;
         if self.debug_info_section.len() < offset {
             return Err(Error::UnexpectedEof);
         }
 
         let input = self.debug_info_section.range_from(offset..);
-        match parse_unit_header(input) {
+        match CompilationUnitHeader::parse(input) {
             Ok((_, header)) => Ok(header),
             Err(e) => Err(e),
         }
@@ -123,11 +123,11 @@ impl<'input, Endian> CompilationUnitHeadersIter<'input, Endian>
     where Endian: Endianity
 {
     /// Advance the iterator to the next unit header.
-    pub fn next(&mut self) -> Result<Option<UnitHeader<'input, Endian>>> {
+    pub fn next(&mut self) -> Result<Option<CompilationUnitHeader<'input, Endian>>> {
         if self.input.is_empty() {
             Ok(None)
         } else {
-            match parse_unit_header(self.input) {
+            match CompilationUnitHeader::parse(self.input) {
                 Ok((rest, header)) => {
                     self.input = rest;
                     Ok(Some(header))
@@ -144,7 +144,7 @@ impl<'input, Endian> CompilationUnitHeadersIter<'input, Endian>
 impl<'input, Endian> FallibleIterator for CompilationUnitHeadersIter<'input, Endian>
     where Endian: Endianity
 {
-    type Item = UnitHeader<'input, Endian>;
+    type Item = CompilationUnitHeader<'input, Endian>;
     type Error = Error;
 
     fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
@@ -204,7 +204,7 @@ fn test_units() {
                                                 8,
                                                 Format::Dwarf64,
                                                 &buf[23..23+32]);
-            assert_eq!(header, expected);
+            assert_eq!(header.header, expected);
 
         }
         otherwise => panic!("Unexpected result: {:?}", otherwise),
@@ -219,12 +219,158 @@ fn test_units() {
                                      4,
                                      Format::Dwarf32,
                                      &buf[buf.len()-32..]);
-            assert_eq!(header, expected);
+            assert_eq!(header.header, expected);
         }
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 
     assert!(units.next().unwrap().is_none());
+}
+
+/// The header of a compilation unit's debugging information.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompilationUnitHeader<'input, Endian>
+    where Endian: Endianity
+{
+    header: UnitHeader<'input, Endian>,
+}
+
+impl<'input, Endian> CompilationUnitHeader<'input, Endian>
+    where Endian: Endianity
+{
+    /// Get the length of the debugging info for this compilation unit, not
+    /// including the byte length of the encoded length itself.
+    pub fn unit_length(&self) -> u64 {
+        self.header.unit_length
+    }
+
+    /// Get the length of the debugging info for this compilation unit,
+    /// including the byte length of the encoded length itself.
+    pub fn length_including_self(&self) -> u64 {
+        self.header.length_including_self()
+    }
+
+    /// Get the DWARF version of the debugging info for this compilation unit.
+    pub fn version(&self) -> u16 {
+        self.header.version
+    }
+
+    /// The offset into the `.debug_abbrev` section for this compilation unit's
+    /// debugging information entries' abbreviations.
+    pub fn debug_abbrev_offset(&self) -> DebugAbbrevOffset {
+        self.header.debug_abbrev_offset
+    }
+
+    /// The size of addresses (in bytes) in this type-unit.
+    pub fn address_size(&self) -> u8 {
+        self.header.address_size
+    }
+
+    /// Whether this type unit is encoded in 64- or 32-bit DWARF.
+    pub fn format(&self) -> Format {
+        self.header.format
+    }
+
+    /// The serialized size of the header for this compilation unit.
+    pub fn header_size(&self) -> usize {
+        self.header.header_size()
+    }
+
+    /// Navigate this compilation unit's `DebuggingInformationEntry`s.
+    pub fn entries<'me, 'abbrev>(&'me self,
+                                 abbreviations: &'abbrev Abbreviations)
+                                 -> EntriesCursor<'input, 'abbrev, 'me, Endian> {
+        self.header.entries(abbreviations)
+    }
+
+    /// Parse this compilation unit's abbreviations.
+    ///
+    /// ```
+    /// use gimli::DebugAbbrev;
+    /// # use gimli::{DebugInfo, LittleEndian};
+    /// # let info_buf = [
+    /// #     // Comilation unit header
+    /// #
+    /// #     // 32-bit unit length = 25
+    /// #     0x19, 0x00, 0x00, 0x00,
+    /// #     // Version 4
+    /// #     0x04, 0x00,
+    /// #     // debug_abbrev_offset
+    /// #     0x00, 0x00, 0x00, 0x00,
+    /// #     // Address size
+    /// #     0x04,
+    /// #
+    /// #     // DIEs
+    /// #
+    /// #     // Abbreviation code
+    /// #     0x01,
+    /// #     // Attribute of form DW_FORM_string = "foo\0"
+    /// #     0x66, 0x6f, 0x6f, 0x00,
+    /// #
+    /// #       // Children
+    /// #
+    /// #       // Abbreviation code
+    /// #       0x01,
+    /// #       // Attribute of form DW_FORM_string = "foo\0"
+    /// #       0x66, 0x6f, 0x6f, 0x00,
+    /// #
+    /// #         // Children
+    /// #
+    /// #         // Abbreviation code
+    /// #         0x01,
+    /// #         // Attribute of form DW_FORM_string = "foo\0"
+    /// #         0x66, 0x6f, 0x6f, 0x00,
+    /// #
+    /// #           // Children
+    /// #
+    /// #           // End of children
+    /// #           0x00,
+    /// #
+    /// #         // End of children
+    /// #         0x00,
+    /// #
+    /// #       // End of children
+    /// #       0x00,
+    /// # ];
+    /// # let debug_info = DebugInfo::<LittleEndian>::new(&info_buf);
+    /// #
+    /// # let abbrev_buf = [
+    /// #     // Code
+    /// #     0x01,
+    /// #     // DW_TAG_subprogram
+    /// #     0x2e,
+    /// #     // DW_CHILDREN_yes
+    /// #     0x01,
+    /// #     // Begin attributes
+    /// #       // Attribute name = DW_AT_name
+    /// #       0x03,
+    /// #       // Attribute form = DW_FORM_string
+    /// #       0x08,
+    /// #     // End attributes
+    /// #     0x00,
+    /// #     0x00,
+    /// #     // Null terminator
+    /// #     0x00
+    /// # ];
+    /// #
+    /// # let get_some_unit = || debug_info.units().next().unwrap().unwrap();
+    ///
+    /// let unit = get_some_unit();
+    ///
+    /// # let read_debug_abbrev_section_somehow = || &abbrev_buf;
+    /// let debug_abbrev = DebugAbbrev::<LittleEndian>::new(read_debug_abbrev_section_somehow());
+    /// let abbrevs_for_unit = unit.abbreviations(debug_abbrev).unwrap();
+    /// ```
+    pub fn abbreviations(&self, debug_abbrev: DebugAbbrev<Endian>) -> Result<Abbreviations> {
+        self.header.abbreviations(debug_abbrev)
+    }
+
+    /// Parse a compilation unit header.
+    fn parse(input: EndianBuf<Endian>)
+             -> Result<(EndianBuf<Endian>, CompilationUnitHeader<Endian>)> {
+        let (after_unit, header) = try!(parse_unit_header(input));
+        Ok((after_unit, CompilationUnitHeader { header: header }))
+    }
 }
 
 /// Parse the DWARF version from the compilation unit header.
@@ -431,7 +577,8 @@ fn test_parse_debug_types_offset_64_incomplete() {
     };
 }
 
-/// The header of a compilation unit's debugging information.
+/// The common fields for the headers of compilation units and
+/// type units.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnitHeader<'input, Endian>
     where Endian: Endianity
@@ -501,7 +648,7 @@ impl<'input, Endian> UnitHeader<'input, Endian>
     }
 
     /// Get the length of the debugging info for this compilation unit,
-    /// uncluding the byte length of the encoded length itself.
+    /// including the byte length of the encoded length itself.
     pub fn length_including_self(&self) -> u64 {
         match self.format {
             // Length of the 32-bit header plus the unit length.
@@ -586,84 +733,7 @@ impl<'input, Endian> UnitHeader<'input, Endian>
         }
     }
 
-    /// Parse this compilation unit's abbreviations.
-    ///
-    /// ```
-    /// use gimli::DebugAbbrev;
-    /// # use gimli::{DebugInfo, LittleEndian};
-    /// # let info_buf = [
-    /// #     // Comilation unit header
-    /// #
-    /// #     // 32-bit unit length = 25
-    /// #     0x19, 0x00, 0x00, 0x00,
-    /// #     // Version 4
-    /// #     0x04, 0x00,
-    /// #     // debug_abbrev_offset
-    /// #     0x00, 0x00, 0x00, 0x00,
-    /// #     // Address size
-    /// #     0x04,
-    /// #
-    /// #     // DIEs
-    /// #
-    /// #     // Abbreviation code
-    /// #     0x01,
-    /// #     // Attribute of form DW_FORM_string = "foo\0"
-    /// #     0x66, 0x6f, 0x6f, 0x00,
-    /// #
-    /// #       // Children
-    /// #
-    /// #       // Abbreviation code
-    /// #       0x01,
-    /// #       // Attribute of form DW_FORM_string = "foo\0"
-    /// #       0x66, 0x6f, 0x6f, 0x00,
-    /// #
-    /// #         // Children
-    /// #
-    /// #         // Abbreviation code
-    /// #         0x01,
-    /// #         // Attribute of form DW_FORM_string = "foo\0"
-    /// #         0x66, 0x6f, 0x6f, 0x00,
-    /// #
-    /// #           // Children
-    /// #
-    /// #           // End of children
-    /// #           0x00,
-    /// #
-    /// #         // End of children
-    /// #         0x00,
-    /// #
-    /// #       // End of children
-    /// #       0x00,
-    /// # ];
-    /// # let debug_info = DebugInfo::<LittleEndian>::new(&info_buf);
-    /// #
-    /// # let abbrev_buf = [
-    /// #     // Code
-    /// #     0x01,
-    /// #     // DW_TAG_subprogram
-    /// #     0x2e,
-    /// #     // DW_CHILDREN_yes
-    /// #     0x01,
-    /// #     // Begin attributes
-    /// #       // Attribute name = DW_AT_name
-    /// #       0x03,
-    /// #       // Attribute form = DW_FORM_string
-    /// #       0x08,
-    /// #     // End attributes
-    /// #     0x00,
-    /// #     0x00,
-    /// #     // Null terminator
-    /// #     0x00
-    /// # ];
-    /// #
-    /// # let get_some_unit = || debug_info.units().next().unwrap().unwrap();
-    ///
-    /// let unit = get_some_unit();
-    ///
-    /// # let read_debug_abbrev_section_somehow = || &abbrev_buf;
-    /// let debug_abbrev = DebugAbbrev::<LittleEndian>::new(read_debug_abbrev_section_somehow());
-    /// let abbrevs_for_unit = unit.abbreviations(debug_abbrev).unwrap();
-    /// ```
+    /// Parse this unit's abbreviations.
     pub fn abbreviations(&self, debug_abbrev: DebugAbbrev<Endian>) -> Result<Abbreviations> {
         debug_abbrev.abbreviations(self.debug_abbrev_offset())
     }
@@ -3063,7 +3133,7 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
     }
 
     /// Get the length of the debugging info for this type-unit,
-    /// uncluding the byte length of the encoded length itself.
+    /// including the byte length of the encoded length itself.
     pub fn length_including_self(&self) -> u64 {
         self.header.length_including_self() +
         Self::additional_header_size(self.header.format) as u64
@@ -3104,13 +3174,7 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
     pub fn entries<'me, 'abbrev>(&'me self,
                                  abbreviations: &'abbrev Abbreviations)
                                  -> EntriesCursor<'input, 'abbrev, 'me, Endian> {
-        EntriesCursor {
-            unit: &self.header,
-            input: self.header.entries_buf.into(),
-            abbreviations: abbreviations,
-            cached_current: None,
-            delta_depth: 0,
-        }
+        self.header.entries(abbreviations)
     }
 
     /// Parse this type unit's abbreviations.
@@ -3196,7 +3260,7 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
     /// let abbrevs_for_unit = unit.abbreviations(debug_abbrev).unwrap();
     /// ```
     pub fn abbreviations(&self, debug_abbrev: DebugAbbrev<Endian>) -> Result<Abbreviations> {
-        debug_abbrev.abbreviations(self.debug_abbrev_offset())
+        self.header.abbreviations(debug_abbrev)
     }
 }
 
@@ -3321,7 +3385,8 @@ mod tests {
         assert_current_name(cursor, name);
     }
 
-    fn assert_valid_sibling_ptr<Endian>(unit: &UnitHeader<Endian>, cursor: &EntriesCursor<Endian>)
+    fn assert_valid_sibling_ptr<Endian>(unit: &CompilationUnitHeader<Endian>,
+                                        cursor: &EntriesCursor<Endian>)
         where Endian: Endianity
     {
         let sibling_ptr = cursor.current()
@@ -3329,7 +3394,7 @@ mod tests {
             .attr_value(constants::DW_AT_sibling);
         match sibling_ptr {
             Some(AttributeValue::UnitRef(offset)) => {
-                unit.range_from(offset..);
+                unit.header.range_from(offset..);
             }
             _ => panic!("Invalid sibling pointer {:?}", sibling_ptr),
         }

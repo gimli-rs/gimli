@@ -196,7 +196,8 @@ mod str;
 pub use str::*;
 
 mod unit;
-pub use unit::{DebugInfo, DebugInfoOffset, CompilationUnitHeadersIter, UnitHeader, UnitOffset};
+pub use unit::{DebugInfo, DebugInfoOffset, CompilationUnitHeadersIter, CompilationUnitHeader,
+               UnitOffset};
 pub use unit::{DebugTypes, DebugTypesOffset, DebugTypeSignature, TypeUnitHeadersIter,
                TypeUnitHeader};
 pub use unit::{EntriesCursor, DebuggingInformationEntry, AttrsIter, Attribute, AttributeValue};
