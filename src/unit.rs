@@ -760,7 +760,7 @@ pub struct DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>
     where 'input: 'unit,
           Endian: Endianity + 'unit
 {
-    offset: usize,
+    offset: UnitOffset,
     attrs_slice: &'input [u8],
     after_attrs: Cell<Option<&'input [u8]>>,
     code: u64,
@@ -777,7 +777,7 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
     }
 
     /// Get this entry's offset.
-    pub fn offset(&self) -> usize {
+    pub fn offset(&self) -> UnitOffset {
         self.offset
     }
 
@@ -2315,7 +2315,7 @@ fn test_attrs_iter() {
                0xaa, 0xaa];
 
     let entry = DebuggingInformationEntry {
-        offset: 0,
+        offset: UnitOffset(0),
         attrs_slice: &buf,
         after_attrs: Cell::new(None),
         code: 1,
@@ -2406,7 +2406,7 @@ fn test_attrs_iter_incomplete() {
     let buf = [0x66, 0x6f, 0x6f, 0x00];
 
     let entry = DebuggingInformationEntry {
-        offset: 0,
+        offset: UnitOffset(0),
         attrs_slice: &buf,
         after_attrs: Cell::new(None),
         code: 1,
@@ -2506,10 +2506,11 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     }
 
     /// Return the offset in bytes of the given array from the start of the compilation unit
-    fn get_offset(&self, input: &[u8]) -> usize {
+    fn get_offset(&self, input: &[u8]) -> UnitOffset {
         let ptr = input.as_ptr() as *const u8 as usize;
         let start_ptr = self.unit.entries_buf.as_ptr() as *const u8 as usize;
-        ptr - start_ptr + self.unit.header_size()
+        let offset = ptr - start_ptr + self.unit.header_size();
+        UnitOffset(offset as u64)
     }
 
     /// Move the cursor to the next DIE in the tree.

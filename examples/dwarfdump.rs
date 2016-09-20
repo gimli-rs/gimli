@@ -239,7 +239,7 @@ fn dump_entries<Endian>(offset: u64,
         }
         println!("<{:2}><0x{:08x}>{:indent$}{}",
                  depth,
-                 entry.offset(),
+                 entry.offset().0,
                  "",
                  entry.tag(),
                  indent = indent);
