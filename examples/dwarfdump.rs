@@ -138,13 +138,12 @@ fn dump_info<Endian>(file: &object::File,
 
         let debug_info = gimli::DebugInfo::<Endian>::new(&debug_info);
 
-        let mut offset = 0;
         let mut iter = debug_info.units();
         while let Some(unit) = iter.next().expect("Should parse compilation unit") {
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
-            dump_entries(offset,
+            dump_entries(unit.offset().0,
                          unit.entries(&abbrevs),
                          unit.address_size(),
                          unit.format(),
@@ -153,7 +152,6 @@ fn dump_info<Endian>(file: &object::File,
                          debug_ranges,
                          debug_str,
                          flags);
-            offset += unit.length_including_self();
         }
     }
 }
@@ -172,13 +170,12 @@ fn dump_types<Endian>(file: &object::File,
 
         let debug_types = gimli::DebugTypes::<Endian>::new(&debug_types);
 
-        let mut offset = 0;
         let mut iter = debug_types.units();
         while let Some(unit) = iter.next().expect("Should parse the unit OK") {
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
-            dump_entries(offset,
+            dump_entries(unit.offset().0,
                          unit.entries(&abbrevs),
                          unit.address_size(),
                          unit.format(),
@@ -187,7 +184,6 @@ fn dump_types<Endian>(file: &object::File,
                          debug_ranges,
                          debug_str,
                          flags);
-            offset += unit.length_including_self();
         }
     }
 }
@@ -239,7 +235,7 @@ fn dump_entries<Endian>(offset: u64,
         }
         println!("<{:2}><0x{:08x}>{:indent$}{}",
                  depth,
-                 entry.offset(),
+                 entry.offset().0,
                  "",
                  entry.tag(),
                  indent = indent);

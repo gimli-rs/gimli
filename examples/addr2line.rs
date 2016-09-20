@@ -132,11 +132,11 @@ impl<'input> Unit<'input> {
     fn parse<Endian>(debug_abbrev: &gimli::DebugAbbrev<Endian>,
                      debug_ranges: &gimli::DebugRanges<Endian>,
                      debug_str: &gimli::DebugStr<'input, Endian>,
-                     header: &gimli::UnitHeader<'input, Endian>)
+                     header: &gimli::CompilationUnitHeader<'input, Endian>)
                      -> Option<Unit<'input>>
         where Endian: gimli::Endianity
     {
-        let abbrev = debug_abbrev.abbreviations(header.debug_abbrev_offset()).expect("Fail");
+        let abbrev = header.abbreviations(*debug_abbrev).expect("Fail");
         let mut entries = header.entries(&abbrev);
         let (_, entry) = entries.next_dfs()
             .expect("Should parse first entry OK")
