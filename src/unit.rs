@@ -85,8 +85,8 @@ impl<'input, Endian> DebugInfo<'input, Endian>
     ///
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
-    pub fn units(&self) -> UnitHeadersIter<'input, Endian> {
-        UnitHeadersIter { input: self.debug_info_section }
+    pub fn units(&self) -> CompilationUnitHeadersIter<'input, Endian> {
+        CompilationUnitHeadersIter { input: self.debug_info_section }
     }
 
     /// Get the UnitHeader located at offset from this .debug_info section.
@@ -113,13 +113,13 @@ impl<'input, Endian> DebugInfo<'input, Endian>
 /// See the [documentation on
 /// `DebugInfo::units`](./struct.DebugInfo.html#method.units) for more detail.
 #[derive(Clone, Debug)]
-pub struct UnitHeadersIter<'input, Endian>
+pub struct CompilationUnitHeadersIter<'input, Endian>
     where Endian: Endianity
 {
     input: EndianBuf<'input, Endian>,
 }
 
-impl<'input, Endian> UnitHeadersIter<'input, Endian>
+impl<'input, Endian> CompilationUnitHeadersIter<'input, Endian>
     where Endian: Endianity
 {
     /// Advance the iterator to the next unit header.
@@ -141,14 +141,14 @@ impl<'input, Endian> UnitHeadersIter<'input, Endian>
     }
 }
 
-impl<'input, Endian> FallibleIterator for UnitHeadersIter<'input, Endian>
+impl<'input, Endian> FallibleIterator for CompilationUnitHeadersIter<'input, Endian>
     where Endian: Endianity
 {
     type Item = UnitHeader<'input, Endian>;
     type Error = Error;
 
     fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
-        UnitHeadersIter::next(self)
+        CompilationUnitHeadersIter::next(self)
     }
 }
 
