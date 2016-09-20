@@ -705,7 +705,7 @@ impl<'input, Endian> UnitHeader<'input, Endian>
 
     /// The serialized size of the header for this compilation unit.
     pub fn header_size(&self) -> usize {
-        Self::size_of_header(self.format)
+        self.length_including_self() as usize - self.entries_buf.len()
     }
 
     fn is_valid_offset(&self, offset: UnitOffset) -> bool {
@@ -3155,24 +3155,10 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
         self.header.unit_length
     }
 
-    fn additional_header_size(format: Format) -> usize {
-        // There are two additional fields in a type-unit compared to
-        // compilation- and partial-units. The type_signature is
-        // always 64 bits regardless of format, the type_offset is 32
-        // or 64 bits depending on the format.
-        let type_signature_size = 8;
-        let type_offset_size = match format {
-            Format::Dwarf32 => 4,
-            Format::Dwarf64 => 8,
-        };
-        type_signature_size + type_offset_size
-    }
-
     /// Get the length of the debugging info for this type-unit,
     /// including the byte length of the encoded length itself.
     pub fn length_including_self(&self) -> u64 {
-        self.header.length_including_self() +
-        Self::additional_header_size(self.header.format) as u64
+        self.header.length_including_self()
     }
 
     /// Get the DWARF version of the debugging info for this type-unit.
@@ -3194,6 +3180,11 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
     /// Whether this type unit is encoded in 64- or 32-bit DWARF.
     pub fn format(&self) -> Format {
         self.header.format
+    }
+
+    /// The serialized size of the header for this type-unit.
+    pub fn header_size(&self) -> usize {
+        self.header.header_size()
     }
 
     /// Get the unique type signature for this type unit.
@@ -3347,7 +3338,10 @@ fn test_parse_type_unit_header_64_ok() {
                                                            &[]),
                                            offset,
                                            DebugTypeSignature(0xdeadbeefdeadbeef),
-                                           UnitOffset(0x7856341278563412)))
+                                           UnitOffset(0x7856341278563412)));
+            assert_eq!(header.header_size(), buf.len());
+            assert_eq!(header.header.header_size(), buf.len());
+
         },
         otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
