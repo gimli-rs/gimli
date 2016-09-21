@@ -133,7 +133,7 @@ pub type DebugPubNames<'input, Endian> = DebugLookup<'input,
                                                                     Endian,
                                                                     NamesSwitch<'input, Endian>>>;
 
-/// An iterator over the pubnames from a .debug_pubnames section.
+/// An iterator over the pubnames from a `.debug_pubnames` section.
 ///
 /// Provides:
 ///

@@ -806,7 +806,7 @@ impl<'input, Endian> Operation<'input, Endian>
                 Ok((newbytes,
                     Operation::Call { offset: DieReference::DebugInfoRef(DebugInfoOffset(value)) }))
             }
-            constants::DW_OP_form_tls_address => Ok((bytes, Operation::TLS)),
+            constants::DW_OP_form_tls_address |
             constants::DW_OP_GNU_push_tls_address => Ok((bytes, Operation::TLS)),
             constants::DW_OP_call_frame_cfa => Ok((bytes, Operation::CallFrameCFA)),
             constants::DW_OP_bit_piece => {
@@ -824,7 +824,7 @@ impl<'input, Endian> Operation<'input, Endian>
             }
             constants::DW_OP_stack_value => Ok((bytes, Operation::StackValue)),
 
-            _ => return Err(Error::InvalidExpression(name)),
+            _ => Err(Error::InvalidExpression(name)),
         }
     }
 }
@@ -1410,7 +1410,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
             addr_mask: if address_size == 8 {
                 !0u64
             } else {
-                (1 << 8 * address_size as u64) - 1
+                (1 << (8 * address_size as u64)) - 1
             },
             stack: Vec::new(),
             expression_stack: Vec::new(),
@@ -1454,7 +1454,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
                 let mut value = value & self.addr_mask;
                 if self.address_size < 8 && (value & (1u64 << (8 * self.address_size - 1))) != 0 {
                     // Sign extend.
-                    value = value | !self.addr_mask;
+                    value |= !self.addr_mask;
                 }
                 Ok(value as i64)
             }
@@ -1709,7 +1709,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
                 current_location = Location::Scalar { value: try!(self.pop()) };
             }
 
-            Operation::Piece { size_in_bits: _, bit_offset: _ } => {
+            Operation::Piece { .. } => {
                 piece_end = true;
             }
         }

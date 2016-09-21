@@ -131,7 +131,7 @@ pub type DebugPubTypes<'input, Endian> = DebugLookup<'input,
                                                                     Endian,
                                                                     TypesSwitch<'input, Endian>>>;
 
-/// An iterator over the pubtypes from a .debug_pubtypes section.
+/// An iterator over the pubtypes from a `.debug_pubtypes` section.
 ///
 /// Provides:
 ///

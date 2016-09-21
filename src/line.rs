@@ -134,9 +134,8 @@ impl<'input, Endian> StateMachine<'input, Endian>
 
         let op_index_with_advance = self.row.registers.op_index + operation_advance;
 
-        self.row.registers.address = self.row.registers.address +
-                                     minimum_instruction_length *
-                                     (op_index_with_advance / maximum_operations_per_instruction);
+        self.row.registers.address += minimum_instruction_length *
+                                      (op_index_with_advance / maximum_operations_per_instruction);
 
         self.row.registers.op_index = op_index_with_advance % maximum_operations_per_instruction;
     }

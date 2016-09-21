@@ -1630,7 +1630,7 @@ impl<'input, Endian> Attribute<'input, Endian>
     /// it is encountered in practice.
     fn exprloc_value(&self) -> Option<EndianBuf<'input, Endian>> {
         Some(match self.value {
-            AttributeValue::Block(data) => data,
+            AttributeValue::Block(data) |
             AttributeValue::Exprloc(data) => data,
             _ => return None,
         })

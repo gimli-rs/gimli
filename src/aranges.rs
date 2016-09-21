@@ -234,7 +234,7 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
 ///   ```
 pub type DebugAranges<'input, Endian> = DebugLookup<'input, Endian, ArangeParser<'input, Endian>>;
 
-/// An iterator over the aranges from a .debug_aranges section.
+/// An iterator over the aranges from a `.debug_aranges` section.
 ///
 /// Provides:
 ///
