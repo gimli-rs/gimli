@@ -8,8 +8,6 @@ use std::result;
 
 use constants;
 use endianity::{Endianity, EndianBuf};
-#[cfg(test)]
-use endianity::LittleEndian;
 use leb128;
 
 /// An error that occurred when parsing.
@@ -463,91 +461,11 @@ pub fn parse_initial_length<Endian>(input: EndianBuf<Endian>)
     }
 }
 
-#[test]
-fn test_parse_initial_length_32_ok() {
-    let buf = [0x12, 0x34, 0x56, 0x78];
-
-    match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
-        Ok((rest, (length, format))) => {
-            assert_eq!(rest.len(), 0);
-            assert_eq!(format, Format::Dwarf32);
-            assert_eq!(0x78563412, length);
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-}
-
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_parse_initial_length_64_ok() {
-    let buf = [
-        // Dwarf_64_INITIAL_UNIT_LENGTH
-        0xff, 0xff, 0xff, 0xff,
-        // Actual length
-        0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff
-    ];
-
-    match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
-        Ok((rest, (length, format))) => {
-            assert_eq!(rest.len(), 0);
-            assert_eq!(format, Format::Dwarf64);
-            assert_eq!(0xffdebc9a78563412, length);
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-}
-
-#[test]
-fn test_parse_initial_length_unknown_reserved_value() {
-    let buf = [0xfe, 0xff, 0xff, 0xff];
-
-    match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
-        Err(Error::UnknownReservedLength) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_initial_length_incomplete() {
-    let buf = [0xff, 0xff, 0xff]; // Need at least 4 bytes.
-
-    match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_parse_initial_length_64_incomplete() {
-    let buf = [
-        // DWARF_64_INITIAL_UNIT_LENGTH
-        0xff, 0xff, 0xff, 0xff,
-        // Actual length is not long enough.
-        0x12, 0x34, 0x56, 0x78
-    ];
-
-    match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
 /// Parse the size of addresses (in bytes) on the target architecture.
 pub fn parse_address_size<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u8)>
     where Endian: Endianity
 {
     parse_u8(input.into()).map(|(r, u)| (EndianBuf::new(r), u))
-}
-
-#[test]
-fn test_parse_address_size_ok() {
-    let buf = [0x04];
-
-    match parse_address_size(EndianBuf::<LittleEndian>::new(&buf)) {
-        Ok((_, val)) => assert_eq!(val, 4),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
 }
 
 /// Take a slice of size `bytes` from the input.
@@ -574,4 +492,90 @@ pub fn parse_length_uleb_value<Endian>(input: EndianBuf<Endian>)
 {
     let (rest, len) = try!(parse_unsigned_leb(input.into()));
     take(len as usize, EndianBuf::new(rest))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use endianity::{EndianBuf, LittleEndian};
+
+    #[test]
+    fn test_parse_initial_length_32_ok() {
+        let buf = [0x12, 0x34, 0x56, 0x78];
+
+        match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
+            Ok((rest, (length, format))) => {
+                assert_eq!(rest.len(), 0);
+                assert_eq!(format, Format::Dwarf32);
+                assert_eq!(0x78563412, length);
+            }
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_parse_initial_length_64_ok() {
+        let buf = [
+            // Dwarf_64_INITIAL_UNIT_LENGTH
+            0xff, 0xff, 0xff, 0xff,
+            // Actual length
+            0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff
+        ];
+
+        match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
+            Ok((rest, (length, format))) => {
+                assert_eq!(rest.len(), 0);
+                assert_eq!(format, Format::Dwarf64);
+                assert_eq!(0xffdebc9a78563412, length);
+            }
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+    }
+
+    #[test]
+    fn test_parse_initial_length_unknown_reserved_value() {
+        let buf = [0xfe, 0xff, 0xff, 0xff];
+
+        match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
+            Err(Error::UnknownReservedLength) => assert!(true),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_initial_length_incomplete() {
+        let buf = [0xff, 0xff, 0xff]; // Need at least 4 bytes.
+
+        match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
+            Err(Error::UnexpectedEof) => assert!(true),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_parse_initial_length_64_incomplete() {
+        let buf = [
+            // DWARF_64_INITIAL_UNIT_LENGTH
+            0xff, 0xff, 0xff, 0xff,
+            // Actual length is not long enough.
+            0x12, 0x34, 0x56, 0x78
+        ];
+
+        match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
+            Err(Error::UnexpectedEof) => assert!(true),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_address_size_ok() {
+        let buf = [0x04];
+
+        match parse_address_size(EndianBuf::<LittleEndian>::new(&buf)) {
+            Ok((_, val)) => assert_eq!(val, 4),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
 }
