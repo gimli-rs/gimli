@@ -52,12 +52,11 @@ impl<'input, Endian> DebugLoc<'input, Endian>
                      address_size: u8,
                      base_address: u64)
                      -> Result<LocationListIter<Endian>> {
-        let offset = offset.0 as usize;
-        if self.debug_loc_section.len() < offset {
+        if self.debug_loc_section.len() < offset.0 {
             return Err(Error::UnexpectedEof);
         }
 
-        let input = self.debug_loc_section.range_from(offset..);
+        let input = self.debug_loc_section.range_from(offset.0..);
         Ok(LocationListIter::new(input, address_size, base_address))
     }
 
@@ -74,12 +73,11 @@ impl<'input, Endian> DebugLoc<'input, Endian>
                          offset: DebugLocOffset,
                          address_size: u8)
                          -> Result<RawLocationListIter<Endian>> {
-        let offset = offset.0 as usize;
-        if self.debug_loc_section.len() < offset {
+        if self.debug_loc_section.len() < offset.0 {
             return Err(Error::UnexpectedEof);
         }
 
-        let input = self.debug_loc_section.range_from(offset..);
+        let input = self.debug_loc_section.range_from(offset.0..);
         Ok(RawLocationListIter::new(input, address_size))
     }
 }

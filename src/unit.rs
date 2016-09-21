@@ -100,11 +100,11 @@ impl<'input, Endian> DebugInfo<'input, Endian>
     pub fn header_from_offset(&self,
                               offset: DebugInfoOffset)
                               -> Result<CompilationUnitHeader<'input, Endian>> {
-        if self.debug_info_section.len() < offset.0 as usize {
+        if self.debug_info_section.len() < offset.0 {
             return Err(Error::UnexpectedEof);
         }
 
-        let input = self.debug_info_section.range_from(offset.0 as usize..);
+        let input = self.debug_info_section.range_from(offset.0..);
         match CompilationUnitHeader::parse(input, offset) {
             Ok((_, header)) => Ok(header),
             Err(e) => Err(e),
@@ -712,11 +712,11 @@ impl<'input, Endian> UnitHeader<'input, Endian>
 
     fn is_valid_offset(&self, offset: UnitOffset) -> bool {
         let size_of_header = self.header_size();
-        if (offset.0 as usize) < size_of_header {
+        if offset.0 < size_of_header {
             return false;
         }
 
-        let relative_to_entries_buf = offset.0 as usize - size_of_header;
+        let relative_to_entries_buf = offset.0 - size_of_header;
         relative_to_entries_buf < self.entries_buf.len()
     }
 
@@ -726,22 +726,22 @@ impl<'input, Endian> UnitHeader<'input, Endian>
         assert!(self.is_valid_offset(idx.end));
         assert!(idx.start <= idx.end);
         let size_of_header = Self::size_of_header(self.format);
-        let start = idx.start.0 as usize - size_of_header;
-        let end = idx.end.0 as usize - size_of_header;
+        let start = idx.start.0 - size_of_header;
+        let end = idx.end.0 - size_of_header;
         &self.entries_buf.0[start..end]
     }
 
     /// Get the underlying bytes for the supplied range.
     pub fn range_from(&self, idx: RangeFrom<UnitOffset>) -> &'input [u8] {
         assert!(self.is_valid_offset(idx.start));
-        let start = idx.start.0 as usize - Self::size_of_header(self.format);
+        let start = idx.start.0 - Self::size_of_header(self.format);
         &self.entries_buf.0[start..]
     }
 
     /// Get the underlying bytes for the supplied range.
     pub fn range_to(&self, idx: RangeTo<UnitOffset>) -> &'input [u8] {
         assert!(self.is_valid_offset(idx.end));
-        let end = idx.end.0 as usize - Self::size_of_header(self.format);
+        let end = idx.end.0 - Self::size_of_header(self.format);
         &self.entries_buf.0[..end]
     }
 

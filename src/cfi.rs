@@ -55,12 +55,11 @@ impl<'input, Endian> DebugFrame<'input, Endian>
     pub fn cie_from_offset(&self,
                            offset: DebugFrameOffset)
                            -> Result<CommonInformationEntry<'input, Endian>> {
-        let offset = offset.0 as usize;
-        if self.debug_frame_section.len() < offset {
+        if self.debug_frame_section.len() < offset.0 {
             return Err(Error::UnexpectedEof);
         }
 
-        let input = self.debug_frame_section.range_from(offset..);
+        let input = self.debug_frame_section.range_from(offset.0..);
         let (_, entry) = try!(CommonInformationEntry::parse(input));
         Ok(entry)
     }

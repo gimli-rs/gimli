@@ -50,12 +50,11 @@ impl<'input, Endian> DebugRanges<'input, Endian>
                   address_size: u8,
                   base_address: u64)
                   -> Result<RangesIter<Endian>> {
-        let offset = offset.0 as usize;
-        if self.debug_ranges_section.len() < offset {
+        if self.debug_ranges_section.len() < offset.0 {
             return Err(Error::UnexpectedEof);
         }
 
-        let input = self.debug_ranges_section.range_from(offset..);
+        let input = self.debug_ranges_section.range_from(offset.0..);
         Ok(RangesIter::new(input, address_size, base_address))
     }
 
@@ -72,12 +71,11 @@ impl<'input, Endian> DebugRanges<'input, Endian>
                       offset: DebugRangesOffset,
                       address_size: u8)
                       -> Result<RawRangesIter<Endian>> {
-        let offset = offset.0 as usize;
-        if self.debug_ranges_section.len() < offset {
+        if self.debug_ranges_section.len() < offset.0 {
             return Err(Error::UnexpectedEof);
         }
 
-        let input = self.debug_ranges_section.range_from(offset..);
+        let input = self.debug_ranges_section.range_from(offset.0..);
         Ok(RawRangesIter::new(input, address_size))
     }
 }
