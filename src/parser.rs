@@ -496,12 +496,16 @@ pub fn parse_length_uleb_value<Endian>(input: EndianBuf<Endian>)
 
 #[cfg(test)]
 mod tests {
+    extern crate test_assembler;
+
     use super::*;
     use endianity::{EndianBuf, LittleEndian};
+    use self::test_assembler::{Endian, Section};
 
     #[test]
     fn test_parse_initial_length_32_ok() {
-        let buf = [0x12, 0x34, 0x56, 0x78];
+        let section = Section::with_endian(Endian::Little).L32(0x78563412);
+        let buf = section.get_contents().unwrap();
 
         match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
             Ok((rest, (length, format))) => {
@@ -514,14 +518,13 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_parse_initial_length_64_ok() {
-        let buf = [
+        let section = Section::with_endian(Endian::Little)
             // Dwarf_64_INITIAL_UNIT_LENGTH
-            0xff, 0xff, 0xff, 0xff,
+            .L32(0xffffffff)
             // Actual length
-            0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff
-        ];
+            .L64(0xffdebc9a78563412);
+        let buf = section.get_contents().unwrap();
 
         match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
             Ok((rest, (length, format))) => {
@@ -535,7 +538,8 @@ mod tests {
 
     #[test]
     fn test_parse_initial_length_unknown_reserved_value() {
-        let buf = [0xfe, 0xff, 0xff, 0xff];
+        let section = Section::with_endian(Endian::Little).L32(0xfffffffe);
+        let buf = section.get_contents().unwrap();
 
         match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
             Err(Error::UnknownReservedLength) => assert!(true),
@@ -554,14 +558,13 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_parse_initial_length_64_incomplete() {
-        let buf = [
-            // DWARF_64_INITIAL_UNIT_LENGTH
-            0xff, 0xff, 0xff, 0xff,
+        let section = Section::with_endian(Endian::Little)
+            // Dwarf_64_INITIAL_UNIT_LENGTH
+            .L32(0xffffffff)
             // Actual length is not long enough.
-            0x12, 0x34, 0x56, 0x78
-        ];
+            .L32(0x78563412);
+        let buf = section.get_contents().unwrap();
 
         match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
             Err(Error::UnexpectedEof) => assert!(true),
