@@ -184,9 +184,9 @@ impl<'input, Endian> FallibleIterator for CfiEntriesIter<'input, Endian>
 /// Parse the common start shared between both CIEs and FDEs. Return a tuple of
 /// the form `(next_entry_input, (length, format, cie_id_or_offset,
 /// rest_of_this_entry_input))`.
-fn parse_cfi_entry_common<'input, Endian>
-    (input: EndianBuf<'input, Endian>)
-     -> Result<(EndianBuf<'input, Endian>, (u64, Format, u64, EndianBuf<'input, Endian>))>
+fn parse_cfi_entry_common<Endian>
+    (input: EndianBuf<Endian>)
+     -> Result<(EndianBuf<Endian>, (u64, Format, u64, EndianBuf<Endian>))>
     where Endian: Endianity
 {
     let (rest, (length, format)) = try!(parse_initial_length(input));
@@ -222,9 +222,9 @@ pub enum CieOrFde<'input, Endian>
     Fde(PartialFrameDescriptionEntry<'input, Endian>),
 }
 
-fn parse_cfi_entry<'input, Endian>
-    (input: EndianBuf<'input, Endian>)
-     -> Result<(EndianBuf<'input, Endian>, CieOrFde<'input, Endian>)>
+fn parse_cfi_entry<Endian>
+    (input: EndianBuf<Endian>)
+     -> Result<(EndianBuf<Endian>, CieOrFde<Endian>)>
     where Endian: Endianity
 {
     let (rest_rest, (length, format, cie_id_or_offset, rest)) = try!(parse_cfi_entry_common(input));
@@ -756,7 +756,7 @@ impl<'input, Endian> UnwindContext<'input, Endian>
 
         self.initial_rules
             .get(register as usize)
-            .map(|r| r.clone())
+            .cloned()
             .or(Some(RegisterRule::Undefined))
     }
 
@@ -871,8 +871,8 @@ impl<'input, 'cie, 'fde, 'ctx, Endian> UnwindTable<'input, 'cie, 'fde, 'ctx, End
                     fde: Option<&'fde FrameDescriptionEntry<'input, Endian>>)
                     -> UnwindTable<'input, 'cie, 'fde, 'ctx, Endian> {
         assert!(ctx.stack.len() >= 1);
-        let next_start_address = fde.map(|fde| fde.initial_address).unwrap_or(0);
-        let instructions = fde.map(|fde| fde.instructions()).unwrap_or_else(|| cie.instructions());
+        let next_start_address = fde.map_or(0, |fde| fde.initial_address);
+        let instructions = fde.map_or_else(|| cie.instructions(), |fde| fde.instructions());
         UnwindTable {
             ctx: ctx,
             cie: cie,
