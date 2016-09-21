@@ -9,7 +9,7 @@ use std::collections::hash_map;
 
 /// An offset into the `.debug_abbrev` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugAbbrevOffset(pub u64);
+pub struct DebugAbbrevOffset(pub usize);
 
 /// The `DebugAbbrev` struct represents the abbreviations describing
 /// `DebuggingInformationEntry`s' attribute names and forms found in the

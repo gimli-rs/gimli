@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 
 /// An offset into the `.debug_str` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugStrOffset(pub u64);
+pub struct DebugStrOffset(pub usize);
 
 /// The `DebugStr` struct represents the DWARF strings
 /// found in the `.debug_str` section.

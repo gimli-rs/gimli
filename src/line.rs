@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 
 /// An offset into the `.debug_line` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugLineOffset(pub u64);
+pub struct DebugLineOffset(pub usize);
 
 /// The `DebugLine` struct contains the source location to instruction mapping
 /// found in the `.debug_line` section.

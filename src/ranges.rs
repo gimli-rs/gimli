@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 
 /// An offset into the `.debug_ranges` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugRangesOffset(pub u64);
+pub struct DebugRangesOffset(pub usize);
 
 /// The `DebugRanges` struct represents the DWARF strings
 /// found in the `.debug_ranges` section.
@@ -329,7 +329,7 @@ mod tests {
 
         let buf = section.get_contents().unwrap();
         let debug_ranges = DebugRanges::<LittleEndian>::new(&buf);
-        let offset = DebugRangesOffset((&first - &start) as u64);
+        let offset = DebugRangesOffset((&first - &start) as usize);
         let mut ranges = debug_ranges.ranges(offset, 4, 0x01000000).unwrap();
 
         // A normal range.
@@ -371,7 +371,7 @@ mod tests {
         assert_eq!(ranges.next(), Ok(None));
 
         // An offset at the end of buf.
-        let mut ranges = debug_ranges.ranges(DebugRangesOffset(buf.len() as u64), 4, 0x01000000)
+        let mut ranges = debug_ranges.ranges(DebugRangesOffset(buf.len()), 4, 0x01000000)
             .unwrap();
         assert_eq!(ranges.next(), Ok(None));
     }
@@ -405,7 +405,7 @@ mod tests {
 
         let buf = section.get_contents().unwrap();
         let debug_ranges = DebugRanges::<LittleEndian>::new(&buf);
-        let offset = DebugRangesOffset((&first - &start) as u64);
+        let offset = DebugRangesOffset((&first - &start) as usize);
         let mut ranges = debug_ranges.ranges(offset, 8, 0x01000000).unwrap();
 
         // A normal range.
@@ -447,7 +447,7 @@ mod tests {
         assert_eq!(ranges.next(), Ok(None));
 
         // An offset at the end of buf.
-        let mut ranges = debug_ranges.ranges(DebugRangesOffset(buf.len() as u64), 8, 0x01000000)
+        let mut ranges = debug_ranges.ranges(DebugRangesOffset(buf.len()), 8, 0x01000000)
             .unwrap();
         assert_eq!(ranges.next(), Ok(None));
     }
@@ -472,7 +472,7 @@ mod tests {
         assert_eq!(ranges.next(), Err(Error::InvalidAddressRange));
 
         // An invalid offset.
-        match debug_ranges.ranges(DebugRangesOffset(buf.len() as u64 + 1), 4, 0x01000000) {
+        match debug_ranges.ranges(DebugRangesOffset(buf.len() + 1), 4, 0x01000000) {
             Err(Error::UnexpectedEof) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
