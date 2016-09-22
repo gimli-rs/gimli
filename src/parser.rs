@@ -650,7 +650,22 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_offset_64() {
+    fn test_parse_offset_64_small() {
+        let section = Section::with_endian(Endian::Little).L64(0x01234567);
+        let buf = section.get_contents().unwrap();
+
+        match parse_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
+            Ok((rest, val)) => {
+                assert_eq!(rest.len(), 0);
+                assert_eq!(val, 0x01234567);
+            }
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_offset_64_large() {
         let section = Section::with_endian(Endian::Little).L64(0x0123456789abcdef);
         let buf = section.get_contents().unwrap();
 
@@ -659,6 +674,18 @@ mod tests {
                 assert_eq!(rest.len(), 0);
                 assert_eq!(val, 0x0123456789abcdef);
             }
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "32")]
+    fn test_parse_offset_64_large() {
+        let section = Section::with_endian(Endian::Little).L64(0x0123456789abcdef);
+        let buf = section.get_contents().unwrap();
+
+        match parse_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
+            Err(Error::UnsupportedOffset) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }

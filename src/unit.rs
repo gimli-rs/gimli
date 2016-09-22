@@ -159,6 +159,7 @@ impl<'input, Endian> FallibleIterator for CompilationUnitHeadersIter<'input, End
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
 #[cfg_attr(rustfmt, rustfmt_skip)]
 fn test_units() {
     let buf = [
@@ -484,6 +485,7 @@ fn test_parse_debug_abbrev_offset_32_incomplete() {
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
 fn test_parse_debug_abbrev_offset_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
@@ -534,6 +536,7 @@ fn test_parse_debug_info_offset_32_incomplete() {
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
 fn test_parse_debug_info_offset_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
@@ -583,6 +586,7 @@ fn test_parse_debug_types_offset_32_incomplete() {
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
 fn test_parse_debug_types_offset_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
@@ -818,6 +822,7 @@ fn test_parse_unit_header_32_ok() {
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
 #[cfg_attr(rustfmt, rustfmt_skip)]
 fn test_parse_unit_header_64_ok() {
     let buf = [
@@ -2177,6 +2182,7 @@ fn test_parse_attribute_sec_offset_32() {
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
 fn test_parse_attribute_sec_offset_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10];
     let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf64);
@@ -2213,6 +2219,7 @@ fn test_parse_attribute_ref4() {
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
 fn test_parse_attribute_ref8() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
     let unit = test_parse_attribute_unit_default();
@@ -2246,6 +2253,7 @@ fn test_parse_attribute_refaddr_32() {
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
 fn test_parse_attribute_refaddr_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
     let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf64);
@@ -2265,6 +2273,7 @@ fn test_parse_attribute_refaddr_version2() {
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
 fn test_parse_attribute_refaddr8_version2() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
     let mut unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
@@ -2302,6 +2311,7 @@ fn test_parse_attribute_strp_32() {
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
 fn test_parse_attribute_strp_64() {
     let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
     let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf64);
@@ -3001,6 +3011,7 @@ fn test_parse_type_offset_32_ok() {
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
 fn test_parse_type_offset_64_ok() {
     let buf = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff, 0x00];
 
@@ -3314,6 +3325,7 @@ fn parse_type_unit_header<Endian>(input: EndianBuf<Endian>,
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
 #[cfg_attr(rustfmt, rustfmt_skip)]
 fn test_parse_type_unit_header_64_ok() {
     let buf = [
