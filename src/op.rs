@@ -1141,6 +1141,7 @@ fn test_op_parse_fivebyte() {
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
 fn test_op_parse_ninebyte() {
     // There are some tests here that depend on address size.
     let address_size = 8;
