@@ -2,8 +2,8 @@
 
 use constants;
 use parser::{Error, Result, Format, parse_u8e, parse_i8e, parse_u16, parse_i16, parse_u32,
-             parse_i32, parse_u64, parse_i64, parse_unsigned_lebe, parse_signed_lebe, parse_word,
-             parse_address, parse_length_uleb_value};
+             parse_i32, parse_u64, parse_i64, parse_unsigned_lebe, parse_signed_lebe,
+             parse_offset, parse_address, parse_length_uleb_value};
 use endianity::{Endianity, EndianBuf};
 use unit::{UnitOffset, DebugInfoOffset};
 use std::marker::PhantomData;
@@ -794,15 +794,15 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_call2 => {
                 let (newbytes, value) = try!(parse_u16(bytes));
                 Ok((newbytes,
-                    Operation::Call { offset: DieReference::UnitRef(UnitOffset(value as u64)) }))
+                    Operation::Call { offset: DieReference::UnitRef(UnitOffset(value as usize)) }))
             }
             constants::DW_OP_call4 => {
                 let (newbytes, value) = try!(parse_u32(bytes));
                 Ok((newbytes,
-                    Operation::Call { offset: DieReference::UnitRef(UnitOffset(value as u64)) }))
+                    Operation::Call { offset: DieReference::UnitRef(UnitOffset(value as usize)) }))
             }
             constants::DW_OP_call_ref => {
-                let (newbytes, value) = try!(parse_word(bytes, format));
+                let (newbytes, value) = try!(parse_offset(bytes, format));
                 Ok((newbytes,
                     Operation::Call { offset: DieReference::DebugInfoRef(DebugInfoOffset(value)) }))
             }

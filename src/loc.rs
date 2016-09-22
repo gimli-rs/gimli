@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 
 /// An offset into the `.debug_loc` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugLocOffset(pub u64);
+pub struct DebugLocOffset(pub usize);
 
 /// The `DebugLoc` struct represents the DWARF strings
 /// found in the `.debug_loc` section.
@@ -52,12 +52,11 @@ impl<'input, Endian> DebugLoc<'input, Endian>
                      address_size: u8,
                      base_address: u64)
                      -> Result<LocationListIter<Endian>> {
-        let offset = offset.0 as usize;
-        if self.debug_loc_section.len() < offset {
+        if self.debug_loc_section.len() < offset.0 {
             return Err(Error::UnexpectedEof);
         }
 
-        let input = self.debug_loc_section.range_from(offset..);
+        let input = self.debug_loc_section.range_from(offset.0..);
         Ok(LocationListIter::new(input, address_size, base_address))
     }
 
@@ -74,12 +73,11 @@ impl<'input, Endian> DebugLoc<'input, Endian>
                          offset: DebugLocOffset,
                          address_size: u8)
                          -> Result<RawLocationListIter<Endian>> {
-        let offset = offset.0 as usize;
-        if self.debug_loc_section.len() < offset {
+        if self.debug_loc_section.len() < offset.0 {
             return Err(Error::UnexpectedEof);
         }
 
-        let input = self.debug_loc_section.range_from(offset..);
+        let input = self.debug_loc_section.range_from(offset.0..);
         Ok(RawLocationListIter::new(input, address_size))
     }
 }
@@ -287,7 +285,7 @@ mod tests {
 
         let buf = section.get_contents().unwrap();
         let debug_loc = DebugLoc::<LittleEndian>::new(&buf);
-        let offset = DebugLocOffset((&first - &start) as u64);
+        let offset = DebugLocOffset((&first - &start) as usize);
         let mut locations = debug_loc.locations(offset, 4, 0x01000000).unwrap();
 
         // A normal location.
@@ -344,7 +342,7 @@ mod tests {
         assert_eq!(locations.next(), Ok(None));
 
         // An offset at the end of buf.
-        let mut locations = debug_loc.locations(DebugLocOffset(buf.len() as u64), 4, 0x01000000)
+        let mut locations = debug_loc.locations(DebugLocOffset(buf.len()), 4, 0x01000000)
             .unwrap();
         assert_eq!(locations.next(), Ok(None));
     }
@@ -378,7 +376,7 @@ mod tests {
 
         let buf = section.get_contents().unwrap();
         let debug_loc = DebugLoc::<LittleEndian>::new(&buf);
-        let offset = DebugLocOffset((&first - &start) as u64);
+        let offset = DebugLocOffset((&first - &start) as usize);
         let mut locations = debug_loc.locations(offset, 8, 0x01000000).unwrap();
 
         // A normal location.
@@ -435,7 +433,7 @@ mod tests {
         assert_eq!(locations.next(), Ok(None));
 
         // An offset at the end of buf.
-        let mut locations = debug_loc.locations(DebugLocOffset(buf.len() as u64), 8, 0x01000000)
+        let mut locations = debug_loc.locations(DebugLocOffset(buf.len()), 8, 0x01000000)
             .unwrap();
         assert_eq!(locations.next(), Ok(None));
     }
@@ -460,7 +458,7 @@ mod tests {
         assert_eq!(locations.next(), Err(Error::InvalidLocationAddressRange));
 
         // An invalid offset.
-        match debug_loc.locations(DebugLocOffset(buf.len() as u64 + 1), 4, 0x01000000) {
+        match debug_loc.locations(DebugLocOffset(buf.len() + 1), 4, 0x01000000) {
             Err(Error::UnexpectedEof) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }

@@ -200,7 +200,7 @@ struct Unit<'input, Endian>
     comp_name: Option<&'input std::ffi::CStr>,
 }
 
-fn dump_entries<Endian>(offset: u64,
+fn dump_entries<Endian>(offset: usize,
                         mut entries: gimli::EntriesCursor<Endian>,
                         address_size: u8,
                         format: gimli::Format,
@@ -770,7 +770,7 @@ fn dump_aranges<Endian>(file: &object::File)
             if Some(cu_offset) != prev_cu_offset {
                 let cu = debug_info.header_from_offset(cu_offset)
                     .expect("Should parse unit header OK");
-                cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size() as u64);
+                cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size());
                 prev_cu_offset = Some(cu_offset);
             }
             if let Some(segment) = arange.segment() {

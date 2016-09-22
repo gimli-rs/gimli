@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 
 /// An offset into the `.debug_line` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugLineOffset(pub u64);
+pub struct DebugLineOffset(pub usize);
 
 /// The `DebugLine` struct contains the source location to instruction mapping
 /// found in the `.debug_line` section.
@@ -69,11 +69,10 @@ impl<'input, Endian> DebugLine<'input, Endian>
                   comp_dir: Option<&'input ffi::CStr>,
                   comp_name: Option<&'input ffi::CStr>)
                   -> parser::Result<LineNumberProgramHeader<'input, Endian>> {
-        let offset = offset.0 as usize;
-        if self.debug_line_section.len() < offset {
+        if self.debug_line_section.len() < offset.0 {
             return Err(parser::Error::UnexpectedEof);
         }
-        let input = self.debug_line_section.range_from(offset..);
+        let input = self.debug_line_section.range_from(offset.0..);
         let (_, header) =
             try!(LineNumberProgramHeader::parse(input, address_size, comp_dir, comp_name));
         Ok(header)

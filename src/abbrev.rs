@@ -9,7 +9,7 @@ use std::collections::hash_map;
 
 /// An offset into the `.debug_abbrev` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugAbbrevOffset(pub u64);
+pub struct DebugAbbrevOffset(pub usize);
 
 /// The `DebugAbbrev` struct represents the abbreviations describing
 /// `DebuggingInformationEntry`s' attribute names and forms found in the
@@ -48,7 +48,7 @@ impl<'input, Endian> DebugAbbrev<'input, Endian>
     /// The `offset` should generally be retrieved from a unit header.
     pub fn abbreviations(&self, debug_abbrev_offset: DebugAbbrevOffset) -> Result<Abbreviations> {
         let input: &[u8] = self.debug_abbrev_section.into();
-        Abbreviations::parse(&input[debug_abbrev_offset.0 as usize..]).map(|(_, abbrevs)| abbrevs)
+        Abbreviations::parse(&input[debug_abbrev_offset.0..]).map(|(_, abbrevs)| abbrevs)
     }
 }
 

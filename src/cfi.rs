@@ -3,13 +3,14 @@ use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use parser::{Error, Format, Result, parse_address, parse_initial_length, parse_length_uleb_value,
              parse_null_terminated_string, parse_signed_leb, parse_signed_lebe, parse_u8,
-             parse_u8e, parse_u16, parse_u32, parse_unsigned_leb, parse_unsigned_lebe, parse_word};
+             parse_u8e, parse_u16, parse_u32, parse_unsigned_leb, parse_unsigned_lebe, parse_word,
+             u64_to_offset};
 use std::marker::PhantomData;
 use std::str;
 
 /// An offset into the `.debug_frame` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugFrameOffset(pub u64);
+pub struct DebugFrameOffset(pub usize);
 
 /// The `DebugFrame` struct contains the source location to instruction mapping
 /// found in the `.debug_frame` section.
@@ -54,12 +55,11 @@ impl<'input, Endian> DebugFrame<'input, Endian>
     pub fn cie_from_offset(&self,
                            offset: DebugFrameOffset)
                            -> Result<CommonInformationEntry<'input, Endian>> {
-        let offset = offset.0 as usize;
-        if self.debug_frame_section.len() < offset {
+        if self.debug_frame_section.len() < offset.0 {
             return Err(Error::UnexpectedEof);
         }
 
-        let input = self.debug_frame_section.range_from(offset..);
+        let input = self.debug_frame_section.range_from(offset.0..);
         let (_, entry) = try!(CommonInformationEntry::parse(input));
         Ok(entry)
     }
@@ -232,10 +232,11 @@ fn parse_cfi_entry<Endian>
         let cie = try!(CommonInformationEntry::parse_rest(length, format, cie_id_or_offset, rest));
         Ok((rest_rest, CieOrFde::Cie(cie)))
     } else {
+        let cie_offset = DebugFrameOffset(try!(u64_to_offset(cie_id_or_offset)));
         let fde = PartialFrameDescriptionEntry {
             length: length,
             format: format,
-            cie_offset: DebugFrameOffset(cie_id_or_offset),
+            cie_offset: cie_offset,
             rest: rest,
         };
         Ok((rest_rest, CieOrFde::Fde(fde)))
@@ -420,7 +421,7 @@ impl<'input, Endian> PartialFrameDescriptionEntry<'input, Endian>
     {
         FrameDescriptionEntry::parse_rest(self.length,
                                           self.format,
-                                          self.cie_offset.0,
+                                          self.cie_offset,
                                           self.rest,
                                           get_cie)
     }
@@ -471,23 +472,22 @@ impl<'input, Endian> FrameDescriptionEntry<'input, Endian>
         where F: FnMut(DebugFrameOffset) -> Result<CommonInformationEntry<'input, Endian>>
     {
         let (rest_rest, (length, format, cie_pointer, rest)) = try!(parse_cfi_entry_common(input));
+        if is_cie_id(format, cie_pointer) {
+            return Err(Error::NotCiePointer);
+        }
+        let cie_pointer = DebugFrameOffset(try!(u64_to_offset(cie_pointer)));
         let entry = try!(Self::parse_rest(length, format, cie_pointer, rest, get_cie));
         Ok((rest_rest, entry))
     }
 
     fn parse_rest<F>(length: u64,
                      format: Format,
-                     cie_pointer: u64,
+                     cie_pointer: DebugFrameOffset,
                      rest: EndianBuf<'input, Endian>,
                      mut get_cie: F)
                      -> Result<FrameDescriptionEntry<'input, Endian>>
         where F: FnMut(DebugFrameOffset) -> Result<CommonInformationEntry<'input, Endian>>
     {
-        if is_cie_id(format, cie_pointer) {
-            return Err(Error::NotCiePointer);
-        }
-
-        let cie_pointer = DebugFrameOffset(cie_pointer);
         let cie = try!(get_cie(cie_pointer));
 
         let (rest, initial_segment) = if cie.segment_size > 0 {
@@ -2204,7 +2204,7 @@ mod tests {
         let contents = EndianBuf::<LittleEndian>::new(&contents);
 
         let get_cie = |offset| {
-            assert_eq!(offset, DebugFrameOffset(cie_offset as u64));
+            assert_eq!(offset, DebugFrameOffset(cie_offset as usize));
             Ok(cie.clone())
         };
 
@@ -2251,7 +2251,7 @@ mod tests {
         let contents = EndianBuf::<LittleEndian>::new(&contents);
 
         let get_cie = |offset| {
-            assert_eq!(offset, DebugFrameOffset(cie_offset as u64));
+            assert_eq!(offset, DebugFrameOffset(cie_offset as usize));
             Ok(cie.clone())
         };
 
@@ -2298,7 +2298,7 @@ mod tests {
         let contents = EndianBuf::<LittleEndian>::new(&contents);
 
         let get_cie = |offset| {
-            assert_eq!(offset, DebugFrameOffset(cie_offset as u64));
+            assert_eq!(offset, DebugFrameOffset(cie_offset as usize));
             Ok(cie.clone())
         };
 
@@ -2379,10 +2379,10 @@ mod tests {
 
                 assert_eq!(partial.length, fde.length);
                 assert_eq!(partial.format, fde.format);
-                assert_eq!(partial.cie_offset, DebugFrameOffset(cie_offset));
+                assert_eq!(partial.cie_offset, DebugFrameOffset(cie_offset as usize));
 
                 let get_cie = |offset| {
-                    assert_eq!(offset, DebugFrameOffset(cie_offset));
+                    assert_eq!(offset, DebugFrameOffset(cie_offset as usize));
                     Ok(cie.clone())
                 };
 
@@ -2473,8 +2473,8 @@ mod tests {
 
         section.start().set_const(0);
 
-        let cie1_offset = cie1_location.value().unwrap();
-        let cie2_offset = cie2_location.value().unwrap();
+        let cie1_offset = cie1_location.value().unwrap() as usize;
+        let cie2_offset = cie2_location.value().unwrap() as usize;
 
         let contents = section.get_contents().unwrap();
         let debug_frame = DebugFrame::<BigEndian>::new(&contents);
@@ -2545,7 +2545,7 @@ mod tests {
 
         section.start().set_const(0);
 
-        let cie_offset = DebugFrameOffset(cie_location.value().unwrap());
+        let cie_offset = DebugFrameOffset(cie_location.value().unwrap() as usize);
 
         let contents = section.get_contents().unwrap();
         let debug_frame = DebugFrame::<LittleEndian>::new(&contents);

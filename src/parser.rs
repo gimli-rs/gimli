@@ -8,8 +8,6 @@ use std::result;
 
 use constants;
 use endianity::{Endianity, EndianBuf};
-#[cfg(test)]
-use endianity::LittleEndian;
 use leb128;
 
 /// An error that occurred when parsing.
@@ -104,6 +102,8 @@ pub enum Error {
     PopWithEmptyStack,
     /// Do not have unwind info for the given address.
     NoUnwindInfoForAddress,
+    /// An offset value was larger than the maximum supported value.
+    UnsupportedOffset,
 }
 
 impl fmt::Display for Error {
@@ -186,6 +186,9 @@ impl error::Error for Error {
                  instruction, but the stack was empty, and had nothing to pop."
             }
             Error::NoUnwindInfoForAddress => "Do not have unwind info for the given address.",
+            Error::UnsupportedOffset => {
+                "An offset value was larger than the maximum supported value."
+            }
         }
     }
 }
@@ -348,6 +351,40 @@ pub fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<E
     }
 }
 
+/// Convert a `u64` to a `usize` and return it.
+#[doc(hidden)]
+#[inline]
+pub fn u64_to_offset(offset64: u64) -> Result<usize> {
+    let offset = offset64 as usize;
+    if offset as u64 == offset64 {
+        Ok(offset)
+    } else {
+        Err(Error::UnsupportedOffset)
+    }
+}
+
+/// Parse a `u64` from the input, and return it as a `usize`.
+#[doc(hidden)]
+#[inline]
+pub fn parse_u64_as_offset<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, usize)>
+    where Endian: Endianity
+{
+    let (rest, offset) = try!(parse_u64(input));
+    let offset = try!(u64_to_offset(offset));
+    Ok((rest, offset))
+}
+
+/// Parse an unsigned LEB128 encoded integer from the input, and return it as a `usize`.
+#[doc(hidden)]
+#[inline]
+pub fn parse_uleb_as_offset<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, usize)>
+    where Endian: Endianity
+{
+    let (rest, offset) = try!(parse_unsigned_lebe(input));
+    let offset = try!(u64_to_offset(offset));
+    Ok((rest, offset))
+}
+
 /// Parse a word-sized integer according to the DWARF format, and return it as a `u64`.
 #[doc(hidden)]
 #[inline]
@@ -360,6 +397,19 @@ pub fn parse_word<Endian>(input: EndianBuf<Endian>,
         Format::Dwarf32 => parse_u32_as_u64(input),
         Format::Dwarf64 => parse_u64(input),
     }
+}
+
+/// Parse a word-sized integer according to the DWARF format, and return it as a `usize`.
+#[doc(hidden)]
+#[inline]
+pub fn parse_offset<Endian>(input: EndianBuf<Endian>,
+                            format: Format)
+                            -> Result<(EndianBuf<Endian>, usize)>
+    where Endian: Endianity
+{
+    let (rest, offset) = try!(parse_word(input, format));
+    let offset = try!(u64_to_offset(offset));
+    Ok((rest, offset))
 }
 
 /// Parse an address-sized integer, and return it as a `u64`.
@@ -384,6 +434,19 @@ pub fn parse_address<Endian>(input: EndianBuf<Endian>,
     }
 }
 
+/// Parse an address-sized integer, and return it as a `usize`.
+#[doc(hidden)]
+#[inline]
+pub fn parse_address_as_offset<Endian>(input: EndianBuf<Endian>,
+                                       address_size: u8)
+                                       -> Result<(EndianBuf<Endian>, usize)>
+    where Endian: Endianity
+{
+    let (rest, offset) = try!(parse_address(input, address_size));
+    let offset = try!(u64_to_offset(offset));
+    Ok((rest, offset))
+}
+
 /// Parse a null-terminated slice from the input.
 #[doc(hidden)]
 #[inline]
@@ -405,7 +468,7 @@ pub fn parse_null_terminated_string(input: &[u8]) -> Result<(&[u8], &ffi::CStr)>
 
 /// An offset into the `.debug_macinfo` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugMacinfoOffset(pub u64);
+pub struct DebugMacinfoOffset(pub usize);
 
 /// Parse an unsigned LEB128 encoded integer.
 #[inline]
@@ -461,91 +524,11 @@ pub fn parse_initial_length<Endian>(input: EndianBuf<Endian>)
     }
 }
 
-#[test]
-fn test_parse_initial_length_32_ok() {
-    let buf = [0x12, 0x34, 0x56, 0x78];
-
-    match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
-        Ok((rest, (length, format))) => {
-            assert_eq!(rest.len(), 0);
-            assert_eq!(format, Format::Dwarf32);
-            assert_eq!(0x78563412, length);
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-}
-
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_parse_initial_length_64_ok() {
-    let buf = [
-        // Dwarf_64_INITIAL_UNIT_LENGTH
-        0xff, 0xff, 0xff, 0xff,
-        // Actual length
-        0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff
-    ];
-
-    match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
-        Ok((rest, (length, format))) => {
-            assert_eq!(rest.len(), 0);
-            assert_eq!(format, Format::Dwarf64);
-            assert_eq!(0xffdebc9a78563412, length);
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-}
-
-#[test]
-fn test_parse_initial_length_unknown_reserved_value() {
-    let buf = [0xfe, 0xff, 0xff, 0xff];
-
-    match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
-        Err(Error::UnknownReservedLength) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_initial_length_incomplete() {
-    let buf = [0xff, 0xff, 0xff]; // Need at least 4 bytes.
-
-    match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_parse_initial_length_64_incomplete() {
-    let buf = [
-        // DWARF_64_INITIAL_UNIT_LENGTH
-        0xff, 0xff, 0xff, 0xff,
-        // Actual length is not long enough.
-        0x12, 0x34, 0x56, 0x78
-    ];
-
-    match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
 /// Parse the size of addresses (in bytes) on the target architecture.
 pub fn parse_address_size<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u8)>
     where Endian: Endianity
 {
     parse_u8(input.into()).map(|(r, u)| (EndianBuf::new(r), u))
-}
-
-#[test]
-fn test_parse_address_size_ok() {
-    let buf = [0x04];
-
-    match parse_address_size(EndianBuf::<LittleEndian>::new(&buf)) {
-        Ok((_, val)) => assert_eq!(val, 4),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
 }
 
 /// Take a slice of size `bytes` from the input.
@@ -572,4 +555,121 @@ pub fn parse_length_uleb_value<Endian>(input: EndianBuf<Endian>)
 {
     let (rest, len) = try!(parse_unsigned_leb(input.into()));
     take(len as usize, EndianBuf::new(rest))
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate test_assembler;
+
+    use super::*;
+    use endianity::{EndianBuf, LittleEndian};
+    use self::test_assembler::{Endian, Section};
+
+    #[test]
+    fn test_parse_initial_length_32_ok() {
+        let section = Section::with_endian(Endian::Little).L32(0x78563412);
+        let buf = section.get_contents().unwrap();
+
+        match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
+            Ok((rest, (length, format))) => {
+                assert_eq!(rest.len(), 0);
+                assert_eq!(format, Format::Dwarf32);
+                assert_eq!(0x78563412, length);
+            }
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+    }
+
+    #[test]
+    fn test_parse_initial_length_64_ok() {
+        let section = Section::with_endian(Endian::Little)
+            // Dwarf_64_INITIAL_UNIT_LENGTH
+            .L32(0xffffffff)
+            // Actual length
+            .L64(0xffdebc9a78563412);
+        let buf = section.get_contents().unwrap();
+
+        match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
+            Ok((rest, (length, format))) => {
+                assert_eq!(rest.len(), 0);
+                assert_eq!(format, Format::Dwarf64);
+                assert_eq!(0xffdebc9a78563412, length);
+            }
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+    }
+
+    #[test]
+    fn test_parse_initial_length_unknown_reserved_value() {
+        let section = Section::with_endian(Endian::Little).L32(0xfffffffe);
+        let buf = section.get_contents().unwrap();
+
+        match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
+            Err(Error::UnknownReservedLength) => assert!(true),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_initial_length_incomplete() {
+        let buf = [0xff, 0xff, 0xff]; // Need at least 4 bytes.
+
+        match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
+            Err(Error::UnexpectedEof) => assert!(true),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_initial_length_64_incomplete() {
+        let section = Section::with_endian(Endian::Little)
+            // Dwarf_64_INITIAL_UNIT_LENGTH
+            .L32(0xffffffff)
+            // Actual length is not long enough.
+            .L32(0x78563412);
+        let buf = section.get_contents().unwrap();
+
+        match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
+            Err(Error::UnexpectedEof) => assert!(true),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_offset_32() {
+        let section = Section::with_endian(Endian::Little).L32(0x01234567);
+        let buf = section.get_contents().unwrap();
+
+        match parse_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
+            Ok((rest, val)) => {
+                assert_eq!(rest.len(), 0);
+                assert_eq!(val, 0x01234567);
+            }
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_offset_64() {
+        let section = Section::with_endian(Endian::Little).L64(0x0123456789abcdef);
+        let buf = section.get_contents().unwrap();
+
+        match parse_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
+            Ok((rest, val)) => {
+                assert_eq!(rest.len(), 0);
+                assert_eq!(val, 0x0123456789abcdef);
+            }
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_address_size_ok() {
+        let buf = [0x04];
+
+        match parse_address_size(EndianBuf::<LittleEndian>::new(&buf)) {
+            Ok((_, val)) => assert_eq!(val, 4),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
 }

@@ -11,8 +11,10 @@ use fallible_iterator::FallibleIterator;
 use line::DebugLineOffset;
 use loc::DebugLocOffset;
 use parser::{Error, Result, Format, DebugMacinfoOffset, parse_u8, parse_u16, parse_u32, parse_u64,
-             parse_unsigned_leb, parse_signed_leb, parse_word, parse_address, parse_address_size,
-             parse_initial_length, parse_length_uleb_value, parse_null_terminated_string, take};
+             parse_unsigned_leb, parse_signed_leb, parse_offset, parse_address,
+             parse_address_size, parse_initial_length, parse_length_uleb_value,
+             parse_null_terminated_string, take, parse_u64_as_offset, parse_uleb_as_offset,
+             parse_address_as_offset, u64_to_offset};
 use ranges::DebugRangesOffset;
 use std::cell::Cell;
 use std::ffi;
@@ -23,7 +25,7 @@ use str::{DebugStr, DebugStrOffset};
 
 /// An offset into the `.debug_types` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugTypesOffset(pub u64);
+pub struct DebugTypesOffset(pub usize);
 
 /// A type signature as used in the `.debug_types` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,11 +33,11 @@ pub struct DebugTypeSignature(pub u64);
 
 /// An offset into the `.debug_info` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugInfoOffset(pub u64);
+pub struct DebugInfoOffset(pub usize);
 
 /// An offset into the current compilation or type unit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
-pub struct UnitOffset(pub u64);
+pub struct UnitOffset(pub usize);
 
 /// The `DebugInfo` struct represents the DWARF debugging information found in
 /// the `.debug_info` section.
@@ -98,11 +100,11 @@ impl<'input, Endian> DebugInfo<'input, Endian>
     pub fn header_from_offset(&self,
                               offset: DebugInfoOffset)
                               -> Result<CompilationUnitHeader<'input, Endian>> {
-        if self.debug_info_section.len() < offset.0 as usize {
+        if self.debug_info_section.len() < offset.0 {
             return Err(Error::UnexpectedEof);
         }
 
-        let input = self.debug_info_section.range_from(offset.0 as usize..);
+        let input = self.debug_info_section.range_from(offset.0..);
         match CompilationUnitHeader::parse(input, offset) {
             Ok((_, header)) => Ok(header),
             Err(e) => Err(e),
@@ -132,7 +134,7 @@ impl<'input, Endian> CompilationUnitHeadersIter<'input, Endian>
         } else {
             match CompilationUnitHeader::parse(self.input, self.offset) {
                 Ok((rest, header)) => {
-                    self.offset.0 += self.input.len() as u64 - rest.len() as u64;
+                    self.offset.0 += self.input.len() - rest.len();
                     self.input = rest;
                     Ok(Some(header))
                 }
@@ -458,7 +460,7 @@ fn parse_debug_abbrev_offset<Endian>(input: EndianBuf<Endian>,
                                      -> Result<(EndianBuf<Endian>, DebugAbbrevOffset)>
     where Endian: Endianity
 {
-    parse_word(input, format).map(|(rest, offset)| (rest, DebugAbbrevOffset(offset)))
+    parse_offset(input, format).map(|(rest, offset)| (rest, DebugAbbrevOffset(offset)))
 }
 
 #[test]
@@ -508,7 +510,7 @@ pub fn parse_debug_info_offset<Endian>(input: EndianBuf<Endian>,
                                        -> Result<(EndianBuf<Endian>, DebugInfoOffset)>
     where Endian: Endianity
 {
-    parse_word(input, format).map(|(rest, offset)| (rest, DebugInfoOffset(offset)))
+    parse_offset(input, format).map(|(rest, offset)| (rest, DebugInfoOffset(offset)))
 }
 
 #[test]
@@ -557,7 +559,7 @@ pub fn parse_debug_types_offset<Endian>(input: EndianBuf<Endian>,
                                         -> Result<(EndianBuf<Endian>, DebugTypesOffset)>
     where Endian: Endianity
 {
-    parse_word(input, format).map(|(rest, offset)| (rest, DebugTypesOffset(offset)))
+    parse_offset(input, format).map(|(rest, offset)| (rest, DebugTypesOffset(offset)))
 }
 
 #[test]
@@ -710,11 +712,11 @@ impl<'input, Endian> UnitHeader<'input, Endian>
 
     fn is_valid_offset(&self, offset: UnitOffset) -> bool {
         let size_of_header = self.header_size();
-        if (offset.0 as usize) < size_of_header {
+        if offset.0 < size_of_header {
             return false;
         }
 
-        let relative_to_entries_buf = offset.0 as usize - size_of_header;
+        let relative_to_entries_buf = offset.0 - size_of_header;
         relative_to_entries_buf < self.entries_buf.len()
     }
 
@@ -724,22 +726,22 @@ impl<'input, Endian> UnitHeader<'input, Endian>
         assert!(self.is_valid_offset(idx.end));
         assert!(idx.start <= idx.end);
         let size_of_header = Self::size_of_header(self.format);
-        let start = idx.start.0 as usize - size_of_header;
-        let end = idx.end.0 as usize - size_of_header;
+        let start = idx.start.0 - size_of_header;
+        let end = idx.end.0 - size_of_header;
         &self.entries_buf.0[start..end]
     }
 
     /// Get the underlying bytes for the supplied range.
     pub fn range_from(&self, idx: RangeFrom<UnitOffset>) -> &'input [u8] {
         assert!(self.is_valid_offset(idx.start));
-        let start = idx.start.0 as usize - Self::size_of_header(self.format);
+        let start = idx.start.0 - Self::size_of_header(self.format);
         &self.entries_buf.0[start..]
     }
 
     /// Get the underlying bytes for the supplied range.
     pub fn range_to(&self, idx: RangeTo<UnitOffset>) -> &'input [u8] {
         assert!(self.is_valid_offset(idx.end));
-        let end = idx.end.0 as usize - Self::size_of_header(self.format);
+        let end = idx.end.0 - Self::size_of_header(self.format);
         &self.entries_buf.0[..end]
     }
 
@@ -1093,7 +1095,7 @@ pub enum AttributeValue<'input, Endian>
 
     /// An offset into another section. Which section this is an offset into
     /// depends on context.
-    SecOffset(u64),
+    SecOffset(usize),
 
     /// An offset into the current compilation unit.
     UnitRef(UnitOffset),
@@ -1614,13 +1616,19 @@ impl<'input, Endian> Attribute<'input, Endian>
     /// Try to convert this attribute's value to an offset.
     ///
     /// Offsets will be `Data` in DWARF version 2/3, and `SecOffset` otherwise.
-    pub fn offset_value(&self) -> Option<u64> {
-        Some(match self.value {
-            AttributeValue::Data(data) if data.len() == 4 => Endian::read_u32(data.into()) as u64,
-            AttributeValue::Data(data) if data.len() == 8 => Endian::read_u64(data.into()),
-            AttributeValue::SecOffset(offset) => offset,
-            _ => return None,
-        })
+    pub fn offset_value(&self) -> Option<usize> {
+        match self.value {
+            AttributeValue::Data(data) => {
+                let offset = match data.len() {
+                    4 => Endian::read_u32(data.into()) as u64,
+                    8 => Endian::read_u64(data.into()),
+                    _ => return None,
+                };
+                u64_to_offset(offset).ok()
+            }
+            AttributeValue::SecOffset(offset) => Some(offset),
+            _ => None,
+        }
     }
 
     /// Try to convert this attribute's value to an expression or location buffer.
@@ -1837,7 +1845,7 @@ fn parse_attribute<'input, 'unit, Endian>
                 }));
             }
             constants::DW_FORM_sec_offset => {
-                return parse_word(input.into(), unit.format()).map(|(rest, offset)| {
+                return parse_offset(input.into(), unit.format()).map(|(rest, offset)| {
                     let attr = Attribute {
                         name: spec.name(),
                         value: AttributeValue::SecOffset(offset),
@@ -1849,7 +1857,7 @@ fn parse_attribute<'input, 'unit, Endian>
                 return parse_u8(input.into()).map(|(rest, reference)| {
                     let attr = Attribute {
                         name: spec.name(),
-                        value: AttributeValue::UnitRef(UnitOffset(reference as u64)),
+                        value: AttributeValue::UnitRef(UnitOffset(reference as usize)),
                     };
                     (EndianBuf::new(rest), attr)
                 });
@@ -1858,7 +1866,7 @@ fn parse_attribute<'input, 'unit, Endian>
                 return parse_u16(input.into()).map(|(rest, reference)| {
                     let attr = Attribute {
                         name: spec.name(),
-                        value: AttributeValue::UnitRef(UnitOffset(reference as u64)),
+                        value: AttributeValue::UnitRef(UnitOffset(reference as usize)),
                     };
                     (rest, attr)
                 });
@@ -1867,13 +1875,13 @@ fn parse_attribute<'input, 'unit, Endian>
                 return parse_u32(input.into()).map(|(rest, reference)| {
                     let attr = Attribute {
                         name: spec.name(),
-                        value: AttributeValue::UnitRef(UnitOffset(reference as u64)),
+                        value: AttributeValue::UnitRef(UnitOffset(reference as usize)),
                     };
                     (rest, attr)
                 });
             }
             constants::DW_FORM_ref8 => {
-                return parse_u64(input.into()).map(|(rest, reference)| {
+                return parse_u64_as_offset(input.into()).map(|(rest, reference)| {
                     let attr = Attribute {
                         name: spec.name(),
                         value: AttributeValue::UnitRef(UnitOffset(reference)),
@@ -1882,12 +1890,12 @@ fn parse_attribute<'input, 'unit, Endian>
                 });
             }
             constants::DW_FORM_ref_udata => {
-                return parse_unsigned_leb(input.into()).map(|(rest, reference)| {
+                return parse_uleb_as_offset(input.into()).map(|(rest, reference)| {
                     let attr = Attribute {
                         name: spec.name(),
                         value: AttributeValue::UnitRef(UnitOffset(reference)),
                     };
-                    (EndianBuf::new(rest), attr)
+                    (rest, attr)
                 });
             }
             constants::DW_FORM_ref_addr => {
@@ -1895,16 +1903,17 @@ fn parse_attribute<'input, 'unit, Endian>
                 // has the same size as an address on the target system.  This was changed
                 // in DWARF version 3.
                 if unit.version() == 2 {
-                    return parse_address(input, unit.address_size()).map(|(rest, offset)| {
-                        let offset = DebugInfoOffset(offset);
-                        let attr = Attribute {
-                            name: spec.name(),
-                            value: AttributeValue::DebugInfoRef(offset),
-                        };
-                        (rest, attr)
-                    });
+                    return parse_address_as_offset(input, unit.address_size())
+                        .map(|(rest, offset)| {
+                            let offset = DebugInfoOffset(offset);
+                            let attr = Attribute {
+                                name: spec.name(),
+                                value: AttributeValue::DebugInfoRef(offset),
+                            };
+                            (rest, attr)
+                        });
                 } else {
-                    return parse_word(input, unit.format()).map(|(rest, offset)| {
+                    return parse_offset(input, unit.format()).map(|(rest, offset)| {
                         let offset = DebugInfoOffset(offset);
                         let attr = Attribute {
                             name: spec.name(),
@@ -1934,7 +1943,7 @@ fn parse_attribute<'input, 'unit, Endian>
                 });
             }
             constants::DW_FORM_strp => {
-                return parse_word(input.into(), unit.format()).map(|(rest, offset)| {
+                return parse_offset(input.into(), unit.format()).map(|(rest, offset)| {
                     let offset = DebugStrOffset(offset);
                     let attr = Attribute {
                         name: spec.name(),
@@ -2603,7 +2612,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
         let ptr = input.as_ptr() as *const u8 as usize;
         let start_ptr = self.unit.entries_buf.as_ptr() as *const u8 as usize;
         let offset = ptr - start_ptr + self.unit.header_size();
-        UnitOffset(offset as u64)
+        UnitOffset(offset)
     }
 
     /// Move the cursor to the next DIE in the tree.
@@ -2975,7 +2984,7 @@ fn parse_type_offset<Endian>(input: EndianBuf<Endian>,
                              -> Result<(EndianBuf<Endian>, UnitOffset)>
     where Endian: Endianity
 {
-    parse_word(input, format).map(|(rest, offset)| (rest, UnitOffset(offset)))
+    parse_offset(input, format).map(|(rest, offset)| (rest, UnitOffset(offset)))
 }
 
 #[test]
@@ -3093,7 +3102,7 @@ impl<'input, Endian> TypeUnitHeadersIter<'input, Endian>
         } else {
             match parse_type_unit_header(self.input, self.offset) {
                 Ok((rest, header)) => {
-                    self.offset.0 += self.input.len() as u64 - rest.len() as u64;
+                    self.offset.0 += self.input.len() - rest.len();
                     self.input = rest;
                     Ok(Some(header))
                 }

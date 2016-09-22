@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 
 /// An offset into the `.debug_str` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugStrOffset(pub u64);
+pub struct DebugStrOffset(pub usize);
 
 /// The `DebugStr` struct represents the DWARF strings
 /// found in the `.debug_str` section.
@@ -50,10 +50,10 @@ impl<'input, Endian> DebugStr<'input, Endian>
     /// println!("Found string {:?}", debug_str.get_str(debug_str_offset_somehow()));
     /// ```
     pub fn get_str(&self, offset: DebugStrOffset) -> Result<&'input ffi::CStr> {
-        if self.debug_str_section.len() < offset.0 as usize {
+        if self.debug_str_section.len() < offset.0 {
             return Err(Error::UnexpectedEof);
         }
-        let buf = self.debug_str_section.range_from(offset.0 as usize..);
+        let buf = self.debug_str_section.range_from(offset.0..);
         let result = parse_null_terminated_string(buf.0);
         result.map(|(_, cstr)| cstr)
     }
