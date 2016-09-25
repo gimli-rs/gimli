@@ -104,6 +104,8 @@ pub enum Error {
     NoUnwindInfoForAddress,
     /// An offset value was larger than the maximum supported value.
     UnsupportedOffset,
+    /// The given pointer encoding is either unknown or invalid.
+    UnknownPointerEncoding,
 }
 
 impl fmt::Display for Error {
@@ -188,6 +190,9 @@ impl error::Error for Error {
             Error::NoUnwindInfoForAddress => "Do not have unwind info for the given address.",
             Error::UnsupportedOffset => {
                 "An offset value was larger than the maximum supported value."
+            }
+            Error::UnknownPointerEncoding => {
+                "The given pointer encoding is either unknown or invalid."
             }
         }
     }
@@ -463,6 +468,47 @@ pub fn parse_null_terminated_string(input: &[u8]) -> Result<(&[u8], &ffi::CStr)>
         Err(Error::UnexpectedEof)
     }
 }
+
+/// Parse a DW_EH_PE_* pointer encoding.
+#[doc(hidden)]
+#[inline]
+pub fn parse_pointer_encoding<Endian>(input: EndianBuf<Endian>)
+                                      -> Result<(EndianBuf<Endian>, constants::DwEhPe)>
+    where Endian: Endianity
+{
+    let (rest, eh_pe) = try!(parse_u8e(input));
+    let eh_pe = constants::DwEhPe(eh_pe);
+
+    if eh_pe.is_valid_encoding() {
+        Ok((rest, eh_pe))
+    } else {
+        Err(Error::UnknownPointerEncoding)
+    }
+}
+
+/// TODO FITZGEN: move this into tests mod once rebased.
+#[test]
+fn test_parse_pointer_encoding_ok() {
+    use endianity::NativeEndian;
+    let expected = constants::DwEhPe(constants::DW_EH_PE_uleb128.0 | constants::DW_EH_PE_pcrel.0);
+    let input = [expected.0, 1, 2, 3, 4];
+    let input = EndianBuf::<NativeEndian>::new(&input);
+    assert_eq!(Ok((EndianBuf::new(&[1, 2, 3, 4]), expected)),
+               parse_pointer_encoding(input));
+}
+
+/// TODO FITZGEN: move this into tests mod once rebased.
+#[test]
+fn test_parse_pointer_encoding_bad_encoding() {
+    use endianity::NativeEndian;
+    let expected = constants::DwEhPe((constants::DW_EH_PE_sdata8.0 + 1) |
+                                     constants::DW_EH_PE_pcrel.0);
+    let input = [expected.0, 1, 2, 3, 4];
+    let input = EndianBuf::<NativeEndian>::new(&input);
+    assert_eq!(Err(Error::UnknownPointerEncoding),
+               parse_pointer_encoding(input));
+}
+
 
 /// An offset into the `.debug_macinfo` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
