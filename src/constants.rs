@@ -805,3 +805,135 @@ dw!(DwOp(u8) {
 // GNU extensions that are supported by our expression evaluator.
     DW_OP_GNU_push_tls_address = 0xe0,
 });
+
+/// Pointer encoding used by `.eh_frame`. The four lower bits describe the
+/// format of the pointer, the upper four bits describe how the encoding should
+/// be applied.
+///
+/// Defined in http://refspecs.linux-foundation.org/LSB_4.0.0/LSB-Core-generic/LSB-Core-generic/dwarfext.html
+dw!(DwEhPe(u8) {
+// Format of pointer encoding.
+
+// "Unsigned value is encoded using the Little Endian Base 128"
+    DW_EH_PE_uleb128 = 0x1,
+// "A 2 bytes unsigned value."
+    DW_EH_PE_udata2 = 0x2,
+// "A 4 bytes unsigned value."
+    DW_EH_PE_udata4 = 0x3,
+// "An 8 bytes unsigned value."
+    DW_EH_PE_udata8 = 0x4,
+// "Signed value is encoded using the Little Endian Base 128"
+    DW_EH_PE_sleb128 = 0x9,
+// "A 2 bytes signed value."
+    DW_EH_PE_sdata2 = 0x0a,
+// "A 4 bytes signed value."
+    DW_EH_PE_sdata4 = 0x0b,
+// "An 8 bytes signed value."
+    DW_EH_PE_sdata8 = 0x0c,
+
+// How the pointer encoding should be applied.
+
+// `DW_EH_PE_pcrel` pointers are relative to their own location.
+    DW_EH_PE_pcrel = 0x10,
+// "Value is relative to the beginning of the .text section."
+    DW_EH_PE_textrel = 0x20,
+// "Value is relative to the beginning of the .got or .eh_frame_hdr section."
+    DW_EH_PE_datarel = 0x30,
+// "Value is relative to the beginning of the function."
+    DW_EH_PE_funcrel = 0x40,
+// "Value is aligned to an address unit sized boundary."
+    DW_EH_PE_aligned = 0x50,
+
+// These constants apply to both the lower and upper bits.
+
+// "The Value is a literal pointer whose size is determined by the
+// architecture."
+    DW_EH_PE_absptr = 0x0,
+// The absence of a pointer and encoding.
+    DW_EH_PE_omit = 0xff,
+});
+
+const DW_EH_PE_FORMAT_MASK: u8 = 0b00001111;
+const DW_EH_PE_APPLICATION_MASK: u8 = 0b11110000;
+
+impl DwEhPe {
+    /// Get the pointer encoding's format.
+    pub fn format(&self) -> DwEhPe {
+        DwEhPe(self.0 & DW_EH_PE_FORMAT_MASK)
+    }
+
+    /// Get the pointer encoding's application.
+    pub fn application(&self) -> DwEhPe {
+        DwEhPe(self.0 & DW_EH_PE_APPLICATION_MASK)
+    }
+
+    /// Is this encoding the absent pointer encoding?
+    pub fn is_absent(&self) -> bool {
+        *self == DW_EH_PE_omit
+    }
+
+    /// Is this a known, valid pointer encoding?
+    pub fn is_valid_encoding(&self) -> bool {
+        if self.is_absent() {
+            return true;
+        }
+
+        match self.format() {
+            DW_EH_PE_absptr | DW_EH_PE_uleb128 | DW_EH_PE_udata2 | DW_EH_PE_udata4 |
+            DW_EH_PE_udata8 | DW_EH_PE_sleb128 | DW_EH_PE_sdata2 | DW_EH_PE_sdata4 |
+            DW_EH_PE_sdata8 => {}
+            _ => return false,
+        }
+
+        match self.application() {
+            DW_EH_PE_absptr | DW_EH_PE_pcrel | DW_EH_PE_textrel | DW_EH_PE_datarel |
+            DW_EH_PE_funcrel | DW_EH_PE_aligned => {}
+            _ => return false,
+        }
+
+        true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dw_eh_pe_format() {
+        let encoding = DwEhPe(DW_EH_PE_pcrel.0 | DW_EH_PE_uleb128.0);
+        assert_eq!(encoding.format(), DW_EH_PE_uleb128);
+    }
+
+    #[test]
+    fn test_dw_eh_pe_application() {
+        let encoding = DwEhPe(DW_EH_PE_pcrel.0 | DW_EH_PE_uleb128.0);
+        assert_eq!(encoding.application(), DW_EH_PE_pcrel);
+    }
+
+    #[test]
+    fn test_dw_eh_pe_is_absent() {
+        assert_eq!(DW_EH_PE_absptr.is_absent(), false);
+        assert_eq!(DW_EH_PE_omit.is_absent(), true);
+    }
+
+    #[test]
+    fn test_dw_eh_pe_is_valid_encoding_ok() {
+        let encoding = DwEhPe(DW_EH_PE_uleb128.0 | DW_EH_PE_pcrel.0);
+        assert!(encoding.is_valid_encoding());
+        assert!(DW_EH_PE_absptr.is_valid_encoding());
+        assert!(DW_EH_PE_omit.is_valid_encoding());
+    }
+
+    #[test]
+    fn test_dw_eh_pe_is_valid_encoding_bad_format() {
+        let encoding = DwEhPe((DW_EH_PE_sdata8.0 + 1) | DW_EH_PE_pcrel.0);
+        assert_eq!(encoding.is_valid_encoding(), false);
+    }
+
+    #[test]
+    fn test_dw_eh_pe_is_valid_encoding_bad_application() {
+        let encoding = DwEhPe(DW_EH_PE_sdata8.0 | (DW_EH_PE_aligned.0 + 1));
+        assert_eq!(encoding.is_valid_encoding(), false);
+    }
+}
