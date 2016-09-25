@@ -137,7 +137,67 @@ impl<'input, Endian> DebugFrame<'input, Endian>
     }
 }
 
-/// An iterator over CIE and FDE entries in a `.debug_frame` section.
+/// Optional base addresses for the relative `DW_EH_PE_*` encoded pointers.
+///
+/// During CIE/FDE parsing, if a relative pointer is encountered for a base
+/// address that is unknown, an Err will be returned.
+///
+/// ```
+/// use gimli::BaseAddresses;
+///
+/// # fn foo() {
+/// # let address_of_cfi_section_in_memory = unimplemented!();
+/// # let address_of_text_section_in_memory = unimplemented!();
+/// # let address_of_data_section_in_memory = unimplemented!();
+/// # let address_of_the_start_of_current_func = unimplemented!();
+/// let bases = BaseAddresses::default()
+///     .set_cfi(address_of_cfi_section_in_memory)
+///     .set_text(address_of_text_section_in_memory)
+///     .set_data(address_of_data_section_in_memory);
+/// # let _ = bases;
+/// # }
+/// ```
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
+pub struct BaseAddresses {
+    /// The address of the current CFI unwind section (`.eh_frame` or
+    /// `.debug_frame`) in memory.
+    pub cfi: Option<u64>,
+
+    /// The address of the `.text` section in memory.
+    pub text: Option<u64>,
+
+    /// The address of the `.data` section in memory.
+    pub data: Option<u64>,
+
+    // Unlike the others, the function base is managed internally to the parser
+    // as we enter and exit FDE parsing.
+    #[doc(hidden)]
+    #[allow(missing_docs)]
+    pub func: RefCell<Option<u64>>,
+}
+
+impl BaseAddresses {
+    /// Set the CFI section base address.
+    pub fn set_cfi(mut self, addr: u64) -> Self {
+        self.cfi = Some(addr);
+        self
+    }
+
+    /// Set the `.text` section base address.
+    pub fn set_text(mut self, addr: u64) -> Self {
+        self.text = Some(addr);
+        self
+    }
+
+    /// Set the `.data` section base address.
+    pub fn set_data(mut self, addr: u64) -> Self {
+        self.data = Some(addr);
+        self
+    }
+}
+
+/// An iterator over CIE and FDE entries in a `.debug_frame` or `.eh_frame`
+/// section.
 ///
 /// Can be [used with
 /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
