@@ -6,7 +6,6 @@ use std::fmt::{self, Debug};
 use std::io;
 use std::result;
 use cfi::BaseAddresses;
-
 use constants;
 use endianity::{Endianity, EndianBuf};
 use leb128;
@@ -116,6 +115,12 @@ pub enum Error {
     UnsupportedOffset,
     /// The given pointer encoding is either unknown or invalid.
     UnknownPointerEncoding,
+    /// Did not find an entry at the given offset.
+    NoEntryAtGivenOffset,
+    /// The given offset is out of bounds.
+    OffsetOutOfBounds,
+    /// Found an unknown CFI augmentation.
+    UnknownAugmentation,
 }
 
 impl fmt::Display for Error {
@@ -216,6 +221,9 @@ impl error::Error for Error {
             Error::UnknownPointerEncoding => {
                 "The given pointer encoding is either unknown or invalid."
             }
+            Error::NoEntryAtGivenOffset => "Did not find an entry at the given offset.",
+            Error::OffsetOutOfBounds => "The given offset is out of bounds.",
+            Error::UnknownAugmentation => "Found an unknown CFI augmentation.",
         }
     }
 }

@@ -203,7 +203,7 @@ dw!(DwTag(u64) {
     DW_TAG_lo_user = 0x4080,
     DW_TAG_hi_user = 0xffff,
 
-    // User-defined tags.
+// User-defined tags.
     DW_TAG_MIPS_loop = 0x4081,
     DW_TAG_format_label = 0x4101,
     DW_TAG_function_template = 0x4102,
@@ -348,11 +348,11 @@ dw!(DwAt(u64) {
     DW_AT_MIPS_allocatable_dopetype = 0x200f,
     DW_AT_MIPS_assumed_shape_dopetype = 0x2010,
 
-    // This one appears to have only been implemented by Open64 for
-    // fortran and may conflict with other extensions.
+// This one appears to have only been implemented by Open64 for
+// fortran and may conflict with other extensions.
     DW_AT_MIPS_assumed_size = 0x2011,
 
-    // GNU extensions
+// GNU extensions
     DW_AT_sf_names = 0x2101,
     DW_AT_src_info = 0x2102,
     DW_AT_mac_info = 0x2103,
@@ -365,7 +365,7 @@ dw!(DwAt(u64) {
     DW_AT_GNU_odr_signature = 0x210f,
     DW_AT_GNU_macros = 0x2119,
 
-    // Extensions for Fission proposal.
+// Extensions for Fission proposal.
     DW_AT_GNU_dwo_name = 0x2130,
     DW_AT_GNU_dwo_id = 0x2131,
     DW_AT_GNU_ranges_base = 0x2132,
@@ -374,7 +374,7 @@ dw!(DwAt(u64) {
     DW_AT_GNU_pubtypes = 0x2135,
     DW_AT_GNU_discriminator = 0x2136,
 
-    // Borland extensions.
+// Borland extensions.
     DW_AT_BORLAND_property_read = 0x3b11,
     DW_AT_BORLAND_property_write = 0x3b12,
     DW_AT_BORLAND_property_implements = 0x3b13,
@@ -393,12 +393,12 @@ dw!(DwAt(u64) {
     DW_AT_BORLAND_Delphi_frameptr = 0x3b30,
     DW_AT_BORLAND_closure = 0x3b31,
 
-    // LLVM project extensions.
+// LLVM project extensions.
     DW_AT_LLVM_include_path = 0x3e00,
     DW_AT_LLVM_config_macros = 0x3e01,
     DW_AT_LLVM_isysroot = 0x3e02,
 
-    // Apple extensions.
+// Apple extensions.
     DW_AT_APPLE_optimized = 0x3fe1,
     DW_AT_APPLE_flags = 0x3fe2,
     DW_AT_APPLE_isa = 0x3fe3,
@@ -445,11 +445,11 @@ dw!(DwForm(u64) {
     DW_FORM_flag_present = 0x19,
     DW_FORM_ref_sig8 = 0x20,
 
-    // Extensions for Fission proposal
+// Extensions for Fission proposal
     DW_FORM_GNU_addr_index = 0x1f01,
     DW_FORM_GNU_str_index = 0x1f02,
 
-    // Alternate debug sections proposal (output of "dwz" tool).
+// Alternate debug sections proposal (output of "dwz" tool).
     DW_FORM_GNU_ref_alt = 0x1f20,
     DW_FORM_GNU_strp_alt = 0x1f21
 });

@@ -1,10 +1,12 @@
 use constants;
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
-use parser::{Error, Format, Result, parse_address, parse_initial_length, parse_length_uleb_value,
-             parse_null_terminated_string, parse_signed_leb, parse_signed_lebe, parse_u8,
-             parse_u8e, parse_u16, parse_u32, parse_unsigned_leb, parse_unsigned_lebe, parse_word,
-             u64_to_offset};
+use parser::{Error, Format, Result, parse_address, parse_encoded_pointer, parse_initial_length,
+             parse_length_uleb_value, parse_null_terminated_string, parse_offset,
+             parse_pointer_encoding, parse_signed_leb, parse_signed_lebe, parse_u8, parse_u8e,
+             parse_u16, parse_u32, parse_unsigned_leb, parse_unsigned_lebe};
+use std::cell::RefCell;
+use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::str;
 
@@ -12,14 +14,50 @@ use std::str;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DebugFrameOffset(pub usize);
 
-/// The `DebugFrame` struct contains the source location to instruction mapping
-/// found in the `.debug_frame` section.
-#[derive(Debug, Clone, Copy)]
-pub struct DebugFrame<'input, Endian>
-    where Endian: Endianity
-{
-    debug_frame_section: EndianBuf<'input, Endian>,
+impl Into<usize> for DebugFrameOffset {
+    fn into(self) -> usize {
+        self.0
+    }
 }
+
+impl From<usize> for DebugFrameOffset {
+    fn from(o: usize) -> Self {
+        DebugFrameOffset(o)
+    }
+}
+
+/// An offset into the `.eh_frame` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EhFrameOffset(pub usize);
+
+impl Into<usize> for EhFrameOffset {
+    fn into(self) -> usize {
+        self.0
+    }
+}
+
+impl From<usize> for EhFrameOffset {
+    fn from(o: usize) -> Self {
+        EhFrameOffset(o)
+    }
+}
+
+/// `DebugFrame` contains the `.debug_frame` section's frame unwinding
+/// information required to unwind to and recover registers from older frames on
+/// the stack. For example, this is useful for a debugger that wants to print
+/// locals in a backtrace.
+///
+/// Most interesting methods are defined in the
+/// [`UnwindSection`](trait.UnwindSection.html) trait.
+///
+/// ### Differences between `.debug_frame` and `.eh_frame`
+///
+/// While the `.debug_frame` section's information has a lot of overlap with the
+/// `.eh_frame` section's information, the `.eh_frame` information tends to only
+/// encode the subset of information needed for exception handling. Often, only
+/// one of `.eh_frame` or `.debug_frame` will be present in an object file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DebugFrame<'input, Endian>(EndianBuf<'input, Endian>) where Endian: Endianity;
 
 impl<'input, Endian> DebugFrame<'input, Endian>
     where Endian: Endianity
@@ -27,19 +65,111 @@ impl<'input, Endian> DebugFrame<'input, Endian>
     /// Construct a new `DebugFrame` instance from the data in the
     /// `.debug_frame` section.
     ///
-    /// It is the caller's responsibility to read the `.debug_frame` section and
-    /// present it as a `&[u8]` slice. That means using some ELF loader on
-    /// Linux, a Mach-O loader on OSX, etc.
+    /// It is the caller's responsibility to read the section and present it as
+    /// a `&[u8]` slice. That means using some ELF loader on Linux, a Mach-O
+    /// loader on OSX, etc.
     ///
     /// ```
-    /// use gimli::{DebugFrame, LittleEndian};
+    /// use gimli::{DebugFrame, NativeEndian};
     ///
+    /// // Use with `.debug_frame`
     /// # let buf = [0x00, 0x01, 0x02, 0x03];
     /// # let read_debug_frame_section_somehow = || &buf;
-    /// let debug_frame = DebugFrame::<LittleEndian>::new(read_debug_frame_section_somehow());
+    /// let debug_frame = DebugFrame::<NativeEndian>::new(read_debug_frame_section_somehow());
     /// ```
-    pub fn new(debug_frame_section: &'input [u8]) -> DebugFrame<'input, Endian> {
-        DebugFrame { debug_frame_section: EndianBuf(debug_frame_section, PhantomData) }
+    pub fn new(section: &'input [u8]) -> DebugFrame<'input, Endian> {
+        DebugFrame(EndianBuf::new(section))
+    }
+}
+
+/// `EhFrame` contains the frame unwinding information needed during exception
+/// handling found in the `.eh_frame` section.
+///
+/// Most interesting methods are defined in the
+/// [`UnwindSection`](trait.UnwindSection.html) trait.
+///
+/// See
+/// [`DebugFrame`](./struct.DebugFrame.html#differences-between-debug_frame-and-eh_frame)
+/// for some discussion on the differences between `.debug_frame` and
+/// `.eh_frame`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EhFrame<'input, Endian>(EndianBuf<'input, Endian>) where Endian: Endianity;
+
+impl<'input, Endian> EhFrame<'input, Endian>
+    where Endian: Endianity
+{
+    /// Construct a new `EhFrame` instance from the data in the
+    /// `.debug_frame` section.
+    ///
+    /// It is the caller's responsibility to read the section and present it as
+    /// a `&[u8]` slice. That means using some ELF loader on Linux, a Mach-O
+    /// loader on OSX, etc.
+    ///
+    /// ```
+    /// use gimli::{EhFrame, NativeEndian};
+    ///
+    /// // Use with `.debug_frame`
+    /// # let buf = [0x00, 0x01, 0x02, 0x03];
+    /// # let read_debug_frame_section_somehow = || &buf;
+    /// let debug_frame = EhFrame::<NativeEndian>::new(read_debug_frame_section_somehow());
+    /// ```
+    pub fn new(section: &'input [u8]) -> EhFrame<'input, Endian> {
+        EhFrame(EndianBuf::new(section))
+    }
+}
+
+// This has to be `pub` to silence a warning (that is deny(..)'d by default) in
+// rustc. Eventually, not having this `pub` will become a hard error.
+#[doc(hidden)]
+#[allow(missing_docs)]
+pub trait _UnwindSectionPrivate<'input, Endian>
+    where Endian: Endianity
+{
+    /// Get the underlying section data.
+    fn section(&self) -> EndianBuf<'input, Endian>;
+
+    /// Returns true if the given length value should be considered an
+    /// end-of-entries sentinel.
+    fn length_value_is_end_of_entries(length: u64) -> bool;
+
+    /// Return true if the given offset if the CIE sentinel, false otherwise.
+    fn is_cie(format: Format, id: usize) -> bool;
+
+    /// Parse a CIE offset or ID. For `.debug_frame`, this is encoded as a u32
+    /// if we're reading 32-bit DWARF or encoded as a u64 if we're reading
+    /// 64-bit DWARF. For `.eh_frame`, this is always encoded as a u32.
+    fn parse_cie_offset(input: EndianBuf<'input, Endian>,
+                        format: Format)
+                        -> Result<(EndianBuf<'input, Endian>, usize)>;
+
+    /// For `.eh_frame`, CIE offsets are relative to the current position. For
+    /// `.debug_frame`, they are relative to the start of the section. We always
+    /// internally store them relative to the section, so we handle translating
+    /// `.eh_frame`'s relative offsets in this method. If the relative offset is
+    /// out of bounds of the section, return `None`.
+    fn resolve_cie_offset(&self,
+                          input_before_offset: EndianBuf<'input, Endian>,
+                          offset: usize)
+                          -> Option<usize>;
+
+    /// Return true if our parser is compatible with the given version.
+    fn compatible_version(version: u8) -> bool;
+}
+
+/// A section holding unwind information: either `.debug_frame` or
+/// `.eh_frame`. See [`DebugFrame`](./struct.DebugFrame.html) and
+/// [`EhFrame`](./struct.EhFrame.html) respectively.
+pub trait UnwindSection<'input, Endian>
+    : Copy + Debug + Eq + _UnwindSectionPrivate<'input, Endian>
+    where Endian: Endianity
+{
+    /// The offset type associated with this CFI section. Either
+    /// `DebugFrameOffset` or `EhFrameOffset`.
+    type Offset: Copy + Debug + Eq + Into<usize> + From<usize>;
+
+    /// Construct a `Self::Offset`.
+    fn offset(offset: usize) -> Self::Offset {
+        offset.into()
     }
 
     /// Iterate over the `CommonInformationEntry`s and `FrameDescriptionEntry`s
@@ -47,21 +177,33 @@ impl<'input, Endian> DebugFrame<'input, Endian>
     ///
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
-    pub fn entries(&self) -> CfiEntriesIter<'input, Endian> {
-        CfiEntriesIter { input: self.debug_frame_section }
+    fn entries<'bases>(&self,
+                       bases: &'bases BaseAddresses)
+                       -> CfiEntriesIter<'bases, 'input, Endian, Self> {
+        CfiEntriesIter {
+            section: *self,
+            bases: bases,
+            input: self.section(),
+            phantom: PhantomData,
+        }
     }
 
     /// Parse the `CommonInformationEntry` at the given offset.
-    pub fn cie_from_offset(&self,
-                           offset: DebugFrameOffset)
-                           -> Result<CommonInformationEntry<'input, Endian>> {
-        if self.debug_frame_section.len() < offset.0 {
+    fn cie_from_offset<'bases>(&self,
+                               bases: &'bases BaseAddresses,
+                               offset: Self::Offset)
+                               -> Result<CommonInformationEntry<'input, Endian, Self>> {
+        let offset = offset.into();
+        if self.section().len() < offset {
             return Err(Error::UnexpectedEof);
         }
 
-        let input = self.debug_frame_section.range_from(offset.0..);
-        let (_, entry) = try!(CommonInformationEntry::parse(input));
-        Ok(entry)
+        let input = self.section().range_from(offset..);
+        if let Some((_, entry)) = try!(CommonInformationEntry::parse(bases, *self, input)) {
+            Ok(entry)
+        } else {
+            Err(Error::NoEntryAtGivenOffset)
+        }
     }
 
     /// Find the frame unwind information for the given address.
@@ -72,12 +214,14 @@ impl<'input, Endian> DebugFrame<'input, Endian>
     /// CFI evaluation fails, the error is returned.
     ///
     /// ```
-    /// use gimli::{DebugFrame, NativeEndian, UninitializedUnwindContext};
+    /// use gimli::{BaseAddresses, EhFrame, NativeEndian, UninitializedUnwindContext,
+    ///             UnwindSection};
     ///
     /// # fn foo() -> gimli::Result<()> {
-    /// # let read_debug_frame_section = || unimplemented!();
-    /// // Get the `.debug_frame` section from the object file.
-    /// let debug_frame = DebugFrame::<NativeEndian>::new(read_debug_frame_section());
+    /// # let read_eh_frame_section = || unimplemented!();
+    /// // Get the `.eh_frame` section from the object file. Alternatively,
+    /// // use `EhFrame` with the `.eh_frame` section of the object file.
+    /// let eh_frame = EhFrame::<NativeEndian>::new(read_eh_frame_section());
     ///
     /// # let get_frame_pc = || unimplemented!();
     /// // Get the address of the PC for a frame you'd like to unwind.
@@ -86,26 +230,36 @@ impl<'input, Endian> DebugFrame<'input, Endian>
     /// // This context is reusable, which cuts down on heap allocations.
     /// let ctx = UninitializedUnwindContext::new();
     ///
-    /// let (unwind_info, ctx) = try!(debug_frame.unwind_info_for_address(ctx, address));
+    /// // Optionally provide base addresses for any relative pointers. If a
+    /// // base address isn't provided and a pointer is found that is relative to
+    /// // it, we will return an `Err`.
+    /// # let address_of_text_section_in_memory = unimplemented!();
+    /// # let address_of_data_section_in_memory = unimplemented!();
+    /// let bases = BaseAddresses::default()
+    ///     .set_text(address_of_text_section_in_memory)
+    ///     .set_data(address_of_data_section_in_memory);
+    ///
+    /// let (unwind_info, ctx) = try!(eh_frame.unwind_info_for_address(&bases, ctx, address));
     /// # let do_stuff_with = |_| unimplemented!();
     /// do_stuff_with(unwind_info);
     /// # let _ = ctx;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn unwind_info_for_address
+    fn unwind_info_for_address<'bases>
         (&self,
-         ctx: UninitializedUnwindContext<'input, Endian>,
+         bases: &'bases BaseAddresses,
+         ctx: UninitializedUnwindContext<'input, Endian, Self>,
          address: u64)
-         -> Result<(UnwindTableRow<'input, Endian>, UninitializedUnwindContext<'input, Endian>)> {
+         -> Result<(UnwindTableRow<'input, Endian>, UninitializedUnwindContext<'input, Endian, Self>)> {
         let mut target_fde = None;
 
-        let mut entries = self.entries();
+        let mut entries = self.entries(bases);
         while let Some(entry) = try!(entries.next()) {
             match entry {
                 CieOrFde::Cie(_) => continue,
                 CieOrFde::Fde(partial) => {
-                    let fde = try!(partial.parse(|offset| self.cie_from_offset(offset)));
+                    let fde = try!(partial.parse(|offset| self.cie_from_offset(bases, offset)));
                     if fde.contains(address) {
                         target_fde = Some(fde);
                         break;
@@ -135,6 +289,112 @@ impl<'input, Endian> DebugFrame<'input, Endian>
 
         Err(Error::NoUnwindInfoForAddress)
     }
+}
+
+impl<'input, Endian> _UnwindSectionPrivate<'input, Endian> for DebugFrame<'input, Endian>
+    where Endian: Endianity
+{
+    fn section(&self) -> EndianBuf<'input, Endian> {
+        self.0
+    }
+
+    fn length_value_is_end_of_entries(_: u64) -> bool {
+        false
+    }
+
+    fn is_cie(format: Format, id: usize) -> bool {
+        match format {
+            Format::Dwarf32 => id == 0xffffffff,
+            Format::Dwarf64 => id == 0xffffffffffffffff,
+        }
+    }
+
+    fn parse_cie_offset(input: EndianBuf<'input, Endian>,
+                        format: Format)
+                        -> Result<(EndianBuf<'input, Endian>, usize)> {
+        parse_offset(input, format)
+    }
+
+    fn resolve_cie_offset(&self, _: EndianBuf<'input, Endian>, offset: usize) -> Option<usize> {
+        Some(offset)
+    }
+
+    fn compatible_version(version: u8) -> bool {
+        match version {
+            // TODO: Is this parser really backwards compatible with versions 1
+            // and 3?
+            1 | 3 | 4 => true,
+            _ => false,
+        }
+    }
+}
+
+impl<'input, Endian> UnwindSection<'input, Endian> for DebugFrame<'input, Endian>
+    where Endian: Endianity
+{
+    type Offset = DebugFrameOffset;
+}
+
+impl<'input, Endian> _UnwindSectionPrivate<'input, Endian> for EhFrame<'input, Endian>
+    where Endian: Endianity
+{
+    fn section(&self) -> EndianBuf<'input, Endian> {
+        self.0
+    }
+
+    fn length_value_is_end_of_entries(length: u64) -> bool {
+        length == 0
+    }
+
+    fn is_cie(_: Format, id: usize) -> bool {
+        id == 0
+    }
+
+    fn parse_cie_offset(input: EndianBuf<'input, Endian>,
+                        _: Format)
+                        -> Result<(EndianBuf<'input, Endian>, usize)> {
+        // `.eh_frame` offsets are always 4 bytes, regardless of the DWARF
+        // format.
+        parse_offset(input, Format::Dwarf32)
+    }
+
+    fn resolve_cie_offset(&self,
+                          input_before_offset: EndianBuf<'input, Endian>,
+                          input_relative_offset: usize)
+                          -> Option<usize> {
+        let section = self.section();
+
+        // It would make no sense for any of these slices to be empty, since we
+        // have already parsed an offset out of them.
+        debug_assert!(section.len() > 0);
+        debug_assert!(input_before_offset.len() > 0);
+
+        // Additionally, the input_before_offset slice must be a subset of the
+        // section's slice.
+        debug_assert!(section.as_ptr() as usize <= input_before_offset.as_ptr() as usize);
+        debug_assert!(input_before_offset.as_ptr() as usize + input_before_offset.len() <=
+                      section.as_ptr() as usize + section.len());
+
+        let offset_ptr = (input_before_offset.as_ptr() as usize)
+            .saturating_sub(input_relative_offset);
+        if section.as_ptr() as usize <= offset_ptr &&
+           offset_ptr < section.as_ptr() as usize + section.len() {
+            let section_relative_offset = offset_ptr - section.as_ptr() as usize;
+            Some(section_relative_offset)
+        } else {
+            None
+        }
+    }
+
+    fn compatible_version(version: u8) -> bool {
+        version == 1
+    }
+}
+
+impl<'input, Endian> UnwindSection<'input, Endian> for EhFrame<'input, Endian>
+    where Endian: Endianity
+{
+    type Offset = EhFrameOffset;
 }
 
 /// Optional base addresses for the relative `DW_EH_PE_*` encoded pointers.
@@ -199,30 +459,75 @@ impl BaseAddresses {
 /// An iterator over CIE and FDE entries in a `.debug_frame` or `.eh_frame`
 /// section.
 ///
+/// Some pointers may be encoded relative to various base addresses. Use the
+/// [`BaseAddresses`](./struct.BaseAddresses.html) parameter to provide them. By
+/// default, none are provided. If a relative pointer is encountered for a base
+/// address that is unknown, an `Err` will be returned and iteration will abort.
+///
 /// Can be [used with
 /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
+///
+/// ```
+/// use gimli::{BaseAddresses, EhFrame, NativeEndian, UnwindSection};
+///
+/// # fn foo() -> gimli::Result<()> {
+/// # let read_eh_frame_somehow = || unimplemented!();
+/// let eh_frame = EhFrame::<NativeEndian>::new(read_eh_frame_somehow());
+///
+/// # let address_of_cfi_section_in_memory = unimplemented!();
+/// # let address_of_text_section_in_memory = unimplemented!();
+/// # let address_of_data_section_in_memory = unimplemented!();
+/// # let address_of_the_start_of_current_func = unimplemented!();
+/// // Provide base addresses for relative pointers.
+/// let bases = BaseAddresses::default()
+///     .set_cfi(address_of_cfi_section_in_memory)
+///     .set_text(address_of_text_section_in_memory)
+///     .set_data(address_of_data_section_in_memory);
+///
+/// let mut entries = eh_frame.entries(&bases);
+///
+/// # let do_stuff_with = |_| unimplemented!();
+/// while let Some(entry) = try!(entries.next()) {
+///     do_stuff_with(entry)
+/// }
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone, Debug)]
-pub struct CfiEntriesIter<'input, Endian>
-    where Endian: Endianity
+pub struct CfiEntriesIter<'bases, 'input, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
+    section: Section,
+    bases: &'bases BaseAddresses,
     input: EndianBuf<'input, Endian>,
+    phantom: PhantomData<Section>,
 }
 
-impl<'input, Endian> CfiEntriesIter<'input, Endian>
-    where Endian: Endianity
+impl<'bases, 'input, Endian, Section> CfiEntriesIter<'bases, 'input, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
     /// Advance the iterator to the next entry.
-    pub fn next(&mut self) -> Result<Option<CieOrFde<'input, Endian>>> {
+    pub fn next(&mut self) -> Result<Option<CieOrFde<'bases, 'input, Endian, Section>>> {
         if self.input.len() == 0 {
             return Ok(None);
         }
 
-        match parse_cfi_entry(self.input) {
+        // Clear any function relative base address, if one was set when parsing
+        // the last entry.
+        self.bases.func.borrow_mut().take();
+
+        match parse_cfi_entry(&self.bases, self.section, self.input) {
             Err(e) => {
                 self.input = EndianBuf::new(&[]);
                 Err(e)
             }
-            Ok((rest, entry)) => {
+            Ok(None) => {
+                self.input = EndianBuf::new(&[]);
+                Ok(None)
+            }
+            Ok(Some((rest, entry))) => {
                 self.input = rest;
                 Ok(Some(entry))
             }
@@ -230,10 +535,12 @@ impl<'input, Endian> CfiEntriesIter<'input, Endian>
     }
 }
 
-impl<'input, Endian> FallibleIterator for CfiEntriesIter<'input, Endian>
-    where Endian: Endianity
+impl<'bases, 'input, Endian, Section> FallibleIterator
+    for CfiEntriesIter<'bases, 'input, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
-    type Item = CieOrFde<'input, Endian>;
+    type Item = CieOrFde<'bases, 'input, Endian, Section>;
     type Error = Error;
 
     fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
@@ -241,64 +548,228 @@ impl<'input, Endian> FallibleIterator for CfiEntriesIter<'input, Endian>
     }
 }
 
-/// Parse the common start shared between both CIEs and FDEs. Return a tuple of
-/// the form `(next_entry_input, (length, format, cie_id_or_offset,
-/// rest_of_this_entry_input))`.
-fn parse_cfi_entry_common<Endian>
-    (input: EndianBuf<Endian>)
-     -> Result<(EndianBuf<Endian>, (u64, Format, u64, EndianBuf<Endian>))>
-    where Endian: Endianity
+/// Parse the common start shared between both CIEs and FDEs. If we find the
+/// end-of-entries sentinel, return `Ok(None)`. Otherwise, return
+/// `Ok(Some(tuple))`, where `tuple` is of the form:
+///
+///   (next_entry_input, (length,
+///                       format,
+///                       cie_offset_input,
+///                       cie_id_or_offset,
+///                       rest_of_this_entry_input))
+fn parse_cfi_entry_common<'input, Endian, Section>(input: EndianBuf<'input, Endian>)
+                                                   -> Result<Option<(EndianBuf<'input, Endian>,
+                                                                     (u64,
+                                                                      Format,
+                                                                      EndianBuf<'input, Endian>,
+                                                                      usize,
+                                                                      EndianBuf<'input, Endian>))>>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
     let (rest, (length, format)) = try!(parse_initial_length(input));
+
+    if Section::length_value_is_end_of_entries(length) {
+        return Ok(None);
+    }
+
     if length as usize > rest.len() {
         return Err(Error::BadLength);
     }
 
     let rest_rest = rest.range_from(length as usize..);
-    let rest = rest.range_to(..length as usize);
+    let cie_offset_input = rest.range_to(..length as usize);
 
-    let (rest, cie_id_or_offset) = try!(parse_word(rest, format));
+    let (rest, cie_id_or_offset) = try!(Section::parse_cie_offset(cie_offset_input, format));
 
-    Ok((rest_rest, (length, format, cie_id_or_offset, rest)))
-}
-
-fn is_cie_id(format: Format, id: u64) -> bool {
-    match format {
-        Format::Dwarf32 => id == 0xffffffff,
-        Format::Dwarf64 => id == 0xffffffffffffffff,
-    }
+    Ok(Some((rest_rest, (length, format, cie_offset_input, cie_id_or_offset, rest))))
 }
 
 /// Either a `CommonInformationEntry` (CIE) or a `FrameDescriptionEntry` (FDE).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CieOrFde<'input, Endian>
-    where Endian: Endianity
+pub enum CieOrFde<'bases, 'input, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
     /// This CFI entry is a `CommonInformationEntry`.
-    Cie(CommonInformationEntry<'input, Endian>),
+    Cie(CommonInformationEntry<'input, Endian, Section>),
     /// This CFI entry is a `FrameDescriptionEntry`, however fully parsing it
     /// requires parsing its CIE first, so it is left in a partially parsed
     /// state.
-    Fde(PartialFrameDescriptionEntry<'input, Endian>),
+    Fde(PartialFrameDescriptionEntry<'bases, 'input, Endian, Section>),
 }
 
-fn parse_cfi_entry<Endian>(input: EndianBuf<Endian>)
-                           -> Result<(EndianBuf<Endian>, CieOrFde<Endian>)>
-    where Endian: Endianity
+fn parse_cfi_entry<'bases, 'input, Endian, Section>
+    (bases: &'bases BaseAddresses,
+     section: Section,
+     input: EndianBuf<'input, Endian>)
+     -> Result<Option<(EndianBuf<'input, Endian>, CieOrFde<'bases, 'input, Endian, Section>)>>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
-    let (rest_rest, (length, format, cie_id_or_offset, rest)) = try!(parse_cfi_entry_common(input));
-    if is_cie_id(format, cie_id_or_offset) {
-        let cie = try!(CommonInformationEntry::parse_rest(length, format, cie_id_or_offset, rest));
-        Ok((rest_rest, CieOrFde::Cie(cie)))
+    let (rest_rest, (length, format, cie_offset_input, cie_id_or_offset, rest)) =
+        match try!(parse_cfi_entry_common::<Endian, Section>(input)) {
+            None => return Ok(None),
+            Some(common) => common,
+        };
+
+    if Section::is_cie(format, cie_id_or_offset) {
+        let cie = try!(CommonInformationEntry::parse_rest(length, format, bases, section, rest));
+        Ok(Some((rest_rest, CieOrFde::Cie(cie))))
     } else {
-        let cie_offset = DebugFrameOffset(try!(u64_to_offset(cie_id_or_offset)));
+        let cie_offset = match section.resolve_cie_offset(cie_offset_input, cie_id_or_offset) {
+            None => return Err(Error::OffsetOutOfBounds),
+            Some(offset) => offset,
+        };
+
         let fde = PartialFrameDescriptionEntry {
             length: length,
             format: format,
-            cie_offset: cie_offset,
+            cie_offset: Section::offset(cie_offset),
             rest: rest,
+            section: section,
+            bases: bases,
         };
-        Ok((rest_rest, CieOrFde::Fde(fde)))
+
+        Ok(Some((rest_rest, CieOrFde::Fde(fde))))
+    }
+}
+
+/// We support the z-style augmentation defined by `.eh_frame`.
+///
+/// http://refspecs.linuxfoundation.org/LSB_3.0.0/LSB-Core-generic/LSB-Core-generic/ehframechpt.html
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Augmentation {
+    /// > A 'L' may be present at any position after the first character of the
+    /// > string. This character may only be present if 'z' is the first character
+    /// > of the string. If present, it indicates the presence of one argument in
+    /// > the Augmentation Data of the CIE, and a corresponding argument in the
+    /// > Augmentation Data of the FDE. The argument in the Augmentation Data of
+    /// > the CIE is 1-byte and represents the pointer encoding used for the
+    /// > argument in the Augmentation Data of the FDE, which is the address of a
+    /// > language-specific data area (LSDA). The size of the LSDA pointer is
+    /// > specified by the pointer encoding used.
+    lsda: Option<constants::DwEhPe>,
+
+    /// > A 'P' may be present at any position after the first character of the
+    /// > string. This character may only be present if 'z' is the first character
+    /// > of the string. If present, it indicates the presence of two arguments in
+    /// > the Augmentation Data of the CIE. The first argument is 1-byte and
+    /// > represents the pointer encoding used for the second argument, which is
+    /// > the address of a personality routine handler. The size of the
+    /// > personality routine pointer is specified by the pointer encoding used.
+    personality: Option<u64>,
+
+    /// > A 'R' may be present at any position after the first character of the
+    /// > string. This character may only be present if 'z' is the first character
+    /// > of the string. If present, The Augmentation Data shall include a 1 byte
+    /// > argument that represents the pointer encoding for the address pointers
+    /// > used in the FDE.
+    fde_address_encoding: Option<constants::DwEhPe>,
+
+    /// True if this CIE's FDEs are trampolines for signal handlers.
+    is_signal_trampoline: bool,
+}
+
+impl Default for Augmentation {
+    fn default() -> Augmentation {
+        Augmentation {
+            lsda: None,
+            personality: None,
+            fde_address_encoding: None,
+            is_signal_trampoline: false,
+        }
+    }
+}
+
+impl Augmentation {
+    fn parse<'aug, 'bases, 'input, Endian, Section>
+        (augmentation_str: &'aug str,
+         bases: &'bases BaseAddresses,
+         address_size: u8,
+         section: Section,
+         input: EndianBuf<'input, Endian>)
+         -> Result<(EndianBuf<'input, Endian>, Augmentation)>
+        where Endian: Endianity,
+              Section: UnwindSection<'input, Endian>
+    {
+        debug_assert!(augmentation_str.len() > 0,
+                      "Augmentation::parse should only be called if we have an augmentation");
+        let mut chars = augmentation_str.chars();
+
+        let first = chars.next()
+            .expect("Is valid UTF-8 and length > 0, so must have at least one char.");
+        if first != 'z' {
+            return Err(Error::UnknownAugmentation);
+        }
+
+        let mut augmentation = Augmentation::default();
+
+        let (rest, augmentation_length) = try!(parse_unsigned_lebe(input));
+        let (mut rest, rest_rest) = try!(rest.try_split_at(augmentation_length as usize));
+
+        for ch in chars {
+            match ch {
+                'L' => {
+                    let (rest_, encoding) = try!(parse_pointer_encoding(rest));
+                    augmentation.lsda = Some(encoding);
+                    rest = rest_;
+                }
+                'P' => {
+                    let (rest_, encoding) = try!(parse_pointer_encoding(rest));
+                    let (rest_, personality) = try!(parse_encoded_pointer(encoding,
+                                                                          bases,
+                                                                          address_size,
+                                                                          section.section(),
+                                                                          rest_));
+                    augmentation.personality = Some(personality);
+                    rest = rest_;
+                }
+                'R' => {
+                    let (rest_, encoding) = try!(parse_pointer_encoding(rest));
+                    augmentation.fde_address_encoding = Some(encoding);
+                    rest = rest_;
+                }
+                'S' => augmentation.is_signal_trampoline = true,
+                _ => return Err(Error::UnknownAugmentation),
+            }
+        }
+
+        Ok((rest_rest, augmentation))
+    }
+}
+
+/// Parsed augmentation data for a `FrameDescriptEntry`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct AugmentationData {
+    lsda: Option<u64>,
+}
+
+impl AugmentationData {
+    fn parse<'input, Endian, Section>(augmentation: &Augmentation,
+                                      bases: &BaseAddresses,
+                                      address_size: u8,
+                                      section: Section,
+                                      input: EndianBuf<'input, Endian>)
+                                      -> Result<(EndianBuf<'input, Endian>, AugmentationData)>
+        where Endian: Endianity,
+              Section: UnwindSection<'input, Endian>
+    {
+        // In theory, we should be iterating over the original augmentation
+        // string, interpreting each character, and reading the appropriate bits
+        // out of the augmentation data as we go. However, the only character
+        // that defines augmentation data in the FDE is the 'L' character, so we
+        // can just check for its presence directly.
+
+        let (rest, aug_data_len) = try!(parse_unsigned_lebe(input));
+        let (rest, rest_rest) = try!(rest.try_split_at(aug_data_len as usize));
+        let mut augmentation_data = AugmentationData::default();
+        if let Some(encoding) = augmentation.lsda {
+            let (_, lsda) =
+                try!(parse_encoded_pointer(encoding, bases, address_size, section.section(), rest));
+            augmentation_data.lsda = Some(lsda);
+        }
+        Ok((rest_rest, augmentation_data))
     }
 }
 
@@ -306,8 +777,9 @@ fn parse_cfi_entry<Endian>(input: EndianBuf<Endian>)
 /// > Frame Description Entries. There is at least one CIE in every non-empty
 /// > `.debug_frame` section.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CommonInformationEntry<'input, Endian>
-    where Endian: Endianity
+pub struct CommonInformationEntry<'input, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
     /// > A constant that gives the number of bytes of the CIE structure, not
     /// > including the length field itself (see Section 7.2.2). The size of the
@@ -321,16 +793,8 @@ pub struct CommonInformationEntry<'input, Endian>
     /// > call frame information and is independent of the DWARF version number.
     version: u8,
 
-    /// > A null-terminated UTF-8 string that identifies the augmentation to
-    /// > this CIE or to the FDEs that use it. If a reader encounters an
-    /// > augmentation string that is unexpected, then only the following fields
-    /// > can be read:
-    /// >
-    /// > * CIE: length, CIE_id, version, augmentation
-    /// > * FDE: length, CIE_pointer, initial_location, address_range
-    /// >
-    /// > If there is no augmentation, this value is a zero byte.
-    augmentation: Option<&'input str>,
+    /// The parsed augmentation, if any.
+    augmentation: Option<Augmentation>,
 
     /// > The size of a target address in this CIE and any FDEs that use it, in
     /// > bytes. If a compilation unit exists for this frame, its address size
@@ -365,69 +829,63 @@ pub struct CommonInformationEntry<'input, Endian>
     /// This is followed by `DW_CFA_nop` padding until the end of `length` bytes
     /// in the input.
     initial_instructions: EndianBuf<'input, Endian>,
+
+    phantom: PhantomData<Section>,
 }
 
-impl<'input, Endian> CommonInformationEntry<'input, Endian>
-    where Endian: Endianity
+impl<'input, Endian, Section> CommonInformationEntry<'input, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
-    fn parse(input: EndianBuf<'input, Endian>)
-             -> Result<(EndianBuf<'input, Endian>, CommonInformationEntry<'input, Endian>)> {
-        let (rest_rest, (length, format, cie_id, rest)) = try!(parse_cfi_entry_common(input));
-        let entry = try!(Self::parse_rest(length, format, cie_id, rest));
-        Ok((rest_rest, entry))
-    }
+    fn parse<'bases>
+        (bases: &'bases BaseAddresses,
+         section: Section,
+         input: EndianBuf<'input, Endian>)
+         -> Result<Option<(EndianBuf<'input, Endian>, CommonInformationEntry<'input, Endian, Section>)>> {
+        let (rest_rest, (length, format, _, cie_id, rest)) =
+            match try!(parse_cfi_entry_common::<Endian, Section>(input)) {
+                None => return Ok(None),
+                Some(common) => common,
+            };
 
-    fn parse_rest(length: u64,
-                  format: Format,
-                  cie_id: u64,
-                  rest: EndianBuf<'input, Endian>)
-                  -> Result<CommonInformationEntry<'input, Endian>> {
-        if !is_cie_id(format, cie_id) {
+        if !Section::is_cie(format, cie_id) {
             return Err(Error::NotCieId);
         }
 
+        let entry = try!(Self::parse_rest(length, format, bases, section, rest));
+        Ok(Some((rest_rest, entry)))
+    }
+
+    fn parse_rest<'bases>(length: u64,
+                          format: Format,
+                          bases: &'bases BaseAddresses,
+                          section: Section,
+                          rest: EndianBuf<'input, Endian>)
+                          -> Result<CommonInformationEntry<'input, Endian, Section>> {
         let (rest, version) = try!(parse_u8(rest.into()));
-        match version {
-            // TODO: Is this parser really backwards compatible with versions 1
-            // and 3?
-            1 | 3 | 4 => {}
-            _ => return Err(Error::UnknownVersion),
+        if !Section::compatible_version(version) {
+            return Err(Error::UnknownVersion);
         }
 
-        let (rest, augmentation) = try!(parse_null_terminated_string(rest));
-        let aug_len = augmentation.to_bytes().len();
-
-        if aug_len > 0 {
-            // We don't support any target-specific augmentations, so the best
-            // we can do here is enable library consumers to introspect the
-            // augmentation.
-
-            let augmentation = try!(str::from_utf8(augmentation.to_bytes())
-                .map_err(|_| Error::BadUtf8));
-
-            let entry = CommonInformationEntry {
-                length: length,
-                format: format,
-                version: version,
-                augmentation: Some(augmentation),
-                address_size: Default::default(),
-                segment_size: Default::default(),
-                code_alignment_factor: Default::default(),
-                data_alignment_factor: Default::default(),
-                return_address_register: Default::default(),
-                initial_instructions: EndianBuf::new(&[]),
-            };
-
-            return Ok(entry);
-        }
-
-        let augmentation = None;
+        let (rest, augmentation_string) = try!(parse_null_terminated_string(rest));
+        let aug_len = augmentation_string.to_bytes().len();
 
         let (rest, address_size) = try!(parse_u8(rest));
         let (rest, segment_size) = try!(parse_u8(rest));
         let (rest, code_alignment_factor) = try!(parse_unsigned_leb(rest));
         let (rest, data_alignment_factor) = try!(parse_signed_leb(rest));
         let (rest, return_address_register) = try!(parse_unsigned_leb(rest));
+        let rest = EndianBuf::new(rest);
+
+        let (rest, augmentation) = if aug_len == 0 {
+            (rest, None)
+        } else {
+            let augmentation_string = try!(str::from_utf8(augmentation_string.to_bytes())
+                .map_err(|_| Error::BadUtf8));
+            let (rest, augmentation) =
+                try!(Augmentation::parse(augmentation_string, bases, address_size, section, rest));
+            (rest, Some(augmentation))
+        };
 
         let entry = CommonInformationEntry {
             length: length,
@@ -439,7 +897,8 @@ impl<'input, Endian> CommonInformationEntry<'input, Endian>
             code_alignment_factor: code_alignment_factor,
             data_alignment_factor: data_alignment_factor,
             return_address_register: return_address_register,
-            initial_instructions: EndianBuf::new(rest),
+            initial_instructions: rest,
+            phantom: PhantomData,
         };
 
         Ok(entry)
@@ -458,38 +917,45 @@ impl<'input, Endian> CommonInformationEntry<'input, Endian>
 ///
 /// Fully parsing this FDE requires first parsing its CIE.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PartialFrameDescriptionEntry<'input, Endian>
-    where Endian: Endianity
+pub struct PartialFrameDescriptionEntry<'bases, 'input, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
     length: u64,
     format: Format,
-    cie_offset: DebugFrameOffset,
+    cie_offset: Section::Offset,
     rest: EndianBuf<'input, Endian>,
+    section: Section,
+    bases: &'bases BaseAddresses,
 }
 
-impl<'input, Endian> PartialFrameDescriptionEntry<'input, Endian>
-    where Endian: Endianity
+impl<'bases, 'input, Endian, Section> PartialFrameDescriptionEntry<'bases, 'input, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
     /// Fully parse this FDE.
     ///
     /// You must provide a function get its associated CIE (either by parsing it
     /// on demand, or looking it up in some table mapping offsets to CIEs that
     /// you've already parsed, etc.)
-    pub fn parse<F>(&self, get_cie: F) -> Result<FrameDescriptionEntry<'input, Endian>>
-        where F: FnMut(DebugFrameOffset) -> Result<CommonInformationEntry<'input, Endian>>
+    pub fn parse<F>(&self, get_cie: F) -> Result<FrameDescriptionEntry<'input, Endian, Section>>
+        where F: FnMut(Section::Offset) -> Result<CommonInformationEntry<'input, Endian, Section>>
     {
         FrameDescriptionEntry::parse_rest(self.length,
                                           self.format,
                                           self.cie_offset,
                                           self.rest,
+                                          self.section,
+                                          self.bases,
                                           get_cie)
     }
 }
 
 /// A `FrameDescriptionEntry` is a set of CFA instructions for an address range.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FrameDescriptionEntry<'input, Endian>
-    where Endian: Endianity
+pub struct FrameDescriptionEntry<'input, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
     /// > A constant that gives the number of bytes of the header and
     /// > instruction stream for this function, not including the length field
@@ -503,7 +969,7 @@ pub struct FrameDescriptionEntry<'input, Endian>
     /// that is associated with this FDE."
     ///
     /// This is the CIE at that offset.
-    cie: CommonInformationEntry<'input, Endian>,
+    cie: CommonInformationEntry<'input, Endian, Section>,
 
     /// > The address of the first location associated with this table entry. If
     /// > the segment_size field of this FDE's CIE is non-zero, the initial
@@ -514,6 +980,9 @@ pub struct FrameDescriptionEntry<'input, Endian>
     /// "The number of bytes of program instructions described by this entry."
     address_range: u64,
 
+    /// The parsed augmentation data, if we have any.
+    augmentation: Option<AugmentationData>,
+
     /// "A sequence of table defining instructions that are described below."
     ///
     /// This is followed by `DW_CFA_nop` padding until `length` bytes of the
@@ -521,32 +990,26 @@ pub struct FrameDescriptionEntry<'input, Endian>
     instructions: EndianBuf<'input, Endian>,
 }
 
-impl<'input, Endian> FrameDescriptionEntry<'input, Endian>
-    where Endian: Endianity
+impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
-    #[allow(dead_code)]
-    fn parse<F>(input: EndianBuf<'input, Endian>,
-                get_cie: F)
-                -> Result<(EndianBuf<'input, Endian>, FrameDescriptionEntry<'input, Endian>)>
-        where F: FnMut(DebugFrameOffset) -> Result<CommonInformationEntry<'input, Endian>>
-    {
-        let (rest_rest, (length, format, cie_pointer, rest)) = try!(parse_cfi_entry_common(input));
-        if is_cie_id(format, cie_pointer) {
-            return Err(Error::NotCiePointer);
-        }
-        let cie_pointer = DebugFrameOffset(try!(u64_to_offset(cie_pointer)));
-        let entry = try!(Self::parse_rest(length, format, cie_pointer, rest, get_cie));
-        Ok((rest_rest, entry))
-    }
-
     fn parse_rest<F>(length: u64,
                      format: Format,
-                     cie_pointer: DebugFrameOffset,
+                     cie_pointer: Section::Offset,
                      rest: EndianBuf<'input, Endian>,
+                     section: Section,
+                     bases: &BaseAddresses,
                      mut get_cie: F)
-                     -> Result<FrameDescriptionEntry<'input, Endian>>
-        where F: FnMut(DebugFrameOffset) -> Result<CommonInformationEntry<'input, Endian>>
+                     -> Result<FrameDescriptionEntry<'input, Endian, Section>>
+        where F: FnMut(Section::Offset) -> Result<CommonInformationEntry<'input, Endian, Section>>
     {
+        {
+            let mut func = bases.func.borrow_mut();
+            let offset = rest.as_ptr() as usize - section.section().as_ptr() as usize;
+            *func = Some(offset as u64);
+        }
+
         let cie = try!(get_cie(cie_pointer));
 
         let (rest, initial_segment) = if cie.segment_size > 0 {
@@ -555,8 +1018,16 @@ impl<'input, Endian> FrameDescriptionEntry<'input, Endian>
             (rest, 0)
         };
 
-        let (rest, initial_address) = try!(parse_address(rest, cie.address_size));
-        let (rest, address_range) = try!(parse_address(rest, cie.address_size));
+        let (rest, initial_address, address_range) =
+            try!(Self::parse_addresses(rest, &cie, bases, section));
+
+        let (rest, aug_data) = if let Some(ref augmentation) = cie.augmentation {
+            let (rest, aug_data) =
+                try!(AugmentationData::parse(augmentation, bases, cie.address_size, section, rest));
+            (rest, Some(aug_data))
+        } else {
+            (rest, None)
+        };
 
         let entry = FrameDescriptionEntry {
             length: length,
@@ -565,14 +1036,42 @@ impl<'input, Endian> FrameDescriptionEntry<'input, Endian>
             initial_segment: initial_segment,
             initial_address: initial_address,
             address_range: address_range,
+            augmentation: aug_data,
             instructions: rest,
         };
 
         Ok(entry)
     }
 
+    fn parse_addresses(input: EndianBuf<'input, Endian>,
+                       cie: &CommonInformationEntry<'input, Endian, Section>,
+                       bases: &BaseAddresses,
+                       section: Section)
+                       -> Result<(EndianBuf<'input, Endian>, u64, u64)> {
+        let encoding = cie.augmentation.as_ref().and_then(|a| a.fde_address_encoding);
+        if let Some(encoding) = encoding {
+            let (rest, initial_address) = try!(parse_encoded_pointer(encoding,
+                                                                     bases,
+                                                                     cie.address_size,
+                                                                     section.section(),
+                                                                     input));
+            // Address ranges cannot be relative to anything, so just grab the
+            // data format bits from the encoding.
+            let (rest, address_range) = try!(parse_encoded_pointer(encoding.format(),
+                                                                   bases,
+                                                                   cie.address_size,
+                                                                   section.section(),
+                                                                   rest));
+            Ok((rest, initial_address, address_range))
+        } else {
+            let (rest, initial_address) = try!(parse_address(input, cie.address_size));
+            let (rest, address_range) = try!(parse_address(rest, cie.address_size));
+            Ok((rest, initial_address, address_range))
+        }
+    }
+
     /// Get a reference to this FDE's CIE.
-    pub fn cie<'me>(&'me self) -> &'me CommonInformationEntry<'input, Endian> {
+    pub fn cie<'me>(&'me self) -> &'me CommonInformationEntry<'input, Endian, Section> {
         &self.cie
     }
 
@@ -594,6 +1093,24 @@ impl<'input, Endian> FrameDescriptionEntry<'input, Endian>
         let end = start + self.address_range;
         start <= address && address < end
     }
+
+    /// The address of this FDE's language-specific data area (LSDA), if it has
+    /// any.
+    pub fn lsda(&self) -> Option<u64> {
+        self.augmentation.as_ref().and_then(|a| a.lsda)
+    }
+
+    /// Return true if this FDE's function is a trampoline for a signal handler.
+    pub fn is_signal_trampoline(&self) -> bool {
+        self.cie().augmentation.map_or(false, |a| a.is_signal_trampoline)
+    }
+
+    /// Return the address of the FDE's function's personality routine
+    /// handler. The personality routine does language-specific clean up when
+    /// unwinding the stack frames with the intent to not run them again.
+    pub fn personality(&self) -> Option<u64> {
+        self.cie().augmentation.as_ref().and_then(|a| a.personality)
+    }
 }
 
 /// Common context needed when evaluating the call frame unwinding information.
@@ -610,7 +1127,8 @@ impl<'input, Endian> FrameDescriptionEntry<'input, Endian>
 /// ```
 /// use gimli::{UninitializedUnwindContext, UnwindTable};
 ///
-/// # fn foo<'a>(some_fde: gimli::FrameDescriptionEntry<'a, gimli::LittleEndian>) -> gimli::Result<()> {
+/// # fn foo<'a>(some_fde: gimli::FrameDescriptionEntry<'a, gimli::LittleEndian, gimli::DebugFrame<'a, gimli::LittleEndian>>)
+/// #            -> gimli::Result<()> {
 /// // An uninitialized context.
 /// let ctx = UninitializedUnwindContext::new();
 ///
@@ -670,22 +1188,26 @@ impl<'input, Endian> FrameDescriptionEntry<'input, Endian>
 ///          +-----+
 /// ```
 #[derive(Clone, Debug)]
-pub struct UninitializedUnwindContext<'input, Endian>(UnwindContext<'input, Endian>)
-    where Endian: Endianity;
+pub struct UninitializedUnwindContext<'input, Endian, Section>(UnwindContext<'input,
+                                                                             Endian,
+                                                                             Section>)
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>;
 
-impl<'input, Endian> UninitializedUnwindContext<'input, Endian>
-    where Endian: Endianity
+impl<'input, Endian, Section> UninitializedUnwindContext<'input, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
     /// Construct a new call frame unwinding context.
-    pub fn new() -> UninitializedUnwindContext<'input, Endian> {
+    pub fn new() -> UninitializedUnwindContext<'input, Endian, Section> {
         UninitializedUnwindContext(UnwindContext::new())
     }
 
     /// Run the CIE's initial instructions, creating an
     /// `InitializedUnwindContext`.
     pub fn initialize(mut self,
-                      cie: &CommonInformationEntry<'input, Endian>)
-                      -> Result<InitializedUnwindContext<'input, Endian>> {
+                      cie: &CommonInformationEntry<'input, Endian, Section>)
+                      -> Result<InitializedUnwindContext<'input, Endian, Section>> {
         self.0.assert_fully_uninitialized();
 
         {
@@ -704,22 +1226,27 @@ impl<'input, Endian> UninitializedUnwindContext<'input, Endian>
 /// [`UninitializedUnwindContext`](./struct.UninitializedUnwindContext.html) for
 /// more details.
 #[derive(Clone, Debug)]
-pub struct InitializedUnwindContext<'input, Endian>(UnwindContext<'input, Endian>)
-    where Endian: Endianity;
+pub struct InitializedUnwindContext<'input, Endian, Section>(UnwindContext<'input,
+                                                                           Endian,
+                                                                           Section>)
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>;
 
-impl<'input, Endian> InitializedUnwindContext<'input, Endian>
-    where Endian: Endianity
+impl<'input, Endian, Section> InitializedUnwindContext<'input, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
     /// Reset this context to the uninitialized state.
-    pub fn reset(mut self) -> UninitializedUnwindContext<'input, Endian> {
+    pub fn reset(mut self) -> UninitializedUnwindContext<'input, Endian, Section> {
         self.0.reset();
         UninitializedUnwindContext(self.0)
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct UnwindContext<'input, Endian>
-    where Endian: Endianity
+struct UnwindContext<'input, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
     // Stack of rows. The last row is the row currently being built by the
     // program. There is always at least one row. The vast majority of CFI
@@ -734,16 +1261,20 @@ struct UnwindContext<'input, Endian>
     // `initial_rules` is not to be read from.
     is_initialized: bool,
     initial_rules: Vec<RegisterRule<'input, Endian>>,
+
+    phantom: PhantomData<Section>,
 }
 
-impl<'input, Endian> UnwindContext<'input, Endian>
-    where Endian: Endianity
+impl<'input, Endian, Section> UnwindContext<'input, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
-    fn new() -> UnwindContext<'input, Endian> {
+    fn new() -> UnwindContext<'input, Endian, Section> {
         let mut ctx = UnwindContext {
             stack: Vec::with_capacity(1),
             is_initialized: false,
             initial_rules: Default::default(),
+            phantom: PhantomData,
         };
         ctx.reset();
         ctx
@@ -895,40 +1426,48 @@ impl<'input, Endian> UnwindContext<'input, Endian>
 /// > recording just the differences starting at the beginning address of each
 /// > subroutine in the program.
 #[derive(Debug)]
-pub struct UnwindTable<'input, 'cie, 'fde, 'ctx, Endian>
+pub struct UnwindTable<'input, 'cie, 'fde, 'ctx, Endian, Section>
     where Endian: 'cie + 'fde + 'ctx + Endianity,
+          Section: 'cie + 'fde + 'ctx + UnwindSection<'input, Endian>,
           'input: 'cie + 'fde + 'ctx
 {
-    cie: &'cie CommonInformationEntry<'input, Endian>,
+    cie: &'cie CommonInformationEntry<'input, Endian, Section>,
     next_start_address: u64,
     returned_last_row: bool,
     instructions: CallFrameInstructionIter<'input, Endian>,
-    ctx: &'ctx mut UnwindContext<'input, Endian>,
+    ctx: &'ctx mut UnwindContext<'input, Endian, Section>,
     // If this is `None`, then we are executing a CIE's initial_instructions. If
     // this is `Some`, then we are executing an FDE's instructions.
-    fde: Option<&'fde FrameDescriptionEntry<'input, Endian>>,
+    fde: Option<&'fde FrameDescriptionEntry<'input, Endian, Section>>,
 }
 
-impl<'input, 'fde, 'ctx, Endian> UnwindTable<'input, 'fde, 'fde, 'ctx, Endian>
-    where Endian: Endianity
+impl<'input, 'fde, 'ctx, Endian, Section> UnwindTable<'input, 'fde, 'fde, 'ctx, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
     /// Construct a new `UnwindTable` for the given
     /// `FrameDescriptionEntry`'s CFI unwinding program.
-    pub fn new(ctx: &'ctx mut InitializedUnwindContext<'input, Endian>,
-               fde: &'fde FrameDescriptionEntry<'input, Endian>)
-               -> UnwindTable<'input, 'fde, 'fde, 'ctx, Endian> {
+    pub fn new(ctx: &'ctx mut InitializedUnwindContext<'input, Endian, Section>,
+               fde: &'fde FrameDescriptionEntry<'input, Endian, Section>)
+               -> UnwindTable<'input, 'fde, 'fde, 'ctx, Endian, Section> {
         assert!(ctx.0.is_initialized);
         Self::new_internal(&mut ctx.0, fde.cie(), Some(fde))
     }
 }
 
-impl<'input, 'cie, 'fde, 'ctx, Endian> UnwindTable<'input, 'cie, 'fde, 'ctx, Endian>
-    where Endian: Endianity
+impl<'input, 'cie, 'fde, 'ctx, Endian, Section> UnwindTable<'input,
+                                                            'cie,
+                                                            'fde,
+                                                            'ctx,
+                                                            Endian,
+                                                            Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
 {
-    fn new_internal(ctx: &'ctx mut UnwindContext<'input, Endian>,
-                    cie: &'cie CommonInformationEntry<'input, Endian>,
-                    fde: Option<&'fde FrameDescriptionEntry<'input, Endian>>)
-                    -> UnwindTable<'input, 'cie, 'fde, 'ctx, Endian> {
+    fn new_internal(ctx: &'ctx mut UnwindContext<'input, Endian, Section>,
+                    cie: &'cie CommonInformationEntry<'input, Endian, Section>,
+                    fde: Option<&'fde FrameDescriptionEntry<'input, Endian, Section>>)
+                    -> UnwindTable<'input, 'cie, 'fde, 'ctx, Endian, Section> {
         assert!(ctx.stack.len() >= 1);
         let next_start_address = fde.map_or(0, |fde| fde.initial_address);
         let instructions = fde.map_or_else(|| cie.instructions(), |fde| fde.instructions());
@@ -1809,33 +2348,77 @@ mod tests {
     extern crate test_assembler;
 
     use super::*;
-    use super::{parse_cfi_entry, UnwindContext};
+    use super::{AugmentationData, parse_cfi_entry, UnwindContext};
     use constants;
     use endianity::{BigEndian, Endianity, EndianBuf, LittleEndian, NativeEndian};
     use parser::{Error, Format, Result};
     use self::test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};
+    use std::fmt::Debug;
+    use std::marker::PhantomData;
+    use std::u64;
     use test_util::GimliSectionMethods;
+
+    type DebugFrameCie<'input, Endian> = CommonInformationEntry<'input,
+                                                                Endian,
+                                                                DebugFrame<'input, Endian>>;
+    type EhFrameCie<'input, Endian> = CommonInformationEntry<'input,
+                                                             Endian,
+                                                             EhFrame<'input, Endian>>;
+    type DebugFrameFde<'input, Endian> = FrameDescriptionEntry<'input,
+                                                               Endian,
+                                                               DebugFrame<'input, Endian>>;
+    type EhFrameFde<'input, Endian> = FrameDescriptionEntry<'input,
+                                                            Endian,
+                                                            EhFrame<'input, Endian>>;
+
+    fn parse_fde<'input, Endian, Section, O, F>
+        (section: Section,
+         input: EndianBuf<'input, Endian>,
+         get_cie: F)
+         -> Result<(EndianBuf<'input, Endian>, FrameDescriptionEntry<'input, Endian, Section>)>
+        where Endian: Endianity,
+              Section: UnwindSection<'input, Endian, Offset = O>,
+              O: Copy + Debug + Eq + Into<usize> + From<usize>,
+              F: FnMut(O) -> Result<CommonInformationEntry<'input, Endian, Section>>
+    {
+        let bases = Default::default();
+        match parse_cfi_entry(&bases, section, input) {
+            Ok(Some((rest, CieOrFde::Fde(partial)))) => {
+                partial.parse(get_cie).map(|fde| (rest, fde))
+            }
+            Ok(_) => Err(Error::NoEntryAtGivenOffset),
+            Err(e) => Err(e),
+        }
+    }
 
     // Mixin methods for `Section` to help define binary test data.
 
     trait CfiSectionMethods: GimliSectionMethods {
-        fn cie<'input, E>(self,
-                          endian: Endian,
-                          cie: &mut CommonInformationEntry<'input, E>)
-                          -> Self
-            where E: Endianity;
-        fn fde<'a, 'input, E, T>(self,
-                                 endian: Endian,
-                                 cie_offset: T,
-                                 fde: &mut FrameDescriptionEntry<'input, E>)
-                                 -> Self
+        fn cie<'aug, 'input, E, T>(self,
+                                   endian: Endian,
+                                   augmentation: Option<&'aug str>,
+                                   cie: &mut CommonInformationEntry<'input, E, T>)
+                                   -> Self
             where E: Endianity,
-                  T: ToLabelOrNum<'a, u64>;
+                  T: UnwindSection<'input, E>;
+        fn fde<'a, 'input, E, T, L>(self,
+                                    endian: Endian,
+                                    cie_offset: L,
+                                    fde: &mut FrameDescriptionEntry<'input, E, T>)
+                                    -> Self
+            where E: Endianity,
+                  T: UnwindSection<'input, E>,
+                  L: ToLabelOrNum<'a, u64>;
     }
 
     impl CfiSectionMethods for Section {
-        fn cie<'input, E>(self, endian: Endian, cie: &mut CommonInformationEntry<'input, E>) -> Self
-            where E: Endianity
+        fn cie<'aug, 'input, E, T>(self,
+                                   endian: Endian,
+                                   augmentation: Option<&'aug str>,
+                                   cie: &mut CommonInformationEntry<'input, E, T>)
+                                   -> Self
+            where E: Endianity,
+                  T: UnwindSection<'input, E>
         {
             let length = Label::new();
             let start = Label::new();
@@ -1857,12 +2440,12 @@ mod tests {
 
             let mut section = section.D8(cie.version);
 
-            if let Some(augmentation) = cie.augmentation {
+            if let Some(augmentation) = augmentation {
                 section = section.append_bytes(augmentation.as_bytes());
             }
 
             let section = section
-                // Null terminator
+                // Null terminator for augmentation string.
                 .D8(0)
                 .D8(cie.address_size)
                 .D8(cie.segment_size)
@@ -1878,13 +2461,14 @@ mod tests {
             section
         }
 
-        fn fde<'a, 'input, E, T>(self,
-                                 endian: Endian,
-                                 cie_offset: T,
-                                 fde: &mut FrameDescriptionEntry<'input, E>)
-                                 -> Self
+        fn fde<'a, 'input, E, T, L>(self,
+                                    endian: Endian,
+                                    cie_offset: L,
+                                    fde: &mut FrameDescriptionEntry<'input, E, T>)
+                                    -> Self
             where E: Endianity,
-                  T: ToLabelOrNum<'a, u64>
+                  T: UnwindSection<'input, E>,
+                  L: ToLabelOrNum<'a, u64>
         {
             let length = Label::new();
             let start = Label::new();
@@ -1927,6 +2511,30 @@ mod tests {
                 x => panic!("Unsupported address size: {}", x),
             };
 
+            let section = if let Some(ref augmentation) = fde.augmentation {
+                let cie_aug = fde.cie.augmentation.expect("FDE has augmentation, but CIE doesn't");
+
+                if let Some(lsda) = augmentation.lsda {
+                    // We only support writing `DW_EH_PE_absptr` here.
+                    assert_eq!(cie_aug.lsda.expect("FDE has lsda, but CIE doesn't").format(),
+                               constants::DW_EH_PE_absptr);
+
+                    // Augmentation data length
+                    let section = section.uleb(fde.cie.address_size as u64);
+                    match fde.cie.address_size {
+                        4 => section.e32(endian, lsda as u32),
+                        8 => section.e64(endian, lsda),
+                        x => panic!("Unsupported address size: {}", x),
+                    }
+                } else {
+                    // Even if we don't have any augmentation data, if there is
+                    // an augmentation defined, we need to put the length in.
+                    section.uleb(0)
+                }
+            } else {
+                section
+            };
+
             let section = section.append_bytes(fde.instructions.into()).mark(&end);
 
             fde.length = (&end - &start) as u64;
@@ -1936,12 +2544,21 @@ mod tests {
         }
     }
 
+    fn assert_parse_cie<E>(section: Section,
+                           expected: Result<Option<(EndianBuf<E>, DebugFrameCie<E>)>>)
+        where E: Endianity
+    {
+        let section = section.get_contents().unwrap();
+        let debug_frame = DebugFrame::<E>::new(&section);
+        let input = EndianBuf::<E>::new(&section);
+        let bases = Default::default();
+        assert_eq!(DebugFrameCie::parse(&bases, debug_frame, input), expected);
+    }
+
     #[test]
     fn test_parse_cie_incomplete_length_32() {
         let section = Section::with_endian(Endian::Little).L16(5);
-        let contents = section.get_contents().unwrap();
-        assert_eq!(CommonInformationEntry::parse(EndianBuf::<LittleEndian>::new(&contents)),
-                   Err(Error::UnexpectedEof));
+        assert_parse_cie::<LittleEndian>(section, Err(Error::UnexpectedEof));
     }
 
     #[test]
@@ -1949,9 +2566,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little)
             .L32(0xffffffff)
             .L32(12345);
-        let contents = section.get_contents().unwrap();
-        assert_eq!(CommonInformationEntry::parse(EndianBuf::<LittleEndian>::new(&contents)),
-                   Err(Error::UnexpectedEof));
+        assert_parse_cie::<LittleEndian>(section, Err(Error::UnexpectedEof));
     }
 
     #[test]
@@ -1960,9 +2575,7 @@ mod tests {
             // The length is not large enough to contain the ID.
             .B32(3)
             .B32(0xffffffff);
-        let contents = section.get_contents().unwrap();
-        assert_eq!(CommonInformationEntry::parse(EndianBuf::<BigEndian>::new(&contents)),
-                   Err(Error::UnexpectedEof));
+        assert_parse_cie::<BigEndian>(section, Err(Error::UnexpectedEof));
     }
 
     #[test]
@@ -1972,14 +2585,12 @@ mod tests {
             .B32(4)
             // Not the CIE Id.
             .B32(0xbad1bad2);
-        let contents = section.get_contents().unwrap();
-        assert_eq!(CommonInformationEntry::parse(EndianBuf::<BigEndian>::new(&contents)),
-                   Err(Error::NotCieId));
+        assert_parse_cie::<BigEndian>(section, Err(Error::NotCieId));
     }
 
     #[test]
     fn test_parse_cie_32_bad_version() {
-        let mut cie = CommonInformationEntry {
+        let mut cie = DebugFrameCie {
             length: 0,
             format: Format::Dwarf32,
             version: 99,
@@ -1990,14 +2601,11 @@ mod tests {
             data_alignment_factor: 2,
             return_address_register: 3,
             initial_instructions: EndianBuf::<LittleEndian>::new(&[]),
+            phantom: PhantomData,
         };
 
-        let section = Section::with_endian(Endian::Little).cie(Endian::Little, &mut cie);
-
-        let contents = section.get_contents().unwrap();
-
-        assert_eq!(CommonInformationEntry::parse(EndianBuf::<LittleEndian>::new(&contents)),
-                   Err(Error::UnknownVersion));
+        let section = Section::with_endian(Endian::Little).cie(Endian::Little, None, &mut cie);
+        assert_parse_cie::<LittleEndian>(section, Err(Error::UnknownVersion));
     }
 
     #[test]
@@ -2034,27 +2642,7 @@ mod tests {
         let expected_length = (&end - &start) as u64;
         length.set_const(expected_length);
 
-        let contents = section.get_contents().unwrap();
-
-        match CommonInformationEntry::parse(EndianBuf::<LittleEndian>::new(&contents)) {
-            Ok((rest, entry)) => {
-                assert_eq!(rest, EndianBuf::new(&expected_rest));
-                assert_eq!(entry,
-                           CommonInformationEntry {
-                               length: expected_length,
-                               format: Format::Dwarf32,
-                               version: 4,
-                               augmentation: augmentation,
-                               address_size: 0,
-                               segment_size: 0,
-                               code_alignment_factor: 0,
-                               data_alignment_factor: 0,
-                               return_address_register: 0,
-                               initial_instructions: EndianBuf::new(&[]),
-                           });
-            }
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        }
+        assert_parse_cie::<LittleEndian>(section, Err(Error::UnknownAugmentation));
     }
 
     #[test]
@@ -2064,7 +2652,7 @@ mod tests {
             .map(|_| constants::DW_CFA_nop.0)
             .collect();
 
-        let mut cie = CommonInformationEntry {
+        let mut cie: DebugFrameCie<LittleEndian> = DebugFrameCie {
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -2075,16 +2663,14 @@ mod tests {
             data_alignment_factor: 32,
             return_address_register: 1,
             initial_instructions: EndianBuf::new(&expected_instrs),
+            phantom: PhantomData,
         };
 
         let section = Section::with_endian(Endian::Little)
-            .cie(Endian::Little, &mut cie)
+            .cie(Endian::Little, None, &mut cie)
             .append_bytes(&expected_rest);
 
-        let contents = section.get_contents().unwrap();
-
-        assert_eq!(CommonInformationEntry::parse(EndianBuf::<LittleEndian>::new(&contents)),
-                   Ok((EndianBuf::new(&expected_rest), cie)));
+        assert_parse_cie::<LittleEndian>(section, Ok(Some((EndianBuf::new(&expected_rest), cie))));
     }
 
     #[test]
@@ -2092,7 +2678,7 @@ mod tests {
         let expected_rest = [1, 2, 3, 4, 5, 6, 7, 8, 9];
         let expected_instrs: Vec<_> = (0..5).map(|_| constants::DW_CFA_nop.0).collect();
 
-        let mut cie = CommonInformationEntry {
+        let mut cie: DebugFrameCie<BigEndian> = DebugFrameCie {
             length: 0,
             format: Format::Dwarf64,
             version: 4,
@@ -2103,23 +2689,21 @@ mod tests {
             data_alignment_factor: 32,
             return_address_register: 7,
             initial_instructions: EndianBuf::new(&expected_instrs),
+            phantom: PhantomData,
         };
 
         let section = Section::with_endian(Endian::Big)
-            .cie(Endian::Big, &mut cie)
+            .cie(Endian::Big, None, &mut cie)
             .append_bytes(&expected_rest);
 
-        let contents = section.get_contents().unwrap();
-
-        assert_eq!(CommonInformationEntry::parse(EndianBuf::<BigEndian>::new(&contents)),
-                   Ok((EndianBuf::new(&expected_rest), cie)));
+        assert_parse_cie(section, Ok(Some((EndianBuf::new(&expected_rest), cie))));
     }
 
     #[test]
     fn test_parse_cie_length_too_big() {
         let expected_instrs: Vec<_> = (0..13).map(|_| constants::DW_CFA_nop.0).collect();
 
-        let mut cie = CommonInformationEntry {
+        let mut cie = DebugFrameCie {
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -2130,9 +2714,10 @@ mod tests {
             data_alignment_factor: 0,
             return_address_register: 3,
             initial_instructions: EndianBuf::<LittleEndian>::new(&expected_instrs),
+            phantom: PhantomData,
         };
 
-        let section = Section::with_endian(Endian::Little).cie(Endian::Little, &mut cie);
+        let section = Section::with_endian(Endian::Little).cie(Endian::Little, None, &mut cie);
 
         let mut contents = section.get_contents().unwrap();
 
@@ -2142,16 +2727,19 @@ mod tests {
         contents[2] = 0;
         contents[3] = 255;
 
-        assert_eq!(CommonInformationEntry::parse(EndianBuf::<LittleEndian>::new(&contents)),
+        let bases = Default::default();
+        assert_eq!(DebugFrameCie::parse(&bases,
+                                        DebugFrame::new(&contents),
+                                        EndianBuf::<LittleEndian>::new(&contents)),
                    Err(Error::BadLength));
     }
 
     #[test]
     fn test_parse_fde_incomplete_length_32() {
         let section = Section::with_endian(Endian::Little).L16(5);
-        let contents = section.get_contents().unwrap();
-        assert_eq!(FrameDescriptionEntry::parse(EndianBuf::<LittleEndian>::new(&contents),
-                                                |_| unreachable!()),
+        let section = section.get_contents().unwrap();
+        let section = EndianBuf::<LittleEndian>::new(&section);
+        assert_eq!(parse_fde(DebugFrame::new(section.into()), section, |_| unreachable!()),
                    Err(Error::UnexpectedEof));
     }
 
@@ -2160,9 +2748,9 @@ mod tests {
         let section = Section::with_endian(Endian::Little)
             .L32(0xffffffff)
             .L32(12345);
-        let contents = section.get_contents().unwrap();
-        assert_eq!(FrameDescriptionEntry::parse(EndianBuf::<LittleEndian>::new(&contents),
-                                                |_| unreachable!()),
+        let section = section.get_contents().unwrap();
+        let section = EndianBuf::<LittleEndian>::new(&section);
+        assert_eq!(parse_fde(DebugFrame::new(section.into()), section, |_| unreachable!()),
                    Err(Error::UnexpectedEof));
     }
 
@@ -2172,23 +2760,10 @@ mod tests {
             // The length is not large enough to contain the CIE pointer.
             .B32(3)
             .B32(1994);
-        let contents = section.get_contents().unwrap();
-        assert_eq!(FrameDescriptionEntry::parse(EndianBuf::<BigEndian>::new(&contents),
-                                                |_| unreachable!()),
+        let section = section.get_contents().unwrap();
+        let section = EndianBuf::<BigEndian>::new(&section);
+        assert_eq!(parse_fde(DebugFrame::new(section.into()), section, |_| unreachable!()),
                    Err(Error::UnexpectedEof));
-    }
-
-    #[test]
-    fn test_parse_fde_bad_cie_pointer_32() {
-        let section = Section::with_endian(Endian::Big)
-            // Initial length
-            .B32(4)
-            // This is the CIE ID, not a valid offset pointer.
-            .B32(0xffffffff);
-        let contents = section.get_contents().unwrap();
-        assert_eq!(FrameDescriptionEntry::parse(EndianBuf::<BigEndian>::new(&contents),
-                                                |_| unreachable!()),
-                   Err(Error::NotCiePointer));
     }
 
     #[test]
@@ -2197,7 +2772,7 @@ mod tests {
         let cie_offset = 0xbad0bad1;
         let expected_instrs: Vec<_> = (0..7).map(|_| constants::DW_CFA_nop.0).collect();
 
-        let cie = CommonInformationEntry {
+        let cie = DebugFrameCie {
             length: 100,
             format: Format::Dwarf32,
             version: 4,
@@ -2209,15 +2784,17 @@ mod tests {
             data_alignment_factor: 2,
             return_address_register: 1,
             initial_instructions: EndianBuf::new(&[]),
+            phantom: PhantomData,
         };
 
-        let mut fde = FrameDescriptionEntry {
+        let mut fde = DebugFrameFde {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
             initial_segment: 0,
             initial_address: 0xfeedbeef,
             address_range: 39,
+            augmentation: None,
             instructions: EndianBuf::<LittleEndian>::new(&expected_instrs),
         };
 
@@ -2225,15 +2802,15 @@ mod tests {
             .fde(Endian::Little, cie_offset, &mut fde)
             .append_bytes(&expected_rest);
 
-        let contents = section.get_contents().unwrap();
-        let contents = EndianBuf::<LittleEndian>::new(&contents);
+        let section = section.get_contents().unwrap();
+        let section = EndianBuf::<LittleEndian>::new(&section);
 
         let get_cie = |offset| {
             assert_eq!(offset, DebugFrameOffset(cie_offset as usize));
             Ok(cie.clone())
         };
 
-        assert_eq!(FrameDescriptionEntry::parse(contents, get_cie),
+        assert_eq!(parse_fde(DebugFrame::new(section.into()), section, get_cie),
                    Ok((EndianBuf::new(&expected_rest), fde)));
     }
 
@@ -2245,7 +2822,7 @@ mod tests {
             .map(|_| constants::DW_CFA_nop.0)
             .collect();
 
-        let cie = CommonInformationEntry {
+        let cie = DebugFrameCie {
             length: 100,
             format: Format::Dwarf32,
             version: 4,
@@ -2256,15 +2833,17 @@ mod tests {
             data_alignment_factor: 2,
             return_address_register: 1,
             initial_instructions: EndianBuf::new(&[]),
+            phantom: PhantomData,
         };
 
-        let mut fde = FrameDescriptionEntry {
+        let mut fde = DebugFrameFde {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
             initial_segment: 0xbadbad11,
             initial_address: 0xfeedbeef,
             address_range: 999,
+            augmentation: None,
             instructions: EndianBuf::new(&expected_instrs),
         };
 
@@ -2272,15 +2851,15 @@ mod tests {
             .fde(Endian::Little, cie_offset, &mut fde)
             .append_bytes(&expected_rest);
 
-        let contents = section.get_contents().unwrap();
-        let contents = EndianBuf::<LittleEndian>::new(&contents);
+        let section = section.get_contents().unwrap();
+        let section = EndianBuf::<LittleEndian>::new(&section);
 
         let get_cie = |offset| {
             assert_eq!(offset, DebugFrameOffset(cie_offset as usize));
             Ok(cie.clone())
         };
 
-        assert_eq!(FrameDescriptionEntry::parse(contents, get_cie),
+        assert_eq!(parse_fde(DebugFrame::new(section.into()), section, get_cie),
                    Ok((EndianBuf::new(&expected_rest), fde)));
     }
 
@@ -2292,7 +2871,7 @@ mod tests {
             .map(|_| constants::DW_CFA_nop.0)
             .collect();
 
-        let cie = CommonInformationEntry {
+        let cie = DebugFrameCie {
             length: 100,
             format: Format::Dwarf64,
             version: 4,
@@ -2303,15 +2882,17 @@ mod tests {
             data_alignment_factor: 2,
             return_address_register: 1,
             initial_instructions: EndianBuf::new(&[]),
+            phantom: PhantomData,
         };
 
-        let mut fde = FrameDescriptionEntry {
+        let mut fde = DebugFrameFde {
             length: 0,
             format: Format::Dwarf64,
             cie: cie.clone(),
             initial_segment: 0,
             initial_address: 0xfeedbeef,
             address_range: 999,
+            augmentation: None,
             instructions: EndianBuf::new(&expected_instrs),
         };
 
@@ -2319,15 +2900,15 @@ mod tests {
             .fde(Endian::Little, cie_offset, &mut fde)
             .append_bytes(&expected_rest);
 
-        let contents = section.get_contents().unwrap();
-        let contents = EndianBuf::<LittleEndian>::new(&contents);
+        let section = section.get_contents().unwrap();
+        let section = EndianBuf::<LittleEndian>::new(&section);
 
         let get_cie = |offset| {
             assert_eq!(offset, DebugFrameOffset(cie_offset as usize));
             Ok(cie.clone())
         };
 
-        assert_eq!(FrameDescriptionEntry::parse(contents, get_cie),
+        assert_eq!(parse_fde(DebugFrame::new(section.into()), section, get_cie),
                    Ok((EndianBuf::new(&expected_rest), fde)));
     }
 
@@ -2338,7 +2919,7 @@ mod tests {
             .map(|_| constants::DW_CFA_nop.0)
             .collect();
 
-        let mut cie = CommonInformationEntry {
+        let mut cie = DebugFrameCie {
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -2349,16 +2930,18 @@ mod tests {
             data_alignment_factor: 32,
             return_address_register: 1,
             initial_instructions: EndianBuf::new(&expected_instrs),
+            phantom: PhantomData,
         };
 
         let section = Section::with_endian(Endian::Big)
-            .cie(Endian::Big, &mut cie)
+            .cie(Endian::Big, None, &mut cie)
             .append_bytes(&expected_rest);
+        let section = section.get_contents().unwrap();
+        let section = EndianBuf::<BigEndian>::new(&section);
 
-        let contents = section.get_contents().unwrap();
-
-        assert_eq!(parse_cfi_entry(EndianBuf::<BigEndian>::new(&contents)),
-                   Ok((EndianBuf::new(&expected_rest), CieOrFde::Cie(cie))));
+        let bases = Default::default();
+        assert_eq!(parse_cfi_entry(&bases, DebugFrame::new(section.into()), section),
+                   Ok(Some((EndianBuf::new(&expected_rest), CieOrFde::Cie(cie)))));
     }
 
     #[test]
@@ -2369,7 +2952,7 @@ mod tests {
             .map(|_| constants::DW_CFA_nop.0)
             .collect();
 
-        let cie = CommonInformationEntry {
+        let cie = DebugFrameCie {
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -2380,15 +2963,17 @@ mod tests {
             data_alignment_factor: 32,
             return_address_register: 1,
             initial_instructions: EndianBuf::new(&[]),
+            phantom: PhantomData,
         };
 
-        let mut fde = FrameDescriptionEntry {
+        let mut fde = DebugFrameFde {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
             initial_segment: 0,
             initial_address: 0xfeedbeef,
             address_range: 39,
+            augmentation: None,
             instructions: EndianBuf::<BigEndian>::new(&expected_instrs),
         };
 
@@ -2396,10 +2981,12 @@ mod tests {
             .fde(Endian::Big, cie_offset, &mut fde)
             .append_bytes(&expected_rest);
 
-        let contents = section.get_contents().unwrap();
+        let section = section.get_contents().unwrap();
+        let section = EndianBuf::<BigEndian>::new(&section);
 
-        match parse_cfi_entry(EndianBuf::<BigEndian>::new(&contents)) {
-            Ok((rest, CieOrFde::Fde(partial))) => {
+        let bases = Default::default();
+        match parse_cfi_entry(&bases, DebugFrame::new(section.into()), section) {
+            Ok(Some((rest, CieOrFde::Fde(partial)))) => {
                 assert_eq!(rest, EndianBuf::new(&expected_rest));
 
                 assert_eq!(partial.length, fde.length);
@@ -2435,7 +3022,7 @@ mod tests {
             .map(|_| constants::DW_CFA_nop.0)
             .collect();
 
-        let mut cie1 = CommonInformationEntry {
+        let mut cie1 = DebugFrameCie {
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -2446,9 +3033,10 @@ mod tests {
             data_alignment_factor: 2,
             return_address_register: 3,
             initial_instructions: EndianBuf::new(&expected_instrs1),
+            phantom: PhantomData,
         };
 
-        let mut cie2 = CommonInformationEntry {
+        let mut cie2 = DebugFrameCie {
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -2459,6 +3047,7 @@ mod tests {
             data_alignment_factor: 2,
             return_address_register: 1,
             initial_instructions: EndianBuf::new(&expected_instrs2),
+            phantom: PhantomData,
         };
 
         let cie1_location = Label::new();
@@ -2469,27 +3058,29 @@ mod tests {
         // with all the CIEs always having he correct length.
         let section = Section::with_endian(Endian::Big)
             .mark(&cie1_location)
-            .cie(Endian::Big, &mut cie1)
+            .cie(Endian::Big, None, &mut cie1)
             .mark(&cie2_location)
-            .cie(Endian::Big, &mut cie2);
+            .cie(Endian::Big, None, &mut cie2);
 
-        let mut fde1 = FrameDescriptionEntry {
+        let mut fde1 = DebugFrameFde {
             length: 0,
             format: Format::Dwarf32,
             cie: cie1.clone(),
             initial_segment: 0,
             initial_address: 0xfeedbeef,
             address_range: 39,
+            augmentation: None,
             instructions: EndianBuf::<BigEndian>::new(&expected_instrs3),
         };
 
-        let mut fde2 = FrameDescriptionEntry {
+        let mut fde2 = DebugFrameFde {
             length: 0,
             format: Format::Dwarf32,
             cie: cie2.clone(),
             initial_segment: 0,
             initial_address: 0xfeedface,
             address_range: 9000,
+            augmentation: None,
             instructions: EndianBuf::<BigEndian>::new(&expected_instrs4),
         };
 
@@ -2504,7 +3095,8 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let debug_frame = DebugFrame::<BigEndian>::new(&contents);
 
-        let mut entries = debug_frame.entries();
+        let bases = Default::default();
+        let mut entries = debug_frame.entries(&bases);
 
         assert_eq!(entries.next(), Ok(Some(CieOrFde::Cie(cie1.clone()))));
         assert_eq!(entries.next(), Ok(Some(CieOrFde::Cie(cie2.clone()))));
@@ -2547,7 +3139,7 @@ mod tests {
         let filler = [1, 2, 3, 4, 5, 6, 7, 8, 9];
         let instrs: Vec<_> = (0..5).map(|_| constants::DW_CFA_nop.0).collect();
 
-        let mut cie = CommonInformationEntry {
+        let mut cie = DebugFrameCie {
             length: 0,
             format: Format::Dwarf64,
             version: 4,
@@ -2558,6 +3150,7 @@ mod tests {
             data_alignment_factor: 8,
             return_address_register: 12,
             initial_instructions: EndianBuf::new(&instrs),
+            phantom: PhantomData,
         };
 
         let cie_location = Label::new();
@@ -2565,7 +3158,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little)
             .append_bytes(&filler)
             .mark(&cie_location)
-            .cie(Endian::Little, &mut cie)
+            .cie(Endian::Little, None, &mut cie)
             .append_bytes(&filler);
 
         section.start().set_const(0);
@@ -2574,8 +3167,9 @@ mod tests {
 
         let contents = section.get_contents().unwrap();
         let debug_frame = DebugFrame::<LittleEndian>::new(&contents);
+        let bases = Default::default();
 
-        assert_eq!(debug_frame.cie_from_offset(cie_offset), Ok(cie));
+        assert_eq!(debug_frame.cie_from_offset(&bases, cie_offset), Ok(cie));
     }
 
     #[test]
@@ -3104,12 +3698,13 @@ mod tests {
         assert_eq!(iter.next(), Ok(None));
     }
 
-    fn assert_eval<'a, I>(mut initial_ctx: UnwindContext<'a, LittleEndian>,
-                          expected_ctx: UnwindContext<'a, LittleEndian>,
-                          cie: CommonInformationEntry<'a, LittleEndian>,
-                          fde: Option<FrameDescriptionEntry<'a, LittleEndian>>,
-                          instructions: I)
-        where I: AsRef<[(Result<bool>, CallFrameInstruction<'a, LittleEndian>)]>
+    fn assert_eval<'a, I, T>(mut initial_ctx: UnwindContext<'a, LittleEndian, T>,
+                             expected_ctx: UnwindContext<'a, LittleEndian, T>,
+                             cie: CommonInformationEntry<'a, LittleEndian, T>,
+                             fde: Option<FrameDescriptionEntry<'a, LittleEndian, T>>,
+                             instructions: I)
+        where I: AsRef<[(Result<bool>, CallFrameInstruction<'a, LittleEndian>)]>,
+              T: UnwindSection<'a, LittleEndian>
     {
         {
             let mut table = UnwindTable::new_internal(&mut initial_ctx, &cie, fde.as_ref());
@@ -3121,7 +3716,9 @@ mod tests {
         assert_eq!(expected_ctx, initial_ctx);
     }
 
-    fn make_test_cie<'a>() -> CommonInformationEntry<'a, LittleEndian> {
+    fn make_test_cie<'a, Section>() -> CommonInformationEntry<'a, LittleEndian, Section>
+        where Section: UnwindSection<'a, LittleEndian>
+    {
         CommonInformationEntry {
             format: Format::Dwarf64,
             length: 0,
@@ -3133,12 +3730,13 @@ mod tests {
             segment_size: 0,
             data_alignment_factor: 2,
             code_alignment_factor: 3,
+            phantom: PhantomData,
         }
     }
 
     #[test]
     fn test_eval_set_loc() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.row_mut().end_address = 42;
@@ -3148,7 +3746,7 @@ mod tests {
 
     #[test]
     fn test_eval_set_loc_backwards() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let mut ctx = UnwindContext::new();
         ctx.row_mut().start_address = 999;
         let expected = ctx.clone();
@@ -3159,7 +3757,7 @@ mod tests {
 
     #[test]
     fn test_eval_advance_loc() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let mut ctx = UnwindContext::new();
         ctx.row_mut().start_address = 3;
         let mut expected = ctx.clone();
@@ -3170,7 +3768,7 @@ mod tests {
 
     #[test]
     fn test_eval_def_cfa() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.set_cfa(CfaRule::RegisterAndOffset {
@@ -3187,7 +3785,7 @@ mod tests {
 
     #[test]
     fn test_eval_def_cfa_sf() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.set_cfa(CfaRule::RegisterAndOffset {
@@ -3204,7 +3802,7 @@ mod tests {
 
     #[test]
     fn test_eval_def_cfa_register() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let mut ctx = UnwindContext::new();
         ctx.set_cfa(CfaRule::RegisterAndOffset {
             register: 3,
@@ -3221,7 +3819,7 @@ mod tests {
 
     #[test]
     fn test_eval_def_cfa_register_invalid_context() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let mut ctx = UnwindContext::new();
         ctx.set_cfa(CfaRule::Expression(EndianBuf::new(&[])));
         let expected = ctx.clone();
@@ -3232,7 +3830,7 @@ mod tests {
 
     #[test]
     fn test_eval_def_cfa_offset() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let mut ctx = UnwindContext::new();
         ctx.set_cfa(CfaRule::RegisterAndOffset {
             register: 3,
@@ -3249,7 +3847,7 @@ mod tests {
 
     #[test]
     fn test_eval_def_cfa_offset_invalid_context() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let mut ctx = UnwindContext::new();
         ctx.set_cfa(CfaRule::Expression(EndianBuf::new(&[])));
         let expected = ctx.clone();
@@ -3261,7 +3859,7 @@ mod tests {
     #[test]
     fn test_eval_def_cfa_expression() {
         let expr = [1, 2, 3, 4];
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.set_cfa(CfaRule::Expression(EndianBuf::new(&expr)));
@@ -3273,7 +3871,7 @@ mod tests {
 
     #[test]
     fn test_eval_undefined() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.set_register_rule(5, RegisterRule::Undefined);
@@ -3283,7 +3881,7 @@ mod tests {
 
     #[test]
     fn test_eval_same_value() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.set_register_rule(0, RegisterRule::SameValue);
@@ -3293,7 +3891,7 @@ mod tests {
 
     #[test]
     fn test_eval_offset() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.set_register_rule(2, RegisterRule::Offset(3 * cie.data_alignment_factor));
@@ -3307,7 +3905,7 @@ mod tests {
 
     #[test]
     fn test_eval_offset_extended_sf() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.set_register_rule(4, RegisterRule::Offset(-3 * cie.data_alignment_factor));
@@ -3321,7 +3919,7 @@ mod tests {
 
     #[test]
     fn test_eval_val_offset() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.set_register_rule(5, RegisterRule::ValOffset(7 * cie.data_alignment_factor));
@@ -3335,7 +3933,7 @@ mod tests {
 
     #[test]
     fn test_eval_val_offset_sf() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.set_register_rule(5, RegisterRule::ValOffset(-7 * cie.data_alignment_factor));
@@ -3350,7 +3948,7 @@ mod tests {
     #[test]
     fn test_eval_expression() {
         let expr = [1, 2, 3, 4];
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.set_register_rule(9, RegisterRule::Expression(EndianBuf::new(&expr)));
@@ -3365,7 +3963,7 @@ mod tests {
     #[test]
     fn test_eval_val_expression() {
         let expr = [1, 2, 3, 4];
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.set_register_rule(9, RegisterRule::ValExpression(EndianBuf::new(&expr)));
@@ -3379,11 +3977,12 @@ mod tests {
 
     #[test]
     fn test_eval_restore() {
-        let cie = make_test_cie();
-        let fde = FrameDescriptionEntry {
+        let cie: DebugFrameCie<_> = make_test_cie();
+        let fde = DebugFrameFde {
             format: Format::Dwarf64,
             length: 0,
             address_range: 0,
+            augmentation: None,
             initial_address: 0,
             initial_segment: 0,
             cie: cie.clone(),
@@ -3402,7 +4001,7 @@ mod tests {
 
     #[test]
     fn test_eval_restore_havent_saved_initial_context() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let expected = ctx.clone();
         let instructions = [(Err(Error::CfiInstructionInInvalidContext),
@@ -3412,7 +4011,7 @@ mod tests {
 
     #[test]
     fn test_eval_remember_state() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.push_row();
@@ -3422,7 +4021,7 @@ mod tests {
 
     #[test]
     fn test_eval_restore_state() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
 
         let mut ctx = UnwindContext::new();
         ctx.set_register_rule(0, RegisterRule::SameValue);
@@ -3440,7 +4039,7 @@ mod tests {
 
     #[test]
     fn test_eval_nop() {
-        let cie = make_test_cie();
+        let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let expected = ctx.clone();
         let instructions = [(Ok(false), CallFrameInstruction::Nop)];
@@ -3463,7 +4062,7 @@ mod tests {
             .append_repeated(constants::DW_CFA_nop.0, 4);
         let initial_instructions = initial_instructions.get_contents().unwrap();
 
-        let cie = CommonInformationEntry {
+        let cie = DebugFrameCie {
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -3474,6 +4073,7 @@ mod tests {
             data_alignment_factor: 1,
             return_address_register: 3,
             initial_instructions: EndianBuf::<LittleEndian>::new(&initial_instructions),
+            phantom: PhantomData,
         };
 
         let instructions = Section::with_endian(Endian::Little)
@@ -3501,13 +4101,14 @@ mod tests {
             .append_repeated(constants::DW_CFA_nop.0, 8);
         let instructions = instructions.get_contents().unwrap();
 
-        let fde = FrameDescriptionEntry {
+        let fde = DebugFrameFde {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
             initial_segment: 0,
             initial_address: 0,
             address_range: 100,
+            augmentation: None,
             instructions: EndianBuf::<LittleEndian>::new(&instructions),
         };
 
@@ -3626,7 +4227,7 @@ mod tests {
             .map(|_| constants::DW_CFA_nop.0)
             .collect();
 
-        let mut cie1 = CommonInformationEntry {
+        let mut cie1 = DebugFrameCie {
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -3637,9 +4238,10 @@ mod tests {
             data_alignment_factor: 1,
             return_address_register: 3,
             initial_instructions: EndianBuf::new(&instrs1),
+            phantom: PhantomData,
         };
 
-        let mut cie2 = CommonInformationEntry {
+        let mut cie2 = DebugFrameCie {
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -3650,6 +4252,7 @@ mod tests {
             data_alignment_factor: 1,
             return_address_register: 1,
             initial_instructions: EndianBuf::new(&instrs2),
+            phantom: PhantomData,
         };
 
         let cie1_location = Label::new();
@@ -3660,27 +4263,29 @@ mod tests {
         // with all the CIEs always having he correct length.
         let section = Section::with_endian(Endian::Big)
             .mark(&cie1_location)
-            .cie(Endian::Big, &mut cie1)
+            .cie(Endian::Big, None, &mut cie1)
             .mark(&cie2_location)
-            .cie(Endian::Big, &mut cie2);
+            .cie(Endian::Big, None, &mut cie2);
 
-        let mut fde1 = FrameDescriptionEntry {
+        let mut fde1 = DebugFrameFde {
             length: 0,
             format: Format::Dwarf32,
             cie: cie1.clone(),
             initial_segment: 0,
             initial_address: 0xfeedbeef,
             address_range: 200,
+            augmentation: None,
             instructions: EndianBuf::<BigEndian>::new(&instrs3),
         };
 
-        let mut fde2 = FrameDescriptionEntry {
+        let mut fde2 = DebugFrameFde {
             length: 0,
             format: Format::Dwarf32,
             cie: cie2.clone(),
             initial_segment: 0,
             initial_address: 0xfeedface,
             address_range: 9000,
+            augmentation: None,
             instructions: EndianBuf::<BigEndian>::new(&instrs4),
         };
 
@@ -3692,8 +4297,9 @@ mod tests {
         let debug_frame = DebugFrame::<BigEndian>::new(&contents);
 
         // Get the second row of the unwind table in `instrs3`.
+        let bases = Default::default();
         let ctx = UninitializedUnwindContext::new();
-        let result = debug_frame.unwind_info_for_address(ctx, 0xfeedbeef + 150);
+        let result = debug_frame.unwind_info_for_address(&bases, ctx, 0xfeedbeef + 150);
         assert!(result.is_ok());
         let (unwind_info, _) = result.unwrap();
 
@@ -3712,9 +4318,487 @@ mod tests {
     #[test]
     fn test_unwind_info_for_address_not_found() {
         let debug_frame = DebugFrame::<NativeEndian>::new(&[]);
+        let bases = Default::default();
         let ctx = UninitializedUnwindContext::new();
-        let result = debug_frame.unwind_info_for_address(ctx, 0xbadbad99);
+        let result = debug_frame.unwind_info_for_address(&bases, ctx, 0xbadbad99);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), Error::NoUnwindInfoForAddress);
+    }
+
+    #[test]
+    fn test_eh_frame_stops_at_zero_length() {
+        let section = Section::with_endian(Endian::Little).L32(0);
+        let section = section.get_contents().unwrap();
+        let section = EndianBuf::<LittleEndian>::new(&section);
+        let bases = Default::default();
+
+        assert_eq!(parse_cfi_entry(&bases, EhFrame::new(section.into()), section),
+                   Ok(None));
+
+        assert_eq!(EhFrame::<LittleEndian>::new(&section)
+                       .cie_from_offset(&bases, EhFrameOffset(0)),
+                   Err(Error::NoEntryAtGivenOffset));
+    }
+
+    #[test]
+    fn test_eh_frame_resolve_cie_offset_ok() {
+        let buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let section = EhFrame::<BigEndian>::new(&buf);
+        let subslice = EndianBuf::new(&buf[6..8]);
+        assert_eq!(section.resolve_cie_offset(subslice, 4), Some(2));
+    }
+
+    #[test]
+    fn test_eh_frame_resolve_cie_offset_out_of_bounds() {
+        let buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let section = EhFrame::<BigEndian>::new(&buf);
+        let subslice = EndianBuf::new(&buf[6..8]);
+        assert_eq!(section.resolve_cie_offset(subslice, 7), None);
+    }
+
+    #[test]
+    fn test_eh_frame_resolve_cie_offset_underflow() {
+        let buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let section = EhFrame::<BigEndian>::new(&buf);
+        let subslice = EndianBuf::new(&buf[6..8]);
+        assert_eq!(section.resolve_cie_offset(subslice, ::std::usize::MAX),
+                   None);
+    }
+
+    #[test]
+    fn test_eh_frame_fde_ok() {
+        let mut cie = make_test_cie();
+        cie.format = Format::Dwarf32;
+        cie.version = 1;
+
+        let start_of_cie = Label::new();
+        let end_of_cie = Label::new();
+
+        // Write the CIE first so that its length gets set before we clone it
+        // into the FDE.
+        let section = Section::with_endian(Endian::Little)
+            .append_repeated(0, 16)
+            .mark(&start_of_cie)
+            .cie(Endian::Little, None, &mut cie)
+            .mark(&end_of_cie);
+
+        let mut fde = EhFrameFde {
+            length: 0,
+            format: Format::Dwarf32,
+            cie: cie.clone(),
+            initial_segment: 0,
+            initial_address: 0xfeedbeef,
+            address_range: 999,
+            augmentation: None,
+            instructions: EndianBuf::new(&[]),
+        };
+
+        let section = section
+            // +4 for the FDE length before the CIE offset.
+            .fde(Endian::Little, (&end_of_cie - &start_of_cie + 4) as u64, &mut fde);
+
+        section.start().set_const(0);
+        let section = section.get_contents().unwrap();
+        let section = EndianBuf::<LittleEndian>::new(&section);
+
+        let mut offset = None;
+        match parse_fde(EhFrame::new(section.into()),
+                        section.range_from(end_of_cie.value().unwrap() as usize..),
+                        |o| {
+                            offset = Some(o);
+                            assert_eq!(o, EhFrameOffset(start_of_cie.value().unwrap() as usize));
+                            Ok(cie.clone())
+                        }) {
+            Ok((_, actual)) => assert_eq!(actual, fde),
+            otherwise => panic!("Unexpected result {:?}", otherwise),
+        }
+        assert!(offset.is_some());
+    }
+
+    #[test]
+    fn test_eh_frame_fde_out_of_bounds() {
+        let mut cie = make_test_cie();
+        let end_of_cie = Label::new();
+
+        let mut fde = EhFrameFde {
+            length: 0,
+            format: Format::Dwarf64,
+            cie: cie.clone(),
+            initial_segment: 0,
+            initial_address: 0xfeedbeef,
+            address_range: 999,
+            augmentation: None,
+            instructions: EndianBuf::new(&[]),
+        };
+
+        let section = Section::with_endian(Endian::Little)
+            .cie(Endian::Little, None, &mut cie)
+            .mark(&end_of_cie)
+            .fde(Endian::Little, 99999999999999, &mut fde);
+
+        section.start().set_const(0);
+        let section = section.get_contents().unwrap();
+        let section = EndianBuf::<LittleEndian>::new(&section);
+
+        let result = parse_fde(EhFrame::new(section.into()),
+                               section.range_from(end_of_cie.value().unwrap() as usize..),
+                               |_| unreachable!());
+        assert_eq!(result, Err(Error::OffsetOutOfBounds));
+    }
+
+    #[test]
+    fn test_augmentation_parse_not_z_augmentation() {
+        let augmentation = "wtf";
+        let bases = Default::default();
+        let address_size = 8;
+        let section = EhFrame::<NativeEndian>::new(&[]);
+        let input = EndianBuf::new(&[]);
+        assert_eq!(Augmentation::parse(augmentation, &bases, address_size, section, input),
+                   Err(Error::UnknownAugmentation));
+    }
+
+    #[test]
+    fn test_augmentation_parse_unknown_part_of_z_augmentation() {
+        // The 'Z' character is not defined by the z-style augmentation.
+        let augmentation = "zZ";
+        let bases = Default::default();
+        let address_size = 8;
+        let section = Section::with_endian(Endian::Little)
+            .uleb(4)
+            .append_repeated(4, 4)
+            .get_contents()
+            .unwrap();
+        let section = EhFrame::<LittleEndian>::new(&section);
+        let input = EndianBuf::new(section.section().into());
+        assert_eq!(Augmentation::parse(augmentation, &bases, address_size, section, input),
+                   Err(Error::UnknownAugmentation));
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_augmentation_parse_L() {
+        let aug_str = "zL";
+        let bases = Default::default();
+        let address_size = 8;
+        let rest = [9, 8, 7, 6, 5, 4, 3, 2, 1];
+
+        let section = Section::with_endian(Endian::Little)
+            .uleb(1)
+            .D8(constants::DW_EH_PE_uleb128.0)
+            .append_bytes(&rest)
+            .get_contents()
+            .unwrap();
+        let section = EhFrame::<LittleEndian>::new(&section);
+        let input = EndianBuf::new(section.section().into());
+
+        let mut augmentation = Augmentation::default();
+        augmentation.lsda = Some(constants::DW_EH_PE_uleb128);
+
+        assert_eq!(Augmentation::parse(aug_str, &bases, address_size, section, input),
+                   Ok((EndianBuf::new(&rest), augmentation)));
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_augmentation_parse_P() {
+        let aug_str = "zP";
+        let bases = Default::default();
+        let address_size = 8;
+        let rest = [9, 8, 7, 6, 5, 4, 3, 2, 1];
+
+        let section = Section::with_endian(Endian::Little)
+            .uleb(9)
+            .D8(constants::DW_EH_PE_udata8.0)
+            .L64(0xf00df00d)
+            .append_bytes(&rest)
+            .get_contents()
+            .unwrap();
+        let section = EhFrame::<LittleEndian>::new(&section);
+        let input = EndianBuf::new(section.section().into());
+
+        let mut augmentation = Augmentation::default();
+        augmentation.personality = Some(0xf00df00d);
+
+        assert_eq!(Augmentation::parse(aug_str, &bases, address_size, section, input),
+                   Ok((EndianBuf::new(&rest), augmentation)));
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_augmentation_parse_R() {
+        let aug_str = "zR";
+        let bases = Default::default();
+        let address_size = 8;
+        let rest = [9, 8, 7, 6, 5, 4, 3, 2, 1];
+
+        let section = Section::with_endian(Endian::Little)
+            .uleb(1)
+            .D8(constants::DW_EH_PE_udata4.0)
+            .append_bytes(&rest)
+            .get_contents()
+            .unwrap();
+        let section = EhFrame::<LittleEndian>::new(&section);
+        let input = EndianBuf::new(section.section().into());
+
+        let mut augmentation = Augmentation::default();
+        augmentation.fde_address_encoding = Some(constants::DW_EH_PE_udata4);
+
+        assert_eq!(Augmentation::parse(aug_str, &bases, address_size, section, input),
+                   Ok((EndianBuf::new(&rest), augmentation)));
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_augmentation_parse_S() {
+        let aug_str = "zS";
+        let bases = Default::default();
+        let address_size = 8;
+        let rest = [9, 8, 7, 6, 5, 4, 3, 2, 1];
+
+        let section = Section::with_endian(Endian::Little)
+            .uleb(0)
+            .append_bytes(&rest)
+            .get_contents()
+            .unwrap();
+        let section = EhFrame::<LittleEndian>::new(&section);
+        let input = EndianBuf::new(section.section().into());
+
+        let mut augmentation = Augmentation::default();
+        augmentation.is_signal_trampoline = true;
+
+        assert_eq!(Augmentation::parse(aug_str, &bases, address_size, section, input),
+                   Ok((EndianBuf::new(&rest), augmentation)));
+    }
+
+    #[test]
+    fn test_augmentation_parse_all() {
+        let aug_str = "zLPRS";
+        let bases = Default::default();
+        let address_size = 8;
+        let rest = [9, 8, 7, 6, 5, 4, 3, 2, 1];
+
+        let section = Section::with_endian(Endian::Little)
+            .uleb(1 + 9 + 1)
+            // L
+            .D8(constants::DW_EH_PE_uleb128.0)
+            // P
+            .D8(constants::DW_EH_PE_udata8.0)
+            .L64(0x1badf00d)
+            // R
+            .D8(constants::DW_EH_PE_uleb128.0)
+            .append_bytes(&rest)
+            .get_contents()
+            .unwrap();
+        let section = EhFrame::<LittleEndian>::new(&section);
+        let input = EndianBuf::new(section.section().into());
+
+        let augmentation = Augmentation {
+            lsda: Some(constants::DW_EH_PE_uleb128),
+            personality: Some(0x1badf00d),
+            fde_address_encoding: Some(constants::DW_EH_PE_uleb128),
+            is_signal_trampoline: true,
+        };
+
+        assert_eq!(Augmentation::parse(aug_str, &bases, address_size, section, input),
+                   Ok((EndianBuf::new(&rest), augmentation)));
+    }
+
+    #[test]
+    fn test_eh_frame_fde_no_augmentation() {
+        let instrs = [1, 2, 3, 4];
+        let cie_offset = 1;
+
+        let mut cie = make_test_cie();
+        cie.format = Format::Dwarf32;
+        cie.version = 1;
+
+        let mut fde = EhFrameFde {
+            length: 0,
+            format: Format::Dwarf32,
+            cie: cie.clone(),
+            initial_segment: 0,
+            initial_address: 0xfeedface,
+            address_range: 9000,
+            augmentation: None,
+            instructions: EndianBuf::<LittleEndian>::new(&instrs),
+        };
+
+        let rest = [1, 2, 3, 4];
+
+        let section = Section::with_endian(Endian::Little)
+            .fde(Endian::Little, cie_offset, &mut fde)
+            .append_bytes(&rest)
+            .get_contents()
+            .unwrap();
+        let section = EhFrame::<LittleEndian>::new(&section);
+
+        let result = parse_fde(section, section.section(), |_| Ok(cie.clone()));
+        assert_eq!(result, Ok((EndianBuf::new(&rest), fde)));
+    }
+
+    #[test]
+    fn test_eh_frame_fde_empty_augmentation() {
+        let instrs = [1, 2, 3, 4];
+        let cie_offset = 1;
+
+        let mut cie = make_test_cie();
+        cie.format = Format::Dwarf32;
+        cie.version = 1;
+        cie.augmentation = Some(Augmentation::default());
+
+        let mut fde = EhFrameFde {
+            length: 0,
+            format: Format::Dwarf32,
+            cie: cie.clone(),
+            initial_segment: 0,
+            initial_address: 0xfeedface,
+            address_range: 9000,
+            augmentation: Some(AugmentationData::default()),
+            instructions: EndianBuf::<LittleEndian>::new(&instrs),
+        };
+
+        let rest = [1, 2, 3, 4];
+
+        let section = Section::with_endian(Endian::Little)
+            .fde(Endian::Little, cie_offset, &mut fde)
+            .append_bytes(&rest)
+            .get_contents()
+            .unwrap();
+        let section = EhFrame::<LittleEndian>::new(&section);
+
+        let result = parse_fde(section, section.section(), |_| Ok(cie.clone()));
+        assert_eq!(result, Ok((EndianBuf::new(&rest), fde)));
+    }
+
+    #[test]
+    fn test_eh_frame_fde_lsda_augmentation() {
+        let instrs = [1, 2, 3, 4];
+        let cie_offset = 1;
+
+        let mut cie = make_test_cie();
+        cie.format = Format::Dwarf32;
+        cie.version = 1;
+        cie.augmentation = Some(Augmentation::default());
+        cie.augmentation.as_mut().unwrap().lsda = Some(constants::DW_EH_PE_absptr);
+
+        let mut fde = EhFrameFde {
+            length: 0,
+            format: Format::Dwarf32,
+            cie: cie.clone(),
+            initial_segment: 0,
+            initial_address: 0xfeedface,
+            address_range: 9000,
+            augmentation: Some(AugmentationData { lsda: Some(0x11223344) }),
+            instructions: EndianBuf::<LittleEndian>::new(&instrs),
+        };
+
+        let rest = [1, 2, 3, 4];
+
+        let section = Section::with_endian(Endian::Little)
+            .fde(Endian::Little, cie_offset, &mut fde)
+            .append_bytes(&rest)
+            .get_contents()
+            .unwrap();
+        let section = EhFrame::<LittleEndian>::new(&section);
+
+        let result = parse_fde(section, section.section(), |_| Ok(cie.clone()));
+        assert_eq!(result, Ok((EndianBuf::new(&rest), fde)));
+    }
+
+    #[test]
+    fn test_eh_frame_fde_lsda_function_relative() {
+        let instrs = [1, 2, 3, 4];
+        let cie_offset = 1;
+
+        let mut cie = make_test_cie();
+        cie.format = Format::Dwarf32;
+        cie.version = 1;
+        cie.augmentation = Some(Augmentation::default());
+        cie.augmentation.as_mut().unwrap().lsda =
+            Some(constants::DwEhPe(constants::DW_EH_PE_funcrel.0 | constants::DW_EH_PE_absptr.0));
+
+        let mut fde = EhFrameFde {
+            length: 0,
+            format: Format::Dwarf32,
+            cie: cie.clone(),
+            initial_segment: 0,
+            initial_address: 0xfeedface,
+            address_range: 9000,
+            augmentation: Some(AugmentationData { lsda: Some(1) }),
+            instructions: EndianBuf::<LittleEndian>::new(&instrs),
+        };
+
+        let rest = [1, 2, 3, 4];
+
+        let section = Section::with_endian(Endian::Little)
+            .append_repeated(10, 10)
+            .fde(Endian::Little, cie_offset, &mut fde)
+            .append_bytes(&rest)
+            .get_contents()
+            .unwrap();
+        let section = EhFrame::<LittleEndian>::new(&section);
+        let input = section.section().range_from(10..);
+
+        // Adjust the FDE's augmentation to be relative to the section.
+        fde.augmentation.as_mut().unwrap().lsda = Some(19);
+
+        let result = parse_fde(section, input, |_| Ok(cie.clone()));
+        assert_eq!(result, Ok((EndianBuf::new(&rest), fde)));
+    }
+
+    #[test]
+    fn test_eh_frame_cie_personality_function_relative_bad_context() {
+        let instrs = [1, 2, 3, 4];
+
+        let length = Label::new();
+        let start = Label::new();
+        let end = Label::new();
+
+        let aug_len = Label::new();
+        let aug_start = Label::new();
+        let aug_end = Label::new();
+
+        let section = Section::with_endian(Endian::Little)
+            // Length
+            .L32(&length)
+            .mark(&start)
+            // CIE ID
+            .L32(0)
+            // Version
+            .D8(1)
+            // Augmentation
+            .append_bytes(b"zP\0")
+            // Address size
+            .D8(4)
+            // Segment size
+            .D8(0)
+            // Code alignment factor
+            .uleb(1)
+            // Data alignment factor
+            .sleb(1)
+            // Return address register
+            .uleb(1)
+            // Augmentation data length. This is a uleb, be we rely on the value
+            // being less than 2^7 and therefore a valid uleb (can't use Label
+            // with uleb).
+            .D8(&aug_len)
+            .mark(&aug_start)
+            // Augmentation data. Personality encoding and then encoded pointer.
+            .D8(constants::DW_EH_PE_funcrel.0 | constants::DW_EH_PE_uleb128.0)
+            .D8(1)
+            .mark(&aug_end)
+            // Initial instructions
+            .append_bytes(&instrs)
+            .mark(&end);
+
+        length.set_const((&end - &start) as u64);
+        aug_len.set_const((&aug_end - &aug_start) as u64);
+
+        let section = section.get_contents().unwrap();
+        let section = EhFrame::<LittleEndian>::new(&section);
+
+        let bases = BaseAddresses::default();
+        let mut iter = section.entries(&bases);
+        assert_eq!(iter.next(), Err(Error::FuncRelativePointerInBadContext));
     }
 }
