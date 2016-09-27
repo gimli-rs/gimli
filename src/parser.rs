@@ -319,8 +319,7 @@ pub fn parse_i8e<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>,
 /// Like `parse_unsigned_leb` but takes and returns an `EndianBuf` for convenience.
 #[doc(hidden)]
 #[inline]
-pub fn parse_unsigned_lebe<Endian>(bytes: EndianBuf<Endian>)
-                                   -> Result<(EndianBuf<Endian>, u64)>
+pub fn parse_unsigned_lebe<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
     let (bytes, value) = try!(parse_unsigned_leb(bytes.into()));
@@ -330,8 +329,7 @@ pub fn parse_unsigned_lebe<Endian>(bytes: EndianBuf<Endian>)
 /// Like `parse_signed_leb` but takes and returns an `EndianBuf` for convenience.
 #[doc(hidden)]
 #[inline]
-pub fn parse_signed_lebe<Endian>(bytes: EndianBuf<Endian>)
-                                 -> Result<(EndianBuf<Endian>, i64)>
+pub fn parse_signed_lebe<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, i64)>
     where Endian: Endianity
 {
     let (bytes, value) = try!(parse_signed_leb(bytes.into()));

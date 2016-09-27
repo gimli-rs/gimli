@@ -222,9 +222,8 @@ pub enum CieOrFde<'input, Endian>
     Fde(PartialFrameDescriptionEntry<'input, Endian>),
 }
 
-fn parse_cfi_entry<Endian>
-    (input: EndianBuf<Endian>)
-     -> Result<(EndianBuf<Endian>, CieOrFde<Endian>)>
+fn parse_cfi_entry<Endian>(input: EndianBuf<Endian>)
+                           -> Result<(EndianBuf<Endian>, CieOrFde<Endian>)>
     where Endian: Endianity
 {
     let (rest_rest, (length, format, cie_id_or_offset, rest)) = try!(parse_cfi_entry_common(input));
