@@ -1089,7 +1089,9 @@ impl<'input, Endian> Attribute<'input, Endian>
                 reference!();
             }
             constants::DW_AT_data_member_location => {
-                // TODO: constant
+                // Constants must be handled before loclistptr so that DW_FORM_data4/8
+                // are correctly interpreted for DWARF version 4+.
+                constant!(udata_value, Udata);
                 exprloc!();
                 loclistptr!();
             }
@@ -1456,22 +1458,52 @@ fn parse_attribute<'input, 'unit, Endian>
                 });
             }
             constants::DW_FORM_data4 => {
-                return take(4, input.into()).map(|(rest, data)| {
+                // DWARF version 2/3 may use DW_FORM_data4/8 for section offsets.
+                // Generally we can defer interpretation of these until
+                // `AttributeValue::value()`, but this is ambiguous for
+                // `DW_AT_data_member_location`.
+                if (unit.version() == 2 || unit.version() == 3) &&
+                   spec.name() == constants::DW_AT_data_member_location {
+                    let (rest, offset) = try!(parse_u32(input.into()));
+                    let offset = try!(u64_to_offset(offset as u64));
                     let attr = Attribute {
                         name: spec.name(),
-                        value: AttributeValue::Data(data),
+                        value: AttributeValue::SecOffset(offset as usize),
                     };
-                    (rest, attr)
-                });
+                    return Ok((rest, attr));
+                } else {
+                    return take(4, input.into()).map(|(rest, data)| {
+                        let attr = Attribute {
+                            name: spec.name(),
+                            value: AttributeValue::Data(data),
+                        };
+                        (rest, attr)
+                    });
+                }
             }
             constants::DW_FORM_data8 => {
-                return take(8, input.into()).map(|(rest, data)| {
+                // DWARF version 2/3 may use DW_FORM_data4/8 for section offsets.
+                // Generally we can defer interpretation of these until
+                // `AttributeValue::value()`, but this is ambiguous for
+                // `DW_AT_data_member_location`.
+                if (unit.version() == 2 || unit.version() == 3) &&
+                   spec.name() == constants::DW_AT_data_member_location {
+                    let (rest, offset) = try!(parse_u64(input.into()));
+                    let offset = try!(u64_to_offset(offset));
                     let attr = Attribute {
                         name: spec.name(),
-                        value: AttributeValue::Data(data),
+                        value: AttributeValue::SecOffset(offset as usize),
                     };
-                    (rest, attr)
-                });
+                    return Ok((rest, attr));
+                } else {
+                    return take(8, input.into()).map(|(rest, data)| {
+                        let attr = Attribute {
+                            name: spec.name(),
+                            value: AttributeValue::Data(data),
+                        };
+                        (rest, attr)
+                    });
+                }
             }
             constants::DW_FORM_udata => {
                 return parse_unsigned_leb(input.into()).map(|(rest, data)| {
@@ -2413,6 +2445,7 @@ mod tests {
     use constants::*;
     use endianity::{EndianBuf, Endianity, LittleEndian};
     use leb128;
+    use loc::DebugLocOffset;
     use parser::{Error, Format};
     use str::DebugStrOffset;
     use std::cell::Cell;
@@ -2854,20 +2887,59 @@ mod tests {
 
     #[test]
     fn test_attribute_value() {
-        let bytes = [0, 1, 2, 3];
-        let buf = EndianBuf::<LittleEndian>::new(&bytes);
+        let mut unit = test_parse_attribute_unit_default();
 
-        let tests = [(constants::DW_AT_data_member_location,
-                      AttributeValue::Block(buf),
-                      AttributeValue::Exprloc(buf))];
+        let section = Section::with_endian(Endian::Little).D8(4).L32(0x01020304);
+        let buf = section.get_contents().unwrap();
+        let block = EndianBuf::<LittleEndian>::new(&buf);
+
+        let section = Section::with_endian(Endian::Little).L32(0x01020304);
+        let buf = section.get_contents().unwrap();
+        let data4 = EndianBuf::<LittleEndian>::new(&buf);
+
+        let section = Section::with_endian(Endian::Little).L64(0x0102030405060708);
+        let buf = section.get_contents().unwrap();
+        let data8 = EndianBuf::<LittleEndian>::new(&buf);
+
+        let tests = [(2,
+                      constants::DW_AT_data_member_location,
+                      constants::DW_FORM_block,
+                      block,
+                      AttributeValue::Block(block.range_from(1..)),
+                      AttributeValue::Exprloc(block.range_from(1..))),
+                     (2,
+                      constants::DW_AT_data_member_location,
+                      constants::DW_FORM_data4,
+                      data4,
+                      AttributeValue::SecOffset(0x01020304),
+                      AttributeValue::DebugLocRef(DebugLocOffset(0x01020304))),
+                     (4,
+                      constants::DW_AT_data_member_location,
+                      constants::DW_FORM_data4,
+                      data4,
+                      AttributeValue::Data(data4),
+                      AttributeValue::Udata(0x01020304)),
+                     (2,
+                      constants::DW_AT_data_member_location,
+                      constants::DW_FORM_data8,
+                      data8,
+                      AttributeValue::SecOffset(0x0102030405060708),
+                      AttributeValue::DebugLocRef(DebugLocOffset(0x0102030405060708))),
+                     (4,
+                      constants::DW_AT_data_member_location,
+                      constants::DW_FORM_data8,
+                      data8,
+                      AttributeValue::Data(data8),
+                      AttributeValue::Udata(0x0102030405060708))];
 
         for test in tests.iter() {
-            let (name, value, expect) = *test;
-            let attribute = Attribute {
-                name: name,
-                value: value,
-            };
-            assert_eq!(attribute.value(), expect);
+            let (version, name, form, input, expect_raw, expect_value) = *test;
+            unit.version = version;
+            let spec = AttributeSpecification::new(name, form);
+            let (_, attribute) = parse_attribute(input, &unit, spec)
+                .expect("Should parse attribute");
+            assert_eq!(attribute.raw_value(), expect_raw);
+            assert_eq!(attribute.value(), expect_value);
         }
     }
 
