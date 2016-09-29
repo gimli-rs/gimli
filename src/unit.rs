@@ -1,12 +1,8 @@
 //! Functions for parsing DWARF `.debug_info` and `.debug_types` sections.
 
 use constants;
-#[cfg(test)]
-use leb128;
 use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation, AttributeSpecification};
 use endianity::{Endianity, EndianBuf};
-#[cfg(test)]
-use endianity::LittleEndian;
 use fallible_iterator::FallibleIterator;
 use line::DebugLineOffset;
 use loc::DebugLocOffset;
@@ -156,90 +152,6 @@ impl<'input, Endian> FallibleIterator for CompilationUnitHeadersIter<'input, End
     fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
         CompilationUnitHeadersIter::next(self)
     }
-}
-
-#[test]
-#[cfg(target_pointer_width = "64")]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_units() {
-    let buf = [
-        // First compilation unit.
-
-        // Enable 64-bit DWARF.
-        0xff, 0xff, 0xff, 0xff,
-        // Unit length = 43
-        0x2b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // Version 4
-        0x04, 0x00,
-        // debug_abbrev_offset
-        0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
-        // address size
-        0x08,
-
-        // Placeholder data for first compilation unit's DIEs.
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-
-        // Second compilation unit
-
-        // 32-bit unit length = 39
-        0x27, 0x00, 0x00, 0x00,
-        // Version 4
-        0x04, 0x00,
-        // debug_abbrev_offset
-        0x05, 0x06, 0x07, 0x08,
-        // Address size
-        0x04,
-
-        // Placeholder data for second compilation unit's DIEs.
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08
-    ];
-
-    let debug_info = DebugInfo::<LittleEndian>::new(&buf);
-    let mut units = debug_info.units();
-
-    match units.next() {
-        Ok(Some(header)) => {
-            let expected = UnitHeader::<LittleEndian>::new(0x000000000000002b,
-                                                4,
-                                                DebugAbbrevOffset(0x0102030405060708),
-                                                8,
-                                                Format::Dwarf64,
-                                                &buf[23..23+32]);
-            let expected = CompilationUnitHeader {
-                header: expected,
-                offset: DebugInfoOffset(0),
-            };
-            assert_eq!(header, expected);
-
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-
-    match units.next() {
-        Ok(Some(header)) => {
-            let expected =
-                UnitHeader::new(0x00000027,
-                                     4,
-                                     DebugAbbrevOffset(0x08070605),
-                                     4,
-                                     Format::Dwarf32,
-                                     &buf[buf.len()-32..]);
-            let expected = CompilationUnitHeader {
-                header: expected,
-                offset: DebugInfoOffset(55),
-            };
-            assert_eq!(header, expected);
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-
-    assert!(units.next().unwrap().is_none());
 }
 
 /// The header of a compilation unit's debugging information.
@@ -414,47 +326,6 @@ fn parse_version<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>,
     }
 }
 
-#[test]
-fn test_unit_version_ok() {
-    // Version 4 and two extra bytes
-    let buf = [0x04, 0x00, 0xff, 0xff];
-
-    match parse_version(EndianBuf::<LittleEndian>::new(&buf)) {
-        Ok((rest, val)) => {
-            assert_eq!(val, 4);
-            assert_eq!(rest, EndianBuf::new(&[0xff, 0xff]));
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_unit_version_unknown_version() {
-    let buf = [0xab, 0xcd];
-
-    match parse_version(EndianBuf::<LittleEndian>::new(&buf)) {
-        Err(Error::UnknownVersion) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-
-    let buf = [0x1, 0x0];
-
-    match parse_version(EndianBuf::<LittleEndian>::new(&buf)) {
-        Err(Error::UnknownVersion) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_unit_version_incomplete() {
-    let buf = [0x04];
-
-    match parse_version(EndianBuf::<LittleEndian>::new(&buf)) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
 /// Parse the `debug_abbrev_offset` in the compilation unit header.
 fn parse_debug_abbrev_offset<Endian>(input: EndianBuf<Endian>,
                                      format: Format)
@@ -463,48 +334,6 @@ fn parse_debug_abbrev_offset<Endian>(input: EndianBuf<Endian>,
 {
     parse_offset(input, format).map(|(rest, offset)| (rest, DebugAbbrevOffset(offset)))
 }
-
-#[test]
-fn test_parse_debug_abbrev_offset_32() {
-    let buf = [0x01, 0x02, 0x03, 0x04];
-
-    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-        Ok((_, val)) => assert_eq!(val, DebugAbbrevOffset(0x04030201)),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_debug_abbrev_offset_32_incomplete() {
-    let buf = [0x01, 0x02];
-
-    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-#[cfg(target_pointer_width = "64")]
-fn test_parse_debug_abbrev_offset_64() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-
-    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
-        Ok((_, val)) => assert_eq!(val, DebugAbbrevOffset(0x0807060504030201)),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_debug_abbrev_offset_64_incomplete() {
-    let buf = [0x01, 0x02];
-
-    match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
 
 /// Parse the `debug_info_offset` in the arange header.
 pub fn parse_debug_info_offset<Endian>(input: EndianBuf<Endian>,
@@ -515,47 +344,6 @@ pub fn parse_debug_info_offset<Endian>(input: EndianBuf<Endian>,
     parse_offset(input, format).map(|(rest, offset)| (rest, DebugInfoOffset(offset)))
 }
 
-#[test]
-fn test_parse_debug_inro_offset_32() {
-    let buf = [0x01, 0x02, 0x03, 0x04];
-
-    match parse_debug_info_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-        Ok((_, val)) => assert_eq!(val, DebugInfoOffset(0x04030201)),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_debug_info_offset_32_incomplete() {
-    let buf = [0x01, 0x02];
-
-    match parse_debug_info_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-#[cfg(target_pointer_width = "64")]
-fn test_parse_debug_info_offset_64() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-
-    match parse_debug_info_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
-        Ok((_, val)) => assert_eq!(val, DebugInfoOffset(0x0807060504030201)),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_debug_info_offset_64_incomplete() {
-    let buf = [0x01, 0x02];
-
-    match parse_debug_info_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
 /// Parse the `debug_types_offset` in the pubtypes header.
 pub fn parse_debug_types_offset<Endian>(input: EndianBuf<Endian>,
                                         format: Format)
@@ -563,47 +351,6 @@ pub fn parse_debug_types_offset<Endian>(input: EndianBuf<Endian>,
     where Endian: Endianity
 {
     parse_offset(input, format).map(|(rest, offset)| (rest, DebugTypesOffset(offset)))
-}
-
-#[test]
-fn test_parse_debug_types_offset_32() {
-    let buf = [0x01, 0x02, 0x03, 0x04];
-
-    match parse_debug_types_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-        Ok((_, val)) => assert_eq!(val, DebugTypesOffset(0x04030201)),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_debug_types_offset_32_incomplete() {
-    let buf = [0x01, 0x02];
-
-    match parse_debug_types_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-#[cfg(target_pointer_width = "64")]
-fn test_parse_debug_types_offset_64() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-
-    match parse_debug_types_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
-        Ok((_, val)) => assert_eq!(val, DebugTypesOffset(0x0807060504030201)),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
-}
-
-#[test]
-fn test_parse_debug_types_offset_64_incomplete() {
-    let buf = [0x01, 0x02];
-
-    match parse_debug_types_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
 }
 
 /// The common fields for the headers of compilation units and
@@ -791,65 +538,6 @@ fn parse_unit_header<Endian>(input: EndianBuf<Endian>)
                         address_size,
                         format,
                         rest.into())))
-}
-
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_parse_unit_header_32_ok() {
-    let buf = [
-        // 32-bit unit length
-        0x07, 0x00, 0x00, 0x00,
-        // Version 4
-        0x04, 0x00,
-        // Debug_abbrev_offset
-        0x05, 0x06, 0x07, 0x08,
-        // Address size
-        0x04
-    ];
-
-    match parse_unit_header(EndianBuf::<LittleEndian>::new(&buf)) {
-        Ok((_, header)) => {
-            assert_eq!(header,
-                       UnitHeader::new(7,
-                                            4,
-                                            DebugAbbrevOffset(0x08070605),
-                                            4,
-                                            Format::Dwarf32,
-                                            &[]))
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-}
-
-#[test]
-#[cfg(target_pointer_width = "64")]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_parse_unit_header_64_ok() {
-    let buf = [
-        // Enable 64-bit
-        0xff, 0xff, 0xff, 0xff,
-        // Unit length = 11
-        0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // Version 4
-        0x04, 0x00,
-        // debug_abbrev_offset
-        0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
-        // Address size
-        0x08
-    ];
-
-    match parse_unit_header(EndianBuf::<LittleEndian>::new(&buf)) {
-        Ok((_, header)) => {
-            let expected = UnitHeader::new(11,
-                                                4,
-                                                DebugAbbrevOffset(0x0102030405060708),
-                                                8,
-                                                Format::Dwarf64,
-                                                &[]);
-            assert_eq!(header, expected)
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
 }
 
 /// A Debugging Information Entry (DIE).
@@ -1664,25 +1352,6 @@ impl<'input, Endian> Attribute<'input, Endian>
     }
 }
 
-#[test]
-fn test_attribute_value() {
-    let bytes = [0, 1, 2, 3];
-    let buf = EndianBuf::<LittleEndian>::new(&bytes);
-
-    let tests = [(constants::DW_AT_data_member_location,
-                  AttributeValue::Block(buf),
-                  AttributeValue::Exprloc(buf))];
-
-    for test in tests.iter() {
-        let (name, value, expect) = *test;
-        let attribute = Attribute {
-            name: name,
-            value: value,
-        };
-        assert_eq!(attribute.value(), expect);
-    }
-}
-
 fn length_u8_value<Endian>(input: EndianBuf<Endian>)
                            -> Result<(EndianBuf<Endian>, EndianBuf<Endian>)>
     where Endian: Endianity
@@ -1964,379 +1633,6 @@ fn parse_attribute<'input, 'unit, Endian>
     }
 }
 
-#[cfg(test)]
-fn test_parse_attribute_unit<Endian>(address_size: u8,
-                                     format: Format)
-                                     -> UnitHeader<'static, Endian>
-    where Endian: Endianity
-{
-    UnitHeader::<Endian>::new(7,
-                              4,
-                              DebugAbbrevOffset(0x08070605),
-                              address_size,
-                              format,
-                              &[])
-}
-
-#[cfg(test)]
-fn test_parse_attribute_unit_default() -> UnitHeader<'static, LittleEndian> {
-    test_parse_attribute_unit(4, Format::Dwarf32)
-}
-
-#[cfg(test)]
-fn test_parse_attribute<Endian>(buf: &[u8],
-                                len: usize,
-                                unit: &UnitHeader<Endian>,
-                                form: constants::DwForm,
-                                value: AttributeValue<Endian>)
-    where Endian: Endianity
-{
-    let spec = AttributeSpecification::new(constants::DW_AT_low_pc, form);
-
-    let expect = Attribute {
-        name: constants::DW_AT_low_pc,
-        value: value,
-    };
-
-    match parse_attribute(EndianBuf::new(buf), unit, spec) {
-        Ok((rest, attr)) => {
-            assert_eq!(attr, expect);
-            assert_eq!(rest, EndianBuf::new(&buf[len..]));
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    };
-}
-
-#[test]
-fn test_parse_attribute_addr() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
-    let form = constants::DW_FORM_addr;
-    let value = AttributeValue::Addr(0x04030201);
-    test_parse_attribute(&buf, 4, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_addr8() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-    let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
-    let form = constants::DW_FORM_addr;
-    let value = AttributeValue::Addr(0x0807060504030201);
-    test_parse_attribute(&buf, 8, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_block1() {
-    // Length of data (3), three bytes of data, two bytes of left over input.
-    let buf = [0x03, 0x09, 0x09, 0x09, 0x00, 0x00];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_block1;
-    let value = AttributeValue::Block(EndianBuf::new(&buf[1..4]));
-    test_parse_attribute(&buf, 4, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_block2() {
-    // Two byte length of data (2), two bytes of data, two bytes of left over input.
-    let buf = [0x02, 0x00, 0x09, 0x09, 0x00, 0x00];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_block2;
-    let value = AttributeValue::Block(EndianBuf::new(&buf[2..4]));
-    test_parse_attribute(&buf, 4, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_block4() {
-    // Four byte length of data (2), two bytes of data, no left over input.
-    let buf = [0x02, 0x00, 0x00, 0x00, 0x99, 0x99];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_block4;
-    let value = AttributeValue::Block(EndianBuf::new(&buf[4..]));
-    test_parse_attribute(&buf, 6, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_block() {
-    // LEB length of data (2, one byte), two bytes of data, no left over input.
-    let buf = [0x02, 0x99, 0x99];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_block;
-    let value = AttributeValue::Block(EndianBuf::new(&buf[1..]));
-    test_parse_attribute(&buf, 3, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_data1() {
-    let buf = [0x03];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_data1;
-    let value = AttributeValue::Data(EndianBuf::new(&buf[..]));
-    test_parse_attribute(&buf, 1, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_data2() {
-    let buf = [0x02, 0x01, 0x0];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_data2;
-    let value = AttributeValue::Data(EndianBuf::new(&buf[..2]));
-    test_parse_attribute(&buf, 2, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_data4() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_data4;
-    let value = AttributeValue::Data(EndianBuf::new(&buf[..4]));
-    test_parse_attribute(&buf, 4, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_data8() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_data8;
-    let value = AttributeValue::Data(EndianBuf::new(&buf[..8]));
-    test_parse_attribute(&buf, 8, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_udata() {
-    let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-
-    let bytes_written = {
-        let mut writable = &mut buf[..];
-        leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
-    };
-
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_udata;
-    let value = AttributeValue::Udata(4097);
-    test_parse_attribute(&buf, bytes_written, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_sdata() {
-    let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-
-    let bytes_written = {
-        let mut writable = &mut buf[..];
-        leb128::write::signed(&mut writable, -4097).expect("should write ok")
-    };
-
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_sdata;
-    let value = AttributeValue::Sdata(-4097);
-    test_parse_attribute(&buf, bytes_written, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_exprloc() {
-    // LEB length of data (2, one byte), two bytes of data, one byte left over input.
-    let buf = [0x02, 0x99, 0x99, 0x11];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_exprloc;
-    let value = AttributeValue::Exprloc(EndianBuf::new(&buf[1..3]));
-    test_parse_attribute(&buf, 3, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_flag_true() {
-    let buf = [0x42];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_flag;
-    let value = AttributeValue::Flag(true);
-    test_parse_attribute(&buf, 1, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_flag_false() {
-    let buf = [0x00];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_flag;
-    let value = AttributeValue::Flag(false);
-    test_parse_attribute(&buf, 1, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_flag_present() {
-    let buf = [0x01, 0x02, 0x03, 0x04];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_flag_present;
-    let value = AttributeValue::Flag(true);
-    // DW_FORM_flag_present does not consume any bytes of the input stream.
-    test_parse_attribute(&buf, 0, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_sec_offset_32() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
-    let form = constants::DW_FORM_sec_offset;
-    let value = AttributeValue::SecOffset(0x04030201);
-    test_parse_attribute(&buf, 4, &unit, form, value);
-}
-
-#[test]
-#[cfg(target_pointer_width = "64")]
-fn test_parse_attribute_sec_offset_64() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf64);
-    let form = constants::DW_FORM_sec_offset;
-    let value = AttributeValue::SecOffset(0x0807060504030201);
-    test_parse_attribute(&buf, 8, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_ref1() {
-    let buf = [0x03];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_ref1;
-    let value = AttributeValue::UnitRef(UnitOffset(3));
-    test_parse_attribute(&buf, 1, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_ref2() {
-    let buf = [0x02, 0x01, 0x0];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_ref2;
-    let value = AttributeValue::UnitRef(UnitOffset(258));
-    test_parse_attribute(&buf, 2, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_ref4() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_ref4;
-    let value = AttributeValue::UnitRef(UnitOffset(67305985));
-    test_parse_attribute(&buf, 4, &unit, form, value);
-}
-
-#[test]
-#[cfg(target_pointer_width = "64")]
-fn test_parse_attribute_ref8() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_ref8;
-    let value = AttributeValue::UnitRef(UnitOffset(578437695752307201));
-    test_parse_attribute(&buf, 8, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_refudata() {
-    let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-
-    let bytes_written = {
-        let mut writable = &mut buf[..];
-        leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
-    };
-
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_ref_udata;
-    let value = AttributeValue::UnitRef(UnitOffset(4097));
-    test_parse_attribute(&buf, bytes_written, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_refaddr_32() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
-    let form = constants::DW_FORM_ref_addr;
-    let value = AttributeValue::DebugInfoRef(DebugInfoOffset(67305985));
-    test_parse_attribute(&buf, 4, &unit, form, value);
-}
-
-#[test]
-#[cfg(target_pointer_width = "64")]
-fn test_parse_attribute_refaddr_64() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf64);
-    let form = constants::DW_FORM_ref_addr;
-    let value = AttributeValue::DebugInfoRef(DebugInfoOffset(578437695752307201));
-    test_parse_attribute(&buf, 8, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_refaddr_version2() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-    let mut unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
-    unit.version = 2;
-    let form = constants::DW_FORM_ref_addr;
-    let value = AttributeValue::DebugInfoRef(DebugInfoOffset(0x04030201));
-    test_parse_attribute(&buf, 4, &unit, form, value);
-}
-
-#[test]
-#[cfg(target_pointer_width = "64")]
-fn test_parse_attribute_refaddr8_version2() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-    let mut unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
-    unit.version = 2;
-    let form = constants::DW_FORM_ref_addr;
-    let value = AttributeValue::DebugInfoRef(DebugInfoOffset(0x0807060504030201));
-    test_parse_attribute(&buf, 8, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_refsig8() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_ref_sig8;
-    let value = AttributeValue::DebugTypesRef(DebugTypeSignature(578437695752307201));
-    test_parse_attribute(&buf, 8, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_string() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x0, 0x99, 0x99];
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_string;
-    let value = AttributeValue::String(ffi::CStr::from_bytes_with_nul(&buf[..6]).unwrap());
-    test_parse_attribute(&buf, 6, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_strp_32() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
-    let form = constants::DW_FORM_strp;
-    let value = AttributeValue::DebugStrRef(DebugStrOffset(67305985));
-    test_parse_attribute(&buf, 4, &unit, form, value);
-}
-
-#[test]
-#[cfg(target_pointer_width = "64")]
-fn test_parse_attribute_strp_64() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-    let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf64);
-    let form = constants::DW_FORM_strp;
-    let value = AttributeValue::DebugStrRef(DebugStrOffset(578437695752307201));
-    test_parse_attribute(&buf, 8, &unit, form, value);
-}
-
-#[test]
-fn test_parse_attribute_indirect() {
-    let mut buf = [0; 100];
-
-    let bytes_written = {
-        let mut writable = &mut buf[..];
-        leb128::write::unsigned(&mut writable, constants::DW_FORM_udata.0)
-            .expect("should write udata") +
-        leb128::write::unsigned(&mut writable, 9999999).expect("should write value")
-    };
-
-    let unit = test_parse_attribute_unit_default();
-    let form = constants::DW_FORM_indirect;
-    let value = AttributeValue::Udata(9999999);
-    test_parse_attribute(&buf, bytes_written, &unit, form, value);
-}
-
 /// An iterator over a particular entry's attributes.
 ///
 /// See [the documentation for
@@ -2398,164 +1694,6 @@ impl<'input, 'abbrev, 'entry, 'unit, Endian> FallibleIterator
     fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
         AttrsIter::next(self)
     }
-}
-
-
-#[test]
-fn test_attrs_iter() {
-    let unit = UnitHeader::<LittleEndian>::new(7,
-                                               4,
-                                               DebugAbbrevOffset(0x08070605),
-                                               4,
-                                               Format::Dwarf32,
-                                               &[]);
-
-    let abbrev = Abbreviation::new(42,
-                                   constants::DW_TAG_subprogram,
-                                   constants::DW_CHILDREN_yes,
-                                   vec![
-            AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
-            AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr),
-            AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr),
-        ]);
-
-    // "foo", 42, 1337, 4 dangling bytes of 0xaa where children would be
-    let buf = [0x66, 0x6f, 0x6f, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x39, 0x05, 0x00, 0x00, 0xaa, 0xaa,
-               0xaa, 0xaa];
-
-    let entry = DebuggingInformationEntry {
-        offset: UnitOffset(0),
-        attrs_slice: &buf,
-        after_attrs: Cell::new(None),
-        code: 1,
-        abbrev: &abbrev,
-        unit: &unit,
-    };
-
-    let mut attrs = AttrsIter {
-        input: &buf[..],
-        attributes: abbrev.attributes(),
-        entry: &entry,
-    };
-
-    match attrs.next() {
-        Ok(Some(attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::String(ffi::CStr::from_bytes_with_nul(b"foo\0")
-                               .unwrap()),
-                       });
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    }
-
-    assert!(entry.after_attrs.get().is_none());
-
-    match attrs.next() {
-        Ok(Some(attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_low_pc,
-                           value: AttributeValue::Addr(0x2a),
-                       });
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    }
-
-    assert!(entry.after_attrs.get().is_none());
-
-    match attrs.next() {
-        Ok(Some(attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_high_pc,
-                           value: AttributeValue::Addr(0x539),
-                       });
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    }
-
-    assert!(entry.after_attrs.get().is_none());
-
-    assert!(attrs.next().expect("should parse next").is_none());
-    assert!(entry.after_attrs.get().is_some());
-    assert_eq!(entry.after_attrs.get().expect("should have entry.after_attrs"),
-               &buf[buf.len() - 4..])
-}
-
-#[test]
-fn test_attrs_iter_incomplete() {
-    let unit = UnitHeader::<LittleEndian>::new(7,
-                                               4,
-                                               DebugAbbrevOffset(0x08070605),
-                                               4,
-                                               Format::Dwarf32,
-                                               &[]);
-
-    let abbrev = Abbreviation::new(42,
-                                   constants::DW_TAG_subprogram,
-                                   constants::DW_CHILDREN_yes,
-                                   vec![
-            AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
-            AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr),
-            AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr),
-        ]);
-
-    // "foo"
-    let buf = [0x66, 0x6f, 0x6f, 0x00];
-
-    let entry = DebuggingInformationEntry {
-        offset: UnitOffset(0),
-        attrs_slice: &buf,
-        after_attrs: Cell::new(None),
-        code: 1,
-        abbrev: &abbrev,
-        unit: &unit,
-    };
-
-    let mut attrs = AttrsIter {
-        input: &buf[..],
-        attributes: abbrev.attributes(),
-        entry: &entry,
-    };
-
-    match attrs.next() {
-        Ok(Some(attr)) => {
-            assert_eq!(attr,
-                       Attribute {
-                           name: constants::DW_AT_name,
-                           value: AttributeValue::String(ffi::CStr::from_bytes_with_nul(b"foo\0")
-                               .unwrap()),
-                       });
-        }
-        otherwise => {
-            println!("Unexpected parse result = {:#?}", otherwise);
-            assert!(false);
-        }
-    }
-
-    assert!(entry.after_attrs.get().is_none());
-
-    // Return error for incomplete attribute.
-    assert!(attrs.next().is_err());
-    assert!(entry.after_attrs.get().is_none());
-
-    // Return error for all subsequent calls.
-    assert!(attrs.next().is_err());
-    assert!(attrs.next().is_err());
-    assert!(attrs.next().is_err());
-    assert!(attrs.next().is_err());
-    assert!(entry.after_attrs.get().is_none());
 }
 
 /// A cursor into the Debugging Information Entries tree for a compilation unit.
@@ -2965,26 +2103,6 @@ fn parse_type_signature<Endian>(input: EndianBuf<Endian>)
     Ok((rest, DebugTypeSignature(offset)))
 }
 
-#[test]
-fn test_parse_type_signature_ok() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-
-    match parse_type_signature(EndianBuf::<LittleEndian>::new(&buf)) {
-        Ok((_, val)) => assert_eq!(val, DebugTypeSignature(0x0807060504030201)),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-}
-
-#[test]
-fn test_parse_type_signature_incomplete() {
-    let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
-
-    match parse_type_signature(EndianBuf::<LittleEndian>::new(&buf)) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-}
-
 /// Parse a type unit header's type offset.
 fn parse_type_offset<Endian>(input: EndianBuf<Endian>,
                              format: Format)
@@ -2992,44 +2110,6 @@ fn parse_type_offset<Endian>(input: EndianBuf<Endian>,
     where Endian: Endianity
 {
     parse_offset(input, format).map(|(rest, offset)| (rest, UnitOffset(offset)))
-}
-
-#[test]
-fn test_parse_type_offset_32_ok() {
-    let buf = [0x12, 0x34, 0x56, 0x78, 0x00];
-
-    match parse_type_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-        Ok((rest, offset)) => {
-            assert_eq!(rest.len(), 1);
-            assert_eq!(UnitOffset(0x78563412), offset);
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-}
-
-#[test]
-#[cfg(target_pointer_width = "64")]
-fn test_parse_type_offset_64_ok() {
-    let buf = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff, 0x00];
-
-    match parse_type_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
-        Ok((rest, offset)) => {
-            assert_eq!(rest.len(), 1);
-            assert_eq!(UnitOffset(0xffdebc9a78563412), offset);
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-}
-
-#[test]
-fn test_parse_type_offset_incomplete() {
-    // Need at least 4 bytes.
-    let buf = [0xff, 0xff, 0xff];
-
-    match parse_type_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-        Err(Error::UnexpectedEof) => assert!(true),
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    };
 }
 
 /// The `DebugTypes` struct represents the DWARF type information
@@ -3321,57 +2401,956 @@ fn parse_type_unit_header<Endian>(input: EndianBuf<Endian>,
     Ok((after_unit, TypeUnitHeader::new(header, offset, signature, type_offset)))
 }
 
-#[test]
-#[cfg(target_pointer_width = "64")]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_parse_type_unit_header_64_ok() {
-    let buf = [
-        // Enable 64-bit unit length mode.
-        0xff, 0xff, 0xff, 0xff,
-        // The actual unit length (27).
-        0x1b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // Version 4
-        0x04, 0x00,
-        // debug_abbrev_offset
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-         // Address size
-        0x08,
-        // Type signature
-        0xef, 0xbe, 0xad, 0xde, 0xef, 0xbe, 0xad, 0xde,
-        // type offset
-        0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x56, 0x78
-    ];
-
-    let offset = DebugTypesOffset(0);
-    let result = parse_type_unit_header(EndianBuf::<LittleEndian>::new(&buf), offset);
-
-    match result {
-        Ok((_, header)) => {
-            assert_eq!(header,
-                       TypeUnitHeader::new(UnitHeader::new(27,
-                                                           4,
-                                                           DebugAbbrevOffset(0x0807060504030201),
-                                                           8,
-                                                           Format::Dwarf64,
-                                                           &[]),
-                                           offset,
-                                           DebugTypeSignature(0xdeadbeefdeadbeef),
-                                           UnitOffset(0x7856341278563412)));
-            assert_eq!(header.header_size(), buf.len());
-            assert_eq!(header.header.header_size(), buf.len());
-
-        },
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use abbrev::DebugAbbrev;
+    use super::{parse_version, parse_debug_abbrev_offset, parse_type_offset, parse_unit_header,
+                parse_type_unit_header, parse_attribute};
+    use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviation, AttributeSpecification};
     use constants;
-    use endianity::{Endianity, LittleEndian};
+    use endianity::{EndianBuf, Endianity, LittleEndian};
+    use leb128;
+    use parser::{Error, Format};
+    use str::DebugStrOffset;
+    use std::cell::Cell;
     use std::ffi;
+
+    #[test]
+    fn test_parse_debug_abbrev_offset_32() {
+        let buf = [0x01, 0x02, 0x03, 0x04];
+
+        match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
+            Ok((_, val)) => assert_eq!(val, DebugAbbrevOffset(0x04030201)),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_debug_abbrev_offset_32_incomplete() {
+        let buf = [0x01, 0x02];
+
+        match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
+            Err(Error::UnexpectedEof) => assert!(true),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_debug_abbrev_offset_64() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+
+        match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
+            Ok((_, val)) => assert_eq!(val, DebugAbbrevOffset(0x0807060504030201)),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_debug_abbrev_offset_64_incomplete() {
+        let buf = [0x01, 0x02];
+
+        match parse_debug_abbrev_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
+            Err(Error::UnexpectedEof) => assert!(true),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_debug_inro_offset_32() {
+        let buf = [0x01, 0x02, 0x03, 0x04];
+
+        match parse_debug_info_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
+            Ok((_, val)) => assert_eq!(val, DebugInfoOffset(0x04030201)),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_debug_info_offset_32_incomplete() {
+        let buf = [0x01, 0x02];
+
+        match parse_debug_info_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
+            Err(Error::UnexpectedEof) => assert!(true),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_debug_info_offset_64() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+
+        match parse_debug_info_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
+            Ok((_, val)) => assert_eq!(val, DebugInfoOffset(0x0807060504030201)),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_debug_info_offset_64_incomplete() {
+        let buf = [0x01, 0x02];
+
+        match parse_debug_info_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
+            Err(Error::UnexpectedEof) => assert!(true),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_debug_types_offset_32() {
+        let buf = [0x01, 0x02, 0x03, 0x04];
+
+        match parse_debug_types_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
+            Ok((_, val)) => assert_eq!(val, DebugTypesOffset(0x04030201)),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_debug_types_offset_32_incomplete() {
+        let buf = [0x01, 0x02];
+
+        match parse_debug_types_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
+            Err(Error::UnexpectedEof) => assert!(true),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_debug_types_offset_64() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+
+        match parse_debug_types_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
+            Ok((_, val)) => assert_eq!(val, DebugTypesOffset(0x0807060504030201)),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_parse_debug_types_offset_64_incomplete() {
+        let buf = [0x01, 0x02];
+
+        match parse_debug_types_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
+            Err(Error::UnexpectedEof) => assert!(true),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_units() {
+        let buf = [
+            // First compilation unit.
+
+            // Enable 64-bit DWARF.
+            0xff, 0xff, 0xff, 0xff,
+            // Unit length = 43
+            0x2b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Version 4
+            0x04, 0x00,
+            // debug_abbrev_offset
+            0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
+            // address size
+            0x08,
+
+            // Placeholder data for first compilation unit's DIEs.
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+
+            // Second compilation unit
+
+            // 32-bit unit length = 39
+            0x27, 0x00, 0x00, 0x00,
+            // Version 4
+            0x04, 0x00,
+            // debug_abbrev_offset
+            0x05, 0x06, 0x07, 0x08,
+            // Address size
+            0x04,
+
+            // Placeholder data for second compilation unit's DIEs.
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08
+        ];
+
+        let debug_info = DebugInfo::<LittleEndian>::new(&buf);
+        let mut units = debug_info.units();
+
+        match units.next() {
+            Ok(Some(header)) => {
+                let expected = UnitHeader::<LittleEndian>::new(0x000000000000002b,
+                                                    4,
+                                                    DebugAbbrevOffset(0x0102030405060708),
+                                                    8,
+                                                    Format::Dwarf64,
+                                                    &buf[23..23+32]);
+                let expected = CompilationUnitHeader {
+                    header: expected,
+                    offset: DebugInfoOffset(0),
+                };
+                assert_eq!(header, expected);
+
+            }
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+
+        match units.next() {
+            Ok(Some(header)) => {
+                let expected =
+                    UnitHeader::new(0x00000027,
+                                         4,
+                                         DebugAbbrevOffset(0x08070605),
+                                         4,
+                                         Format::Dwarf32,
+                                         &buf[buf.len()-32..]);
+                let expected = CompilationUnitHeader {
+                    header: expected,
+                    offset: DebugInfoOffset(55),
+                };
+                assert_eq!(header, expected);
+            }
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+
+        assert!(units.next().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_unit_version_ok() {
+        // Version 4 and two extra bytes
+        let buf = [0x04, 0x00, 0xff, 0xff];
+
+        match parse_version(EndianBuf::<LittleEndian>::new(&buf)) {
+            Ok((rest, val)) => {
+                assert_eq!(val, 4);
+                assert_eq!(rest, EndianBuf::new(&[0xff, 0xff]));
+            }
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_unit_version_unknown_version() {
+        let buf = [0xab, 0xcd];
+
+        match parse_version(EndianBuf::<LittleEndian>::new(&buf)) {
+            Err(Error::UnknownVersion) => assert!(true),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+
+        let buf = [0x1, 0x0];
+
+        match parse_version(EndianBuf::<LittleEndian>::new(&buf)) {
+            Err(Error::UnknownVersion) => assert!(true),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    fn test_unit_version_incomplete() {
+        let buf = [0x04];
+
+        match parse_version(EndianBuf::<LittleEndian>::new(&buf)) {
+            Err(Error::UnexpectedEof) => assert!(true),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_parse_unit_header_32_ok() {
+        let buf = [
+            // 32-bit unit length
+            0x07, 0x00, 0x00, 0x00,
+            // Version 4
+            0x04, 0x00,
+            // Debug_abbrev_offset
+            0x05, 0x06, 0x07, 0x08,
+            // Address size
+            0x04
+        ];
+
+        match parse_unit_header(EndianBuf::<LittleEndian>::new(&buf)) {
+            Ok((_, header)) => {
+                assert_eq!(header,
+                           UnitHeader::new(7,
+                                                4,
+                                                DebugAbbrevOffset(0x08070605),
+                                                4,
+                                                Format::Dwarf32,
+                                                &[]))
+            }
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_parse_unit_header_64_ok() {
+        let buf = [
+            // Enable 64-bit
+            0xff, 0xff, 0xff, 0xff,
+            // Unit length = 11
+            0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Version 4
+            0x04, 0x00,
+            // debug_abbrev_offset
+            0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
+            // Address size
+            0x08
+        ];
+
+        match parse_unit_header(EndianBuf::<LittleEndian>::new(&buf)) {
+            Ok((_, header)) => {
+                let expected = UnitHeader::new(11,
+                                                    4,
+                                                    DebugAbbrevOffset(0x0102030405060708),
+                                                    8,
+                                                    Format::Dwarf64,
+                                                    &[]);
+                assert_eq!(header, expected)
+            }
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+    }
+
+    #[test]
+    fn test_parse_type_offset_32_ok() {
+        let buf = [0x12, 0x34, 0x56, 0x78, 0x00];
+
+        match parse_type_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
+            Ok((rest, offset)) => {
+                assert_eq!(rest.len(), 1);
+                assert_eq!(UnitOffset(0x78563412), offset);
+            }
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_type_offset_64_ok() {
+        let buf = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff, 0x00];
+
+        match parse_type_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
+            Ok((rest, offset)) => {
+                assert_eq!(rest.len(), 1);
+                assert_eq!(UnitOffset(0xffdebc9a78563412), offset);
+            }
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+    }
+
+    #[test]
+    fn test_parse_type_offset_incomplete() {
+        // Need at least 4 bytes.
+        let buf = [0xff, 0xff, 0xff];
+
+        match parse_type_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
+            Err(Error::UnexpectedEof) => assert!(true),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_parse_type_unit_header_64_ok() {
+        let buf = [
+            // Enable 64-bit unit length mode.
+            0xff, 0xff, 0xff, 0xff,
+            // The actual unit length (27).
+            0x1b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // Version 4
+            0x04, 0x00,
+            // debug_abbrev_offset
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+             // Address size
+            0x08,
+            // Type signature
+            0xef, 0xbe, 0xad, 0xde, 0xef, 0xbe, 0xad, 0xde,
+            // type offset
+            0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x56, 0x78
+        ];
+
+        let offset = DebugTypesOffset(0);
+        let result = parse_type_unit_header(EndianBuf::<LittleEndian>::new(&buf), offset);
+
+        match result {
+            Ok((_, header)) => {
+                assert_eq!(header,
+                           TypeUnitHeader::new(UnitHeader::new(27,
+                                                               4,
+                                                               DebugAbbrevOffset(0x0807060504030201),
+                                                               8,
+                                                               Format::Dwarf64,
+                                                               &[]),
+                                               offset,
+                                               DebugTypeSignature(0xdeadbeefdeadbeef),
+                                               UnitOffset(0x7856341278563412)));
+                assert_eq!(header.header_size(), buf.len());
+                assert_eq!(header.header.header_size(), buf.len());
+
+            },
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+    }
+
+    #[test]
+    fn test_attribute_value() {
+        let bytes = [0, 1, 2, 3];
+        let buf = EndianBuf::<LittleEndian>::new(&bytes);
+
+        let tests = [(constants::DW_AT_data_member_location,
+                      AttributeValue::Block(buf),
+                      AttributeValue::Exprloc(buf))];
+
+        for test in tests.iter() {
+            let (name, value, expect) = *test;
+            let attribute = Attribute {
+                name: name,
+                value: value,
+            };
+            assert_eq!(attribute.value(), expect);
+        }
+    }
+
+    fn test_parse_attribute_unit<Endian>(address_size: u8,
+                                         format: Format)
+                                         -> UnitHeader<'static, Endian>
+        where Endian: Endianity
+    {
+        UnitHeader::<Endian>::new(7,
+                                  4,
+                                  DebugAbbrevOffset(0x08070605),
+                                  address_size,
+                                  format,
+                                  &[])
+    }
+
+    fn test_parse_attribute_unit_default() -> UnitHeader<'static, LittleEndian> {
+        test_parse_attribute_unit(4, Format::Dwarf32)
+    }
+
+    fn test_parse_attribute<Endian>(buf: &[u8],
+                                    len: usize,
+                                    unit: &UnitHeader<Endian>,
+                                    form: constants::DwForm,
+                                    value: AttributeValue<Endian>)
+        where Endian: Endianity
+    {
+        let spec = AttributeSpecification::new(constants::DW_AT_low_pc, form);
+
+        let expect = Attribute {
+            name: constants::DW_AT_low_pc,
+            value: value,
+        };
+
+        match parse_attribute(EndianBuf::new(buf), unit, spec) {
+            Ok((rest, attr)) => {
+                assert_eq!(attr, expect);
+                assert_eq!(rest, EndianBuf::new(&buf[len..]));
+            }
+            otherwise => {
+                println!("Unexpected parse result = {:#?}", otherwise);
+                assert!(false);
+            }
+        };
+    }
+
+    #[test]
+    fn test_parse_attribute_addr() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+        let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+        let form = constants::DW_FORM_addr;
+        let value = AttributeValue::Addr(0x04030201);
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_addr8() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+        let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
+        let form = constants::DW_FORM_addr;
+        let value = AttributeValue::Addr(0x0807060504030201);
+        test_parse_attribute(&buf, 8, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_block1() {
+        // Length of data (3), three bytes of data, two bytes of left over input.
+        let buf = [0x03, 0x09, 0x09, 0x09, 0x00, 0x00];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_block1;
+        let value = AttributeValue::Block(EndianBuf::new(&buf[1..4]));
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_block2() {
+        // Two byte length of data (2), two bytes of data, two bytes of left over input.
+        let buf = [0x02, 0x00, 0x09, 0x09, 0x00, 0x00];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_block2;
+        let value = AttributeValue::Block(EndianBuf::new(&buf[2..4]));
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_block4() {
+        // Four byte length of data (2), two bytes of data, no left over input.
+        let buf = [0x02, 0x00, 0x00, 0x00, 0x99, 0x99];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_block4;
+        let value = AttributeValue::Block(EndianBuf::new(&buf[4..]));
+        test_parse_attribute(&buf, 6, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_block() {
+        // LEB length of data (2, one byte), two bytes of data, no left over input.
+        let buf = [0x02, 0x99, 0x99];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_block;
+        let value = AttributeValue::Block(EndianBuf::new(&buf[1..]));
+        test_parse_attribute(&buf, 3, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_data1() {
+        let buf = [0x03];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_data1;
+        let value = AttributeValue::Data(EndianBuf::new(&buf[..]));
+        test_parse_attribute(&buf, 1, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_data2() {
+        let buf = [0x02, 0x01, 0x0];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_data2;
+        let value = AttributeValue::Data(EndianBuf::new(&buf[..2]));
+        test_parse_attribute(&buf, 2, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_data4() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_data4;
+        let value = AttributeValue::Data(EndianBuf::new(&buf[..4]));
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_data8() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_data8;
+        let value = AttributeValue::Data(EndianBuf::new(&buf[..8]));
+        test_parse_attribute(&buf, 8, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_udata() {
+        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        let bytes_written = {
+            let mut writable = &mut buf[..];
+            leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
+        };
+
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_udata;
+        let value = AttributeValue::Udata(4097);
+        test_parse_attribute(&buf, bytes_written, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_sdata() {
+        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        let bytes_written = {
+            let mut writable = &mut buf[..];
+            leb128::write::signed(&mut writable, -4097).expect("should write ok")
+        };
+
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_sdata;
+        let value = AttributeValue::Sdata(-4097);
+        test_parse_attribute(&buf, bytes_written, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_exprloc() {
+        // LEB length of data (2, one byte), two bytes of data, one byte left over input.
+        let buf = [0x02, 0x99, 0x99, 0x11];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_exprloc;
+        let value = AttributeValue::Exprloc(EndianBuf::new(&buf[1..3]));
+        test_parse_attribute(&buf, 3, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_flag_true() {
+        let buf = [0x42];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_flag;
+        let value = AttributeValue::Flag(true);
+        test_parse_attribute(&buf, 1, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_flag_false() {
+        let buf = [0x00];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_flag;
+        let value = AttributeValue::Flag(false);
+        test_parse_attribute(&buf, 1, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_flag_present() {
+        let buf = [0x01, 0x02, 0x03, 0x04];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_flag_present;
+        let value = AttributeValue::Flag(true);
+        // DW_FORM_flag_present does not consume any bytes of the input stream.
+        test_parse_attribute(&buf, 0, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_sec_offset_32() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10];
+        let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+        let form = constants::DW_FORM_sec_offset;
+        let value = AttributeValue::SecOffset(0x04030201);
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_attribute_sec_offset_64() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10];
+        let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf64);
+        let form = constants::DW_FORM_sec_offset;
+        let value = AttributeValue::SecOffset(0x0807060504030201);
+        test_parse_attribute(&buf, 8, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_ref1() {
+        let buf = [0x03];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_ref1;
+        let value = AttributeValue::UnitRef(UnitOffset(3));
+        test_parse_attribute(&buf, 1, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_ref2() {
+        let buf = [0x02, 0x01, 0x0];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_ref2;
+        let value = AttributeValue::UnitRef(UnitOffset(258));
+        test_parse_attribute(&buf, 2, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_ref4() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_ref4;
+        let value = AttributeValue::UnitRef(UnitOffset(67305985));
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_attribute_ref8() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_ref8;
+        let value = AttributeValue::UnitRef(UnitOffset(578437695752307201));
+        test_parse_attribute(&buf, 8, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_refudata() {
+        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        let bytes_written = {
+            let mut writable = &mut buf[..];
+            leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
+        };
+
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_ref_udata;
+        let value = AttributeValue::UnitRef(UnitOffset(4097));
+        test_parse_attribute(&buf, bytes_written, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_refaddr_32() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+        let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+        let form = constants::DW_FORM_ref_addr;
+        let value = AttributeValue::DebugInfoRef(DebugInfoOffset(67305985));
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_attribute_refaddr_64() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+        let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf64);
+        let form = constants::DW_FORM_ref_addr;
+        let value = AttributeValue::DebugInfoRef(DebugInfoOffset(578437695752307201));
+        test_parse_attribute(&buf, 8, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_refaddr_version2() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+        let mut unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+        unit.version = 2;
+        let form = constants::DW_FORM_ref_addr;
+        let value = AttributeValue::DebugInfoRef(DebugInfoOffset(0x04030201));
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_attribute_refaddr8_version2() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+        let mut unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
+        unit.version = 2;
+        let form = constants::DW_FORM_ref_addr;
+        let value = AttributeValue::DebugInfoRef(DebugInfoOffset(0x0807060504030201));
+        test_parse_attribute(&buf, 8, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_refsig8() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_ref_sig8;
+        let value = AttributeValue::DebugTypesRef(DebugTypeSignature(578437695752307201));
+        test_parse_attribute(&buf, 8, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_string() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x0, 0x99, 0x99];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_string;
+        let value = AttributeValue::String(ffi::CStr::from_bytes_with_nul(&buf[..6]).unwrap());
+        test_parse_attribute(&buf, 6, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_strp_32() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+        let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+        let form = constants::DW_FORM_strp;
+        let value = AttributeValue::DebugStrRef(DebugStrOffset(67305985));
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_attribute_strp_64() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+        let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf64);
+        let form = constants::DW_FORM_strp;
+        let value = AttributeValue::DebugStrRef(DebugStrOffset(578437695752307201));
+        test_parse_attribute(&buf, 8, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_indirect() {
+        let mut buf = [0; 100];
+
+        let bytes_written = {
+            let mut writable = &mut buf[..];
+            leb128::write::unsigned(&mut writable, constants::DW_FORM_udata.0)
+                .expect("should write udata") +
+            leb128::write::unsigned(&mut writable, 9999999).expect("should write value")
+        };
+
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_indirect;
+        let value = AttributeValue::Udata(9999999);
+        test_parse_attribute(&buf, bytes_written, &unit, form, value);
+    }
+
+    #[test]
+    fn test_attrs_iter() {
+        let unit = UnitHeader::<LittleEndian>::new(7,
+                                                   4,
+                                                   DebugAbbrevOffset(0x08070605),
+                                                   4,
+                                                   Format::Dwarf32,
+                                                   &[]);
+
+        let abbrev = Abbreviation::new(42,
+                                       constants::DW_TAG_subprogram,
+                                       constants::DW_CHILDREN_yes,
+                                       vec![
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
+                AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr),
+                AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr),
+            ]);
+
+        // "foo", 42, 1337, 4 dangling bytes of 0xaa where children would be
+        let buf = [0x66, 0x6f, 0x6f, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x39, 0x05, 0x00, 0x00, 0xaa,
+                   0xaa, 0xaa, 0xaa];
+
+        let entry = DebuggingInformationEntry {
+            offset: UnitOffset(0),
+            attrs_slice: &buf,
+            after_attrs: Cell::new(None),
+            code: 1,
+            abbrev: &abbrev,
+            unit: &unit,
+        };
+
+        let mut attrs = AttrsIter {
+            input: &buf[..],
+            attributes: abbrev.attributes(),
+            entry: &entry,
+        };
+
+        match attrs.next() {
+            Ok(Some(attr)) => {
+                assert_eq!(attr,
+                           Attribute {
+                               name: constants::DW_AT_name,
+                               value:
+                                   AttributeValue::String(ffi::CStr::from_bytes_with_nul(b"foo\0")
+                                   .unwrap()),
+                           });
+            }
+            otherwise => {
+                println!("Unexpected parse result = {:#?}", otherwise);
+                assert!(false);
+            }
+        }
+
+        assert!(entry.after_attrs.get().is_none());
+
+        match attrs.next() {
+            Ok(Some(attr)) => {
+                assert_eq!(attr,
+                           Attribute {
+                               name: constants::DW_AT_low_pc,
+                               value: AttributeValue::Addr(0x2a),
+                           });
+            }
+            otherwise => {
+                println!("Unexpected parse result = {:#?}", otherwise);
+                assert!(false);
+            }
+        }
+
+        assert!(entry.after_attrs.get().is_none());
+
+        match attrs.next() {
+            Ok(Some(attr)) => {
+                assert_eq!(attr,
+                           Attribute {
+                               name: constants::DW_AT_high_pc,
+                               value: AttributeValue::Addr(0x539),
+                           });
+            }
+            otherwise => {
+                println!("Unexpected parse result = {:#?}", otherwise);
+                assert!(false);
+            }
+        }
+
+        assert!(entry.after_attrs.get().is_none());
+
+        assert!(attrs.next().expect("should parse next").is_none());
+        assert!(entry.after_attrs.get().is_some());
+        assert_eq!(entry.after_attrs.get().expect("should have entry.after_attrs"),
+                   &buf[buf.len() - 4..])
+    }
+
+    #[test]
+    fn test_attrs_iter_incomplete() {
+        let unit = UnitHeader::<LittleEndian>::new(7,
+                                                   4,
+                                                   DebugAbbrevOffset(0x08070605),
+                                                   4,
+                                                   Format::Dwarf32,
+                                                   &[]);
+
+        let abbrev = Abbreviation::new(42,
+                                       constants::DW_TAG_subprogram,
+                                       constants::DW_CHILDREN_yes,
+                                       vec![
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
+                AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr),
+                AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr),
+            ]);
+
+        // "foo"
+        let buf = [0x66, 0x6f, 0x6f, 0x00];
+
+        let entry = DebuggingInformationEntry {
+            offset: UnitOffset(0),
+            attrs_slice: &buf,
+            after_attrs: Cell::new(None),
+            code: 1,
+            abbrev: &abbrev,
+            unit: &unit,
+        };
+
+        let mut attrs = AttrsIter {
+            input: &buf[..],
+            attributes: abbrev.attributes(),
+            entry: &entry,
+        };
+
+        match attrs.next() {
+            Ok(Some(attr)) => {
+                assert_eq!(attr,
+                           Attribute {
+                               name: constants::DW_AT_name,
+                               value:
+                                   AttributeValue::String(ffi::CStr::from_bytes_with_nul(b"foo\0")
+                                   .unwrap()),
+                           });
+            }
+            otherwise => {
+                println!("Unexpected parse result = {:#?}", otherwise);
+                assert!(false);
+            }
+        }
+
+        assert!(entry.after_attrs.get().is_none());
+
+        // Return error for incomplete attribute.
+        assert!(attrs.next().is_err());
+        assert!(entry.after_attrs.get().is_none());
+
+        // Return error for all subsequent calls.
+        assert!(attrs.next().is_err());
+        assert!(attrs.next().is_err());
+        assert!(attrs.next().is_err());
+        assert!(attrs.next().is_err());
+        assert!(entry.after_attrs.get().is_none());
+    }
 
     fn assert_entry_name<Endian>(entry: &DebuggingInformationEntry<Endian>, name: &str)
         where Endian: Endianity
