@@ -29,5 +29,5 @@ echo "$0: using rustfmt=$RUSTFMT"
 cd $(dirname $0)
 RUST_FILES=$(git ls-files | grep '\.rs')
 
-$RUSTFMT -v --write-mode replace $RUST_FILES 2>&1 \
+$RUSTFMT -v --write-mode overwrite $RUST_FILES 2>&1 \
     | xargs -I '{}' echo "rustfmt: {}"

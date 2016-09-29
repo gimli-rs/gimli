@@ -2388,11 +2388,8 @@ impl<'input, 'abbrev, 'entry, 'unit, Endian> AttrsIter<'input, 'abbrev, 'entry, 
     }
 }
 
-impl<'input, 'abbrev, 'entry, 'unit, Endian> FallibleIterator for AttrsIter<'input,
-                                                                            'abbrev,
-                                                                            'entry,
-                                                                            'unit,
-                                                                            Endian>
+impl<'input, 'abbrev, 'entry, 'unit, Endian> FallibleIterator
+    for AttrsIter<'input, 'abbrev, 'entry, 'unit, Endian>
     where Endian: Endianity
 {
     type Item = Attribute<'input, Endian>;
