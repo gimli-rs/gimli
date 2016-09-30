@@ -288,7 +288,14 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
             println!("{:?}", value);
         }
         gimli::AttributeValue::Sdata(data) => {
-            println!("0x{:08x}", data);
+            match attr.name() {
+                gimli::DW_AT_data_member_location => {
+                    println!("{}", data);
+                }
+                _ => {
+                    println!("0x{:08x}", data);
+                }
+            };
         }
         gimli::AttributeValue::Udata(data) => {
             match attr.name() {
