@@ -166,6 +166,12 @@ pub struct CompilationUnitHeader<'input, Endian>
 impl<'input, Endian> CompilationUnitHeader<'input, Endian>
     where Endian: Endianity
 {
+    /// Return the serialized size of the compilation unit header for the given
+    /// DWARF format.
+    pub fn size_of_header(format: Format) -> usize {
+        UnitHeader::<Endian>::size_of_header(format)
+    }
+
     /// Get the offset of this compilation unit within the .debug_info section.
     pub fn offset(&self) -> DebugInfoOffset {
         self.offset
@@ -398,7 +404,7 @@ impl<'input, Endian> UnitHeader<'input, Endian>
         }
     }
 
-    /// Return the serialized size of the compilation unit header for the given
+    /// Return the serialized size of the common unit header for the given
     /// DWARF format.
     pub fn size_of_header(format: Format) -> usize {
         let unit_length_size = Self::size_of_unit_length(format);
@@ -476,7 +482,7 @@ impl<'input, Endian> UnitHeader<'input, Endian>
         assert!(self.is_valid_offset(idx.start));
         assert!(self.is_valid_offset(idx.end));
         assert!(idx.start <= idx.end);
-        let size_of_header = Self::size_of_header(self.format);
+        let size_of_header = self.header_size();
         let start = idx.start.0 - size_of_header;
         let end = idx.end.0 - size_of_header;
         &self.entries_buf.0[start..end]
@@ -485,14 +491,14 @@ impl<'input, Endian> UnitHeader<'input, Endian>
     /// Get the underlying bytes for the supplied range.
     pub fn range_from(&self, idx: RangeFrom<UnitOffset>) -> &'input [u8] {
         assert!(self.is_valid_offset(idx.start));
-        let start = idx.start.0 - Self::size_of_header(self.format);
+        let start = idx.start.0 - self.header_size();
         &self.entries_buf.0[start..]
     }
 
     /// Get the underlying bytes for the supplied range.
     pub fn range_to(&self, idx: RangeTo<UnitOffset>) -> &'input [u8] {
         assert!(self.is_valid_offset(idx.end));
-        let end = idx.end.0 - Self::size_of_header(self.format);
+        let end = idx.end.0 - self.header_size();
         &self.entries_buf.0[..end]
     }
 
@@ -2274,6 +2280,18 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
         }
     }
 
+    /// Return the serialized size of the type-unit header for the given
+    /// DWARF format.
+    pub fn size_of_header(format: Format) -> usize {
+        let unit_header_size = UnitHeader::<Endian>::size_of_header(format);
+        let type_signature_size = 8;
+        let type_offset_size = match format {
+            Format::Dwarf32 => 4,
+            Format::Dwarf64 => 8,
+        };
+        unit_header_size + type_signature_size + type_offset_size
+    }
+
     /// Get the offset of this compilation unit within the .debug_info section.
     pub fn offset(&self) -> DebugTypesOffset {
         self.offset
@@ -3535,8 +3553,7 @@ mod tests {
         assert_current_name(cursor, name);
     }
 
-    fn assert_valid_sibling_ptr<Endian>(unit: &CompilationUnitHeader<Endian>,
-                                        cursor: &EntriesCursor<Endian>)
+    fn assert_valid_sibling_ptr<Endian>(cursor: &EntriesCursor<Endian>)
         where Endian: Endianity
     {
         let sibling_ptr = cursor.current()
@@ -3544,7 +3561,7 @@ mod tests {
             .attr_value(constants::DW_AT_sibling);
         match sibling_ptr {
             Some(AttributeValue::UnitRef(offset)) => {
-                unit.header.range_from(offset..);
+                cursor.unit.range_from(offset..);
             }
             _ => panic!("Invalid sibling pointer {:?}", sibling_ptr),
         }
@@ -3808,18 +3825,32 @@ mod tests {
         assert!(cursor.current().is_none());
     }
 
-    #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
-    fn test_cursor_next_sibling_with_sibling_ptr() {
+    fn entries_cursor_sibling_abbrev_buf() -> Vec<u8> {
         let section = Section::with_endian(Endian::Little)
+            .abbrev(1, DW_TAG_subprogram, DW_CHILDREN_yes)
+            .abbrev_attr(DW_AT_name, DW_FORM_string)
+            .abbrev_attr(DW_AT_sibling, DW_FORM_ref1)
+            .abbrev_attr_null()
+            .abbrev_null();
+        section.get_contents().unwrap()
+    }
+
+    fn entries_cursor_sibling_entries_buf(header_size: usize) -> Vec<u8> {
+        let start = Label::new();
+        let sibling004_ref = Label::new();
+        let sibling004 = Label::new();
+
+        let section = Section::with_endian(Endian::Little)
+            .mark(&start)
             .die(1, |s| s.attr_string("001").attr_ref1(0))
                 // Valid sibling.
-                .die(1, |s| s.attr_string("002").attr_ref1(31))
+                .die(1, |s| s.attr_string("002").D8(&sibling004_ref))
                     // Invalid code.
                     .die(2, |s| s.attr_string("003").attr_ref1(0))
                         .die_null()
                     .die_null()
                 // Invalid sibling.
+                .mark(&sibling004)
                 .die(1, |s| s.attr_string("004").attr_ref1(255))
                     .die(1, |s| s.attr_string("005").attr_ref1(0))
                         .die_null()
@@ -3829,7 +3860,38 @@ mod tests {
                         .die_null()
                     .die_null()
                 .die_null();
-        let entries_buf = section.get_contents().unwrap();
+
+        let offset = header_size as u64 + (&sibling004 - &start) as u64;
+        sibling004_ref.set_const(offset);
+
+        section.get_contents().unwrap()
+    }
+
+    fn test_cursor_next_sibling_with_ptr(cursor: &mut EntriesCursor<LittleEndian>) {
+        assert_next_dfs(cursor, "001", 0);
+
+        // Down to the first child of the root.
+
+        assert_next_dfs(cursor, "002", 1);
+
+        // Now iterate all children of the root via `next_sibling`.
+
+        assert_valid_sibling_ptr(&cursor);
+        assert_next_sibling(cursor, "004");
+
+        assert_next_sibling(cursor, "006");
+
+        // There should be no more siblings.
+
+        assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+        assert!(cursor.current().is_none());
+    }
+
+    #[test]
+    fn test_debug_info_next_sibling_with_ptr() {
+        let format = Format::Dwarf32;
+        let header_size = CompilationUnitHeader::<LittleEndian>::size_of_header(format);
+        let entries_buf = entries_cursor_sibling_entries_buf(header_size);
 
         let mut unit = CompilationUnitHeader::<LittleEndian> {
             header: UnitHeader {
@@ -3837,7 +3899,7 @@ mod tests {
                 version: 4,
                 debug_abbrev_offset: DebugAbbrevOffset(0),
                 address_size: 4,
-                format: Format::Dwarf32,
+                format: format,
                 entries_buf: EndianBuf::new(&entries_buf),
             },
             offset: DebugInfoOffset(0),
@@ -3846,40 +3908,56 @@ mod tests {
         let info_buf = section.get_contents().unwrap();
         let debug_info = DebugInfo::<LittleEndian>::new(&info_buf);
 
-        let unit = debug_info.units().next()
+        let unit = debug_info.units()
+            .next()
             .expect("should have a unit result")
             .expect("and it should be ok");
 
-        let section = Section::with_endian(Endian::Little)
-            .abbrev(1, DW_TAG_subprogram, DW_CHILDREN_yes)
-            .abbrev_attr(DW_AT_name, DW_FORM_string)
-            .abbrev_attr(DW_AT_sibling, DW_FORM_ref1)
-            .abbrev_attr_null()
-            .abbrev_null();
-        let abbrev_buf = section.get_contents().unwrap();
+        let abbrev_buf = entries_cursor_sibling_abbrev_buf();
         let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&abbrev_buf);
 
         let abbrevs = unit.abbreviations(debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
+        test_cursor_next_sibling_with_ptr(&mut cursor);
+    }
 
-        assert_next_dfs(&mut cursor, "001", 0);
+    #[test]
+    fn test_debug_types_next_sibling_with_ptr() {
+        let format = Format::Dwarf32;
+        let header_size = TypeUnitHeader::<LittleEndian>::size_of_header(format);
+        let entries_buf = entries_cursor_sibling_entries_buf(header_size);
 
-        // Down to the first child of the root.
+        let mut unit = TypeUnitHeader::<LittleEndian> {
+            header: UnitHeader {
+                unit_length: 0,
+                version: 4,
+                debug_abbrev_offset: DebugAbbrevOffset(0),
+                address_size: 4,
+                format: format,
+                entries_buf: EndianBuf::new(&entries_buf),
+            },
+            type_signature: DebugTypeSignature(0),
+            type_offset: UnitOffset(0),
+            offset: DebugTypesOffset(0),
+        };
+        let section = Section::with_endian(Endian::Little).type_unit(&mut unit);
+        let info_buf = section.get_contents().unwrap();
+        let debug_types = DebugTypes::<LittleEndian>::new(&info_buf);
 
-        assert_next_dfs(&mut cursor, "002", 1);
+        let unit = debug_types.units()
+            .next()
+            .expect("should have a unit result")
+            .expect("and it should be ok");
 
-        // Now iterate all children of the root via `next_sibling`.
+        let abbrev_buf = entries_cursor_sibling_abbrev_buf();
+        let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&abbrev_buf);
 
-        assert_valid_sibling_ptr(&unit, &cursor);
-        assert_next_sibling(&mut cursor, "004");
+        let abbrevs = unit.abbreviations(debug_abbrev)
+            .expect("Should parse abbreviations");
 
-        assert_next_sibling(&mut cursor, "006");
-
-        // There should be no more siblings.
-
-        assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
-        assert!(cursor.current().is_none());
+        let mut cursor = unit.entries(&abbrevs);
+        test_cursor_next_sibling_with_ptr(&mut cursor);
     }
 }
