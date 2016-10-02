@@ -115,8 +115,13 @@ dw!(DwCfa(u8) {
     DW_CFA_val_offset = 0x14,
     DW_CFA_val_offset_sf = 0x15,
     DW_CFA_val_expression = 0x16,
+
     DW_CFA_lo_user = 0x1c,
     DW_CFA_hi_user = 0x3f,
+
+    DW_CFA_MIPS_advance_loc8 = 0x1d,
+    DW_CFA_GNU_window_save = 0x2d,
+    DW_CFA_GNU_args_size = 0x2e,
 });
 
 /// The child determination encodings for DIE attributes.
@@ -191,9 +196,27 @@ dw!(DwTag(u64) {
     DW_TAG_type_unit = 0x41,
     DW_TAG_rvalue_reference_type = 0x42,
     DW_TAG_template_alias = 0x43,
+    DW_TAG_coarray_type = 0x44,
+    DW_TAG_generic_subrange = 0x45,
+    DW_TAG_dynamic_type = 0x46,
 
     DW_TAG_lo_user = 0x4080,
     DW_TAG_hi_user = 0xffff,
+
+    // User-defined tags.
+    DW_TAG_MIPS_loop = 0x4081,
+    DW_TAG_format_label = 0x4101,
+    DW_TAG_function_template = 0x4102,
+    DW_TAG_class_template = 0x4103,
+    DW_TAG_GNU_template_template_param = 0x4106,
+    DW_TAG_GNU_template_parameter_pack = 0x4107,
+    DW_TAG_GNU_formal_parameter_pack = 0x4108,
+    DW_TAG_APPLE_property = 0x4200,
+    DW_TAG_BORLAND_property = 0xb000,
+    DW_TAG_BORLAND_Delphi_string = 0xb001,
+    DW_TAG_BORLAND_Delphi_dynamic_array = 0xb002,
+    DW_TAG_BORLAND_Delphi_set = 0xb003,
+    DW_TAG_BORLAND_Delphi_variant = 0xb004,
 });
 
 /// The attribute encodings for DIE attributes.
@@ -293,9 +316,102 @@ dw!(DwAt(u64) {
     DW_AT_const_expr = 0x6c,
     DW_AT_enum_class = 0x6d,
     DW_AT_linkage_name = 0x6e,
+    DW_AT_string_length_bit_size = 0x6f,
+    DW_AT_string_length_byte_size = 0x70,
+    DW_AT_rank = 0x71,
+    DW_AT_str_offsets_base = 0x72,
+    DW_AT_addr_base = 0x73,
+    DW_AT_ranges_base = 0x74,
+    DW_AT_dwo_id = 0x75,
+    DW_AT_dwo_name = 0x76,
+    DW_AT_reference = 0x77,
+    DW_AT_rvalue_reference = 0x78,
+    DW_AT_macros = 0x79,
+    DW_AT_noreturn = 0x87,
 
     DW_AT_lo_user = 0x2000,
     DW_AT_hi_user = 0x3fff,
+
+    DW_AT_MIPS_loop_begin = 0x2002,
+    DW_AT_MIPS_tail_loop_begin = 0x2003,
+    DW_AT_MIPS_epilog_begin = 0x2004,
+    DW_AT_MIPS_loop_unroll_factor = 0x2005,
+    DW_AT_MIPS_software_pipeline_depth = 0x2006,
+    DW_AT_MIPS_linkage_name = 0x2007,
+    DW_AT_MIPS_stride = 0x2008,
+    DW_AT_MIPS_abstract_name = 0x2009,
+    DW_AT_MIPS_clone_origin = 0x200a,
+    DW_AT_MIPS_has_inlines = 0x200b,
+    DW_AT_MIPS_stride_byte = 0x200c,
+    DW_AT_MIPS_stride_elem = 0x200d,
+    DW_AT_MIPS_ptr_dopetype = 0x200e,
+    DW_AT_MIPS_allocatable_dopetype = 0x200f,
+    DW_AT_MIPS_assumed_shape_dopetype = 0x2010,
+
+    // This one appears to have only been implemented by Open64 for
+    // fortran and may conflict with other extensions.
+    DW_AT_MIPS_assumed_size = 0x2011,
+
+    // GNU extensions
+    DW_AT_sf_names = 0x2101,
+    DW_AT_src_info = 0x2102,
+    DW_AT_mac_info = 0x2103,
+    DW_AT_src_coords = 0x2104,
+    DW_AT_body_begin = 0x2105,
+    DW_AT_body_end = 0x2106,
+    DW_AT_GNU_vector = 0x2107,
+    DW_AT_GNU_template_name = 0x2110,
+
+    DW_AT_GNU_odr_signature = 0x210f,
+    DW_AT_GNU_macros = 0x2119,
+
+    // Extensions for Fission proposal.
+    DW_AT_GNU_dwo_name = 0x2130,
+    DW_AT_GNU_dwo_id = 0x2131,
+    DW_AT_GNU_ranges_base = 0x2132,
+    DW_AT_GNU_addr_base = 0x2133,
+    DW_AT_GNU_pubnames = 0x2134,
+    DW_AT_GNU_pubtypes = 0x2135,
+    DW_AT_GNU_discriminator = 0x2136,
+
+    // Borland extensions.
+    DW_AT_BORLAND_property_read = 0x3b11,
+    DW_AT_BORLAND_property_write = 0x3b12,
+    DW_AT_BORLAND_property_implements = 0x3b13,
+    DW_AT_BORLAND_property_index = 0x3b14,
+    DW_AT_BORLAND_property_default = 0x3b15,
+    DW_AT_BORLAND_Delphi_unit = 0x3b20,
+    DW_AT_BORLAND_Delphi_class = 0x3b21,
+    DW_AT_BORLAND_Delphi_record = 0x3b22,
+    DW_AT_BORLAND_Delphi_metaclass = 0x3b23,
+    DW_AT_BORLAND_Delphi_constructor = 0x3b24,
+    DW_AT_BORLAND_Delphi_destructor = 0x3b25,
+    DW_AT_BORLAND_Delphi_anonymous_method = 0x3b26,
+    DW_AT_BORLAND_Delphi_interface = 0x3b27,
+    DW_AT_BORLAND_Delphi_ABI = 0x3b28,
+    DW_AT_BORLAND_Delphi_return = 0x3b29,
+    DW_AT_BORLAND_Delphi_frameptr = 0x3b30,
+    DW_AT_BORLAND_closure = 0x3b31,
+
+    // LLVM project extensions.
+    DW_AT_LLVM_include_path = 0x3e00,
+    DW_AT_LLVM_config_macros = 0x3e01,
+    DW_AT_LLVM_isysroot = 0x3e02,
+
+    // Apple extensions.
+    DW_AT_APPLE_optimized = 0x3fe1,
+    DW_AT_APPLE_flags = 0x3fe2,
+    DW_AT_APPLE_isa = 0x3fe3,
+    DW_AT_APPLE_block = 0x3fe4,
+    DW_AT_APPLE_major_runtime_vers = 0x3fe5,
+    DW_AT_APPLE_runtime_class = 0x3fe6,
+    DW_AT_APPLE_omit_frame_ptr = 0x3fe7,
+    DW_AT_APPLE_property_name = 0x3fe8,
+    DW_AT_APPLE_property_getter = 0x3fe9,
+    DW_AT_APPLE_property_setter = 0x3fea,
+    DW_AT_APPLE_property_attribute = 0x3feb,
+    DW_AT_APPLE_objc_complete_type = 0x3fec,
+    DW_AT_APPLE_property = 0x3fed
 });
 
 /// The attribute form encodings for DIE attributes.
@@ -328,6 +444,14 @@ dw!(DwForm(u64) {
     DW_FORM_exprloc = 0x18,
     DW_FORM_flag_present = 0x19,
     DW_FORM_ref_sig8 = 0x20,
+
+    // Extensions for Fission proposal
+    DW_FORM_GNU_addr_index = 0x1f01,
+    DW_FORM_GNU_str_index = 0x1f02,
+
+    // Alternate debug sections proposal (output of "dwz" tool).
+    DW_FORM_GNU_ref_alt = 0x1f20,
+    DW_FORM_GNU_strp_alt = 0x1f21
 });
 
 /// The encodings of the constants used in the `DW_AT_encoding` attribute.
@@ -420,9 +544,28 @@ dw!(DwLang(u16) {
     DW_LANG_UPC = 0x0012,
     DW_LANG_D = 0x0013,
     DW_LANG_Python = 0x0014,
+    DW_LANG_OpenCL = 0x0015,
+    DW_LANG_Go = 0x0016,
+    DW_LANG_Modula3 = 0x0017,
+    DW_LANG_Haskell = 0x0018,
+    DW_LANG_C_plus_plus_03 = 0x0019,
+    DW_LANG_C_plus_plus_11 = 0x001a,
+    DW_LANG_OCaml = 0x001b,
     DW_LANG_Rust = 0x001c,
+    DW_LANG_C11 = 0x001d,
+    DW_LANG_Swift = 0x001e,
+    DW_LANG_Julia = 0x001f,
+    DW_LANG_Dylan = 0x0020,
+    DW_LANG_C_plus_plus_14 = 0x0021,
+    DW_LANG_Fortran03 = 0x0022,
+    DW_LANG_Fortran08 = 0x0023,
+
     DW_LANG_lo_user = 0x8000,
     DW_LANG_hi_user = 0xffff,
+
+    DW_LANG_Mips_Assembler = 0x8001,
+    DW_LANG_GOOGLE_RenderScript = 0x8e57,
+    DW_LANG_BORLAND_Delphi = 0xb000,
 });
 
 /// The encodings of the constants used in the `DW_AT_address_class` attribute.
