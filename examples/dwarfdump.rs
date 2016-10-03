@@ -175,6 +175,14 @@ fn dump_types<Endian>(file: &object::File,
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
+            println!("\nCU_HEADER:");
+            print!("  signature        = ");
+            dump_type_signature::<Endian>(unit.type_signature());
+            println!("");
+            println!("  typeoffset       = 0x{:08x} {}",
+                     unit.type_offset().0,
+                     unit.type_offset().0);
+
             dump_entries(unit.offset().0,
                          unit.entries(&abbrevs),
                          unit.address_size(),
@@ -364,14 +372,8 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
             println!("0x{:08x}", offset.0);
             dump_range_list(debug_ranges, offset, unit);
         }
-        gimli::AttributeValue::DebugTypesRef(gimli::DebugTypeSignature(offset)) => {
-            // Convert back to bytes so we can match libdwarf-dwarfdump output.
-            let mut buf = [0; 8];
-            Endian::write_u64(&mut buf, offset);
-            print!("0x");
-            for byte in &buf {
-                print!("{:02x}", byte);
-            }
+        gimli::AttributeValue::DebugTypesRef(signature) => {
+            dump_type_signature::<Endian>(signature);
             println!(" <type signature>");
         }
         gimli::AttributeValue::DebugStrRef(offset) => {
@@ -425,6 +427,18 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
             dump_file_index(value, unit);
             println!("");
         }
+    }
+}
+
+fn dump_type_signature<Endian>(signature: gimli::DebugTypeSignature)
+    where Endian: gimli::Endianity
+{
+    // Convert back to bytes so we can match libdwarf-dwarfdump output.
+    let mut buf = [0; 8];
+    Endian::write_u64(&mut buf, signature.0);
+    print!("0x");
+    for byte in &buf {
+        print!("{:02x}", byte);
     }
 }
 
