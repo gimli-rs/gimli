@@ -574,6 +574,10 @@ fn dump_loc_list<Endian>(debug_loc: gimli::DebugLoc<Endian>,
     if has_end {
         locations.pop();
     }
+    if locations.len() == 0 {
+        println!("");
+        return;
+    }
 
     println!("<loclist at offset 0x{:08x} with {} entries follows>",
              offset.0,
