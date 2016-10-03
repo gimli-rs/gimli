@@ -115,6 +115,7 @@ fn dump_file<Endian>(file: object::File, flags: &Flags)
                    debug_ranges,
                    debug_str,
                    flags);
+        println!("");
     }
     if flags.line {
         dump_line(&file, debug_abbrev);
@@ -133,9 +134,9 @@ fn dump_info<Endian>(file: &object::File,
                      flags: &Flags)
     where Endian: gimli::Endianity
 {
-    if let Some(debug_info) = file.get_section(".debug_info") {
-        println!("\n.debug_info");
+    println!("\n.debug_info");
 
+    if let Some(debug_info) = file.get_section(".debug_info") {
         let debug_info = gimli::DebugInfo::<Endian>::new(&debug_info);
 
         let mut iter = debug_info.units();
@@ -267,7 +268,7 @@ fn dump_entries<Endian>(offset: usize,
 
         let mut attrs = entry.attrs();
         while let Some(attr) = attrs.next().expect("Should parse attribute OK") {
-            print!("{:indent$}{:28}", "", attr.name(), indent = indent + 18);
+            print!("{:indent$}{:27} ", "", attr.name(), indent = indent + 18);
             if flags.raw {
                 println!("{:?}", attr.raw_value());
             } else {
