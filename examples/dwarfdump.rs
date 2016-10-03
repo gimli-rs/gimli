@@ -285,7 +285,15 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
             println!("{:?}", value);
         }
         gimli::AttributeValue::Data(_) => {
-            println!("{:?}", value);
+            if let (Some(udata), Some(sdata)) = (attr.udata_value(), attr.sdata_value()) {
+                if sdata >= 0 {
+                    println!("{}", udata);
+                } else {
+                    println!("{} ({})", udata, sdata);
+                }
+            } else {
+                println!("{:?}", value);
+            }
         }
         gimli::AttributeValue::Sdata(data) => {
             match attr.name() {
@@ -293,7 +301,11 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
                     println!("{}", data);
                 }
                 _ => {
-                    println!("0x{:08x}", data);
+                    if data >= 0 {
+                        println!("0x{:08x}", data);
+                    } else {
+                        println!("0x{:08x} ({})", data, data);
+                    }
                 }
             };
         }

@@ -1314,6 +1314,22 @@ impl<'input, Endian> Attribute<'input, Endian>
         })
     }
 
+    /// Try to convert this attribute's value to a signed integer.
+    pub fn sdata_value(&self) -> Option<i64> {
+        Some(match self.value {
+            AttributeValue::Data(data) if data.len() == 1 => data[0] as i8 as i64,
+            AttributeValue::Data(data) if data.len() == 2 => {
+                Endian::read_u16(data.into()) as i16 as i64
+            }
+            AttributeValue::Data(data) if data.len() == 4 => {
+                Endian::read_u32(data.into()) as i32 as i64
+            }
+            AttributeValue::Data(data) if data.len() == 8 => Endian::read_u64(data.into()) as i64,
+            AttributeValue::Sdata(data) => data,
+            _ => return None,
+        })
+    }
+
     /// Try to convert this attribute's value to an offset.
     ///
     /// Offsets will be `Data` in DWARF version 2/3, and `SecOffset` otherwise.
@@ -2465,10 +2481,12 @@ mod tests {
     use leb128;
     use loc::DebugLocOffset;
     use parser::{Error, Format};
+    use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use str::DebugStrOffset;
+    use std;
     use std::cell::Cell;
     use std::ffi;
-    use self::test_assembler::{Endian, Label, LabelMaker, Section};
+    use test_util::GimliSectionMethods;
 
     // Mixin methods for `Section` to help define binary test data.
 
@@ -2488,7 +2506,6 @@ mod tests {
         fn abbrev_attr(self, name: DwAt, form: DwForm) -> Self;
         fn abbrev_attr_null(self) -> Self;
         fn offset(self, offset: usize, format: Format) -> Self;
-        fn uleb(self, val: u64) -> Self;
     }
 
     impl UnitSectionMethods for Section {
@@ -2579,12 +2596,6 @@ mod tests {
                 Format::Dwarf32 => self.L32(offset as u32),
                 Format::Dwarf64 => self.L64(offset as u64),
             }
-        }
-
-        fn uleb(self, val: u64) -> Self {
-            let mut buf = Vec::new();
-            let written = leb128::write::unsigned(&mut buf, val).unwrap();
-            self.append_bytes(&buf[0..written])
         }
     }
 
@@ -2903,28 +2914,30 @@ mod tests {
                    Ok((EndianBuf::new(expected_rest), expected_unit)));
     }
 
+    fn section_contents<F>(f: F) -> Vec<u8> where F: Fn(Section) -> Section {
+        f(Section::with_endian(Endian::Little)).get_contents().unwrap()
+    }
+
     #[test]
     fn test_attribute_value() {
         let mut unit = test_parse_attribute_unit_default();
 
-        let section = Section::with_endian(Endian::Little).D8(4).L32(0x01020304);
-        let buf = section.get_contents().unwrap();
+        let block_data = &[1, 2, 3, 4];
+        let buf = section_contents(|s| s.uleb(block_data.len() as u64).append_bytes(block_data));
         let block = EndianBuf::<LittleEndian>::new(&buf);
 
-        let section = Section::with_endian(Endian::Little).L32(0x01020304);
-        let buf = section.get_contents().unwrap();
+        let buf = section_contents(|s| s.L32(0x01020304));
         let data4 = EndianBuf::<LittleEndian>::new(&buf);
 
-        let section = Section::with_endian(Endian::Little).L64(0x0102030405060708);
-        let buf = section.get_contents().unwrap();
+        let buf = section_contents(|s| s.L64(0x0102030405060708));
         let data8 = EndianBuf::<LittleEndian>::new(&buf);
 
         let tests = [(2,
                       constants::DW_AT_data_member_location,
                       constants::DW_FORM_block,
                       block,
-                      AttributeValue::Block(block.range_from(1..)),
-                      AttributeValue::Exprloc(block.range_from(1..))),
+                      AttributeValue::Block(EndianBuf::new(block_data)),
+                      AttributeValue::Exprloc(EndianBuf::new(block_data))),
                      (2,
                       constants::DW_AT_data_member_location,
                       constants::DW_FORM_data4,
@@ -2958,6 +2971,47 @@ mod tests {
                 .expect("Should parse attribute");
             assert_eq!(attribute.raw_value(), expect_raw);
             assert_eq!(attribute.value(), expect_value);
+        }
+    }
+
+    #[test]
+    fn test_attribute_udata_sdata_value() {
+        let buf = section_contents(|s| s.D8(1));
+        let p1i8 = EndianBuf::<LittleEndian>::new(&buf);
+        let buf = section_contents(|s| s.D8(std::u8::MAX));
+        let n1i8 = EndianBuf::<LittleEndian>::new(&buf);
+        let buf = section_contents(|s| s.D16(1));
+        let p1i16 = EndianBuf::<LittleEndian>::new(&buf);
+        let buf = section_contents(|s| s.D16(std::u16::MAX));
+        let n1i16 = EndianBuf::<LittleEndian>::new(&buf);
+        let buf = section_contents(|s| s.D32(1));
+        let p1i32 = EndianBuf::<LittleEndian>::new(&buf);
+        let buf = section_contents(|s| s.D32(std::u32::MAX));
+        let n1i32 = EndianBuf::<LittleEndian>::new(&buf);
+        let buf = section_contents(|s| s.D64(1));
+        let p1i64 = EndianBuf::<LittleEndian>::new(&buf);
+        let buf = section_contents(|s| s.D64(std::u64::MAX));
+        let n1i64 = EndianBuf::<LittleEndian>::new(&buf);
+
+        let tests = [(AttributeValue::Data(p1i8), Some(1), Some(1)),
+                     (AttributeValue::Data(n1i8), Some(std::u8::MAX as u64), Some(-1)),
+                     (AttributeValue::Data(p1i16), Some(1), Some(1)),
+                     (AttributeValue::Data(n1i16), Some(std::u16::MAX as u64), Some(-1)),
+                     (AttributeValue::Data(p1i32), Some(1), Some(1)),
+                     (AttributeValue::Data(n1i32), Some(std::u32::MAX as u64), Some(-1)),
+                     (AttributeValue::Data(p1i64), Some(1), Some(1)),
+                     (AttributeValue::Data(n1i64), Some(std::u64::MAX), Some(-1)),
+                     (AttributeValue::Sdata(1), None, Some(1)),
+                     (AttributeValue::Udata(1), Some(1), None),
+        ];
+        for test in tests.iter() {
+            let (value, expect_udata, expect_sdata) = *test;
+            let attribute = Attribute {
+                name: DW_AT_data_member_location,
+                value: value,
+            };
+            assert_eq!(attribute.udata_value(), expect_udata);
+            assert_eq!(attribute.sdata_value(), expect_sdata);
         }
     }
 
