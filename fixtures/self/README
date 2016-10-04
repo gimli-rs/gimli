@@ -1,4 +1,0 @@
-These files are the DWARF data generated for (an early version of) this
-library. Each file corresponds is a section from the built library's object
-file. By splitting the sections out to their own files, we don't need to worry
-about cross platform and cross object file format issues when running examples.
