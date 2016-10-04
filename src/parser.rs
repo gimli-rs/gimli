@@ -121,6 +121,8 @@ pub enum Error {
     OffsetOutOfBounds,
     /// Found an unknown CFI augmentation.
     UnknownAugmentation,
+    /// We do not support the given pointer encoding yet.
+    UnsupportedPointerEncoding,
 }
 
 impl fmt::Display for Error {
@@ -224,6 +226,9 @@ impl error::Error for Error {
             Error::NoEntryAtGivenOffset => "Did not find an entry at the given offset.",
             Error::OffsetOutOfBounds => "The given offset is out of bounds.",
             Error::UnknownAugmentation => "Found an unknown CFI augmentation.",
+            Error::UnsupportedPointerEncoding => {
+                "We do not support the given pointer encoding yet."
+            }
         }
     }
 }
@@ -591,8 +596,8 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>(encoding: constants::DwEhPe
         return Ok((input, 0));
     }
 
-    if encoding == constants::DW_EH_PE_aligned {
-        unimplemented!()
+    if encoding.is_indirect() {
+        return Err(Error::UnsupportedPointerEncoding);
     }
 
     match encoding.application() {
@@ -634,6 +639,7 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>(encoding: constants::DwEhPe
                 Err(Error::FuncRelativePointerInBadContext)
             }
         }
+        constants::DW_EH_PE_aligned => Err(Error::UnsupportedPointerEncoding),
         _ => unreachable!(),
     }
 }
@@ -1226,5 +1232,37 @@ mod tests {
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
                    Err(Error::UnknownPointerEncoding));
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_aligned() {
+        // FIXME!
+
+        let encoding = constants::DW_EH_PE_aligned;
+        let bases = BaseAddresses::default();
+        let address_size = 4;
+
+        let input = Section::with_endian(Endian::Little).L32(0x1);
+        let input = input.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&input);
+
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
+                   Err(Error::UnsupportedPointerEncoding));
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_indirect() {
+        // FIXME!
+
+        let encoding = constants::DW_EH_PE_indirect;
+        let bases = BaseAddresses::default();
+        let address_size = 4;
+
+        let input = Section::with_endian(Endian::Little).L32(0x1);
+        let input = input.get_contents().unwrap();
+        let input = EndianBuf::<LittleEndian>::new(&input);
+
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
+                   Err(Error::UnsupportedPointerEncoding));
     }
 }
