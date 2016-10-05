@@ -3,11 +3,12 @@ use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use parser::{Error, Format, Result, parse_address, parse_encoded_pointer, parse_initial_length,
              parse_length_uleb_value, parse_null_terminated_string, parse_offset,
-             parse_pointer_encoding, parse_signed_leb, parse_signed_lebe, parse_u8, parse_u8e,
-             parse_u16, parse_u32, parse_unsigned_leb, parse_unsigned_lebe};
+             parse_pointer_encoding, parse_signed_lebe, parse_u8, parse_u8e,
+             parse_u16, parse_u32, parse_unsigned_lebe};
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::mem;
 use std::str;
 
 /// An offset into the `.debug_frame` section.
@@ -122,6 +123,25 @@ impl<'input, Endian> EhFrame<'input, Endian>
 // rustc. Eventually, not having this `pub` will become a hard error.
 #[doc(hidden)]
 #[allow(missing_docs)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CieOffsetEncoding {
+    U32,
+    U64,
+}
+
+// Ditto about being `pub`.
+#[doc(hidden)]
+#[allow(missing_docs)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReturnAddressRegisterEncoding {
+    U8,
+    Uleb,
+}
+
+/// This trait completely encapsulates everything that is different between
+/// `.eh_frame` and `.debug_frame`, as well as all the bits that can change
+/// between DWARF versions.
+#[doc(hidden)]
 pub trait _UnwindSectionPrivate<'input, Endian>
     where Endian: Endianity
 {
@@ -135,12 +155,9 @@ pub trait _UnwindSectionPrivate<'input, Endian>
     /// Return true if the given offset if the CIE sentinel, false otherwise.
     fn is_cie(format: Format, id: usize) -> bool;
 
-    /// Parse a CIE offset or ID. For `.debug_frame`, this is encoded as a u32
-    /// if we're reading 32-bit DWARF or encoded as a u64 if we're reading
-    /// 64-bit DWARF. For `.eh_frame`, this is always encoded as a u32.
-    fn parse_cie_offset(input: EndianBuf<'input, Endian>,
-                        format: Format)
-                        -> Result<(EndianBuf<'input, Endian>, usize)>;
+    /// Return the CIE offset/ID encoding used by this unwind section with the
+    /// given DWARF format.
+    fn cie_offset_encoding(format: Format) -> CieOffsetEncoding;
 
     /// For `.eh_frame`, CIE offsets are relative to the current position. For
     /// `.debug_frame`, they are relative to the start of the section. We always
@@ -154,6 +171,14 @@ pub trait _UnwindSectionPrivate<'input, Endian>
 
     /// Return true if our parser is compatible with the given version.
     fn compatible_version(version: u8) -> bool;
+
+    /// Does this version of this unwind section encode address and segment
+    /// sizes in its CIEs?
+    fn has_address_and_segment_sizes(version: u8) -> bool;
+
+    /// What is the encoding used for the return address register in CIEs for
+    /// this unwind section?
+    fn return_address_register_encoding(version: u8) -> ReturnAddressRegisterEncoding;
 }
 
 /// A section holding unwind information: either `.debug_frame` or
@@ -309,10 +334,11 @@ impl<'input, Endian> _UnwindSectionPrivate<'input, Endian> for DebugFrame<'input
         }
     }
 
-    fn parse_cie_offset(input: EndianBuf<'input, Endian>,
-                        format: Format)
-                        -> Result<(EndianBuf<'input, Endian>, usize)> {
-        parse_offset(input, format)
+    fn cie_offset_encoding(format: Format) -> CieOffsetEncoding {
+        match format {
+            Format::Dwarf32 => CieOffsetEncoding::U32,
+            Format::Dwarf64 => CieOffsetEncoding::U64,
+        }
     }
 
     fn resolve_cie_offset(&self, _: EndianBuf<'input, Endian>, offset: usize) -> Option<usize> {
@@ -320,11 +346,24 @@ impl<'input, Endian> _UnwindSectionPrivate<'input, Endian> for DebugFrame<'input
     }
 
     fn compatible_version(version: u8) -> bool {
+        // Version 1 of `.debug_frame` corresponds to DWARF 2, and then for
+        // DWARF 3 and 4, I think they decided to just match the standard's
+        // version.
         match version {
-            // TODO: Is this parser really backwards compatible with versions 1
-            // and 3?
             1 | 3 | 4 => true,
             _ => false,
+        }
+    }
+
+    fn has_address_and_segment_sizes(version: u8) -> bool {
+        version == 4
+    }
+
+    fn return_address_register_encoding(version: u8) -> ReturnAddressRegisterEncoding {
+        if version == 1 {
+            ReturnAddressRegisterEncoding::U8
+        } else {
+            ReturnAddressRegisterEncoding::Uleb
         }
     }
 }
@@ -350,12 +389,10 @@ impl<'input, Endian> _UnwindSectionPrivate<'input, Endian> for EhFrame<'input, E
         id == 0
     }
 
-    fn parse_cie_offset(input: EndianBuf<'input, Endian>,
-                        _: Format)
-                        -> Result<(EndianBuf<'input, Endian>, usize)> {
+    fn cie_offset_encoding(_format: Format) -> CieOffsetEncoding {
         // `.eh_frame` offsets are always 4 bytes, regardless of the DWARF
         // format.
-        parse_offset(input, Format::Dwarf32)
+        CieOffsetEncoding::U32
     }
 
     fn resolve_cie_offset(&self,
@@ -388,6 +425,14 @@ impl<'input, Endian> _UnwindSectionPrivate<'input, Endian> for EhFrame<'input, E
 
     fn compatible_version(version: u8) -> bool {
         version == 1
+    }
+
+    fn has_address_and_segment_sizes(_version: u8) -> bool {
+        false
+    }
+
+    fn return_address_register_encoding(_version: u8) -> ReturnAddressRegisterEncoding {
+        ReturnAddressRegisterEncoding::Uleb
     }
 }
 
@@ -580,7 +625,14 @@ fn parse_cfi_entry_common<'input, Endian, Section>(input: EndianBuf<'input, Endi
     let rest_rest = rest.range_from(length as usize..);
     let cie_offset_input = rest.range_to(..length as usize);
 
-    let (rest, cie_id_or_offset) = try!(Section::parse_cie_offset(cie_offset_input, format));
+    let (rest, cie_id_or_offset) = match Section::cie_offset_encoding(format) {
+        CieOffsetEncoding::U32 => {
+            try!(parse_offset(cie_offset_input, Format::Dwarf32))
+        },
+        CieOffsetEncoding::U64 => {
+            try!(parse_offset(cie_offset_input, Format::Dwarf64))
+        },
+    };
 
     Ok(Some((rest_rest, (length, format, cie_offset_input, cie_id_or_offset, rest))))
 }
@@ -695,6 +747,7 @@ impl Augmentation {
     {
         debug_assert!(augmentation_str.len() > 0,
                       "Augmentation::parse should only be called if we have an augmentation");
+
         let mut chars = augmentation_str.chars();
 
         let first = chars.next()
@@ -868,14 +921,25 @@ impl<'input, Endian, Section> CommonInformationEntry<'input, Endian, Section>
         }
 
         let (rest, augmentation_string) = try!(parse_null_terminated_string(rest));
+        let rest = EndianBuf::new(rest);
         let aug_len = augmentation_string.to_bytes().len();
 
-        let (rest, address_size) = try!(parse_u8(rest));
-        let (rest, segment_size) = try!(parse_u8(rest));
-        let (rest, code_alignment_factor) = try!(parse_unsigned_leb(rest));
-        let (rest, data_alignment_factor) = try!(parse_signed_leb(rest));
-        let (rest, return_address_register) = try!(parse_unsigned_leb(rest));
-        let rest = EndianBuf::new(rest);
+        let (rest, address_size, segment_size) = if Section::has_address_and_segment_sizes(version) {
+            let (rest, address_size) = try!(parse_u8e(rest));
+            let (rest, segment_size) = try!(parse_u8e(rest));
+            (rest, address_size, segment_size)
+        } else {
+            // Assume no segments and native word size.
+            (rest, mem::size_of::<usize>() as u8, 0)
+        };
+
+        let (rest, code_alignment_factor) = try!(parse_unsigned_lebe(rest));
+        let (rest, data_alignment_factor) = try!(parse_signed_lebe(rest));
+
+        let (rest, return_address_register) = match Section::return_address_register_encoding(version) {
+            ReturnAddressRegisterEncoding::U8 => { let (rest, reg) = try!(parse_u8e(rest)); (rest, reg as u64) },
+            ReturnAddressRegisterEncoding::Uleb => try!(parse_unsigned_lebe(rest)),
+        };
 
         let (rest, augmentation) = if aug_len == 0 {
             (rest, None)
@@ -2355,6 +2419,7 @@ mod tests {
     use self::test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};
     use std::fmt::Debug;
     use std::marker::PhantomData;
+    use std::mem;
     use std::u64;
     use test_util::GimliSectionMethods;
 
@@ -2444,12 +2509,16 @@ mod tests {
                 section = section.append_bytes(augmentation.as_bytes());
             }
 
-            let section = section
-                // Null terminator for augmentation string.
-                .D8(0)
-                .D8(cie.address_size)
-                .D8(cie.segment_size)
-                .uleb(cie.code_alignment_factor)
+            // Null terminator for augmentation string.
+            let section = section.D8(0);
+
+            let section = if T::has_address_and_segment_sizes(cie.version) {
+                section.D8(cie.address_size).D8(cie.segment_size)
+            } else {
+                section
+            };
+
+            let section = section.uleb(cie.code_alignment_factor)
                 .sleb(cie.data_alignment_factor)
                 .uleb(cie.return_address_register)
                 .append_bytes(cie.initial_instructions.into())
@@ -2475,21 +2544,22 @@ mod tests {
             let end = Label::new();
 
             assert_eq!(fde.format, fde.cie.format);
-            let section = match fde.format {
-                Format::Dwarf32 => {
+
+            let section = match T::cie_offset_encoding(fde.format) {
+                CieOffsetEncoding::U32 => {
                     let section = self.e32(endian, &length)
                         .mark(&start);
                     match cie_offset.to_labelornum() {
                         LabelOrNum::Label(ref l) => section.e32(endian, l),
                         LabelOrNum::Num(o) => section.e32(endian, o as u32),
                     }
-                }
-                Format::Dwarf64 => {
+                },
+                CieOffsetEncoding::U64 => {
                     let section = self.e32(endian, 0xffffffff);
                     section.e64(endian, &length)
                         .mark(&start)
                         .e64(endian, cie_offset)
-                }
+                },
             };
 
             let section = match fde.cie.segment_size {
@@ -3724,7 +3794,7 @@ mod tests {
             length: 0,
             return_address_register: 0,
             version: 4,
-            address_size: 8,
+            address_size: mem::size_of::<usize>() as u8,
             initial_instructions: EndianBuf::new(&[]),
             augmentation: None,
             segment_size: 0,
@@ -4418,6 +4488,8 @@ mod tests {
     #[test]
     fn test_eh_frame_fde_out_of_bounds() {
         let mut cie = make_test_cie();
+        cie.version = 1;
+
         let end_of_cie = Label::new();
 
         let mut fde = EhFrameFde {
@@ -4768,10 +4840,6 @@ mod tests {
             .D8(1)
             // Augmentation
             .append_bytes(b"zP\0")
-            // Address size
-            .D8(4)
-            // Segment size
-            .D8(0)
             // Code alignment factor
             .uleb(1)
             // Data alignment factor
@@ -4785,7 +4853,7 @@ mod tests {
             .mark(&aug_start)
             // Augmentation data. Personality encoding and then encoded pointer.
             .D8(constants::DW_EH_PE_funcrel.0 | constants::DW_EH_PE_uleb128.0)
-            .D8(1)
+            .uleb(1)
             .mark(&aug_end)
             // Initial instructions
             .append_bytes(&instrs)
