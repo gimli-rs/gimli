@@ -1,7 +1,7 @@
 use constants;
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
-use parser::{Error, Format, Result, parse_address, parse_encoded_pointer, parse_initial_length,
+use parser::{Error, Format, Pointer, Result, parse_address, parse_encoded_pointer, parse_initial_length,
              parse_length_uleb_value, parse_null_terminated_string, parse_offset,
              parse_pointer_encoding, parse_signed_lebe, parse_u8, parse_u8e,
              parse_u16, parse_u32, parse_unsigned_lebe};
@@ -710,7 +710,7 @@ pub struct Augmentation {
     /// > represents the pointer encoding used for the second argument, which is
     /// > the address of a personality routine handler. The size of the
     /// > personality routine pointer is specified by the pointer encoding used.
-    personality: Option<u64>,
+    personality: Option<Pointer>,
 
     /// > A 'R' may be present at any position after the first character of the
     /// > string. This character may only be present if 'z' is the first character
@@ -795,7 +795,7 @@ impl Augmentation {
 /// Parsed augmentation data for a `FrameDescriptEntry`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct AugmentationData {
-    lsda: Option<u64>,
+    lsda: Option<Pointer>,
 }
 
 impl AugmentationData {
@@ -1119,6 +1119,10 @@ impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
                                                                      cie.address_size,
                                                                      section.section(),
                                                                      input));
+
+            // Ignore indirection.
+            let initial_address = initial_address.into();
+
             // Address ranges cannot be relative to anything, so just grab the
             // data format bits from the encoding.
             let (rest, address_range) = try!(parse_encoded_pointer(encoding.format(),
@@ -1126,6 +1130,15 @@ impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
                                                                    cie.address_size,
                                                                    section.section(),
                                                                    rest));
+
+            let address_range = match address_range {
+                // We masked off the upper bits (including the indirection bit)
+                // when passing the encoding into parse_encoded_pointer for
+                // grabbing the address range.
+                Pointer::Indirect(_) => unreachable!(),
+                Pointer::Direct(r) => r,
+            };
+
             Ok((rest, initial_address, address_range))
         } else {
             let (rest, initial_address) = try!(parse_address(input, cie.address_size));
@@ -1160,7 +1173,7 @@ impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
 
     /// The address of this FDE's language-specific data area (LSDA), if it has
     /// any.
-    pub fn lsda(&self) -> Option<u64> {
+    pub fn lsda(&self) -> Option<Pointer> {
         self.augmentation.as_ref().and_then(|a| a.lsda)
     }
 
@@ -1172,7 +1185,7 @@ impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
     /// Return the address of the FDE's function's personality routine
     /// handler. The personality routine does language-specific clean up when
     /// unwinding the stack frames with the intent to not run them again.
-    pub fn personality(&self) -> Option<u64> {
+    pub fn personality(&self) -> Option<Pointer> {
         self.cie().augmentation.as_ref().and_then(|a| a.personality)
     }
 }
@@ -2415,7 +2428,7 @@ mod tests {
     use super::{AugmentationData, parse_cfi_entry, UnwindContext};
     use constants;
     use endianity::{BigEndian, Endianity, EndianBuf, LittleEndian, NativeEndian};
-    use parser::{Error, Format, Result};
+    use parser::{Error, Format, Pointer, Result};
     use self::test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};
     use std::fmt::Debug;
     use std::marker::PhantomData;
@@ -2592,8 +2605,8 @@ mod tests {
                     // Augmentation data length
                     let section = section.uleb(fde.cie.address_size as u64);
                     match fde.cie.address_size {
-                        4 => section.e32(endian, lsda as u32),
-                        8 => section.e64(endian, lsda),
+                        4 => section.e32(endian, { let x: u64 = lsda.into(); x as u32 }),
+                        8 => section.e64(endian, { let x: u64 = lsda.into(); x }),
                         x => panic!("Unsupported address size: {}", x),
                     }
                 } else {
@@ -4589,7 +4602,7 @@ mod tests {
         let input = EndianBuf::new(section.section().into());
 
         let mut augmentation = Augmentation::default();
-        augmentation.personality = Some(0xf00df00d);
+        augmentation.personality = Some(Pointer::Direct(0xf00df00d));
 
         assert_eq!(Augmentation::parse(aug_str, &bases, address_size, section, input),
                    Ok((EndianBuf::new(&rest), augmentation)));
@@ -4666,7 +4679,7 @@ mod tests {
 
         let augmentation = Augmentation {
             lsda: Some(constants::DW_EH_PE_uleb128),
-            personality: Some(0x1badf00d),
+            personality: Some(Pointer::Direct(0x1badf00d)),
             fde_address_encoding: Some(constants::DW_EH_PE_uleb128),
             is_signal_trampoline: true,
         };
@@ -4760,7 +4773,7 @@ mod tests {
             initial_segment: 0,
             initial_address: 0xfeedface,
             address_range: 9000,
-            augmentation: Some(AugmentationData { lsda: Some(0x11223344) }),
+            augmentation: Some(AugmentationData { lsda: Some(Pointer::Direct(0x11223344)) }),
             instructions: EndianBuf::<LittleEndian>::new(&instrs),
         };
 
@@ -4796,7 +4809,7 @@ mod tests {
             initial_segment: 0,
             initial_address: 0xfeedface,
             address_range: 9000,
-            augmentation: Some(AugmentationData { lsda: Some(1) }),
+            augmentation: Some(AugmentationData { lsda: Some(Pointer::Direct(1)) }),
             instructions: EndianBuf::<LittleEndian>::new(&instrs),
         };
 
@@ -4812,7 +4825,7 @@ mod tests {
         let input = section.section().range_from(10..);
 
         // Adjust the FDE's augmentation to be relative to the section.
-        fde.augmentation.as_mut().unwrap().lsda = Some(19);
+        fde.augmentation.as_mut().unwrap().lsda = Some(Pointer::Direct(19));
 
         let result = parse_fde(section, input, |_| Ok(cie.clone()));
         assert_eq!(result, Ok((EndianBuf::new(&rest), fde)));

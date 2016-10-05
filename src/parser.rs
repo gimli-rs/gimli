@@ -521,12 +521,52 @@ pub fn parse_pointer_encoding<Endian>(input: EndianBuf<Endian>)
     }
 }
 
+/// A decoded pointer.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Pointer {
+    /// This value is the decoded pointer value.
+    Direct(u64),
+
+    /// This value is *not* the pointer value, but points to the address of
+    /// where the real pointer value lives. In other words, deref this pointer
+    /// to get the real pointer value.
+    ///
+    /// Chase this pointer at your own risk: do you trust the DWARF data it came
+    /// from?
+    Indirect(u64),
+}
+
+impl Default for Pointer {
+    fn default() -> Self {
+        Pointer::Direct(0)
+    }
+}
+
+impl Into<u64> for Pointer {
+    fn into(self) -> u64 {
+        match self {
+            Pointer::Direct(p) => p,
+            Pointer::Indirect(p) => p,
+        }
+    }
+}
+
+impl Pointer {
+    fn new(encoding: constants::DwEhPe, address: u64) -> Pointer {
+        if encoding.is_indirect() {
+            Pointer::Indirect(address)
+        } else {
+            Pointer::Direct(address)
+        }
+    }
+}
+
 pub fn parse_encoded_pointer<'bases, 'input, Endian>(encoding: constants::DwEhPe,
                                                      bases: &'bases BaseAddresses,
                                                      address_size: u8,
                                                      section: EndianBuf<'input, Endian>,
                                                      input: EndianBuf<'input, Endian>)
-                                                     -> Result<(EndianBuf<'input, Endian>, u64)>
+                                                     -> Result<(EndianBuf<'input, Endian>, Pointer)>
     where Endian: Endianity
 {
     fn parse_data<Endian>(encoding: constants::DwEhPe,
@@ -593,23 +633,20 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>(encoding: constants::DwEhPe
     }
 
     if encoding == constants::DW_EH_PE_omit {
-        return Ok((input, 0));
-    }
-
-    if encoding.is_indirect() {
-        return Err(Error::UnsupportedPointerEncoding);
+        return Ok((input, Pointer::Direct(0)));
     }
 
     match encoding.application() {
         constants::DW_EH_PE_absptr => {
             let (rest, addr) = try!(parse_data(encoding, address_size, input));
-            Ok((rest, addr.into()))
+            Ok((rest, Pointer::new(encoding, addr.into())))
         }
         constants::DW_EH_PE_pcrel => {
             if let Some(cfi) = bases.cfi {
                 let (rest, offset) = try!(parse_data(encoding, address_size, input));
                 let offset_from_section = input.as_ptr() as usize - section.as_ptr() as usize;
-                Ok((rest, cfi.wrapping_add(offset_from_section as u64).wrapping_add(offset)))
+                let p = cfi.wrapping_add(offset_from_section as u64).wrapping_add(offset);
+                Ok((rest, Pointer::new(encoding, p)))
             } else {
                 Err(Error::CfiRelativePointerButCfiBaseIsUndefined)
             }
@@ -617,7 +654,7 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>(encoding: constants::DwEhPe
         constants::DW_EH_PE_textrel => {
             if let Some(text) = bases.text {
                 let (rest, offset) = try!(parse_data(encoding, address_size, input));
-                Ok((rest, text.wrapping_add(offset)))
+                Ok((rest, Pointer::new(encoding, text.wrapping_add(offset))))
             } else {
                 Err(Error::TextRelativePointerButTextBaseIsUndefined)
             }
@@ -625,7 +662,7 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>(encoding: constants::DwEhPe
         constants::DW_EH_PE_datarel => {
             if let Some(data) = bases.data {
                 let (rest, offset) = try!(parse_data(encoding, address_size, input));
-                Ok((rest, data.wrapping_add(offset)))
+                Ok((rest, Pointer::new(encoding, data.wrapping_add(offset))))
             } else {
                 Err(Error::DataRelativePointerButDataBaseIsUndefined)
             }
@@ -634,7 +671,7 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>(encoding: constants::DwEhPe
             let func = bases.func.borrow();
             if let Some(func) = *func {
                 let (rest, offset) = try!(parse_data(encoding, address_size, input));
-                Ok((rest, func.wrapping_add(offset)))
+                Ok((rest, Pointer::new(encoding, func.wrapping_add(offset))))
             } else {
                 Err(Error::FuncRelativePointerInBadContext)
             }
@@ -920,7 +957,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&input);
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), 0xf00df00d)));
+                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0xf00df00d))));
     }
 
     #[test]
@@ -944,7 +981,7 @@ mod tests {
                                          address_size,
                                          input,
                                          input.range_from(0x10..)),
-                   Ok((EndianBuf::new(&expected_rest), 0x111)));
+                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x111))));
     }
 
     #[test]
@@ -977,7 +1014,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&input);
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), 0x11)));
+                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x11))));
     }
 
     #[test]
@@ -1010,7 +1047,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&input);
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), 0x11)));
+                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x11))));
     }
 
     #[test]
@@ -1044,7 +1081,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&input);
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), 0x11)));
+                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x11))));
     }
 
     #[test]
@@ -1076,7 +1113,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&input);
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), 0x123456)));
+                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x123456))));
     }
 
     #[test]
@@ -1094,7 +1131,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&input);
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), 0x1234)));
+                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x1234))));
     }
 
     #[test]
@@ -1112,7 +1149,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&input);
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), 0x12345678)));
+                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x12345678))));
     }
 
     #[test]
@@ -1130,7 +1167,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&input);
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), 0x1234567812345678)));
+                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x1234567812345678))));
     }
 
     #[test]
@@ -1148,7 +1185,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&input);
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), 0x11110000)));
+                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x11110000))));
     }
 
     #[test]
@@ -1167,7 +1204,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&input);
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), expected as u64)));
+                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(expected as u64))));
     }
 
     #[test]
@@ -1186,7 +1223,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&input);
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), expected as u64)));
+                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(expected as u64))));
     }
 
     #[test]
@@ -1205,7 +1242,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&input);
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), expected as u64)));
+                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(expected as u64))));
     }
 
     #[test]
@@ -1219,7 +1256,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&input);
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((input, 0)));
+                   Ok((input, Pointer::default())));
     }
 
     #[test]
@@ -1238,7 +1275,7 @@ mod tests {
 
     #[test]
     fn test_parse_encoded_pointer_aligned() {
-        // FIXME!
+        // FIXME: support this encoding!
 
         let encoding = constants::DW_EH_PE_aligned;
         let bases = BaseAddresses::default();
@@ -1254,17 +1291,19 @@ mod tests {
 
     #[test]
     fn test_parse_encoded_pointer_indirect() {
-        // FIXME!
+        let rest = [1, 2, 3, 4];
 
         let encoding = constants::DW_EH_PE_indirect;
         let bases = BaseAddresses::default();
         let address_size = 4;
 
-        let input = Section::with_endian(Endian::Little).L32(0x1);
+        let input = Section::with_endian(Endian::Little)
+            .L32(0x12345678)
+            .append_bytes(&rest);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Err(Error::UnsupportedPointerEncoding));
+                   Ok((EndianBuf::new(&rest), Pointer::Indirect(0x12345678))));
     }
 }
