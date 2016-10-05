@@ -195,6 +195,9 @@ pub use ranges::{DebugRanges, DebugRangesOffset, RangesIter, RawRangesIter, Rang
 mod str;
 pub use str::*;
 
+#[cfg(test)]
+mod test_util;
+
 mod unit;
 pub use unit::{DebugInfo, DebugInfoOffset, CompilationUnitHeadersIter, CompilationUnitHeader,
                UnitOffset};

@@ -1,6 +1,7 @@
 //! Types for compile-time endianity.
 
 use byteorder;
+use parser::{Error, Result};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
@@ -98,6 +99,27 @@ impl<'input, Endian> EndianBuf<'input, Endian>
     pub fn new(buf: &'input [u8]) -> EndianBuf<'input, Endian> {
         EndianBuf(buf, PhantomData)
     }
+
+    /// Split the buffer in two at the given index, resulting in the tuple where
+    /// the first item has range [0, idx), and the second has range
+    /// [idx, len). Panics if the index is out of bounds.
+    #[inline]
+    pub fn split_at(&self, idx: usize) -> (EndianBuf<'input, Endian>, EndianBuf<'input, Endian>) {
+        (self.range_to(..idx), self.range_from(idx..))
+    }
+
+    /// The same as `split_at`, but returns a `Result` rather than panicking
+    /// when the index is out of bounds.
+    #[inline]
+    pub fn try_split_at(&self,
+                        idx: usize)
+                        -> Result<(EndianBuf<'input, Endian>, EndianBuf<'input, Endian>)> {
+        if idx > self.len() {
+            Err(Error::BadLength)
+        } else {
+            Ok(self.split_at(idx))
+        }
+    }
 }
 
 /// # Range Methods
@@ -187,5 +209,42 @@ impl<'input, Endian> Into<&'input [u8]> for EndianBuf<'input, Endian>
 {
     fn into(self) -> &'input [u8] {
         self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use parser::Error;
+
+    #[test]
+    fn test_endian_buf_split_at() {
+        let buf = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
+        let eb = EndianBuf::<NativeEndian>::new(&buf);
+        assert_eq!(eb.split_at(3),
+                   (EndianBuf::new(&buf[..3]), EndianBuf::new(&buf[3..])));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_endian_buf_split_at_out_of_bounds() {
+        let buf = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
+        let eb = EndianBuf::<NativeEndian>::new(&buf);
+        eb.split_at(30);
+    }
+
+    #[test]
+    fn test_endian_buf_try_split_at() {
+        let buf = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
+        let eb = EndianBuf::<NativeEndian>::new(&buf);
+        assert_eq!(eb.try_split_at(3),
+                   Ok((EndianBuf::new(&buf[..3]), EndianBuf::new(&buf[3..]))));
+    }
+
+    #[test]
+    fn test_endian_buf_try_split_at_out_of_bounds() {
+        let buf = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
+        let eb = EndianBuf::<NativeEndian>::new(&buf);
+        assert_eq!(Err(Error::BadLength), eb.try_split_at(30));
     }
 }
