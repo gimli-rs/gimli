@@ -122,6 +122,7 @@ dw!(DwCfa(u8) {
     DW_CFA_MIPS_advance_loc8 = 0x1d,
     DW_CFA_GNU_window_save = 0x2d,
     DW_CFA_GNU_args_size = 0x2e,
+    DW_CFA_GNU_negative_offset_extended = 0x2f,
 });
 
 /// The child determination encodings for DIE attributes.
@@ -183,6 +184,8 @@ dw!(DwTag(u64) {
     DW_TAG_variant_part = 0x33,
     DW_TAG_variable = 0x34,
     DW_TAG_volatile_type = 0x35,
+
+// DWARF 3.
     DW_TAG_dwarf_procedure = 0x36,
     DW_TAG_restrict_type = 0x37,
     DW_TAG_interface_type = 0x38,
@@ -193,25 +196,76 @@ dw!(DwTag(u64) {
     DW_TAG_imported_unit = 0x3d,
     DW_TAG_condition = 0x3f,
     DW_TAG_shared_type = 0x40,
+
+// DWARF 4.
     DW_TAG_type_unit = 0x41,
     DW_TAG_rvalue_reference_type = 0x42,
     DW_TAG_template_alias = 0x43,
+
+// DWARF 5.
     DW_TAG_coarray_type = 0x44,
     DW_TAG_generic_subrange = 0x45,
     DW_TAG_dynamic_type = 0x46,
+    DW_TAG_atomic_type = 0x47,
+    DW_TAG_call_site = 0x48,
+    DW_TAG_call_site_parameter = 0x49,
 
     DW_TAG_lo_user = 0x4080,
     DW_TAG_hi_user = 0xffff,
 
-// User-defined tags.
+// SGI/MIPS extensions.
     DW_TAG_MIPS_loop = 0x4081,
+
+// HP extensions.
+    DW_TAG_HP_array_descriptor = 0x4090,
+    DW_TAG_HP_Bliss_field = 0x4091,
+    DW_TAG_HP_Bliss_field_set = 0x4092,
+
+// GNU extensions.
     DW_TAG_format_label = 0x4101,
     DW_TAG_function_template = 0x4102,
     DW_TAG_class_template = 0x4103,
+    DW_TAG_GNU_BINCL = 0x4104,
+    DW_TAG_GNU_EINCL = 0x4105,
     DW_TAG_GNU_template_template_param = 0x4106,
     DW_TAG_GNU_template_parameter_pack = 0x4107,
     DW_TAG_GNU_formal_parameter_pack = 0x4108,
+    DW_TAG_GNU_call_site = 0x4109,
+    DW_TAG_GNU_call_site_parameter = 0x410a,
+
     DW_TAG_APPLE_property = 0x4200,
+
+// SUN extensions.
+    DW_TAG_SUN_function_template = 0x4201,
+    DW_TAG_SUN_class_template = 0x4202,
+    DW_TAG_SUN_struct_template = 0x4203,
+    DW_TAG_SUN_union_template = 0x4204,
+    DW_TAG_SUN_indirect_inheritance = 0x4205,
+    DW_TAG_SUN_codeflags = 0x4206,
+    DW_TAG_SUN_memop_info = 0x4207,
+    DW_TAG_SUN_omp_child_func = 0x4208,
+    DW_TAG_SUN_rtti_descriptor = 0x4209,
+    DW_TAG_SUN_dtor_info = 0x420a,
+    DW_TAG_SUN_dtor = 0x420b,
+    DW_TAG_SUN_f90_interface = 0x420c,
+    DW_TAG_SUN_fortran_vax_structure = 0x420d,
+
+// ALTIUM extensions.
+    DW_TAG_ALTIUM_circ_type = 0x5101,
+    DW_TAG_ALTIUM_mwa_circ_type = 0x5102,
+    DW_TAG_ALTIUM_rev_carry_type = 0x5103,
+    DW_TAG_ALTIUM_rom = 0x5111,
+
+// Extensions for UPC.
+    DW_TAG_upc_shared_type = 0x8765,
+    DW_TAG_upc_strict_type = 0x8766,
+    DW_TAG_upc_relaxed_type = 0x8767,
+
+// PGI (STMicroelectronics) extensions.
+    DW_TAG_PGI_kanji_type = 0xa000,
+    DW_TAG_PGI_interface_block = 0xa020,
+
+// Borland extensions.
     DW_TAG_BORLAND_property = 0xb000,
     DW_TAG_BORLAND_Delphi_string = 0xb001,
     DW_TAG_BORLAND_Delphi_dynamic_array = 0xb002,
@@ -283,6 +337,8 @@ dw!(DwAt(u64) {
     DW_AT_variable_parameter = 0x4b,
     DW_AT_virtuality = 0x4c,
     DW_AT_vtable_elem_location = 0x4d,
+
+// DWARF 3.
     DW_AT_allocated = 0x4e,
     DW_AT_associated = 0x4f,
     DW_AT_data_location = 0x50,
@@ -310,12 +366,16 @@ dw!(DwAt(u64) {
     DW_AT_elemental = 0x66,
     DW_AT_pure = 0x67,
     DW_AT_recursive = 0x68,
+
+// DWARF 4.
     DW_AT_signature = 0x69,
     DW_AT_main_subprogram = 0x6a,
     DW_AT_data_bit_offset = 0x6b,
     DW_AT_const_expr = 0x6c,
     DW_AT_enum_class = 0x6d,
     DW_AT_linkage_name = 0x6e,
+
+// DWARF 5.
     DW_AT_string_length_bit_size = 0x6f,
     DW_AT_string_length_byte_size = 0x70,
     DW_AT_rank = 0x71,
@@ -332,6 +392,8 @@ dw!(DwAt(u64) {
     DW_AT_lo_user = 0x2000,
     DW_AT_hi_user = 0x3fff,
 
+// SGI/MIPS extensions.
+    DW_AT_MIPS_fde = 0x2001,
     DW_AT_MIPS_loop_begin = 0x2002,
     DW_AT_MIPS_tail_loop_begin = 0x2003,
     DW_AT_MIPS_epilog_begin = 0x2004,
@@ -352,6 +414,11 @@ dw!(DwAt(u64) {
 // fortran and may conflict with other extensions.
     DW_AT_MIPS_assumed_size = 0x2011,
 
+// TODO: HP/CPQ extensions.
+// These conflict with the MIPS extensions.
+
+    DW_AT_INTEL_other_endian = 0x2026,
+
 // GNU extensions
     DW_AT_sf_names = 0x2101,
     DW_AT_src_info = 0x2102,
@@ -360,9 +427,23 @@ dw!(DwAt(u64) {
     DW_AT_body_begin = 0x2105,
     DW_AT_body_end = 0x2106,
     DW_AT_GNU_vector = 0x2107,
-    DW_AT_GNU_template_name = 0x2110,
-
+    DW_AT_GNU_guarded_by = 0x2108,
+    DW_AT_GNU_pt_guarded_by = 0x2109,
+    DW_AT_GNU_guarded = 0x210a,
+    DW_AT_GNU_pt_guarded = 0x210b,
+    DW_AT_GNU_locks_excluded = 0x210c,
+    DW_AT_GNU_exclusive_locks_required = 0x210d,
+    DW_AT_GNU_shared_locks_required = 0x210e,
     DW_AT_GNU_odr_signature = 0x210f,
+    DW_AT_GNU_template_name = 0x2110,
+    DW_AT_GNU_call_site_value = 0x2111,
+    DW_AT_GNU_call_site_data_value = 0x2112,
+    DW_AT_GNU_call_site_target = 0x2113,
+    DW_AT_GNU_call_site_target_clobbered = 0x2114,
+    DW_AT_GNU_tail_call = 0x2115,
+    DW_AT_GNU_all_tail_call_sites = 0x2116,
+    DW_AT_GNU_all_call_sites = 0x2117,
+    DW_AT_GNU_all_source_call_sites = 0x2118,
     DW_AT_GNU_macros = 0x2119,
 
 // Extensions for Fission proposal.
@@ -373,6 +454,72 @@ dw!(DwAt(u64) {
     DW_AT_GNU_pubnames = 0x2134,
     DW_AT_GNU_pubtypes = 0x2135,
     DW_AT_GNU_discriminator = 0x2136,
+
+// Conflict with Sun.
+// DW_AT_VMS_rtnbeg_pd_address = 0x2201,
+
+// Sun extensions.
+    DW_AT_SUN_template = 0x2201,
+    DW_AT_SUN_alignment = 0x2202,
+    DW_AT_SUN_vtable = 0x2203,
+    DW_AT_SUN_count_guarantee = 0x2204,
+    DW_AT_SUN_command_line = 0x2205,
+    DW_AT_SUN_vbase = 0x2206,
+    DW_AT_SUN_compile_options = 0x2207,
+    DW_AT_SUN_language = 0x2208,
+    DW_AT_SUN_browser_file = 0x2209,
+    DW_AT_SUN_vtable_abi = 0x2210,
+    DW_AT_SUN_func_offsets = 0x2211,
+    DW_AT_SUN_cf_kind = 0x2212,
+    DW_AT_SUN_vtable_index = 0x2213,
+    DW_AT_SUN_omp_tpriv_addr = 0x2214,
+    DW_AT_SUN_omp_child_func = 0x2215,
+    DW_AT_SUN_func_offset = 0x2216,
+    DW_AT_SUN_memop_type_ref = 0x2217,
+    DW_AT_SUN_profile_id = 0x2218,
+    DW_AT_SUN_memop_signature = 0x2219,
+    DW_AT_SUN_obj_dir = 0x2220,
+    DW_AT_SUN_obj_file = 0x2221,
+    DW_AT_SUN_original_name = 0x2222,
+    DW_AT_SUN_hwcprof_signature = 0x2223,
+    DW_AT_SUN_amd64_parmdump = 0x2224,
+    DW_AT_SUN_part_link_name = 0x2225,
+    DW_AT_SUN_link_name = 0x2226,
+    DW_AT_SUN_pass_with_const = 0x2227,
+    DW_AT_SUN_return_with_const = 0x2228,
+    DW_AT_SUN_import_by_name = 0x2229,
+    DW_AT_SUN_f90_pointer = 0x222a,
+    DW_AT_SUN_pass_by_ref = 0x222b,
+    DW_AT_SUN_f90_allocatable = 0x222c,
+    DW_AT_SUN_f90_assumed_shape_array = 0x222d,
+    DW_AT_SUN_c_vla = 0x222e,
+    DW_AT_SUN_return_value_ptr = 0x2230,
+    DW_AT_SUN_dtor_start = 0x2231,
+    DW_AT_SUN_dtor_length = 0x2232,
+    DW_AT_SUN_dtor_state_initial = 0x2233,
+    DW_AT_SUN_dtor_state_final = 0x2234,
+    DW_AT_SUN_dtor_state_deltas = 0x2235,
+    DW_AT_SUN_import_by_lname = 0x2236,
+    DW_AT_SUN_f90_use_only = 0x2237,
+    DW_AT_SUN_namelist_spec = 0x2238,
+    DW_AT_SUN_is_omp_child_func = 0x2239,
+    DW_AT_SUN_fortran_main_alias = 0x223a,
+    DW_AT_SUN_fortran_based = 0x223b,
+
+    DW_AT_ALTIUM_loclist = 0x2300,
+
+    DW_AT_use_GNAT_descriptive_type = 0x2301,
+    DW_AT_GNAT_descriptive_type = 0x2302,
+    DW_AT_GNU_numerator = 0x2303,
+    DW_AT_GNU_denominator = 0x2304,
+    DW_AT_GNU_bias = 0x2305,
+
+    DW_AT_upc_threads_scaled = 0x3210,
+
+// PGI (STMicroelectronics) extensions.
+    DW_AT_PGI_lbase = 0x3a00,
+    DW_AT_PGI_soffset = 0x3a01,
+    DW_AT_PGI_lstride = 0x3a02,
 
 // Borland extensions.
     DW_AT_BORLAND_property_read = 0x3b11,
@@ -440,6 +587,8 @@ dw!(DwForm(u64) {
     DW_FORM_ref8 = 0x14,
     DW_FORM_ref_udata = 0x15,
     DW_FORM_indirect = 0x16,
+
+// DWARF 4.
     DW_FORM_sec_offset = 0x17,
     DW_FORM_exprloc = 0x18,
     DW_FORM_flag_present = 0x19,
@@ -465,6 +614,8 @@ dw!(DwAte(u8) {
     DW_ATE_signed_char = 0x06,
     DW_ATE_unsigned = 0x07,
     DW_ATE_unsigned_char = 0x08,
+
+// DWARF 3.
     DW_ATE_imaginary_float = 0x09,
     DW_ATE_packed_decimal = 0x0a,
     DW_ATE_numeric_string = 0x0b,
@@ -472,7 +623,10 @@ dw!(DwAte(u8) {
     DW_ATE_signed_fixed = 0x0d,
     DW_ATE_unsigned_fixed = 0x0e,
     DW_ATE_decimal_float = 0x0f ,
+
+// DWARF 4.
     DW_ATE_UTF = 0x10,
+
     DW_ATE_lo_user = 0x80,
     DW_ATE_hi_user = 0xff,
 });
@@ -565,6 +719,8 @@ dw!(DwLang(u16) {
 
     DW_LANG_Mips_Assembler = 0x8001,
     DW_LANG_GOOGLE_RenderScript = 0x8e57,
+    DW_LANG_SUN_Assembler = 0x9001,
+    DW_LANG_ALTIUM_Assembler = 0x9101,
     DW_LANG_BORLAND_Delphi = 0xb000,
 });
 

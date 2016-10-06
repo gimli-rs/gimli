@@ -115,6 +115,7 @@ fn dump_file<Endian>(file: object::File, flags: &Flags)
                    debug_ranges,
                    debug_str,
                    flags);
+        println!("");
     }
     if flags.line {
         dump_line(&file, debug_abbrev);
@@ -133,9 +134,9 @@ fn dump_info<Endian>(file: &object::File,
                      flags: &Flags)
     where Endian: gimli::Endianity
 {
-    if let Some(debug_info) = file.get_section(".debug_info") {
-        println!("\n.debug_info");
+    println!("\n.debug_info");
 
+    if let Some(debug_info) = file.get_section(".debug_info") {
         let debug_info = gimli::DebugInfo::<Endian>::new(&debug_info);
 
         let mut iter = debug_info.units();
@@ -174,6 +175,14 @@ fn dump_types<Endian>(file: &object::File,
         while let Some(unit) = iter.next().expect("Should parse the unit OK") {
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
+
+            println!("\nCU_HEADER:");
+            print!("  signature        = ");
+            dump_type_signature::<Endian>(unit.type_signature());
+            println!("");
+            println!("  typeoffset       = 0x{:08x} {}",
+                     unit.type_offset().0,
+                     unit.type_offset().0);
 
             dump_entries(unit.offset().0,
                          unit.entries(&abbrevs),
@@ -259,7 +268,7 @@ fn dump_entries<Endian>(offset: usize,
 
         let mut attrs = entry.attrs();
         while let Some(attr) = attrs.next().expect("Should parse attribute OK") {
-            print!("{:indent$}{:28}", "", attr.name(), indent = indent + 18);
+            print!("{:indent$}{:27} ", "", attr.name(), indent = indent + 18);
             if flags.raw {
                 println!("{:?}", attr.raw_value());
             } else {
@@ -285,7 +294,15 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
             println!("{:?}", value);
         }
         gimli::AttributeValue::Data(_) => {
-            println!("{:?}", value);
+            if let (Some(udata), Some(sdata)) = (attr.udata_value(), attr.sdata_value()) {
+                if sdata >= 0 {
+                    println!("{}", udata);
+                } else {
+                    println!("{} ({})", udata, sdata);
+                }
+            } else {
+                println!("{:?}", value);
+            }
         }
         gimli::AttributeValue::Sdata(data) => {
             match attr.name() {
@@ -293,7 +310,11 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
                     println!("{}", data);
                 }
                 _ => {
-                    println!("0x{:08x}", data);
+                    if data >= 0 {
+                        println!("0x{:08x}", data);
+                    } else {
+                        println!("0x{:08x} ({})", data, data);
+                    }
                 }
             };
         }
@@ -352,14 +373,8 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
             println!("0x{:08x}", offset.0);
             dump_range_list(debug_ranges, offset, unit);
         }
-        gimli::AttributeValue::DebugTypesRef(gimli::DebugTypeSignature(offset)) => {
-            // Convert back to bytes so we can match libdwarf-dwarfdump output.
-            let mut buf = [0; 8];
-            Endian::write_u64(&mut buf, offset);
-            print!("0x");
-            for byte in &buf {
-                print!("{:02x}", byte);
-            }
+        gimli::AttributeValue::DebugTypesRef(signature) => {
+            dump_type_signature::<Endian>(signature);
             println!(" <type signature>");
         }
         gimli::AttributeValue::DebugStrRef(offset) => {
@@ -413,6 +428,18 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
             dump_file_index(value, unit);
             println!("");
         }
+    }
+}
+
+fn dump_type_signature<Endian>(signature: gimli::DebugTypeSignature)
+    where Endian: gimli::Endianity
+{
+    // Convert back to bytes so we can match libdwarf-dwarfdump output.
+    let mut buf = [0; 8];
+    Endian::write_u64(&mut buf, signature.0);
+    print!("0x");
+    for byte in &buf {
+        print!("{:02x}", byte);
     }
 }
 
@@ -561,6 +588,10 @@ fn dump_loc_list<Endian>(debug_loc: gimli::DebugLoc<Endian>,
     };
     if has_end {
         locations.pop();
+    }
+    if locations.len() == 0 {
+        println!("");
+        return;
     }
 
     println!("<loclist at offset 0x{:08x} with {} entries follows>",
