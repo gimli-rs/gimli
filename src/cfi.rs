@@ -1,9 +1,9 @@
 use constants;
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
-use parser::{Error, Format, Pointer, Result, parse_address, parse_encoded_pointer, parse_initial_length,
-             parse_length_uleb_value, parse_null_terminated_string, parse_offset,
-             parse_pointer_encoding, parse_signed_lebe, parse_u8, parse_u8e,
+use parser::{Error, Format, Pointer, Result, parse_address, parse_encoded_pointer,
+             parse_initial_length, parse_length_uleb_value, parse_null_terminated_string,
+             parse_offset, parse_pointer_encoding, parse_signed_lebe, parse_u8, parse_u8e,
              parse_u16, parse_u32, parse_unsigned_lebe};
 use std::cell::RefCell;
 use std::fmt::Debug;
@@ -626,12 +626,8 @@ fn parse_cfi_entry_common<'input, Endian, Section>(input: EndianBuf<'input, Endi
     let cie_offset_input = rest.range_to(..length as usize);
 
     let (rest, cie_id_or_offset) = match Section::cie_offset_encoding(format) {
-        CieOffsetEncoding::U32 => {
-            try!(parse_offset(cie_offset_input, Format::Dwarf32))
-        },
-        CieOffsetEncoding::U64 => {
-            try!(parse_offset(cie_offset_input, Format::Dwarf64))
-        },
+        CieOffsetEncoding::U32 => try!(parse_offset(cie_offset_input, Format::Dwarf32)),
+        CieOffsetEncoding::U64 => try!(parse_offset(cie_offset_input, Format::Dwarf64)),
     };
 
     Ok(Some((rest_rest, (length, format, cie_offset_input, cie_id_or_offset, rest))))
@@ -924,22 +920,27 @@ impl<'input, Endian, Section> CommonInformationEntry<'input, Endian, Section>
         let rest = EndianBuf::new(rest);
         let aug_len = augmentation_string.to_bytes().len();
 
-        let (rest, address_size, segment_size) = if Section::has_address_and_segment_sizes(version) {
-            let (rest, address_size) = try!(parse_u8e(rest));
-            let (rest, segment_size) = try!(parse_u8e(rest));
-            (rest, address_size, segment_size)
-        } else {
-            // Assume no segments and native word size.
-            (rest, mem::size_of::<usize>() as u8, 0)
-        };
+        let (rest, address_size, segment_size) =
+            if Section::has_address_and_segment_sizes(version) {
+                let (rest, address_size) = try!(parse_u8e(rest));
+                let (rest, segment_size) = try!(parse_u8e(rest));
+                (rest, address_size, segment_size)
+            } else {
+                // Assume no segments and native word size.
+                (rest, mem::size_of::<usize>() as u8, 0)
+            };
 
         let (rest, code_alignment_factor) = try!(parse_unsigned_lebe(rest));
         let (rest, data_alignment_factor) = try!(parse_signed_lebe(rest));
 
-        let (rest, return_address_register) = match Section::return_address_register_encoding(version) {
-            ReturnAddressRegisterEncoding::U8 => { let (rest, reg) = try!(parse_u8e(rest)); (rest, reg as u64) },
-            ReturnAddressRegisterEncoding::Uleb => try!(parse_unsigned_lebe(rest)),
-        };
+        let (rest, return_address_register) =
+            match Section::return_address_register_encoding(version) {
+                ReturnAddressRegisterEncoding::U8 => {
+                    let (rest, reg) = try!(parse_u8e(rest));
+                    (rest, reg as u64)
+                }
+                ReturnAddressRegisterEncoding::Uleb => try!(parse_unsigned_lebe(rest)),
+            };
 
         let (rest, augmentation) = if aug_len == 0 {
             (rest, None)
@@ -2566,13 +2567,13 @@ mod tests {
                         LabelOrNum::Label(ref l) => section.e32(endian, l),
                         LabelOrNum::Num(o) => section.e32(endian, o as u32),
                     }
-                },
+                }
                 CieOffsetEncoding::U64 => {
                     let section = self.e32(endian, 0xffffffff);
                     section.e64(endian, &length)
                         .mark(&start)
                         .e64(endian, cie_offset)
-                },
+                }
             };
 
             let section = match fde.cie.segment_size {
@@ -2605,8 +2606,18 @@ mod tests {
                     // Augmentation data length
                     let section = section.uleb(fde.cie.address_size as u64);
                     match fde.cie.address_size {
-                        4 => section.e32(endian, { let x: u64 = lsda.into(); x as u32 }),
-                        8 => section.e64(endian, { let x: u64 = lsda.into(); x }),
+                        4 => {
+                            section.e32(endian, {
+                                let x: u64 = lsda.into();
+                                x as u32
+                            })
+                        }
+                        8 => {
+                            section.e64(endian, {
+                                let x: u64 = lsda.into();
+                                x
+                            })
+                        }
                         x => panic!("Unsupported address size: {}", x),
                     }
                 } else {

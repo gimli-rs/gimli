@@ -561,12 +561,13 @@ impl Pointer {
     }
 }
 
-pub fn parse_encoded_pointer<'bases, 'input, Endian>(encoding: constants::DwEhPe,
-                                                     bases: &'bases BaseAddresses,
-                                                     address_size: u8,
-                                                     section: EndianBuf<'input, Endian>,
-                                                     input: EndianBuf<'input, Endian>)
-                                                     -> Result<(EndianBuf<'input, Endian>, Pointer)>
+pub fn parse_encoded_pointer<'bases, 'input, Endian>
+    (encoding: constants::DwEhPe,
+     bases: &'bases BaseAddresses,
+     address_size: u8,
+     section: EndianBuf<'input, Endian>,
+     input: EndianBuf<'input, Endian>)
+     -> Result<(EndianBuf<'input, Endian>, Pointer)>
     where Endian: Endianity
 {
     fn parse_data<Endian>(encoding: constants::DwEhPe,
@@ -676,9 +677,7 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>(encoding: constants::DwEhPe
                 Err(Error::FuncRelativePointerInBadContext)
             }
         }
-        constants::DW_EH_PE_aligned => {
-            Err(Error::UnsupportedPointerEncoding)
-        },
+        constants::DW_EH_PE_aligned => Err(Error::UnsupportedPointerEncoding),
         _ => unreachable!(),
     }
 }
