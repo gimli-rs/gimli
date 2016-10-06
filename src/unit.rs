@@ -557,7 +557,6 @@ pub struct DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>
     offset: UnitOffset,
     attrs_slice: &'input [u8],
     after_attrs: Cell<Option<&'input [u8]>>,
-    code: u64,
     abbrev: &'abbrev Abbreviation,
     unit: &'unit UnitHeader<'input, Endian>,
 }
@@ -567,7 +566,7 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
 {
     /// Get this entry's code.
     pub fn code(&self) -> u64 {
-        self.code
+        self.abbrev.code()
     }
 
     /// Get this entry's offset.
@@ -1825,7 +1824,6 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                         offset: offset,
                         attrs_slice: rest,
                         after_attrs: Cell::new(None),
-                        code: code,
                         abbrev: abbrev,
                         unit: self.unit,
                     });
@@ -3357,7 +3355,6 @@ mod tests {
             offset: UnitOffset(0),
             attrs_slice: &buf,
             after_attrs: Cell::new(None),
-            code: 1,
             abbrev: &abbrev,
             unit: &unit,
         };
@@ -3449,7 +3446,6 @@ mod tests {
             offset: UnitOffset(0),
             attrs_slice: &buf,
             after_attrs: Cell::new(None),
-            code: 1,
             abbrev: &abbrev,
             unit: &unit,
         };
