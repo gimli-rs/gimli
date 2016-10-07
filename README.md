@@ -28,8 +28,10 @@ Either
 
 or add this to your `Cargo.toml`:
 
-    [dependencies]
-    gimli = "0.8.0"
+```toml
+[dependencies]
+gimli = "0.8.0"
+```
 
 ## Documentation
 
