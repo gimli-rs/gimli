@@ -59,13 +59,17 @@ impl<'input, Endian> DebugAbbrev<'input, Endian>
 /// method.
 #[derive(Debug, Default, Clone)]
 pub struct Abbreviations {
-    abbrevs: hash_map::HashMap<u64, Abbreviation>,
+    vec: Vec<Abbreviation>,
+    map: hash_map::HashMap<u64, Abbreviation>,
 }
 
 impl Abbreviations {
     /// Construct a new, empty set of abbreviations.
     fn empty() -> Abbreviations {
-        Abbreviations { abbrevs: hash_map::HashMap::new() }
+        Abbreviations {
+            vec: Vec::new(),
+            map: hash_map::HashMap::new(),
+        }
     }
 
     /// Insert an abbreviation into the set.
@@ -74,7 +78,24 @@ impl Abbreviations {
     /// `Err` if the code is a duplicate and there already exists an
     /// abbreviation in the set with the given abbreviation's code.
     fn insert(&mut self, abbrev: Abbreviation) -> ::std::result::Result<(), ()> {
-        match self.abbrevs.entry(abbrev.code) {
+        let code_usize = abbrev.code as usize;
+        if code_usize as u64 == abbrev.code {
+            // Optimize for sequential abbreviation codes by storing them
+            // in a Vec, as long as the map doesn't already contain them.
+            // A potential further optimization would be to allow some
+            // holes in the Vec, but there's no need for that yet.
+            if code_usize - 1 < self.vec.len() {
+                return Err(());
+            } else if code_usize - 1 == self.vec.len() {
+                if !self.map.is_empty() && self.map.contains_key(&abbrev.code) {
+                    return Err(());
+                } else {
+                    self.vec.push(abbrev);
+                    return Ok(());
+                }
+            }
+        }
+        match self.map.entry(abbrev.code) {
             hash_map::Entry::Occupied(_) => Err(()),
             hash_map::Entry::Vacant(entry) => {
                 entry.insert(abbrev);
@@ -86,7 +107,12 @@ impl Abbreviations {
     /// Get the abbreviation associated with the given code.
     #[inline]
     pub fn get(&self, code: u64) -> Option<&Abbreviation> {
-        self.abbrevs.get(&code)
+        let code_usize = code as usize;
+        if code_usize as u64 == code && code_usize - 1 < self.vec.len() {
+            Some(&self.vec[code_usize - 1])
+        } else {
+            self.map.get(&code)
+        }
     }
 
     /// Parse a series of abbreviations, terminated by a null abbreviation.
