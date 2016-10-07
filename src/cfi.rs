@@ -1131,16 +1131,7 @@ impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
                                                                    cie.address_size,
                                                                    section.section(),
                                                                    rest));
-
-            let address_range = match address_range {
-                // We masked off the upper bits (including the indirection bit)
-                // when passing the encoding into parse_encoded_pointer for
-                // grabbing the address range.
-                Pointer::Indirect(_) => unreachable!(),
-                Pointer::Direct(r) => r,
-            };
-
-            Ok((rest, initial_address, address_range))
+            Ok((rest, initial_address, address_range.into()))
         } else {
             let (rest, initial_address) = try!(parse_address(input, cie.address_size));
             let (rest, address_range) = try!(parse_address(rest, cie.address_size));
