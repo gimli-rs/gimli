@@ -28,14 +28,14 @@ Either
 
 or add this to your `Cargo.toml`:
 
-    [dependencies]
-    gimli = "0.8.0"
+```toml
+[dependencies]
+gimli = "0.8.0"
+```
 
 ## Documentation
 
 * [Documentation on docs.rs](https://docs.rs/gimli/)
-
-* [Rustdocs documentation](http://gimli-rs.github.io/gimli/gimli/index.html)
 
 * Example programs:
 
