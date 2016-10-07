@@ -35,8 +35,6 @@ or add this to your `Cargo.toml`:
 
 * [Documentation on docs.rs](https://docs.rs/gimli/)
 
-* [Rustdocs documentation](http://gimli-rs.github.io/gimli/gimli/index.html)
-
 * Example programs:
 
   * [A `dwarfdump` clone](./examples/dwarfdump.rs)
