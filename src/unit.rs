@@ -557,7 +557,6 @@ pub struct DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>
     offset: UnitOffset,
     attrs_slice: &'input [u8],
     after_attrs: Cell<Option<&'input [u8]>>,
-    code: u64,
     abbrev: &'abbrev Abbreviation,
     unit: &'unit UnitHeader<'input, Endian>,
 }
@@ -567,7 +566,7 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
 {
     /// Get this entry's code.
     pub fn code(&self) -> u64 {
-        self.code
+        self.abbrev.code()
     }
 
     /// Get this entry's offset.
@@ -1782,6 +1781,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     ///
     /// If the cursor is not pointing at an entry, or if the current entry is a
     /// null entry, then `None` is returned.
+    #[inline]
     pub fn current<'me>
         (&'me self)
          -> Option<&'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>> {
@@ -1841,7 +1841,6 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                         offset: offset,
                         attrs_slice: rest,
                         after_attrs: Cell::new(None),
-                        code: code,
                         abbrev: abbrev,
                         unit: self.unit,
                     });
@@ -2113,36 +2112,47 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     pub fn next_sibling<'me>
         (&'me mut self)
          -> Result<Option<(&'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>)>> {
-        if self.cached_current.is_some() {
-            let sibling_ptr = self.current().unwrap().attr_value(constants::DW_AT_sibling);
-            if let Some(AttributeValue::UnitRef(offset)) = sibling_ptr {
-                if self.unit.is_valid_offset(offset) {
-                    // Fast path: this entry has a DW_AT_sibling
-                    // attribute pointing to its sibling.
-                    self.input = self.unit.range_from(offset..);
-                    self.cached_current = None;
-                    try!(self.next_entry());
-                    return Ok(self.current());
+        if self.current().is_none() {
+            // We're already at the null for the end of the sibling list.
+            return Ok(None);
+        }
+
+        // Loop until we find an entry at the current level.
+        let mut depth = 0;
+        loop {
+            if self.current().map(|entry| entry.has_children()).unwrap_or(false) {
+                // This entry has children, so the next entry is
+                // down one level.
+                depth += 1;
+
+                let sibling_ptr = self.current().unwrap().attr_value(constants::DW_AT_sibling);
+                if let Some(AttributeValue::UnitRef(offset)) = sibling_ptr {
+                    if self.unit.is_valid_offset(offset) {
+                        // Fast path: this entry has a DW_AT_sibling
+                        // attribute pointing to its sibling, so jump
+                        // to it (which takes us back up a level).
+                        self.input = self.unit.range_from(offset..);
+                        self.cached_current = None;
+                        depth -= 1;
+                    }
                 }
             }
 
-            // Slow path: either the entry doesn't have a sibling pointer,
-            // or the pointer is bogus. Do a DFS until we get to the next
-            // sibling.
-
-            let mut depth = self.delta_depth;
-            while depth > 0 {
-                if try!(self.next_entry()).is_none() {
-                    return Ok(None);
-                }
-                depth += self.delta_depth;
+            if try!(self.next_entry()).is_none() {
+                // End of input.
+                return Ok(None);
             }
 
-            // The next entry will be the sibling, so parse it
-            try!(self.next_entry());
-            Ok(self.current())
-        } else {
-            Ok(None)
+            if depth == 0 {
+                // Found an entry at the current level.
+                return Ok(self.current());
+            }
+
+            if self.current().is_none() {
+                // A null entry means the end of a child list, so we're
+                // back up a level.
+                depth -= 1;
+            }
         }
     }
 }
@@ -3411,7 +3421,6 @@ mod tests {
             offset: UnitOffset(0),
             attrs_slice: &buf,
             after_attrs: Cell::new(None),
-            code: 1,
             abbrev: &abbrev,
             unit: &unit,
         };
@@ -3503,7 +3512,6 @@ mod tests {
             offset: UnitOffset(0),
             attrs_slice: &buf,
             after_attrs: Cell::new(None),
-            code: 1,
             abbrev: &abbrev,
             unit: &unit,
         };
@@ -3885,6 +3893,9 @@ mod tests {
             .abbrev_attr(DW_AT_name, DW_FORM_string)
             .abbrev_attr(DW_AT_sibling, DW_FORM_ref1)
             .abbrev_attr_null()
+            .abbrev(2, DW_TAG_subprogram, DW_CHILDREN_yes)
+            .abbrev_attr(DW_AT_name, DW_FORM_string)
+            .abbrev_attr_null()
             .abbrev_null();
         section.get_contents().unwrap()
     }
@@ -3893,30 +3904,48 @@ mod tests {
         let start = Label::new();
         let sibling004_ref = Label::new();
         let sibling004 = Label::new();
+        let sibling009_ref = Label::new();
+        let sibling009 = Label::new();
 
         let section = Section::with_endian(Endian::Little)
             .mark(&start)
-            .die(1, |s| s.attr_string("001").attr_ref1(0))
-                // Valid sibling.
+            .die(2, |s| s.attr_string("001"))
+                // Valid sibling attribute.
                 .die(1, |s| s.attr_string("002").D8(&sibling004_ref))
-                    // Invalid code.
-                    .die(2, |s| s.attr_string("003").attr_ref1(0))
+                    // Invalid code to ensure the sibling attribute was used.
+                    .die(10, |s| s.attr_string("003"))
                         .die_null()
                     .die_null()
-                // Invalid sibling.
                 .mark(&sibling004)
+                // Invalid sibling attribute.
                 .die(1, |s| s.attr_string("004").attr_ref1(255))
-                    .die(1, |s| s.attr_string("005").attr_ref1(0))
+                    .die(2, |s| s.attr_string("005"))
                         .die_null()
                     .die_null()
-                .die(1, |s| s.attr_string("006").attr_ref1(0))
-                    .die(1, |s| s.attr_string("007").attr_ref1(0))
+                // Sibling attribute in child only.
+                .die(2, |s| s.attr_string("006"))
+                    // Valid sibling attribute.
+                    .die(1, |s| s.attr_string("007").D8(&sibling009_ref))
+                        // Invalid code to ensure the sibling attribute was used.
+                        .die(10, |s| s.attr_string("008"))
+                            .die_null()
+                        .die_null()
+                    .mark(&sibling009)
+                    .die(2, |s| s.attr_string("009"))
+                        .die_null()
+                    .die_null()
+                // No sibling attribute.
+                .die(2, |s| s.attr_string("010"))
+                    .die(2, |s| s.attr_string("011"))
                         .die_null()
                     .die_null()
                 .die_null();
 
         let offset = header_size as u64 + (&sibling004 - &start) as u64;
         sibling004_ref.set_const(offset);
+
+        let offset = header_size as u64 + (&sibling009 - &start) as u64;
+        sibling009_ref.set_const(offset);
 
         section.get_contents().unwrap()
     }
@@ -3932,8 +3961,8 @@ mod tests {
 
         assert_valid_sibling_ptr(&cursor);
         assert_next_sibling(cursor, "004");
-
         assert_next_sibling(cursor, "006");
+        assert_next_sibling(cursor, "010");
 
         // There should be no more siblings.
 
