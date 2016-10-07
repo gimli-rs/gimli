@@ -54,6 +54,15 @@ $ cargo test
 
 ### <a id="coverage"></a> Test Coverage
 
+If you have `kcov` installed under linux, then you can generate code coverage
+results using the `coverage` script in the root of the repository, and view them
+at `target/kcov/index.html`. Otherwise you can create a pull request and view
+the coverage results on coveralls.io.
+
+```
+$ ./coverage
+```
+
 The ideal we aim to reach is having our unit tests exercise every branch in
 `gimli`. We allow an exception for branches which propagate errors inside a
 `try!(..)` invocation, but we *do* want to exercise the original error paths.
