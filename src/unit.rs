@@ -2485,6 +2485,7 @@ mod tests {
     use super::{parse_version, parse_debug_abbrev_offset, parse_type_offset, parse_unit_header,
                 parse_type_unit_header, parse_attribute};
     use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviation, AttributeSpecification};
+    use abbrev::tests::AbbrevSectionMethods;
     use constants;
     use constants::*;
     use endianity::{EndianBuf, Endianity, LittleEndian};
@@ -2511,10 +2512,6 @@ mod tests {
         fn die_null(self) -> Self;
         fn attr_string(self, s: &str) -> Self;
         fn attr_ref1(self, o: u8) -> Self;
-        fn abbrev(self, code: u64, tag: DwTag, children: DwChildren) -> Self;
-        fn abbrev_null(self) -> Self;
-        fn abbrev_attr(self, name: DwAt, form: DwForm) -> Self;
-        fn abbrev_attr_null(self) -> Self;
         fn offset(self, offset: usize, format: Format) -> Self;
     }
 
@@ -2583,22 +2580,6 @@ mod tests {
 
         fn attr_ref1(self, attr: u8) -> Self {
             self.D8(attr)
-        }
-
-        fn abbrev(self, code: u64, tag: DwTag, children: DwChildren) -> Self {
-            self.uleb(code).uleb(tag.0).D8(children.0)
-        }
-
-        fn abbrev_null(self) -> Self {
-            self.D8(0)
-        }
-
-        fn abbrev_attr(self, name: DwAt, form: DwForm) -> Self {
-            self.uleb(name.0).uleb(form.0)
-        }
-
-        fn abbrev_attr_null(self) -> Self {
-            self.D8(0).D8(0)
         }
 
         fn offset(self, offset: usize, format: Format) -> Self {

@@ -357,81 +357,78 @@ impl AttributeSpecification {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
+    extern crate test_assembler;
+
     use super::*;
     use constants;
-    use parser::Error;
     use endianity::LittleEndian;
+    use parser::Error;
+    use self::test_assembler::Section;
+    use test_util::GimliSectionMethods;
+
+    pub trait AbbrevSectionMethods {
+        fn abbrev(self, code: u64, tag: constants::DwTag, children: constants::DwChildren) -> Self;
+        fn abbrev_null(self) -> Self;
+        fn abbrev_attr(self, name: constants::DwAt, form: constants::DwForm) -> Self;
+        fn abbrev_attr_null(self) -> Self;
+    }
+
+    impl AbbrevSectionMethods for Section {
+        fn abbrev(self, code: u64, tag: constants::DwTag, children: constants::DwChildren) -> Self {
+            self.uleb(code).uleb(tag.0).D8(children.0)
+        }
+
+        fn abbrev_null(self) -> Self {
+            self.D8(0)
+        }
+
+        fn abbrev_attr(self, name: constants::DwAt, form: constants::DwForm) -> Self {
+            self.uleb(name.0).uleb(form.0)
+        }
+
+        fn abbrev_attr_null(self) -> Self {
+            self.D8(0).D8(0)
+        }
+    }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_debug_abbrev_ok() {
-        let buf = [
-            // Extra
-            0x01,
-            0x02,
-            0x03,
-            0x04,
+        let extra_start = [1, 2, 3, 4];
+        let expected_rest = [5, 6, 7, 8];
+        let buf = Section::new()
+            .append_bytes(&extra_start)
+            .abbrev(2, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
+            .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)
+            .abbrev_attr_null()
+            .abbrev(1,
+                    constants::DW_TAG_compile_unit,
+                    constants::DW_CHILDREN_yes)
+            .abbrev_attr(constants::DW_AT_producer, constants::DW_FORM_strp)
+            .abbrev_attr(constants::DW_AT_language, constants::DW_FORM_data2)
+            .abbrev_attr_null()
+            .abbrev_null()
+            .append_bytes(&expected_rest)
+            .get_contents()
+            .unwrap();
 
-            // Code
-            0x02,
-            // DW_TAG_subprogram
-            0x2e,
-            // DW_CHILDREN_no
-            0x00,
-            // Begin attributes
-                // Attribute name = DW_AT_name
-                0x03,
-                // Attribute form = DW_FORM_string
-                0x08,
-            // End attributes
-            0x00,
-            0x00,
-
-            // Code
-            0x01,
-            // DW_TAG_compile_unit
-            0x11,
-            // DW_CHILDREN_yes
-            0x01,
-            // Begin attributes
-                // Attribute name = DW_AT_producer
-                0x25,
-                // Attribute form = DW_FORM_strp
-                0x0e,
-                // Attribute name = DW_AT_language
-                0x13,
-                // Attribute form = DW_FORM_data2
-                0x05,
-            // End attributes
-            0x00,
-            0x00,
-
-            // Null terminator
-            0x00,
-
-            // Extra
-            0x05,
-            0x06,
-            0x07,
-            0x08
-        ];
-
-        let abbrev1 = Abbreviation::new(
-            1, constants::DW_TAG_compile_unit, constants::DW_CHILDREN_yes,
-            vec![
+        let abbrev1 = Abbreviation::new(1,
+                                        constants::DW_TAG_compile_unit,
+                                        constants::DW_CHILDREN_yes,
+                                        vec![
                 AttributeSpecification::new(constants::DW_AT_producer, constants::DW_FORM_strp),
                 AttributeSpecification::new(constants::DW_AT_language, constants::DW_FORM_data2),
             ]);
 
-        let abbrev2 = Abbreviation::new(
-            2, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no,
-            vec![
+        let abbrev2 = Abbreviation::new(2,
+                                        constants::DW_TAG_subprogram,
+                                        constants::DW_CHILDREN_no,
+                                        vec![
                 AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
             ]);
 
         let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&buf);
-        let debug_abbrev_offset = DebugAbbrevOffset(4);
+        let debug_abbrev_offset = DebugAbbrevOffset(extra_start.len());
         let abbrevs = debug_abbrev.abbreviations(debug_abbrev_offset)
             .expect("Should parse abbreviations");
         assert_eq!(abbrevs.get(1), Some(&abbrev1));
@@ -439,119 +436,61 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_parse_abbreviations_ok() {
-        let buf = [
-            // Code
-            0x02,
-            // DW_TAG_subprogram
-            0x2e,
-            // DW_CHILDREN_no
-            0x00,
-            // Begin attributes
-                // Attribute name = DW_AT_name
-                0x03,
-                // Attribute form = DW_FORM_string
-                0x08,
-            // End attributes
-            0x00,
-            0x00,
+        let expected_rest = [1, 2, 3, 4];
+        let buf = Section::new()
+            .abbrev(2, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
+            .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)
+            .abbrev_attr_null()
+            .abbrev(1,
+                    constants::DW_TAG_compile_unit,
+                    constants::DW_CHILDREN_yes)
+            .abbrev_attr(constants::DW_AT_producer, constants::DW_FORM_strp)
+            .abbrev_attr(constants::DW_AT_language, constants::DW_FORM_data2)
+            .abbrev_attr_null()
+            .abbrev_null()
+            .append_bytes(&expected_rest)
+            .get_contents()
+            .unwrap();
 
-            // Code
-            0x01,
-            // DW_TAG_compile_unit
-            0x11,
-            // DW_CHILDREN_yes
-            0x01,
-            // Begin attributes
-                // Attribute name = DW_AT_producer
-                0x25,
-                // Attribute form = DW_FORM_strp
-                0x0e,
-                // Attribute name = DW_AT_language
-                0x13,
-                // Attribute form = DW_FORM_data2
-                0x05,
-            // End attributes
-            0x00,
-            0x00,
-
-            // Null terminator
-            0x00,
-
-            // Extra
-            0x01,
-            0x02,
-            0x03,
-            0x04
-        ];
-
-        let abbrev1 = Abbreviation::new(
-            1, constants::DW_TAG_compile_unit, constants::DW_CHILDREN_yes,
-            vec![
+        let abbrev1 = Abbreviation::new(1,
+                                        constants::DW_TAG_compile_unit,
+                                        constants::DW_CHILDREN_yes,
+                                        vec![
                 AttributeSpecification::new(constants::DW_AT_producer, constants::DW_FORM_strp),
                 AttributeSpecification::new(constants::DW_AT_language, constants::DW_FORM_data2),
             ]);
 
-        let abbrev2 = Abbreviation::new(
-            2, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no,
-            vec![
+        let abbrev2 = Abbreviation::new(2,
+                                        constants::DW_TAG_subprogram,
+                                        constants::DW_CHILDREN_no,
+                                        vec![
                 AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
             ]);
 
         let (rest, abbrevs) = Abbreviations::parse(&buf).expect("Should parse abbreviations");
         assert_eq!(abbrevs.get(1), Some(&abbrev1));
         assert_eq!(abbrevs.get(2), Some(&abbrev2));
-        assert_eq!(rest, [0x01, 0x02, 0x03, 0x04]);
+        assert_eq!(rest, expected_rest);
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_parse_abbreviations_duplicate() {
-        let buf = [
-            // Code
-            0x01,
-            // DW_TAG_subprogram
-            0x2e,
-            // DW_CHILDREN_no
-            0x00,
-            // Begin attributes
-                // Attribute name = DW_AT_name
-                0x03,
-                // Attribute form = DW_FORM_string
-                0x08,
-            // End attributes
-            0x00,
-            0x00,
-
-            // Code
-            0x01,
-            // DW_TAG_compile_unit
-            0x11,
-            // DW_CHILDREN_yes
-            0x01,
-            // Begin attributes
-                // Attribute name = DW_AT_producer
-                0x25,
-                // Attribute form = DW_FORM_strp
-                0x0e,
-                // Attribute name = DW_AT_language
-                0x13,
-                // Attribute form = DW_FORM_data2
-                0x05,
-            // End attributes
-            0x00,
-            0x00,
-
-            // Null terminator
-            0x00,
-
-            // Extra
-            0x01,
-            0x02,
-            0x03,
-            0x04
-        ];
+        let expected_rest = [1, 2, 3, 4];
+        let buf = Section::new()
+            .abbrev(1, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
+            .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)
+            .abbrev_attr_null()
+            .abbrev(1,
+                    constants::DW_TAG_compile_unit,
+                    constants::DW_CHILDREN_yes)
+            .abbrev_attr(constants::DW_AT_producer, constants::DW_FORM_strp)
+            .abbrev_attr(constants::DW_AT_language, constants::DW_FORM_data2)
+            .abbrev_attr_null()
+            .abbrev_null()
+            .append_bytes(&expected_rest)
+            .get_contents()
+            .unwrap();
 
         match Abbreviations::parse(&buf) {
             Err(Error::DuplicateAbbreviationCode) => {}
@@ -590,42 +529,22 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_parse_abbreviation_ok() {
-        let buf = [
-            // Code
-            0x01,
-            // DW_TAG_subprogram
-            0x2e,
-            // DW_CHILDREN_no
-            0x00,
-            // Begin attributes
-                // Attribute name = DW_AT_name
-                0x03,
-                // Attribute form = DW_FORM_string
-                0x08,
-            // End attributes
-            0x00,
-            0x00,
+        let buf = Section::new()
+            .abbrev(1, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
+            .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)
+            .abbrev_attr_null()
+            .append_bytes(&[0x01, 0x02, 0x03, 0x04])
+            .get_contents()
+            .unwrap();
 
-            // Extra
-            0x01,
-            0x02,
-            0x03,
-            0x04
-        ];
-
-        let expect = Some(
-            Abbreviation::new(
-                1,
-                constants::DW_TAG_subprogram,
-                constants::DW_CHILDREN_no,
-                vec![
+        let expect = Some(Abbreviation::new(1,
+                                            constants::DW_TAG_subprogram,
+                                            constants::DW_CHILDREN_no,
+                                            vec![
                     AttributeSpecification::new(constants::DW_AT_name,
                                                 constants::DW_FORM_string),
-                ]
-            )
-        );
+                ]));
 
         let (rest, abbrev) = Abbreviation::parse(&buf).expect("Should parse abbreviation");
         assert_eq!(abbrev, expect);
@@ -633,18 +552,13 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_parse_null_abbreviation_ok() {
-        let buf = [
-            // Code
-            0x00,
-
-            // Extra
-            0x01,
-            0x02,
-            0x03,
-            0x04
-        ];
+        let expected_rest = [0x01, 0x02, 0x03, 0x04];
+        let buf = Section::new()
+            .abbrev_null()
+            .append_bytes(&expected_rest)
+            .get_contents()
+            .unwrap();
 
         let (rest, abbrev) = Abbreviation::parse(&buf).expect("Should parse null abbreviation");
         assert!(abbrev.is_none());
