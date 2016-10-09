@@ -3,8 +3,8 @@ use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use parser::{Error, Format, Pointer, Result, parse_address, parse_encoded_pointer,
              parse_initial_length, parse_length_uleb_value, parse_null_terminated_string,
-             parse_offset, parse_pointer_encoding, parse_signed_lebe, parse_u8, parse_u8e,
-             parse_u16, parse_u32, parse_unsigned_lebe};
+             parse_pointer_encoding, parse_signed_lebe, parse_u8, parse_u8e, parse_u16, parse_u32,
+             parse_u32_as_u64, parse_u64, parse_unsigned_lebe, u64_to_offset};
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -153,7 +153,7 @@ pub trait _UnwindSectionPrivate<'input, Endian>
     fn length_value_is_end_of_entries(length: u64) -> bool;
 
     /// Return true if the given offset if the CIE sentinel, false otherwise.
-    fn is_cie(format: Format, id: usize) -> bool;
+    fn is_cie(format: Format, id: u64) -> bool;
 
     /// Return the CIE offset/ID encoding used by this unwind section with the
     /// given DWARF format.
@@ -327,7 +327,7 @@ impl<'input, Endian> _UnwindSectionPrivate<'input, Endian> for DebugFrame<'input
         false
     }
 
-    fn is_cie(format: Format, id: usize) -> bool {
+    fn is_cie(format: Format, id: u64) -> bool {
         match format {
             Format::Dwarf32 => id == 0xffffffff,
             Format::Dwarf64 => id == 0xffffffffffffffff,
@@ -385,7 +385,7 @@ impl<'input, Endian> _UnwindSectionPrivate<'input, Endian> for EhFrame<'input, E
         length == 0
     }
 
-    fn is_cie(_: Format, id: usize) -> bool {
+    fn is_cie(_: Format, id: u64) -> bool {
         id == 0
     }
 
@@ -607,7 +607,7 @@ fn parse_cfi_entry_common<'input, Endian, Section>(input: EndianBuf<'input, Endi
                                                                      (u64,
                                                                       Format,
                                                                       EndianBuf<'input, Endian>,
-                                                                      usize,
+                                                                      u64,
                                                                       EndianBuf<'input, Endian>))>>
     where Endian: Endianity,
           Section: UnwindSection<'input, Endian>
@@ -626,8 +626,8 @@ fn parse_cfi_entry_common<'input, Endian, Section>(input: EndianBuf<'input, Endi
     let cie_offset_input = rest.range_to(..length as usize);
 
     let (rest, cie_id_or_offset) = match Section::cie_offset_encoding(format) {
-        CieOffsetEncoding::U32 => try!(parse_offset(cie_offset_input, Format::Dwarf32)),
-        CieOffsetEncoding::U64 => try!(parse_offset(cie_offset_input, Format::Dwarf64)),
+        CieOffsetEncoding::U32 => try!(parse_u32_as_u64(cie_offset_input)),
+        CieOffsetEncoding::U64 => try!(parse_u64(cie_offset_input)),
     };
 
     Ok(Some((rest_rest, (length, format, cie_offset_input, cie_id_or_offset, rest))))
@@ -665,7 +665,8 @@ fn parse_cfi_entry<'bases, 'input, Endian, Section>
         let cie = try!(CommonInformationEntry::parse_rest(length, format, bases, section, rest));
         Ok(Some((rest_rest, CieOrFde::Cie(cie))))
     } else {
-        let cie_offset = match section.resolve_cie_offset(cie_offset_input, cie_id_or_offset) {
+        let cie_offset = try!(u64_to_offset(cie_id_or_offset));
+        let cie_offset = match section.resolve_cie_offset(cie_offset_input, cie_offset) {
             None => return Err(Error::OffsetOutOfBounds),
             Some(offset) => offset,
         };
