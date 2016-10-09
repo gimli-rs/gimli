@@ -2485,6 +2485,7 @@ mod tests {
     use super::{parse_version, parse_debug_abbrev_offset, parse_type_offset, parse_unit_header,
                 parse_type_unit_header, parse_attribute};
     use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviation, AttributeSpecification};
+    use abbrev::tests::AbbrevSectionMethods;
     use constants;
     use constants::*;
     use endianity::{EndianBuf, Endianity, LittleEndian};
@@ -2511,10 +2512,6 @@ mod tests {
         fn die_null(self) -> Self;
         fn attr_string(self, s: &str) -> Self;
         fn attr_ref1(self, o: u8) -> Self;
-        fn abbrev(self, code: u64, tag: DwTag, children: DwChildren) -> Self;
-        fn abbrev_null(self) -> Self;
-        fn abbrev_attr(self, name: DwAt, form: DwForm) -> Self;
-        fn abbrev_attr_null(self) -> Self;
         fn offset(self, offset: usize, format: Format) -> Self;
     }
 
@@ -2583,22 +2580,6 @@ mod tests {
 
         fn attr_ref1(self, attr: u8) -> Self {
             self.D8(attr)
-        }
-
-        fn abbrev(self, code: u64, tag: DwTag, children: DwChildren) -> Self {
-            self.uleb(code).uleb(tag.0).D8(children.0)
-        }
-
-        fn abbrev_null(self) -> Self {
-            self.D8(0)
-        }
-
-        fn abbrev_attr(self, name: DwAt, form: DwForm) -> Self {
-            self.uleb(name.0).uleb(form.0)
-        }
-
-        fn abbrev_attr_null(self) -> Self {
-            self.D8(0).D8(0)
         }
 
         fn offset(self, offset: usize, format: Format) -> Self {
@@ -2924,7 +2905,9 @@ mod tests {
                    Ok((EndianBuf::new(expected_rest), expected_unit)));
     }
 
-    fn section_contents<F>(f: F) -> Vec<u8> where F: Fn(Section) -> Section {
+    fn section_contents<F>(f: F) -> Vec<u8>
+        where F: Fn(Section) -> Section
+    {
         f(Section::with_endian(Endian::Little)).get_contents().unwrap()
     }
 
@@ -3012,8 +2995,7 @@ mod tests {
                      (AttributeValue::Data(p1i64), Some(1), Some(1)),
                      (AttributeValue::Data(n1i64), Some(std::u64::MAX), Some(-1)),
                      (AttributeValue::Sdata(1), None, Some(1)),
-                     (AttributeValue::Udata(1), Some(1), None),
-        ];
+                     (AttributeValue::Udata(1), Some(1), None)];
         for test in tests.iter() {
             let (value, expect_udata, expect_sdata) = *test;
             let attribute = Attribute {
