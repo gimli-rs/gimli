@@ -365,6 +365,7 @@ pub mod tests {
     use endianity::LittleEndian;
     use parser::Error;
     use self::test_assembler::Section;
+    use std::{u32, u64};
     use test_util::GimliSectionMethods;
 
     pub trait AbbrevSectionMethods {
@@ -433,6 +434,91 @@ pub mod tests {
             .expect("Should parse abbreviations");
         assert_eq!(abbrevs.get(1), Some(&abbrev1));
         assert_eq!(abbrevs.get(2), Some(&abbrev2));
+    }
+
+    #[test]
+    fn test_abbreviations_insert() {
+        fn abbrev(code: u64) -> Abbreviation {
+            Abbreviation::new(code, constants::DwTag(code), constants::DW_CHILDREN_no, vec![])
+        }
+
+        fn assert_abbrev(abbrevs: &Abbreviations, code: u64) {
+            let abbrev = abbrevs.get(code).unwrap();
+            assert_eq!(abbrev.tag(), constants::DwTag(code));
+        }
+
+        // Sequential insert.
+        let mut abbrevs = Abbreviations::empty();
+        abbrevs.insert(abbrev(1)).unwrap();
+        abbrevs.insert(abbrev(2)).unwrap();
+        assert_eq!(abbrevs.vec.len(), 2);
+        assert!(abbrevs.map.is_empty());
+        assert_abbrev(&abbrevs, 1);
+        assert_abbrev(&abbrevs, 2);
+
+        // Out of order insert.
+        let mut abbrevs = Abbreviations::empty();
+        abbrevs.insert(abbrev(2)).unwrap();
+        abbrevs.insert(abbrev(3)).unwrap();
+        assert!(abbrevs.vec.is_empty());
+        assert_abbrev(&abbrevs, 2);
+        assert_abbrev(&abbrevs, 3);
+
+        // Mixed order insert.
+        let mut abbrevs = Abbreviations::empty();
+        abbrevs.insert(abbrev(1)).unwrap();
+        abbrevs.insert(abbrev(3)).unwrap();
+        abbrevs.insert(abbrev(2)).unwrap();
+        assert_eq!(abbrevs.vec.len(), 2);
+        assert_abbrev(&abbrevs, 1);
+        assert_abbrev(&abbrevs, 2);
+        assert_abbrev(&abbrevs, 3);
+
+        // Duplicate code in vec.
+        let mut abbrevs = Abbreviations::empty();
+        abbrevs.insert(abbrev(1)).unwrap();
+        abbrevs.insert(abbrev(2)).unwrap();
+        assert_eq!(abbrevs.insert(abbrev(1)), Err(()));
+        assert_eq!(abbrevs.insert(abbrev(2)), Err(()));
+
+        // Duplicate code in map when adding to map.
+        let mut abbrevs = Abbreviations::empty();
+        abbrevs.insert(abbrev(2)).unwrap();
+        assert_eq!(abbrevs.insert(abbrev(2)), Err(()));
+
+        // Duplicate code in map when adding to vec.
+        let mut abbrevs = Abbreviations::empty();
+        abbrevs.insert(abbrev(2)).unwrap();
+        abbrevs.insert(abbrev(1)).unwrap();
+        assert_eq!(abbrevs.insert(abbrev(2)), Err(()));
+
+        // 32-bit usize conversions.
+        let mut abbrevs = Abbreviations::empty();
+        abbrevs.insert(abbrev(2)).unwrap();
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "32")]
+    fn test_abbreviations_insert_32() {
+        fn abbrev(code: u64) -> Abbreviation {
+            Abbreviation::new(code, constants::DwTag(code), constants::DW_CHILDREN_no, vec![])
+        }
+
+        fn assert_abbrev(abbrevs: &Abbreviations, code: u64) {
+            let abbrev = abbrevs.get(code).unwrap();
+            assert_eq!(abbrev.tag(), constants::DwTag(code));
+        }
+
+        let mut abbrevs = Abbreviations::empty();
+        abbrevs.insert(abbrev(1)).unwrap();
+
+        let wrap_code = (u32::MAX as u64 + 1) + 1;
+        // `get` should not treat the wrapped code as `1`.
+        assert_eq!(abbrevs.get(wrap_code), None);
+        // `insert` should not treat the wrapped code as `1`.
+        abbrevs.insert(abbrev(wrap_code)).unwrap();
+        assert_abbrev(&abbrevs, 1);
+        assert_abbrev(&abbrevs, wrap_code);
     }
 
     #[test]
