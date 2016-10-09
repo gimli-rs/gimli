@@ -439,7 +439,10 @@ pub mod tests {
     #[test]
     fn test_abbreviations_insert() {
         fn abbrev(code: u64) -> Abbreviation {
-            Abbreviation::new(code, constants::DwTag(code), constants::DW_CHILDREN_no, vec![])
+            Abbreviation::new(code,
+                              constants::DwTag(code),
+                              constants::DW_CHILDREN_no,
+                              vec![])
         }
 
         fn assert_abbrev(abbrevs: &Abbreviations, code: u64) {
@@ -501,7 +504,10 @@ pub mod tests {
     #[cfg(target_pointer_width = "32")]
     fn test_abbreviations_insert_32() {
         fn abbrev(code: u64) -> Abbreviation {
-            Abbreviation::new(code, constants::DwTag(code), constants::DW_CHILDREN_no, vec![])
+            Abbreviation::new(code,
+                              constants::DwTag(code),
+                              constants::DW_CHILDREN_no,
+                              vec![])
         }
 
         fn assert_abbrev(abbrevs: &Abbreviations, code: u64) {
