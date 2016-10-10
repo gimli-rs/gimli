@@ -2912,6 +2912,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_pointer_width = "64")]
     fn test_attribute_value() {
         let mut unit = test_parse_attribute_unit_default();
 
