@@ -4,7 +4,7 @@ extern crate gimli;
 extern crate test;
 
 use gimli::{DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset, DebugPubNames,
-            DebugPubTypes, LittleEndian};
+            DebugPubTypes, LittleEndian, EntriesTreeIter};
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -65,6 +65,40 @@ fn bench_parsing_debug_info(b: &mut test::Bencher) {
             }
         }
     });
+}
+
+#[bench]
+fn bench_parsing_debug_info_tree(b: &mut test::Bencher) {
+    let debug_abbrev = read_section("debug_abbrev");
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&debug_abbrev);
+
+    let debug_info = read_section("debug_info");
+
+    b.iter(|| {
+        let debug_info = DebugInfo::<LittleEndian>::new(&debug_info);
+
+        let mut iter = debug_info.units();
+        while let Some(unit) = iter.next().expect("Should parse compilation unit") {
+            let abbrevs = unit.abbreviations(debug_abbrev)
+                .expect("Should parse abbreviations");
+
+            let mut tree = unit.entries_tree(&abbrevs).expect("Should have entries tree");
+            parse_debug_info_tree(tree.iter());
+        }
+    });
+}
+
+fn parse_debug_info_tree(mut iter: EntriesTreeIter<LittleEndian>) {
+    {
+        let entry = iter.entry().expect("Should have current entry");
+        let mut attrs = entry.attrs();
+        while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+            test::black_box(&attr);
+        }
+    }
+    while let Some(child) = iter.next().expect("Should parse child entry") {
+        parse_debug_info_tree(child);
+    }
 }
 
 #[bench]

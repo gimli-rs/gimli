@@ -222,6 +222,13 @@ impl<'input, Endian> CompilationUnitHeader<'input, Endian>
         self.header.entries(abbreviations)
     }
 
+    /// Navigate this compilation unit's `DebuggingInformationEntry`s as a tree.
+    pub fn entries_tree<'me, 'abbrev>(&'me self,
+                                      abbreviations: &'abbrev Abbreviations)
+                                      -> Result<EntriesTree<'input, 'abbrev, 'me, Endian>> {
+        self.header.entries_tree(abbreviations)
+    }
+
     /// Parse this compilation unit's abbreviations.
     ///
     /// ```
@@ -502,7 +509,7 @@ impl<'input, Endian> UnitHeader<'input, Endian>
         &self.entries_buf.0[..end]
     }
 
-    /// Navigate this compilation unit's `DebuggingInformationEntry`s.
+    /// Navigate this unit's `DebuggingInformationEntry`s.
     pub fn entries<'me, 'abbrev>(&'me self,
                                  abbreviations: &'abbrev Abbreviations)
                                  -> EntriesCursor<'input, 'abbrev, 'me, Endian> {
@@ -513,6 +520,20 @@ impl<'input, Endian> UnitHeader<'input, Endian>
             cached_current: None,
             delta_depth: 0,
         }
+    }
+
+    /// Navigate this unit's `DebuggingInformationEntry`s as a tree.
+    pub fn entries_tree<'me, 'abbrev>(&'me self,
+                                      abbreviations: &'abbrev Abbreviations)
+                                      -> Result<EntriesTree<'input, 'abbrev, 'me, Endian>> {
+        let mut cursor = self.entries(abbreviations);
+        if try!(cursor.next_entry()).is_none() {
+            return Err(Error::UnexpectedEof);
+        }
+        if cursor.current().is_none() {
+            return Err(Error::UnexpectedNull);
+        }
+        Ok(cursor.tree())
     }
 
     /// Parse this unit's abbreviations.
@@ -2153,6 +2174,166 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
             }
         }
     }
+
+    /// Return a tree view of the entries that have the current entry as the root.
+    pub fn tree(self) -> EntriesTree<'input, 'abbrev, 'unit, Endian> {
+        EntriesTree::new(self)
+    }
+}
+
+/// The state information for a tree view of the Debugging Information Entries.
+///
+/// The `EntriesTree` can be used to recursively iterate through the DIE
+/// tree, following the parent/child relationships. It maintains a single
+/// `EntriesCursor` that is used to parse the entries, allowing it to avoid
+/// any duplicate parsing of entries.
+#[derive(Clone, Debug)]
+pub struct EntriesTree<'input, 'abbrev, 'unit, Endian>
+    where 'input: 'unit,
+          Endian: Endianity + 'unit
+{
+    cursor: EntriesCursor<'input, 'abbrev, 'unit, Endian>,
+    // The depth of the entry that cursor::next_sibling() will return.
+    depth: isize,
+}
+
+impl<'input, 'abbrev, 'unit, Endian> EntriesTree<'input, 'abbrev, 'unit, Endian>
+    where Endian: Endianity
+{
+    fn new(cursor: EntriesCursor<'input, 'abbrev, 'unit, Endian>) -> Self {
+        EntriesTree {
+            cursor: cursor,
+            depth: 0,
+        }
+    }
+
+    /// Returns an iterator for the entries that are children of the current entry.
+    ///
+    /// Generally, this function should only be called when the `EntriesTree`
+    /// is first created.  This will give an iterator for the children of the
+    /// root entry.  The result of subsequent calls to this function is unspecified.
+    pub fn iter<'me>(&'me mut self) -> EntriesTreeIter<'input, 'abbrev, 'unit, 'me, Endian> {
+        let depth = self.depth + 1;
+        EntriesTreeIter::new(self, depth)
+    }
+
+    /// Move the cursor to the next entry at the specified depth.
+    ///
+    /// Requires `depth <= self.depth + 1`.
+    ///
+    /// Returns `true` if successful.
+    fn next(&mut self, depth: isize) -> Result<bool> {
+        if self.depth < depth {
+            debug_assert_eq!(self.depth + 1, depth);
+            if !self.cursor.current().map(|entry| entry.has_children()).unwrap_or(false) {
+                // Never any children.
+                return Ok(false);
+            }
+            // The next entry is the child.
+            try!(self.cursor.next_entry());
+            if self.cursor.current().is_none() {
+                // No children, don't adjust depth.
+                return Ok(false);
+            } else {
+                // Got a child, next_sibling is now at the child depth.
+                self.depth += 1;
+                return Ok(true);
+            }
+        }
+
+        loop {
+            if self.cursor.current().is_some() {
+                try!(self.cursor.next_sibling());
+            } else {
+                try!(self.cursor.next_entry());
+            }
+            if self.depth == depth {
+                if self.cursor.current().is_none() {
+                    // No more entries at the target depth.
+                    self.depth -= 1;
+                    return Ok(false);
+                } else {
+                    // Got a child at the target depth.
+                    return Ok(true);
+                }
+            }
+            if self.cursor.current().is_none() {
+                self.depth -= 1;
+            }
+        }
+    }
+}
+
+/// An iterator that allows recursive traversal of the Debugging
+/// Information Entry tree.
+///
+/// An `EntriesTreeIter` for the root node of a tree can be obtained
+/// via [`EntriesTree::iter`](./struct.EntriesTree.html#method.iter).
+///
+/// The items returned by this iterator are also `EntriesTreeIter`s,
+/// which allow traversal of grandchildren, etc.
+#[derive(Debug)]
+pub struct EntriesTreeIter<'input, 'abbrev, 'unit, 'tree, Endian>
+    where 'input: 'unit,
+          'abbrev: 'tree,
+          'unit: 'tree,
+          Endian: Endianity + 'unit
+{
+    tree: &'tree mut EntriesTree<'input, 'abbrev, 'unit, Endian>,
+    depth: isize,
+    state: EntriesTreeIterState,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum EntriesTreeIterState {
+    Parent,
+    Child,
+    None,
+}
+
+impl<'input, 'abbrev, 'unit, 'tree, Endian> EntriesTreeIter<'input, 'abbrev, 'unit, 'tree, Endian>
+    where Endian: Endianity
+{
+    fn new(tree: &'tree mut EntriesTree<'input, 'abbrev, 'unit, Endian>,
+           depth: isize)
+           -> EntriesTreeIter<'input, 'abbrev, 'unit, 'tree, Endian> {
+        EntriesTreeIter {
+            tree: tree,
+            depth: depth,
+            state: EntriesTreeIterState::Parent,
+        }
+    }
+
+    /// Returns the current entry in the tree.
+    ///
+    /// This function should only be called when the `EntriesTreeIter`
+    /// is first created.  This will return the parent entry of the iterator.
+    /// Once `next` has been called, the result of this function is `None`.
+    pub fn entry(&self) -> Option<&DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>> {
+        match self.state {
+            EntriesTreeIterState::Parent => self.tree.cursor.current(),
+            _ => None,
+        }
+    }
+
+    /// Returns an iterator for the next child entry.
+    ///
+    /// The returned iterator can be used to both obtain the child entry, and recursively
+    /// iterate over the children of the child entry.
+    ///
+    /// Returns `None` if there are no more children.
+    pub fn next<'me>(&'me mut self)
+                     -> Result<Option<EntriesTreeIter<'input, 'abbrev, 'unit, 'me, Endian>>> {
+        if self.state == EntriesTreeIterState::None {
+            Ok(None)
+        } else if try!(self.tree.next(self.depth)) {
+            self.state = EntriesTreeIterState::Child;
+            Ok(Some(EntriesTreeIter::new(self.tree, self.depth + 1)))
+        } else {
+            self.state = EntriesTreeIterState::None;
+            Ok(None)
+        }
+    }
 }
 
 /// Parse a type unit header's unique type signature. Callers should handle
@@ -2375,6 +2556,13 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
         self.header.entries(abbreviations)
     }
 
+    /// Navigate this type unit's `DebuggingInformationEntry`s as a tree.
+    pub fn entries_tree<'me, 'abbrev>(&'me self,
+                                      abbreviations: &'abbrev Abbreviations)
+                                      -> Result<EntriesTree<'input, 'abbrev, 'me, Endian>> {
+        self.header.entries_tree(abbreviations)
+    }
+
     /// Parse this type unit's abbreviations.
     ///
     /// ```
@@ -2489,7 +2677,7 @@ mod tests {
     use endianity::{EndianBuf, Endianity, LittleEndian};
     use leb128;
     use loc::DebugLocOffset;
-    use parser::{Error, Format};
+    use parser::{Error, Format, Result};
     use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use str::DebugStrOffset;
     use std;
@@ -4023,5 +4211,142 @@ mod tests {
 
         let mut cursor = unit.entries(&abbrevs);
         test_cursor_next_sibling_with_ptr(&mut cursor);
+    }
+
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn entries_tree_tests_debug_abbrevs_buf() -> Vec<u8> {
+        Section::with_endian(Endian::Little)
+            .abbrev(1, DW_TAG_subprogram, DW_CHILDREN_yes)
+                .abbrev_attr(DW_AT_name, DW_FORM_string)
+                .abbrev_attr_null()
+            .abbrev(2, DW_TAG_subprogram, DW_CHILDREN_no)
+                .abbrev_attr(DW_AT_name, DW_FORM_string)
+                .abbrev_attr_null()
+            .abbrev_null()
+            .get_contents()
+            .unwrap()
+    }
+
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn entries_tree_tests_debug_info_buf() -> Vec<u8> {
+        Section::with_endian(Endian::Little)
+            .die(1, |s| s.attr_string("root"))
+                .die(1, |s| s.attr_string("1"))
+                    .die(1, |s| s.attr_string("1a"))
+                        .die_null()
+                    .die(2, |s| s.attr_string("1b"))
+                    .die_null()
+                .die(1, |s| s.attr_string("2"))
+                    .die(1, |s| s.attr_string("2a"))
+                        .die(1, |s| s.attr_string("2a1"))
+                            .die_null()
+                        .die_null()
+                    .die(1, |s| s.attr_string("2b"))
+                        .die(2, |s| s.attr_string("2b1"))
+                        .die_null()
+                    .die_null()
+                .die(1, |s| s.attr_string("3"))
+                    .die(1, |s| s.attr_string("3a"))
+                        .die(2, |s| s.attr_string("3a1"))
+                        .die(2, |s| s.attr_string("3a2"))
+                        .die_null()
+                    .die(2, |s| s.attr_string("3b"))
+                    .die_null()
+                .die(2, |s| s.attr_string("final"))
+                .die_null()
+            .get_contents()
+            .unwrap()
+    }
+
+    #[test]
+    fn test_entries_tree() {
+        fn assert_entry<'input, 'abbrev, 'unit, 'tree, Endian>
+            (iter: Result<Option<EntriesTreeIter<'input, 'abbrev, 'unit, 'tree, Endian>>>,
+             name: &str)
+             -> EntriesTreeIter<'input, 'abbrev, 'unit, 'tree, Endian>
+            where Endian: Endianity
+        {
+            let iter = iter.expect("Should parse entry").expect("Should have entry");
+            assert_entry_name(iter.entry().expect("Should have current entry"), name);
+            iter
+        }
+
+        fn assert_null<E: Endianity>(iter: Result<Option<EntriesTreeIter<E>>>) {
+            match iter {
+                Ok(None) => {}
+                otherwise => {
+                    println!("Unexpected parse result = {:#?}", otherwise);
+                    assert!(false);
+                }
+            }
+        }
+
+        let abbrevs_buf = entries_tree_tests_debug_abbrevs_buf();
+        let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&abbrevs_buf);
+
+        let entries_buf = entries_tree_tests_debug_info_buf();
+        let mut unit = CompilationUnitHeader::<LittleEndian> {
+            header: UnitHeader {
+                unit_length: 0,
+                version: 4,
+                debug_abbrev_offset: DebugAbbrevOffset(0),
+                address_size: 4,
+                format: Format::Dwarf32,
+                entries_buf: EndianBuf::new(&entries_buf),
+            },
+            offset: DebugInfoOffset(0),
+        };
+        let info_buf =
+            Section::with_endian(Endian::Little).comp_unit(&mut unit).get_contents().unwrap();
+        let debug_info = DebugInfo::<LittleEndian>::new(&info_buf);
+
+        let unit = debug_info.units()
+            .next()
+            .expect("Should parse unit")
+            .expect("and it should be some");
+        let abbrevs = unit.abbreviations(debug_abbrev).expect("Should parse abbreviations");
+        let mut tree = unit.entries_tree(&abbrevs).expect("Should have entries tree");
+        let mut iter = tree.iter();
+        assert_entry_name(iter.entry().expect("Should have root entry"), "root");
+        {
+            // Test iteration with children.
+            let mut iter = assert_entry(iter.next(), "1");
+            {
+                // Test iteration with children flag, but no children.
+                let mut iter = assert_entry(iter.next(), "1a");
+                assert_null(iter.next());
+                assert_null(iter.next());
+            }
+            {
+                // Test iteration without children flag.
+                let mut iter = assert_entry(iter.next(), "1b");
+                assert_null(iter.next());
+                assert_null(iter.next());
+            }
+            assert!(iter.entry().is_none());
+            assert_null(iter.next());
+            assert!(iter.entry().is_none());
+            assert_null(iter.next());
+        }
+        {
+            // Test skipping over children.
+            let mut iter = assert_entry(iter.next(), "2");
+            assert_entry(iter.next(), "2a");
+            assert_entry(iter.next(), "2b");
+            assert_null(iter.next());
+        }
+        {
+            // Test skipping after partial iteration.
+            let mut iter = assert_entry(iter.next(), "3");
+            {
+                let mut iter = assert_entry(iter.next(), "3a");
+                assert_entry(iter.next(), "3a1");
+                // Parent iter should be able to skip over "3a2".
+            }
+            assert_entry(iter.next(), "3b");
+            assert_null(iter.next());
+        }
+        assert_entry(iter.next(), "final");
+        assert_null(iter.next());
     }
 }
