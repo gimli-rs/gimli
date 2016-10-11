@@ -1768,6 +1768,10 @@ impl<'input, Endian> RegisterRuleMap<'input, Endian>
     fn clear(&mut self) {
         self.rules.clear();
     }
+
+    fn iter<'me>(&'me self) -> RegisterRuleIter<'me, 'input, Endian> {
+        RegisterRuleIter(self.rules.iter())
+    }
 }
 
 impl<'a, 'input, Endian> FromIterator<&'a (u64, RegisterRule<'input, Endian>)> for RegisterRuleMap<'input, Endian>
@@ -1809,6 +1813,25 @@ impl<'input, Endian> PartialEq for RegisterRuleMap<'input, Endian>
 }
 
 impl<'input, Endian> Eq for RegisterRuleMap<'input, Endian> where Endian: Endianity {}
+
+/// An unordered iterator for register rules.
+#[derive(Debug, Clone)]
+pub struct RegisterRuleIter<'iter, 'input, Endian>(::std::slice::Iter<'iter,
+                                                                        (u64,
+                                                                         RegisterRule<'input,
+                                                                                      Endian>)>)
+    where Endian: 'iter + Endianity,
+          'input: 'iter;
+
+impl<'iter, 'input, Endian> Iterator for RegisterRuleIter<'iter, 'input, Endian>
+    where Endian: Endianity
+{
+    type Item = &'iter (u64, RegisterRule<'input, Endian>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
 
 /// A row in the virtual unwind table that describes how to find the values of
 /// the registers in the *previous* frame for a range of PC addresses.
@@ -1911,6 +1934,25 @@ impl<'input, Endian> UnwindTableRow<'input, Endian>
     /// > </table>
     pub fn register(&self, register: u64) -> RegisterRule<'input, Endian> {
         self.registers.get(register)
+    }
+
+    /// Iterate over all defined register `(number, rule)` pairs.
+    ///
+    /// The rules are not iterated in any guaranteed order. Any register that
+    /// does not make an appearance in the iterator implicitly has the rule
+    /// `RegisterRule::Undefined`.
+    ///
+    /// ```
+    /// # use gimli::{LittleEndian, UnwindTableRow};
+    /// # fn foo<'input>(unwind_table_row: UnwindTableRow<'input, LittleEndian>) {
+    /// for &(register, ref rule) in unwind_table_row.registers() {
+    ///     // ...
+    ///     # drop(register); drop(rule);
+    /// }
+    /// # }
+    /// ```
+    pub fn registers<'me>(&'me self) -> RegisterRuleIter<'me, 'input, Endian> {
+        self.registers.iter()
     }
 }
 
@@ -4992,12 +5034,51 @@ mod tests {
         assert!(map3 != map4);
         assert!(map4 != map3);
 
-        // One has undefined, other implicitly has undefined.
+        // One has undefined explicitly set, other implicitly has undefined.
         let mut map5 = RegisterRuleMap::<LittleEndian>::default();
         map5.set(0, RegisterRule::SameValue);
         map5.set(0, RegisterRule::Undefined);
         let map6 = RegisterRuleMap::<LittleEndian>::default();
         assert_eq!(map5, map6);
         assert_eq!(map6, map5);
+    }
+
+    #[test]
+    fn iter_register_rules() {
+        let mut row = UnwindTableRow::<LittleEndian>::default();
+        row.registers = [(0, RegisterRule::SameValue),
+                         (1, RegisterRule::Offset(1)),
+                         (2, RegisterRule::ValOffset(2))]
+            .iter()
+            .collect();
+
+        let mut found0 = false;
+        let mut found1 = false;
+        let mut found2 = false;
+
+        for &(register, ref rule) in row.registers() {
+            match register {
+                0 => {
+                    assert_eq!(found0, false);
+                    found0 = true;
+                    assert_eq!(*rule, RegisterRule::SameValue);
+                }
+                1 => {
+                    assert_eq!(found1, false);
+                    found1 = true;
+                    assert_eq!(*rule, RegisterRule::Offset(1));
+                }
+                2 => {
+                    assert_eq!(found2, false);
+                    found2 = true;
+                    assert_eq!(*rule, RegisterRule::ValOffset(2));
+                }
+                x => panic!("Unexpected register rule: ({}, {:?})", x, rule),
+            }
+        }
+
+        assert_eq!(found0, true);
+        assert_eq!(found1, true);
+        assert_eq!(found2, true);
     }
 }
