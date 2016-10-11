@@ -12,12 +12,18 @@ use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 /// trait. All methods are static. You shouldn't instantiate concrete objects
 /// that implement this trait, it is just used as compile-time phantom data.
 pub trait Endianity
-    : byteorder::ByteOrder + Debug + Clone + Copy + PartialEq + Eq {
+    : byteorder::ByteOrder + Debug + Default + Clone + Copy + PartialEq + Eq {
 }
 
 /// Little endian byte order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LittleEndian {}
+
+impl Default for LittleEndian {
+    fn default() -> LittleEndian {
+        unreachable!()
+    }
+}
 
 impl byteorder::ByteOrder for LittleEndian {
     fn read_u16(buf: &[u8]) -> u16 {
@@ -51,6 +57,12 @@ impl Endianity for LittleEndian {}
 /// Big endian byte order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BigEndian {}
+
+impl Default for BigEndian {
+    fn default() -> BigEndian {
+        unreachable!()
+    }
+}
 
 impl byteorder::ByteOrder for BigEndian {
     fn read_u16(buf: &[u8]) -> u16 {

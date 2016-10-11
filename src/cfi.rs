@@ -7,6 +7,7 @@ use parser::{Error, Format, Pointer, Result, parse_address, parse_encoded_pointe
              parse_u32_as_u64, parse_u64, parse_unsigned_lebe, u64_to_offset};
 use std::cell::RefCell;
 use std::fmt::Debug;
+use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::mem;
 use std::str;
@@ -1330,7 +1331,7 @@ struct UnwindContext<'input, Endian, Section>
     // initial instructions, `is_initialized` will be `false` and
     // `initial_rules` is not to be read from.
     is_initialized: bool,
-    initial_rules: Vec<RegisterRule<'input, Endian>>,
+    initial_rules: RegisterRuleMap<'input, Endian>,
 
     phantom: PhantomData<Section>,
 }
@@ -1365,7 +1366,7 @@ impl<'input, Endian, Section> UnwindContext<'input, Endian, Section>
     #[inline]
     fn assert_fully_uninitialized(&self) {
         assert_eq!(self.is_initialized, false);
-        assert_eq!(self.initial_rules.len(), 0);
+        assert_eq!(self.initial_rules.rules.len(), 0);
         assert_eq!(self.stack.len(), 1);
         assert_eq!(self.stack[0], UnwindTableRow::default());
     }
@@ -1384,13 +1385,6 @@ impl<'input, Endian, Section> UnwindContext<'input, Endian, Section>
         self.is_initialized = true;
     }
 
-    fn fill_undefined_to(&mut self, idx: usize) {
-        let mut row = self.row_mut();
-        while row.registers.len() <= idx {
-            row.registers.push(RegisterRule::Undefined);
-        }
-    }
-
     fn start_address(&self) -> u64 {
         self.row().start_address
     }
@@ -1401,10 +1395,8 @@ impl<'input, Endian, Section> UnwindContext<'input, Endian, Section>
     }
 
     fn set_register_rule(&mut self, register: u64, rule: RegisterRule<'input, Endian>) {
-        let register = register as usize;
-        self.fill_undefined_to(register);
         let row = self.row_mut();
-        row.registers[register] = rule;
+        row.registers.set(register, rule);
     }
 
     /// Returns `None` if we have not completed evaluation of a CIE's initial
@@ -1414,10 +1406,7 @@ impl<'input, Endian, Section> UnwindContext<'input, Endian, Section>
             return None;
         }
 
-        self.initial_rules
-            .get(register as usize)
-            .cloned()
-            .or(Some(RegisterRule::Undefined))
+        Some(self.initial_rules.get(register))
     }
 
     fn set_cfa(&mut self, cfa: CfaRule<'input, Endian>) {
@@ -1657,7 +1646,7 @@ impl<'input, 'cie, 'fde, 'ctx, Endian, Section> UnwindTable<'input,
 
             // Instructions that define register rules.
             Undefined { register } => {
-                self.ctx.fill_undefined_to(register as usize);
+                self.ctx.set_register_rule(register, RegisterRule::Undefined);
             }
             SameValue { register } => {
                 self.ctx.set_register_rule(register, RegisterRule::SameValue);
@@ -1720,6 +1709,130 @@ impl<'input, 'cie, 'fde, 'ctx, Endian, Section> UnwindTable<'input,
     }
 }
 
+// We tend to have very few register rules: usually only a couple. Even if we
+// have a rule for every register, on x86-64 with SSE and everything we're
+// talking about ~100 rules. So rather than keeping the rules in a hash map, or
+// a vector indexed by register number (which would lead to filling lots of
+// empty entries), we store them as a vec of (register number, register rule)
+// pairs.
+//
+// Additionally, because every register's default rule is implicitly
+// `RegisterRule::Undefined`, we never store a register's rule in this vec if it
+// is undefined and save a little bit more space and do a little fewer
+// comparisons that way.
+#[derive(Clone, Debug, Default)]
+struct RegisterRuleMap<'input, Endian>
+    where Endian: Endianity
+{
+    rules: Vec<(u64, RegisterRule<'input, Endian>)>,
+}
+
+impl<'input, Endian> RegisterRuleMap<'input, Endian>
+    where Endian: Endianity
+{
+    fn get(&self, register: u64) -> RegisterRule<'input, Endian> {
+        self.rules
+            .iter()
+            .find(|rule| rule.0 == register)
+            .map(|r| {
+                debug_assert!(r.1 != RegisterRule::Undefined);
+                r.1.clone()
+            })
+            .unwrap_or(RegisterRule::Undefined)
+    }
+
+    fn set(&mut self, register: u64, rule: RegisterRule<'input, Endian>) {
+        if rule == RegisterRule::Undefined {
+            let idx = self.rules
+                .iter()
+                .enumerate()
+                .find(|&(_, r)| r.0 == register)
+                .map(|(i, _)| i);
+            if let Some(idx) = idx {
+                self.rules.swap_remove(idx);
+            }
+            return;
+        }
+
+        for &mut (reg, ref mut old_rule) in &mut self.rules {
+            debug_assert!(*old_rule != RegisterRule::Undefined);
+            if reg == register {
+                mem::replace(old_rule, rule);
+                return;
+            }
+        }
+
+        self.rules.push((register, rule));
+    }
+
+    fn clear(&mut self) {
+        self.rules.clear();
+    }
+
+    fn iter<'me>(&'me self) -> RegisterRuleIter<'me, 'input, Endian> {
+        RegisterRuleIter(self.rules.iter())
+    }
+}
+
+impl<'a, 'input, Endian> FromIterator<&'a (u64, RegisterRule<'input, Endian>)> for RegisterRuleMap<'input, Endian>
+    where Endian: 'a + Endianity,
+          'input: 'a
+{
+    fn from_iter<T>(iter: T) -> RegisterRuleMap<'input, Endian>
+        where T: IntoIterator<Item=&'a (u64, RegisterRule<'input, Endian>)>
+    {
+        let iter = iter.into_iter();
+        let mut rules = RegisterRuleMap::default();
+        for &(reg, ref rule) in iter.filter(|r| r.1 != RegisterRule::Undefined) {
+            rules.set(reg, rule.clone());
+        }
+        rules
+    }
+}
+
+impl<'input, Endian> PartialEq for RegisterRuleMap<'input, Endian>
+    where Endian: Endianity
+{
+    fn eq(&self, rhs: &Self) -> bool {
+        for &(reg, ref rule) in &self.rules {
+            debug_assert!(*rule != RegisterRule::Undefined);
+            if *rule != rhs.get(reg) {
+                return false;
+            }
+        }
+
+        for &(reg, ref rhs_rule) in &rhs.rules {
+            debug_assert!(*rhs_rule != RegisterRule::Undefined);
+            if *rhs_rule != self.get(reg) {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+impl<'input, Endian> Eq for RegisterRuleMap<'input, Endian> where Endian: Endianity {}
+
+/// An unordered iterator for register rules.
+#[derive(Debug, Clone)]
+pub struct RegisterRuleIter<'iter, 'input, Endian>(::std::slice::Iter<'iter,
+                                                                        (u64,
+                                                                         RegisterRule<'input,
+                                                                                      Endian>)>)
+    where Endian: 'iter + Endianity,
+          'input: 'iter;
+
+impl<'iter, 'input, Endian> Iterator for RegisterRuleIter<'iter, 'input, Endian>
+    where Endian: Endianity
+{
+    type Item = &'iter (u64, RegisterRule<'input, Endian>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
 /// A row in the virtual unwind table that describes how to find the values of
 /// the registers in the *previous* frame for a range of PC addresses.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1729,7 +1842,7 @@ pub struct UnwindTableRow<'input, Endian>
     start_address: u64,
     end_address: u64,
     cfa: CfaRule<'input, Endian>,
-    registers: Vec<RegisterRule<'input, Endian>>,
+    registers: RegisterRuleMap<'input, Endian>,
 }
 
 impl<'input, Endian> Default for UnwindTableRow<'input, Endian>
@@ -1740,7 +1853,7 @@ impl<'input, Endian> Default for UnwindTableRow<'input, Endian>
             start_address: 0,
             end_address: 0,
             cfa: Default::default(),
-            registers: Vec::new(),
+            registers: Default::default(),
         }
     }
 }
@@ -1775,13 +1888,7 @@ impl<'input, Endian> UnwindTableRow<'input, Endian>
         &self.cfa
     }
 
-    /// Get the register recovery rules for this row.
-    ///
-    /// The rule at index `i` of the slice is the rule for register `i`. The
-    /// slice is **not** guaranteed to have length equal to the number of
-    /// registers on the target architecture. It is only as long as the largest
-    /// numbered register for which a recovery rule is defined in this row. All
-    /// others are implied to be `Undefined`.
+    /// Get the register recovery rule for the given register number.
     ///
     /// The register number mapping is architecture dependent. For example, in
     /// the x86-64 ABI the register number mapping is defined in Figure 3.36:
@@ -1825,8 +1932,27 @@ impl<'input, Endian> UnwindTableRow<'input, Endian>
     /// >   <tr><td>Vector Mask Registers 0–7</td>        <td>118-125</td> <td>%k0–%k7</td></tr>
     /// >   <tr><td>Reserved</td>                         <td>126-129</td> <td></td></tr>
     /// > </table>
-    pub fn registers(&self) -> &[RegisterRule<'input, Endian>] {
-        &self.registers[..]
+    pub fn register(&self, register: u64) -> RegisterRule<'input, Endian> {
+        self.registers.get(register)
+    }
+
+    /// Iterate over all defined register `(number, rule)` pairs.
+    ///
+    /// The rules are not iterated in any guaranteed order. Any register that
+    /// does not make an appearance in the iterator implicitly has the rule
+    /// `RegisterRule::Undefined`.
+    ///
+    /// ```
+    /// # use gimli::{LittleEndian, UnwindTableRow};
+    /// # fn foo<'input>(unwind_table_row: UnwindTableRow<'input, LittleEndian>) {
+    /// for &(register, ref rule) in unwind_table_row.registers() {
+    ///     // ...
+    ///     # drop(register); drop(rule);
+    /// }
+    /// # }
+    /// ```
+    pub fn registers<'me>(&'me self) -> RegisterRuleIter<'me, 'input, Endian> {
+        self.registers.iter()
     }
 }
 
@@ -2418,7 +2544,7 @@ mod tests {
     extern crate test_assembler;
 
     use super::*;
-    use super::{AugmentationData, parse_cfi_entry, UnwindContext};
+    use super::{AugmentationData, parse_cfi_entry, RegisterRuleMap, UnwindContext};
     use constants;
     use endianity::{BigEndian, Endianity, EndianBuf, LittleEndian, NativeEndian};
     use parser::{Error, Format, Pointer, Result};
@@ -4203,11 +4329,11 @@ mod tests {
         let mut ctx = ctx.initialize(&cie).expect("Should run initial program OK");
 
         assert!(ctx.0.is_initialized);
-        let expected_initial_rules = [RegisterRule::Offset(8),
-                                      RegisterRule::Undefined,
-                                      RegisterRule::Undefined,
-                                      RegisterRule::Offset(4)];
-        assert_eq!(&ctx.0.initial_rules[..], &expected_initial_rules[..]);
+        let expected_initial_rules: RegisterRuleMap<_> = [(0, RegisterRule::Offset(8)),
+                                                          (3, RegisterRule::Offset(4))]
+            .into_iter()
+            .collect();
+        assert_eq!(ctx.0.initial_rules, expected_initial_rules);
 
         let mut table = UnwindTable::new(&mut ctx, &fde);
 
@@ -4220,10 +4346,9 @@ mod tests {
                     register: 4,
                     offset: -12,
                 },
-                registers: vec![RegisterRule::Offset(8),
-                                RegisterRule::Undefined,
-                                RegisterRule::Undefined,
-                                RegisterRule::Offset(4)],
+                registers: [(0, RegisterRule::Offset(8)), (3, RegisterRule::Offset(4))]
+                    .into_iter()
+                    .collect(),
             };
             assert_eq!(Some(&expected), row);
         }
@@ -4237,10 +4362,9 @@ mod tests {
                     register: 4,
                     offset: -12,
                 },
-                registers: vec![RegisterRule::Offset(-16),
-                                RegisterRule::Undefined,
-                                RegisterRule::Undefined,
-                                RegisterRule::Offset(4)],
+                registers: [(0, RegisterRule::Offset(-16)), (3, RegisterRule::Offset(4))]
+                    .into_iter()
+                    .collect(),
             };
             assert_eq!(Some(&expected), row);
         }
@@ -4254,10 +4378,9 @@ mod tests {
                     register: 4,
                     offset: -12,
                 },
-                registers: vec![RegisterRule::Offset(-16),
-                                RegisterRule::Undefined,
-                                RegisterRule::Undefined,
-                                RegisterRule::Offset(-4)],
+                registers: [(0, RegisterRule::Offset(-16)), (3, RegisterRule::Offset(-4))]
+                    .into_iter()
+                    .collect(),
             };
             assert_eq!(Some(&expected), row);
         }
@@ -4271,12 +4394,11 @@ mod tests {
                     register: 4,
                     offset: -12,
                 },
-                registers: vec![RegisterRule::Offset(-16),
-                                RegisterRule::Undefined,
-                                RegisterRule::Undefined,
-                                RegisterRule::Offset(-4),
-                                RegisterRule::Undefined,
-                                RegisterRule::Offset(4)],
+                registers: [(0, RegisterRule::Offset(-16)),
+                            (3, RegisterRule::Offset(-4)),
+                            (5, RegisterRule::Offset(4))]
+                    .into_iter()
+                    .collect(),
             };
             assert_eq!(Some(&expected), row);
         }
@@ -4397,7 +4519,7 @@ mod tests {
                            register: 4,
                            offset: -12,
                        },
-                       registers: vec![RegisterRule::Offset(-16)],
+                       registers: [(0, RegisterRule::Offset(-16))].into_iter().collect(),
                    });
     }
 
@@ -4884,5 +5006,79 @@ mod tests {
         let bases = BaseAddresses::default();
         let mut iter = section.entries(&bases);
         assert_eq!(iter.next(), Err(Error::FuncRelativePointerInBadContext));
+    }
+
+    #[test]
+    fn register_rule_map_eq() {
+        // Different order, but still equal.
+        let map1: RegisterRuleMap<LittleEndian> = [(0, RegisterRule::SameValue),
+                                                   (3, RegisterRule::Offset(1))]
+            .iter()
+            .collect();
+        let map2: RegisterRuleMap<LittleEndian> = [(3, RegisterRule::Offset(1)),
+                                                   (0, RegisterRule::SameValue)]
+            .iter()
+            .collect();
+        assert_eq!(map1, map2);
+        assert_eq!(map2, map1);
+
+        // Not equal.
+        let map3: RegisterRuleMap<LittleEndian> = [(0, RegisterRule::SameValue),
+                                                   (2, RegisterRule::Offset(1))]
+            .iter()
+            .collect();
+        let map4: RegisterRuleMap<LittleEndian> = [(3, RegisterRule::Offset(1)),
+                                                   (0, RegisterRule::SameValue)]
+            .iter()
+            .collect();
+        assert!(map3 != map4);
+        assert!(map4 != map3);
+
+        // One has undefined explicitly set, other implicitly has undefined.
+        let mut map5 = RegisterRuleMap::<LittleEndian>::default();
+        map5.set(0, RegisterRule::SameValue);
+        map5.set(0, RegisterRule::Undefined);
+        let map6 = RegisterRuleMap::<LittleEndian>::default();
+        assert_eq!(map5, map6);
+        assert_eq!(map6, map5);
+    }
+
+    #[test]
+    fn iter_register_rules() {
+        let mut row = UnwindTableRow::<LittleEndian>::default();
+        row.registers = [(0, RegisterRule::SameValue),
+                         (1, RegisterRule::Offset(1)),
+                         (2, RegisterRule::ValOffset(2))]
+            .iter()
+            .collect();
+
+        let mut found0 = false;
+        let mut found1 = false;
+        let mut found2 = false;
+
+        for &(register, ref rule) in row.registers() {
+            match register {
+                0 => {
+                    assert_eq!(found0, false);
+                    found0 = true;
+                    assert_eq!(*rule, RegisterRule::SameValue);
+                }
+                1 => {
+                    assert_eq!(found1, false);
+                    found1 = true;
+                    assert_eq!(*rule, RegisterRule::Offset(1));
+                }
+                2 => {
+                    assert_eq!(found2, false);
+                    found2 = true;
+                    assert_eq!(*rule, RegisterRule::ValOffset(2));
+                }
+                x => panic!("Unexpected register rule: ({}, {:?})", x, rule),
+            }
+        }
+
+        assert_eq!(found0, true);
+        assert_eq!(found1, true);
+        assert_eq!(found2, true);
     }
 }
