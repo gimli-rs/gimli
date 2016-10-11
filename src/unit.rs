@@ -1782,9 +1782,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// If the cursor is not pointing at an entry, or if the current entry is a
     /// null entry, then `None` is returned.
     #[inline]
-    pub fn current<'me>
-        (&'me self)
-         -> Option<&'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>> {
+    pub fn current(&self) -> Option<&DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>> {
         self.cached_current.as_ref()
     }
 
@@ -1970,9 +1968,9 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// println!("The first entry with no children is {:?}",
     ///          first_entry_with_no_children.unwrap());
     /// ```
-    pub fn next_dfs<'me>
-        (&'me mut self)
-         -> Result<Option<(isize, &'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>)>> {
+    pub fn next_dfs
+        (&mut self)
+         -> Result<Option<(isize, &DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>)>> {
         let mut delta_depth = self.delta_depth;
         loop {
             // Keep eating null entries that mark the end of an entry's children.
@@ -2109,9 +2107,9 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     ///     }
     /// }
     /// ```
-    pub fn next_sibling<'me>
-        (&'me mut self)
-         -> Result<Option<(&'me DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>)>> {
+    pub fn next_sibling
+        (&mut self)
+         -> Result<Option<(&DebuggingInformationEntry<'input, 'abbrev, 'unit, Endian>)>> {
         if self.current().is_none() {
             // We're already at the null for the end of the sibling list.
             return Ok(None);
