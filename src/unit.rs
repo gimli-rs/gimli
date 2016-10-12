@@ -2223,6 +2223,7 @@ pub struct EntriesTree<'input, 'abbrev, 'unit, Endian>
     where 'input: 'unit,
           Endian: Endianity + 'unit
 {
+    start: EntriesCursor<'input, 'abbrev, 'unit, Endian>,
     cursor: EntriesCursor<'input, 'abbrev, 'unit, Endian>,
     // The depth of the entry that cursor::next_sibling() will return.
     depth: isize,
@@ -2232,20 +2233,19 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesTree<'input, 'abbrev, 'unit, Endian>
     where Endian: Endianity
 {
     fn new(cursor: EntriesCursor<'input, 'abbrev, 'unit, Endian>) -> Self {
+        let start = cursor.clone();
         EntriesTree {
+            start: start,
             cursor: cursor,
             depth: 0,
         }
     }
 
     /// Returns an iterator for the entries that are children of the current entry.
-    ///
-    /// Generally, this function should only be called when the `EntriesTree`
-    /// is first created.  This will give an iterator for the children of the
-    /// root entry.  The result of subsequent calls to this function is unspecified.
     pub fn iter<'me>(&'me mut self) -> EntriesTreeIter<'input, 'abbrev, 'unit, 'me, Endian> {
-        let depth = self.depth + 1;
-        EntriesTreeIter::new(self, depth)
+        self.cursor = self.start.clone();
+        self.depth = 0;
+        EntriesTreeIter::new(self, 1)
     }
 
     /// Move the cursor to the next entry at the specified depth.
@@ -4337,6 +4337,19 @@ mod tests {
             .expect("and it should be some");
         let abbrevs = unit.abbreviations(debug_abbrev).expect("Should parse abbreviations");
         let mut tree = unit.entries_tree(&abbrevs).expect("Should have entries tree");
+
+        // Test we can restart iteration of the tree.
+        {
+            let mut iter = tree.iter();
+            assert_entry_name(iter.entry().expect("Should have root entry"), "root");
+            assert_entry(iter.next(), "1");
+        }
+        {
+            let mut iter = tree.iter();
+            assert_entry_name(iter.entry().expect("Should have root entry"), "root");
+            assert_entry(iter.next(), "1");
+        }
+
         let mut iter = tree.iter();
         assert_entry_name(iter.entry().expect("Should have root entry"), "root");
         {
