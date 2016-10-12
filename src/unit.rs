@@ -2187,6 +2187,37 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
 /// tree, following the parent/child relationships. It maintains a single
 /// `EntriesCursor` that is used to parse the entries, allowing it to avoid
 /// any duplicate parsing of entries.
+///
+/// ## Example Usage
+/// ```rust,no_run
+/// extern crate gimli;
+///
+/// # fn example() -> Result<(), gimli::Error> {
+/// # let debug_info = gimli::DebugInfo::<gimli::LittleEndian>::new(&[]);
+/// # let get_some_unit = || debug_info.units().next().unwrap().unwrap();
+/// let unit = get_some_unit();
+/// # let debug_abbrev = gimli::DebugAbbrev::<gimli::LittleEndian>::new(&[]);
+/// # let get_abbrevs_for_unit = |_| unit.abbreviations(debug_abbrev).unwrap();
+/// let abbrevs = get_abbrevs_for_unit(&unit);
+///
+/// let mut tree = try!(unit.entries_tree(&abbrevs));
+/// try!(process_tree(tree.iter()));
+/// # Ok(())
+/// # }
+///
+/// fn process_tree<E>(mut iter: gimli::EntriesTreeIter<E>) -> gimli::Result<()>
+///     where E: gimli::Endianity
+/// {
+///     if let Some(entry) = iter.entry() {
+///         // Examine the entry attributes.
+///     }
+///     while let Some(child) = try!(iter.next()) {
+///         // Recursively process a child.
+///         process_tree(child);
+///     }
+///     Ok(())
+/// }
+/// ```
 #[derive(Clone, Debug)]
 pub struct EntriesTree<'input, 'abbrev, 'unit, Endian>
     where 'input: 'unit,
