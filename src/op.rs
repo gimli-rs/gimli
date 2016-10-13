@@ -244,8 +244,7 @@ fn compute_pc<'input, Endian>(pc: EndianBuf<'input, Endian>,
                               -> Result<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
-    let pcbytes: &[u8] = pc.into();
-    let this_len = pcbytes.len();
+    let this_len = pc.len();
     let full_len = bytecode.len();
     let new_pc = (full_len - this_len).wrapping_add(offset as usize);
     if new_pc > full_len {
@@ -1224,8 +1223,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
                     }
 
                     _ => {
-                        let pcbytes: &[u8] = self.pc.into();
-                        let value = self.bytecode.len() - pcbytes.len() - 1;
+                        let value = self.bytecode.len() - self.pc.len() - 1;
                         return Err(Error::InvalidExpressionTerminator(value));
                     }
                 }
@@ -1313,8 +1311,7 @@ mod tests {
         match value {
             Ok((pc, val)) => {
                 assert_eq!(val, *expect);
-                let pcbytes: &[u8] = pc.into();
-                assert_eq!(pcbytes.len(), 0);
+                assert_eq!(pc.len(), 0);
             }
             _ => panic!("Unexpected result"),
         }
