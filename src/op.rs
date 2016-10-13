@@ -1246,14 +1246,17 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
 
 #[cfg(test)]
 mod tests {
+    extern crate test_assembler;
+
     use super::*;
     use super::compute_pc;
     use constants;
     use endianity::{EndianBuf, LittleEndian};
     use leb128;
     use parser::{Error, Format, Result};
-    use std::io::Write;
+    use self::test_assembler::{Endian, Section};
     use unit::{DebugInfoOffset, UnitOffset};
+    use test_util::GimliSectionMethods;
 
     #[test]
     fn test_compute_pc() {
@@ -1300,6 +1303,19 @@ mod tests {
 
             _ => panic!("Unexpected result"),
         }
+    }
+
+    fn check_op_parse<F>(input: F,
+                         expect: &Operation<LittleEndian>,
+                         address_size: u8,
+                         format: Format)
+        where F: Fn(Section) -> Section
+    {
+        let input = input(Section::with_endian(Endian::Little)).get_contents().unwrap();
+        for i in 1..input.len() {
+            check_op_parse_failure(&input[..i], Error::UnexpectedEof, address_size, format);
+        }
+        check_op_parse_simple(&input, expect, address_size, format);
     }
 
     #[test]
@@ -1420,8 +1436,7 @@ mod tests {
 
         for item in inputs.iter() {
             let (opcode, ref result) = *item;
-            let input = [opcode.0];
-            check_op_parse_simple(&input[..], result, address_size, format);
+            check_op_parse(|s| s.D8(opcode.0), result, address_size, format);
         }
     }
 
@@ -1451,11 +1466,7 @@ mod tests {
 
         for item in inputs.iter() {
             let (opcode, arg, ref result) = *item;
-            let input = [opcode.0, arg];
-
-            // Too short.
-            check_op_parse_failure(&input[..1], Error::UnexpectedEof, address_size, format);
-            check_op_parse_simple(&input[..], result, address_size, format);
+            check_op_parse(|s| s.D8(opcode.0).D8(arg), result, address_size, format);
         }
     }
 
@@ -1477,17 +1488,7 @@ mod tests {
 
         for item in inputs.iter() {
             let (opcode, arg, ref result) = *item;
-
-            let arglow = (arg & 0xff) as u8;
-            let arghigh = (arg >> 8) as u8;
-
-            let input = [opcode.0, arglow, arghigh];
-
-            // Too short.
-            check_op_parse_failure(&input[..1], Error::UnexpectedEof, address_size, format);
-            check_op_parse_failure(&input[..2], Error::UnexpectedEof, address_size, format);
-
-            check_op_parse_simple(&input[..], result, address_size, Format::Dwarf32);
+            check_op_parse(|s| s.D8(opcode.0).L16(arg), result, address_size, format);
         }
     }
 
@@ -1503,10 +1504,6 @@ mod tests {
             // Test sanity checking.
             assert!(input.len() >= 3);
 
-            // Too short.
-            check_op_parse_failure(&input[..1], Error::UnexpectedEof, ADDRESS_SIZE, FORMAT);
-            check_op_parse_failure(&input[..2], Error::UnexpectedEof, ADDRESS_SIZE, FORMAT);
-
             let expect = if input[0] == constants::DW_OP_bra.0 {
                 Operation::Bra { target: EndianBuf::<LittleEndian>::new(target) }
             } else {
@@ -1514,7 +1511,7 @@ mod tests {
                 Operation::Skip { target: EndianBuf::<LittleEndian>::new(target) }
             };
 
-            check_op_parse_simple(input, &expect, ADDRESS_SIZE, FORMAT);
+            check_op_parse(|s| s.append_bytes(input), &expect, ADDRESS_SIZE, FORMAT);
         }
 
         for opcode in inputs.iter() {
@@ -1563,21 +1560,8 @@ mod tests {
               Operation::Call { offset: DieReference::DebugInfoRef(DebugInfoOffset(0x12345678)) })];
 
         for item in inputs.iter() {
-            let (op, mut val, ref expect) = *item;
-
-            let mut contents = [op.0, 0, 0, 0, 0];
-            for i in 1..5 {
-                contents[i] = (val & 0xff) as u8;
-                val >>= 8;
-            }
-
-            // Too short.
-            let input = &contents;
-            check_op_parse_failure(&input[..1], Error::UnexpectedEof, address_size, format);
-            check_op_parse_failure(&input[..2], Error::UnexpectedEof, address_size, format);
-            check_op_parse_failure(&input[..3], Error::UnexpectedEof, address_size, format);
-
-            check_op_parse_simple(input, expect, address_size, format);
+            let (op, arg, ref expect) = *item;
+            check_op_parse(|s| s.D8(op.0).L32(arg), expect, address_size, format);
         }
     }
 
@@ -1604,21 +1588,8 @@ mod tests {
                       })];
 
         for item in inputs.iter() {
-            let (op, mut val, ref expect) = *item;
-
-            let mut contents = [op.0, 0, 0, 0, 0, 0, 0, 0, 0];
-            for i in 1..9 {
-                contents[i] = (val & 0xff) as u8;
-                val >>= 8;
-            }
-
-            // Too short.
-            let input = &contents;
-            for i in 1..8 {
-                check_op_parse_failure(&input[..i], Error::UnexpectedEof, address_size, format);
-            }
-
-            check_op_parse_simple(input, expect, address_size, format);
+            let (op, arg, ref expect) = *item;
+            check_op_parse(|s| s.D8(op.0).L64(arg), expect, address_size, format);
         }
     }
 
@@ -1653,17 +1624,7 @@ mod tests {
 
             for item in inputs.iter() {
                 let (op, ref expect) = *item;
-
-                let mut buffer = Vec::new();
-                buffer.push(op);
-                leb128::write::signed(&mut buffer, *value).unwrap();
-
-                // Too short.
-                for i in 1..buffer.len() - 1 {
-                    check_op_parse_failure(&buffer[..i], Error::UnexpectedEof, address_size, format)
-                }
-
-                check_op_parse_simple(&buffer[..], expect, address_size, format);
+                check_op_parse(|s| s.D8(op).sleb(*value), expect, address_size, format);
             }
         }
     }
@@ -1693,17 +1654,12 @@ mod tests {
 
             for item in inputs.iter() {
                 let (op, ref expect) = *item;
-
-                let mut buffer = Vec::new();
-                buffer.push(op.0);
-                leb128::write::unsigned(&mut buffer, *value).unwrap();
-
-                // Too short.
-                for i in 1..buffer.len() - 1 {
-                    check_op_parse_failure(&buffer[..i], Error::UnexpectedEof, address_size, format)
-                }
-
-                check_op_parse_simple(&buffer[..], expect, address_size, format);
+                let input = Section::with_endian(Endian::Little)
+                    .D8(op.0)
+                    .uleb(*value)
+                    .get_contents()
+                    .unwrap();
+                check_op_parse_simple(&input, expect, address_size, format);
             }
         }
     }
@@ -1727,22 +1683,13 @@ mod tests {
 
         for v1 in uvalues.iter() {
             for v2 in svalues.iter() {
-                let mut buffer = vec![constants::DW_OP_bregx.0];
-                leb128::write::unsigned(&mut buffer, *v1).unwrap();
-                leb128::write::signed(&mut buffer, *v2).unwrap();
-
-                // Too short.
-                for i in 1..buffer.len() - 1 {
-                    check_op_parse_failure(&buffer[..i], Error::UnexpectedEof, address_size, format)
-                }
-
-                check_op_parse_simple(&buffer[..],
-                                      &Operation::RegisterOffset {
-                                          register: *v1,
-                                          offset: *v2,
-                                      },
-                                      address_size,
-                                      format);
+                check_op_parse(|s| s.D8(constants::DW_OP_bregx.0).uleb(*v1).sleb(*v2),
+                               &Operation::RegisterOffset {
+                                   register: *v1,
+                                   offset: *v2,
+                               },
+                               address_size,
+                               format);
             }
         }
     }
@@ -1757,16 +1704,13 @@ mod tests {
 
         for v1 in values.iter() {
             for v2 in values.iter() {
-                let mut buffer = vec![constants::DW_OP_bit_piece.0];
-                leb128::write::unsigned(&mut buffer, *v1).unwrap();
-                leb128::write::unsigned(&mut buffer, *v2).unwrap();
-
-                // Too short.
-                for i in 1..buffer.len() - 1 {
-                    check_op_parse_failure(&buffer[..i], Error::UnexpectedEof, address_size, format)
-                }
-
-                check_op_parse_simple(&buffer[..],
+                let input = Section::with_endian(Endian::Little)
+                    .D8(constants::DW_OP_bit_piece.0)
+                    .uleb(*v1)
+                    .uleb(*v2)
+                    .get_contents()
+                    .unwrap();
+                check_op_parse_simple(&input,
                                       &Operation::Piece {
                                           size_in_bits: *v1,
                                           bit_offset: Some(*v2),
@@ -1784,19 +1728,15 @@ mod tests {
         let format = Format::Dwarf32;
 
         let data = b"hello";
-        let mut buffer = vec![constants::DW_OP_implicit_value.0];
-        leb128::write::unsigned(&mut buffer, data.len() as u64).unwrap();
-        buffer.write_all(data).unwrap();
 
-        // Too short.
-        for i in 1..buffer.len() - 1 {
-            check_op_parse_failure(&buffer[..i], Error::UnexpectedEof, address_size, format)
-        }
-
-        check_op_parse_simple(&buffer[..],
-                              &Operation::ImplicitValue { data: &data[..] },
-                              address_size,
-                              format);
+        check_op_parse(|s| {
+                           s.D8(constants::DW_OP_implicit_value.0)
+                               .uleb(data.len() as u64)
+                               .append_bytes(&data[..])
+                       },
+                       &Operation::ImplicitValue { data: &data[..] },
+                       address_size,
+                       format);
     }
 
     #[derive(Clone, Copy, Debug)]
