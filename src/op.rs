@@ -7,13 +7,7 @@ use parser::{Error, Result, Format, parse_u8e, parse_i8e, parse_u16, parse_i16, 
 use endianity::{Endianity, EndianBuf};
 use unit::{UnitOffset, DebugInfoOffset};
 use std::marker::PhantomData;
-#[cfg(test)]
-use endianity::LittleEndian;
-#[cfg(test)]
-use leb128;
 use std::fmt;
-#[cfg(test)]
-use std::io::Write;
 
 /// A reference to a DIE, either relative to the current CU or
 /// relative to the section.
@@ -258,51 +252,6 @@ fn compute_pc<'input, Endian>(pc: EndianBuf<'input, Endian>,
         Err(Error::BadBranchTarget(new_pc))
     } else {
         Ok(EndianBuf::new(&bytecode[new_pc..]))
-    }
-}
-
-#[test]
-fn test_compute_pc() {
-    // Contents don't matter for this test, just length.
-    let bytes = [0, 1, 2, 3, 4];
-    let bytecode = &bytes[..];
-    let ebuf = EndianBuf::<LittleEndian>::new(bytecode);
-
-    match compute_pc(ebuf, bytecode, 0) {
-        Ok(val) => {
-            let valbytes: &[u8] = val.into();
-            assert_eq!(valbytes.len(), bytecode.len());
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-
-    match compute_pc(ebuf, bytecode, -1) {
-        Err(Error::BadBranchTarget(_)) => {}
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-
-    match compute_pc(ebuf, bytecode, 5) {
-        Ok(val) => {
-            let valbytes: &[u8] = val.into();
-            assert_eq!(valbytes.len(), 0);
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-
-    match compute_pc(EndianBuf::<LittleEndian>::new(&bytes[3..]), bytecode, -2) {
-        Ok(val) => {
-            let valbytes: &[u8] = val.into();
-            assert_eq!(valbytes.len(), bytecode.len() - 1);
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
-    }
-
-    match compute_pc(EndianBuf::<LittleEndian>::new(&bytes[2..]), bytecode, 2) {
-        Ok(val) => {
-            let valbytes: &[u8] = val.into();
-            assert_eq!(valbytes.len(), bytecode.len() - 4);
-        }
-        otherwise => panic!("Unexpected result: {:?}", otherwise),
     }
 }
 
@@ -829,535 +778,6 @@ impl<'input, Endian> Operation<'input, Endian>
     }
 }
 
-#[cfg(test)]
-fn check_op_parse_simple(input: &[u8],
-                         expect: &Operation<LittleEndian>,
-                         address_size: u8,
-                         format: Format) {
-    let value = Operation::parse(EndianBuf::<LittleEndian>::new(input),
-                                 input,
-                                 address_size,
-                                 format);
-    match value {
-        Ok((pc, val)) => {
-            assert_eq!(val, *expect);
-            let pcbytes: &[u8] = pc.into();
-            assert_eq!(pcbytes.len(), 0);
-        }
-        _ => panic!("Unexpected result"),
-    }
-}
-
-#[cfg(test)]
-fn check_op_parse_failure(input: &[u8], expect: Error, address_size: u8, format: Format) {
-    match Operation::parse(EndianBuf::<LittleEndian>::new(input),
-                           input,
-                           address_size,
-                           format) {
-        Err(x) => {
-            assert_eq!(x, expect);
-        }
-
-        _ => panic!("Unexpected result"),
-    }
-}
-
-#[test]
-fn test_op_parse_onebyte() {
-    // Doesn't matter for this test.
-    let address_size = 4;
-    let format = Format::Dwarf32;
-
-    // Test all single-byte opcodes.
-    let inputs = [(constants::DW_OP_deref,
-                   Operation::Deref {
-                      size: address_size,
-                      space: false,
-                  }),
-                  (constants::DW_OP_dup, Operation::Pick { index: 0 }),
-                  (constants::DW_OP_drop, Operation::Drop),
-                  (constants::DW_OP_over, Operation::Pick { index: 1 }),
-                  (constants::DW_OP_swap, Operation::Swap),
-                  (constants::DW_OP_rot, Operation::Rot),
-                  (constants::DW_OP_xderef,
-                   Operation::Deref {
-                      size: address_size,
-                      space: true,
-                  }),
-                  (constants::DW_OP_abs, Operation::Abs),
-                  (constants::DW_OP_and, Operation::And),
-                  (constants::DW_OP_div, Operation::Div),
-                  (constants::DW_OP_minus, Operation::Minus),
-                  (constants::DW_OP_mod, Operation::Mod),
-                  (constants::DW_OP_mul, Operation::Mul),
-                  (constants::DW_OP_neg, Operation::Neg),
-                  (constants::DW_OP_not, Operation::Not),
-                  (constants::DW_OP_or, Operation::Or),
-                  (constants::DW_OP_plus, Operation::Plus),
-                  (constants::DW_OP_shl, Operation::Shl),
-                  (constants::DW_OP_shr, Operation::Shr),
-                  (constants::DW_OP_shra, Operation::Shra),
-                  (constants::DW_OP_xor, Operation::Xor),
-                  (constants::DW_OP_eq, Operation::Eq),
-                  (constants::DW_OP_ge, Operation::Ge),
-                  (constants::DW_OP_gt, Operation::Gt),
-                  (constants::DW_OP_le, Operation::Le),
-                  (constants::DW_OP_lt, Operation::Lt),
-                  (constants::DW_OP_ne, Operation::Ne),
-                  (constants::DW_OP_lit0, Operation::Literal { value: 0 }),
-                  (constants::DW_OP_lit1, Operation::Literal { value: 1 }),
-                  (constants::DW_OP_lit2, Operation::Literal { value: 2 }),
-                  (constants::DW_OP_lit3, Operation::Literal { value: 3 }),
-                  (constants::DW_OP_lit4, Operation::Literal { value: 4 }),
-                  (constants::DW_OP_lit5, Operation::Literal { value: 5 }),
-                  (constants::DW_OP_lit6, Operation::Literal { value: 6 }),
-                  (constants::DW_OP_lit7, Operation::Literal { value: 7 }),
-                  (constants::DW_OP_lit8, Operation::Literal { value: 8 }),
-                  (constants::DW_OP_lit9, Operation::Literal { value: 9 }),
-                  (constants::DW_OP_lit10, Operation::Literal { value: 10 }),
-                  (constants::DW_OP_lit11, Operation::Literal { value: 11 }),
-                  (constants::DW_OP_lit12, Operation::Literal { value: 12 }),
-                  (constants::DW_OP_lit13, Operation::Literal { value: 13 }),
-                  (constants::DW_OP_lit14, Operation::Literal { value: 14 }),
-                  (constants::DW_OP_lit15, Operation::Literal { value: 15 }),
-                  (constants::DW_OP_lit16, Operation::Literal { value: 16 }),
-                  (constants::DW_OP_lit17, Operation::Literal { value: 17 }),
-                  (constants::DW_OP_lit18, Operation::Literal { value: 18 }),
-                  (constants::DW_OP_lit19, Operation::Literal { value: 19 }),
-                  (constants::DW_OP_lit20, Operation::Literal { value: 20 }),
-                  (constants::DW_OP_lit21, Operation::Literal { value: 21 }),
-                  (constants::DW_OP_lit22, Operation::Literal { value: 22 }),
-                  (constants::DW_OP_lit23, Operation::Literal { value: 23 }),
-                  (constants::DW_OP_lit24, Operation::Literal { value: 24 }),
-                  (constants::DW_OP_lit25, Operation::Literal { value: 25 }),
-                  (constants::DW_OP_lit26, Operation::Literal { value: 26 }),
-                  (constants::DW_OP_lit27, Operation::Literal { value: 27 }),
-                  (constants::DW_OP_lit28, Operation::Literal { value: 28 }),
-                  (constants::DW_OP_lit29, Operation::Literal { value: 29 }),
-                  (constants::DW_OP_lit30, Operation::Literal { value: 30 }),
-                  (constants::DW_OP_lit31, Operation::Literal { value: 31 }),
-                  (constants::DW_OP_reg0, Operation::Register { register: 0 }),
-                  (constants::DW_OP_reg1, Operation::Register { register: 1 }),
-                  (constants::DW_OP_reg2, Operation::Register { register: 2 }),
-                  (constants::DW_OP_reg3, Operation::Register { register: 3 }),
-                  (constants::DW_OP_reg4, Operation::Register { register: 4 }),
-                  (constants::DW_OP_reg5, Operation::Register { register: 5 }),
-                  (constants::DW_OP_reg6, Operation::Register { register: 6 }),
-                  (constants::DW_OP_reg7, Operation::Register { register: 7 }),
-                  (constants::DW_OP_reg8, Operation::Register { register: 8 }),
-                  (constants::DW_OP_reg9, Operation::Register { register: 9 }),
-                  (constants::DW_OP_reg10, Operation::Register { register: 10 }),
-                  (constants::DW_OP_reg11, Operation::Register { register: 11 }),
-                  (constants::DW_OP_reg12, Operation::Register { register: 12 }),
-                  (constants::DW_OP_reg13, Operation::Register { register: 13 }),
-                  (constants::DW_OP_reg14, Operation::Register { register: 14 }),
-                  (constants::DW_OP_reg15, Operation::Register { register: 15 }),
-                  (constants::DW_OP_reg16, Operation::Register { register: 16 }),
-                  (constants::DW_OP_reg17, Operation::Register { register: 17 }),
-                  (constants::DW_OP_reg18, Operation::Register { register: 18 }),
-                  (constants::DW_OP_reg19, Operation::Register { register: 19 }),
-                  (constants::DW_OP_reg20, Operation::Register { register: 20 }),
-                  (constants::DW_OP_reg21, Operation::Register { register: 21 }),
-                  (constants::DW_OP_reg22, Operation::Register { register: 22 }),
-                  (constants::DW_OP_reg23, Operation::Register { register: 23 }),
-                  (constants::DW_OP_reg24, Operation::Register { register: 24 }),
-                  (constants::DW_OP_reg25, Operation::Register { register: 25 }),
-                  (constants::DW_OP_reg26, Operation::Register { register: 26 }),
-                  (constants::DW_OP_reg27, Operation::Register { register: 27 }),
-                  (constants::DW_OP_reg28, Operation::Register { register: 28 }),
-                  (constants::DW_OP_reg29, Operation::Register { register: 29 }),
-                  (constants::DW_OP_reg30, Operation::Register { register: 30 }),
-                  (constants::DW_OP_reg31, Operation::Register { register: 31 }),
-                  (constants::DW_OP_nop, Operation::Nop),
-                  (constants::DW_OP_push_object_address, Operation::PushObjectAddress),
-                  (constants::DW_OP_form_tls_address, Operation::TLS),
-                  (constants::DW_OP_GNU_push_tls_address, Operation::TLS),
-                  (constants::DW_OP_call_frame_cfa, Operation::CallFrameCFA),
-                  (constants::DW_OP_stack_value, Operation::StackValue)];
-
-    let input = [];
-    check_op_parse_failure(&input[..], Error::UnexpectedEof, address_size, format);
-
-    for item in inputs.iter() {
-        let (opcode, ref result) = *item;
-        let input = [opcode.0];
-        check_op_parse_simple(&input[..], result, address_size, format);
-    }
-}
-
-#[test]
-fn test_op_parse_twobyte() {
-    // Doesn't matter for this test.
-    let address_size = 4;
-    let format = Format::Dwarf32;
-
-    let inputs =
-        [(constants::DW_OP_const1u, 23, Operation::Literal { value: 23 }),
-         (constants::DW_OP_const1s, (-23i8) as u8, Operation::Literal { value: (-23i64) as u64 }),
-         (constants::DW_OP_pick, 7, Operation::Pick { index: 7 }),
-         (constants::DW_OP_deref_size,
-          19,
-          Operation::Deref {
-             size: 19,
-             space: false,
-         }),
-         (constants::DW_OP_xderef_size,
-          19,
-          Operation::Deref {
-             size: 19,
-             space: true,
-         })];
-
-    for item in inputs.iter() {
-        let (opcode, arg, ref result) = *item;
-        let input = [opcode.0, arg];
-
-        // Too short.
-        check_op_parse_failure(&input[..1], Error::UnexpectedEof, address_size, format);
-        check_op_parse_simple(&input[..], result, address_size, format);
-    }
-}
-
-#[test]
-fn test_op_parse_threebyte() {
-    // Doesn't matter for this test.
-    let address_size = 4;
-    let format = Format::Dwarf32;
-
-    // While bra and skip are 3-byte opcodes, they aren't tested here,
-    // but rather specially in their own function.
-    let inputs = [(constants::DW_OP_const2u, 23, Operation::Literal { value: 23 }),
-                  (constants::DW_OP_const2s,
-                   (-23i16) as u16,
-                   Operation::Literal { value: (-23i64) as u64 }),
-                  (constants::DW_OP_call2,
-                   1138,
-                   Operation::Call { offset: DieReference::UnitRef(UnitOffset(1138)) })];
-
-    for item in inputs.iter() {
-        let (opcode, arg, ref result) = *item;
-
-        let arglow = (arg & 0xff) as u8;
-        let arghigh = (arg >> 8) as u8;
-
-        let input = [opcode.0, arglow, arghigh];
-
-        // Too short.
-        check_op_parse_failure(&input[..1], Error::UnexpectedEof, address_size, format);
-        check_op_parse_failure(&input[..2], Error::UnexpectedEof, address_size, format);
-
-        check_op_parse_simple(&input[..], result, address_size, Format::Dwarf32);
-    }
-}
-
-#[test]
-fn test_op_parse_branches() {
-    // Doesn't matter for this test.
-    const ADDRESS_SIZE: u8 = 4;
-    const FORMAT: Format = Format::Dwarf32;
-
-    let inputs = [constants::DW_OP_bra, constants::DW_OP_skip];
-
-    fn check_one_branch(input: &[u8], target: &[u8]) {
-        // Test sanity checking.
-        assert!(input.len() >= 3);
-
-        // Too short.
-        check_op_parse_failure(&input[..1], Error::UnexpectedEof, ADDRESS_SIZE, FORMAT);
-        check_op_parse_failure(&input[..2], Error::UnexpectedEof, ADDRESS_SIZE, FORMAT);
-
-        let expect = if input[0] == constants::DW_OP_bra.0 {
-            Operation::Bra { target: EndianBuf::<LittleEndian>::new(target) }
-        } else {
-            assert!(input[0] == constants::DW_OP_skip.0);
-            Operation::Skip { target: EndianBuf::<LittleEndian>::new(target) }
-        };
-
-        check_op_parse_simple(input, &expect, ADDRESS_SIZE, FORMAT);
-    }
-
-    for opcode in inputs.iter() {
-        // Branch to start.
-        let input = [opcode.0, 0xfd, 0xff];
-        check_one_branch(&input[..], &input[..]);
-
-        // Branch to middle of an instruction -- ok as far as DWARF is
-        // concerned.
-        let input = [opcode.0, 0xfe, 0xff];
-        check_one_branch(&input[..], &input[1..]);
-
-        // Branch to end.  DWARF is silent on this but it seems valid
-        // to branch to just after the last operation.
-        let input = [opcode.0, 0, 0];
-        check_one_branch(&input[..], &input[3..]);
-
-        // Invalid branches.
-        let input = [opcode.0, 2, 0];
-        check_op_parse_failure(&input[..], Error::BadBranchTarget(5), ADDRESS_SIZE, FORMAT);
-        let input = [opcode.0, 0xfc, 0xff];
-        check_op_parse_failure(&input[..],
-                               Error::BadBranchTarget(!0usize),
-                               ADDRESS_SIZE,
-                               FORMAT);
-    }
-}
-
-#[test]
-fn test_op_parse_fivebyte() {
-    // There are some tests here that depend on address size.
-    let address_size = 4;
-    let format = Format::Dwarf32;
-
-    let inputs =
-        [(constants::DW_OP_addr, 0x12345678, Operation::Literal { value: 0x12345678 }),
-         (constants::DW_OP_const4u, 0x12345678, Operation::Literal { value: 0x12345678 }),
-         (constants::DW_OP_const4s,
-          (-23i32) as u32,
-          Operation::Literal { value: (-23i32) as u64 }),
-         (constants::DW_OP_call4,
-          0x12345678,
-          Operation::Call { offset: DieReference::UnitRef(UnitOffset(0x12345678)) }),
-         (constants::DW_OP_call_ref,
-          0x12345678,
-          Operation::Call { offset: DieReference::DebugInfoRef(DebugInfoOffset(0x12345678)) })];
-
-    for item in inputs.iter() {
-        let (op, mut val, ref expect) = *item;
-
-        let mut contents = [op.0, 0, 0, 0, 0];
-        for i in 1..5 {
-            contents[i] = (val & 0xff) as u8;
-            val >>= 8;
-        }
-
-        // Too short.
-        let input = &contents;
-        check_op_parse_failure(&input[..1], Error::UnexpectedEof, address_size, format);
-        check_op_parse_failure(&input[..2], Error::UnexpectedEof, address_size, format);
-        check_op_parse_failure(&input[..3], Error::UnexpectedEof, address_size, format);
-
-        check_op_parse_simple(input, expect, address_size, format);
-    }
-}
-
-#[test]
-#[cfg(target_pointer_width = "64")]
-fn test_op_parse_ninebyte() {
-    // There are some tests here that depend on address size.
-    let address_size = 8;
-    let format = Format::Dwarf64;
-
-    let inputs = [(constants::DW_OP_addr,
-                   0x1234567812345678,
-                   Operation::Literal { value: 0x1234567812345678 }),
-                  (constants::DW_OP_const8u,
-                   0x1234567812345678,
-                   Operation::Literal { value: 0x1234567812345678 }),
-                  (constants::DW_OP_const8s,
-                   (-23i32) as u64,
-                   Operation::Literal { value: (-23i32) as u64 }),
-                  (constants::DW_OP_call_ref,
-                   0x1234567812345678,
-                   Operation::Call {
-                      offset: DieReference::DebugInfoRef(DebugInfoOffset(0x1234567812345678)),
-                  })];
-
-    for item in inputs.iter() {
-        let (op, mut val, ref expect) = *item;
-
-        let mut contents = [op.0, 0, 0, 0, 0, 0, 0, 0, 0];
-        for i in 1..9 {
-            contents[i] = (val & 0xff) as u8;
-            val >>= 8;
-        }
-
-        // Too short.
-        let input = &contents;
-        for i in 1..8 {
-            check_op_parse_failure(&input[..i], Error::UnexpectedEof, address_size, format);
-        }
-
-        check_op_parse_simple(input, expect, address_size, format);
-    }
-}
-
-#[test]
-fn test_op_parse_sleb() {
-    // Doesn't matter for this test.
-    let address_size = 4;
-    let format = Format::Dwarf32;
-
-    let values = [-1i64,
-                  0,
-                  1,
-                  0x100,
-                  0x1eeeeeee,
-                  0x7fffffffffffffff,
-                  -0x100,
-                  -0x1eeeeeee,
-                  -0x7fffffffffffffff];
-    for value in values.iter() {
-        let mut inputs = vec!(
-            (constants::DW_OP_consts.0, Operation::Literal { value: *value as u64}),
-            (constants::DW_OP_fbreg.0, Operation::FrameOffset { offset: *value }),
-        );
-
-        for i in 0..32 {
-            inputs.push((constants::DW_OP_breg0.0 + i,
-                         Operation::RegisterOffset {
-                register: i as u64,
-                offset: *value,
-            }));
-        }
-
-        for item in inputs.iter() {
-            let (op, ref expect) = *item;
-
-            let mut buffer = Vec::new();
-            buffer.push(op);
-            leb128::write::signed(&mut buffer, *value).unwrap();
-
-            // Too short.
-            for i in 1..buffer.len() - 1 {
-                check_op_parse_failure(&buffer[..i], Error::UnexpectedEof, address_size, format)
-            }
-
-            check_op_parse_simple(&buffer[..], expect, address_size, format);
-        }
-    }
-}
-
-#[test]
-fn test_op_parse_uleb() {
-    // Doesn't matter for this test.
-    let address_size = 4;
-    let format = Format::Dwarf32;
-
-    let values = [0, 1, 0x100, 0x1eeeeeee, 0x7fffffffffffffff, !0u64];
-    for value in values.iter() {
-        let mut inputs = vec!(
-            (constants::DW_OP_constu, Operation::Literal { value: *value}),
-            (constants::DW_OP_plus_uconst, Operation::PlusConstant { value: *value }),
-            (constants::DW_OP_regx, Operation::Register { register: *value }),
-        );
-
-        // FIXME
-        if *value < !0u64 / 8 {
-            inputs.push((constants::DW_OP_piece,
-                         Operation::Piece {
-                size_in_bits: 8 * value,
-                bit_offset: None,
-            }));
-        }
-
-        for item in inputs.iter() {
-            let (op, ref expect) = *item;
-
-            let mut buffer = Vec::new();
-            buffer.push(op.0);
-            leb128::write::unsigned(&mut buffer, *value).unwrap();
-
-            // Too short.
-            for i in 1..buffer.len() - 1 {
-                check_op_parse_failure(&buffer[..i], Error::UnexpectedEof, address_size, format)
-            }
-
-            check_op_parse_simple(&buffer[..], expect, address_size, format);
-        }
-    }
-}
-
-#[test]
-fn test_op_parse_bregx() {
-    // Doesn't matter for this test.
-    let address_size = 4;
-    let format = Format::Dwarf32;
-
-    let uvalues = [0, 1, 0x100, 0x1eeeeeee, 0x7fffffffffffffff, !0u64];
-    let svalues = [-1i64,
-                   0,
-                   1,
-                   0x100,
-                   0x1eeeeeee,
-                   0x7fffffffffffffff,
-                   -0x100,
-                   -0x1eeeeeee,
-                   -0x7fffffffffffffff];
-
-    for v1 in uvalues.iter() {
-        for v2 in svalues.iter() {
-            let mut buffer = vec![constants::DW_OP_bregx.0];
-            leb128::write::unsigned(&mut buffer, *v1).unwrap();
-            leb128::write::signed(&mut buffer, *v2).unwrap();
-
-            // Too short.
-            for i in 1..buffer.len() - 1 {
-                check_op_parse_failure(&buffer[..i], Error::UnexpectedEof, address_size, format)
-            }
-
-            check_op_parse_simple(&buffer[..],
-                                  &Operation::RegisterOffset {
-                                      register: *v1,
-                                      offset: *v2,
-                                  },
-                                  address_size,
-                                  format);
-        }
-    }
-}
-
-#[test]
-fn test_op_parse_bit_piece() {
-    // Doesn't matter for this test.
-    let address_size = 4;
-    let format = Format::Dwarf32;
-
-    let values = [0, 1, 0x100, 0x1eeeeeee, 0x7fffffffffffffff, !0u64];
-
-    for v1 in values.iter() {
-        for v2 in values.iter() {
-            let mut buffer = vec![constants::DW_OP_bit_piece.0];
-            leb128::write::unsigned(&mut buffer, *v1).unwrap();
-            leb128::write::unsigned(&mut buffer, *v2).unwrap();
-
-            // Too short.
-            for i in 1..buffer.len() - 1 {
-                check_op_parse_failure(&buffer[..i], Error::UnexpectedEof, address_size, format)
-            }
-
-            check_op_parse_simple(&buffer[..],
-                                  &Operation::Piece {
-                                      size_in_bits: *v1,
-                                      bit_offset: Some(*v2),
-                                  },
-                                  address_size,
-                                  format);
-        }
-    }
-}
-
-#[test]
-fn test_op_parse_implicit_value() {
-    // Doesn't matter for this test.
-    let address_size = 4;
-    let format = Format::Dwarf32;
-
-    let data = b"hello";
-    let mut buffer = vec![constants::DW_OP_implicit_value.0];
-    leb128::write::unsigned(&mut buffer, data.len() as u64).unwrap();
-    buffer.write_all(data).unwrap();
-
-    // Too short.
-    for i in 1..buffer.len() - 1 {
-        check_op_parse_failure(&buffer[..i], Error::UnexpectedEof, address_size, format)
-    }
-
-    check_op_parse_simple(&buffer[..],
-                          &Operation::ImplicitValue { data: &data[..] },
-                          address_size,
-                          format);
-}
-
 /// A DWARF expression evaluation.
 #[derive(Debug)]
 pub struct Evaluation<'context, 'input, Endian>
@@ -1827,910 +1247,1490 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
 }
 
 #[cfg(test)]
-#[derive(Clone, Copy, Debug)]
-struct TestEvaluationContext {
-    base: Result<u64>,
-    cfa: Result<u64>,
-    at_location: Result<&'static [u8]>,
+mod tests {
+    use super::*;
+    use super::compute_pc;
+    use constants;
+    use endianity::{EndianBuf, LittleEndian};
+    use leb128;
+    use parser::{Error, Format, Result};
+    use std::io::Write;
+    use unit::{DebugInfoOffset, UnitOffset};
 
-    object_address: Option<u64>,
-    initial_value: Option<u64>,
-    max_iterations: Option<u32>,
-}
+    #[test]
+    fn test_compute_pc() {
+        // Contents don't matter for this test, just length.
+        let bytes = [0, 1, 2, 3, 4];
+        let bytecode = &bytes[..];
+        let ebuf = EndianBuf::<LittleEndian>::new(bytecode);
 
-#[cfg(test)]
-impl<'input> EvaluationContext<'input> for TestEvaluationContext {
-    fn read_memory(&self, addr: u64, nbytes: u8, space: Option<u64>) -> Result<u64> {
-        let mut result = addr << 2;
-        if let Some(value) = space {
-            result += value;
-        }
-        Ok(result & ((1u64 << 8 * nbytes) - 1))
-    }
-    fn read_register(&self, regno: u64) -> Result<u64> {
-        Ok(regno.wrapping_neg())
-    }
-    fn frame_base(&self) -> Result<u64> {
-        self.base
-    }
-    fn read_tls(&self, slot: u64) -> Result<u64> {
-        Ok(!slot)
-    }
-    fn call_frame_cfa(&self) -> Result<u64> {
-        self.cfa
-    }
-    fn get_at_location(&self, _: DieReference) -> Result<&'input [u8]> {
-        self.at_location
-    }
-}
-
-#[cfg(test)]
-enum AssemblerEntry {
-    Op(constants::DwOp),
-    Mark(u8),
-    Branch(u8),
-    U8(u8),
-    U16(u16),
-    U32(u32),
-    U64(u64),
-    Uleb(u64),
-    Sleb(u64),
-}
-
-#[cfg(test)]
-fn assemble(entries: &[AssemblerEntry]) -> Vec<u8> {
-    let mut result = Vec::new();
-
-    struct Marker(Option<usize>, Vec<usize>);
-
-    let mut markers = Vec::new();
-    for _ in 0..256 {
-        markers.push(Marker(None, Vec::new()));
-    }
-
-    fn write(stack: &mut Vec<u8>, index: usize, mut num: u64, nbytes: u8) {
-        for i in 0..nbytes as usize {
-            stack[index + i] = (num & 0xff) as u8;
-            num >>= 8;
-        }
-    }
-
-    fn push(stack: &mut Vec<u8>, num: u64, nbytes: u8) {
-        let index = stack.len();
-        for _ in 0..nbytes {
-            stack.push(0);
-        }
-        write(stack, index, num, nbytes);
-    }
-
-    for item in entries {
-        match *item {
-            AssemblerEntry::Op(op) => result.push(op.0),
-            AssemblerEntry::Mark(num) => {
-                assert!(markers[num as usize].0.is_none());
-                markers[num as usize].0 = Some(result.len());
+        match compute_pc(ebuf, bytecode, 0) {
+            Ok(val) => {
+                let valbytes: &[u8] = val.into();
+                assert_eq!(valbytes.len(), bytecode.len());
             }
-            AssemblerEntry::Branch(num) => {
-                markers[num as usize].1.push(result.len());
-                push(&mut result, 0, 2);
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+
+        match compute_pc(ebuf, bytecode, -1) {
+            Err(Error::BadBranchTarget(_)) => {}
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+
+        match compute_pc(ebuf, bytecode, 5) {
+            Ok(val) => {
+                let valbytes: &[u8] = val.into();
+                assert_eq!(valbytes.len(), 0);
             }
-            AssemblerEntry::U8(num) => result.push(num),
-            AssemblerEntry::U16(num) => push(&mut result, num as u64, 2),
-            AssemblerEntry::U32(num) => push(&mut result, num as u64, 4),
-            AssemblerEntry::U64(num) => push(&mut result, num, 8),
-            AssemblerEntry::Uleb(num) => {
-                leb128::write::unsigned(&mut result, num).unwrap();
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+
+        match compute_pc(EndianBuf::<LittleEndian>::new(&bytes[3..]), bytecode, -2) {
+            Ok(val) => {
+                let valbytes: &[u8] = val.into();
+                assert_eq!(valbytes.len(), bytecode.len() - 1);
             }
-            AssemblerEntry::Sleb(num) => {
-                leb128::write::signed(&mut result, num as i64).unwrap();
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+
+        match compute_pc(EndianBuf::<LittleEndian>::new(&bytes[2..]), bytecode, 2) {
+            Ok(val) => {
+                let valbytes: &[u8] = val.into();
+                assert_eq!(valbytes.len(), bytecode.len() - 4);
+            }
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
+    }
+
+    fn check_op_parse_simple(input: &[u8],
+                             expect: &Operation<LittleEndian>,
+                             address_size: u8,
+                             format: Format) {
+        let value = Operation::parse(EndianBuf::<LittleEndian>::new(input),
+                                     input,
+                                     address_size,
+                                     format);
+        match value {
+            Ok((pc, val)) => {
+                assert_eq!(val, *expect);
+                let pcbytes: &[u8] = pc.into();
+                assert_eq!(pcbytes.len(), 0);
+            }
+            _ => panic!("Unexpected result"),
+        }
+    }
+
+    fn check_op_parse_failure(input: &[u8], expect: Error, address_size: u8, format: Format) {
+        match Operation::parse(EndianBuf::<LittleEndian>::new(input),
+                               input,
+                               address_size,
+                               format) {
+            Err(x) => {
+                assert_eq!(x, expect);
+            }
+
+            _ => panic!("Unexpected result"),
+        }
+    }
+
+    #[test]
+    fn test_op_parse_onebyte() {
+        // Doesn't matter for this test.
+        let address_size = 4;
+        let format = Format::Dwarf32;
+
+        // Test all single-byte opcodes.
+        let inputs = [(constants::DW_OP_deref,
+                       Operation::Deref {
+                          size: address_size,
+                          space: false,
+                      }),
+                      (constants::DW_OP_dup, Operation::Pick { index: 0 }),
+                      (constants::DW_OP_drop, Operation::Drop),
+                      (constants::DW_OP_over, Operation::Pick { index: 1 }),
+                      (constants::DW_OP_swap, Operation::Swap),
+                      (constants::DW_OP_rot, Operation::Rot),
+                      (constants::DW_OP_xderef,
+                       Operation::Deref {
+                          size: address_size,
+                          space: true,
+                      }),
+                      (constants::DW_OP_abs, Operation::Abs),
+                      (constants::DW_OP_and, Operation::And),
+                      (constants::DW_OP_div, Operation::Div),
+                      (constants::DW_OP_minus, Operation::Minus),
+                      (constants::DW_OP_mod, Operation::Mod),
+                      (constants::DW_OP_mul, Operation::Mul),
+                      (constants::DW_OP_neg, Operation::Neg),
+                      (constants::DW_OP_not, Operation::Not),
+                      (constants::DW_OP_or, Operation::Or),
+                      (constants::DW_OP_plus, Operation::Plus),
+                      (constants::DW_OP_shl, Operation::Shl),
+                      (constants::DW_OP_shr, Operation::Shr),
+                      (constants::DW_OP_shra, Operation::Shra),
+                      (constants::DW_OP_xor, Operation::Xor),
+                      (constants::DW_OP_eq, Operation::Eq),
+                      (constants::DW_OP_ge, Operation::Ge),
+                      (constants::DW_OP_gt, Operation::Gt),
+                      (constants::DW_OP_le, Operation::Le),
+                      (constants::DW_OP_lt, Operation::Lt),
+                      (constants::DW_OP_ne, Operation::Ne),
+                      (constants::DW_OP_lit0, Operation::Literal { value: 0 }),
+                      (constants::DW_OP_lit1, Operation::Literal { value: 1 }),
+                      (constants::DW_OP_lit2, Operation::Literal { value: 2 }),
+                      (constants::DW_OP_lit3, Operation::Literal { value: 3 }),
+                      (constants::DW_OP_lit4, Operation::Literal { value: 4 }),
+                      (constants::DW_OP_lit5, Operation::Literal { value: 5 }),
+                      (constants::DW_OP_lit6, Operation::Literal { value: 6 }),
+                      (constants::DW_OP_lit7, Operation::Literal { value: 7 }),
+                      (constants::DW_OP_lit8, Operation::Literal { value: 8 }),
+                      (constants::DW_OP_lit9, Operation::Literal { value: 9 }),
+                      (constants::DW_OP_lit10, Operation::Literal { value: 10 }),
+                      (constants::DW_OP_lit11, Operation::Literal { value: 11 }),
+                      (constants::DW_OP_lit12, Operation::Literal { value: 12 }),
+                      (constants::DW_OP_lit13, Operation::Literal { value: 13 }),
+                      (constants::DW_OP_lit14, Operation::Literal { value: 14 }),
+                      (constants::DW_OP_lit15, Operation::Literal { value: 15 }),
+                      (constants::DW_OP_lit16, Operation::Literal { value: 16 }),
+                      (constants::DW_OP_lit17, Operation::Literal { value: 17 }),
+                      (constants::DW_OP_lit18, Operation::Literal { value: 18 }),
+                      (constants::DW_OP_lit19, Operation::Literal { value: 19 }),
+                      (constants::DW_OP_lit20, Operation::Literal { value: 20 }),
+                      (constants::DW_OP_lit21, Operation::Literal { value: 21 }),
+                      (constants::DW_OP_lit22, Operation::Literal { value: 22 }),
+                      (constants::DW_OP_lit23, Operation::Literal { value: 23 }),
+                      (constants::DW_OP_lit24, Operation::Literal { value: 24 }),
+                      (constants::DW_OP_lit25, Operation::Literal { value: 25 }),
+                      (constants::DW_OP_lit26, Operation::Literal { value: 26 }),
+                      (constants::DW_OP_lit27, Operation::Literal { value: 27 }),
+                      (constants::DW_OP_lit28, Operation::Literal { value: 28 }),
+                      (constants::DW_OP_lit29, Operation::Literal { value: 29 }),
+                      (constants::DW_OP_lit30, Operation::Literal { value: 30 }),
+                      (constants::DW_OP_lit31, Operation::Literal { value: 31 }),
+                      (constants::DW_OP_reg0, Operation::Register { register: 0 }),
+                      (constants::DW_OP_reg1, Operation::Register { register: 1 }),
+                      (constants::DW_OP_reg2, Operation::Register { register: 2 }),
+                      (constants::DW_OP_reg3, Operation::Register { register: 3 }),
+                      (constants::DW_OP_reg4, Operation::Register { register: 4 }),
+                      (constants::DW_OP_reg5, Operation::Register { register: 5 }),
+                      (constants::DW_OP_reg6, Operation::Register { register: 6 }),
+                      (constants::DW_OP_reg7, Operation::Register { register: 7 }),
+                      (constants::DW_OP_reg8, Operation::Register { register: 8 }),
+                      (constants::DW_OP_reg9, Operation::Register { register: 9 }),
+                      (constants::DW_OP_reg10, Operation::Register { register: 10 }),
+                      (constants::DW_OP_reg11, Operation::Register { register: 11 }),
+                      (constants::DW_OP_reg12, Operation::Register { register: 12 }),
+                      (constants::DW_OP_reg13, Operation::Register { register: 13 }),
+                      (constants::DW_OP_reg14, Operation::Register { register: 14 }),
+                      (constants::DW_OP_reg15, Operation::Register { register: 15 }),
+                      (constants::DW_OP_reg16, Operation::Register { register: 16 }),
+                      (constants::DW_OP_reg17, Operation::Register { register: 17 }),
+                      (constants::DW_OP_reg18, Operation::Register { register: 18 }),
+                      (constants::DW_OP_reg19, Operation::Register { register: 19 }),
+                      (constants::DW_OP_reg20, Operation::Register { register: 20 }),
+                      (constants::DW_OP_reg21, Operation::Register { register: 21 }),
+                      (constants::DW_OP_reg22, Operation::Register { register: 22 }),
+                      (constants::DW_OP_reg23, Operation::Register { register: 23 }),
+                      (constants::DW_OP_reg24, Operation::Register { register: 24 }),
+                      (constants::DW_OP_reg25, Operation::Register { register: 25 }),
+                      (constants::DW_OP_reg26, Operation::Register { register: 26 }),
+                      (constants::DW_OP_reg27, Operation::Register { register: 27 }),
+                      (constants::DW_OP_reg28, Operation::Register { register: 28 }),
+                      (constants::DW_OP_reg29, Operation::Register { register: 29 }),
+                      (constants::DW_OP_reg30, Operation::Register { register: 30 }),
+                      (constants::DW_OP_reg31, Operation::Register { register: 31 }),
+                      (constants::DW_OP_nop, Operation::Nop),
+                      (constants::DW_OP_push_object_address, Operation::PushObjectAddress),
+                      (constants::DW_OP_form_tls_address, Operation::TLS),
+                      (constants::DW_OP_GNU_push_tls_address, Operation::TLS),
+                      (constants::DW_OP_call_frame_cfa, Operation::CallFrameCFA),
+                      (constants::DW_OP_stack_value, Operation::StackValue)];
+
+        let input = [];
+        check_op_parse_failure(&input[..], Error::UnexpectedEof, address_size, format);
+
+        for item in inputs.iter() {
+            let (opcode, ref result) = *item;
+            let input = [opcode.0];
+            check_op_parse_simple(&input[..], result, address_size, format);
+        }
+    }
+
+    #[test]
+    fn test_op_parse_twobyte() {
+        // Doesn't matter for this test.
+        let address_size = 4;
+        let format = Format::Dwarf32;
+
+        let inputs = [(constants::DW_OP_const1u, 23, Operation::Literal { value: 23 }),
+                      (constants::DW_OP_const1s,
+                       (-23i8) as u8,
+                       Operation::Literal { value: (-23i64) as u64 }),
+                      (constants::DW_OP_pick, 7, Operation::Pick { index: 7 }),
+                      (constants::DW_OP_deref_size,
+                       19,
+                       Operation::Deref {
+                          size: 19,
+                          space: false,
+                      }),
+                      (constants::DW_OP_xderef_size,
+                       19,
+                       Operation::Deref {
+                          size: 19,
+                          space: true,
+                      })];
+
+        for item in inputs.iter() {
+            let (opcode, arg, ref result) = *item;
+            let input = [opcode.0, arg];
+
+            // Too short.
+            check_op_parse_failure(&input[..1], Error::UnexpectedEof, address_size, format);
+            check_op_parse_simple(&input[..], result, address_size, format);
+        }
+    }
+
+    #[test]
+    fn test_op_parse_threebyte() {
+        // Doesn't matter for this test.
+        let address_size = 4;
+        let format = Format::Dwarf32;
+
+        // While bra and skip are 3-byte opcodes, they aren't tested here,
+        // but rather specially in their own function.
+        let inputs = [(constants::DW_OP_const2u, 23, Operation::Literal { value: 23 }),
+                      (constants::DW_OP_const2s,
+                       (-23i16) as u16,
+                       Operation::Literal { value: (-23i64) as u64 }),
+                      (constants::DW_OP_call2,
+                       1138,
+                       Operation::Call { offset: DieReference::UnitRef(UnitOffset(1138)) })];
+
+        for item in inputs.iter() {
+            let (opcode, arg, ref result) = *item;
+
+            let arglow = (arg & 0xff) as u8;
+            let arghigh = (arg >> 8) as u8;
+
+            let input = [opcode.0, arglow, arghigh];
+
+            // Too short.
+            check_op_parse_failure(&input[..1], Error::UnexpectedEof, address_size, format);
+            check_op_parse_failure(&input[..2], Error::UnexpectedEof, address_size, format);
+
+            check_op_parse_simple(&input[..], result, address_size, Format::Dwarf32);
+        }
+    }
+
+    #[test]
+    fn test_op_parse_branches() {
+        // Doesn't matter for this test.
+        const ADDRESS_SIZE: u8 = 4;
+        const FORMAT: Format = Format::Dwarf32;
+
+        let inputs = [constants::DW_OP_bra, constants::DW_OP_skip];
+
+        fn check_one_branch(input: &[u8], target: &[u8]) {
+            // Test sanity checking.
+            assert!(input.len() >= 3);
+
+            // Too short.
+            check_op_parse_failure(&input[..1], Error::UnexpectedEof, ADDRESS_SIZE, FORMAT);
+            check_op_parse_failure(&input[..2], Error::UnexpectedEof, ADDRESS_SIZE, FORMAT);
+
+            let expect = if input[0] == constants::DW_OP_bra.0 {
+                Operation::Bra { target: EndianBuf::<LittleEndian>::new(target) }
+            } else {
+                assert!(input[0] == constants::DW_OP_skip.0);
+                Operation::Skip { target: EndianBuf::<LittleEndian>::new(target) }
+            };
+
+            check_op_parse_simple(input, &expect, ADDRESS_SIZE, FORMAT);
+        }
+
+        for opcode in inputs.iter() {
+            // Branch to start.
+            let input = [opcode.0, 0xfd, 0xff];
+            check_one_branch(&input[..], &input[..]);
+
+            // Branch to middle of an instruction -- ok as far as DWARF is
+            // concerned.
+            let input = [opcode.0, 0xfe, 0xff];
+            check_one_branch(&input[..], &input[1..]);
+
+            // Branch to end.  DWARF is silent on this but it seems valid
+            // to branch to just after the last operation.
+            let input = [opcode.0, 0, 0];
+            check_one_branch(&input[..], &input[3..]);
+
+            // Invalid branches.
+            let input = [opcode.0, 2, 0];
+            check_op_parse_failure(&input[..], Error::BadBranchTarget(5), ADDRESS_SIZE, FORMAT);
+            let input = [opcode.0, 0xfc, 0xff];
+            check_op_parse_failure(&input[..],
+                                   Error::BadBranchTarget(!0usize),
+                                   ADDRESS_SIZE,
+                                   FORMAT);
+        }
+    }
+
+    #[test]
+    fn test_op_parse_fivebyte() {
+        // There are some tests here that depend on address size.
+        let address_size = 4;
+        let format = Format::Dwarf32;
+
+        let inputs =
+            [(constants::DW_OP_addr, 0x12345678, Operation::Literal { value: 0x12345678 }),
+             (constants::DW_OP_const4u, 0x12345678, Operation::Literal { value: 0x12345678 }),
+             (constants::DW_OP_const4s,
+              (-23i32) as u32,
+              Operation::Literal { value: (-23i32) as u64 }),
+             (constants::DW_OP_call4,
+              0x12345678,
+              Operation::Call { offset: DieReference::UnitRef(UnitOffset(0x12345678)) }),
+             (constants::DW_OP_call_ref,
+              0x12345678,
+              Operation::Call { offset: DieReference::DebugInfoRef(DebugInfoOffset(0x12345678)) })];
+
+        for item in inputs.iter() {
+            let (op, mut val, ref expect) = *item;
+
+            let mut contents = [op.0, 0, 0, 0, 0];
+            for i in 1..5 {
+                contents[i] = (val & 0xff) as u8;
+                val >>= 8;
+            }
+
+            // Too short.
+            let input = &contents;
+            check_op_parse_failure(&input[..1], Error::UnexpectedEof, address_size, format);
+            check_op_parse_failure(&input[..2], Error::UnexpectedEof, address_size, format);
+            check_op_parse_failure(&input[..3], Error::UnexpectedEof, address_size, format);
+
+            check_op_parse_simple(input, expect, address_size, format);
+        }
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_op_parse_ninebyte() {
+        // There are some tests here that depend on address size.
+        let address_size = 8;
+        let format = Format::Dwarf64;
+
+        let inputs = [(constants::DW_OP_addr,
+                       0x1234567812345678,
+                       Operation::Literal { value: 0x1234567812345678 }),
+                      (constants::DW_OP_const8u,
+                       0x1234567812345678,
+                       Operation::Literal { value: 0x1234567812345678 }),
+                      (constants::DW_OP_const8s,
+                       (-23i32) as u64,
+                       Operation::Literal { value: (-23i32) as u64 }),
+                      (constants::DW_OP_call_ref,
+                       0x1234567812345678,
+                       Operation::Call {
+                          offset: DieReference::DebugInfoRef(DebugInfoOffset(0x1234567812345678)),
+                      })];
+
+        for item in inputs.iter() {
+            let (op, mut val, ref expect) = *item;
+
+            let mut contents = [op.0, 0, 0, 0, 0, 0, 0, 0, 0];
+            for i in 1..9 {
+                contents[i] = (val & 0xff) as u8;
+                val >>= 8;
+            }
+
+            // Too short.
+            let input = &contents;
+            for i in 1..8 {
+                check_op_parse_failure(&input[..i], Error::UnexpectedEof, address_size, format);
+            }
+
+            check_op_parse_simple(input, expect, address_size, format);
+        }
+    }
+
+    #[test]
+    fn test_op_parse_sleb() {
+        // Doesn't matter for this test.
+        let address_size = 4;
+        let format = Format::Dwarf32;
+
+        let values = [-1i64,
+                      0,
+                      1,
+                      0x100,
+                      0x1eeeeeee,
+                      0x7fffffffffffffff,
+                      -0x100,
+                      -0x1eeeeeee,
+                      -0x7fffffffffffffff];
+        for value in values.iter() {
+            let mut inputs = vec!(
+                (constants::DW_OP_consts.0, Operation::Literal { value: *value as u64}),
+                (constants::DW_OP_fbreg.0, Operation::FrameOffset { offset: *value }),
+            );
+
+            for i in 0..32 {
+                inputs.push((constants::DW_OP_breg0.0 + i,
+                             Operation::RegisterOffset {
+                    register: i as u64,
+                    offset: *value,
+                }));
+            }
+
+            for item in inputs.iter() {
+                let (op, ref expect) = *item;
+
+                let mut buffer = Vec::new();
+                buffer.push(op);
+                leb128::write::signed(&mut buffer, *value).unwrap();
+
+                // Too short.
+                for i in 1..buffer.len() - 1 {
+                    check_op_parse_failure(&buffer[..i], Error::UnexpectedEof, address_size, format)
+                }
+
+                check_op_parse_simple(&buffer[..], expect, address_size, format);
             }
         }
     }
 
-    // Update all the branches.
-    for marker in markers {
-        if let Some(offset) = marker.0 {
-            for branch_offset in marker.1 {
-                let delta = offset.wrapping_sub(branch_offset + 2) as u64;
-                write(&mut result, branch_offset, delta, 2);
+    #[test]
+    fn test_op_parse_uleb() {
+        // Doesn't matter for this test.
+        let address_size = 4;
+        let format = Format::Dwarf32;
+
+        let values = [0, 1, 0x100, 0x1eeeeeee, 0x7fffffffffffffff, !0u64];
+        for value in values.iter() {
+            let mut inputs = vec!(
+                (constants::DW_OP_constu, Operation::Literal { value: *value}),
+                (constants::DW_OP_plus_uconst, Operation::PlusConstant { value: *value }),
+                (constants::DW_OP_regx, Operation::Register { register: *value }),
+            );
+
+            // FIXME
+            if *value < !0u64 / 8 {
+                inputs.push((constants::DW_OP_piece,
+                             Operation::Piece {
+                    size_in_bits: 8 * value,
+                    bit_offset: None,
+                }));
+            }
+
+            for item in inputs.iter() {
+                let (op, ref expect) = *item;
+
+                let mut buffer = Vec::new();
+                buffer.push(op.0);
+                leb128::write::unsigned(&mut buffer, *value).unwrap();
+
+                // Too short.
+                for i in 1..buffer.len() - 1 {
+                    check_op_parse_failure(&buffer[..i], Error::UnexpectedEof, address_size, format)
+                }
+
+                check_op_parse_simple(&buffer[..], expect, address_size, format);
             }
         }
     }
 
-    result
-}
+    #[test]
+    fn test_op_parse_bregx() {
+        // Doesn't matter for this test.
+        let address_size = 4;
+        let format = Format::Dwarf32;
 
-#[cfg(test)]
-fn check_eval_with_context(program: &[AssemblerEntry],
-                           expect: Result<&[Piece]>,
-                           address_size: u8,
-                           format: Format,
-                           context: TestEvaluationContext) {
-    let bytes = assemble(program);
+        let uvalues = [0, 1, 0x100, 0x1eeeeeee, 0x7fffffffffffffff, !0u64];
+        let svalues = [-1i64,
+                       0,
+                       1,
+                       0x100,
+                       0x1eeeeeee,
+                       0x7fffffffffffffff,
+                       -0x100,
+                       -0x1eeeeeee,
+                       -0x7fffffffffffffff];
 
-    let mut eval_context = context.clone();
-    let mut eval = Evaluation::<LittleEndian>::new(&bytes, address_size, format, &mut eval_context);
+        for v1 in uvalues.iter() {
+            for v2 in svalues.iter() {
+                let mut buffer = vec![constants::DW_OP_bregx.0];
+                leb128::write::unsigned(&mut buffer, *v1).unwrap();
+                leb128::write::signed(&mut buffer, *v2).unwrap();
 
-    if let Some(val) = context.object_address {
-        eval.set_object_address(val);
-    }
-    if let Some(val) = context.initial_value {
-        eval.set_initial_value(val);
-    }
-    if let Some(val) = context.max_iterations {
-        eval.set_max_iterations(val);
-    }
+                // Too short.
+                for i in 1..buffer.len() - 1 {
+                    check_op_parse_failure(&buffer[..i], Error::UnexpectedEof, address_size, format)
+                }
 
-    match (eval.evaluate(), expect) {
-        (Ok(vec), Ok(pieces)) => {
-            assert_eq!(vec.len(), pieces.len());
-            for i in 0..pieces.len() {
-                assert_eq!(vec[i], pieces[i]);
+                check_op_parse_simple(&buffer[..],
+                                      &Operation::RegisterOffset {
+                                          register: *v1,
+                                          offset: *v2,
+                                      },
+                                      address_size,
+                                      format);
             }
         }
-        (Err(f1), Err(f2)) => {
-            assert_eq!(f1, f2);
+    }
+
+    #[test]
+    fn test_op_parse_bit_piece() {
+        // Doesn't matter for this test.
+        let address_size = 4;
+        let format = Format::Dwarf32;
+
+        let values = [0, 1, 0x100, 0x1eeeeeee, 0x7fffffffffffffff, !0u64];
+
+        for v1 in values.iter() {
+            for v2 in values.iter() {
+                let mut buffer = vec![constants::DW_OP_bit_piece.0];
+                leb128::write::unsigned(&mut buffer, *v1).unwrap();
+                leb128::write::unsigned(&mut buffer, *v2).unwrap();
+
+                // Too short.
+                for i in 1..buffer.len() - 1 {
+                    check_op_parse_failure(&buffer[..i], Error::UnexpectedEof, address_size, format)
+                }
+
+                check_op_parse_simple(&buffer[..],
+                                      &Operation::Piece {
+                                          size_in_bits: *v1,
+                                          bit_offset: Some(*v2),
+                                      },
+                                      address_size,
+                                      format);
+            }
         }
-        _ => panic!("Unexpected result"),
-    }
-}
-
-#[cfg(test)]
-fn check_eval(program: &[AssemblerEntry],
-              expect: Result<&[Piece]>,
-              address_size: u8,
-              format: Format) {
-    let context = TestEvaluationContext {
-        base: Ok(0),
-        cfa: Ok(0),
-        at_location: Ok(&[]),
-        initial_value: None,
-        object_address: None,
-        max_iterations: None,
-    };
-
-    check_eval_with_context(program, expect, address_size, format, context);
-}
-
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_eval_arith() {
-    // It's nice if an operation and its arguments can fit on a single
-    // line in the test program.
-    use constants::*;
-    use self::AssemblerEntry::*;
-
-    // Indices of marks in the assembly.
-    let done = 0;
-    let fail = 1;
-
-    let program = [
-        Op(DW_OP_const1u), U8(23),
-        Op(DW_OP_const1s), U8((-23i8) as u8),
-        Op(DW_OP_plus),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const2u), U16(23),
-        Op(DW_OP_const2s), U16((-23i16) as u16),
-        Op(DW_OP_plus),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const4u), U32(0x11112222),
-        Op(DW_OP_const4s), U32((-0x11112222i32) as u32),
-        Op(DW_OP_plus),
-        Op(DW_OP_bra), Branch(fail),
-
-        // Plus should overflow.
-        Op(DW_OP_const1s), U8(0xff),
-        Op(DW_OP_const1u), U8(1),
-        Op(DW_OP_plus),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const1s), U8(0xff),
-        Op(DW_OP_plus_uconst), Uleb(1),
-        Op(DW_OP_bra), Branch(fail),
-
-        // Minus should underflow.
-        Op(DW_OP_const1s), U8(0),
-        Op(DW_OP_const1u), U8(1),
-        Op(DW_OP_minus),
-        Op(DW_OP_const1s), U8(0xff),
-        Op(DW_OP_ne),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const1s), U8(0xff),
-        Op(DW_OP_abs),
-        Op(DW_OP_const1u), U8(1),
-        Op(DW_OP_minus),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const4u), U32(0xf078fffe),
-        Op(DW_OP_const4u), U32(0x0f870001),
-        Op(DW_OP_and),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const4u), U32(0xf078fffe),
-        Op(DW_OP_const4u), U32(0xf00000fe),
-        Op(DW_OP_and),
-        Op(DW_OP_const4u), U32(0xf00000fe),
-        Op(DW_OP_ne),
-        Op(DW_OP_bra), Branch(fail),
-
-        // Division is signed.
-        Op(DW_OP_const1s), U8(0xfe),
-        Op(DW_OP_const1s), U8(2),
-        Op(DW_OP_div),
-        Op(DW_OP_plus_uconst), Uleb(1),
-        Op(DW_OP_bra), Branch(fail),
-
-        // Mod is unsigned.
-        Op(DW_OP_const1s), U8(0xfd),
-        Op(DW_OP_const1s), U8(2),
-        Op(DW_OP_mod),
-        Op(DW_OP_neg),
-        Op(DW_OP_plus_uconst), Uleb(1),
-        Op(DW_OP_bra), Branch(fail),
-
-        // Overflow is defined for multiplication.
-        Op(DW_OP_const4u), U32(0x80000001),
-        Op(DW_OP_lit2),
-        Op(DW_OP_mul),
-        Op(DW_OP_lit2),
-        Op(DW_OP_ne),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const4u), U32(0xf0f0f0f0),
-        Op(DW_OP_const4u), U32(0xf0f0f0f0),
-        Op(DW_OP_xor),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const4u), U32(0xf0f0f0f0),
-        Op(DW_OP_const4u), U32(0x0f0f0f0f),
-        Op(DW_OP_or),
-        Op(DW_OP_not),
-        Op(DW_OP_bra), Branch(fail),
-
-        // In 32 bit mode, values are truncated.
-        Op(DW_OP_const8u), U64(0xffffffff00000000),
-        Op(DW_OP_lit2),
-        Op(DW_OP_div),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const1u), U8(0xff),
-        Op(DW_OP_lit1),
-        Op(DW_OP_shl),
-        Op(DW_OP_const2u), U16(0x1fe),
-        Op(DW_OP_ne),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const1u), U8(0xff),
-        Op(DW_OP_const1u), U8(50),
-        Op(DW_OP_shl),
-        Op(DW_OP_bra), Branch(fail),
-
-        // Absurd shift.
-        Op(DW_OP_const1u), U8(0xff),
-        Op(DW_OP_const1s), U8(0xff),
-        Op(DW_OP_shl),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const1s), U8(0xff),
-        Op(DW_OP_lit1),
-        Op(DW_OP_shr),
-        Op(DW_OP_const4u), U32(0x7fffffff),
-        Op(DW_OP_ne),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const1s), U8(0xff),
-        Op(DW_OP_const1u), U8(0xff),
-        Op(DW_OP_shr),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const1s), U8(0xff),
-        Op(DW_OP_lit1),
-        Op(DW_OP_shra),
-        Op(DW_OP_const1s), U8(0xff),
-        Op(DW_OP_ne),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const1s), U8(0xff),
-        Op(DW_OP_const1u), U8(0xff),
-        Op(DW_OP_shra),
-        Op(DW_OP_const1s), U8(0xff),
-        Op(DW_OP_ne),
-        Op(DW_OP_bra), Branch(fail),
-
-        // Success.
-        Op(DW_OP_lit0),
-        Op(DW_OP_nop),
-        Op(DW_OP_skip), Branch(done),
-
-        Mark(fail),
-        Op(DW_OP_lit1),
-
-        Mark(done),
-        Op(DW_OP_stack_value),
-    ];
-
-    let result = [
-        Piece { size_in_bits: None,
-                bit_offset: None,
-                location: Location::Scalar{value: 0},
-        },
-    ];
-
-    check_eval(&program, Ok(&result), 4, Format::Dwarf32);
-}
-
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_eval_arith64() {
-    // It's nice if an operation and its arguments can fit on a single
-    // line in the test program.
-    use constants::*;
-    use self::AssemblerEntry::*;
-
-    // Indices of marks in the assembly.
-    let done = 0;
-    let fail = 1;
-
-    let program = [
-        Op(DW_OP_const8u), U64(0x1111222233334444),
-        Op(DW_OP_const8s), U64((-0x1111222233334444i64) as u64),
-        Op(DW_OP_plus),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_constu), Uleb(0x1111222233334444),
-        Op(DW_OP_consts), Sleb((-0x1111222233334444i64) as u64),
-        Op(DW_OP_plus),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_lit1),
-        Op(DW_OP_plus_uconst), Uleb(!0u64),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_lit1),
-        Op(DW_OP_neg),
-        Op(DW_OP_not),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const8u), U64(0x8000000000000000),
-        Op(DW_OP_const1u), U8(63),
-        Op(DW_OP_shr),
-        Op(DW_OP_lit1),
-        Op(DW_OP_ne),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const8u), U64(0x8000000000000000),
-        Op(DW_OP_const1u), U8(62),
-        Op(DW_OP_shra),
-        Op(DW_OP_plus_uconst), Uleb(2),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_lit1),
-        Op(DW_OP_const1u), U8(63),
-        Op(DW_OP_shl),
-        Op(DW_OP_const8u), U64(0x8000000000000000),
-        Op(DW_OP_ne),
-        Op(DW_OP_bra), Branch(fail),
-
-        // Success.
-        Op(DW_OP_lit0),
-        Op(DW_OP_nop),
-        Op(DW_OP_skip), Branch(done),
-
-        Mark(fail),
-        Op(DW_OP_lit1),
-
-        Mark(done),
-        Op(DW_OP_stack_value),
-    ];
-
-    let result = [
-        Piece { size_in_bits: None,
-                bit_offset: None,
-                location: Location::Scalar{value: 0},
-        },
-    ];
-
-    check_eval(&program, Ok(&result), 8, Format::Dwarf64);
-}
-
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_eval_compare() {
-    // It's nice if an operation and its arguments can fit on a single
-    // line in the test program.
-    use constants::*;
-    use self::AssemblerEntry::*;
-
-    // Indices of marks in the assembly.
-    let done = 0;
-    let fail = 1;
-
-    let program = [
-        // Comparisons are signed.
-        Op(DW_OP_const1s), U8(1),
-        Op(DW_OP_const1s), U8(0xff),
-        Op(DW_OP_lt),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const1s), U8(0xff),
-        Op(DW_OP_const1s), U8(1),
-        Op(DW_OP_gt),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const1s), U8(1),
-        Op(DW_OP_const1s), U8(0xff),
-        Op(DW_OP_le),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const1s), U8(0xff),
-        Op(DW_OP_const1s), U8(1),
-        Op(DW_OP_ge),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const1s), U8(0xff),
-        Op(DW_OP_const1s), U8(1),
-        Op(DW_OP_eq),
-        Op(DW_OP_bra), Branch(fail),
-
-        Op(DW_OP_const4s), U32(1),
-        Op(DW_OP_const1s), U8(1),
-        Op(DW_OP_ne),
-        Op(DW_OP_bra), Branch(fail),
-
-        // Success.
-        Op(DW_OP_lit0),
-        Op(DW_OP_nop),
-        Op(DW_OP_skip), Branch(done),
-
-        Mark(fail),
-        Op(DW_OP_lit1),
-
-        Mark(done),
-        Op(DW_OP_stack_value),
-    ];
-
-    let result = [
-        Piece { size_in_bits: None,
-                bit_offset: None,
-                location: Location::Scalar{value: 0},
-        },
-    ];
-
-    check_eval(&program, Ok(&result), 4, Format::Dwarf32);
-}
-
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_eval_stack() {
-    // It's nice if an operation and its arguments can fit on a single
-    // line in the test program.
-    use constants::*;
-    use self::AssemblerEntry::*;
-
-    let program = [
-        Op(DW_OP_lit17),                // -- 17
-        Op(DW_OP_dup),                  // -- 17 17
-        Op(DW_OP_over),                 // -- 17 17 17
-        Op(DW_OP_minus),                // -- 17 0
-        Op(DW_OP_swap),                 // -- 0 17
-        Op(DW_OP_dup),                  // -- 0 17 17
-        Op(DW_OP_plus_uconst), Uleb(1), // -- 0 17 18
-        Op(DW_OP_rot),                  // -- 18 0 17
-        Op(DW_OP_pick), U8(2),          // -- 18 0 17 18
-        Op(DW_OP_pick), U8(3),          // -- 18 0 17 18 18
-        Op(DW_OP_minus),                // -- 18 0 17 0
-        Op(DW_OP_drop),                 // -- 18 0 17
-        Op(DW_OP_swap),                 // -- 18 17 0
-        Op(DW_OP_drop),                 // -- 18 17
-        Op(DW_OP_minus),                // -- 1
-        Op(DW_OP_stack_value),
-    ];
-
-    let result = [
-        Piece { size_in_bits: None,
-                bit_offset: None,
-                location: Location::Scalar{value: 1},
-        },
-    ];
-
-    check_eval(&program, Ok(&result), 4, Format::Dwarf32);
-}
-
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_eval_lit_and_reg() {
-    // It's nice if an operation and its arguments can fit on a single
-    // line in the test program.
-    use constants::*;
-    use self::AssemblerEntry::*;
-
-    let mut program = Vec::new();
-    program.push(Op(DW_OP_lit0));
-    for i in 0..32 {
-        program.push(Op(DwOp(DW_OP_lit0.0 + i)));
-        program.push(Op(DwOp(DW_OP_breg0.0 + i)));
-        program.push(Sleb(i as u64));
-        program.push(Op(DW_OP_plus));
-        program.push(Op(DW_OP_plus));
     }
 
-    program.push(Op(DW_OP_bregx));
-    program.push(Uleb(0x123456));
-    program.push(Sleb(0x123456));
-    program.push(Op(DW_OP_plus));
+    #[test]
+    fn test_op_parse_implicit_value() {
+        // Doesn't matter for this test.
+        let address_size = 4;
+        let format = Format::Dwarf32;
 
-    program.push(Op(DW_OP_stack_value));
+        let data = b"hello";
+        let mut buffer = vec![constants::DW_OP_implicit_value.0];
+        leb128::write::unsigned(&mut buffer, data.len() as u64).unwrap();
+        buffer.write_all(data).unwrap();
 
-    let result = [
-        Piece { size_in_bits: None,
-                bit_offset: None,
-                location: Location::Scalar{value: 496},
-        },
-    ];
+        // Too short.
+        for i in 1..buffer.len() - 1 {
+            check_op_parse_failure(&buffer[..i], Error::UnexpectedEof, address_size, format)
+        }
 
-    check_eval(&program, Ok(&result), 4, Format::Dwarf32);
-}
+        check_op_parse_simple(&buffer[..],
+                              &Operation::ImplicitValue { data: &data[..] },
+                              address_size,
+                              format);
+    }
 
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_eval_memory() {
-    // It's nice if an operation and its arguments can fit on a single
-    // line in the test program.
-    use constants::*;
-    use self::AssemblerEntry::*;
+    #[derive(Clone, Copy, Debug)]
+    struct TestEvaluationContext {
+        base: Result<u64>,
+        cfa: Result<u64>,
+        at_location: Result<&'static [u8]>,
 
-    // Indices of marks in the assembly.
-    let done = 0;
-    let fail = 1;
+        object_address: Option<u64>,
+        initial_value: Option<u64>,
+        max_iterations: Option<u32>,
+    }
 
-    let program = [
-        Op(DW_OP_addr), U32(0x7fffffff),
-        Op(DW_OP_deref),
-        Op(DW_OP_const4u), U32(0xfffffffc),
-        Op(DW_OP_ne),
-        Op(DW_OP_bra), Branch(fail),
+    impl<'input> EvaluationContext<'input> for TestEvaluationContext {
+        fn read_memory(&self, addr: u64, nbytes: u8, space: Option<u64>) -> Result<u64> {
+            let mut result = addr << 2;
+            if let Some(value) = space {
+                result += value;
+            }
+            Ok(result & ((1u64 << 8 * nbytes) - 1))
+        }
+        fn read_register(&self, regno: u64) -> Result<u64> {
+            Ok(regno.wrapping_neg())
+        }
+        fn frame_base(&self) -> Result<u64> {
+            self.base
+        }
+        fn read_tls(&self, slot: u64) -> Result<u64> {
+            Ok(!slot)
+        }
+        fn call_frame_cfa(&self) -> Result<u64> {
+            self.cfa
+        }
+        fn get_at_location(&self, _: DieReference) -> Result<&'input [u8]> {
+            self.at_location
+        }
+    }
 
-        Op(DW_OP_addr), U32(0x7fffffff),
-        Op(DW_OP_deref_size), U8(2),
-        Op(DW_OP_const4u), U32(0xfffc),
-        Op(DW_OP_ne),
-        Op(DW_OP_bra), Branch(fail),
+    enum AssemblerEntry {
+        Op(constants::DwOp),
+        Mark(u8),
+        Branch(u8),
+        U8(u8),
+        U16(u16),
+        U32(u32),
+        U64(u64),
+        Uleb(u64),
+        Sleb(u64),
+    }
 
-        Op(DW_OP_lit1),
-        Op(DW_OP_addr), U32(0x7fffffff),
-        Op(DW_OP_xderef),
-        Op(DW_OP_const4u), U32(0xfffffffd),
-        Op(DW_OP_ne),
-        Op(DW_OP_bra), Branch(fail),
+    fn assemble(entries: &[AssemblerEntry]) -> Vec<u8> {
+        let mut result = Vec::new();
 
-        Op(DW_OP_lit1),
-        Op(DW_OP_addr), U32(0x7fffffff),
-        Op(DW_OP_xderef_size), U8(2),
-        Op(DW_OP_const4u), U32(0xfffd),
-        Op(DW_OP_ne),
-        Op(DW_OP_bra), Branch(fail),
+        struct Marker(Option<usize>, Vec<usize>);
 
-        Op(DW_OP_lit17),
-        Op(DW_OP_form_tls_address),
-        Op(DW_OP_constu), Uleb(!17),
-        Op(DW_OP_ne),
-        Op(DW_OP_bra), Branch(fail),
+        let mut markers = Vec::new();
+        for _ in 0..256 {
+            markers.push(Marker(None, Vec::new()));
+        }
 
-        Op(DW_OP_lit17),
-        Op(DW_OP_GNU_push_tls_address),
-        Op(DW_OP_constu), Uleb(!17),
-        Op(DW_OP_ne),
-        Op(DW_OP_bra), Branch(fail),
+        fn write(stack: &mut Vec<u8>, index: usize, mut num: u64, nbytes: u8) {
+            for i in 0..nbytes as usize {
+                stack[index + i] = (num & 0xff) as u8;
+                num >>= 8;
+            }
+        }
 
-        // Success.
-        Op(DW_OP_lit0),
-        Op(DW_OP_nop),
-        Op(DW_OP_skip), Branch(done),
+        fn push(stack: &mut Vec<u8>, num: u64, nbytes: u8) {
+            let index = stack.len();
+            for _ in 0..nbytes {
+                stack.push(0);
+            }
+            write(stack, index, num, nbytes);
+        }
 
-        Mark(fail),
-        Op(DW_OP_lit1),
+        for item in entries {
+            match *item {
+                AssemblerEntry::Op(op) => result.push(op.0),
+                AssemblerEntry::Mark(num) => {
+                    assert!(markers[num as usize].0.is_none());
+                    markers[num as usize].0 = Some(result.len());
+                }
+                AssemblerEntry::Branch(num) => {
+                    markers[num as usize].1.push(result.len());
+                    push(&mut result, 0, 2);
+                }
+                AssemblerEntry::U8(num) => result.push(num),
+                AssemblerEntry::U16(num) => push(&mut result, num as u64, 2),
+                AssemblerEntry::U32(num) => push(&mut result, num as u64, 4),
+                AssemblerEntry::U64(num) => push(&mut result, num, 8),
+                AssemblerEntry::Uleb(num) => {
+                    leb128::write::unsigned(&mut result, num).unwrap();
+                }
+                AssemblerEntry::Sleb(num) => {
+                    leb128::write::signed(&mut result, num as i64).unwrap();
+                }
+            }
+        }
 
-        Mark(done),
-        Op(DW_OP_stack_value),
-    ];
+        // Update all the branches.
+        for marker in markers {
+            if let Some(offset) = marker.0 {
+                for branch_offset in marker.1 {
+                    let delta = offset.wrapping_sub(branch_offset + 2) as u64;
+                    write(&mut result, branch_offset, delta, 2);
+                }
+            }
+        }
 
-    let result = [
-        Piece { size_in_bits: None,
-                bit_offset: None,
-                location: Location::Scalar{value: 0},
-        },
-    ];
+        result
+    }
 
-    check_eval(&program, Ok(&result), 4, Format::Dwarf32);
-}
+    fn check_eval_with_context(program: &[AssemblerEntry],
+                               expect: Result<&[Piece]>,
+                               address_size: u8,
+                               format: Format,
+                               context: TestEvaluationContext) {
+        let bytes = assemble(program);
 
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_eval_register() {
-    // It's nice if an operation and its arguments can fit on a single
-    // line in the test program.
-    use constants::*;
-    use self::AssemblerEntry::*;
+        let mut eval_context = context.clone();
+        let mut eval =
+            Evaluation::<LittleEndian>::new(&bytes, address_size, format, &mut eval_context);
 
-    for i in 0..32 {
+        if let Some(val) = context.object_address {
+            eval.set_object_address(val);
+        }
+        if let Some(val) = context.initial_value {
+            eval.set_initial_value(val);
+        }
+        if let Some(val) = context.max_iterations {
+            eval.set_max_iterations(val);
+        }
+
+        match (eval.evaluate(), expect) {
+            (Ok(vec), Ok(pieces)) => {
+                assert_eq!(vec.len(), pieces.len());
+                for i in 0..pieces.len() {
+                    assert_eq!(vec[i], pieces[i]);
+                }
+            }
+            (Err(f1), Err(f2)) => {
+                assert_eq!(f1, f2);
+            }
+            _ => panic!("Unexpected result"),
+        }
+    }
+
+    fn check_eval(program: &[AssemblerEntry],
+                  expect: Result<&[Piece]>,
+                  address_size: u8,
+                  format: Format) {
+        let context = TestEvaluationContext {
+            base: Ok(0),
+            cfa: Ok(0),
+            at_location: Ok(&[]),
+            initial_value: None,
+            object_address: None,
+            max_iterations: None,
+        };
+
+        check_eval_with_context(program, expect, address_size, format, context);
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_eval_arith() {
+        // It's nice if an operation and its arguments can fit on a single
+        // line in the test program.
+        use constants::*;
+        use self::AssemblerEntry::*;
+
+        // Indices of marks in the assembly.
+        let done = 0;
+        let fail = 1;
+
         let program = [
-            Op(DwOp(DW_OP_reg0.0 + i)),
-            // Included only in the "bad" run.
-            Op(DW_OP_lit23),
+            Op(DW_OP_const1u), U8(23),
+            Op(DW_OP_const1s), U8((-23i8) as u8),
+            Op(DW_OP_plus),
+            Op(DW_OP_bra), Branch(fail),
+
+            Op(DW_OP_const2u), U16(23),
+            Op(DW_OP_const2s), U16((-23i16) as u16),
+            Op(DW_OP_plus),
+            Op(DW_OP_bra), Branch(fail),
+
+            Op(DW_OP_const4u), U32(0x11112222),
+            Op(DW_OP_const4s), U32((-0x11112222i32) as u32),
+            Op(DW_OP_plus),
+            Op(DW_OP_bra), Branch(fail),
+
+            // Plus should overflow.
+            Op(DW_OP_const1s), U8(0xff),
+            Op(DW_OP_const1u), U8(1),
+            Op(DW_OP_plus),
+            Op(DW_OP_bra), Branch(fail),
+
+            Op(DW_OP_const1s), U8(0xff),
+            Op(DW_OP_plus_uconst), Uleb(1),
+            Op(DW_OP_bra), Branch(fail),
+
+            // Minus should underflow.
+            Op(DW_OP_const1s), U8(0),
+            Op(DW_OP_const1u), U8(1),
+            Op(DW_OP_minus),
+            Op(DW_OP_const1s), U8(0xff),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
+
+            Op(DW_OP_const1s), U8(0xff),
+            Op(DW_OP_abs),
+            Op(DW_OP_const1u), U8(1),
+            Op(DW_OP_minus),
+            Op(DW_OP_bra), Branch(fail),
+
+            Op(DW_OP_const4u), U32(0xf078fffe),
+            Op(DW_OP_const4u), U32(0x0f870001),
+            Op(DW_OP_and),
+            Op(DW_OP_bra), Branch(fail),
+
+            Op(DW_OP_const4u), U32(0xf078fffe),
+            Op(DW_OP_const4u), U32(0xf00000fe),
+            Op(DW_OP_and),
+            Op(DW_OP_const4u), U32(0xf00000fe),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
+
+            // Division is signed.
+            Op(DW_OP_const1s), U8(0xfe),
+            Op(DW_OP_const1s), U8(2),
+            Op(DW_OP_div),
+            Op(DW_OP_plus_uconst), Uleb(1),
+            Op(DW_OP_bra), Branch(fail),
+
+            // Mod is unsigned.
+            Op(DW_OP_const1s), U8(0xfd),
+            Op(DW_OP_const1s), U8(2),
+            Op(DW_OP_mod),
+            Op(DW_OP_neg),
+            Op(DW_OP_plus_uconst), Uleb(1),
+            Op(DW_OP_bra), Branch(fail),
+
+            // Overflow is defined for multiplication.
+            Op(DW_OP_const4u), U32(0x80000001),
+            Op(DW_OP_lit2),
+            Op(DW_OP_mul),
+            Op(DW_OP_lit2),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
+
+            Op(DW_OP_const4u), U32(0xf0f0f0f0),
+            Op(DW_OP_const4u), U32(0xf0f0f0f0),
+            Op(DW_OP_xor),
+            Op(DW_OP_bra), Branch(fail),
+
+            Op(DW_OP_const4u), U32(0xf0f0f0f0),
+            Op(DW_OP_const4u), U32(0x0f0f0f0f),
+            Op(DW_OP_or),
+            Op(DW_OP_not),
+            Op(DW_OP_bra), Branch(fail),
+
+            // In 32 bit mode, values are truncated.
+            Op(DW_OP_const8u), U64(0xffffffff00000000),
+            Op(DW_OP_lit2),
+            Op(DW_OP_div),
+            Op(DW_OP_bra), Branch(fail),
+
+            Op(DW_OP_const1u), U8(0xff),
+            Op(DW_OP_lit1),
+            Op(DW_OP_shl),
+            Op(DW_OP_const2u), U16(0x1fe),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
+
+            Op(DW_OP_const1u), U8(0xff),
+            Op(DW_OP_const1u), U8(50),
+            Op(DW_OP_shl),
+            Op(DW_OP_bra), Branch(fail),
+
+            // Absurd shift.
+            Op(DW_OP_const1u), U8(0xff),
+            Op(DW_OP_const1s), U8(0xff),
+            Op(DW_OP_shl),
+            Op(DW_OP_bra), Branch(fail),
+
+            Op(DW_OP_const1s), U8(0xff),
+            Op(DW_OP_lit1),
+            Op(DW_OP_shr),
+            Op(DW_OP_const4u), U32(0x7fffffff),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
+
+            Op(DW_OP_const1s), U8(0xff),
+            Op(DW_OP_const1u), U8(0xff),
+            Op(DW_OP_shr),
+            Op(DW_OP_bra), Branch(fail),
+
+            Op(DW_OP_const1s), U8(0xff),
+            Op(DW_OP_lit1),
+            Op(DW_OP_shra),
+            Op(DW_OP_const1s), U8(0xff),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
+
+            Op(DW_OP_const1s), U8(0xff),
+            Op(DW_OP_const1u), U8(0xff),
+            Op(DW_OP_shra),
+            Op(DW_OP_const1s), U8(0xff),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
+
+            // Success.
+            Op(DW_OP_lit0),
+            Op(DW_OP_nop),
+            Op(DW_OP_skip), Branch(done),
+
+            Mark(fail),
+            Op(DW_OP_lit1),
+
+            Mark(done),
+            Op(DW_OP_stack_value),
         ];
-        let ok_result = [
+
+        let result = [
             Piece { size_in_bits: None,
                     bit_offset: None,
-                    location: Location::Register{register: i as u64},
+                    location: Location::Scalar{value: 0},
             },
         ];
 
-        check_eval(&program[..1], Ok(&ok_result), 4, Format::Dwarf32);
-
-        check_eval(&program, Err(Error::InvalidExpressionTerminator(1)),
-                   4, Format::Dwarf32);
+        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
     }
 
-    let program = [
-        Op(DW_OP_regx), Uleb(0x11223344)
-    ];
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_eval_arith64() {
+        // It's nice if an operation and its arguments can fit on a single
+        // line in the test program.
+        use constants::*;
+        use self::AssemblerEntry::*;
 
-    let result = [
-        Piece { size_in_bits: None,
-                bit_offset: None,
-                location: Location::Register{register: 0x11223344},
-        },
-    ];
+        // Indices of marks in the assembly.
+        let done = 0;
+        let fail = 1;
 
-    check_eval(&program, Ok(&result), 4, Format::Dwarf32);
-}
+        let program = [
+            Op(DW_OP_const8u), U64(0x1111222233334444),
+            Op(DW_OP_const8s), U64((-0x1111222233334444i64) as u64),
+            Op(DW_OP_plus),
+            Op(DW_OP_bra), Branch(fail),
 
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_eval_context() {
-    // It's nice if an operation and its arguments can fit on a single
-    // line in the test program.
-    use constants::*;
-    use self::AssemblerEntry::*;
+            Op(DW_OP_constu), Uleb(0x1111222233334444),
+            Op(DW_OP_consts), Sleb((-0x1111222233334444i64) as u64),
+            Op(DW_OP_plus),
+            Op(DW_OP_bra), Branch(fail),
 
-    let mut context = TestEvaluationContext {
-        base: Ok(0x0123456789abcdef),
-        cfa: Ok(0xfedcba9876543210),
-        at_location: Ok(&[]),
-        initial_value: None,
-        object_address: None,
-        max_iterations: None,
-    };
+            Op(DW_OP_lit1),
+            Op(DW_OP_plus_uconst), Uleb(!0u64),
+            Op(DW_OP_bra), Branch(fail),
 
-    let program = [
-        Op(DW_OP_fbreg), Sleb(0),
-        Op(DW_OP_call_frame_cfa),
-        Op(DW_OP_plus),
-        Op(DW_OP_neg),
-        Op(DW_OP_stack_value)
-    ];
+            Op(DW_OP_lit1),
+            Op(DW_OP_neg),
+            Op(DW_OP_not),
+            Op(DW_OP_bra), Branch(fail),
 
-    let result = [
-        Piece { size_in_bits: None,
-                bit_offset: None,
-                location: Location::Scalar{value: 1},
-        },
-    ];
+            Op(DW_OP_const8u), U64(0x8000000000000000),
+            Op(DW_OP_const1u), U8(63),
+            Op(DW_OP_shr),
+            Op(DW_OP_lit1),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
 
-    check_eval_with_context(&program, Ok(&result), 8, Format::Dwarf64, context);
+            Op(DW_OP_const8u), U64(0x8000000000000000),
+            Op(DW_OP_const1u), U8(62),
+            Op(DW_OP_shra),
+            Op(DW_OP_plus_uconst), Uleb(2),
+            Op(DW_OP_bra), Branch(fail),
 
-    let program = [
-        Op(DW_OP_push_object_address),
-    ];
+            Op(DW_OP_lit1),
+            Op(DW_OP_const1u), U8(63),
+            Op(DW_OP_shl),
+            Op(DW_OP_const8u), U64(0x8000000000000000),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
 
-    check_eval_with_context(&program, Err(Error::InvalidPushObjectAddress),
-                            4, Format::Dwarf32, context);
+            // Success.
+            Op(DW_OP_lit0),
+            Op(DW_OP_nop),
+            Op(DW_OP_skip), Branch(done),
 
-    let program = [
-        Op(DW_OP_push_object_address),
-        Op(DW_OP_stack_value),
-    ];
+            Mark(fail),
+            Op(DW_OP_lit1),
 
-    let result = [
-        Piece { size_in_bits: None,
-                bit_offset: None,
-                location: Location::Scalar{value: 0xff},
-        },
-    ];
+            Mark(done),
+            Op(DW_OP_stack_value),
+        ];
 
-    context.object_address = Some(0xff);
-    check_eval_with_context(&program, Ok(&result), 8, Format::Dwarf64, context);
+        let result = [
+            Piece { size_in_bits: None,
+                    bit_offset: None,
+                    location: Location::Scalar{value: 0},
+            },
+        ];
 
-    let program = [
-    ];
+        check_eval(&program, Ok(&result), 8, Format::Dwarf64);
+    }
 
-    let result = [
-        Piece { size_in_bits: None,
-                bit_offset: None,
-                location: Location::Address{address: 0x12345678},
-        },
-    ];
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_eval_compare() {
+        // It's nice if an operation and its arguments can fit on a single
+        // line in the test program.
+        use constants::*;
+        use self::AssemblerEntry::*;
 
-    context.initial_value = Some(0x12345678);
-    check_eval_with_context(&program, Ok(&result), 8, Format::Dwarf64, context);
-}
+        // Indices of marks in the assembly.
+        let done = 0;
+        let fail = 1;
 
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_eval_empty_stack() {
-    // It's nice if an operation and its arguments can fit on a single
-    // line in the test program.
-    use constants::*;
-    use self::AssemblerEntry::*;
+        let program = [
+            // Comparisons are signed.
+            Op(DW_OP_const1s), U8(1),
+            Op(DW_OP_const1s), U8(0xff),
+            Op(DW_OP_lt),
+            Op(DW_OP_bra), Branch(fail),
 
-    let program = [
-        Op(DW_OP_stack_value)
-    ];
+            Op(DW_OP_const1s), U8(0xff),
+            Op(DW_OP_const1s), U8(1),
+            Op(DW_OP_gt),
+            Op(DW_OP_bra), Branch(fail),
 
-    check_eval(&program, Err(Error::NotEnoughStackItems), 4, Format::Dwarf32);
-}
+            Op(DW_OP_const1s), U8(1),
+            Op(DW_OP_const1s), U8(0xff),
+            Op(DW_OP_le),
+            Op(DW_OP_bra), Branch(fail),
 
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_eval_call() {
-    // It's nice if an operation and its arguments can fit on a single
-    // line in the test program.
-    use constants::*;
-    use self::AssemblerEntry::*;
+            Op(DW_OP_const1s), U8(0xff),
+            Op(DW_OP_const1s), U8(1),
+            Op(DW_OP_ge),
+            Op(DW_OP_bra), Branch(fail),
 
-    let mut context = TestEvaluationContext {
-        base: Ok(0x0123456789abcdef),
-        cfa: Ok(0xfedcba9876543210),
-        at_location: Ok(&[]),
-        initial_value: None,
-        object_address: None,
-        max_iterations: None,
-    };
+            Op(DW_OP_const1s), U8(0xff),
+            Op(DW_OP_const1s), U8(1),
+            Op(DW_OP_eq),
+            Op(DW_OP_bra), Branch(fail),
 
-    let program = [
-        Op(DW_OP_lit23),
-        Op(DW_OP_call2), U16(0x7755),
-        Op(DW_OP_call4), U32(0x7755aaee),
-        Op(DW_OP_call_ref), U32(0x7755aaee),
-        Op(DW_OP_stack_value)
-    ];
+            Op(DW_OP_const4s), U32(1),
+            Op(DW_OP_const1s), U8(1),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
 
-    let result = [
-        Piece { size_in_bits: None,
-                bit_offset: None,
-                location: Location::Scalar{value: 23},
-        },
-    ];
+            // Success.
+            Op(DW_OP_lit0),
+            Op(DW_OP_nop),
+            Op(DW_OP_skip), Branch(done),
 
-    check_eval_with_context(&program, Ok(&result), 4, Format::Dwarf32, context);
+            Mark(fail),
+            Op(DW_OP_lit1),
 
-    // DW_OP_lit2 DW_OP_mul
-    const SUBR: &'static [u8] = &[0x32, 0x1e];
-    context.at_location = Ok(SUBR);
+            Mark(done),
+            Op(DW_OP_stack_value),
+        ];
 
-    let result = [
-        Piece { size_in_bits: None,
-                bit_offset: None,
-                location: Location::Scalar{value: 184},
-        },
-    ];
+        let result = [
+            Piece { size_in_bits: None,
+                    bit_offset: None,
+                    location: Location::Scalar{value: 0},
+            },
+        ];
 
-    check_eval_with_context(&program, Ok(&result), 4, Format::Dwarf32, context);
-}
+        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+    }
 
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_eval_pieces() {
-    // It's nice if an operation and its arguments can fit on a single
-    // line in the test program.
-    use constants::*;
-    use self::AssemblerEntry::*;
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_eval_stack() {
+        // It's nice if an operation and its arguments can fit on a single
+        // line in the test program.
+        use constants::*;
+        use self::AssemblerEntry::*;
 
-    // Example from DWARF 2.6.1.3.
-    let program = [
-        Op(DW_OP_reg3),
-        Op(DW_OP_piece), Uleb(4),
-        Op(DW_OP_reg4),
-        Op(DW_OP_piece), Uleb(2),
-    ];
+        let program = [
+            Op(DW_OP_lit17),                // -- 17
+            Op(DW_OP_dup),                  // -- 17 17
+            Op(DW_OP_over),                 // -- 17 17 17
+            Op(DW_OP_minus),                // -- 17 0
+            Op(DW_OP_swap),                 // -- 0 17
+            Op(DW_OP_dup),                  // -- 0 17 17
+            Op(DW_OP_plus_uconst), Uleb(1), // -- 0 17 18
+            Op(DW_OP_rot),                  // -- 18 0 17
+            Op(DW_OP_pick), U8(2),          // -- 18 0 17 18
+            Op(DW_OP_pick), U8(3),          // -- 18 0 17 18 18
+            Op(DW_OP_minus),                // -- 18 0 17 0
+            Op(DW_OP_drop),                 // -- 18 0 17
+            Op(DW_OP_swap),                 // -- 18 17 0
+            Op(DW_OP_drop),                 // -- 18 17
+            Op(DW_OP_minus),                // -- 1
+            Op(DW_OP_stack_value),
+        ];
 
-    let result = [
-        Piece { size_in_bits: Some(32), bit_offset: None,
-                location: Location::Register { register: 3 } },
-        Piece { size_in_bits: Some(16), bit_offset: None,
-                location: Location::Register { register: 4 } },
-    ];
+        let result = [
+            Piece { size_in_bits: None,
+                    bit_offset: None,
+                    location: Location::Scalar{value: 1},
+            },
+        ];
 
-    check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+    }
 
-    // Example from DWARF 2.6.1.3 (but hacked since dealing with fbreg
-    // in the tests is a pain).
-    let program = [
-        Op(DW_OP_reg0),
-        Op(DW_OP_piece), Uleb(4),
-        Op(DW_OP_piece), Uleb(4),
-        Op(DW_OP_addr), U32(0x7fffffff),
-        Op(DW_OP_piece), Uleb(4),
-    ];
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_eval_lit_and_reg() {
+        // It's nice if an operation and its arguments can fit on a single
+        // line in the test program.
+        use constants::*;
+        use self::AssemblerEntry::*;
 
-    let result = [
-        Piece { size_in_bits: Some(32), bit_offset: None,
-                location: Location::Register { register: 0 } },
-        Piece { size_in_bits: Some(32), bit_offset: None,
-                location: Location::Empty },
-        Piece { size_in_bits: Some(32), bit_offset: None,
-                location: Location::Address { address: 0x7fffffff } },
-    ];
+        let mut program = Vec::new();
+        program.push(Op(DW_OP_lit0));
+        for i in 0..32 {
+            program.push(Op(DwOp(DW_OP_lit0.0 + i)));
+            program.push(Op(DwOp(DW_OP_breg0.0 + i)));
+            program.push(Sleb(i as u64));
+            program.push(Op(DW_OP_plus));
+            program.push(Op(DW_OP_plus));
+        }
 
-    check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+        program.push(Op(DW_OP_bregx));
+        program.push(Uleb(0x123456));
+        program.push(Sleb(0x123456));
+        program.push(Op(DW_OP_plus));
 
-    let program = [
-        Op(DW_OP_implicit_value), Uleb(5),
-        U8(23), U8(24), U8(25), U8(26), U8(0),
-    ];
+        program.push(Op(DW_OP_stack_value));
 
-    const BYTES: &'static [u8] = &[23, 24, 25, 26, 0];
+        let result = [
+            Piece { size_in_bits: None,
+                    bit_offset: None,
+                    location: Location::Scalar{value: 496},
+            },
+        ];
 
-    let result = [
-        Piece { size_in_bits: None, bit_offset: None,
-                location: Location::Bytes { value: BYTES } },
-    ];
+        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+    }
 
-    check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_eval_memory() {
+        // It's nice if an operation and its arguments can fit on a single
+        // line in the test program.
+        use constants::*;
+        use self::AssemblerEntry::*;
 
-    let program = [
-        Op(DW_OP_lit7),
-        Op(DW_OP_stack_value),
-        Op(DW_OP_bit_piece), Uleb(5), Uleb(0),
-        Op(DW_OP_bit_piece), Uleb(3), Uleb(0),
-    ];
+        // Indices of marks in the assembly.
+        let done = 0;
+        let fail = 1;
 
-    let result = [
-        Piece { size_in_bits: Some(5), bit_offset: Some(0),
-                location: Location::Scalar { value: 7 } },
-        Piece { size_in_bits: Some(3), bit_offset: Some(0),
-                location: Location::Empty },
-    ];
+        let program = [
+            Op(DW_OP_addr), U32(0x7fffffff),
+            Op(DW_OP_deref),
+            Op(DW_OP_const4u), U32(0xfffffffc),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
 
-    check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+            Op(DW_OP_addr), U32(0x7fffffff),
+            Op(DW_OP_deref_size), U8(2),
+            Op(DW_OP_const4u), U32(0xfffc),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
 
-    let program = [
-        Op(DW_OP_lit7),
-    ];
+            Op(DW_OP_lit1),
+            Op(DW_OP_addr), U32(0x7fffffff),
+            Op(DW_OP_xderef),
+            Op(DW_OP_const4u), U32(0xfffffffd),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
 
-    let result = [
-        Piece { size_in_bits: None, bit_offset: None,
-                location: Location::Address { address: 7 } },
-    ];
+            Op(DW_OP_lit1),
+            Op(DW_OP_addr), U32(0x7fffffff),
+            Op(DW_OP_xderef_size), U8(2),
+            Op(DW_OP_const4u), U32(0xfffd),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
 
-    check_eval(&program, Ok(&result), 4, Format::Dwarf32);
-}
+            Op(DW_OP_lit17),
+            Op(DW_OP_form_tls_address),
+            Op(DW_OP_constu), Uleb(!17),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
 
-#[test]
-#[cfg_attr(rustfmt, rustfmt_skip)]
-fn test_eval_max_iterations() {
-    // It's nice if an operation and its arguments can fit on a single
-    // line in the test program.
-    use constants::*;
-    use self::AssemblerEntry::*;
+            Op(DW_OP_lit17),
+            Op(DW_OP_GNU_push_tls_address),
+            Op(DW_OP_constu), Uleb(!17),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
 
-    let context = TestEvaluationContext {
-        base: Ok(0),
-        cfa: Ok(0),
-        at_location: Ok(&[]),
-        initial_value: None,
-        object_address: None,
-        max_iterations: Some(150),
-    };
+            // Success.
+            Op(DW_OP_lit0),
+            Op(DW_OP_nop),
+            Op(DW_OP_skip), Branch(done),
 
-    let program = [
-        Mark(1),
-        Op(DW_OP_skip), Branch(1),
-    ];
+            Mark(fail),
+            Op(DW_OP_lit1),
 
-    check_eval_with_context(&program, Err(Error::TooManyIterations),
-                            4, Format::Dwarf32, context);
+            Mark(done),
+            Op(DW_OP_stack_value),
+        ];
+
+        let result = [
+            Piece { size_in_bits: None,
+                    bit_offset: None,
+                    location: Location::Scalar{value: 0},
+            },
+        ];
+
+        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_eval_register() {
+        // It's nice if an operation and its arguments can fit on a single
+        // line in the test program.
+        use constants::*;
+        use self::AssemblerEntry::*;
+
+        for i in 0..32 {
+            let program = [
+                Op(DwOp(DW_OP_reg0.0 + i)),
+                // Included only in the "bad" run.
+                Op(DW_OP_lit23),
+            ];
+            let ok_result = [
+                Piece { size_in_bits: None,
+                        bit_offset: None,
+                        location: Location::Register{register: i as u64},
+                },
+            ];
+
+            check_eval(&program[..1], Ok(&ok_result), 4, Format::Dwarf32);
+
+            check_eval(&program, Err(Error::InvalidExpressionTerminator(1)),
+                       4, Format::Dwarf32);
+        }
+
+        let program = [
+            Op(DW_OP_regx), Uleb(0x11223344)
+        ];
+
+        let result = [
+            Piece { size_in_bits: None,
+                    bit_offset: None,
+                    location: Location::Register{register: 0x11223344},
+            },
+        ];
+
+        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_eval_context() {
+        // It's nice if an operation and its arguments can fit on a single
+        // line in the test program.
+        use constants::*;
+        use self::AssemblerEntry::*;
+
+        let mut context = TestEvaluationContext {
+            base: Ok(0x0123456789abcdef),
+            cfa: Ok(0xfedcba9876543210),
+            at_location: Ok(&[]),
+            initial_value: None,
+            object_address: None,
+            max_iterations: None,
+        };
+
+        let program = [
+            Op(DW_OP_fbreg), Sleb(0),
+            Op(DW_OP_call_frame_cfa),
+            Op(DW_OP_plus),
+            Op(DW_OP_neg),
+            Op(DW_OP_stack_value)
+        ];
+
+        let result = [
+            Piece { size_in_bits: None,
+                    bit_offset: None,
+                    location: Location::Scalar{value: 1},
+            },
+        ];
+
+        check_eval_with_context(&program, Ok(&result), 8, Format::Dwarf64, context);
+
+        let program = [
+            Op(DW_OP_push_object_address),
+        ];
+
+        check_eval_with_context(&program, Err(Error::InvalidPushObjectAddress),
+                                4, Format::Dwarf32, context);
+
+        let program = [
+            Op(DW_OP_push_object_address),
+            Op(DW_OP_stack_value),
+        ];
+
+        let result = [
+            Piece { size_in_bits: None,
+                    bit_offset: None,
+                    location: Location::Scalar{value: 0xff},
+            },
+        ];
+
+        context.object_address = Some(0xff);
+        check_eval_with_context(&program, Ok(&result), 8, Format::Dwarf64, context);
+
+        let program = [
+        ];
+
+        let result = [
+            Piece { size_in_bits: None,
+                    bit_offset: None,
+                    location: Location::Address{address: 0x12345678},
+            },
+        ];
+
+        context.initial_value = Some(0x12345678);
+        check_eval_with_context(&program, Ok(&result), 8, Format::Dwarf64, context);
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_eval_empty_stack() {
+        // It's nice if an operation and its arguments can fit on a single
+        // line in the test program.
+        use constants::*;
+        use self::AssemblerEntry::*;
+
+        let program = [
+            Op(DW_OP_stack_value)
+        ];
+
+        check_eval(&program, Err(Error::NotEnoughStackItems), 4, Format::Dwarf32);
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_eval_call() {
+        // It's nice if an operation and its arguments can fit on a single
+        // line in the test program.
+        use constants::*;
+        use self::AssemblerEntry::*;
+
+        let mut context = TestEvaluationContext {
+            base: Ok(0x0123456789abcdef),
+            cfa: Ok(0xfedcba9876543210),
+            at_location: Ok(&[]),
+            initial_value: None,
+            object_address: None,
+            max_iterations: None,
+        };
+
+        let program = [
+            Op(DW_OP_lit23),
+            Op(DW_OP_call2), U16(0x7755),
+            Op(DW_OP_call4), U32(0x7755aaee),
+            Op(DW_OP_call_ref), U32(0x7755aaee),
+            Op(DW_OP_stack_value)
+        ];
+
+        let result = [
+            Piece { size_in_bits: None,
+                    bit_offset: None,
+                    location: Location::Scalar{value: 23},
+            },
+        ];
+
+        check_eval_with_context(&program, Ok(&result), 4, Format::Dwarf32, context);
+
+        // DW_OP_lit2 DW_OP_mul
+        const SUBR: &'static [u8] = &[0x32, 0x1e];
+        context.at_location = Ok(SUBR);
+
+        let result = [
+            Piece { size_in_bits: None,
+                    bit_offset: None,
+                    location: Location::Scalar{value: 184},
+            },
+        ];
+
+        check_eval_with_context(&program, Ok(&result), 4, Format::Dwarf32, context);
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_eval_pieces() {
+        // It's nice if an operation and its arguments can fit on a single
+        // line in the test program.
+        use constants::*;
+        use self::AssemblerEntry::*;
+
+        // Example from DWARF 2.6.1.3.
+        let program = [
+            Op(DW_OP_reg3),
+            Op(DW_OP_piece), Uleb(4),
+            Op(DW_OP_reg4),
+            Op(DW_OP_piece), Uleb(2),
+        ];
+
+        let result = [
+            Piece { size_in_bits: Some(32), bit_offset: None,
+                    location: Location::Register { register: 3 } },
+            Piece { size_in_bits: Some(16), bit_offset: None,
+                    location: Location::Register { register: 4 } },
+        ];
+
+        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+
+        // Example from DWARF 2.6.1.3 (but hacked since dealing with fbreg
+        // in the tests is a pain).
+        let program = [
+            Op(DW_OP_reg0),
+            Op(DW_OP_piece), Uleb(4),
+            Op(DW_OP_piece), Uleb(4),
+            Op(DW_OP_addr), U32(0x7fffffff),
+            Op(DW_OP_piece), Uleb(4),
+        ];
+
+        let result = [
+            Piece { size_in_bits: Some(32), bit_offset: None,
+                    location: Location::Register { register: 0 } },
+            Piece { size_in_bits: Some(32), bit_offset: None,
+                    location: Location::Empty },
+            Piece { size_in_bits: Some(32), bit_offset: None,
+                    location: Location::Address { address: 0x7fffffff } },
+        ];
+
+        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+
+        let program = [
+            Op(DW_OP_implicit_value), Uleb(5),
+            U8(23), U8(24), U8(25), U8(26), U8(0),
+        ];
+
+        const BYTES: &'static [u8] = &[23, 24, 25, 26, 0];
+
+        let result = [
+            Piece { size_in_bits: None, bit_offset: None,
+                    location: Location::Bytes { value: BYTES } },
+        ];
+
+        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+
+        let program = [
+            Op(DW_OP_lit7),
+            Op(DW_OP_stack_value),
+            Op(DW_OP_bit_piece), Uleb(5), Uleb(0),
+            Op(DW_OP_bit_piece), Uleb(3), Uleb(0),
+        ];
+
+        let result = [
+            Piece { size_in_bits: Some(5), bit_offset: Some(0),
+                    location: Location::Scalar { value: 7 } },
+            Piece { size_in_bits: Some(3), bit_offset: Some(0),
+                    location: Location::Empty },
+        ];
+
+        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+
+        let program = [
+            Op(DW_OP_lit7),
+        ];
+
+        let result = [
+            Piece { size_in_bits: None, bit_offset: None,
+                    location: Location::Address { address: 7 } },
+        ];
+
+        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_eval_max_iterations() {
+        // It's nice if an operation and its arguments can fit on a single
+        // line in the test program.
+        use constants::*;
+        use self::AssemblerEntry::*;
+
+        let context = TestEvaluationContext {
+            base: Ok(0),
+            cfa: Ok(0),
+            at_location: Ok(&[]),
+            initial_value: None,
+            object_address: None,
+            max_iterations: Some(150),
+        };
+
+        let program = [
+            Mark(1),
+            Op(DW_OP_skip), Branch(1),
+        ];
+
+        check_eval_with_context(&program, Err(Error::TooManyIterations),
+                                4, Format::Dwarf32, context);
+    }
 }
