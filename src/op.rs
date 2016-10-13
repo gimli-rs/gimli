@@ -1262,42 +1262,14 @@ mod tests {
         let bytecode = &bytes[..];
         let ebuf = EndianBuf::<LittleEndian>::new(bytecode);
 
-        match compute_pc(ebuf, bytecode, 0) {
-            Ok(val) => {
-                let valbytes: &[u8] = val.into();
-                assert_eq!(valbytes.len(), bytecode.len());
-            }
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        }
-
-        match compute_pc(ebuf, bytecode, -1) {
-            Err(Error::BadBranchTarget(_)) => {}
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        }
-
-        match compute_pc(ebuf, bytecode, 5) {
-            Ok(val) => {
-                let valbytes: &[u8] = val.into();
-                assert_eq!(valbytes.len(), 0);
-            }
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        }
-
-        match compute_pc(EndianBuf::<LittleEndian>::new(&bytes[3..]), bytecode, -2) {
-            Ok(val) => {
-                let valbytes: &[u8] = val.into();
-                assert_eq!(valbytes.len(), bytecode.len() - 1);
-            }
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        }
-
-        match compute_pc(EndianBuf::<LittleEndian>::new(&bytes[2..]), bytecode, 2) {
-            Ok(val) => {
-                let valbytes: &[u8] = val.into();
-                assert_eq!(valbytes.len(), bytecode.len() - 4);
-            }
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        }
+        assert_eq!(compute_pc(ebuf, bytecode, 0), Ok(ebuf));
+        assert_eq!(compute_pc(ebuf, bytecode, -1),
+                   Err(Error::BadBranchTarget(-1isize as usize)));
+        assert_eq!(compute_pc(ebuf, bytecode, 5), Ok(ebuf.range_from(5..)));
+        assert_eq!(compute_pc(ebuf.range_from(3..), bytecode, -2),
+                   Ok(ebuf.range_from(1..)));
+        assert_eq!(compute_pc(ebuf.range_from(2..), bytecode, 2),
+                   Ok(ebuf.range_from(4..)));
     }
 
     fn check_op_parse_simple(input: &[u8],
