@@ -40,6 +40,8 @@ pub trait EvaluationContext<'input>: fmt::Debug {
     /// return the corresponding DWARF expression.  If no expression
     /// can be found, this should return an empty slice.
     fn get_at_location(&self, die: DieReference) -> Result<&'input [u8]>;
+    /// Evaluate an expression at the entry to the current subprogram.
+    fn evaluate_entry_value(&self, expression: &[u8]) -> Result<u64>;
 }
 
 /// A single decoded DWARF expression operation.
@@ -201,6 +203,12 @@ pub enum Operation<'input, Endian>
         value: DebugInfoOffset,
         /// The byte offset into the value that the implicit pointer points to.
         byte_offset: i64,
+    },
+    /// Represents `DW_OP_entry_value`. Evaluate an expression at the entry to
+    /// the current subprogram, and push it on the stack.
+    EntryValue {
+        /// The expression to be evaluated.
+        expression: EndianBuf<'input, Endian>,
     },
 }
 
@@ -797,6 +805,11 @@ impl<'input, Endian> Operation<'input, Endian>
                     byte_offset: byte_offset,
                 }))
             }
+            constants::DW_OP_entry_value |
+            constants::DW_OP_GNU_entry_value => {
+                let (newbytes, expression) = try!(parse_length_uleb_value(bytes));
+                Ok((newbytes, Operation::EntryValue { expression: expression }))
+            }
 
             _ => Err(Error::InvalidExpression(name)),
         }
@@ -1163,6 +1176,11 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
                 };
             }
 
+            Operation::EntryValue { expression } => {
+                let value = try!(self.callbacks.evaluate_entry_value(expression.into()));
+                self.push(value);
+            }
+
             Operation::Piece { .. } => {
                 piece_end = true;
             }
@@ -1287,7 +1305,7 @@ mod tests {
     use constants;
     use endianity::{EndianBuf, LittleEndian};
     use leb128;
-    use parser::{Error, Format, Result};
+    use parser::{Error, Format, Result, parse_u64};
     use self::test_assembler::{Endian, Section};
     use unit::{DebugInfoOffset, UnitOffset};
     use test_util::GimliSectionMethods;
@@ -1794,6 +1812,17 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_op_parse_entry_value() {
+        for op in &[constants::DW_OP_entry_value, constants::DW_OP_GNU_entry_value] {
+            let data = b"hello";
+            check_op_parse(|s| s.D8(op.0).uleb(data.len() as u64).append_bytes(&data[..]),
+                           &Operation::EntryValue { expression: EndianBuf::new(&data[..]) },
+                           4,
+                           Format::Dwarf32);
+        }
+    }
+
     #[derive(Clone, Copy, Debug)]
     struct TestEvaluationContext {
         base: Result<u64>,
@@ -1827,6 +1856,9 @@ mod tests {
         }
         fn get_at_location(&self, _: DieReference) -> Result<&'input [u8]> {
             self.at_location
+        }
+        fn evaluate_entry_value(&self, expression: &[u8]) -> Result<u64> {
+            parse_u64(EndianBuf::<LittleEndian>::new(expression)).map(|(_, value)| value)
         }
     }
 
@@ -1935,7 +1967,7 @@ mod tests {
             (Err(f1), Err(f2)) => {
                 assert_eq!(f1, f2);
             }
-            _ => panic!("Unexpected result"),
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
     }
 
@@ -2468,6 +2500,7 @@ mod tests {
             max_iterations: None,
         };
 
+        // Test `frame_base` and `call_frame_cfa` callbacks.
         let program = [
             Op(DW_OP_fbreg), Sleb(0),
             Op(DW_OP_call_frame_cfa),
@@ -2485,6 +2518,22 @@ mod tests {
 
         check_eval_with_context(&program, Ok(&result), 8, Format::Dwarf64, context);
 
+        // Test `evaluate_entry_value` callback.
+        let program = [
+            Op(DW_OP_entry_value), Uleb(8), U64(0x12345678),
+            Op(DW_OP_stack_value)
+        ];
+
+        let result = [
+            Piece { size_in_bits: None,
+                    bit_offset: None,
+                    location: Location::Scalar{value: 0x12345678},
+            },
+        ];
+
+        check_eval_with_context(&program, Ok(&result), 8, Format::Dwarf64, context);
+
+        // Test missing `object_address` field.
         let program = [
             Op(DW_OP_push_object_address),
         ];
@@ -2492,6 +2541,7 @@ mod tests {
         check_eval_with_context(&program, Err(Error::InvalidPushObjectAddress),
                                 4, Format::Dwarf32, context);
 
+        // Test `object_address` field.
         let program = [
             Op(DW_OP_push_object_address),
             Op(DW_OP_stack_value),
@@ -2507,6 +2557,7 @@ mod tests {
         context.object_address = Some(0xff);
         check_eval_with_context(&program, Ok(&result), 8, Format::Dwarf64, context);
 
+        // Test `initial_value` field.
         let program = [
         ];
 
