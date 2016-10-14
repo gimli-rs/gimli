@@ -567,6 +567,9 @@ fn dump_op<Endian>(dwop: gimli::DwOp, op: gimli::Operation<Endian>, newpc: &[u8]
                 print!("{:02x}", byte);
             }
         }
+        gimli::Operation::ImplicitPointer { value, byte_offset } => {
+            print!(" 0x{:08x} {}", value.0, byte_offset);
+        }
         _ => {}
     }
 }

@@ -193,6 +193,15 @@ pub enum Operation<'input, Endian>
     },
     /// Represents `DW_OP_stack_value`.
     StackValue,
+    /// Represents `DW_OP_implicit_pointer`. The object is a pointer to
+    /// a value which has no actual location, such as an implicit value or
+    /// a stack value.
+    ImplicitPointer {
+        /// The `.debug_info` offset of the value that this is an implicit pointer into.
+        value: DebugInfoOffset,
+        /// The byte offset into the value that the implicit pointer points to.
+        byte_offset: i64,
+    },
 }
 
 /// A single location of a piece of the result of a DWARF expression.
@@ -220,6 +229,13 @@ pub enum Location<'input> {
     Bytes {
         /// The value.
         value: &'input [u8],
+    },
+    /// The piece is a pointer to a value which has no actual location.
+    ImplicitPointer {
+        /// The `.debug_info` offset of the value that this is an implicit pointer into.
+        value: DebugInfoOffset,
+        /// The byte offset into the value that the implicit pointer points to.
+        byte_offset: i64,
     },
 }
 
@@ -771,6 +787,16 @@ impl<'input, Endian> Operation<'input, Endian>
                 Ok((newbytes, Operation::ImplicitValue { data: data.into() }))
             }
             constants::DW_OP_stack_value => Ok((bytes, Operation::StackValue)),
+            constants::DW_OP_implicit_pointer |
+            constants::DW_OP_GNU_implicit_pointer => {
+                let (newbytes, value) = try!(parse_offset(bytes, format));
+                let (newbytes, byte_offset) = try!(parse_signed_lebe(newbytes));
+                Ok((newbytes,
+                    Operation::ImplicitPointer {
+                    value: DebugInfoOffset(value),
+                    byte_offset: byte_offset,
+                }))
+            }
 
             _ => Err(Error::InvalidExpression(name)),
         }
@@ -1127,6 +1153,14 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
             Operation::StackValue => {
                 terminated = true;
                 current_location = Location::Scalar { value: try!(self.pop()) };
+            }
+
+            Operation::ImplicitPointer { value, byte_offset } => {
+                terminated = true;
+                current_location = Location::ImplicitPointer {
+                    value: value,
+                    byte_offset: byte_offset,
+                };
             }
 
             Operation::Piece { .. } => {
@@ -1737,6 +1771,27 @@ mod tests {
                        &Operation::ImplicitValue { data: &data[..] },
                        address_size,
                        format);
+    }
+
+    #[test]
+    fn test_op_parse_implicit_pointer() {
+        for op in &[constants::DW_OP_implicit_pointer, constants::DW_OP_GNU_implicit_pointer] {
+            check_op_parse(|s| s.D8(op.0).D32(0x12345678).sleb(0x123),
+                           &Operation::ImplicitPointer {
+                               value: DebugInfoOffset(0x12345678),
+                               byte_offset: 0x123,
+                           },
+                           4,
+                           Format::Dwarf32);
+
+            check_op_parse(|s| s.D8(op.0).D64(0x12345678).sleb(0x123),
+                           &Operation::ImplicitPointer {
+                               value: DebugInfoOffset(0x12345678),
+                               byte_offset: 0x123,
+                           },
+                           8,
+                           Format::Dwarf64);
+        }
     }
 
     #[derive(Clone, Copy, Debug)]
@@ -2612,6 +2667,21 @@ mod tests {
         let result = [
             Piece { size_in_bits: None, bit_offset: None,
                     location: Location::Address { address: 7 } },
+        ];
+
+        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+
+        let program = [
+            Op(DW_OP_implicit_pointer), U32(0x12345678), Sleb(0x123),
+        ];
+
+        let result = [
+            Piece { size_in_bits: None, bit_offset: None,
+                    location: Location::ImplicitPointer {
+                        value: DebugInfoOffset(0x12345678),
+                        byte_offset: 0x123,
+                    },
+            },
         ];
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
