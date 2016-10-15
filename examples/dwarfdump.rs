@@ -474,15 +474,25 @@ fn dump_exprloc<Endian>(data: gimli::EndianBuf<Endian>, unit: &Unit<Endian>)
     let mut space = false;
     while pc.len() != 0 {
         let dwop = gimli::DwOp(pc[0]);
-        let (newpc, op) = gimli::Operation::parse(pc, data.0, unit.address_size, unit.format)
-            .expect("Should parse op");
-        if space {
-            print!(" ");
-        } else {
-            space = true;
+        match gimli::Operation::parse(pc, data.0, unit.address_size, unit.format) {
+            Ok((newpc, op)) => {
+                if space {
+                    print!(" ");
+                } else {
+                    space = true;
+                }
+                dump_op(dwop, op, newpc.0);
+                pc = newpc;
+            }
+            Err(gimli::Error::InvalidExpression(op)) => {
+                writeln!(&mut std::io::stderr(),
+                         "WARNING: unsupported operation 0x{:02x}",
+                         op.0)
+                    .unwrap();
+                return;
+            }
+            otherwise => panic!("Unexpected Operation::parse result: {:?}", otherwise),
         }
-        dump_op(dwop, op, newpc.0);
-        pc = newpc;
     }
 }
 
