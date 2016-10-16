@@ -203,4 +203,5 @@ pub use unit::{DebugInfo, DebugInfoOffset, CompilationUnitHeadersIter, Compilati
                UnitOffset};
 pub use unit::{DebugTypes, DebugTypesOffset, DebugTypeSignature, TypeUnitHeadersIter,
                TypeUnitHeader};
-pub use unit::{EntriesCursor, DebuggingInformationEntry, AttrsIter, Attribute, AttributeValue};
+pub use unit::{EntriesCursor, EntriesTree, EntriesTreeIter, DebuggingInformationEntry};
+pub use unit::{AttrsIter, Attribute, AttributeValue};
