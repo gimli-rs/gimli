@@ -290,8 +290,11 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
         gimli::AttributeValue::Addr(address) => {
             println!("0x{:08x}", address);
         }
-        gimli::AttributeValue::Block(_) => {
-            println!("{:?}", value);
+        gimli::AttributeValue::Block(data) => {
+            for byte in data.0 {
+                print!("{:02x}", byte);
+            }
+            println!("");
         }
         gimli::AttributeValue::Data(_) => {
             if let (Some(udata), Some(sdata)) = (attr.udata_value(), attr.sdata_value()) {
