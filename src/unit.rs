@@ -1048,7 +1048,9 @@ impl<'input, Endian> Attribute<'input, Endian>
                 string!();
             }
             constants::DW_AT_const_value => {
-                // block, constant, string
+                // TODO: constant: sign depends on DW_AT_type.
+                block!();
+                string!();
             }
             constants::DW_AT_containing_type => {
                 reference!();
@@ -1063,7 +1065,7 @@ impl<'input, Endian> Attribute<'input, Endian>
                 flag!();
             }
             constants::DW_AT_lower_bound => {
-                constant!(udata_value, Udata);
+                // TODO: constant: sign depends on DW_AT_type.
                 exprloc!();
                 reference!();
             }
@@ -1087,7 +1089,7 @@ impl<'input, Endian> Attribute<'input, Endian>
                 reference!();
             }
             constants::DW_AT_upper_bound => {
-                constant!(udata_value, Udata);
+                // TODO: constant: sign depends on DW_AT_type.
                 exprloc!();
                 reference!();
             }
