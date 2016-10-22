@@ -37,12 +37,10 @@ fn test_parse_self_debug_info() {
         let abbrevs = unit.abbreviations(debug_abbrev)
             .expect("Should parse abbreviations");
 
-        let mut cursor = unit.entries(&abbrevs);
+        let mut cursor = unit.entries(&abbrevs).expect("Should parse root entry");
 
         while cursor.next_dfs().expect("Should parse next dfs").is_some() {
-            let entry = cursor.current().expect("Should have a current entry");
-
-            let mut attrs = entry.attrs();
+            let mut attrs = cursor.current().attrs();
             while let Some(_) = attrs.next().expect("Should parse entry's attribute") {
             }
         }
@@ -68,12 +66,10 @@ fn test_parse_self_debug_line() {
         let abbrevs = unit.abbreviations(debug_abbrev)
             .expect("Should parse abbreviations");
 
-        let mut cursor = unit.entries(&abbrevs);
-        cursor.next_dfs().expect("Should parse next dfs");
+        // TODO: avoid cursor usage
+        let cursor = unit.entries(&abbrevs).expect("Should parse root entry");
 
-        let unit_entry = cursor.current()
-            .expect("Should have a root entry");
-
+        let unit_entry = cursor.current();
         let comp_dir = unit_entry.attr(gimli::DW_AT_comp_dir)
             .and_then(|attr| attr.string_value(&debug_str));
         let comp_name = unit_entry.attr(gimli::DW_AT_name)

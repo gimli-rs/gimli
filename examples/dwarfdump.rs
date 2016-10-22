@@ -145,7 +145,7 @@ fn dump_info<Endian>(file: &object::File,
                 .expect("Error parsing abbreviations");
 
             dump_entries(unit.offset().0,
-                         unit.entries(&abbrevs),
+                         unit.entries(&abbrevs).unwrap(),
                          unit.address_size(),
                          unit.format(),
                          debug_line,
@@ -185,7 +185,7 @@ fn dump_types<Endian>(file: &object::File,
                      unit.type_offset().0);
 
             dump_entries(unit.offset().0,
-                         unit.entries(&abbrevs),
+                         unit.entries(&abbrevs).unwrap(),
                          unit.address_size(),
                          unit.format(),
                          debug_line,
@@ -702,10 +702,8 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Error parsing abbreviations");
 
-            let mut cursor = unit.entries(&abbrevs);
-            cursor.next_dfs().expect("Should parse next dfs");
-
-            let root = cursor.current().expect("Should have a root DIE");
+            let cursor = unit.entries(&abbrevs).expect("Should parse root DIE");
+            let root = cursor.current();
             let offset = match root.attr_value(gimli::DW_AT_stmt_list) {
                 Some(gimli::AttributeValue::DebugLineRef(offset)) => offset,
                 _ => continue,
