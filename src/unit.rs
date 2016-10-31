@@ -1737,6 +1737,7 @@ impl<'input, 'abbrev, 'entry, 'unit, Endian> AttrsIter<'input, 'abbrev, 'entry, 
     /// Returns `None` when iteration is finished. If an error
     /// occurs while parsing the next attribute, then this error
     /// is returned on all subsequent calls.
+    #[inline(always)]
     pub fn next(&mut self) -> Result<Option<Attribute<'input, Endian>>> {
         if self.attributes.len() == 0 {
             // Now that we have parsed all of the attributes, we know where
