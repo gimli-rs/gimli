@@ -56,7 +56,7 @@ fn bench_parsing_debug_info(b: &mut test::Bencher) {
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Should parse abbreviations");
 
-            let mut cursor = unit.entries(&abbrevs);
+            let mut cursor = unit.entries(&abbrevs).expect("Should parse root entry");
             while let Some((_, entry)) = cursor.next_dfs().expect("Should parse next dfs") {
                 let mut attrs = entry.attrs();
                 while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
@@ -90,8 +90,7 @@ fn bench_parsing_debug_info_tree(b: &mut test::Bencher) {
 
 fn parse_debug_info_tree(mut iter: EntriesTreeIter<LittleEndian>) {
     {
-        let entry = iter.entry().expect("Should have current entry");
-        let mut attrs = entry.attrs();
+        let mut attrs = iter.entry().attrs();
         while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
             test::black_box(&attr);
         }

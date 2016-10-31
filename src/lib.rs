@@ -40,7 +40,7 @@
 //!     let abbrevs = try!(unit.abbreviations(debug_abbrev));
 //!
 //!     // Iterate over all of this compilation unit's entries.
-//!     let mut entries = unit.entries(&abbrevs);
+//!     let mut entries = try!(unit.entries(&abbrevs));
 //!     while let Some((_, entry)) = try!(entries.next_dfs()) {
 //!         // If we find an entry for a function, print it.
 //!         if entry.tag() == gimli::DW_TAG_subprogram {

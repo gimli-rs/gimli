@@ -137,10 +137,8 @@ impl<'input> Unit<'input> {
         where Endian: gimli::Endianity
     {
         let abbrev = header.abbreviations(*debug_abbrev).expect("Fail");
-        let mut entries = header.entries(&abbrev);
-        let (_, entry) = entries.next_dfs()
-            .expect("Should parse first entry OK")
-            .expect("And first entry should exist!");
+        let entries = header.entries(&abbrev).expect("Should parse first entry OK");
+        let entry = entries.current();
         assert_eq!(entry.tag(), gimli::DW_TAG_compile_unit);
 
         let ranges = if let Some(ranges) =
