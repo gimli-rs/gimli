@@ -222,11 +222,23 @@ impl<'input, Endian> CompilationUnitHeader<'input, Endian>
         self.header.entries(abbreviations)
     }
 
-    /// Navigate this compilation unit's `DebuggingInformationEntry`s as a tree.
+    /// Navigate this compilation unit's `DebuggingInformationEntry`s
+    /// starting at the given offset.
+    pub fn entries_at_offset<'me, 'abbrev>
+        (&'me self,
+         abbreviations: &'abbrev Abbreviations,
+         offset: UnitOffset)
+         -> Result<EntriesCursor<'input, 'abbrev, 'me, Endian>> {
+        self.header.entries_at_offset(abbreviations, offset)
+    }
+
+    /// Navigate this compilation unit's `DebuggingInformationEntry`s as a tree
+    /// starting at the given offset.
     pub fn entries_tree<'me, 'abbrev>(&'me self,
-                                      abbreviations: &'abbrev Abbreviations)
+                                      abbreviations: &'abbrev Abbreviations,
+                                      offset: Option<UnitOffset>)
                                       -> Result<EntriesTree<'input, 'abbrev, 'me, Endian>> {
-        self.header.entries_tree(abbreviations)
+        self.header.entries_tree(abbreviations, offset)
     }
 
     /// Parse this compilation unit's abbreviations.
@@ -522,11 +534,36 @@ impl<'input, Endian> UnitHeader<'input, Endian>
         }
     }
 
-    /// Navigate this unit's `DebuggingInformationEntry`s as a tree.
+    /// Navigate this compilation unit's `DebuggingInformationEntry`s
+    /// starting at the given offset.
+    pub fn entries_at_offset<'me, 'abbrev>
+        (&'me self,
+         abbreviations: &'abbrev Abbreviations,
+         offset: UnitOffset)
+         -> Result<EntriesCursor<'input, 'abbrev, 'me, Endian>> {
+        if !self.is_valid_offset(offset) {
+            return Err(Error::OffsetOutOfBounds);
+        }
+        let input = self.range_from(offset..);
+        Ok(EntriesCursor {
+            unit: self,
+            input: input,
+            abbreviations: abbreviations,
+            cached_current: None,
+            delta_depth: 0,
+        })
+    }
+
+    /// Navigate this unit's `DebuggingInformationEntry`s as a tree
+    /// starting at the given offset.
     pub fn entries_tree<'me, 'abbrev>(&'me self,
-                                      abbreviations: &'abbrev Abbreviations)
+                                      abbreviations: &'abbrev Abbreviations,
+                                      offset: Option<UnitOffset>)
                                       -> Result<EntriesTree<'input, 'abbrev, 'me, Endian>> {
-        let mut cursor = self.entries(abbreviations);
+        let mut cursor = match offset {
+            Some(offset) => try!(self.entries_at_offset(abbreviations, offset)),
+            None => self.entries(abbreviations),
+        };
         if try!(cursor.next_entry()).is_none() {
             return Err(Error::UnexpectedEof);
         }
@@ -2203,7 +2240,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
 /// # let get_abbrevs_for_unit = |_| unit.abbreviations(debug_abbrev).unwrap();
 /// let abbrevs = get_abbrevs_for_unit(&unit);
 ///
-/// let mut tree = try!(unit.entries_tree(&abbrevs));
+/// let mut tree = try!(unit.entries_tree(&abbrevs, None));
 /// try!(process_tree(tree.iter()));
 /// # Ok(())
 /// # }
@@ -2590,11 +2627,23 @@ impl<'input, Endian> TypeUnitHeader<'input, Endian>
         self.header.entries(abbreviations)
     }
 
-    /// Navigate this type unit's `DebuggingInformationEntry`s as a tree.
+    /// Navigate this type unit's `DebuggingInformationEntry`s
+    /// starting at the given offset.
+    pub fn entries_at_offset<'me, 'abbrev>
+        (&'me self,
+         abbreviations: &'abbrev Abbreviations,
+         offset: UnitOffset)
+         -> Result<EntriesCursor<'input, 'abbrev, 'me, Endian>> {
+        self.header.entries_at_offset(abbreviations, offset)
+    }
+
+    /// Navigate this type unit's `DebuggingInformationEntry`s as a tree
+    /// starting at the given offset.
     pub fn entries_tree<'me, 'abbrev>(&'me self,
-                                      abbreviations: &'abbrev Abbreviations)
+                                      abbreviations: &'abbrev Abbreviations,
+                                      offset: Option<UnitOffset>)
                                       -> Result<EntriesTree<'input, 'abbrev, 'me, Endian>> {
-        self.header.entries_tree(abbreviations)
+        self.header.entries_tree(abbreviations, offset)
     }
 
     /// Parse this type unit's abbreviations.
@@ -4247,6 +4296,35 @@ mod tests {
         test_cursor_next_sibling_with_ptr(&mut cursor);
     }
 
+    #[test]
+    fn test_entries_at_offset() {
+        let info_buf = &entries_cursor_tests_debug_info_buf();
+        let debug_info = DebugInfo::<LittleEndian>::new(info_buf);
+
+        let unit = debug_info.units()
+            .next()
+            .expect("should have a unit result")
+            .expect("and it should be ok");
+
+        let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
+        let debug_abbrev = DebugAbbrev::<LittleEndian>::new(abbrevs_buf);
+
+        let abbrevs = unit.abbreviations(debug_abbrev)
+            .expect("Should parse abbreviations");
+
+        let mut cursor = unit.entries_at_offset(&abbrevs, UnitOffset(unit.header_size())).unwrap();
+        assert_next_entry(&mut cursor, "001");
+
+        let cursor = unit.entries_at_offset(&abbrevs, UnitOffset(0));
+        match cursor {
+            Err(Error::OffsetOutOfBounds) => {}
+            otherwise => {
+                println!("Unexpected result = {:#?}", otherwise);
+                assert!(false);
+            }
+        }
+    }
+
     #[cfg_attr(rustfmt, rustfmt_skip)]
     fn entries_tree_tests_debug_abbrevs_buf() -> Vec<u8> {
         Section::with_endian(Endian::Little)
@@ -4262,14 +4340,18 @@ mod tests {
     }
 
     #[cfg_attr(rustfmt, rustfmt_skip)]
-    fn entries_tree_tests_debug_info_buf() -> Vec<u8> {
-        Section::with_endian(Endian::Little)
+    fn entries_tree_tests_debug_info_buf(header_size: usize) -> (Vec<u8>, UnitOffset) {
+        let start = Label::new();
+        let entry2 = Label::new();
+        let section = Section::with_endian(Endian::Little)
+            .mark(&start)
             .die(1, |s| s.attr_string("root"))
                 .die(1, |s| s.attr_string("1"))
                     .die(1, |s| s.attr_string("1a"))
                         .die_null()
                     .die(2, |s| s.attr_string("1b"))
                     .die_null()
+                .mark(&entry2)
                 .die(1, |s| s.attr_string("2"))
                     .die(1, |s| s.attr_string("2a"))
                         .die(1, |s| s.attr_string("2a1"))
@@ -4289,7 +4371,9 @@ mod tests {
                 .die(2, |s| s.attr_string("final"))
                 .die_null()
             .get_contents()
-            .unwrap()
+            .unwrap();
+        let entry2 = UnitOffset(header_size + (&entry2 - &start) as usize);
+        (section, entry2)
     }
 
     #[test]
@@ -4318,14 +4402,16 @@ mod tests {
         let abbrevs_buf = entries_tree_tests_debug_abbrevs_buf();
         let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&abbrevs_buf);
 
-        let entries_buf = entries_tree_tests_debug_info_buf();
+        let format = Format::Dwarf32;
+        let header_size = CompilationUnitHeader::<LittleEndian>::size_of_header(format);
+        let (entries_buf, entry2) = entries_tree_tests_debug_info_buf(header_size);
         let mut unit = CompilationUnitHeader::<LittleEndian> {
             header: UnitHeader {
                 unit_length: 0,
                 version: 4,
                 debug_abbrev_offset: DebugAbbrevOffset(0),
                 address_size: 4,
-                format: Format::Dwarf32,
+                format: format,
                 entries_buf: EndianBuf::new(&entries_buf),
             },
             offset: DebugInfoOffset(0),
@@ -4339,7 +4425,7 @@ mod tests {
             .expect("Should parse unit")
             .expect("and it should be some");
         let abbrevs = unit.abbreviations(debug_abbrev).expect("Should parse abbreviations");
-        let mut tree = unit.entries_tree(&abbrevs).expect("Should have entries tree");
+        let mut tree = unit.entries_tree(&abbrevs, None).expect("Should have entries tree");
 
         // Test we can restart iteration of the tree.
         {
@@ -4394,6 +4480,14 @@ mod tests {
             assert_null(iter.next());
         }
         assert_entry(iter.next(), "final");
+        assert_null(iter.next());
+
+        // Test starting at an offset.
+        let mut tree = unit.entries_tree(&abbrevs, Some(entry2)).expect("Should have entries tree");
+        let mut iter = tree.iter();
+        assert_entry_name(iter.entry().expect("Should have root entry"), "2");
+        assert_entry(iter.next(), "2a");
+        assert_entry(iter.next(), "2b");
         assert_null(iter.next());
     }
 }

@@ -82,7 +82,7 @@ fn bench_parsing_debug_info_tree(b: &mut test::Bencher) {
             let abbrevs = unit.abbreviations(debug_abbrev)
                 .expect("Should parse abbreviations");
 
-            let mut tree = unit.entries_tree(&abbrevs).expect("Should have entries tree");
+            let mut tree = unit.entries_tree(&abbrevs, None).expect("Should have entries tree");
             parse_debug_info_tree(tree.iter());
         }
     });
