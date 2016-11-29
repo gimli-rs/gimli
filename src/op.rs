@@ -55,7 +55,7 @@ pub trait EvaluationContext<'input>: fmt::Debug {
 /// Multiple DWARF opcodes may decode into a single `Operation`.  For
 /// example, both `DW_OP_deref` and `DW_OP_xderef` are represented
 /// using `Operation::Deref`.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operation<'input, Endian>
     where Endian: Endianity
 {
@@ -213,7 +213,7 @@ pub enum Operation<'input, Endian>
 }
 
 /// A single location of a piece of the result of a DWARF expression.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Location<'input> {
     /// The piece is empty.  Ordinarily this means the piece has been
     /// optimized away.
@@ -249,7 +249,7 @@ pub enum Location<'input> {
 
 /// The description of a single piece of the result of a DWARF
 /// expression.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Piece<'input> {
     /// If given, the size of the piece in bits.  If `None`, then the
     /// piece takes its size from the enclosed location.
