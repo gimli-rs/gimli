@@ -1,9 +1,9 @@
 //! Functions for parsing and evaluating DWARF expressions.
 
 use constants;
-use parser::{Error, Result, Format, parse_u8e, parse_i8e, parse_u16, parse_i16, parse_u32,
-             parse_i32, parse_u64, parse_i64, parse_unsigned_lebe, parse_signed_lebe,
-             parse_offset, parse_address, parse_length_uleb_value};
+use parser::{Error, Format, parse_u8e, parse_i8e, parse_u16, parse_i16, parse_u32, parse_i32,
+             parse_u64, parse_i64, parse_unsigned_lebe, parse_signed_lebe, parse_offset,
+             parse_address, parse_length_uleb_value};
 use endianity::{Endianity, EndianBuf};
 use unit::{UnitOffset, DebugInfoOffset};
 use std::marker::PhantomData;
@@ -21,27 +21,34 @@ pub enum DieReference {
 
 /// Supply information to a DWARF expression evaluation.
 pub trait EvaluationContext<'input>: fmt::Debug {
+    /// The error type returned by the callback functions.
+    type ContextError: From<Error>;
+
     /// Read the indicated number of bytes from memory at the
     /// indicated address.  The number of bytes is guaranteed to be
     /// less than the word size of the target architecture.
     ///
     /// If not `None`, the "space" argument is a target-specific
     /// address space value.
-    fn read_memory(&self, address: u64, size: u8, space: Option<u64>) -> Result<u64>;
+    fn read_memory(&self,
+                   address: u64,
+                   size: u8,
+                   space: Option<u64>)
+                   -> Result<u64, Self::ContextError>;
     /// Read the indicated register and return its value.
-    fn read_register(&self, register: u64) -> Result<u64>;
+    fn read_register(&self, register: u64) -> Result<u64, Self::ContextError>;
     /// Compute the frame base using `DW_AT_frame_base`.
-    fn frame_base(&self) -> Result<u64>;
+    fn frame_base(&self) -> Result<u64, Self::ContextError>;
     /// Compute the address of a thread-local variable.
-    fn read_tls(&self, index: u64) -> Result<u64>;
+    fn read_tls(&self, index: u64) -> Result<u64, Self::ContextError>;
     /// Compute the call frame CFA.
-    fn call_frame_cfa(&self) -> Result<u64>;
+    fn call_frame_cfa(&self) -> Result<u64, Self::ContextError>;
     /// Find the `DW_AT_location` attribute of the given DIE and
     /// return the corresponding DWARF expression.  If no expression
     /// can be found, this should return an empty slice.
-    fn get_at_location(&self, die: DieReference) -> Result<&'input [u8]>;
+    fn get_at_location(&self, die: DieReference) -> Result<&'input [u8], Self::ContextError>;
     /// Evaluate an expression at the entry to the current subprogram.
-    fn evaluate_entry_value(&self, expression: &[u8]) -> Result<u64>;
+    fn evaluate_entry_value(&self, expression: &[u8]) -> Result<u64, Self::ContextError>;
 }
 
 /// A single decoded DWARF expression operation.
@@ -265,7 +272,7 @@ pub struct Piece<'input> {
 fn compute_pc<'input, Endian>(pc: EndianBuf<'input, Endian>,
                               bytecode: &'input [u8],
                               offset: i16)
-                              -> Result<EndianBuf<'input, Endian>>
+                              -> Result<EndianBuf<'input, Endian>, Error>
     where Endian: Endianity
 {
     let this_len = pc.len();
@@ -293,7 +300,7 @@ impl<'input, Endian> Operation<'input, Endian>
                  bytecode: &'input [u8],
                  address_size: u8,
                  format: Format)
-                 -> Result<(EndianBuf<'input, Endian>, Operation<'input, Endian>)>
+                 -> Result<(EndianBuf<'input, Endian>, Operation<'input, Endian>), Error>
         where Endian: Endianity
     {
         let (bytes, opcode) = try!(parse_u8e(bytes));
@@ -818,8 +825,9 @@ impl<'input, Endian> Operation<'input, Endian>
 
 /// A DWARF expression evaluation.
 #[derive(Debug)]
-pub struct Evaluation<'context, 'input, Endian>
+pub struct Evaluation<'context, 'input, Endian, Context>
     where Endian: 'context + Endianity,
+          Context: 'context + EvaluationContext<'input>,
           'input: 'context
 {
     bytecode: &'input [u8],
@@ -827,7 +835,7 @@ pub struct Evaluation<'context, 'input, Endian>
     format: Format,
     initial_value: Option<u64>,
     object_address: Option<u64>,
-    callbacks: &'context mut EvaluationContext<'input>,
+    callbacks: &'context mut Context,
     max_iterations: Option<u32>,
 
     // Stack operations are done on word-sized values.  We do all
@@ -848,17 +856,18 @@ pub struct Evaluation<'context, 'input, Endian>
     phantom: PhantomData<Endian>,
 }
 
-impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
+impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Context>
     where Endian: 'context + Endianity,
+          Context: EvaluationContext<'input>,
           'input: 'context
 {
     /// Create a new DWARF expression evaluator.
     pub fn new(bytecode: &'input [u8],
                address_size: u8,
                format: Format,
-               callbacks: &'context mut EvaluationContext<'input>)
-               -> Evaluation<'context, 'input, Endian> {
-        Evaluation::<'context, 'input, Endian> {
+               callbacks: &'context mut Context)
+               -> Evaluation<'context, 'input, Endian, Context> {
+        Evaluation::<'context, 'input, Endian, Context> {
             bytecode: bytecode,
             address_size: address_size,
             format: format,
@@ -900,14 +909,14 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
         self.max_iterations = Some(value);
     }
 
-    fn pop(&mut self) -> Result<u64> {
+    fn pop(&mut self) -> Result<u64, Error> {
         match self.stack.pop() {
             Some(value) => Ok(value & self.addr_mask),
             None => Err(Error::NotEnoughStackItems),
         }
     }
 
-    fn pop_signed(&mut self) -> Result<i64> {
+    fn pop_signed(&mut self) -> Result<i64, Error> {
         match self.stack.pop() {
             Some(value) => {
                 let mut value = value & self.addr_mask;
@@ -927,7 +936,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
 
     fn evaluate_one_operation(&mut self,
                               operation: &Operation<'input, Endian>)
-                              -> Result<(bool, bool, Location<'input>)> {
+                              -> Result<(bool, bool, Location<'input>), Context::ContextError> {
         let mut terminated = false;
         let mut piece_end = false;
         let mut current_location = Location::Empty;
@@ -947,7 +956,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
                 let len = self.stack.len();
                 let index = index as usize;
                 if index >= len {
-                    return Err(Error::NotEnoughStackItems);
+                    return Err(Error::NotEnoughStackItems.into());
                 }
                 let value = self.stack[len - index - 1];
                 self.push(value);
@@ -980,7 +989,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
                 let v1 = try!(self.pop_signed());
                 let v2 = try!(self.pop_signed());
                 if v1 == 0 {
-                    return Err(Error::DivisionByZero);
+                    return Err(Error::DivisionByZero.into());
                 }
                 self.push(v2.wrapping_div(v1) as u64);
             }
@@ -993,7 +1002,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
                 let v1 = try!(self.pop());
                 let v2 = try!(self.pop());
                 if v1 == 0 {
-                    return Err(Error::DivisionByZero);
+                    return Err(Error::DivisionByZero.into());
                 }
                 self.push(v2.wrapping_rem(v1));
             }
@@ -1129,7 +1138,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
                 if let Some(value) = self.object_address {
                     self.push(value);
                 } else {
-                    return Err(Error::InvalidPushObjectAddress);
+                    return Err(Error::InvalidPushObjectAddress.into());
                 }
             }
 
@@ -1190,7 +1199,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
     }
 
     /// Evaluate a DWARF expression.
-    pub fn evaluate(&mut self) -> Result<Vec<Piece<'input>>>
+    pub fn evaluate(&mut self) -> Result<Vec<Piece<'input>>, Context::ContextError>
         where Endian: Endianity
     {
         if let Some(value) = self.initial_value {
@@ -1217,7 +1226,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
             iteration += 1;
             if let Some(max_iterations) = self.max_iterations {
                 if iteration > max_iterations {
-                    return Err(Error::TooManyIterations);
+                    return Err(Error::TooManyIterations.into());
                 }
             }
 
@@ -1257,7 +1266,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
                             // We saw a piece earlier and then some
                             // unterminated piece.  It's not clear this is
                             // well-defined.
-                            return Err(Error::InvalidPiece);
+                            return Err(Error::InvalidPiece.into());
                         }
                         result.push(Piece {
                             size_in_bits: None,
@@ -1276,7 +1285,7 @@ impl<'context, 'input, Endian> Evaluation<'context, 'input, Endian>
 
                     _ => {
                         let value = self.bytecode.len() - self.pc.len() - 1;
-                        return Err(Error::InvalidExpressionTerminator(value));
+                        return Err(Error::InvalidExpressionTerminator(value).into());
                     }
                 }
             }
@@ -1835,6 +1844,8 @@ mod tests {
     }
 
     impl<'input> EvaluationContext<'input> for TestEvaluationContext {
+        type ContextError = Error;
+
         fn read_memory(&self, addr: u64, nbytes: u8, space: Option<u64>) -> Result<u64> {
             let mut result = addr << 2;
             if let Some(value) = space {
@@ -1944,8 +1955,10 @@ mod tests {
         let bytes = assemble(program);
 
         let mut eval_context = context.clone();
-        let mut eval =
-            Evaluation::<LittleEndian>::new(&bytes, address_size, format, &mut eval_context);
+        let mut eval = Evaluation::<LittleEndian, TestEvaluationContext>::new(&bytes,
+                                                                              address_size,
+                                                                              format,
+                                                                              &mut eval_context);
 
         if let Some(val) = context.object_address {
             eval.set_object_address(val);
