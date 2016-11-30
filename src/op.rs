@@ -825,9 +825,9 @@ impl<'input, Endian> Operation<'input, Endian>
 
 /// A DWARF expression evaluation.
 #[derive(Debug)]
-pub struct Evaluation<'context, 'input, Endian, ContextError>
+pub struct Evaluation<'context, 'input, Endian, Context>
     where Endian: 'context + Endianity,
-          ContextError: 'context + From<Error>,
+          Context: 'context + EvaluationContext<'input>,
           'input: 'context
 {
     bytecode: &'input [u8],
@@ -835,7 +835,7 @@ pub struct Evaluation<'context, 'input, Endian, ContextError>
     format: Format,
     initial_value: Option<u64>,
     object_address: Option<u64>,
-    callbacks: &'context mut EvaluationContext<'input, ContextError = ContextError>,
+    callbacks: &'context mut Context,
     max_iterations: Option<u32>,
 
     // Stack operations are done on word-sized values.  We do all
@@ -856,18 +856,18 @@ pub struct Evaluation<'context, 'input, Endian, ContextError>
     phantom: PhantomData<Endian>,
 }
 
-impl<'context, 'input, Endian, ContextError> Evaluation<'context, 'input, Endian, ContextError>
+impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Context>
     where Endian: 'context + Endianity,
-          ContextError: From<Error>,
+          Context: EvaluationContext<'input>,
           'input: 'context
 {
     /// Create a new DWARF expression evaluator.
     pub fn new(bytecode: &'input [u8],
                address_size: u8,
                format: Format,
-               callbacks: &'context mut EvaluationContext<'input, ContextError = ContextError>)
-               -> Evaluation<'context, 'input, Endian, ContextError> {
-        Evaluation::<'context, 'input, Endian, ContextError> {
+               callbacks: &'context mut Context)
+               -> Evaluation<'context, 'input, Endian, Context> {
+        Evaluation::<'context, 'input, Endian, Context> {
             bytecode: bytecode,
             address_size: address_size,
             format: format,
@@ -936,7 +936,7 @@ impl<'context, 'input, Endian, ContextError> Evaluation<'context, 'input, Endian
 
     fn evaluate_one_operation(&mut self,
                               operation: &Operation<'input, Endian>)
-                              -> Result<(bool, bool, Location<'input>), ContextError> {
+                              -> Result<(bool, bool, Location<'input>), Context::ContextError> {
         let mut terminated = false;
         let mut piece_end = false;
         let mut current_location = Location::Empty;
@@ -1199,7 +1199,7 @@ impl<'context, 'input, Endian, ContextError> Evaluation<'context, 'input, Endian
     }
 
     /// Evaluate a DWARF expression.
-    pub fn evaluate(&mut self) -> Result<Vec<Piece<'input>>, ContextError>
+    pub fn evaluate(&mut self) -> Result<Vec<Piece<'input>>, Context::ContextError>
         where Endian: Endianity
     {
         if let Some(value) = self.initial_value {
@@ -1955,8 +1955,10 @@ mod tests {
         let bytes = assemble(program);
 
         let mut eval_context = context.clone();
-        let mut eval =
-            Evaluation::<LittleEndian, Error>::new(&bytes, address_size, format, &mut eval_context);
+        let mut eval = Evaluation::<LittleEndian, TestEvaluationContext>::new(&bytes,
+                                                                              address_size,
+                                                                              format,
+                                                                              &mut eval_context);
 
         if let Some(val) = context.object_address {
             eval.set_object_address(val);
