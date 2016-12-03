@@ -41,7 +41,7 @@ gimli = "0.9.0"
 
   * [A `dwarfdump` clone](./examples/dwarfdump.rs)
 
-  * [An `addr2line` clone](./examples/addr2line.rs)
+  * [An `addr2line` clone](https://github.com/gimli-rs/addr2line)
 
 ## License
 
