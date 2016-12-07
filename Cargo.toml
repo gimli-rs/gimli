@@ -1,8 +1,5 @@
 [package]
-authors = [
-  "Nick Fitzgerald <fitzgen@gmail.com>",
-  "Philip Craig <philipjcraig@gmail.com>"
-]
+authors = ["Nick Fitzgerald <fitzgen@gmail.com>", "Philip Craig <philipjcraig@gmail.com>"]
 description = "A zero-copy DWARF debugging format parser."
 documentation = "http://gimli-rs.github.io/gimli/gimli/index.html"
 keywords = ["DWARF", "debug", "elf"]
@@ -13,9 +10,10 @@ repository = "https://github.com/gimli-rs/gimli"
 version = "0.9.0"
 
 [dependencies]
+arrayvec = "0.3.20"
 byteorder = "0.5.3"
-leb128 = "0.2.1"
 fallible-iterator = "0.1.2"
+leb128 = "0.2.1"
 
 [dev-dependencies]
 getopts = "0.2"

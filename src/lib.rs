@@ -147,7 +147,9 @@
 
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
+#![deny(warnings)]
 
+extern crate arrayvec;
 extern crate byteorder;
 extern crate fallible_iterator;
 extern crate leb128;

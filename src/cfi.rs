@@ -1,10 +1,12 @@
+use arrayvec::ArrayVec;
 use constants;
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use parser::{Error, Format, Pointer, Result, parse_address, parse_encoded_pointer,
              parse_initial_length, parse_length_uleb_value, parse_null_terminated_string,
              parse_pointer_encoding, parse_signed_lebe, parse_u8, parse_u8e, parse_u16, parse_u32,
-             parse_u32_as_u64, parse_u64, parse_unsigned_lebe, u64_to_offset};
+             parse_u32_as_u64, parse_u64, parse_unsigned_lebe, parse_unsigned_leb_as_u8e,
+             u64_to_offset};
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::iter::FromIterator;
@@ -864,7 +866,7 @@ pub struct CommonInformationEntry<'input, Endian, Section>
     /// > below). The resulting value is (operand * data_alignment_factor).
     data_alignment_factor: i64,
 
-    /// > An unsigned LB128 constant that indicates which column in the rule
+    /// > An unsigned LEB128 constant that indicates which column in the rule
     /// > table represents the return address of the function. Note that this
     /// > column might not correspond to an actual machine register.
     return_address_register: u64,
@@ -970,7 +972,16 @@ impl<'input, Endian, Section> CommonInformationEntry<'input, Endian, Section>
 
         Ok(entry)
     }
+}
 
+/// # Signal Safe Methods
+///
+/// These methods are guaranteed not to allocate, acquire locks, or perform any
+/// other signal-unsafe operations.
+impl<'input, Endian, Section> CommonInformationEntry<'input, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
+{
     /// Iterate over this CIE's initial instructions.
     ///
     /// Can be [used with
@@ -1259,9 +1270,9 @@ impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
 ///          +-----+
 /// ```
 #[derive(Clone, Debug)]
-pub struct UninitializedUnwindContext<'input, Endian, Section>(UnwindContext<'input,
-                                                                             Endian,
-                                                                             Section>)
+pub struct UninitializedUnwindContext<'input, Endian, Section>(Box<UnwindContext<'input,
+                                                                                 Endian,
+                                                                                 Section>>)
     where Endian: Endianity,
           Section: UnwindSection<'input, Endian>;
 
@@ -1271,9 +1282,18 @@ impl<'input, Endian, Section> UninitializedUnwindContext<'input, Endian, Section
 {
     /// Construct a new call frame unwinding context.
     pub fn new() -> UninitializedUnwindContext<'input, Endian, Section> {
-        UninitializedUnwindContext(UnwindContext::new())
+        UninitializedUnwindContext(Box::new(UnwindContext::new()))
     }
+}
 
+/// # Signal Safe Methods
+///
+/// These methods are guaranteed not to allocate, acquire locks, or perform any
+/// other signal-unsafe operations.
+impl<'input, Endian, Section> UninitializedUnwindContext<'input, Endian, Section>
+    where Endian: Endianity,
+          Section: UnwindSection<'input, Endian>
+{
     /// Run the CIE's initial instructions, creating an
     /// `InitializedUnwindContext`.
     pub fn initialize(mut self,
@@ -1297,9 +1317,9 @@ impl<'input, Endian, Section> UninitializedUnwindContext<'input, Endian, Section
 /// [`UninitializedUnwindContext`](./struct.UninitializedUnwindContext.html) for
 /// more details.
 #[derive(Clone, Debug)]
-pub struct InitializedUnwindContext<'input, Endian, Section>(UnwindContext<'input,
-                                                                           Endian,
-                                                                           Section>)
+pub struct InitializedUnwindContext<'input, Endian, Section>(Box<UnwindContext<'input,
+                                                                               Endian,
+                                                                               Section>>)
     where Endian: Endianity,
           Section: UnwindSection<'input, Endian>;
 
@@ -1314,6 +1334,10 @@ impl<'input, Endian, Section> InitializedUnwindContext<'input, Endian, Section>
     }
 }
 
+const MAX_UNWIND_STACK_DEPTH: usize = 4;
+type UnwindContextStack<'input, Endian> =
+    ArrayVec<[UnwindTableRow<'input, Endian>; MAX_UNWIND_STACK_DEPTH]>;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct UnwindContext<'input, Endian, Section>
     where Endian: Endianity,
@@ -1322,7 +1346,7 @@ struct UnwindContext<'input, Endian, Section>
     // Stack of rows. The last row is the row currently being built by the
     // program. There is always at least one row. The vast majority of CFI
     // programs will only ever have one row on the stack.
-    stack: Vec<UnwindTableRow<'input, Endian>>,
+    stack: UnwindContextStack<'input, Endian>,
 
     // If we are evaluating an FDE's instructions, then `is_initialized` will be
     // `true` and `initial_rules` will contain the initial register rules
@@ -1330,19 +1354,23 @@ struct UnwindContext<'input, Endian, Section>
     // `DW_CFA_restore`. Otherwise, when we are currently evaluating a CIE's
     // initial instructions, `is_initialized` will be `false` and
     // `initial_rules` is not to be read from.
-    is_initialized: bool,
     initial_rules: RegisterRuleMap<'input, Endian>,
+    is_initialized: bool,
 
     phantom: PhantomData<Section>,
 }
 
+/// # Signal Safe Methods
+///
+/// These methods are guaranteed not to allocate, acquire locks, or perform any
+/// other signal-unsafe operations.
 impl<'input, Endian, Section> UnwindContext<'input, Endian, Section>
     where Endian: Endianity,
           Section: UnwindSection<'input, Endian>
 {
     fn new() -> UnwindContext<'input, Endian, Section> {
         let mut ctx = UnwindContext {
-            stack: Vec::with_capacity(1),
+            stack: Default::default(),
             is_initialized: false,
             initial_rules: Default::default(),
             phantom: PhantomData,
@@ -1353,7 +1381,8 @@ impl<'input, Endian, Section> UnwindContext<'input, Endian, Section>
 
     fn reset(&mut self) {
         self.stack.clear();
-        self.stack.push(UnwindTableRow::default());
+        let res = self.stack.push(UnwindTableRow::default());
+        debug_assert!(res.is_none());
 
         self.initial_rules.clear();
         self.is_initialized = false;
@@ -1394,14 +1423,17 @@ impl<'input, Endian, Section> UnwindContext<'input, Endian, Section>
         row.start_address = start_address;
     }
 
-    fn set_register_rule(&mut self, register: u64, rule: RegisterRule<'input, Endian>) {
+    fn set_register_rule(&mut self,
+                         register: u8,
+                         rule: RegisterRule<'input, Endian>)
+                         -> Result<()> {
         let row = self.row_mut();
-        row.registers.set(register, rule);
+        row.registers.set(register, rule)
     }
 
     /// Returns `None` if we have not completed evaluation of a CIE's initial
     /// instructions.
-    fn get_initial_rule(&self, register: u64) -> Option<RegisterRule<'input, Endian>> {
+    fn get_initial_rule(&self, register: u8) -> Option<RegisterRule<'input, Endian>> {
         if !self.is_initialized {
             return None;
         }
@@ -1417,9 +1449,13 @@ impl<'input, Endian, Section> UnwindContext<'input, Endian, Section>
         &mut self.row_mut().cfa
     }
 
-    fn push_row(&mut self) {
+    fn push_row(&mut self) -> Result<()> {
         let new_row = self.row().clone();
-        self.stack.push(new_row);
+        if let Some(_) = self.stack.push(new_row) {
+            Err(Error::CfiStackFull)
+        } else {
+            Ok(())
+        }
     }
 
     fn pop_row(&mut self) {
@@ -1500,6 +1536,10 @@ pub struct UnwindTable<'input, 'cie, 'fde, 'ctx, Endian, Section>
     fde: Option<&'fde FrameDescriptionEntry<'input, Endian, Section>>,
 }
 
+/// # Signal Safe Methods
+///
+/// These methods are guaranteed not to allocate, acquire locks, or perform any
+/// other signal-unsafe operations.
 impl<'input, 'fde, 'ctx, Endian, Section> UnwindTable<'input, 'fde, 'fde, 'ctx, Endian, Section>
     where Endian: Endianity,
           Section: UnwindSection<'input, Endian>
@@ -1514,6 +1554,11 @@ impl<'input, 'fde, 'ctx, Endian, Section> UnwindTable<'input, 'fde, 'fde, 'ctx, 
     }
 }
 
+
+/// # Signal Safe Methods
+///
+/// These methods are guaranteed not to allocate, acquire locks, or perform any
+/// other signal-unsafe operations.
 impl<'input, 'cie, 'fde, 'ctx, Endian, Section> UnwindTable<'input,
                                                             'cie,
                                                             'fde,
@@ -1646,36 +1691,38 @@ impl<'input, 'cie, 'fde, 'ctx, Endian, Section> UnwindTable<'input,
 
             // Instructions that define register rules.
             Undefined { register } => {
-                self.ctx.set_register_rule(register, RegisterRule::Undefined);
+                try!(self.ctx.set_register_rule(register, RegisterRule::Undefined));
             }
             SameValue { register } => {
-                self.ctx.set_register_rule(register, RegisterRule::SameValue);
+                try!(self.ctx.set_register_rule(register, RegisterRule::SameValue));
             }
             Offset { register, factored_offset } => {
                 let offset = factored_offset as i64 * self.cie.data_alignment_factor;
-                self.ctx.set_register_rule(register, RegisterRule::Offset(offset));
+                try!(self.ctx.set_register_rule(register, RegisterRule::Offset(offset)));
             }
             OffsetExtendedSf { register, factored_offset } => {
                 let offset = factored_offset * self.cie.data_alignment_factor;
-                self.ctx.set_register_rule(register, RegisterRule::Offset(offset));
+                try!(self.ctx.set_register_rule(register, RegisterRule::Offset(offset)));
             }
             ValOffset { register, factored_offset } => {
                 let offset = factored_offset as i64 * self.cie.data_alignment_factor;
-                self.ctx.set_register_rule(register, RegisterRule::ValOffset(offset))
+                try!(self.ctx.set_register_rule(register, RegisterRule::ValOffset(offset)));
             }
             ValOffsetSf { register, factored_offset } => {
                 let offset = factored_offset * self.cie.data_alignment_factor;
-                self.ctx.set_register_rule(register, RegisterRule::ValOffset(offset));
+                try!(self.ctx.set_register_rule(register, RegisterRule::ValOffset(offset)));
             }
             Register { dest_register, src_register } => {
-                self.ctx.set_register_rule(dest_register, RegisterRule::Register(src_register));
+                try!(self.ctx
+                    .set_register_rule(dest_register, RegisterRule::Register(src_register)));
             }
             Expression { register, expression } => {
-                self.ctx
-                    .set_register_rule(register, RegisterRule::Expression(expression));
+                let expression = RegisterRule::Expression(expression);
+                try!(self.ctx.set_register_rule(register, expression));
             }
             ValExpression { register, expression } => {
-                self.ctx.set_register_rule(register, RegisterRule::ValExpression(expression));
+                let expression = RegisterRule::ValExpression(expression);
+                try!(self.ctx.set_register_rule(register, expression));
             }
             Restore { register } => {
                 let initial_rule = if let Some(rule) = self.ctx.get_initial_rule(register) {
@@ -1686,12 +1733,12 @@ impl<'input, 'cie, 'fde, 'ctx, Endian, Section> UnwindTable<'input,
                     return Err(Error::CfiInstructionInInvalidContext);
                 };
 
-                self.ctx.set_register_rule(register, initial_rule);
+                try!(self.ctx.set_register_rule(register, initial_rule));
             }
 
             // Row push and pop instructions.
             RememberState => {
-                self.ctx.push_row();
+                try!(self.ctx.push_row());
             }
             RestoreState => {
                 assert!(self.ctx.stack.len() > 0);
@@ -1724,13 +1771,17 @@ impl<'input, 'cie, 'fde, 'ctx, Endian, Section> UnwindTable<'input,
 struct RegisterRuleMap<'input, Endian>
     where Endian: Endianity
 {
-    rules: Vec<(u64, RegisterRule<'input, Endian>)>,
+    rules: ArrayVec<[(u8, RegisterRule<'input, Endian>); 32]>,
 }
 
+/// # Signal Safe Methods
+///
+/// These methods are guaranteed not to allocate, acquire locks, or perform any
+/// other signal-unsafe operations.
 impl<'input, Endian> RegisterRuleMap<'input, Endian>
     where Endian: Endianity
 {
-    fn get(&self, register: u64) -> RegisterRule<'input, Endian> {
+    fn get(&self, register: u8) -> RegisterRule<'input, Endian> {
         self.rules
             .iter()
             .find(|rule| rule.0 == register)
@@ -1741,7 +1792,7 @@ impl<'input, Endian> RegisterRuleMap<'input, Endian>
             .unwrap_or(RegisterRule::Undefined)
     }
 
-    fn set(&mut self, register: u64, rule: RegisterRule<'input, Endian>) {
+    fn set(&mut self, register: u8, rule: RegisterRule<'input, Endian>) -> Result<()> {
         if rule == RegisterRule::Undefined {
             let idx = self.rules
                 .iter()
@@ -1751,18 +1802,22 @@ impl<'input, Endian> RegisterRuleMap<'input, Endian>
             if let Some(idx) = idx {
                 self.rules.swap_remove(idx);
             }
-            return;
+            return Ok(());
         }
 
         for &mut (reg, ref mut old_rule) in &mut self.rules {
             debug_assert!(*old_rule != RegisterRule::Undefined);
             if reg == register {
                 mem::replace(old_rule, rule);
-                return;
+                return Ok(());
             }
         }
 
-        self.rules.push((register, rule));
+        if let Some(_) = self.rules.push((register, rule)) {
+            Err(Error::TooManyRegisterRules)
+        } else {
+            Ok(())
+        }
     }
 
     fn clear(&mut self) {
@@ -1774,17 +1829,19 @@ impl<'input, Endian> RegisterRuleMap<'input, Endian>
     }
 }
 
-impl<'a, 'input, Endian> FromIterator<&'a (u64, RegisterRule<'input, Endian>)> for RegisterRuleMap<'input, Endian>
+impl<'a, 'input, Endian> FromIterator<&'a (u8, RegisterRule<'input, Endian>)> for RegisterRuleMap<'input, Endian>
     where Endian: 'a + Endianity,
           'input: 'a
 {
     fn from_iter<T>(iter: T) -> RegisterRuleMap<'input, Endian>
-        where T: IntoIterator<Item=&'a (u64, RegisterRule<'input, Endian>)>
+        where T: IntoIterator<Item=&'a (u8, RegisterRule<'input, Endian>)>
     {
         let iter = iter.into_iter();
         let mut rules = RegisterRuleMap::default();
         for &(reg, ref rule) in iter.filter(|r| r.1 != RegisterRule::Undefined) {
-            rules.set(reg, rule.clone());
+            rules.set(reg, rule.clone())
+                .expect("This is only used in tests, impl isn't exposed publicly.
+                         If you trip this, fix your test");
         }
         rules
     }
@@ -1817,7 +1874,7 @@ impl<'input, Endian> Eq for RegisterRuleMap<'input, Endian> where Endian: Endian
 /// An unordered iterator for register rules.
 #[derive(Debug, Clone)]
 pub struct RegisterRuleIter<'iter, 'input, Endian>(::std::slice::Iter<'iter,
-                                                                        (u64,
+                                                                        (u8,
                                                                          RegisterRule<'input,
                                                                                       Endian>)>)
     where Endian: 'iter + Endianity,
@@ -1826,7 +1883,7 @@ pub struct RegisterRuleIter<'iter, 'input, Endian>(::std::slice::Iter<'iter,
 impl<'iter, 'input, Endian> Iterator for RegisterRuleIter<'iter, 'input, Endian>
     where Endian: Endianity
 {
-    type Item = &'iter (u64, RegisterRule<'input, Endian>);
+    type Item = &'iter (u8, RegisterRule<'input, Endian>);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
@@ -1932,7 +1989,7 @@ impl<'input, Endian> UnwindTableRow<'input, Endian>
     /// >   <tr><td>Vector Mask Registers 0–7</td>        <td>118-125</td> <td>%k0–%k7</td></tr>
     /// >   <tr><td>Reserved</td>                         <td>126-129</td> <td></td></tr>
     /// > </table>
-    pub fn register(&self, register: u64) -> RegisterRule<'input, Endian> {
+    pub fn register(&self, register: u8) -> RegisterRule<'input, Endian> {
         self.registers.get(register)
     }
 
@@ -1964,7 +2021,7 @@ pub enum CfaRule<'input, Endian>
     /// The CFA is given offset from the given register's value.
     RegisterAndOffset {
         /// The register containing the base value.
-        register: u64,
+        register: u8,
         /// The offset from the register's base value.
         offset: i64,
     },
@@ -2013,7 +2070,7 @@ pub enum RegisterRule<'input, Endian>
 
     /// "The previous value of this register is stored in another register
     /// numbered R."
-    Register(u64),
+    Register(u8),
 
     /// "The previous value of this register is located at the address produced
     /// by executing the DWARF expression."
@@ -2072,7 +2129,7 @@ pub enum CallFrameInstruction<'input, Endian>
     /// > register and offset.
     DefCfa {
         /// The target register's number.
-        register: u64,
+        register: u8,
         /// The non-factored offset.
         offset: u64,
     },
@@ -2086,7 +2143,7 @@ pub enum CallFrameInstruction<'input, Endian>
     /// > offset is factored_offset * data_alignment_factor.
     DefCfaSf {
         /// The target register's number.
-        register: u64,
+        register: u8,
         /// The factored offset.
         factored_offset: i64,
     },
@@ -2100,7 +2157,7 @@ pub enum CallFrameInstruction<'input, Endian>
     /// > is defined to use a register and offset.
     DefCfaRegister {
         /// The target register's number.
-        register: u64,
+        register: u8,
     },
 
     /// > 4. DW_CFA_def_cfa_offset
@@ -2147,7 +2204,7 @@ pub enum CallFrameInstruction<'input, Endian>
     /// > set the rule for the specified register to “undefined.”
     Undefined {
         /// The target register's number.
-        register: u64,
+        register: u8,
     },
 
     /// > 2. DW_CFA_same_value
@@ -2157,7 +2214,7 @@ pub enum CallFrameInstruction<'input, Endian>
     /// > set the rule for the specified register to “same value.”
     SameValue {
         /// The target register's number.
-        register: u64,
+        register: u8,
     },
 
     /// The `Offset` instruction represents both `DW_CFA_offset` and
@@ -2172,7 +2229,7 @@ pub enum CallFrameInstruction<'input, Endian>
     /// > where the value of N is factored offset * data_alignment_factor.
     Offset {
         /// The target register's number.
-        register: u64,
+        register: u8,
         /// The factored offset.
         factored_offset: u64,
     },
@@ -2187,7 +2244,7 @@ pub enum CallFrameInstruction<'input, Endian>
     /// > data_alignment_factor.
     OffsetExtendedSf {
         /// The target register's number.
-        register: u64,
+        register: u8,
         /// The factored offset.
         factored_offset: i64,
     },
@@ -2201,7 +2258,7 @@ pub enum CallFrameInstruction<'input, Endian>
     /// > factored_offset * data_alignment_factor.
     ValOffset {
         /// The target register's number.
-        register: u64,
+        register: u8,
         /// The factored offset.
         factored_offset: u64,
     },
@@ -2215,7 +2272,7 @@ pub enum CallFrameInstruction<'input, Endian>
     /// > offset is factored_offset * data_alignment_factor.
     ValOffsetSf {
         /// The target register's number.
-        register: u64,
+        register: u8,
         /// The factored offset.
         factored_offset: i64,
     },
@@ -2228,10 +2285,10 @@ pub enum CallFrameInstruction<'input, Endian>
     /// > register.
     Register {
         /// The number of the register whose rule is being changed.
-        dest_register: u64,
+        dest_register: u8,
         /// The number of the register where the other register's value can be
         /// found.
-        src_register: u64,
+        src_register: u8,
     },
 
     /// > 9. DW_CFA_expression
@@ -2245,7 +2302,7 @@ pub enum CallFrameInstruction<'input, Endian>
     /// > DWARF evaluation stack prior to execution of the DWARF expression.
     Expression {
         /// The target register's number.
-        register: u64,
+        register: u8,
         /// The DWARF expression.
         expression: EndianBuf<'input, Endian>,
     },
@@ -2262,7 +2319,7 @@ pub enum CallFrameInstruction<'input, Endian>
     /// > of the DWARF expression.
     ValExpression {
         /// The target register's number.
-        register: u64,
+        register: u8,
         /// The DWARF expression.
         expression: EndianBuf<'input, Endian>,
     },
@@ -2278,7 +2335,7 @@ pub enum CallFrameInstruction<'input, Endian>
     /// > by the initial_instructions in the CIE.
     Restore {
         /// The register to be reset.
-        register: u64,
+        register: u8,
     },
 
     // 6.4.2.4 Row State Instructions
@@ -2325,14 +2382,14 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             let (rest, offset) = try!(parse_unsigned_lebe(rest));
             return Ok((rest,
                        CallFrameInstruction::Offset {
-                register: register as u64,
+                register: register,
                 factored_offset: offset,
             }));
         }
 
         if high_bits == constants::DW_CFA_restore.0 {
             let register = instruction & CFI_INSTRUCTION_LOW_BITS_MASK;
-            return Ok((rest, CallFrameInstruction::Restore { register: register as u64 }));
+            return Ok((rest, CallFrameInstruction::Restore { register: register }));
         }
 
         debug_assert!(high_bits == 0);
@@ -2362,7 +2419,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_offset_extended => {
-                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
                 let (rest, offset) = try!(parse_unsigned_lebe(rest));
                 Ok((rest,
                     CallFrameInstruction::Offset {
@@ -2372,23 +2429,23 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_restore_extended => {
-                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
                 Ok((rest, CallFrameInstruction::Restore { register: register }))
             }
 
             constants::DW_CFA_undefined => {
-                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
                 Ok((rest, CallFrameInstruction::Undefined { register: register }))
             }
 
             constants::DW_CFA_same_value => {
-                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
                 Ok((rest, CallFrameInstruction::SameValue { register: register }))
             }
 
             constants::DW_CFA_register => {
-                let (rest, dest) = try!(parse_unsigned_lebe(rest));
-                let (rest, src) = try!(parse_unsigned_lebe(rest));
+                let (rest, dest) = try!(parse_unsigned_leb_as_u8e(rest));
+                let (rest, src) = try!(parse_unsigned_leb_as_u8e(rest));
                 Ok((rest,
                     CallFrameInstruction::Register {
                     dest_register: dest,
@@ -2401,7 +2458,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             constants::DW_CFA_restore_state => Ok((rest, CallFrameInstruction::RestoreState)),
 
             constants::DW_CFA_def_cfa => {
-                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
                 let (rest, offset) = try!(parse_unsigned_lebe(rest));
                 Ok((rest,
                     CallFrameInstruction::DefCfa {
@@ -2411,7 +2468,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_def_cfa_register => {
-                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
                 Ok((rest, CallFrameInstruction::DefCfaRegister { register: register }))
             }
 
@@ -2426,7 +2483,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_expression => {
-                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
                 let (rest, expression) = try!(parse_length_uleb_value(rest));
                 Ok((rest,
                     CallFrameInstruction::Expression {
@@ -2436,7 +2493,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_offset_extended_sf => {
-                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
                 let (rest, offset) = try!(parse_signed_lebe(rest));
                 Ok((rest,
                     CallFrameInstruction::OffsetExtendedSf {
@@ -2446,7 +2503,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_def_cfa_sf => {
-                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
                 let (rest, offset) = try!(parse_signed_lebe(rest));
                 Ok((rest,
                     CallFrameInstruction::DefCfaSf {
@@ -2461,7 +2518,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_val_offset => {
-                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
                 let (rest, offset) = try!(parse_unsigned_lebe(rest));
                 Ok((rest,
                     CallFrameInstruction::ValOffset {
@@ -2471,7 +2528,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_val_offset_sf => {
-                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
                 let (rest, offset) = try!(parse_signed_lebe(rest));
                 Ok((rest,
                     CallFrameInstruction::ValOffsetSf {
@@ -2481,7 +2538,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_val_expression => {
-                let (rest, register) = try!(parse_unsigned_lebe(rest));
+                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
                 let (rest, expression) = try!(parse_length_uleb_value(rest));
                 Ok((rest,
                     CallFrameInstruction::ValExpression {
@@ -3412,7 +3469,7 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::Offset {
-                       register: expected_reg as u64,
+                       register: expected_reg as u8,
                        factored_offset: expected_offset,
                    })));
     }
@@ -3428,7 +3485,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::Restore { register: expected_reg as u64 })));
+                       CallFrameInstruction::Restore { register: expected_reg as u8 })));
     }
 
     #[test]
@@ -3518,7 +3575,7 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::Offset {
-                       register: expected_reg,
+                       register: expected_reg as u8,
                        factored_offset: expected_offset,
                    })));
     }
@@ -3535,7 +3592,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::Restore { register: expected_reg })));
+                       CallFrameInstruction::Restore { register: expected_reg as u8 })));
     }
 
     #[test]
@@ -3550,7 +3607,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::Undefined { register: expected_reg })));
+                       CallFrameInstruction::Undefined { register: expected_reg as u8 })));
     }
 
     #[test]
@@ -3565,7 +3622,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::SameValue { register: expected_reg })));
+                       CallFrameInstruction::SameValue { register: expected_reg as u8 })));
     }
 
     #[test]
@@ -3583,8 +3640,8 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::Register {
-                       dest_register: expected_dest_reg,
-                       src_register: expected_src_reg,
+                       dest_register: expected_dest_reg as u8,
+                       src_register: expected_src_reg as u8,
                    })));
     }
 
@@ -3627,7 +3684,7 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::DefCfa {
-                       register: expected_reg,
+                       register: expected_reg as u8,
                        offset: expected_offset,
                    })));
     }
@@ -3644,7 +3701,7 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::DefCfaRegister { register: expected_reg })));
+                       CallFrameInstruction::DefCfaRegister { register: expected_reg as u8 })));
     }
 
     #[test]
@@ -3716,7 +3773,7 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::Expression {
-                       register: expected_reg,
+                       register: expected_reg as u8,
                        expression: EndianBuf::new(&expected_expr),
                    })));
     }
@@ -3736,7 +3793,7 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::OffsetExtendedSf {
-                       register: expected_reg,
+                       register: expected_reg as u8,
                        factored_offset: expected_offset,
                    })));
     }
@@ -3756,7 +3813,7 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::DefCfaSf {
-                       register: expected_reg,
+                       register: expected_reg as u8,
                        factored_offset: expected_offset,
                    })));
     }
@@ -3779,7 +3836,7 @@ mod tests {
     #[test]
     fn test_parse_cfi_instruction_val_offset() {
         let expected_rest = [1, 2, 3, 4];
-        let expected_reg = 5000;
+        let expected_reg = 50;
         let expected_offset = 23;
         let section = Section::with_endian(Endian::Little)
             .D8(constants::DW_CFA_val_offset.0)
@@ -3791,7 +3848,7 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::ValOffset {
-                       register: expected_reg,
+                       register: expected_reg as u8,
                        factored_offset: expected_offset,
                    })));
     }
@@ -3799,7 +3856,7 @@ mod tests {
     #[test]
     fn test_parse_cfi_instruction_val_offset_sf() {
         let expected_rest = [1, 2, 3, 4];
-        let expected_reg = 5000;
+        let expected_reg = 50;
         let expected_offset = -23;
         let section = Section::with_endian(Endian::Little)
             .D8(constants::DW_CFA_val_offset_sf.0)
@@ -3811,7 +3868,7 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::ValOffsetSf {
-                       register: expected_reg,
+                       register: expected_reg as u8,
                        factored_offset: expected_offset,
                    })));
     }
@@ -3819,7 +3876,7 @@ mod tests {
     #[test]
     fn test_parse_cfi_instruction_val_expression() {
         let expected_rest = [1, 2, 3, 4];
-        let expected_reg = 5000;
+        let expected_reg = 50;
         let expected_expr = [2, 2, 1, 1, 5, 5];
 
         let length = Label::new();
@@ -3842,7 +3899,7 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::ValExpression {
-                       register: expected_reg,
+                       register: expected_reg as u8,
                        expression: EndianBuf::new(&expected_expr),
                    })));
     }
@@ -3862,7 +3919,7 @@ mod tests {
 
     #[test]
     fn test_call_frame_instruction_iter_ok() {
-        let expected_reg = 5000;
+        let expected_reg = 50;
         let expected_expr = [2, 2, 1, 1, 5, 5];
         let expected_delta = 230;
 
@@ -3887,7 +3944,7 @@ mod tests {
 
         assert_eq!(iter.next(),
                    Ok(Some(CallFrameInstruction::ValExpression {
-                       register: expected_reg,
+                       register: expected_reg as u8,
                        expression: EndianBuf::new(&expected_expr),
                    })));
 
@@ -3984,12 +4041,12 @@ mod tests {
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.set_cfa(CfaRule::RegisterAndOffset {
-            register: 1993,
+            register: 42,
             offset: 36,
         });
         let instructions = [(Ok(false),
                              CallFrameInstruction::DefCfa {
-                                register: 1993,
+                                register: 42,
                                 offset: 36,
                             })];
         assert_eval(ctx, expected, cie, None, instructions);
@@ -4001,12 +4058,12 @@ mod tests {
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.set_cfa(CfaRule::RegisterAndOffset {
-            register: 1993,
+            register: 42,
             offset: 36 * cie.data_alignment_factor as i64,
         });
         let instructions = [(Ok(false),
                              CallFrameInstruction::DefCfaSf {
-                                register: 1993,
+                                register: 42,
                                 factored_offset: 36,
                             })];
         assert_eval(ctx, expected, cie, None, instructions);
@@ -4022,10 +4079,10 @@ mod tests {
         });
         let mut expected = ctx.clone();
         expected.set_cfa(CfaRule::RegisterAndOffset {
-            register: 1993,
+            register: 42,
             offset: 8,
         });
-        let instructions = [(Ok(false), CallFrameInstruction::DefCfaRegister { register: 1993 })];
+        let instructions = [(Ok(false), CallFrameInstruction::DefCfaRegister { register: 42 })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
 
@@ -4036,7 +4093,7 @@ mod tests {
         ctx.set_cfa(CfaRule::Expression(EndianBuf::new(&[])));
         let expected = ctx.clone();
         let instructions = [(Err(Error::CfiInstructionInInvalidContext),
-                             CallFrameInstruction::DefCfaRegister { register: 1993 })];
+                             CallFrameInstruction::DefCfaRegister { register: 42 })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
 
@@ -4086,7 +4143,7 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_register_rule(5, RegisterRule::Undefined);
+        expected.set_register_rule(5, RegisterRule::Undefined).unwrap();
         let instructions = [(Ok(false), CallFrameInstruction::Undefined { register: 5 })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
@@ -4096,7 +4153,7 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_register_rule(0, RegisterRule::SameValue);
+        expected.set_register_rule(0, RegisterRule::SameValue).unwrap();
         let instructions = [(Ok(false), CallFrameInstruction::SameValue { register: 0 })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
@@ -4106,7 +4163,7 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_register_rule(2, RegisterRule::Offset(3 * cie.data_alignment_factor));
+        expected.set_register_rule(2, RegisterRule::Offset(3 * cie.data_alignment_factor)).unwrap();
         let instructions = [(Ok(false),
                              CallFrameInstruction::Offset {
                                 register: 2,
@@ -4120,7 +4177,8 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_register_rule(4, RegisterRule::Offset(-3 * cie.data_alignment_factor));
+        expected.set_register_rule(4, RegisterRule::Offset(-3 * cie.data_alignment_factor))
+            .unwrap();
         let instructions = [(Ok(false),
                              CallFrameInstruction::OffsetExtendedSf {
                                 register: 4,
@@ -4134,7 +4192,8 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_register_rule(5, RegisterRule::ValOffset(7 * cie.data_alignment_factor));
+        expected.set_register_rule(5, RegisterRule::ValOffset(7 * cie.data_alignment_factor))
+            .unwrap();
         let instructions = [(Ok(false),
                              CallFrameInstruction::ValOffset {
                                 register: 5,
@@ -4148,7 +4207,8 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_register_rule(5, RegisterRule::ValOffset(-7 * cie.data_alignment_factor));
+        expected.set_register_rule(5, RegisterRule::ValOffset(-7 * cie.data_alignment_factor))
+            .unwrap();
         let instructions = [(Ok(false),
                              CallFrameInstruction::ValOffsetSf {
                                 register: 5,
@@ -4163,7 +4223,7 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_register_rule(9, RegisterRule::Expression(EndianBuf::new(&expr)));
+        expected.set_register_rule(9, RegisterRule::Expression(EndianBuf::new(&expr))).unwrap();
         let instructions = [(Ok(false),
                              CallFrameInstruction::Expression {
                                 register: 9,
@@ -4178,7 +4238,7 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_register_rule(9, RegisterRule::ValExpression(EndianBuf::new(&expr)));
+        expected.set_register_rule(9, RegisterRule::ValExpression(EndianBuf::new(&expr))).unwrap();
         let instructions = [(Ok(false),
                              CallFrameInstruction::ValExpression {
                                 register: 9,
@@ -4202,10 +4262,10 @@ mod tests {
         };
 
         let mut ctx = UnwindContext::new();
-        ctx.set_register_rule(0, RegisterRule::Offset(1));
+        ctx.set_register_rule(0, RegisterRule::Offset(1)).unwrap();
         ctx.save_initial_rules();
         let expected = ctx.clone();
-        ctx.set_register_rule(0, RegisterRule::Offset(2));
+        ctx.set_register_rule(0, RegisterRule::Offset(2)).unwrap();
 
         let instructions = [(Ok(false), CallFrameInstruction::Restore { register: 0 })];
         assert_eval(ctx, expected, cie, Some(fde), instructions);
@@ -4226,7 +4286,7 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.push_row();
+        expected.push_row().unwrap();
         let instructions = [(Ok(false), CallFrameInstruction::RememberState)];
         assert_eval(ctx, expected, cie, None, instructions);
     }
@@ -4236,10 +4296,10 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
 
         let mut ctx = UnwindContext::new();
-        ctx.set_register_rule(0, RegisterRule::SameValue);
+        ctx.set_register_rule(0, RegisterRule::SameValue).unwrap();
         let expected = ctx.clone();
-        ctx.push_row();
-        ctx.set_register_rule(0, RegisterRule::Offset(16));
+        ctx.push_row().unwrap();
+        ctx.set_register_rule(0, RegisterRule::Offset(16)).unwrap();
 
         let instructions = [// First one pops just fine.
                             (Ok(false), CallFrameInstruction::RestoreState),
@@ -5036,8 +5096,8 @@ mod tests {
 
         // One has undefined explicitly set, other implicitly has undefined.
         let mut map5 = RegisterRuleMap::<LittleEndian>::default();
-        map5.set(0, RegisterRule::SameValue);
-        map5.set(0, RegisterRule::Undefined);
+        map5.set(0, RegisterRule::SameValue).unwrap();
+        map5.set(0, RegisterRule::Undefined).unwrap();
         let map6 = RegisterRuleMap::<LittleEndian>::default();
         assert_eq!(map5, map6);
         assert_eq!(map6, map5);
@@ -5080,5 +5140,18 @@ mod tests {
         assert_eq!(found0, true);
         assert_eq!(found1, true);
         assert_eq!(found2, true);
+    }
+
+    #[test]
+    fn size_of_unwind_ctx() {
+        use std::mem;
+        assert_eq!(mem::size_of::<UnwindContext<NativeEndian, EhFrame<NativeEndian>>>(),
+                   5384);
+    }
+
+    #[test]
+    fn size_of_register_rule_map() {
+        use std::mem;
+        assert_eq!(mem::size_of::<RegisterRuleMap<NativeEndian>>(), 1040);
     }
 }
