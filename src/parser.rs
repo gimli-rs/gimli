@@ -125,6 +125,13 @@ pub enum Error {
     UnknownAugmentation,
     /// We do not support the given pointer encoding yet.
     UnsupportedPointerEncoding,
+    /// We tried to convert some number into a `u8`, but it was too large.
+    CannotFitInU8,
+    /// The CFI program defined more register rules than we have storage for.
+    TooManyRegisterRules,
+    /// Attempted to push onto the CFI stack, but it was already at full
+    /// capacity.
+    CfiStackFull,
 }
 
 impl fmt::Display for Error {
@@ -231,6 +238,15 @@ impl error::Error for Error {
             Error::UnknownAugmentation => "Found an unknown CFI augmentation.",
             Error::UnsupportedPointerEncoding => {
                 "We do not support the given pointer encoding yet."
+            }
+            Error::CannotFitInU8 => {
+                "We tried to convert some number into a `u8`, but it was too large."
+            }
+            Error::TooManyRegisterRules => {
+                "The CFI program defined more register rules than we have storage for."
+            }
+            Error::CfiStackFull => {
+                "Attempted to push onto the CFI stack, but it was already at full capacity."
             }
         }
     }
@@ -369,6 +385,18 @@ pub fn parse_unsigned_lebe<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBu
     Ok((EndianBuf::new(bytes), value))
 }
 
+/// Like `parse_unsigned_leb` but takes and returns an `EndianBuf` for convenience.
+#[doc(hidden)]
+#[inline]
+pub fn parse_unsigned_leb_as_u8e<Endian>(bytes: EndianBuf<Endian>)
+                                         -> Result<(EndianBuf<Endian>, u8)>
+    where Endian: Endianity
+{
+    let (bytes, value) = try!(parse_unsigned_leb(bytes.into()));
+    let value = try!(u64_to_u8(value));
+    Ok((EndianBuf::new(bytes), value))
+}
+
 /// Like `parse_signed_leb` but takes and returns an `EndianBuf` for convenience.
 #[doc(hidden)]
 #[inline]
@@ -401,6 +429,18 @@ pub fn u64_to_offset(offset64: u64) -> Result<usize> {
         Ok(offset)
     } else {
         Err(Error::UnsupportedOffset)
+    }
+}
+
+/// Convert a `u64` to a `u8` and return it.
+#[doc(hidden)]
+#[inline]
+pub fn u64_to_u8(x: u64) -> Result<u8> {
+    let y = x as u8;
+    if y as u64 == x {
+        Ok(y)
+    } else {
+        Err(Error::CannotFitInU8)
     }
 }
 
