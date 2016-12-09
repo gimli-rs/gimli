@@ -85,7 +85,7 @@ impl<'input, Endian> DebugLine<'input, Endian>
 /// "The hypothetical machine used by a consumer of the line number information
 /// to expand the byte-coded instruction stream into a matrix of line number
 /// information." -- Section 6.2.1
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StateMachine<'input, Endian>
     where Endian: Endianity
 {
@@ -630,7 +630,7 @@ impl<'input> fmt::Display for Opcode<'input> {
 /// See
 /// [`LineNumberProgramHeader::opcodes`](./struct.LineNumberProgramHeader.html#method.opcodes)
 /// for more details.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct OpcodesIter<'input, Endian>
     where Endian: Endianity
 {
