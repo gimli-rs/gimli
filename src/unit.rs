@@ -792,27 +792,31 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
 
     /// Find the first attribute in this entry which has the given name,
     /// and return it. Returns `Ok(None)` if no attribute is found.
-    pub fn attr(&self, name: constants::DwAt) -> Option<Attribute<'input, Endian>> {
+    pub fn attr(&self, name: constants::DwAt) -> Result<Option<Attribute<'input, Endian>>> {
         let mut attrs = self.attrs();
-        while let Ok(Some(attr)) = attrs.next() {
+        while let Some(attr) = try!(attrs.next()) {
             if attr.name() == name {
-                return Some(attr);
+                return Ok(Some(attr));
             }
         }
-        None
+        Ok(None)
     }
 
     /// Find the first attribute in this entry which has the given name,
     /// and return its raw value. Returns `Ok(None)` if no attribute is found.
-    pub fn attr_value_raw(&self, name: constants::DwAt) -> Option<AttributeValue<'input, Endian>> {
-        self.attr(name).map(|attr| attr.raw_value())
+    pub fn attr_value_raw(&self,
+                          name: constants::DwAt)
+                          -> Result<Option<AttributeValue<'input, Endian>>> {
+        self.attr(name).map(|attr| attr.map(|attr| attr.raw_value()))
     }
 
     /// Find the first attribute in this entry which has the given name,
     /// and return its normalized value.  Returns `Ok(None)` if no
     /// attribute is found.
-    pub fn attr_value(&self, name: constants::DwAt) -> Option<AttributeValue<'input, Endian>> {
-        self.attr(name).map(|attr| attr.value())
+    pub fn attr_value(&self,
+                      name: constants::DwAt)
+                      -> Result<Option<AttributeValue<'input, Endian>>> {
+        self.attr(name).map(|attr| attr.map(|attr| attr.value()))
     }
 }
 
@@ -2184,7 +2188,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                 // down one level.
                 depth += 1;
 
-                let sibling_ptr = self.current().unwrap().attr_value(constants::DW_AT_sibling);
+                let sibling_ptr = try!(self.current().unwrap().attr_value(constants::DW_AT_sibling));
                 if let Some(AttributeValue::UnitRef(offset)) = sibling_ptr {
                     if self.unit.is_valid_offset(offset) {
                         // Fast path: this entry has a DW_AT_sibling
@@ -3808,6 +3812,7 @@ mod tests {
         where Endian: Endianity
     {
         let value = entry.attr_value(constants::DW_AT_name)
+            .expect("Should have parsed the name attribute")
             .expect("Should have found the name attribute");
 
         let mut with_null: Vec<u8> = name.as_bytes().into();
@@ -3874,7 +3879,7 @@ mod tests {
             .expect("Should have current entry")
             .attr_value(constants::DW_AT_sibling);
         match sibling_ptr {
-            Some(AttributeValue::UnitRef(offset)) => {
+            Ok(Some(AttributeValue::UnitRef(offset))) => {
                 cursor.unit.range_from(offset..);
             }
             _ => panic!("Invalid sibling pointer {:?}", sibling_ptr),

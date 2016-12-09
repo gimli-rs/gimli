@@ -250,15 +250,19 @@ fn dump_entries<Endian>(offset: usize,
                  indent = indent);
 
         if entry.tag() == gimli::DW_TAG_compile_unit || entry.tag() == gimli::DW_TAG_type_unit {
-            unit.base_address = match entry.attr_value(gimli::DW_AT_low_pc) {
+            unit.base_address = match entry.attr_value(gimli::DW_AT_low_pc)
+                .expect("Should parse low_pc") {
                 Some(gimli::AttributeValue::Addr(address)) => address,
                 _ => 0,
             };
             unit.comp_dir = entry.attr(gimli::DW_AT_comp_dir)
+                .expect("Should parse comp_dir")
                 .and_then(|attr| attr.string_value(&debug_str));
             unit.comp_name = entry.attr(gimli::DW_AT_name)
+                .expect("Should parse name")
                 .and_then(|attr| attr.string_value(&debug_str));
-            unit.line_header = match entry.attr_value(gimli::DW_AT_stmt_list) {
+            unit.line_header = match entry.attr_value(gimli::DW_AT_stmt_list)
+                .expect("Should parse stmt_list") {
                 Some(gimli::AttributeValue::DebugLineRef(offset)) => {
                     debug_line.header(offset, unit.address_size, unit.comp_dir, unit.comp_name).ok()
                 }
@@ -706,13 +710,16 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
             cursor.next_dfs().expect("Should parse next dfs");
 
             let root = cursor.current().expect("Should have a root DIE");
-            let offset = match root.attr_value(gimli::DW_AT_stmt_list) {
+            let offset = match root.attr_value(gimli::DW_AT_stmt_list)
+                .expect("Should parse stmt_list") {
                 Some(gimli::AttributeValue::DebugLineRef(offset)) => offset,
                 _ => continue,
             };
             let comp_dir = root.attr(gimli::DW_AT_comp_dir)
+                .expect("Should parse comp_dir")
                 .and_then(|attr| attr.string_value(&debug_str));
             let comp_name = root.attr(gimli::DW_AT_name)
+                .expect("Should parse name")
                 .and_then(|attr| attr.string_value(&debug_str));
 
             let header = debug_line.header(offset, unit.address_size(), comp_dir, comp_name);
