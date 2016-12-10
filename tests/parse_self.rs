@@ -75,12 +75,14 @@ fn test_parse_self_debug_line() {
             .expect("Should have a root entry");
 
         let comp_dir = unit_entry.attr(gimli::DW_AT_comp_dir)
+            .expect("Should parse comp_dir attribute")
             .and_then(|attr| attr.string_value(&debug_str));
         let comp_name = unit_entry.attr(gimli::DW_AT_name)
+            .expect("Should parse name attribute")
             .and_then(|attr| attr.string_value(&debug_str));
 
         if let Some(AttributeValue::DebugLineRef(offset)) =
-               unit_entry.attr_value(gimli::DW_AT_stmt_list) {
+               unit_entry.attr_value(gimli::DW_AT_stmt_list).expect("Should parse stmt_list") {
             let header = debug_line.header(offset, unit.address_size(), comp_dir, comp_name)
                 .expect("should parse line number program header");
 
