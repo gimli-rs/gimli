@@ -2188,7 +2188,8 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                 // down one level.
                 depth += 1;
 
-                let sibling_ptr = try!(self.current().unwrap().attr_value(constants::DW_AT_sibling));
+                let sibling_ptr =
+                    try!(self.current().unwrap().attr_value(constants::DW_AT_sibling));
                 if let Some(AttributeValue::UnitRef(offset)) = sibling_ptr {
                     if self.unit.is_valid_offset(offset) {
                         // Fast path: this entry has a DW_AT_sibling
