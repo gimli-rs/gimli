@@ -823,7 +823,7 @@ impl<'input, Endian> Operation<'input, Endian>
     }
 }
 
-/// A DWARF expression evaluation.
+/// A DWARF expression evaluator.
 #[derive(Debug)]
 pub struct Evaluation<'context, 'input, Endian, Context>
     where Endian: 'context + Endianity,
@@ -862,6 +862,9 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
           'input: 'context
 {
     /// Create a new DWARF expression evaluator.
+    ///
+    /// The new evaluator is created without an initial value, without
+    /// an object address, and without a maximum number of iterations.
     pub fn new(bytecode: &'input [u8],
                address_size: u8,
                format: Format,
@@ -890,21 +893,30 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
     /// Set an initial value to be pushed on the DWARF expression
     /// evaluator's stack.  This can be used in cases like
     /// `DW_AT_vtable_elem_location`, which require a value on the
-    /// stack before evaluation commences.
+    /// stack before evaluation commences.  If no initial value is
+    /// set, and the expression uses an opcode requiring the initial
+    /// value, then evaluation will fail with an error.
     pub fn set_initial_value(&mut self, value: u64) {
         self.initial_value = Some(value);
     }
 
     /// Set the enclosing object's address, as used by
-    /// `DW_OP_push_object_address`
+    /// `DW_OP_push_object_address`.  If no object address is set, and
+    /// the expression uses an opcode requiring the object address,
+    /// then evaluation will fail with an error.
     pub fn set_object_address(&mut self, value: u64) {
         self.object_address = Some(value);
     }
 
     /// Set the maximum number of iterations to be allowed by the
-    /// expression evaluator.  The default is `None`.  This value can
-    /// be set to avoid denial of service attacks by bad DWARF
-    /// bytecode.
+    /// expression evaluator.
+    ///
+    /// An iteration corresponds approximately to the evaluation of a
+    /// single operation in an expression ("approximately" because the
+    /// implementation may allow two such operations in some cases).
+    /// The default is not to have a maximum; once set, it's not
+    /// possible to go back to this default state.  This value can be
+    /// set to avoid denial of service attacks by bad DWARF bytecode.
     pub fn set_max_iterations(&mut self, value: u32) {
         self.max_iterations = Some(value);
     }
@@ -1198,7 +1210,9 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
         Ok((piece_end, terminated, current_location))
     }
 
-    /// Evaluate a DWARF expression.
+    /// Evaluate a DWARF expression.  If successful, the result will
+    /// hold a vector of pieces, each describing a part of the final
+    /// object.
     pub fn evaluate(&mut self) -> Result<Vec<Piece<'input>>, Context::ContextError>
         where Endian: Endianity
     {
