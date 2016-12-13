@@ -1008,6 +1008,28 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         }
     }
 
+    /// Get the raw, un-parsed `EndianBuf` containing this header's line number
+    /// program.
+    ///
+    /// ```
+    /// # fn foo() {
+    /// use gimli::{LineNumberProgramHeader, NativeEndian};
+    ///
+    /// fn get_line_number_program_header<'a>() -> LineNumberProgramHeader<'a, NativeEndian> {
+    ///     // Get a line number program header from some offset in a
+    ///     // `.debug_line` section...
+    /// #   unimplemented!()
+    /// }
+    ///
+    /// let header = get_line_number_program_header();
+    /// let raw_program = header.raw_program_buf();
+    /// println!("The length of the raw program in bytes is {}", raw_program.len());
+    /// # }
+    /// ```
+    pub fn raw_program_buf(&self) -> EndianBuf<'input, Endian> {
+        self.program_buf
+    }
+
     /// Iterate over the opcodes in this header's line number program, parsing
     /// them as we go.
     pub fn opcodes(&self) -> OpcodesIter<'input, Endian> {
