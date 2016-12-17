@@ -13,6 +13,13 @@ use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 /// that implement this trait, it is just used as compile-time phantom data.
 pub trait Endianity
     : byteorder::ByteOrder + Debug + Default + Clone + Copy + PartialEq + Eq {
+    /// Return true for big endian byte order.
+    fn is_big_endian() -> bool;
+
+    /// Return true for little endian byte order.
+    fn is_little_endian() -> bool {
+        !Self::is_big_endian()
+    }
 }
 
 /// Little endian byte order.
@@ -52,7 +59,11 @@ impl byteorder::ByteOrder for LittleEndian {
     }
 }
 
-impl Endianity for LittleEndian {}
+impl Endianity for LittleEndian {
+    fn is_big_endian() -> bool {
+        false
+    }
+}
 
 /// Big endian byte order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,7 +102,11 @@ impl byteorder::ByteOrder for BigEndian {
     }
 }
 
-impl Endianity for BigEndian {}
+impl Endianity for BigEndian {
+    fn is_big_endian() -> bool {
+        true
+    }
+}
 
 /// The native endianity for the target platform.
 #[cfg(target_endian = "little")]
