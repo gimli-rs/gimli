@@ -320,9 +320,8 @@ mod cfi {
         fde.instructions().fold(0, |count, _| count + 1).expect("fold over instructions OK")
     }
 
-    fn get_fde_with_longest_cfi_instructions<'input>
-        (eh_frame: EhFrame<'input, LittleEndian>)
-         -> FrameDescriptionEntry<'input, LittleEndian, EhFrame<'input, LittleEndian>> {
+    fn get_fde_with_longest_cfi_instructions(eh_frame: EhFrame<LittleEndian>)
+         -> FrameDescriptionEntry<LittleEndian, EhFrame<LittleEndian>> {
         let bases = BaseAddresses::default()
             .set_cfi(0)
             .set_data(0)
