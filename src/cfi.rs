@@ -2615,9 +2615,6 @@ mod tests {
     type DebugFrameCie<'input, Endian> = CommonInformationEntry<'input,
                                                                 Endian,
                                                                 DebugFrame<'input, Endian>>;
-    type EhFrameCie<'input, Endian> = CommonInformationEntry<'input,
-                                                             Endian,
-                                                             EhFrame<'input, Endian>>;
     type DebugFrameFde<'input, Endian> = FrameDescriptionEntry<'input,
                                                                Endian,
                                                                DebugFrame<'input, Endian>>;
