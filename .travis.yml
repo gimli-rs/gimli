@@ -31,6 +31,7 @@ before_script:
 - if [[ -e ~/Library/Python/2.7/bin ]]; then export PATH=~/Library/Python/2.7/bin:$PATH; fi
 - if [[ -e ~/.local/bin ]]; then export PATH=~/.local/bin:$PATH; fi
 - echo PATH is $PATH
+- export RUST_BACKTRACE=1
 
 script:
 - |
