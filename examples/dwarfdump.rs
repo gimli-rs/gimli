@@ -76,7 +76,8 @@ fn main() {
         let file = fs::File::open(&file_path).expect("Should open file");
         let file = memmap::Mmap::open(&file, memmap::Protection::Read)
             .expect("Should create a mmap for file");
-        let file = object::File::parse(unsafe { file.as_slice() });
+        let file = object::File::parse(unsafe { file.as_slice() })
+            .expect("Should parse object file");
 
         if file.is_little_endian() {
             dump_file::<gimli::LittleEndian>(file, &flags);
