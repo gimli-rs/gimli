@@ -147,7 +147,6 @@
 
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
-#![deny(warnings)]
 
 extern crate arrayvec;
 extern crate byteorder;
