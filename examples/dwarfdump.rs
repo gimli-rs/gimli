@@ -138,7 +138,7 @@ fn dump_info<Endian>(file: &object::File,
     println!("\n.debug_info");
 
     if let Some(debug_info) = file.get_section(".debug_info") {
-        let debug_info = gimli::DebugInfo::<Endian>::new(&debug_info);
+        let debug_info = gimli::DebugInfo::<Endian>::new(debug_info);
 
         let mut iter = debug_info.units();
         while let Some(unit) = iter.next().expect("Should parse compilation unit") {
@@ -170,7 +170,7 @@ fn dump_types<Endian>(file: &object::File,
     if let Some(debug_types) = file.get_section(".debug_types") {
         println!("\n.debug_types");
 
-        let debug_types = gimli::DebugTypes::<Endian>::new(&debug_types);
+        let debug_types = gimli::DebugTypes::<Endian>::new(debug_types);
 
         let mut iter = debug_types.units();
         while let Some(unit) = iter.next().expect("Should parse the unit OK") {
@@ -477,8 +477,8 @@ fn dump_file_index<Endian>(file: u64, unit: &Unit<Endian>)
     print!(" ");
     if let Some(directory) = file.directory(header) {
         let directory = directory.to_string_lossy();
-        if !directory.starts_with("/") {
-            if let Some(ref comp_dir) = unit.comp_dir {
+        if !directory.starts_with('/') {
+            if let Some(comp_dir) = unit.comp_dir {
                 print!("{}/", comp_dir.to_string_lossy());
             }
         }
@@ -521,7 +521,7 @@ fn dump_op<Endian>(dwop: gimli::DwOp, op: gimli::Operation<Endian>, newpc: &[u8]
 {
     print!("{}", dwop);
     match op {
-        gimli::Operation::Deref { size, space: _ } => {
+        gimli::Operation::Deref { size, .. } => {
             if dwop == gimli::DW_OP_deref_size || dwop == gimli::DW_OP_xderef_size {
                 print!(" {}", size);
             }
@@ -569,7 +569,7 @@ fn dump_op<Endian>(dwop: gimli::DwOp, op: gimli::Operation<Endian>, newpc: &[u8]
                 print!(" {}", register);
             }
         }
-        gimli::Operation::RegisterOffset { register: _, offset } => {
+        gimli::Operation::RegisterOffset { offset, .. } => {
             print!("{:+}", offset);
         }
         gimli::Operation::FrameOffset { offset } => {
@@ -628,7 +628,7 @@ fn dump_loc_list<Endian>(debug_loc: gimli::DebugLoc<Endian>,
     if has_end {
         locations.pop();
     }
-    if locations.len() == 0 {
+    if locations.is_empty() {
         println!("");
         return;
     }
@@ -698,9 +698,9 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
         println!(".debug_line");
         println!("");
 
-        let debug_line = gimli::DebugLine::<Endian>::new(&debug_line);
-        let debug_info = gimli::DebugInfo::<Endian>::new(&debug_info);
-        let debug_str = gimli::DebugStr::<Endian>::new(&debug_str);
+        let debug_line = gimli::DebugLine::<Endian>::new(debug_line);
+        let debug_info = gimli::DebugInfo::<Endian>::new(debug_info);
+        let debug_str = gimli::DebugStr::<Endian>::new(debug_str);
 
         let mut iter = debug_info.units();
         while let Some(unit) = iter.next().expect("Should parse unit header OK") {
