@@ -18,6 +18,7 @@ use std::marker::PhantomData;
 use std::ops::{Range, RangeFrom, RangeTo};
 use std::{u8, u16};
 use str::{DebugStr, DebugStrOffset};
+use Section;
 
 /// An offset into the `.debug_types` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,6 +106,22 @@ impl<'input, Endian> DebugInfo<'input, Endian>
             Ok((_, header)) => Ok(header),
             Err(e) => Err(e),
         }
+    }
+}
+
+impl<'input, Endian> Section<'input> for DebugInfo<'input, Endian>
+    where Endian: Endianity
+{
+    fn section_name() -> &'static str {
+        ".debug_info"
+    }
+}
+
+impl<'input, Endian> From<&'input [u8]> for DebugInfo<'input, Endian>
+    where Endian: Endianity
+{
+    fn from(v: &'input [u8]) -> Self {
+        Self::new(v)
     }
 }
 

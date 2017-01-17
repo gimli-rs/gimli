@@ -3,6 +3,7 @@ use fallible_iterator::FallibleIterator;
 use parser::{Error, Result, parse_u16, take};
 use ranges::Range;
 use std::marker::PhantomData;
+use Section;
 
 /// An offset into the `.debug_loc` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +80,22 @@ impl<'input, Endian> DebugLoc<'input, Endian>
 
         let input = self.debug_loc_section.range_from(offset.0..);
         Ok(RawLocationListIter::new(input, address_size))
+    }
+}
+
+impl<'input, Endian> Section<'input> for DebugLoc<'input, Endian>
+    where Endian: Endianity
+{
+    fn section_name() -> &'static str {
+        ".debug_loc"
+    }
+}
+
+impl<'input, Endian> From<&'input [u8]> for DebugLoc<'input, Endian>
+    where Endian: Endianity
+{
+    fn from(v: &'input [u8]) -> Self {
+        Self::new(v)
     }
 }
 

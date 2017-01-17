@@ -4,6 +4,7 @@ use parser;
 use std::ffi;
 use std::fmt;
 use std::marker::PhantomData;
+use Section;
 
 /// An offset into the `.debug_line` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,6 +77,22 @@ impl<'input, Endian> DebugLine<'input, Endian>
         let (_, header) =
             try!(LineNumberProgramHeader::parse(input, address_size, comp_dir, comp_name));
         Ok(header)
+    }
+}
+
+impl<'input, Endian> Section<'input> for DebugLine<'input, Endian>
+    where Endian: Endianity
+{
+    fn section_name() -> &'static str {
+        ".debug_line"
+    }
+}
+
+impl<'input, Endian> From<&'input [u8]> for DebugLine<'input, Endian>
+    where Endian: Endianity
+{
+    fn from(v: &'input [u8]) -> Self {
+        Self::new(v)
     }
 }
 

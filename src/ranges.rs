@@ -2,6 +2,7 @@ use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use parser::{Error, Result, parse_address};
 use std::marker::PhantomData;
+use Section;
 
 /// An offset into the `.debug_ranges` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +78,22 @@ impl<'input, Endian> DebugRanges<'input, Endian>
 
         let input = self.debug_ranges_section.range_from(offset.0..);
         Ok(RawRangesIter::new(input, address_size))
+    }
+}
+
+impl<'input, Endian> Section<'input> for DebugRanges<'input, Endian>
+    where Endian: Endianity
+{
+    fn section_name() -> &'static str {
+        ".debug_ranges"
+    }
+}
+
+impl<'input, Endian> From<&'input [u8]> for DebugRanges<'input, Endian>
+    where Endian: Endianity
+{
+    fn from(v: &'input [u8]) -> Self {
+        Self::new(v)
     }
 }
 

@@ -206,3 +206,25 @@ pub use unit::{DebugTypes, DebugTypesOffset, DebugTypeSignature, TypeUnitHeaders
                TypeUnitHeader};
 pub use unit::{EntriesCursor, EntriesTree, EntriesTreeIter, DebuggingInformationEntry};
 pub use unit::{AttrsIter, Attribute, AttributeValue};
+
+/// A convenience trait for loading DWARF sections from object files.  To be
+/// used like:
+///
+/// ```
+/// use gimli::{DebugInfo, LittleEndian, Section};
+///
+/// fn load_section<'a, S, F>(loader: F) -> S
+///   where S: Section<'a>, F: FnOnce(&'static str) -> &'a [u8]
+/// {
+///   let data = loader(S::section_name());
+///   S::from(data)
+/// }
+///
+/// let buf = [0x00, 0x01, 0x02, 0x03];
+///
+/// let debug_info: DebugInfo<LittleEndian> = load_section(|_: &'static str| &buf);
+/// ```
+pub trait Section<'input> : From<&'input [u8]> {
+    /// Returns the ELF section name for this type.
+    fn section_name() -> &'static str;
+}

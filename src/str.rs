@@ -2,6 +2,7 @@ use endianity::{Endianity, EndianBuf};
 use parser::{parse_null_terminated_string, Error, Result};
 use std::ffi;
 use std::marker::PhantomData;
+use Section;
 
 /// An offset into the `.debug_str` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,5 +57,21 @@ impl<'input, Endian> DebugStr<'input, Endian>
         let buf = self.debug_str_section.range_from(offset.0..);
         let result = parse_null_terminated_string(buf.0);
         result.map(|(_, cstr)| cstr)
+    }
+}
+
+impl<'input, Endian> Section<'input> for DebugStr<'input, Endian>
+    where Endian: Endianity
+{
+    fn section_name() -> &'static str {
+        ".debug_str"
+    }
+}
+
+impl<'input, Endian> From<&'input [u8]> for DebugStr<'input, Endian>
+    where Endian: Endianity
+{
+    fn from(v: &'input [u8]) -> Self {
+        Self::new(v)
     }
 }
