@@ -5,6 +5,7 @@ use unit::{DebugTypesOffset, parse_debug_types_offset};
 use std::ffi;
 use std::marker::PhantomData;
 use std::rc::Rc;
+use Section;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct PubTypesHeader {
@@ -130,6 +131,22 @@ pub type DebugPubTypes<'input, Endian> = DebugLookup<'input,
                                                      PubStuffParser<'input,
                                                                     Endian,
                                                                     TypesSwitch<'input, Endian>>>;
+
+impl<'input, Endian> Section<'input> for DebugPubTypes<'input, Endian>
+    where Endian: Endianity
+{
+    fn section_name() -> &'static str {
+        ".debug_pubtypes"
+    }
+}
+
+impl<'input, Endian> From<&'input [u8]> for DebugPubTypes<'input, Endian>
+    where Endian: Endianity
+{
+    fn from(v: &'input [u8]) -> Self {
+        Self::new(v)
+    }
+}
 
 /// An iterator over the pubtypes from a `.debug_pubtypes` section.
 ///

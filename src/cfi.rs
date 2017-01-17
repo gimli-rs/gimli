@@ -13,6 +13,7 @@ use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::mem;
 use std::str;
+use Section;
 
 /// An offset into the `.debug_frame` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +87,22 @@ impl<'input, Endian> DebugFrame<'input, Endian>
     }
 }
 
+impl<'input, Endian> Section<'input> for DebugFrame<'input, Endian>
+    where Endian: Endianity
+{
+    fn section_name() -> &'static str {
+        ".debug_frame"
+    }
+}
+
+impl<'input, Endian> From<&'input [u8]> for DebugFrame<'input, Endian>
+    where Endian: Endianity
+{
+    fn from(v: &'input [u8]) -> Self {
+        Self::new(v)
+    }
+}
+
 /// `EhFrame` contains the frame unwinding information needed during exception
 /// handling found in the `.eh_frame` section.
 ///
@@ -119,6 +136,22 @@ impl<'input, Endian> EhFrame<'input, Endian>
     /// ```
     pub fn new(section: &'input [u8]) -> EhFrame<'input, Endian> {
         EhFrame(EndianBuf::new(section))
+    }
+}
+
+impl<'input, Endian> Section<'input> for EhFrame<'input, Endian>
+    where Endian: Endianity
+{
+    fn section_name() -> &'static str {
+        ".eh_frame"
+    }
+}
+
+impl<'input, Endian> From<&'input [u8]> for EhFrame<'input, Endian>
+    where Endian: Endianity
+{
+    fn from(v: &'input [u8]) -> Self {
+        Self::new(v)
     }
 }
 

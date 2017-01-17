@@ -6,6 +6,7 @@ use parser::{Error, Result, Format};
 use parser::{parse_unsigned_leb, parse_u8};
 use unit::UnitHeader;
 use std::collections::hash_map;
+use Section;
 
 /// An offset into the `.debug_abbrev` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +50,22 @@ impl<'input, Endian> DebugAbbrev<'input, Endian>
     pub fn abbreviations(&self, debug_abbrev_offset: DebugAbbrevOffset) -> Result<Abbreviations> {
         let input: &[u8] = self.debug_abbrev_section.into();
         Abbreviations::parse(&input[debug_abbrev_offset.0..]).map(|(_, abbrevs)| abbrevs)
+    }
+}
+
+impl<'input, Endian> Section<'input> for DebugAbbrev<'input, Endian>
+    where Endian: Endianity
+{
+    fn section_name() -> &'static str {
+        ".debug_abbrev"
+    }
+}
+
+impl<'input, Endian> From<&'input [u8]> for DebugAbbrev<'input, Endian>
+    where Endian: Endianity
+{
+    fn from(v: &'input [u8]) -> Self {
+        Self::new(v)
     }
 }
 
