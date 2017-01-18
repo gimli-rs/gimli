@@ -42,7 +42,7 @@ script:
       with_debug_info=$(find ./target/debug -type f | grep DWARF | grep gimli | head -n 1) &&
       travis-cargo run -- --example dwarfdump "$with_debug_info" > /dev/null
   ) || (
-      travis-cargo run -- --example dwarfdump ./target/debug/gimli-* > /dev/null
+      travis-cargo run -- --example dwarfdump $(find ./target/debug -name 'gimli-*' | head -n 1) > /dev/null
   )) &&
   travis-cargo --only stable doc
 
