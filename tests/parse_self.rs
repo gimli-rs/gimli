@@ -86,10 +86,30 @@ fn test_parse_self_debug_line() {
             let header = debug_line.header(offset, unit.address_size(), comp_dir, comp_name)
                 .expect("should parse line number program header");
 
+            let mut results = Vec::new();
             let mut rows = header.rows();
-            while let Some(_) = rows.next_row()
+            while let Some((_, row)) = rows.next_row()
                 .expect("Should parse and execute all rows in the line number program") {
+                results.push(row.clone());
             }
+            results.reverse();
+
+            let header = debug_line.header(offset, unit.address_size(), comp_dir, comp_name)
+                .expect("should parse line number program header");
+            let (mut rows, sequences) = header.sequences()
+                .expect("should parse and execute the entire line number program");
+            assert!(rows.next_row().unwrap().is_none());
+            assert!(sequences.len() > 0); // Should be at least one sequence.
+            for sequence in sequences {
+                rows.resume(&sequence);
+                while let Some((_, row)) = rows.next_row()
+                    .expect("Should parse and execute all rows after resuming") {
+                    let other_row = results.pop().unwrap();
+                    assert_eq!(row.address(), other_row.address());
+                    assert_eq!(row.line(), other_row.line());
+                }
+            }
+            assert!(results.is_empty());
         }
     }
 }

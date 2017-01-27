@@ -881,7 +881,7 @@ pub enum AttributeValue<'input, Endian>
     /// different compilation unit from the current one.
     DebugInfoRef(DebugInfoOffset),
 
-    /// An offset into the `.debug_lines` section.
+    /// An offset into the `.debug_line` section.
     DebugLineRef(DebugLineOffset),
 
     /// An offset into the `.debug_loc` section.
