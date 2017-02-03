@@ -4,7 +4,6 @@ use parser;
 use std::ffi;
 use std::fmt;
 use std::marker::PhantomData;
-use std::ops::Deref;
 use Section;
 
 /// An offset into the `.debug_line` section.
@@ -41,7 +40,7 @@ impl<'input, Endian> DebugLine<'input, Endian>
         DebugLine { debug_line_section: EndianBuf(debug_line_section, PhantomData) }
     }
 
-    /// Parse the line number program header at the given `offset` in the
+    /// Parse the line number program whose header is at the given `offset` in the
     /// `.debug_line` section.
     ///
     /// The `address_size` must match the compilation unit that the lines apply to.
@@ -50,7 +49,7 @@ impl<'input, Endian> DebugLine<'input, Endian>
     /// compilation unit.
     ///
     /// ```rust,no_run
-    /// use gimli::{DebugLine, DebugLineOffset, LineNumberProgramHeader, LittleEndian};
+    /// use gimli::{DebugLine, DebugLineOffset, IncompleteLineNumberProgram, LittleEndian};
     ///
     /// # let buf = [];
     /// # let read_debug_line_section_somehow = || &buf;
@@ -62,22 +61,23 @@ impl<'input, Endian> DebugLine<'input, Endian>
     /// let offset = DebugLineOffset(0);
     /// let address_size = 8;
     ///
-    /// let header = debug_line.header(offset, address_size, None, None)
+    /// let program = debug_line.program(offset, address_size, None, None)
     ///     .expect("should have found a header at that offset, and parsed it OK");
     /// ```
-    pub fn header(&self,
-                  offset: DebugLineOffset,
-                  address_size: u8,
-                  comp_dir: Option<&'input ffi::CStr>,
-                  comp_name: Option<&'input ffi::CStr>)
-                  -> parser::Result<LineNumberProgramHeader<'input, Endian>> {
+    pub fn program(&self,
+                   offset: DebugLineOffset,
+                   address_size: u8,
+                   comp_dir: Option<&'input ffi::CStr>,
+                   comp_name: Option<&'input ffi::CStr>)
+                   -> parser::Result<IncompleteLineNumberProgram<'input, Endian>> {
         if self.debug_line_section.len() < offset.0 {
             return Err(parser::Error::UnexpectedEof);
         }
         let input = self.debug_line_section.range_from(offset.0..);
         let (_, header) =
             try!(LineNumberProgramHeader::parse(input, address_size, comp_dir, comp_name));
-        Ok(header)
+        let program = IncompleteLineNumberProgram { header: header };
+        Ok(program)
     }
 }
 
@@ -97,23 +97,37 @@ impl<'input, Endian> From<&'input [u8]> for DebugLine<'input, Endian>
     }
 }
 
-#[derive(Clone, Debug)]
-enum LineNumberProgramHeaderHolder<'input, Endian>
+/// A `LineNumberProgram` provides access to a `LineNumberProgramHeader` and
+/// a way to add files to the files table if necessary. Gimli consumers should
+/// never need to use or see this trait.
+pub trait LineNumberProgram<'input, Endian>
     where Endian: Endianity
 {
-    Complete(LineNumberProgramHeader<'input, Endian>),
-    Incomplete(LineNumberProgramHeader<'input, Endian>),
+    /// Get a reference to the held `LineNumberProgramHeader`.
+    fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<'input, Endian>;
+    /// Add a file to the file table if necessary.
+    fn add_file(&mut self, file: FileEntry<'input>);
 }
 
-impl<'input, Endian> Deref for LineNumberProgramHeaderHolder<'input, Endian>
+impl<'input, Endian> LineNumberProgram<'input, Endian> for IncompleteLineNumberProgram<'input, Endian>
     where Endian: Endianity
 {
-    type Target = LineNumberProgramHeader<'input, Endian>;
-    fn deref(&self) -> &Self::Target {
-        match self {
-            &LineNumberProgramHeaderHolder::Complete(ref lnp) => lnp,
-            &LineNumberProgramHeaderHolder::Incomplete(ref lnp) => lnp,
-        }
+    fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<'input, Endian> {
+        &self.header
+    }
+    fn add_file(&mut self, file: FileEntry<'input>) {
+        self.header.file_names.push(file);
+    }
+}
+
+impl<'program, 'input, Endian> LineNumberProgram<'input, Endian> for &'program CompleteLineNumberProgram<'input, Endian>
+    where Endian: Endianity
+{
+    fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<'input, Endian> {
+        &self.header
+    }
+    fn add_file(&mut self, _: FileEntry<'input>) {
+// Nop. Our file table is already complete.
     }
 }
 
@@ -123,27 +137,52 @@ impl<'input, Endian> Deref for LineNumberProgramHeaderHolder<'input, Endian>
 /// "The hypothetical machine used by a consumer of the line number information
 /// to expand the byte-coded instruction stream into a matrix of line number
 /// information." -- Section 6.2.1
-#[derive(Clone, Debug)]
-pub struct StateMachine<'input, Endian>
-    where Endian: Endianity
+#[derive(Debug, Clone)]
+pub struct StateMachine<'input, Program, Endian>
+    where Program: LineNumberProgram<'input, Endian>,
+          Endian: Endianity
 {
-    header: LineNumberProgramHeaderHolder<'input, Endian>,
+    program: Program,
     row: LineNumberRow,
     opcodes: OpcodesIter<'input, Endian>,
 }
 
-impl<'input, Endian> StateMachine<'input, Endian>
-    where Endian: Endianity
+
+type OneShotStateMachine<'input, Endian> = StateMachine<'input,
+                                                        IncompleteLineNumberProgram<'input,
+                                                                                          Endian>,
+                                                        Endian>;
+
+type ResumedStateMachine<'program, 'input, Endian> =
+    StateMachine<'input, &'program CompleteLineNumberProgram<'input, Endian>, Endian>;
+
+impl<'input, Program, Endian> StateMachine<'input, Program, Endian>
+    where Program: LineNumberProgram<'input, Endian>,
+          Endian: Endianity
 {
-    fn new(header: LineNumberProgramHeaderHolder<'input, Endian>) -> Self {
+    fn new(program: IncompleteLineNumberProgram<'input, Endian>)
+           -> OneShotStateMachine<'input, Endian> {
         let mut row = LineNumberRow::default();
-        row.registers.reset(header.default_is_stmt());
+        row.registers.reset(program.header().default_is_stmt());
         let opcodes = OpcodesIter {
-            input: header.program_buf.0,
+            input: program.header().program_buf.0,
             endian: PhantomData,
         };
         StateMachine {
-            header: header,
+            program: program,
+            row: row,
+            opcodes: opcodes,
+        }
+    }
+
+    fn resume<'program>(program: &'program CompleteLineNumberProgram<'input, Endian>,
+                        sequence: &LineNumberSequence<'input, Endian>)
+                        -> ResumedStateMachine<'program, 'input, Endian> {
+        let mut row = LineNumberRow::default();
+        row.registers.reset(program.header().default_is_stmt());
+        let opcodes = sequence.opcodes.clone();
+        StateMachine {
+            program: program,
             row: row,
             opcodes: opcodes,
         }
@@ -165,9 +204,9 @@ impl<'input, Endian> StateMachine<'input, Endian>
 
     /// Step 2 of section 6.2.5.1
     fn apply_operation_advance(&mut self, operation_advance: u64) {
-        let minimum_instruction_length = self.header.minimum_instruction_length as u64;
+        let minimum_instruction_length = self.header().minimum_instruction_length as u64;
         let maximum_operations_per_instruction =
-            self.header.maximum_operations_per_instruction as u64;
+            self.header().maximum_operations_per_instruction as u64;
 
         let op_index_with_advance = self.row.registers.op_index + operation_advance;
 
@@ -178,7 +217,7 @@ impl<'input, Endian> StateMachine<'input, Endian>
     }
 
     fn adjust_opcode(&self, opcode: u8) -> u8 {
-        opcode - self.header.opcode_base
+        opcode - self.header().opcode_base
     }
 
     /// Section 6.2.5.1
@@ -187,14 +226,14 @@ impl<'input, Endian> StateMachine<'input, Endian>
 
         // Step 1
 
-        let line_base = self.header.line_base as i64;
-        let line_range = self.header.line_range;
+        let line_base = self.header().line_base as i64;
+        let line_range = self.header().line_range;
         let line_increment = line_base + (adjusted_opcode % line_range) as i64;
         self.apply_line_advance(line_increment);
 
         // Step 2
 
-        let operation_advance = adjusted_opcode / self.header.line_range;
+        let operation_advance = adjusted_opcode / self.header().line_range;
         self.apply_operation_advance(operation_advance as u64);
     }
 
@@ -243,7 +282,7 @@ impl<'input, Endian> StateMachine<'input, Endian>
 
             Opcode::ConstAddPc => {
                 let adjusted = self.adjust_opcode(255);
-                let operation_advance = adjusted / self.header.line_range;
+                let operation_advance = adjusted / self.header().line_range;
                 self.apply_operation_advance(operation_advance as u64);
                 false
             }
@@ -281,15 +320,7 @@ impl<'input, Endian> StateMachine<'input, Endian>
             }
 
             Opcode::DefineFile(entry) => {
-                match self.header {
-                    LineNumberProgramHeaderHolder::Incomplete(ref mut header) => {
-                        header.file_names.push(entry);
-                    },
-                    LineNumberProgramHeaderHolder::Complete(_) => {
-                        // All the filenames are already in the header, we don't
-                        // need to do anything.
-                    },
-                }
+                self.program.add_file(entry);
                 false
             }
 
@@ -305,15 +336,11 @@ impl<'input, Endian> StateMachine<'input, Endian>
             Opcode::UnknownExtended(_, _) => false,
         }
     }
-}
 
-impl<'input, Endian> StateMachine<'input, Endian>
-    where Endian: Endianity
-{
     /// Get a reference to the header for this state machine's line number
     /// program.
     pub fn header(&self) -> &LineNumberProgramHeader<'input, Endian> {
-        &self.header
+        self.program.header()
     }
 
     /// Parse and execute the next opcodes in the line number program until
@@ -333,7 +360,9 @@ impl<'input, Endian> StateMachine<'input, Endian>
         if self.row.registers.end_sequence {
             // Previous opcode was EndSequence, so reset everything
             // as specified in Section 6.2.5.3.
-            self.row.registers.reset(self.header.default_is_stmt);
+
+            // Split the borrow here, rather than calling `self.header()`.
+            self.row.registers.reset(self.program.header().default_is_stmt);
         } else {
             // Previous opcode was one of:
             // - Special - specified in Section 6.2.5.1, steps 4-7
@@ -346,12 +375,13 @@ impl<'input, Endian> StateMachine<'input, Endian>
         }
 
         loop {
-            match self.opcodes.next_opcode(&self.header) {
+            // Split the borrow here, rather than calling `self.header()`.
+            match self.opcodes.next_opcode(self.program.header()) {
                 Err(err) => return Err(err),
                 Ok(None) => return Ok(None),
                 Ok(Some(opcode)) => {
                     if self.execute(opcode) {
-                        return Ok(Some((&self.header, &self.row)));
+                        return Ok(Some((self.header(), &self.row)));
                     }
                     // Fall through, parse the next opcode, and see if that
                     // yields a row.
@@ -376,16 +406,10 @@ impl<'input, Endian> StateMachine<'input, Endian>
                 }
                 Ok(None) => return Ok(None),
                 Err(err) => return Err(err),
-            };
+            }
         }
 
-        Ok(Some((&self.header, &self.row)))
-    }
-
-    /// Resume the line number program and run the provided sequence.
-    pub fn resume(&mut self, sequence: &LineNumberSequence<'input, Endian>) {
-        self.row.registers.reset(self.header.default_is_stmt);
-        self.opcodes = sequence.opcodes.clone();
+        Ok(Some((self.header(), &self.row)))
     }
 }
 
@@ -696,7 +720,8 @@ impl<'input, Endian> OpcodesIter<'input, Endian>
     fn remove_trailing(&self, other: &OpcodesIter<'input, Endian>) -> OpcodesIter<'input, Endian> {
         debug_assert!(other.input.len() < self.input.len());
         debug_assert!(other.input.as_ptr() > self.input.as_ptr() &&
-                      other.input.as_ptr() <= unsafe { self.input.as_ptr().offset(self.input.len() as isize) });
+                      other.input.as_ptr() <=
+                      unsafe { self.input.as_ptr().offset(self.input.len() as isize) });
         OpcodesIter {
             input: self.input.split_at(self.input.len() - other.input.len()).0,
             endian: self.endian,
@@ -1121,72 +1146,6 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         }
     }
 
-    /// Construct a new `StateMachine` for executing line programs and
-    /// generating the line information matrix.
-    pub fn rows(self) -> StateMachine<'input, Endian> {
-        StateMachine::new(LineNumberProgramHeaderHolder::Incomplete(self))
-    }
-
-    /// Execute the line number program, completing the LineNumberProgramHeader
-    /// and producing an array of sequences within the line number program that
-    /// can later be used with `resume_from`.
-    ///
-    /// ```
-    /// # fn foo() {
-    /// use gimli::{LineNumberProgramHeader, NativeEndian};
-    ///
-    /// fn get_line_number_program_header<'a>() -> LineNumberProgramHeader<'a, NativeEndian> {
-    ///     // Get a line number program header from some offset in a
-    ///     // `.debug_line` section...
-    /// #   unimplemented!()
-    /// }
-    ///
-    /// let header = get_line_number_program_header();
-    /// let (complete_header, sequences) = header.sequences().unwrap();
-    /// println!("There are {} sequences in this line number program", sequences.len());
-    /// # }
-    /// ```
-    pub fn sequences(self)
-                     -> parser::Result<(StateMachine<'input, Endian>,
-                                        Vec<LineNumberSequence<'input, Endian>>)> {
-        let mut state_machine = self.rows();
-        let mut opcodes = state_machine.opcodes.clone();
-        let mut sequence_start_addr = None;
-        let mut sequences = Vec::new();
-        loop {
-            let sequence_end_addr;
-            if state_machine.next_row()?.is_none() {
-                break;
-            }
-
-            let row = &state_machine.row;
-            if row.end_sequence() {
-                sequence_end_addr = row.address();
-            } else if sequence_start_addr.is_none() {
-                sequence_start_addr = Some((row.address()));
-                continue;
-            } else {
-                continue;
-            }
-
-            // We just finished a sequence.
-            sequences.push(LineNumberSequence {
-                // In theory one could have multiple DW_LNE_end_sequence opcodes
-                // in a row.
-                start: sequence_start_addr.unwrap_or(0),
-                end: sequence_end_addr,
-                opcodes: opcodes.remove_trailing(&state_machine.opcodes),
-            });
-            sequence_start_addr = None;
-            opcodes = state_machine.opcodes.clone();
-        }
-        state_machine.header = match state_machine.header {
-            LineNumberProgramHeaderHolder::Incomplete(header) => LineNumberProgramHeaderHolder::Complete(header),
-            LineNumberProgramHeaderHolder::Complete(_) => panic!(),
-        };
-        Ok((state_machine, sequences))
-    }
-
     fn parse
         (input: EndianBuf<'input, Endian>,
          address_size: u8,
@@ -1305,6 +1264,132 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
             rest = EndianBuf::new(rest1);
             file_names.push(file_name);
         }
+    }
+}
+
+/// A line number program that has not been run to completion.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IncompleteLineNumberProgram<'input, Endian>
+    where Endian: Endianity
+{
+    header: LineNumberProgramHeader<'input, Endian>,
+}
+
+impl<'input, Endian> IncompleteLineNumberProgram<'input, Endian>
+    where Endian: Endianity
+{
+    /// Retrieve the `LineNumberProgramHeader` for this program.
+    pub fn header(&self) -> &LineNumberProgramHeader<'input, Endian> {
+        &self.header
+    }
+
+    /// Construct a new `StateMachine` for executing line programs and
+    /// generating the line information matrix.
+    pub fn rows(self) -> OneShotStateMachine<'input, Endian> {
+        OneShotStateMachine::new(self)
+    }
+
+    /// Execute the line number program, completing the `IncompleteLineNumberProgram`
+    /// into a `CompleteLineNumberProgram` and producing an array of sequences within
+    /// the line number program that can later be used with
+    /// `CompleteLineNumberProgram::resume_from`.
+    ///
+    /// ```
+    /// # fn foo() {
+    /// use gimli::{IncompleteLineNumberProgram, NativeEndian};
+    ///
+    /// fn get_line_number_program<'a>() -> IncompleteLineNumberProgram<'a, NativeEndian> {
+    ///     // Get a line number program from some offset in a
+    ///     // `.debug_line` section...
+    /// #   unimplemented!()
+    /// }
+    ///
+    /// let program = get_line_number_program();
+    /// let (program, sequences) = program.sequences().unwrap();
+    /// println!("There are {} sequences in this line number program", sequences.len());
+    /// # }
+    /// ```
+    pub fn sequences(self)
+                     -> parser::Result<(CompleteLineNumberProgram<'input, Endian>,
+                                        Vec<LineNumberSequence<'input, Endian>>)> {
+        let mut sequences = Vec::new();
+        let mut state_machine = self.rows();
+        let mut opcodes = state_machine.opcodes.clone();
+        let mut sequence_start_addr = None;
+        loop {
+            let sequence_end_addr;
+            if state_machine.next_row()?.is_none() {
+                break;
+            }
+
+            let row = &state_machine.row;
+            if row.end_sequence() {
+                sequence_end_addr = row.address();
+            } else if sequence_start_addr.is_none() {
+                sequence_start_addr = Some((row.address()));
+                continue;
+            } else {
+                continue;
+            }
+
+            // We just finished a sequence.
+            sequences.push(LineNumberSequence {
+                // In theory one could have multiple DW_LNE_end_sequence opcodes
+                // in a row.
+                start: sequence_start_addr.unwrap_or(0),
+                end: sequence_end_addr,
+                opcodes: opcodes.remove_trailing(&state_machine.opcodes),
+            });
+            sequence_start_addr = None;
+            opcodes = state_machine.opcodes.clone();
+        }
+
+        let program = CompleteLineNumberProgram { header: state_machine.program.header };
+        Ok((program, sequences))
+    }
+}
+
+/// A line number program that has previously been run to completion.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompleteLineNumberProgram<'input, Endian>
+    where Endian: Endianity
+{
+    header: LineNumberProgramHeader<'input, Endian>,
+}
+
+impl<'input, Endian> CompleteLineNumberProgram<'input, Endian>
+    where Endian: Endianity
+{
+    /// Retrieve the `LineNumberProgramHeader` for this program.
+    pub fn header(&self) -> &LineNumberProgramHeader<'input, Endian> {
+        &self.header
+    }
+
+    /// Construct a new `StateMachine` for executing the subset of the line
+    /// number program identified by 'sequence' and  generating the line information
+    /// matrix.
+    ///
+    /// ```
+    /// # fn foo() {
+    /// use gimli::{IncompleteLineNumberProgram, NativeEndian};
+    ///
+    /// fn get_line_number_program<'a>() -> IncompleteLineNumberProgram<'a, NativeEndian> {
+    ///     // Get a line number program from some offset in a
+    ///     // `.debug_line` section...
+    /// #   unimplemented!()
+    /// }
+    ///
+    /// let program = get_line_number_program();
+    /// let (program, sequences) = program.sequences().unwrap();
+    /// for sequence in &sequences {
+    ///     let mut sm = program.resume_from(sequence);
+    /// }
+    /// # }
+    /// ```
+    pub fn resume_from<'program>(&'program self,
+                                 sequence: &LineNumberSequence<'input, Endian>)
+                                 -> ResumedStateMachine<'program, 'input, Endian> {
+        ResumedStateMachine::resume(self, sequence)
     }
 }
 
@@ -1650,6 +1735,10 @@ mod tests {
         }
     }
 
+    fn make_test_program(buf: &[u8]) -> IncompleteLineNumberProgram<LittleEndian> {
+        IncompleteLineNumberProgram { header: make_test_header(buf) }
+    }
+
     #[test]
     fn test_parse_special_opcodes() {
         for i in OPCODE_BASE..u8::MAX {
@@ -1846,12 +1935,12 @@ mod tests {
         regs
     }
 
-    fn assert_exec_opcode(header: LineNumberProgramHeader<LittleEndian>,
-                          initial_registers: StateMachineRegisters,
-                          opcode: Opcode,
-                          expected_registers: StateMachineRegisters,
-                          expect_new_row: bool) {
-        let mut sm = header.rows();
+    fn assert_exec_opcode<'input>(header: LineNumberProgramHeader<'input, LittleEndian>,
+                                  initial_registers: StateMachineRegisters,
+                                  opcode: Opcode<'input>,
+                                  expected_registers: StateMachineRegisters,
+                                  expect_new_row: bool) {
+        let mut sm = OneShotStateMachine::new(IncompleteLineNumberProgram { header: header });
         sm.row.registers = initial_registers;
 
         let is_new_row = sm.execute(opcode);
@@ -2211,8 +2300,8 @@ mod tests {
 
     #[test]
     fn test_exec_define_file() {
-        let header = make_test_header(&[]);
-        let mut sm = header.rows();
+        let program = make_test_program(&[]);
+        let mut sm = program.rows();
 
         let file = FileEntry {
             path_name: ffi::CStr::from_bytes_with_nul(&b"test.cpp\0"[..]).unwrap(),
