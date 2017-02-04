@@ -205,7 +205,7 @@ struct Unit<'input, Endian>
     format: gimli::Format,
     address_size: u8,
     base_address: u64,
-    line_header: Option<gimli::LineNumberProgramHeader<'input, Endian>>,
+    line_program: Option<gimli::IncompleteLineNumberProgram<'input, Endian>>,
     comp_dir: Option<&'input std::ffi::CStr>,
     comp_name: Option<&'input std::ffi::CStr>,
 }
@@ -225,7 +225,7 @@ fn dump_entries<Endian>(offset: usize,
         format: format,
         address_size: address_size,
         base_address: 0,
-        line_header: None,
+        line_program: None,
         comp_dir: None,
         comp_name: None,
     };
@@ -262,10 +262,11 @@ fn dump_entries<Endian>(offset: usize,
             unit.comp_name = entry.attr(gimli::DW_AT_name)
                 .expect("Should parse name")
                 .and_then(|attr| attr.string_value(&debug_str));
-            unit.line_header = match entry.attr_value(gimli::DW_AT_stmt_list)
+            unit.line_program = match entry.attr_value(gimli::DW_AT_stmt_list)
                 .expect("Should parse stmt_list") {
                 Some(gimli::AttributeValue::DebugLineRef(offset)) => {
-                    debug_line.header(offset, unit.address_size, unit.comp_dir, unit.comp_name).ok()
+                    debug_line.program(offset, unit.address_size, unit.comp_dir, unit.comp_name)
+                        .ok()
                 }
                 _ => None,
             }
@@ -469,8 +470,8 @@ fn dump_file_index<Endian>(file: u64, unit: &Unit<Endian>)
     if file == 0 {
         return;
     }
-    let header = match unit.line_header {
-        Some(ref header) => header,
+    let header = match unit.line_program {
+        Some(ref program) => program.header(),
         None => return,
     };
     let file = header.file(file).expect("File index should be valid");
@@ -723,66 +724,70 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
                 .expect("Should parse name")
                 .and_then(|attr| attr.string_value(&debug_str));
 
-            let header = debug_line.header(offset, unit.address_size(), comp_dir, comp_name);
-            if let Ok(header) = header {
-                println!("");
-                println!("Offset:                             0x{:x}", offset.0);
-                println!("Length:                             {}",
-                         header.unit_length());
-                println!("DWARF version:                      {}", header.version());
-                println!("Prologue length:                    {}",
-                         header.header_length());
-                println!("Minimum instruction length:         {}",
-                         header.minimum_instruction_length());
-                println!("Maximum operations per instruction: {}",
-                         header.maximum_operations_per_instruction());
-                println!("Default is_stmt:                    {}",
-                         header.default_is_stmt());
-                println!("Line base:                          {}", header.line_base());
-                println!("Line range:                         {}",
-                         header.line_range());
-                println!("Opcode base:                        {}",
-                         header.opcode_base());
+            let program = debug_line.program(offset, unit.address_size(), comp_dir, comp_name);
+            if let Ok(program) = program {
+                {
+                    let header = program.header();
+                    println!("");
+                    println!("Offset:                             0x{:x}", offset.0);
+                    println!("Length:                             {}",
+                             header.unit_length());
+                    println!("DWARF version:                      {}", header.version());
+                    println!("Prologue length:                    {}",
+                             header.header_length());
+                    println!("Minimum instruction length:         {}",
+                             header.minimum_instruction_length());
+                    println!("Maximum operations per instruction: {}",
+                             header.maximum_operations_per_instruction());
+                    println!("Default is_stmt:                    {}",
+                             header.default_is_stmt());
+                    println!("Line base:                          {}", header.line_base());
+                    println!("Line range:                         {}",
+                             header.line_range());
+                    println!("Opcode base:                        {}",
+                             header.opcode_base());
 
-                println!("");
-                println!("Opcodes:");
-                for (i, length) in header.standard_opcode_lengths().iter().enumerate() {
-                    println!("  Opcode {} as {} args", i + 1, length);
+                    println!("");
+                    println!("Opcodes:");
+                    for (i, length) in header.standard_opcode_lengths().iter().enumerate() {
+                        println!("  Opcode {} as {} args", i + 1, length);
+                    }
+
+                    println!("");
+                    println!("The Directory Table:");
+                    for (i, dir) in header.include_directories().iter().enumerate() {
+                        println!("  {} {}", i + 1, dir.to_string_lossy());
+                    }
+
+                    println!("");
+                    println!("The File Name Table");
+                    println!("  Entry\tDir\tTime\tSize\tName");
+                    for (i, file) in header.file_names().iter().enumerate() {
+                        println!("  {}\t{}\t{}\t{}\t{}",
+                                 i + 1,
+                                 file.directory_index(),
+                                 file.last_modification(),
+                                 file.length(),
+                                 file.path_name().to_string_lossy());
+                    }
+
+                    println!("");
+                    println!("Line Number Statements:");
+                    let mut opcodes = header.opcodes();
+                    while let Some(opcode) = opcodes.next_opcode(&header)
+                        .expect("Should parse opcode OK") {
+                        println!("  {}", opcode);
+                    }
+
+                    println!("");
+                    println!("Line Number Rows:");
+                    println!("<pc>        [lno,col]");
                 }
-
-                println!("");
-                println!("The Directory Table:");
-                for (i, dir) in header.include_directories().iter().enumerate() {
-                    println!("  {} {}", i + 1, dir.to_string_lossy());
-                }
-
-                println!("");
-                println!("The File Name Table");
-                println!("  Entry\tDir\tTime\tSize\tName");
-                for (i, file) in header.file_names().iter().enumerate() {
-                    println!("  {}\t{}\t{}\t{}\t{}",
-                             i + 1,
-                             file.directory_index(),
-                             file.last_modification(),
-                             file.length(),
-                             file.path_name().to_string_lossy());
-                }
-
-                println!("");
-                println!("Line Number Statements:");
-                let mut opcodes = header.opcodes();
-                while let Some(opcode) = opcodes.next_opcode(&header)
-                    .expect("Should parse opcode OK") {
-                    println!("  {}", opcode);
-                }
-
-                println!("");
-                println!("Line Number Rows:");
-                println!("<pc>        [lno,col]");
-                let mut rows = header.rows();
+                let mut rows = program.rows();
                 let mut file_index = 0;
-                while let Some((header, row)) = rows.next_row()
-                    .expect("Should parse row OK") {
+                while let Some((header, row)) =
+                    rows.next_row()
+                        .expect("Should parse row OK") {
                     let line = row.line().unwrap_or(0);
                     let column = match row.column() {
                         gimli::ColumnType::Column(column) => column,
