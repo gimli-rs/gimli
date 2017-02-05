@@ -35,6 +35,7 @@ before_script:
 
 script:
 - |
+  travis-cargo clean &&
   travis-cargo build &&
   travis-cargo test &&
   travis-cargo bench &&
@@ -42,7 +43,8 @@ script:
       with_debug_info=$(find ./target/debug -type f | grep DWARF | grep gimli | head -n 1) &&
       travis-cargo run -- --example dwarfdump "$with_debug_info" > /dev/null
   ) || (
-      travis-cargo run -- --example dwarfdump ./target/debug/gimli-* > /dev/null
+      with_debug_info=$(find ./target/debug -type f -perm -100 | grep gimli | head -n 1) &&
+      travis-cargo run -- --example dwarfdump "$with_debug_info" > /dev/null
   )) &&
   travis-cargo --only stable doc
 
