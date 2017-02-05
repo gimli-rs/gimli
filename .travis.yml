@@ -35,6 +35,7 @@ before_script:
 
 script:
 - |
+  travis-cargo clean &&
   travis-cargo build &&
   travis-cargo test &&
   travis-cargo bench &&
