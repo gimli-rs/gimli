@@ -7,7 +7,7 @@ license = "Apache-2.0/MIT"
 name = "gimli"
 readme = "./README.md"
 repository = "https://github.com/gimli-rs/gimli"
-version = "0.11.0"
+version = "0.12.0"
 
 [dependencies]
 arrayvec = "0.3.20"
