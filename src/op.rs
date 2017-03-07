@@ -219,6 +219,23 @@ pub enum Operation<'input, Endian>
     },
 }
 
+#[derive(Debug)]
+struct OperationEvaluationResult<'input> {
+    terminated: bool,
+    piece_end: bool,
+    current_location: Location<'input>,
+}
+
+impl<'input> Default for OperationEvaluationResult<'input> {
+    fn default() -> OperationEvaluationResult<'input> {
+        OperationEvaluationResult {
+            terminated: false,
+            piece_end: false,
+            current_location: Location::Empty,
+        }
+    }
+}
+
 /// A single location of a piece of the result of a DWARF expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Location<'input> {
@@ -948,10 +965,8 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
 
     fn evaluate_one_operation(&mut self,
                               operation: &Operation<'input, Endian>)
-                              -> Result<(bool, bool, Location<'input>), Context::ContextError> {
-        let mut terminated = false;
-        let mut piece_end = false;
-        let mut current_location = Location::Empty;
+                              -> Result<OperationEvaluationResult<'input>, Context::ContextError> {
+        let mut result = OperationEvaluationResult::default();
 
         match *operation {
             Operation::Deref { size, space } => {
@@ -1175,23 +1190,23 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
             }
 
             Operation::Register { register } => {
-                terminated = true;
-                current_location = Location::Register { register: register };
+                result.terminated = true;
+                result.current_location = Location::Register { register: register };
             }
 
             Operation::ImplicitValue { data } => {
-                terminated = true;
-                current_location = Location::Bytes { value: data };
+                result.terminated = true;
+                result.current_location = Location::Bytes { value: data };
             }
 
             Operation::StackValue => {
-                terminated = true;
-                current_location = Location::Scalar { value: try!(self.pop()) };
+                result.terminated = true;
+                result.current_location = Location::Scalar { value: try!(self.pop()) };
             }
 
             Operation::ImplicitPointer { value, byte_offset } => {
-                terminated = true;
-                current_location = Location::ImplicitPointer {
+                result.terminated = true;
+                result.current_location = Location::ImplicitPointer {
                     value: value,
                     byte_offset: byte_offset,
                 };
@@ -1203,11 +1218,11 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
             }
 
             Operation::Piece { .. } => {
-                piece_end = true;
+                result.piece_end = true;
             }
         }
 
-        Ok((piece_end, terminated, current_location))
+        Ok(result)
     }
 
     /// Evaluate a DWARF expression.  If successful, the result will
@@ -1248,7 +1263,7 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
                 try!(Operation::parse(self.pc, self.bytecode, self.address_size, self.format));
             self.pc = newpc;
 
-            let (piece_end, terminated, mut current_location) =
+            let OperationEvaluationResult { piece_end, terminated, mut current_location } =
                 try!(self.evaluate_one_operation(&operation));
 
             if piece_end || terminated {
