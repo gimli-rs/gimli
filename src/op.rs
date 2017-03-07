@@ -30,25 +30,25 @@ pub trait EvaluationContext<'input>: fmt::Debug {
     ///
     /// If not `None`, the "space" argument is a target-specific
     /// address space value.
-    fn read_memory(&self,
+    fn read_memory(&mut self,
                    address: u64,
                    size: u8,
                    space: Option<u64>)
                    -> Result<u64, Self::ContextError>;
     /// Read the indicated register and return its value.
-    fn read_register(&self, register: u64) -> Result<u64, Self::ContextError>;
+    fn read_register(&mut self, register: u64) -> Result<u64, Self::ContextError>;
     /// Compute the frame base using `DW_AT_frame_base`.
-    fn frame_base(&self) -> Result<u64, Self::ContextError>;
+    fn frame_base(&mut self) -> Result<u64, Self::ContextError>;
     /// Compute the address of a thread-local variable.
-    fn read_tls(&self, index: u64) -> Result<u64, Self::ContextError>;
+    fn read_tls(&mut self, index: u64) -> Result<u64, Self::ContextError>;
     /// Compute the call frame CFA.
-    fn call_frame_cfa(&self) -> Result<u64, Self::ContextError>;
+    fn call_frame_cfa(&mut self) -> Result<u64, Self::ContextError>;
     /// Find the `DW_AT_location` attribute of the given DIE and
     /// return the corresponding DWARF expression.  If no expression
     /// can be found, this should return an empty slice.
-    fn get_at_location(&self, die: DieReference) -> Result<&'input [u8], Self::ContextError>;
+    fn get_at_location(&mut self, die: DieReference) -> Result<&'input [u8], Self::ContextError>;
     /// Evaluate an expression at the entry to the current subprogram.
-    fn evaluate_entry_value(&self, expression: &[u8]) -> Result<u64, Self::ContextError>;
+    fn evaluate_entry_value(&mut self, expression: &[u8]) -> Result<u64, Self::ContextError>;
 }
 
 /// A single decoded DWARF expression operation.
@@ -842,17 +842,16 @@ impl<'input, Endian> Operation<'input, Endian>
 
 /// A DWARF expression evaluator.
 #[derive(Debug)]
-pub struct Evaluation<'context, 'input, Endian, Context>
-    where Endian: 'context + Endianity,
-          Context: 'context + EvaluationContext<'input>,
-          'input: 'context
+pub struct Evaluation<'input, Endian, Context>
+    where Endian: Endianity,
+          Context: EvaluationContext<'input>
 {
     bytecode: &'input [u8],
     address_size: u8,
     format: Format,
     initial_value: Option<u64>,
     object_address: Option<u64>,
-    callbacks: &'context mut Context,
+    callbacks: Context,
     max_iterations: Option<u32>,
 
     // Stack operations are done on word-sized values.  We do all
@@ -873,10 +872,9 @@ pub struct Evaluation<'context, 'input, Endian, Context>
     phantom: PhantomData<Endian>,
 }
 
-impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Context>
-    where Endian: 'context + Endianity,
-          Context: EvaluationContext<'input>,
-          'input: 'context
+impl<'input, Endian, Context> Evaluation<'input, Endian, Context>
+    where Endian: Endianity,
+          Context: EvaluationContext<'input>
 {
     /// Create a new DWARF expression evaluator.
     ///
@@ -885,9 +883,9 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
     pub fn new(bytecode: &'input [u8],
                address_size: u8,
                format: Format,
-               callbacks: &'context mut Context)
-               -> Evaluation<'context, 'input, Endian, Context> {
-        Evaluation::<'context, 'input, Endian, Context> {
+               callbacks: Context)
+               -> Evaluation<'input, Endian, Context> {
+        Evaluation::<'input, Endian, Context> {
             bytecode: bytecode,
             address_size: address_size,
             format: format,
@@ -1872,32 +1870,32 @@ mod tests {
         max_iterations: Option<u32>,
     }
 
-    impl<'input> EvaluationContext<'input> for TestEvaluationContext {
+    impl<'context, 'input> EvaluationContext<'input> for &'context TestEvaluationContext {
         type ContextError = Error;
 
-        fn read_memory(&self, addr: u64, nbytes: u8, space: Option<u64>) -> Result<u64> {
+        fn read_memory(&mut self, addr: u64, nbytes: u8, space: Option<u64>) -> Result<u64> {
             let mut result = addr << 2;
             if let Some(value) = space {
                 result += value;
             }
             Ok(result & ((1u64 << 8 * nbytes) - 1))
         }
-        fn read_register(&self, regno: u64) -> Result<u64> {
+        fn read_register(&mut self, regno: u64) -> Result<u64> {
             Ok(regno.wrapping_neg())
         }
-        fn frame_base(&self) -> Result<u64> {
+        fn frame_base(&mut self) -> Result<u64> {
             self.base
         }
-        fn read_tls(&self, slot: u64) -> Result<u64> {
+        fn read_tls(&mut self, slot: u64) -> Result<u64> {
             Ok(!slot)
         }
-        fn call_frame_cfa(&self) -> Result<u64> {
+        fn call_frame_cfa(&mut self) -> Result<u64> {
             self.cfa
         }
-        fn get_at_location(&self, _: DieReference) -> Result<&'input [u8]> {
+        fn get_at_location(&mut self, _: DieReference) -> Result<&'input [u8]> {
             self.at_location
         }
-        fn evaluate_entry_value(&self, expression: &[u8]) -> Result<u64> {
+        fn evaluate_entry_value(&mut self, expression: &[u8]) -> Result<u64> {
             parse_u64(EndianBuf::<LittleEndian>::new(expression)).map(|(_, value)| value)
         }
     }
@@ -1983,11 +1981,11 @@ mod tests {
                                context: TestEvaluationContext) {
         let bytes = assemble(program);
 
-        let mut eval_context = context.clone();
-        let mut eval = Evaluation::<LittleEndian, TestEvaluationContext>::new(&bytes,
-                                                                              address_size,
-                                                                              format,
-                                                                              &mut eval_context);
+        let eval_context = context.clone();
+        let mut eval = Evaluation::<LittleEndian, &TestEvaluationContext>::new(&bytes,
+                                                                               address_size,
+                                                                               format,
+                                                                               &eval_context);
 
         if let Some(val) = context.object_address {
             eval.set_object_address(val);
