@@ -836,12 +836,12 @@ enum EvaluationState<'input, Endian>
 
 /// The state of an `Evaluation` after evaluating a DWARF expression.
 /// The evaluation is either `Complete`, or it requires more data
-/// to continue.
+/// to continue, as described by the variant.
 #[derive(Debug, PartialEq)]
 pub enum EvaluationResult<'input, Endian>
     where Endian: Endianity
 {
-    /// The `Evaluation` is complete, and `Evaluation::result()` can be called
+    /// The `Evaluation` is complete, and `Evaluation::result()` can be called.
     Complete,
     /// The `Evaluation` needs a value from memory to proceed further.  Once the
     /// caller determines what value to provide it should resume the `Evaluation`
@@ -886,6 +886,50 @@ pub enum EvaluationResult<'input, Endian>
 }
 
 /// A DWARF expression evaluator.
+///
+/// # Usage
+/// A DWARF expression may require additional data to produce a final result,
+/// such as the value of a register or a memory location.  Once initial setup
+/// is complete (i.e. `set_initial_value()`, `set_object_address()`) the
+/// consumer calls the `evaluate()` method.  That returns an `EvaluationResult`,
+/// which is either `EvaluationResult::Complete` or a value indicating what
+/// data is needed to resume the `Evaluation`.  The consumer is responsible for
+/// producing that data and resuming the computation with the correct method,
+/// as documented for `EvaluationResult`.
+///
+/// This design allows the consumer of `Evaluation` to decide how and when to
+/// produce the required data and resume the computation.  The `Evaluation` can
+/// be driven synchronously (as shown below) or by some asynchronous mechanism
+/// such as futures.
+///
+/// # Examples
+/// ```rust,no_run
+/// use gimli::{Evaluation, EvaluationResult, Format, LittleEndian};
+/// # let bytecode = &[];
+/// # let address_size = 8;
+/// # let format = Format::Dwarf64;
+/// # let get_register_value = |_| 42;
+/// # let get_frame_base = || 0xdeadbeef;
+///
+/// let mut eval = Evaluation::<LittleEndian>::new(bytecode, address_size, format);
+/// let mut result = eval.evaluate().unwrap();
+/// while result != EvaluationResult::Complete {
+///   match result {
+///     EvaluationResult::RequiresRegister(regno) => {
+///       let value = get_register_value(regno);
+///       result = eval.resume_with_register(value).unwrap();
+///     },
+///     EvaluationResult::RequiresFrameBase => {
+///       let frame_base = get_frame_base();
+///       result = eval.resume_with_frame_base(frame_base).unwrap();
+///     },
+///     _ => unimplemented!(),
+///   };
+/// }
+///
+/// let result = eval.result();
+/// println!("{:?}", result);
+/// ```
 #[derive(Debug)]
 pub struct Evaluation<'input, Endian>
     where Endian: Endianity
@@ -1283,21 +1327,22 @@ impl<'input, Endian> Evaluation<'input, Endian>
         })
     }
 
-    /// Get the evaluation result.  This `Evaluation` must have previously been
-    /// driven to completion by calling the evaluate and resume_with methods
-    /// until `EvaluationResult::Complete` was returned.
+    /// Get the result of this `Evaluation.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` has not been driven to completion.
     pub fn result(self) -> Vec<Piece<'input>> {
         match self.state {
             EvaluationState::Complete => self.result,
-            _ => panic!(),
+            _ => panic!("Called `Evaluation::result` on an `Evaluation` that has not been completed"),
         }
     }
 
     /// Evaluate a DWARF expression.  This method should only ever be called
     /// once.  If the returned `EvaluationResult` is not
     /// `EvaluationResult::Complete`, the caller should provide the required
-    /// value and resume the evaluation by calling one of the resume_with
-    /// methods on Evaluation.
+    /// value and resume the evaluation by calling the appropriate resume_with
+    /// method on `Evaluation`.
     pub fn evaluate(&mut self) -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity,
     {
@@ -1323,12 +1368,13 @@ impl<'input, Endian> Evaluation<'input, Endian>
         }
     }
 
-    /// Resume the `Evaluation` with the provided `value`.  A call to this
-    /// function must follow `Evaluation::evaluate` or one of the resume_with
-    /// functions returning `EvaluationResult::RequiresMemory`.  This will apply
+    /// Resume the `Evaluation` with the provided memory `value`.  This will apply
     /// the provided memory value to the evaluation and continue evaluating
     /// opcodes until the evaluation is completed, reaches an error, or needs
     /// more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresMemory`.
     pub fn resume_with_memory(&mut self, value: u64) -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
@@ -1337,18 +1383,19 @@ impl<'input, Endian> Evaluation<'input, Endian>
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingMemory { .. }) => {
                 self.push(value);
             },
-            _ => panic!(),
+            _ => panic!("Called `Evaluation::resume_with_memory` without a preceding `EvaluationResult::RequiresMemory`"),
         };
 
         self.evaluate_internal()
     }
 
-    /// Resume the `Evaluation` with the provided `register` value.  A call to this
-    /// function must follow `Evaluation::evaluate` or one of the resume_with
-    /// functions returning `EvaluationResult::RequiresRegister`.  This will apply
+    /// Resume the `Evaluation` with the provided `register` value.  This will apply
     /// the provided register value to the evaluation and continue evaluating
     /// opcodes until the evaluation is completed, reaches an error, or needs
     /// more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresRegister`.
     pub fn resume_with_register(&mut self, register: u64) -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
@@ -1357,18 +1404,19 @@ impl<'input, Endian> Evaluation<'input, Endian>
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingRegister { offset, .. }) => {
                 self.push(register.wrapping_add(offset));
             },
-            _ => panic!(),
+            _ => panic!("Called `Evaluation::resume_with_register` without a preceding `EvaluationResult::RequiresRegister`"),
         };
 
         self.evaluate_internal()
     }
 
-    /// Resume the `Evaluation` with the provided `frame_base`.  A call to this
-    /// function must follow `Evaluation::evaluate` or one of the resume_with
-    /// functions returning `EvaluationResult::RequiresFrameBase`.  This will
+    /// Resume the `Evaluation` with the provided `frame_base`.  This will
     /// apply the provided frame base value to the evaluation and continue
     /// evaluating opcodes until the evaluation is completed, reaches an error,
     /// or needs more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresFrameBase`.
     pub fn resume_with_frame_base(&mut self, frame_base: u64) -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
@@ -1377,18 +1425,19 @@ impl<'input, Endian> Evaluation<'input, Endian>
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingFrameBase { offset }) => {
                 self.push(frame_base + offset);
             },
-            _ => panic!(),
+            _ => panic!("Called `Evaluation::resume_with_frame_base` without a preceding `EvaluationResult::RequiresFrameBase`"),
         };
 
         self.evaluate_internal()
     }
 
-    /// Resume the `Evaluation` with the provided `value`.  A call to this
-    /// function must follow `Evaluation::evaluate` or one of the resume_with
-    /// functions returning `EvaluationResult::RequiresTls`.  This will apply
+    /// Resume the `Evaluation` with the provided `value`.  This will apply
     /// the provided TLS value to the evaluation and continue evaluating
     /// opcodes until the evaluation is completed, reaches an error, or needs
     /// more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresTls`.
     pub fn resume_with_tls(&mut self, value: u64) -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
@@ -1397,18 +1446,19 @@ impl<'input, Endian> Evaluation<'input, Endian>
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingTls { .. }) => {
                 self.push(value);
             },
-            _ => panic!(),
+            _ => panic!("Called `Evaluation::resume_with_tls` without a preceding `EvaluationResult::RequiresTls`"),
         };
 
         self.evaluate_internal()
     }
 
-    /// Resume the `Evaluation` with the provided `cfa`.  A call to this
-    /// function must follow `Evaluation::evaluate` or one of the resume_with
-    /// functions returning `EvaluationResult::RequiresCallFrameCfa`.  This will
+    /// Resume the `Evaluation` with the provided `cfa`.  This will
     /// apply the provided CFA value to the evaluation and continue evaluating
     /// opcodes until the evaluation is completed, reaches an error, or needs
     /// more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresCallFrameCfa`.
     pub fn resume_with_call_frame_cfa(&mut self, cfa: u64) -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
@@ -1417,18 +1467,19 @@ impl<'input, Endian> Evaluation<'input, Endian>
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingCfa) => {
                 self.push(cfa);
             },
-            _ => panic!(),
+            _ => panic!("Called `Evaluation::resume_with_call_frame_cfa` without a preceding `EvaluationResult::RequiresCallFrameCfa`"),
         };
 
         self.evaluate_internal()
     }
 
-    /// Resume the `Evaluation` with the provided `bytes`.  A call to this
-    /// function must follow `Evaluation::evaluate` or one of the resume_with
-    /// functions returning `EvaluationResult::RequiresAtLocation`.  This will
+    /// Resume the `Evaluation` with the provided `bytes`.  This will
     /// continue processing the evaluation with the new expression provided
     /// until the evaluation is completed, reaches an error, or needs more
     /// information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresAtLocation`.
     pub fn resume_with_at_location(&mut self, bytes: &'input [u8]) -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
@@ -1441,18 +1492,19 @@ impl<'input, Endian> Evaluation<'input, Endian>
                     self.bytecode = bytes;
                 }
             },
-            _ => panic!(),
+            _ => panic!("Called `Evaluation::resume_with_at_location` without a precedeing `EvaluationResult::RequiresAtLocation`"),
         };
 
         self.evaluate_internal()
     }
 
-    /// Resume the `Evaluation` with the provided `entry_value`.  A call to this
-    /// function must follow `Evaluation::evaluate` or one of the resume_with
-    /// functions returning `EvaluationResult::RequiresEntryValue`.  This will
+    /// Resume the `Evaluation` with the provided `entry_value`.  This will
     /// apply the provided entry value to the evaluation and continue evaluating
     /// opcodes until the evaluation is completed, reaches an error, or needs
     /// more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresEntryValue`.
     pub fn resume_with_entry_value(&mut self, entry_value: u64) -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
@@ -1461,7 +1513,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingEntryValue { .. }) => {
                 self.push(entry_value);
             },
-            _ => panic!(),
+            _ => panic!("Called `Evaluation::resume_with_entry_value` without a preceding `EvaluationResult::RequiresEntryValue`"),
         };
 
         self.evaluate_internal()
