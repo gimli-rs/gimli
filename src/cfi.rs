@@ -304,7 +304,7 @@ pub trait UnwindSection<'input, Endian>
     /// # let do_stuff_with = |_| unimplemented!();
     /// do_stuff_with(unwind_info);
     /// # let _ = ctx;
-    /// # Ok(())
+    /// # unreachable!()
     /// # }
     /// ```
     fn unwind_info_for_address<'bases>
@@ -571,7 +571,7 @@ impl BaseAddresses {
 /// while let Some(entry) = try!(entries.next()) {
 ///     do_stuff_with(entry)
 /// }
-/// # Ok(())
+/// # unreachable!()
 /// # }
 /// ```
 #[derive(Clone, Debug)]
@@ -1263,7 +1263,7 @@ impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
 /// // programs.
 /// let ctx = ctx.reset();
 /// # let _ = ctx;
-/// # Ok(())
+/// # unreachable!()
 /// # }
 /// ```
 ///
