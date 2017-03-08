@@ -1327,7 +1327,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
         })
     }
 
-    /// Get the result of this `Evaluation.
+    /// Get the result of this `Evaluation`.
     ///
     /// # Panics
     /// Panics if this `Evaluation` has not been driven to completion.
