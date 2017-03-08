@@ -895,7 +895,8 @@ pub enum EvaluationResult<'input, Endian>
 /// which is either `EvaluationResult::Complete` or a value indicating what
 /// data is needed to resume the `Evaluation`.  The consumer is responsible for
 /// producing that data and resuming the computation with the correct method,
-/// as documented for `EvaluationResult`.
+/// as documented for `EvaluationResult`.  Only once an `EvaluationResult::Complete`
+/// is returned can the consumer call `result()`.
 ///
 /// This design allows the consumer of `Evaluation` to decide how and when to
 /// produce the required data and resume the computation.  The `Evaluation` can
@@ -1000,12 +1001,16 @@ impl<'input, Endian> Evaluation<'input, Endian>
     /// stack before evaluation commences.  If no initial value is
     /// set, and the expression uses an opcode requiring the initial
     /// value, then evaluation will fail with an error.
+    ///
+    /// # Panics
+    /// Panics if `set_initial_value()` has already been called, or if
+    /// `evaluate()` has already been called.
     pub fn set_initial_value(&mut self, value: u64) {
         match self.state {
             EvaluationState::Start(None) => {
                 self.state = EvaluationState::Start(Some(value));
             },
-            _ => panic!(),
+            _ => panic!("`Evaluation::set_initial_value` was called twice, or after evaluation began."),
         };
     }
 
