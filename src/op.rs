@@ -7,7 +7,6 @@ use parser::{Error, Format, parse_u8e, parse_i8e, parse_u16, parse_i16, parse_u3
 use endianity::{Endianity, EndianBuf};
 use unit::{UnitOffset, DebugInfoOffset};
 use std::marker::PhantomData;
-use std::fmt;
 
 /// A reference to a DIE, either relative to the current CU or
 /// relative to the section.
@@ -17,38 +16,6 @@ pub enum DieReference {
     UnitRef(UnitOffset),
     /// A section-relative reference.
     DebugInfoRef(DebugInfoOffset),
-}
-
-/// Supply information to a DWARF expression evaluation.
-pub trait EvaluationContext<'input>: fmt::Debug {
-    /// The error type returned by the callback functions.
-    type ContextError: From<Error>;
-
-    /// Read the indicated number of bytes from memory at the
-    /// indicated address.  The number of bytes is guaranteed to be
-    /// less than the word size of the target architecture.
-    ///
-    /// If not `None`, the "space" argument is a target-specific
-    /// address space value.
-    fn read_memory(&self,
-                   address: u64,
-                   size: u8,
-                   space: Option<u64>)
-                   -> Result<u64, Self::ContextError>;
-    /// Read the indicated register and return its value.
-    fn read_register(&self, register: u64) -> Result<u64, Self::ContextError>;
-    /// Compute the frame base using `DW_AT_frame_base`.
-    fn frame_base(&self) -> Result<u64, Self::ContextError>;
-    /// Compute the address of a thread-local variable.
-    fn read_tls(&self, index: u64) -> Result<u64, Self::ContextError>;
-    /// Compute the call frame CFA.
-    fn call_frame_cfa(&self) -> Result<u64, Self::ContextError>;
-    /// Find the `DW_AT_location` attribute of the given DIE and
-    /// return the corresponding DWARF expression.  If no expression
-    /// can be found, this should return an empty slice.
-    fn get_at_location(&self, die: DieReference) -> Result<&'input [u8], Self::ContextError>;
-    /// Evaluate an expression at the entry to the current subprogram.
-    fn evaluate_entry_value(&self, expression: &[u8]) -> Result<u64, Self::ContextError>;
 }
 
 /// A single decoded DWARF expression operation.
@@ -215,6 +182,39 @@ pub enum Operation<'input, Endian>
     /// the current subprogram, and push it on the stack.
     EntryValue {
         /// The expression to be evaluated.
+        expression: EndianBuf<'input, Endian>,
+    },
+}
+
+#[derive(Debug)]
+enum OperationEvaluationResult<'input, Endian>
+    where Endian: Endianity
+{
+    Complete {
+        terminated: bool,
+        piece_end: bool,
+        current_location: Location<'input>,
+    },
+    AwaitingMemory {
+        address: u64,
+        size: u8,
+        space: Option<u64>,
+    },
+    AwaitingRegister {
+        register: u64,
+        offset: u64,
+    },
+    AwaitingFrameBase {
+        offset: u64,
+    },
+    AwaitingTls {
+        index: u64,
+    },
+    AwaitingCfa,
+    AwaitingAtLocation {
+        location: DieReference,
+    },
+    AwaitingEntryValue {
         expression: EndianBuf<'input, Endian>,
     },
 }
@@ -823,20 +823,125 @@ impl<'input, Endian> Operation<'input, Endian>
     }
 }
 
-/// A DWARF expression evaluator.
 #[derive(Debug)]
-pub struct Evaluation<'context, 'input, Endian, Context>
-    where Endian: 'context + Endianity,
-          Context: 'context + EvaluationContext<'input>,
-          'input: 'context
+enum EvaluationState<'input, Endian>
+    where Endian: Endianity
+{
+    Start(Option<u64>),
+    Ready,
+    Error(Error),
+    Complete,
+    Waiting(OperationEvaluationResult<'input, Endian>),
+}
+
+/// The state of an `Evaluation` after evaluating a DWARF expression.
+/// The evaluation is either `Complete`, or it requires more data
+/// to continue, as described by the variant.
+#[derive(Debug, PartialEq)]
+pub enum EvaluationResult<'input, Endian>
+    where Endian: Endianity
+{
+    /// The `Evaluation` is complete, and `Evaluation::result()` can be called.
+    Complete,
+    /// The `Evaluation` needs a value from memory to proceed further.  Once the
+    /// caller determines what value to provide it should resume the `Evaluation`
+    /// by calling `Evaluation::resume_with_memory`.
+    RequiresMemory {
+        /// The address of the value required.
+        address: u64,
+        /// The size of the value required. This is guaranteed to be at most the
+        /// word size of the target architecture.
+        size: u8,
+        /// If not `None`, a target-specific address space value.
+        space: Option<u64>,
+    },
+    /// The `Evaluation` needs a value from a register to proceed further.  Once
+    /// the caller determines what value to provide it should resume the
+    /// `Evaluation` by calling `Evaluation::resume_with_register`.
+    RequiresRegister(u64),
+    /// The `Evaluation` needs the frame base address to proceed further.  Once
+    /// the caller determines what value to provide it should resume the
+    /// `Evaluation` by calling `Evaluation::resume_with_frame_base`.  The frame
+    /// base address is the address produced by the location description in the
+    /// `DW_AT_frame_base` attribute of the current function.
+    RequiresFrameBase,
+    /// The `Evaluation` needs a value from TLS to proceed further.  Once the
+    /// caller determines what value to provide it should resume the
+    /// `Evaluation` by calling `Evaluation::resume_with_tls`.
+    RequiresTls(u64),
+    /// The `Evaluation` needs the CFA to proceed further.  Once the caller
+    /// determines what value to provide it should resume the `Evaluation` by
+    /// calling `Evaluation::resume_with_call_frame_cfa`.
+    RequiresCallFrameCfa,
+    /// The `Evaluation` needs the DWARF expression at the given location to
+    /// proceed further.  Once the caller determines what value to provide it
+    /// should resume the `Evaluation` by calling
+    /// `Evaluation::resume_with_at_location`.
+    RequiresAtLocation(DieReference),
+    /// The `Evaluation` needs the value produced by evaluating a DWARF
+    /// expression at the entry point of the current subprogram.  Once the
+    /// caller determines what value to provide it should resume the
+    /// `Evaluation` by calling `Evaluation::resume_with_entry_value`.
+    RequiresEntryValue(EndianBuf<'input, Endian>),
+}
+
+/// A DWARF expression evaluator.
+///
+/// # Usage
+/// A DWARF expression may require additional data to produce a final result,
+/// such as the value of a register or a memory location.  Once initial setup
+/// is complete (i.e. `set_initial_value()`, `set_object_address()`) the
+/// consumer calls the `evaluate()` method.  That returns an `EvaluationResult`,
+/// which is either `EvaluationResult::Complete` or a value indicating what
+/// data is needed to resume the `Evaluation`.  The consumer is responsible for
+/// producing that data and resuming the computation with the correct method,
+/// as documented for `EvaluationResult`.  Only once an `EvaluationResult::Complete`
+/// is returned can the consumer call `result()`.
+///
+/// This design allows the consumer of `Evaluation` to decide how and when to
+/// produce the required data and resume the computation.  The `Evaluation` can
+/// be driven synchronously (as shown below) or by some asynchronous mechanism
+/// such as futures.
+///
+/// # Examples
+/// ```rust,no_run
+/// use gimli::{Evaluation, EvaluationResult, Format, LittleEndian};
+/// # let bytecode = &[];
+/// # let address_size = 8;
+/// # let format = Format::Dwarf64;
+/// # let get_register_value = |_| 42;
+/// # let get_frame_base = || 0xdeadbeef;
+///
+/// let mut eval = Evaluation::<LittleEndian>::new(bytecode, address_size, format);
+/// let mut result = eval.evaluate().unwrap();
+/// while result != EvaluationResult::Complete {
+///   match result {
+///     EvaluationResult::RequiresRegister(regno) => {
+///       let value = get_register_value(regno);
+///       result = eval.resume_with_register(value).unwrap();
+///     },
+///     EvaluationResult::RequiresFrameBase => {
+///       let frame_base = get_frame_base();
+///       result = eval.resume_with_frame_base(frame_base).unwrap();
+///     },
+///     _ => unimplemented!(),
+///   };
+/// }
+///
+/// let result = eval.result();
+/// println!("{:?}", result);
+/// ```
+#[derive(Debug)]
+pub struct Evaluation<'input, Endian>
+    where Endian: Endianity
 {
     bytecode: &'input [u8],
     address_size: u8,
     format: Format,
-    initial_value: Option<u64>,
     object_address: Option<u64>,
-    callbacks: &'context mut Context,
     max_iterations: Option<u32>,
+    iteration: u32,
+    state: EvaluationState<'input, Endian>,
 
     // Stack operations are done on word-sized values.  We do all
     // operations on 64-bit values, and then mask the results
@@ -853,13 +958,13 @@ pub struct Evaluation<'context, 'input, Endian, Context>
     // is stored here while evaluating the subroutine.
     expression_stack: Vec<(EndianBuf<'input, Endian>, &'input [u8])>,
 
+    result: Vec<Piece<'input>>,
+
     phantom: PhantomData<Endian>,
 }
 
-impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Context>
-    where Endian: 'context + Endianity,
-          Context: EvaluationContext<'input>,
-          'input: 'context
+impl<'input, Endian> Evaluation<'input, Endian>
+    where Endian: Endianity
 {
     /// Create a new DWARF expression evaluator.
     ///
@@ -867,17 +972,16 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
     /// an object address, and without a maximum number of iterations.
     pub fn new(bytecode: &'input [u8],
                address_size: u8,
-               format: Format,
-               callbacks: &'context mut Context)
-               -> Evaluation<'context, 'input, Endian, Context> {
-        Evaluation::<'context, 'input, Endian, Context> {
+               format: Format)
+               -> Evaluation<'input, Endian> {
+        Evaluation::<'input, Endian> {
             bytecode: bytecode,
             address_size: address_size,
             format: format,
-            initial_value: None,
             object_address: None,
-            callbacks: callbacks,
             max_iterations: None,
+            iteration: 0,
+            state: EvaluationState::Start(None),
             addr_mask: if address_size == 8 {
                 !0u64
             } else {
@@ -886,6 +990,7 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
             stack: Vec::new(),
             expression_stack: Vec::new(),
             pc: EndianBuf::<Endian>::new(bytecode),
+            result: Vec::new(),
             phantom: PhantomData,
         }
     }
@@ -896,8 +1001,17 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
     /// stack before evaluation commences.  If no initial value is
     /// set, and the expression uses an opcode requiring the initial
     /// value, then evaluation will fail with an error.
+    ///
+    /// # Panics
+    /// Panics if `set_initial_value()` has already been called, or if
+    /// `evaluate()` has already been called.
     pub fn set_initial_value(&mut self, value: u64) {
-        self.initial_value = Some(value);
+        match self.state {
+            EvaluationState::Start(None) => {
+                self.state = EvaluationState::Start(Some(value));
+            },
+            _ => panic!("`Evaluation::set_initial_value` was called twice, or after evaluation began."),
+        };
     }
 
     /// Set the enclosing object's address, as used by
@@ -948,7 +1062,7 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
 
     fn evaluate_one_operation(&mut self,
                               operation: &Operation<'input, Endian>)
-                              -> Result<(bool, bool, Location<'input>), Context::ContextError> {
+                              -> Result<OperationEvaluationResult<'input, Endian>, Error> {
         let mut terminated = false;
         let mut piece_end = false;
         let mut current_location = Location::Empty;
@@ -957,8 +1071,11 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
             Operation::Deref { size, space } => {
                 let addr = try!(self.pop());
                 let addr_space = if space { Some(try!(self.pop())) } else { None };
-                let addr = try!(self.callbacks.read_memory(addr, size, addr_space));
-                self.push(addr);
+                return Ok(OperationEvaluationResult::AwaitingMemory {
+                    address: addr,
+                    size: size,
+                    space: addr_space,
+                });
             }
 
             Operation::Drop => {
@@ -1135,13 +1252,16 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
             }
 
             Operation::RegisterOffset { register, offset } => {
-                let value = try!(self.callbacks.read_register(register));
-                self.push(value.wrapping_add(offset as u64));
+                return Ok(OperationEvaluationResult::AwaitingRegister {
+                    register: register,
+                    offset: offset as u64,
+                });
             }
 
             Operation::FrameOffset { offset } => {
-                let value = try!(self.callbacks.frame_base());
-                self.push(value + offset as u64);
+                return Ok(OperationEvaluationResult::AwaitingFrameBase {
+                    offset: offset as u64,
+                });
             }
 
             Operation::Nop => {}
@@ -1155,23 +1275,20 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
             }
 
             Operation::Call { offset } => {
-                let newbytes = try!(self.callbacks.get_at_location(offset));
-                if newbytes.len() > 0 {
-                    self.expression_stack.push((self.pc, self.bytecode));
-                    self.pc = EndianBuf::new(newbytes);
-                    self.bytecode = newbytes;
-                }
+                return Ok(OperationEvaluationResult::AwaitingAtLocation {
+                    location: offset,
+                });
             }
 
             Operation::TLS => {
                 let value = try!(self.pop());
-                let addr = try!(self.callbacks.read_tls(value));
-                self.push(addr);
+                return Ok(OperationEvaluationResult::AwaitingTls {
+                    index: value,
+                });
             }
 
             Operation::CallFrameCFA => {
-                let cfa = try!(self.callbacks.call_frame_cfa());
-                self.push(cfa);
+                return Ok(OperationEvaluationResult::AwaitingCfa);
             }
 
             Operation::Register { register } => {
@@ -1198,8 +1315,9 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
             }
 
             Operation::EntryValue { expression } => {
-                let value = try!(self.callbacks.evaluate_entry_value(expression.into()));
-                self.push(value);
+                return Ok(OperationEvaluationResult::AwaitingEntryValue {
+                    expression: expression.into(),
+                });
             }
 
             Operation::Piece { .. } => {
@@ -1207,25 +1325,208 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
             }
         }
 
-        Ok((piece_end, terminated, current_location))
+        Ok(OperationEvaluationResult::Complete {
+            terminated: terminated,
+            piece_end: piece_end,
+            current_location: current_location,
+        })
     }
 
-    /// Evaluate a DWARF expression.  If successful, the result will
-    /// hold a vector of pieces, each describing a part of the final
-    /// object.
-    pub fn evaluate(&mut self) -> Result<Vec<Piece<'input>>, Context::ContextError>
+    /// Get the result of this `Evaluation`.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` has not been driven to completion.
+    pub fn result(self) -> Vec<Piece<'input>> {
+        match self.state {
+            EvaluationState::Complete => self.result,
+            _ => panic!("Called `Evaluation::result` on an `Evaluation` that has not been completed"),
+        }
+    }
+
+    /// Evaluate a DWARF expression.  This method should only ever be called
+    /// once.  If the returned `EvaluationResult` is not
+    /// `EvaluationResult::Complete`, the caller should provide the required
+    /// value and resume the evaluation by calling the appropriate resume_with
+    /// method on `Evaluation`.
+    pub fn evaluate(&mut self) -> Result<EvaluationResult<'input, Endian>, Error>
+        where Endian: Endianity,
+    {
+        match self.state {
+            EvaluationState::Start(initial_value) => {
+                if let Some(value) = initial_value {
+                    self.push(value);
+                }
+                self.state = EvaluationState::Ready;
+            },
+            EvaluationState::Ready => {},
+            EvaluationState::Error(err) => return Err(err),
+            EvaluationState::Complete => return Ok(EvaluationResult::Complete),
+            EvaluationState::Waiting(_) => panic!(),
+        };
+
+        match self.evaluate_internal() {
+            Ok(r) => Ok(r),
+            Err(e) => {
+                self.state = EvaluationState::Error(e);
+                Err(e)
+            },
+        }
+    }
+
+    /// Resume the `Evaluation` with the provided memory `value`.  This will apply
+    /// the provided memory value to the evaluation and continue evaluating
+    /// opcodes until the evaluation is completed, reaches an error, or needs
+    /// more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresMemory`.
+    pub fn resume_with_memory(&mut self, value: u64) -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
-        if let Some(value) = self.initial_value {
-            self.push(value);
-        }
+        match self.state {
+            EvaluationState::Error(err) => return Err(err),
+            EvaluationState::Waiting(OperationEvaluationResult::AwaitingMemory { .. }) => {
+                self.push(value);
+            },
+            _ => panic!("Called `Evaluation::resume_with_memory` without a preceding `EvaluationResult::RequiresMemory`"),
+        };
 
-        // The number of instructions we've processed.
-        let mut iteration = 0;
+        self.evaluate_internal()
+    }
 
-        // The results.
-        let mut result = Vec::new();
+    /// Resume the `Evaluation` with the provided `register` value.  This will apply
+    /// the provided register value to the evaluation and continue evaluating
+    /// opcodes until the evaluation is completed, reaches an error, or needs
+    /// more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresRegister`.
+    pub fn resume_with_register(&mut self, register: u64) -> Result<EvaluationResult<'input, Endian>, Error>
+        where Endian: Endianity
+    {
+        match self.state {
+            EvaluationState::Error(err) => return Err(err),
+            EvaluationState::Waiting(OperationEvaluationResult::AwaitingRegister { offset, .. }) => {
+                self.push(register.wrapping_add(offset));
+            },
+            _ => panic!("Called `Evaluation::resume_with_register` without a preceding `EvaluationResult::RequiresRegister`"),
+        };
 
+        self.evaluate_internal()
+    }
+
+    /// Resume the `Evaluation` with the provided `frame_base`.  This will
+    /// apply the provided frame base value to the evaluation and continue
+    /// evaluating opcodes until the evaluation is completed, reaches an error,
+    /// or needs more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresFrameBase`.
+    pub fn resume_with_frame_base(&mut self, frame_base: u64) -> Result<EvaluationResult<'input, Endian>, Error>
+        where Endian: Endianity
+    {
+        match self.state {
+            EvaluationState::Error(err) => return Err(err),
+            EvaluationState::Waiting(OperationEvaluationResult::AwaitingFrameBase { offset }) => {
+                self.push(frame_base + offset);
+            },
+            _ => panic!("Called `Evaluation::resume_with_frame_base` without a preceding `EvaluationResult::RequiresFrameBase`"),
+        };
+
+        self.evaluate_internal()
+    }
+
+    /// Resume the `Evaluation` with the provided `value`.  This will apply
+    /// the provided TLS value to the evaluation and continue evaluating
+    /// opcodes until the evaluation is completed, reaches an error, or needs
+    /// more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresTls`.
+    pub fn resume_with_tls(&mut self, value: u64) -> Result<EvaluationResult<'input, Endian>, Error>
+        where Endian: Endianity
+    {
+        match self.state {
+            EvaluationState::Error(err) => return Err(err),
+            EvaluationState::Waiting(OperationEvaluationResult::AwaitingTls { .. }) => {
+                self.push(value);
+            },
+            _ => panic!("Called `Evaluation::resume_with_tls` without a preceding `EvaluationResult::RequiresTls`"),
+        };
+
+        self.evaluate_internal()
+    }
+
+    /// Resume the `Evaluation` with the provided `cfa`.  This will
+    /// apply the provided CFA value to the evaluation and continue evaluating
+    /// opcodes until the evaluation is completed, reaches an error, or needs
+    /// more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresCallFrameCfa`.
+    pub fn resume_with_call_frame_cfa(&mut self, cfa: u64) -> Result<EvaluationResult<'input, Endian>, Error>
+        where Endian: Endianity
+    {
+        match self.state {
+            EvaluationState::Error(err) => return Err(err),
+            EvaluationState::Waiting(OperationEvaluationResult::AwaitingCfa) => {
+                self.push(cfa);
+            },
+            _ => panic!("Called `Evaluation::resume_with_call_frame_cfa` without a preceding `EvaluationResult::RequiresCallFrameCfa`"),
+        };
+
+        self.evaluate_internal()
+    }
+
+    /// Resume the `Evaluation` with the provided `bytes`.  This will
+    /// continue processing the evaluation with the new expression provided
+    /// until the evaluation is completed, reaches an error, or needs more
+    /// information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresAtLocation`.
+    pub fn resume_with_at_location(&mut self, bytes: &'input [u8]) -> Result<EvaluationResult<'input, Endian>, Error>
+        where Endian: Endianity
+    {
+        match self.state {
+            EvaluationState::Error(err) => return Err(err),
+            EvaluationState::Waiting(OperationEvaluationResult::AwaitingAtLocation { .. }) => {
+                if bytes.len() > 0 {
+                    self.expression_stack.push((self.pc, self.bytecode));
+                    self.pc = EndianBuf::new(bytes);
+                    self.bytecode = bytes;
+                }
+            },
+            _ => panic!("Called `Evaluation::resume_with_at_location` without a precedeing `EvaluationResult::RequiresAtLocation`"),
+        };
+
+        self.evaluate_internal()
+    }
+
+    /// Resume the `Evaluation` with the provided `entry_value`.  This will
+    /// apply the provided entry value to the evaluation and continue evaluating
+    /// opcodes until the evaluation is completed, reaches an error, or needs
+    /// more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresEntryValue`.
+    pub fn resume_with_entry_value(&mut self, entry_value: u64) -> Result<EvaluationResult<'input, Endian>, Error>
+        where Endian: Endianity
+    {
+        match self.state {
+            EvaluationState::Error(err) => return Err(err),
+            EvaluationState::Waiting(OperationEvaluationResult::AwaitingEntryValue { .. }) => {
+                self.push(entry_value);
+            },
+            _ => panic!("Called `Evaluation::resume_with_entry_value` without a preceding `EvaluationResult::RequiresEntryValue`"),
+        };
+
+        self.evaluate_internal()
+    }
+
+    fn evaluate_internal(&mut self) -> Result<EvaluationResult<'input, Endian>, Error>
+        where Endian: Endianity
+    {
         'eval: loop {
             while self.pc.len() == 0 {
                 match self.expression_stack.pop() {
@@ -1237,9 +1538,9 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
                 }
             }
 
-            iteration += 1;
+            self.iteration += 1;
             if let Some(max_iterations) = self.max_iterations {
-                if iteration > max_iterations {
+                if self.iteration > max_iterations {
                     return Err(Error::TooManyIterations.into());
                 }
             }
@@ -1248,74 +1549,110 @@ impl<'context, 'input, Endian, Context> Evaluation<'context, 'input, Endian, Con
                 try!(Operation::parse(self.pc, self.bytecode, self.address_size, self.format));
             self.pc = newpc;
 
-            let (piece_end, terminated, mut current_location) =
-                try!(self.evaluate_one_operation(&operation));
-
-            if piece_end || terminated {
-                // If we saw a piece end, like Piece, then we want to use
-                // the operation we already decoded to see what to do.
-                // Otherwise, we saw something like Register, so we want
-                // to decode the next operation.
-                let eof = !piece_end && self.pc.len() == 0;
-                let mut pieceop = operation;
-                if !terminated {
-                    // We saw a piece operation without something
-                    // terminating the expression.  This means the
-                    // result is the address on the stack.
-                    assert_eq!(current_location, Location::Empty);
-                    if !self.stack.is_empty() {
-                        current_location = Location::Address { address: try!(self.pop()) };
-                    }
-                } else if !eof {
-                    let (newpc, operation) = try!(Operation::parse(self.pc,
-                                                                   self.bytecode,
-                                                                   self.address_size,
-                                                                   self.format));
-                    self.pc = newpc;
-                    pieceop = operation;
-                }
-                match pieceop {
-                    _ if eof => {
-                        if !result.is_empty() {
-                            // We saw a piece earlier and then some
-                            // unterminated piece.  It's not clear this is
-                            // well-defined.
-                            return Err(Error::InvalidPiece.into());
+            let op_result = try!(self.evaluate_one_operation(&operation));
+            match op_result {
+                OperationEvaluationResult::Complete { terminated, piece_end, mut current_location } => {
+                    if piece_end || terminated {
+                        // If we saw a piece end, like Piece, then we want to use
+                        // the operation we already decoded to see what to do.
+                        // Otherwise, we saw something like Register, so we want
+                        // to decode the next operation.
+                        let eof = !piece_end && self.pc.len() == 0;
+                        let mut pieceop = operation;
+                        if !terminated {
+                            // We saw a piece operation without something
+                            // terminating the expression.  This means the
+                            // result is the address on the stack.
+                            assert_eq!(current_location, Location::Empty);
+                            if !self.stack.is_empty() {
+                                current_location = Location::Address { address: try!(self.pop()) };
+                            }
+                        } else if !eof {
+                            let (newpc, operation) = try!(Operation::parse(self.pc,
+                                                                           self.bytecode,
+                                                                           self.address_size,
+                                                                           self.format));
+                            self.pc = newpc;
+                            pieceop = operation;
                         }
-                        result.push(Piece {
-                            size_in_bits: None,
-                            bit_offset: None,
-                            location: current_location,
-                        });
-                    }
+                        match pieceop {
+                            _ if eof => {
+                                if !self.result.is_empty() {
+                                    // We saw a piece earlier and then some
+                                    // unterminated piece.  It's not clear this is
+                                    // well-defined.
+                                    return Err(Error::InvalidPiece.into());
+                                }
+                                self.result.push(Piece {
+                                    size_in_bits: None,
+                                    bit_offset: None,
+                                    location: current_location,
+                                });
+                            }
 
-                    Operation::Piece { size_in_bits, bit_offset } => {
-                        result.push(Piece {
-                            size_in_bits: Some(size_in_bits),
-                            bit_offset: bit_offset,
-                            location: current_location,
-                        });
-                    }
+                            Operation::Piece { size_in_bits, bit_offset } => {
+                                self.result.push(Piece {
+                                    size_in_bits: Some(size_in_bits),
+                                    bit_offset: bit_offset,
+                                    location: current_location,
+                                });
+                            }
 
-                    _ => {
-                        let value = self.bytecode.len() - self.pc.len() - 1;
-                        return Err(Error::InvalidExpressionTerminator(value).into());
+                            _ => {
+                                let value = self.bytecode.len() - self.pc.len() - 1;
+                                return Err(Error::InvalidExpressionTerminator(value).into());
+                            }
+                        }
                     }
-                }
-            }
+                },
+                OperationEvaluationResult::AwaitingMemory { address, size, space } => {
+                    self.state = EvaluationState::Waiting(op_result);
+                    return Ok(EvaluationResult::RequiresMemory {
+                        address: address,
+                        size: size,
+                        space: space,
+                    });
+                },
+                OperationEvaluationResult::AwaitingRegister { register, .. } => {
+                    self.state = EvaluationState::Waiting(op_result);
+                    return Ok(EvaluationResult::RequiresRegister(register));
+                },
+                OperationEvaluationResult::AwaitingFrameBase { .. } => {
+                    self.state = EvaluationState::Waiting(op_result);
+                    return Ok(EvaluationResult::RequiresFrameBase); 
+                },
+                OperationEvaluationResult::AwaitingTls { index } => {
+                    self.state = EvaluationState::Waiting(op_result);
+                    return Ok(EvaluationResult::RequiresTls(index));
+                },
+                OperationEvaluationResult::AwaitingCfa => {
+                    self.state = EvaluationState::Waiting(op_result);
+                    return Ok(EvaluationResult::RequiresCallFrameCfa);
+                },
+                OperationEvaluationResult::AwaitingAtLocation { location } => {
+                    self.state = EvaluationState::Waiting(op_result);
+                    return Ok(EvaluationResult::RequiresAtLocation(location));
+                },
+                OperationEvaluationResult::AwaitingEntryValue { expression } => {
+                    self.state = EvaluationState::Waiting(op_result);
+                    return Ok(EvaluationResult::RequiresEntryValue(expression));
+                },
+            };
         }
 
         // If no pieces have been seen, use the stack top as the
         // result.
-        if result.is_empty() {
-            result.push(Piece {
+        if self.result.is_empty() {
+            let addr = try!(self.pop());
+            self.result.push(Piece {
                 size_in_bits: None,
                 bit_offset: None,
-                location: Location::Address { address: try!(self.pop()) },
+                location: Location::Address { address: addr },
             });
         }
 
-        Ok(result)
+        self.state = EvaluationState::Complete;
+        Ok(EvaluationResult::Complete)
     }
 }
 
@@ -1846,47 +2183,6 @@ mod tests {
         }
     }
 
-    #[derive(Clone, Copy, Debug)]
-    struct TestEvaluationContext {
-        base: Result<u64>,
-        cfa: Result<u64>,
-        at_location: Result<&'static [u8]>,
-
-        object_address: Option<u64>,
-        initial_value: Option<u64>,
-        max_iterations: Option<u32>,
-    }
-
-    impl<'input> EvaluationContext<'input> for TestEvaluationContext {
-        type ContextError = Error;
-
-        fn read_memory(&self, addr: u64, nbytes: u8, space: Option<u64>) -> Result<u64> {
-            let mut result = addr << 2;
-            if let Some(value) = space {
-                result += value;
-            }
-            Ok(result & ((1u64 << 8 * nbytes) - 1))
-        }
-        fn read_register(&self, regno: u64) -> Result<u64> {
-            Ok(regno.wrapping_neg())
-        }
-        fn frame_base(&self) -> Result<u64> {
-            self.base
-        }
-        fn read_tls(&self, slot: u64) -> Result<u64> {
-            Ok(!slot)
-        }
-        fn call_frame_cfa(&self) -> Result<u64> {
-            self.cfa
-        }
-        fn get_at_location(&self, _: DieReference) -> Result<&'input [u8]> {
-            self.at_location
-        }
-        fn evaluate_entry_value(&self, expression: &[u8]) -> Result<u64> {
-            parse_u64(EndianBuf::<LittleEndian>::new(expression)).map(|(_, value)| value)
-        }
-    }
-
     enum AssemblerEntry {
         Op(constants::DwOp),
         Mark(u8),
@@ -1961,31 +2257,42 @@ mod tests {
         result
     }
 
-    fn check_eval_with_context(program: &[AssemblerEntry],
+    fn check_eval_with_args<F>(program: &[AssemblerEntry],
                                expect: Result<&[Piece]>,
                                address_size: u8,
                                format: Format,
-                               context: TestEvaluationContext) {
+                               object_address: Option<u64>,
+                               initial_value: Option<u64>,
+                               max_iterations: Option<u32>,
+                               f: F)
+        where for <'a> F: Fn(&mut Evaluation<'a, LittleEndian>,
+                             EvaluationResult<'a, LittleEndian>)
+                             -> Result<EvaluationResult<'a, LittleEndian>>
+    {
         let bytes = assemble(program);
 
-        let mut eval_context = context.clone();
-        let mut eval = Evaluation::<LittleEndian, TestEvaluationContext>::new(&bytes,
-                                                                              address_size,
-                                                                              format,
-                                                                              &mut eval_context);
+        let mut eval = Evaluation::<LittleEndian>::new(&bytes,
+                                                       address_size,
+                                                       format);
 
-        if let Some(val) = context.object_address {
+        if let Some(val) = object_address {
             eval.set_object_address(val);
         }
-        if let Some(val) = context.initial_value {
+        if let Some(val) = initial_value {
             eval.set_initial_value(val);
         }
-        if let Some(val) = context.max_iterations {
+        if let Some(val) = max_iterations {
             eval.set_max_iterations(val);
         }
 
-        match (eval.evaluate(), expect) {
-            (Ok(vec), Ok(pieces)) => {
+        let result = match eval.evaluate() {
+            Err(e) => Err(e),
+            Ok(r) => f(&mut eval, r),
+        };
+
+        match (result, expect) {
+            (Ok(EvaluationResult::Complete), Ok(pieces)) => {
+                let vec = eval.result();
                 assert_eq!(vec.len(), pieces.len());
                 for i in 0..pieces.len() {
                     assert_eq!(vec[i], pieces[i]);
@@ -2002,16 +2309,8 @@ mod tests {
                   expect: Result<&[Piece]>,
                   address_size: u8,
                   format: Format) {
-        let context = TestEvaluationContext {
-            base: Ok(0),
-            cfa: Ok(0),
-            at_location: Ok(&[]),
-            initial_value: None,
-            object_address: None,
-            max_iterations: None,
-        };
 
-        check_eval_with_context(program, expect, address_size, format, context);
+        check_eval_with_args(program, expect, address_size, format, None, None, None, |_, result| Ok(result));
     }
 
     #[test]
@@ -2393,7 +2692,18 @@ mod tests {
             },
         ];
 
-        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+        check_eval_with_args(&program, Ok(&result), 4, Format::Dwarf32, None, None, None,
+                             |eval, mut result| {
+                                 while result != EvaluationResult::Complete {
+                                     result = eval.resume_with_register(match result {
+                                         EvaluationResult::RequiresRegister(regno) => {
+                                             regno.wrapping_neg()
+                                         },
+                                         _ => panic!(),
+                                     })?;
+                                 }
+                                 Ok(result)
+                             });
     }
 
     #[test]
@@ -2466,7 +2776,26 @@ mod tests {
             },
         ];
 
-        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+        check_eval_with_args(&program, Ok(&result), 4, Format::Dwarf32, None, None, None,
+                             |eval, mut result| {
+                                 while result != EvaluationResult::Complete {
+                                     result = match result {
+                                         EvaluationResult::RequiresMemory { address, size, space } => {
+                                             let mut v = address << 2;
+                                             if let Some(value) = space {
+                                                 v += value;
+                                             }
+                                             eval.resume_with_memory(v & ((1u64 << 8 * size) - 1))?
+                                         }
+                                         EvaluationResult::RequiresTls(slot) => {
+                                             eval.resume_with_tls(!slot)?
+                                         }
+                                         _ => panic!(),
+                                     };
+                                 }
+
+                                 Ok(result)
+                             });
     }
 
     #[test]
@@ -2518,15 +2847,6 @@ mod tests {
         use constants::*;
         use self::AssemblerEntry::*;
 
-        let mut context = TestEvaluationContext {
-            base: Ok(0x0123456789abcdef),
-            cfa: Ok(0xfedcba9876543210),
-            at_location: Ok(&[]),
-            initial_value: None,
-            object_address: None,
-            max_iterations: None,
-        };
-
         // Test `frame_base` and `call_frame_cfa` callbacks.
         let program = [
             Op(DW_OP_fbreg), Sleb(0),
@@ -2543,7 +2863,18 @@ mod tests {
             },
         ];
 
-        check_eval_with_context(&program, Ok(&result), 8, Format::Dwarf64, context);
+        check_eval_with_args(&program, Ok(&result), 8, Format::Dwarf64,
+                             None, None, None, |eval, result| {
+                                 match result {
+                                     EvaluationResult::RequiresFrameBase => {},
+                                     _ => panic!(),
+                                 };
+                                 match eval.resume_with_frame_base(0x0123456789abcdef)? {
+                                     EvaluationResult::RequiresCallFrameCfa => {},
+                                     _ => panic!(),
+                                 };
+                                 eval.resume_with_call_frame_cfa(0xfedcba9876543210)
+                             });
 
         // Test `evaluate_entry_value` callback.
         let program = [
@@ -2558,15 +2889,24 @@ mod tests {
             },
         ];
 
-        check_eval_with_context(&program, Ok(&result), 8, Format::Dwarf64, context);
+        check_eval_with_args(&program, Ok(&result), 8, Format::Dwarf64,
+                             None, None, None, |eval, result| {
+                                 let entry_value = match result {
+                                     EvaluationResult::RequiresEntryValue(expression) => {
+                                         parse_u64(expression).map(|(_, value)| value)?
+                                     },
+                                     _ => panic!(),
+                                 };
+                                 eval.resume_with_entry_value(entry_value)
+                             });
 
         // Test missing `object_address` field.
         let program = [
             Op(DW_OP_push_object_address),
         ];
 
-        check_eval_with_context(&program, Err(Error::InvalidPushObjectAddress),
-                                4, Format::Dwarf32, context);
+        check_eval_with_args(&program, Err(Error::InvalidPushObjectAddress),
+                             4, Format::Dwarf32, None, None, None, |_, _| panic!());
 
         // Test `object_address` field.
         let program = [
@@ -2581,8 +2921,8 @@ mod tests {
             },
         ];
 
-        context.object_address = Some(0xff);
-        check_eval_with_context(&program, Ok(&result), 8, Format::Dwarf64, context);
+        check_eval_with_args(&program, Ok(&result), 8, Format::Dwarf64,
+                             Some(0xff), None, None, |_, result| Ok(result));
 
         // Test `initial_value` field.
         let program = [
@@ -2595,8 +2935,8 @@ mod tests {
             },
         ];
 
-        context.initial_value = Some(0x12345678);
-        check_eval_with_context(&program, Ok(&result), 8, Format::Dwarf64, context);
+        check_eval_with_args(&program, Ok(&result), 8, Format::Dwarf64,
+                             None, Some(0x12345678), None, |_, result| Ok(result));
     }
 
     #[test]
@@ -2622,15 +2962,6 @@ mod tests {
         use constants::*;
         use self::AssemblerEntry::*;
 
-        let mut context = TestEvaluationContext {
-            base: Ok(0x0123456789abcdef),
-            cfa: Ok(0xfedcba9876543210),
-            at_location: Ok(&[]),
-            initial_value: None,
-            object_address: None,
-            max_iterations: None,
-        };
-
         let program = [
             Op(DW_OP_lit23),
             Op(DW_OP_call2), U16(0x7755),
@@ -2646,11 +2977,32 @@ mod tests {
             },
         ];
 
-        check_eval_with_context(&program, Ok(&result), 4, Format::Dwarf32, context);
+        check_eval_with_args(&program, Ok(&result), 4, Format::Dwarf32,
+                             None, None, None, |eval, result| {
+                                 match result {
+                                     EvaluationResult::RequiresAtLocation(_) => {},
+                                     _ => panic!(),
+                                 };
+
+                                 eval.resume_with_at_location(&[])?;
+
+                                 match result {
+                                     EvaluationResult::RequiresAtLocation(_) => {},
+                                     _ => panic!(),
+                                 };
+
+                                 eval.resume_with_at_location(&[])?;
+
+                                 match result {
+                                     EvaluationResult::RequiresAtLocation(_) => {},
+                                     _ => panic!(),
+                                 };
+
+                                 eval.resume_with_at_location(&[])
+                             });
 
         // DW_OP_lit2 DW_OP_mul
         const SUBR: &'static [u8] = &[0x32, 0x1e];
-        context.at_location = Ok(SUBR);
 
         let result = [
             Piece { size_in_bits: None,
@@ -2659,7 +3011,29 @@ mod tests {
             },
         ];
 
-        check_eval_with_context(&program, Ok(&result), 4, Format::Dwarf32, context);
+        check_eval_with_args(&program, Ok(&result), 4, Format::Dwarf32,
+                             None, None, None, |eval, result| {
+                                 match result {
+                                     EvaluationResult::RequiresAtLocation(_) => {},
+                                     _ => panic!(),
+                                 };
+
+                                 eval.resume_with_at_location(SUBR)?;
+
+                                 match result {
+                                     EvaluationResult::RequiresAtLocation(_) => {},
+                                     _ => panic!(),
+                                 };
+
+                                 eval.resume_with_at_location(SUBR)?;
+
+                                 match result {
+                                     EvaluationResult::RequiresAtLocation(_) => {},
+                                     _ => panic!(),
+                                 };
+
+                                 eval.resume_with_at_location(SUBR)
+                             });
     }
 
     #[test]
@@ -2773,21 +3147,13 @@ mod tests {
         use constants::*;
         use self::AssemblerEntry::*;
 
-        let context = TestEvaluationContext {
-            base: Ok(0),
-            cfa: Ok(0),
-            at_location: Ok(&[]),
-            initial_value: None,
-            object_address: None,
-            max_iterations: Some(150),
-        };
-
         let program = [
             Mark(1),
             Op(DW_OP_skip), Branch(1),
         ];
 
-        check_eval_with_context(&program, Err(Error::TooManyIterations),
-                                4, Format::Dwarf32, context);
+        check_eval_with_args(&program, Err(Error::TooManyIterations),
+                             4, Format::Dwarf32, None, None, Some(150),
+                             |_, _| panic!());
     }
 }
