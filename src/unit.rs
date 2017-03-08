@@ -2264,7 +2264,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
 ///
 /// let mut tree = try!(unit.entries_tree(&abbrevs, None));
 /// try!(process_tree(tree.iter()));
-/// # Ok(())
+/// # unreachable!()
 /// # }
 ///
 /// fn process_tree<E>(mut iter: gimli::EntriesTreeIter<E>) -> gimli::Result<()>
