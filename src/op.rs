@@ -270,10 +270,10 @@ pub struct Piece<'input> {
 
 // A helper function to handle branch offsets.
 fn compute_pc<'input, Endian>(pc: EndianBuf<'input, Endian>,
-                              bytecode: &'input [u8],
+                              bytecode: EndianBuf<'input, Endian>,
                               offset: i16)
                               -> Result<EndianBuf<'input, Endian>, Error>
-    where Endian: Endianity
+    where Endian: Endianity + 'input
 {
     let this_len = pc.len();
     let full_len = bytecode.len();
@@ -281,12 +281,12 @@ fn compute_pc<'input, Endian>(pc: EndianBuf<'input, Endian>,
     if new_pc > full_len {
         Err(Error::BadBranchTarget(new_pc))
     } else {
-        Ok(EndianBuf::new(&bytecode[new_pc..]))
+        Ok(bytecode.range_from(new_pc..))
     }
 }
 
 impl<'input, Endian> Operation<'input, Endian>
-    where Endian: Endianity
+    where Endian: Endianity + 'input
 {
     /// Parse a single DWARF expression operation.
     ///
@@ -297,7 +297,7 @@ impl<'input, Endian> Operation<'input, Endian>
     /// the same array as `bytecode`, which should be the entire
     /// expression.
     pub fn parse(bytes: EndianBuf<'input, Endian>,
-                 bytecode: &'input [u8],
+                 bytecode: EndianBuf<'input, Endian>,
                  address_size: u8,
                  format: Format)
                  -> Result<(EndianBuf<'input, Endian>, Operation<'input, Endian>), Error>
@@ -905,8 +905,8 @@ pub enum EvaluationResult<'input, Endian>
 ///
 /// # Examples
 /// ```rust,no_run
-/// use gimli::{Evaluation, EvaluationResult, Format, LittleEndian};
-/// # let bytecode = &[];
+/// use gimli::{EndianBuf, Evaluation, EvaluationResult, Format, LittleEndian};
+/// # let bytecode = EndianBuf::<LittleEndian>::new(&[]);
 /// # let address_size = 8;
 /// # let format = Format::Dwarf64;
 /// # let get_register_value = |_| 42;
@@ -933,9 +933,9 @@ pub enum EvaluationResult<'input, Endian>
 /// ```
 #[derive(Debug)]
 pub struct Evaluation<'input, Endian>
-    where Endian: Endianity
+    where Endian: Endianity + 'input
 {
-    bytecode: &'input [u8],
+    bytecode: EndianBuf<'input, Endian>,
     address_size: u8,
     format: Format,
     object_address: Option<u64>,
@@ -956,7 +956,7 @@ pub struct Evaluation<'input, Endian>
 
     // If we see a DW_OP_call* operation, the previous PC and bytecode
     // is stored here while evaluating the subroutine.
-    expression_stack: Vec<(EndianBuf<'input, Endian>, &'input [u8])>,
+    expression_stack: Vec<(EndianBuf<'input, Endian>, EndianBuf<'input, Endian>)>,
 
     result: Vec<Piece<'input>>,
 
@@ -970,7 +970,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
     ///
     /// The new evaluator is created without an initial value, without
     /// an object address, and without a maximum number of iterations.
-    pub fn new(bytecode: &'input [u8],
+    pub fn new(bytecode: EndianBuf<'input, Endian>,
                address_size: u8,
                format: Format)
                -> Evaluation<'input, Endian> {
@@ -989,7 +989,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
             },
             stack: Vec::new(),
             expression_stack: Vec::new(),
-            pc: EndianBuf::<Endian>::new(bytecode),
+            pc: bytecode,
             result: Vec::new(),
             phantom: PhantomData,
         }
@@ -1485,7 +1485,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresAtLocation`.
-    pub fn resume_with_at_location(&mut self, bytes: &'input [u8]) -> Result<EvaluationResult<'input, Endian>, Error>
+    pub fn resume_with_at_location(&mut self, bytes: EndianBuf<'input, Endian>) -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
         match self.state {
@@ -1493,7 +1493,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingAtLocation { .. }) => {
                 if bytes.len() > 0 {
                     self.expression_stack.push((self.pc, self.bytecode));
-                    self.pc = EndianBuf::new(bytes);
+                    self.pc = bytes;
                     self.bytecode = bytes;
                 }
             },
@@ -1677,13 +1677,13 @@ mod tests {
         let bytecode = &bytes[..];
         let ebuf = EndianBuf::<LittleEndian>::new(bytecode);
 
-        assert_eq!(compute_pc(ebuf, bytecode, 0), Ok(ebuf));
-        assert_eq!(compute_pc(ebuf, bytecode, -1),
+        assert_eq!(compute_pc(ebuf, ebuf, 0), Ok(ebuf));
+        assert_eq!(compute_pc(ebuf, ebuf, -1),
                    Err(Error::BadBranchTarget(-1isize as usize)));
-        assert_eq!(compute_pc(ebuf, bytecode, 5), Ok(ebuf.range_from(5..)));
-        assert_eq!(compute_pc(ebuf.range_from(3..), bytecode, -2),
+        assert_eq!(compute_pc(ebuf, ebuf, 5), Ok(ebuf.range_from(5..)));
+        assert_eq!(compute_pc(ebuf.range_from(3..), ebuf, -2),
                    Ok(ebuf.range_from(1..)));
-        assert_eq!(compute_pc(ebuf.range_from(2..), bytecode, 2),
+        assert_eq!(compute_pc(ebuf.range_from(2..), ebuf, 2),
                    Ok(ebuf.range_from(4..)));
     }
 
@@ -1691,8 +1691,9 @@ mod tests {
                              expect: &Operation<LittleEndian>,
                              address_size: u8,
                              format: Format) {
-        let value = Operation::parse(EndianBuf::<LittleEndian>::new(input),
-                                     input,
+        let buf = EndianBuf::<LittleEndian>::new(input);
+        let value = Operation::parse(buf,
+                                     buf,
                                      address_size,
                                      format);
         match value {
@@ -1705,8 +1706,9 @@ mod tests {
     }
 
     fn check_op_parse_failure(input: &[u8], expect: Error, address_size: u8, format: Format) {
-        match Operation::parse(EndianBuf::<LittleEndian>::new(input),
-                               input,
+        let buf = EndianBuf::<LittleEndian>::new(input);
+        match Operation::parse(buf,
+                               buf,
                                address_size,
                                format) {
             Err(x) => {
@@ -2270,8 +2272,9 @@ mod tests {
                              -> Result<EvaluationResult<'a, LittleEndian>>
     {
         let bytes = assemble(program);
+        let bytes = EndianBuf::<LittleEndian>::new(&bytes);
 
-        let mut eval = Evaluation::<LittleEndian>::new(&bytes,
+        let mut eval = Evaluation::<LittleEndian>::new(bytes,
                                                        address_size,
                                                        format);
 
@@ -2979,26 +2982,27 @@ mod tests {
 
         check_eval_with_args(&program, Ok(&result), 4, Format::Dwarf32,
                              None, None, None, |eval, result| {
+                                 let buf = EndianBuf::<LittleEndian>::new(&[]);
                                  match result {
                                      EvaluationResult::RequiresAtLocation(_) => {},
                                      _ => panic!(),
                                  };
 
-                                 eval.resume_with_at_location(&[])?;
-
-                                 match result {
-                                     EvaluationResult::RequiresAtLocation(_) => {},
-                                     _ => panic!(),
-                                 };
-
-                                 eval.resume_with_at_location(&[])?;
+                                 eval.resume_with_at_location(buf)?;
 
                                  match result {
                                      EvaluationResult::RequiresAtLocation(_) => {},
                                      _ => panic!(),
                                  };
 
-                                 eval.resume_with_at_location(&[])
+                                 eval.resume_with_at_location(buf)?;
+
+                                 match result {
+                                     EvaluationResult::RequiresAtLocation(_) => {},
+                                     _ => panic!(),
+                                 };
+
+                                 eval.resume_with_at_location(buf)
                              });
 
         // DW_OP_lit2 DW_OP_mul
@@ -3013,26 +3017,27 @@ mod tests {
 
         check_eval_with_args(&program, Ok(&result), 4, Format::Dwarf32,
                              None, None, None, |eval, result| {
+                                 let buf = EndianBuf::<LittleEndian>::new(SUBR);
                                  match result {
                                      EvaluationResult::RequiresAtLocation(_) => {},
                                      _ => panic!(),
                                  };
 
-                                 eval.resume_with_at_location(SUBR)?;
-
-                                 match result {
-                                     EvaluationResult::RequiresAtLocation(_) => {},
-                                     _ => panic!(),
-                                 };
-
-                                 eval.resume_with_at_location(SUBR)?;
+                                 eval.resume_with_at_location(buf)?;
 
                                  match result {
                                      EvaluationResult::RequiresAtLocation(_) => {},
                                      _ => panic!(),
                                  };
 
-                                 eval.resume_with_at_location(SUBR)
+                                 eval.resume_with_at_location(buf)?;
+
+                                 match result {
+                                     EvaluationResult::RequiresAtLocation(_) => {},
+                                     _ => panic!(),
+                                 };
+
+                                 eval.resume_with_at_location(buf)
                              });
     }
 
