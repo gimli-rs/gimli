@@ -52,7 +52,7 @@ impl<'input, Endian> DebugLoc<'input, Endian>
                      offset: DebugLocOffset,
                      address_size: u8,
                      base_address: u64)
-                     -> Result<LocationListIter<Endian>> {
+                     -> Result<LocationListIter<'input, Endian>> {
         if self.debug_loc_section.len() < offset.0 {
             return Err(Error::UnexpectedEof);
         }
@@ -73,7 +73,7 @@ impl<'input, Endian> DebugLoc<'input, Endian>
     pub fn raw_locations(&self,
                          offset: DebugLocOffset,
                          address_size: u8)
-                         -> Result<RawLocationListIter<Endian>> {
+                         -> Result<RawLocationListIter<'input, Endian>> {
         if self.debug_loc_section.len() < offset.0 {
             return Err(Error::UnexpectedEof);
         }
