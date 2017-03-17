@@ -1428,7 +1428,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingFrameBase { offset }) => {
-                self.push(frame_base + offset);
+                self.push(frame_base.wrapping_add(offset));
             },
             _ => panic!("Called `Evaluation::resume_with_frame_base` without a preceding `EvaluationResult::RequiresFrameBase`"),
         };
@@ -2852,7 +2852,7 @@ mod tests {
 
         // Test `frame_base` and `call_frame_cfa` callbacks.
         let program = [
-            Op(DW_OP_fbreg), Sleb(0),
+            Op(DW_OP_fbreg), Sleb((-8i8) as u64),
             Op(DW_OP_call_frame_cfa),
             Op(DW_OP_plus),
             Op(DW_OP_neg),
@@ -2862,7 +2862,7 @@ mod tests {
         let result = [
             Piece { size_in_bits: None,
                     bit_offset: None,
-                    location: Location::Scalar{value: 1},
+                    location: Location::Scalar{value: 9},
             },
         ];
 
