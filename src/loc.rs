@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use Section;
 
 /// An offset into the `.debug_loc` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugLocOffset(pub usize);
 
 /// The `DebugLoc` struct represents the DWARF strings

@@ -726,7 +726,7 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>
 }
 
 /// An offset into the `.debug_macinfo` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugMacinfoOffset(pub usize);
 
 /// Parse an unsigned LEB128 encoded integer.

@@ -16,7 +16,7 @@ use std::str;
 use Section;
 
 /// An offset into the `.debug_frame` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugFrameOffset(pub usize);
 
 impl Into<usize> for DebugFrameOffset {
@@ -32,7 +32,7 @@ impl From<usize> for DebugFrameOffset {
 }
 
 /// An offset into the `.eh_frame` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EhFrameOffset(pub usize);
 
 impl Into<usize> for EhFrameOffset {

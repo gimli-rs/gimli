@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use Section;
 
 /// An offset into the `.debug_ranges` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugRangesOffset(pub usize);
 
 /// The `DebugRanges` struct represents the DWARF strings
