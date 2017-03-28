@@ -21,19 +21,19 @@ use str::{DebugStr, DebugStrOffset};
 use Section;
 
 /// An offset into the `.debug_types` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugTypesOffset(pub usize);
 
 /// A type signature as used in the `.debug_types` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugTypeSignature(pub u64);
 
 /// An offset into the `.debug_info` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugInfoOffset(pub usize);
 
 /// An offset into the current compilation or type unit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct UnitOffset(pub usize);
 
 /// The `DebugInfo` struct represents the DWARF debugging information found in
