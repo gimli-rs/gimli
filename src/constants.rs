@@ -82,7 +82,20 @@ macro_rules! dw {
     };
 }
 
-/// Section 7.23:
+/// The unit type field in a unit header.
+/// See Section 7.5.1, Table 7.2.
+dw!(DwUt(u8) {
+    DW_UT_compile = 0x01,
+    DW_UT_type = 0x02,
+    DW_UT_partial = 0x03,
+    DW_UT_skeleton = 0x04,
+    DW_UT_split_compile = 0x05,
+    DW_UT_split_type = 0x06,
+    DW_UT_lo_user = 0x80,
+    DW_UT_hi_user = 0xff,
+});
+
+/// Section 7.24:
 ///
 /// > Call frame instructions are encoded in one or more bytes. The primary
 /// > opcode is encoded in the high order two bits of the first byte (that is,
@@ -126,14 +139,14 @@ dw!(DwCfa(u8) {
 });
 
 /// The child determination encodings for DIE attributes.
-/// See section 7.5.4, Figure 19.
+/// See Section 7.5.3, Table 7.4.
 dw!(DwChildren(u8) {
     DW_CHILDREN_no = 0,
     DW_CHILDREN_yes = 1,
 });
 
 /// The tag encodings for DIE attributes.
-/// See section 7.5.4, Figure 18.
+/// See Section 7.5.3, Table 7.3.
 dw!(DwTag(u64) {
     DW_TAG_null = 0x00,
 
@@ -209,6 +222,8 @@ dw!(DwTag(u64) {
     DW_TAG_atomic_type = 0x47,
     DW_TAG_call_site = 0x48,
     DW_TAG_call_site_parameter = 0x49,
+    DW_TAG_skeleton_unit = 0x4a,
+    DW_TAG_immutable_type = 0x4b,
 
     DW_TAG_lo_user = 0x4080,
     DW_TAG_hi_user = 0xffff,
@@ -274,7 +289,7 @@ dw!(DwTag(u64) {
 });
 
 /// The attribute encodings for DIE attributes.
-/// See section 7.5.4, Figure 20.
+/// See Section 7.5.4, Table 7.5.
 dw!(DwAt(u64) {
     DW_AT_null = 0x00,
 
@@ -382,12 +397,29 @@ dw!(DwAt(u64) {
     DW_AT_str_offsets_base = 0x72,
     DW_AT_addr_base = 0x73,
     DW_AT_ranges_base = 0x74,
-    DW_AT_dwo_id = 0x75,
     DW_AT_dwo_name = 0x76,
     DW_AT_reference = 0x77,
     DW_AT_rvalue_reference = 0x78,
     DW_AT_macros = 0x79,
+    DW_AT_call_all_calls = 0x7a,
+    DW_AT_call_all_source_calls = 0x7b,
+    DW_AT_call_all_tail_calls = 0x7c,
+    DW_AT_call_return_pc = 0x7d,
+    DW_AT_call_value = 0x7e,
+    DW_AT_call_origin = 0x7f,
+    DW_AT_call_parameter = 0x80,
+    DW_AT_call_pc = 0x81,
+    DW_AT_call_tail_call = 0x82,
+    DW_AT_call_target = 0x83,
+    DW_AT_call_target_clobbered = 0x84,
+    DW_AT_call_data_location = 0x85,
+    DW_AT_call_data_value = 0x86,
     DW_AT_noreturn = 0x87,
+    DW_AT_alignment = 0x88,
+    DW_AT_export_symbols = 0x89,
+    DW_AT_deleted = 0x8a,
+    DW_AT_defaulted = 0x8b,
+    DW_AT_loclists_base = 0x8c,
 
     DW_AT_lo_user = 0x2000,
     DW_AT_hi_user = 0x3fff,
@@ -562,7 +594,7 @@ dw!(DwAt(u64) {
 });
 
 /// The attribute form encodings for DIE attributes.
-/// See section 7.5.4, Figure 21.
+/// See Section 7.5.6, Table 7.6.
 dw!(DwForm(u64) {
     DW_FORM_null = 0x00,
 
@@ -594,6 +626,26 @@ dw!(DwForm(u64) {
     DW_FORM_flag_present = 0x19,
     DW_FORM_ref_sig8 = 0x20,
 
+// DWARF 5.
+    DW_FORM_strx = 0x1a,
+    DW_FORM_addrx = 0x1b,
+    DW_FORM_ref_sup4 = 0x1c,
+    DW_FORM_strp_sup = 0x1d,
+    DW_FORM_data16 = 0x1e,
+    DW_FORM_line_strp = 0x1f,
+    DW_FORM_implicit_const = 0x21,
+    DW_FORM_loclistx = 0x22,
+    DW_FORM_rnglistx = 0x23,
+    DW_FORM_ref_sup8 = 0x24,
+    DW_FORM_strx1 = 0x25,
+    DW_FORM_strx2 = 0x26,
+    DW_FORM_strx3 = 0x27,
+    DW_FORM_strx4 = 0x28,
+    DW_FORM_addrx1 = 0x29,
+    DW_FORM_addrx2 = 0x2a,
+    DW_FORM_addrx3 = 0x2b,
+    DW_FORM_addrx4 = 0x2c,
+
 // Extensions for Fission proposal
     DW_FORM_GNU_addr_index = 0x1f01,
     DW_FORM_GNU_str_index = 0x1f02,
@@ -604,7 +656,7 @@ dw!(DwForm(u64) {
 });
 
 /// The encodings of the constants used in the `DW_AT_encoding` attribute.
-/// See Section 7.8, Figure 25.
+/// See Section 7.8, Table 7.11.
 dw!(DwAte(u8) {
     DW_ATE_address = 0x01,
     DW_ATE_boolean = 0x02,
@@ -626,13 +678,29 @@ dw!(DwAte(u8) {
 
 // DWARF 4.
     DW_ATE_UTF = 0x10,
+    DW_ATE_UCS = 0x11,
+    DW_ATE_ASCII = 0x12,
 
     DW_ATE_lo_user = 0x80,
     DW_ATE_hi_user = 0xff,
 });
 
+/// The encodings of the constants used in location list entries.
+/// See Section 7.7.3, Table 7.10.
+dw!(DwLle(u8) {
+    DW_LLE_end_of_list = 0x00,
+    DW_LLE_base_addressx = 0x01,
+    DW_LLE_startx_endx = 0x02,
+    DW_LLE_startx_length = 0x03,
+    DW_LLE_offset_pair = 0x04,
+    DW_LLE_default_location = 0x05,
+    DW_LLE_base_address = 0x06,
+    DW_LLE_start_end = 0x07,
+    DW_LLE_start_length = 0x08,
+});
+
 /// The encodings of the constants used in the `DW_AT_decimal_sign` attribute.
-/// See Section 7.8, Figure 26.
+/// See Section 7.8, Table 7.12.
 dw!(DwDs(u8) {
     DW_DS_unsigned = 0x01,
     DW_DS_leading_overpunch = 0x02,
@@ -642,7 +710,7 @@ dw!(DwDs(u8) {
 });
 
 /// The encodings of the constants used in the `DW_AT_endianity` attribute.
-/// See Section 7.8, Figure 27.
+/// See Section 7.8, Table 7.13.
 dw!(DwEnd(u8) {
     DW_END_default = 0x00,
     DW_END_big = 0x01,
@@ -652,7 +720,7 @@ dw!(DwEnd(u8) {
 });
 
 /// The encodings of the constants used in the `DW_AT_accessibility` attribute.
-/// See Section 7.9, Figure 28.
+/// See Section 7.9, Table 7.14.
 dw!(DwAccess(u8) {
     DW_ACCESS_public = 0x01,
     DW_ACCESS_protected = 0x02,
@@ -660,7 +728,7 @@ dw!(DwAccess(u8) {
 });
 
 /// The encodings of the constants used in the `DW_AT_visibility` attribute.
-/// See Section 7.10, Figure 29.
+/// See Section 7.10, Table 7.15.
 dw!(DwVis(u8) {
     DW_VIS_local = 0x01,
     DW_VIS_exported = 0x02,
@@ -668,7 +736,7 @@ dw!(DwVis(u8) {
 });
 
 /// The encodings of the constants used in the `DW_AT_virtuality` attribute.
-/// See Section 7.11, Figure 30.
+/// See Section 7.11, Table 7.16.
 dw!(DwVirtuality(u8) {
     DW_VIRTUALITY_none = 0x00,
     DW_VIRTUALITY_virtual = 0x01,
@@ -676,7 +744,7 @@ dw!(DwVirtuality(u8) {
 });
 
 /// The encodings of the constants used in the `DW_AT_language` attribute.
-/// See Section 7.12, Figure 31.
+/// See Section 7.12, Table 7.17.
 dw!(DwLang(u16) {
     DW_LANG_C89 = 0x0001,
     DW_LANG_C = 0x0002,
@@ -713,6 +781,8 @@ dw!(DwLang(u16) {
     DW_LANG_C_plus_plus_14 = 0x0021,
     DW_LANG_Fortran03 = 0x0022,
     DW_LANG_Fortran08 = 0x0023,
+    DW_LANG_RenderScript = 0x0024,
+    DW_LANG_BLISS = 0x0025,
 
     DW_LANG_lo_user = 0x8000,
     DW_LANG_hi_user = 0xffff,
@@ -732,7 +802,7 @@ dw!(DwAddr(u64) {
 });
 
 /// The encodings of the constants used in the `DW_AT_identifier_case` attribute.
-/// See Section 7.14, Figure 32.
+/// See Section 7.14, Table 7.18.
 dw!(DwId(u8) {
     DW_ID_case_sensitive = 0x00,
     DW_ID_up_case = 0x01,
@@ -741,17 +811,19 @@ dw!(DwId(u8) {
 });
 
 /// The encodings of the constants used in the `DW_AT_calling_convention` attribute.
-/// See Section 7.15, Figure 33.
+/// See Section 7.15, Table 7.19.
 dw!(DwCc(u8) {
     DW_CC_normal = 0x01,
     DW_CC_program = 0x02,
     DW_CC_nocall = 0x03,
+    DW_CC_pass_by_reference = 0x04,
+    DW_CC_pass_by_value = 0x05,
     DW_CC_lo_user = 0x40,
     DW_CC_hi_user = 0xff,
 });
 
 /// The encodings of the constants used in the `DW_AT_inline` attribute.
-/// See Section 7.16, Figure 34.
+/// See Section 7.16, Table 7.20.
 dw!(DwInl(u8) {
     DW_INL_not_inlined = 0x00,
     DW_INL_inlined = 0x01,
@@ -760,21 +832,41 @@ dw!(DwInl(u8) {
 });
 
 /// The encodings of the constants used in the `DW_AT_ordering` attribute.
-/// See Section 7.17, Figure 35.
+/// See Section 7.17, Table 7.17.
 dw!(DwOrd(u8) {
     DW_ORD_row_major = 0x00,
     DW_ORD_col_major = 0x01,
 });
 
 /// The encodings of the constants used in the `DW_AT_discr_list` attribute.
-/// See Section 7.18, Figure 36.
+/// See Section 7.18, Table 7.22.
 dw!(DwDsc(u8) {
     DW_DSC_label = 0x00,
     DW_DSC_range = 0x01,
 });
 
+/// Name index attribute encodings.
+/// See Section 7.19, Table 7.23.
+dw!(DwIdx(u16) {
+    DW_IDX_compile_unit = 1,
+    DW_IDX_type_unit = 2,
+    DW_IDX_die_offset = 3,
+    DW_IDX_parent = 4,
+    DW_IDX_type_hash = 5,
+    DW_IDX_lo_user = 0x2000,
+    DW_IDX_hi_user = 0x3fff,
+});
+
+/// The encodings of the constants used in the `DW_AT_defaulted` attribute.
+/// See Section 7.20, Table 7.24.
+dw!(DwDefaulted(u8) {
+    DW_DEFAULTED_no = 0x00,
+    DW_DEFAULTED_in_class = 0x01,
+    DW_DEFAULTED_out_of_class = 0x02,
+});
+
 /// The encodings for the standard opcodes for line number information.
-/// See Section 7.21, Figure 37.
+/// See Section 7.22, Table 7.25.
 dw!(DwLns(u8) {
     DW_LNS_copy = 0x01,
     DW_LNS_advance_pc = 0x02,
@@ -791,7 +883,7 @@ dw!(DwLns(u8) {
 });
 
 /// The encodings for the extended opcodes for line number information.
-/// See Section 7.21, Figure 38.
+/// See Section 7.22, Table 7.26.
 dw!(DwLne(u8) {
     DW_LNE_end_sequence = 0x01,
     DW_LNE_set_address = 0x02,
@@ -802,6 +894,52 @@ dw!(DwLne(u8) {
     DW_LNE_hi_user = 0xff,
 });
 
+/// The encodings for the line number header entry formats.
+/// See Section 7.22, Table 7.27.
+dw!(DwLnct(u16) {
+    DW_LNCT_path = 0x1,
+    DW_LNCT_directory_index = 0x2,
+    DW_LNCT_timestamp = 0x3,
+    DW_LNCT_size = 0x4,
+    DW_LNCT_MD5 = 0x5,
+    DW_LNCT_lo_user = 0x2000,
+    DW_LNCT_hi_user = 0x3fff,
+});
+
+/// The encodings for macro information entry types.
+/// See Section 7.23, Table 7.28.
+dw!(DwMacro(u8) {
+    DW_MACRO_define = 0x01,
+    DW_MACRO_undef = 0x02,
+    DW_MACRO_start_file = 0x03,
+    DW_MACRO_end_file = 0x04,
+    DW_MACRO_define_strp = 0x05,
+    DW_MACRO_undef_strp = 0x06,
+    DW_MACRO_import = 0x07,
+    DW_MACRO_define_sup = 0x08,
+    DW_MACRO_undef_sup = 0x09,
+    DW_MACRO_import_sup = 0x0a,
+    DW_MACRO_define_strx = 0x0b,
+    DW_MACRO_undef_strx = 0x0c,
+    DW_MACRO_lo_user = 0xe0,
+    DW_MACRO_hi_user = 0xff,
+});
+
+/// Range list entry encoding values.
+/// See Section 7.25, Table 7.30.
+dw!(DwRle(u8) {
+    DW_RLE_end_of_list = 0x00,
+    DW_RLE_base_addressx = 0x01,
+    DW_RLE_startx_endx = 0x02,
+    DW_RLE_startx_length = 0x03,
+    DW_RLE_offset_pair = 0x04,
+    DW_RLE_base_address = 0x05,
+    DW_RLE_start_end = 0x06,
+    DW_RLE_start_length = 0x07,
+});
+
+/// The encodings for DWARF expression operations.
+/// See Section 7.7.1, Table 7.9.
 dw!(DwOp(u8) {
     DW_OP_addr = 0x03,
     DW_OP_deref = 0x06,
@@ -958,7 +1096,15 @@ dw!(DwOp(u8) {
     DW_OP_implicit_value = 0x9e,
     DW_OP_stack_value = 0x9f,
     DW_OP_implicit_pointer = 0xa0,
+    DW_OP_addrx = 0xa1,
+    DW_OP_constx = 0xa2,
     DW_OP_entry_value = 0xa3,
+    DW_OP_const_type = 0xa4,
+    DW_OP_regval_type = 0xa5,
+    DW_OP_deref_type = 0xa6,
+    DW_OP_xderef_type = 0xa7,
+    DW_OP_convert = 0xa8,
+    DW_OP_reinterpret = 0xa9,
 
 // GNU extensions that are supported by our expression evaluator.
     DW_OP_GNU_push_tls_address = 0xe0,
