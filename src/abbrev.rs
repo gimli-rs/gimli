@@ -143,7 +143,7 @@ impl Abbreviations {
             match abbrev {
                 None => break,
                 Some(abbrev) => {
-                    if let Err(_) = abbrevs.insert(abbrev) {
+                    if abbrevs.insert(abbrev).is_err() {
                         return Err(Error::DuplicateAbbreviationCode);
                     }
                 }
@@ -175,7 +175,7 @@ impl Abbreviation {
                has_children: constants::DwChildren,
                attributes: Vec<AttributeSpecification>)
                -> Abbreviation {
-        assert!(code != 0);
+        assert_ne!(code, 0);
         Abbreviation {
             code: code,
             tag: tag,
@@ -326,6 +326,7 @@ impl AttributeSpecification {
                 }
             }
 
+            // Variably sized forms.
             constants::DW_FORM_block |
             constants::DW_FORM_block1 |
             constants::DW_FORM_block2 |
@@ -335,7 +336,7 @@ impl AttributeSpecification {
             constants::DW_FORM_string |
             constants::DW_FORM_sdata |
             constants::DW_FORM_udata |
-            constants::DW_FORM_indirect => None,
+            constants::DW_FORM_indirect |
 
             // We don't know the size of unknown forms.
             _ => None,

@@ -599,7 +599,7 @@ impl<'bases, 'input, Endian, Section> CfiEntriesIter<'bases, 'input, Endian, Sec
         // the last entry.
         self.bases.func.borrow_mut().take();
 
-        match parse_cfi_entry(&self.bases, self.section, self.input) {
+        match parse_cfi_entry(self.bases, self.section, self.input) {
             Err(e) => {
                 self.input = EndianBuf::new(&[]);
                 Err(e)
@@ -629,22 +629,23 @@ impl<'bases, 'input, Endian, Section> FallibleIterator
     }
 }
 
+struct CfiEntryCommon<'input, Endian>
+    where Endian: Endianity
+{
+    length: u64,
+    format: Format,
+    cie_offset_input: EndianBuf<'input, Endian>,
+    cie_id_or_offset: u64,
+    rest: EndianBuf<'input, Endian>,
+}
+
 /// Parse the common start shared between both CIEs and FDEs. If we find the
 /// end-of-entries sentinel, return `Ok(None)`. Otherwise, return
-/// `Ok(Some(tuple))`, where `tuple` is of the form:
-///
-///   (next_entry_input, (length,
-///                       format,
-///                       cie_offset_input,
-///                       cie_id_or_offset,
-///                       rest_of_this_entry_input))
+/// `Ok(Some(tuple))`, where `tuple.0` is the start of the next entry and
+/// `tuple.1` is the parsed CFI entry data.
 fn parse_cfi_entry_common<'input, Endian, Section>(input: EndianBuf<'input, Endian>)
                                                    -> Result<Option<(EndianBuf<'input, Endian>,
-                                                                     (u64,
-                                                                      Format,
-                                                                      EndianBuf<'input, Endian>,
-                                                                      u64,
-                                                                      EndianBuf<'input, Endian>))>>
+                                                                     CfiEntryCommon<'input, Endian>)>>
     where Endian: Endianity,
           Section: UnwindSection<'input, Endian>
 {
@@ -666,7 +667,13 @@ fn parse_cfi_entry_common<'input, Endian, Section>(input: EndianBuf<'input, Endi
         CieOffsetEncoding::U64 => try!(parse_u64(cie_offset_input)),
     };
 
-    Ok(Some((rest_rest, (length, format, cie_offset_input, cie_id_or_offset, rest))))
+    Ok(Some((rest_rest, CfiEntryCommon {
+        length: length,
+        format: format,
+        cie_offset_input: cie_offset_input,
+        cie_id_or_offset: cie_id_or_offset,
+        rest: rest
+    })))
 }
 
 /// Either a `CommonInformationEntry` (CIE) or a `FrameDescriptionEntry` (FDE).
@@ -683,6 +690,7 @@ pub enum CieOrFde<'bases, 'input, Endian, Section>
     Fde(PartialFrameDescriptionEntry<'bases, 'input, Endian, Section>),
 }
 
+#[allow(type_complexity)]
 fn parse_cfi_entry<'bases, 'input, Endian, Section>
     (bases: &'bases BaseAddresses,
      section: Section,
@@ -691,7 +699,7 @@ fn parse_cfi_entry<'bases, 'input, Endian, Section>
     where Endian: Endianity,
           Section: UnwindSection<'input, Endian>
 {
-    let (rest_rest, (length, format, cie_offset_input, cie_id_or_offset, rest)) =
+    let (rest_rest, CfiEntryCommon { length, format, cie_offset_input, cie_id_or_offset, rest }) =
         match try!(parse_cfi_entry_common::<Endian, Section>(input)) {
             None => return Ok(None),
             Some(common) => common,
@@ -720,9 +728,9 @@ fn parse_cfi_entry<'bases, 'input, Endian, Section>
     }
 }
 
-/// We support the z-style augmentation defined by `.eh_frame`.
+/// We support the z-style augmentation [defined by `.eh_frame`][ehframe].
 ///
-/// http://refspecs.linuxfoundation.org/LSB_3.0.0/LSB-Core-generic/LSB-Core-generic/ehframechpt.html
+/// [ehframe]: http://refspecs.linuxfoundation.org/LSB_3.0.0/LSB-Core-generic/LSB-Core-generic/ehframechpt.html
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Augmentation {
     /// > A 'L' may be present at any position after the first character of the
@@ -778,7 +786,7 @@ impl Augmentation {
         where Endian: Endianity,
               Section: UnwindSection<'input, Endian>
     {
-        debug_assert!(augmentation_str.len() > 0,
+        debug_assert!(!augmentation_str.is_empty(),
                       "Augmentation::parse should only be called if we have an augmentation");
 
         let mut chars = augmentation_str.chars();
@@ -923,16 +931,22 @@ impl<'input, Endian, Section> CommonInformationEntry<'input, Endian, Section>
     where Endian: Endianity,
           Section: UnwindSection<'input, Endian>
 {
+    #[allow(type_complexity)]
     fn parse<'bases>
         (bases: &'bases BaseAddresses,
          section: Section,
          input: EndianBuf<'input, Endian>)
          -> Result<Option<(EndianBuf<'input, Endian>, CommonInformationEntry<'input, Endian, Section>)>> {
-        let (rest_rest, (length, format, _, cie_id, rest)) =
-            match try!(parse_cfi_entry_common::<Endian, Section>(input)) {
-                None => return Ok(None),
-                Some(common) => common,
-            };
+        let (rest_rest, CfiEntryCommon {
+            length,
+            format,
+            cie_id_or_offset: cie_id,
+            rest,
+            ..
+        }) = match try!(parse_cfi_entry_common::<Endian, Section>(input)) {
+            None => return Ok(None),
+            Some(common) => common,
+        };
 
         if !Section::is_cie(format, cie_id) {
             return Err(Error::NotCieId);
@@ -1484,7 +1498,7 @@ impl<'input, Endian, Section> UnwindContext<'input, Endian, Section>
 
     fn push_row(&mut self) -> Result<()> {
         let new_row = self.row().clone();
-        if let Some(_) = self.stack.push(new_row) {
+        if self.stack.push(new_row).is_some() {
             Err(Error::CfiStackFull)
         } else {
             Ok(())
@@ -1819,7 +1833,7 @@ impl<'input, Endian> RegisterRuleMap<'input, Endian>
             .iter()
             .find(|rule| rule.0 == register)
             .map(|r| {
-                debug_assert!(r.1 != RegisterRule::Undefined);
+                debug_assert_ne!(r.1, RegisterRule::Undefined);
                 r.1.clone()
             })
             .unwrap_or(RegisterRule::Undefined)
@@ -1839,14 +1853,14 @@ impl<'input, Endian> RegisterRuleMap<'input, Endian>
         }
 
         for &mut (reg, ref mut old_rule) in &mut self.rules {
-            debug_assert!(*old_rule != RegisterRule::Undefined);
+            debug_assert_ne!(*old_rule, RegisterRule::Undefined);
             if reg == register {
                 mem::replace(old_rule, rule);
                 return Ok(());
             }
         }
 
-        if let Some(_) = self.rules.push((register, rule)) {
+        if self.rules.push((register, rule)).is_some() {
             Err(Error::TooManyRegisterRules)
         } else {
             Ok(())
@@ -1885,14 +1899,14 @@ impl<'input, Endian> PartialEq for RegisterRuleMap<'input, Endian>
 {
     fn eq(&self, rhs: &Self) -> bool {
         for &(reg, ref rule) in &self.rules {
-            debug_assert!(*rule != RegisterRule::Undefined);
+            debug_assert_ne!(*rule, RegisterRule::Undefined);
             if *rule != rhs.get(reg) {
                 return false;
             }
         }
 
         for &(reg, ref rhs_rule) in &rhs.rules {
-            debug_assert!(*rhs_rule != RegisterRule::Undefined);
+            debug_assert_ne!(*rhs_rule, RegisterRule::Undefined);
             if *rhs_rule != self.get(reg) {
                 return false;
             }
@@ -2425,7 +2439,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             return Ok((rest, CallFrameInstruction::Restore { register: register }));
         }
 
-        debug_assert!(high_bits == 0);
+        debug_assert_eq!(high_bits, 0);
         let instruction = constants::DwCfa(instruction);
 
         match instruction {

@@ -148,6 +148,15 @@
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
 
+// Allow clippy warnings when we aren't building with clippy.
+#![allow(unknown_lints)]
+// False positives with `fallible_iterator`.
+#![allow(should_implement_trait)]
+// Many false positives involving `continue`.
+#![allow(never_loop)]
+// False positives when block expressions are used inside an assertion.
+#![allow(panic_params)]
+
 extern crate arrayvec;
 extern crate byteorder;
 extern crate fallible_iterator;

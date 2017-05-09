@@ -11,7 +11,7 @@ use std::io::Read;
 use std::path::PathBuf;
 
 pub fn read_section(section: &str) -> Vec<u8> {
-    let mut path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or(".".into()));
+    let mut path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into()));
     path.push("./fixtures/self/");
     path.push(section);
 
@@ -157,7 +157,7 @@ fn bench_parsing_line_number_program_opcodes(b: &mut test::Bencher) {
         let header = program.header();
 
         let mut opcodes = header.opcodes();
-        while let Some(opcode) = opcodes.next_opcode(&header).expect("Should parse opcode") {
+        while let Some(opcode) = opcodes.next_opcode(header).expect("Should parse opcode") {
             test::black_box(opcode);
         }
     });

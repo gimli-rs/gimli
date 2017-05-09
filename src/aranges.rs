@@ -60,7 +60,7 @@ impl PartialEq for ArangeEntry {
                self.address == other.address,
                self.length == other.length) {
             (true, true, true) => {
-                debug_assert!(self.header == other.header);
+                debug_assert_eq!(self.header, other.header);
                 true
             }
             _ => false,
@@ -107,6 +107,7 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
 
     /// Parse an arange set header. Returns a tuple of the remaining arange sets, the aranges to be
     /// parsed for this set, and the newly created ArangeHeader struct.
+    #[allow(type_complexity)]
     fn parse_header(input: EndianBuf<Endian>)
                     -> Result<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<Self::Header>)> {
         let (rest, (length, format)) = try!(parse_initial_length(input));

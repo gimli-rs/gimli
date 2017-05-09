@@ -975,6 +975,8 @@ impl<'input, Endian> Attribute<'input, Endian>
     /// name.
     ///
     /// See "Figure 20. Attribute encodings" and "Figure 21. Attribute form encodings".
+    #[allow(cyclomatic_complexity)]
+    #[allow(match_same_arms)]
     pub fn value(&self) -> AttributeValue<'input, Endian> {
         // Figure 20 shows the possible attribute classes for each name.
         // Figure 21 shows the possible attribute classes for each form.
@@ -1795,15 +1797,16 @@ impl<'input, 'abbrev, 'entry, 'unit, Endian> AttrsIter<'input, 'abbrev, 'entry, 
     /// Returns `None` when iteration is finished. If an error
     /// occurs while parsing the next attribute, then this error
     /// is returned on all subsequent calls.
+    #[allow(inline_always)]
     #[inline(always)]
     pub fn next(&mut self) -> Result<Option<Attribute<'input, Endian>>> {
-        if self.attributes.len() == 0 {
+        if self.attributes.is_empty() {
             // Now that we have parsed all of the attributes, we know where
             // either (1) this entry's children start, if the abbreviation says
             // this entry has children; or (2) where this entry's siblings
             // begin.
             if let Some(end) = self.entry.after_attrs.get() {
-                debug_assert!(end == self.input);
+                debug_assert_eq!(end, self.input);
             } else {
                 self.entry.after_attrs.set(Some(self.input));
             }
@@ -1900,7 +1903,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// If there is no next entry, then `None` is returned.
     pub fn next_entry(&mut self) -> Result<Option<()>> {
         let input = try!(self.after_entry());
-        if input.len() == 0 {
+        if input.is_empty() {
             self.input = input;
             self.cached_current = None;
             self.delta_depth = 0;
@@ -2061,7 +2064,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
             // Note that this doesn't handle unusual LEB128 encodings of zero
             // such as [0x80, 0x00]; they are still handled by next_entry().
             let mut input = try!(self.after_entry());
-            while input.len() > 0 && input[0] == 0 {
+            while !input.is_empty() && input[0] == 0 {
                 delta_depth -= 1;
                 input = &input[1..];
             }
