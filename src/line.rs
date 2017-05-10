@@ -160,6 +160,7 @@ impl<'input, Program, Endian> StateMachine<'input, Program, Endian>
     where Program: LineNumberProgram<'input, Endian>,
           Endian: Endianity
 {
+    #[allow(new_ret_no_self)]
     fn new(program: IncompleteLineNumberProgram<'input, Endian>)
            -> OneShotStateMachine<'input, Endian> {
         let mut row = LineNumberRow::default();
@@ -719,9 +720,10 @@ impl<'input, Endian> OpcodesIter<'input, Endian>
 {
     fn remove_trailing(&self, other: &OpcodesIter<'input, Endian>) -> OpcodesIter<'input, Endian> {
         debug_assert!(other.input.len() < self.input.len());
-        debug_assert!(other.input.as_ptr() > self.input.as_ptr() &&
-                      other.input.as_ptr() <=
-                      unsafe { self.input.as_ptr().offset(self.input.len() as isize) });
+        debug_assert!(other.input.as_ptr() > self.input.as_ptr());
+        debug_assert!(other.input.as_ptr() <= unsafe {
+            self.input.as_ptr().offset(self.input.len() as isize)
+        });
         OpcodesIter {
             input: self.input.split_at(self.input.len() - other.input.len()).0,
             endian: self.endian,
@@ -744,7 +746,7 @@ impl<'input, Endian> OpcodesIter<'input, Endian>
     pub fn next_opcode(&mut self,
                        header: &LineNumberProgramHeader<'input, Endian>)
                        -> parser::Result<Option<Opcode<'input>>> {
-        if self.input.len() == 0 {
+        if self.input.is_empty() {
             return Ok(None);
         }
 
@@ -1209,7 +1211,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
 
         let mut include_directories = Vec::new();
         loop {
-            if rest.len() == 0 {
+            if rest.is_empty() {
                 return Err(parser::Error::UnexpectedEof);
             }
 
@@ -1225,7 +1227,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
 
         let mut file_names = Vec::new();
         loop {
-            if rest.len() == 0 {
+            if rest.is_empty() {
                 return Err(parser::Error::UnexpectedEof);
             }
 
@@ -1326,7 +1328,7 @@ impl<'input, Endian> IncompleteLineNumberProgram<'input, Endian>
             if row.end_sequence() {
                 sequence_end_addr = row.address();
             } else if sequence_start_addr.is_none() {
-                sequence_start_addr = Some((row.address()));
+                sequence_start_addr = Some(row.address());
                 continue;
             } else {
                 continue;

@@ -259,7 +259,7 @@ pub type Result<T> = result::Result<T, Error>;
 #[doc(hidden)]
 #[inline]
 pub fn parse_u8(input: &[u8]) -> Result<(&[u8], u8)> {
-    if input.len() == 0 {
+    if input.is_empty() {
         Err(Error::UnexpectedEof)
     } else {
         Ok((&input[1..], input[0]))
@@ -270,7 +270,7 @@ pub fn parse_u8(input: &[u8]) -> Result<(&[u8], u8)> {
 #[doc(hidden)]
 #[inline]
 pub fn parse_i8(input: &[u8]) -> Result<(&[u8], i8)> {
-    if input.len() == 0 {
+    if input.is_empty() {
         Err(Error::UnexpectedEof)
     } else {
         Ok((&input[1..], input[0] as i8))
@@ -547,7 +547,7 @@ pub fn parse_null_terminated_string(input: &[u8]) -> Result<(&[u8], &ffi::CStr)>
     }
 }
 
-/// Parse a DW_EH_PE_* pointer encoding.
+/// Parse a `DW_EH_PE_*` pointer encoding.
 #[doc(hidden)]
 #[inline]
 pub fn parse_pointer_encoding<Endian>(input: EndianBuf<Endian>)
@@ -588,8 +588,7 @@ impl Default for Pointer {
 impl Into<u64> for Pointer {
     fn into(self) -> u64 {
         match self {
-            Pointer::Direct(p) => p,
-            Pointer::Indirect(p) => p,
+            Pointer::Direct(p) | Pointer::Indirect(p) => p,
         }
     }
 }

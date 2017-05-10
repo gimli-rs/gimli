@@ -90,7 +90,7 @@ fn test_parse_self_debug_line() {
             let mut rows = program.rows();
             while let Some((_, row)) = rows.next_row()
                 .expect("Should parse and execute all rows in the line number program") {
-                results.push(row.clone());
+                results.push(*row);
             }
             results.reverse();
 
@@ -98,7 +98,7 @@ fn test_parse_self_debug_line() {
                 .expect("should parse line number program header");
             let (program, sequences) = program.sequences()
                 .expect("should parse and execute the entire line number program");
-            assert!(sequences.len() > 0); // Should be at least one sequence.
+            assert!(!sequences.is_empty()); // Should be at least one sequence.
             for sequence in sequences {
                 let mut rows = program.resume_from(&sequence);
                 while let Some((_, row)) = rows.next_row()

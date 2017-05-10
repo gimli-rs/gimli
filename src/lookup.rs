@@ -26,6 +26,7 @@ pub trait LookupParser<'input, Endian>
     /// Parse a header from `input`. Returns a tuple of `input` sliced beyond this header and
     /// all of its entries, `input` sliced to contain just the entries corresponding to this
     /// header (without the header itself), and the parsed representation of the header itself.
+    #[allow(type_complexity)]
     fn parse_header(input: EndianBuf<Endian>)
                     -> Result<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<Self::Header>)>;
 
@@ -171,6 +172,7 @@ impl<'input, Endian, Switch> LookupParser<'input, Endian> for PubStuffParser<'in
 
     /// Parse an pubthings set header. Returns a tuple of the remaining pubthings sets, the
     /// pubthings to be parsed for this set, and the newly created PubThingHeader struct.
+    #[allow(type_complexity)]
     fn parse_header(input: EndianBuf<Endian>)
                     -> Result<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<Self::Header>)> {
         let (rest, (set_length, format)) = try!(parse_initial_length(input.into()));

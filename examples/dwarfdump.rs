@@ -1,3 +1,6 @@
+// Allow clippy lints when building without clippy.
+#![allow(unknown_lints)]
+
 extern crate fallible_iterator;
 extern crate gimli;
 extern crate getopts;
@@ -80,14 +83,14 @@ fn main() {
             .expect("Should parse object file");
 
         if file.is_little_endian() {
-            dump_file::<gimli::LittleEndian>(file, &flags);
+            dump_file::<gimli::LittleEndian>(&file, &flags);
         } else {
-            dump_file::<gimli::BigEndian>(file, &flags);
+            dump_file::<gimli::BigEndian>(&file, &flags);
         }
     }
 }
 
-fn dump_file<Endian>(file: object::File, flags: &Flags)
+fn dump_file<Endian>(file: &object::File, flags: &Flags)
     where Endian: gimli::Endianity
 {
     let debug_abbrev = file.get_section(".debug_abbrev").unwrap_or(&[]);
@@ -102,14 +105,14 @@ fn dump_file<Endian>(file: object::File, flags: &Flags)
     let debug_str = gimli::DebugStr::<Endian>::new(debug_str);
 
     if flags.info {
-        dump_info(&file,
+        dump_info(file,
                   debug_abbrev,
                   debug_line,
                   debug_loc,
                   debug_ranges,
                   debug_str,
                   flags);
-        dump_types(&file,
+        dump_types(file,
                    debug_abbrev,
                    debug_line,
                    debug_loc,
@@ -119,10 +122,10 @@ fn dump_file<Endian>(file: object::File, flags: &Flags)
         println!("");
     }
     if flags.line {
-        dump_line(&file, debug_abbrev);
+        dump_line(file, debug_abbrev);
     }
     if flags.aranges {
-        dump_aranges::<Endian>(&file);
+        dump_aranges::<Endian>(file);
     }
 }
 
@@ -210,6 +213,7 @@ struct Unit<'input, Endian>
     comp_name: Option<&'input std::ffi::CStr>,
 }
 
+#[allow(too_many_arguments)]
 fn dump_entries<Endian>(offset: usize,
                         mut entries: gimli::EntriesCursor<Endian>,
                         address_size: u8,
@@ -774,7 +778,7 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
                     println!("");
                     println!("Line Number Statements:");
                     let mut opcodes = header.opcodes();
-                    while let Some(opcode) = opcodes.next_opcode(&header)
+                    while let Some(opcode) = opcodes.next_opcode(header)
                         .expect("Should parse opcode OK") {
                         println!("  {}", opcode);
                     }
