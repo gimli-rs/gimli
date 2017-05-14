@@ -24,6 +24,24 @@ use Section;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugTypesOffset(pub usize);
 
+impl DebugTypesOffset {
+    /// Convert an offset to be relative to the start of the given unit,
+    /// instead of relative to the start of the .debug_types section.
+    /// Returns `None` if the offset is not within the unit entries.
+    pub fn to_unit_offset<Endian>(&self, unit: &TypeUnitHeader<Endian>) -> Option<UnitOffset>
+        where Endian: Endianity
+    {
+        if self.0 < unit.offset.0 {
+            return None;
+        }
+        let offset = UnitOffset(self.0 - unit.offset.0);
+        if !unit.header.is_valid_offset(offset) {
+            return None;
+        }
+        Some(offset)
+    }
+}
+
 /// A type signature as used in the `.debug_types` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugTypeSignature(pub u64);
@@ -32,9 +50,47 @@ pub struct DebugTypeSignature(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugInfoOffset(pub usize);
 
+impl DebugInfoOffset {
+    /// Convert an offset to be relative to the start of the given unit,
+    /// instead of relative to the start of the .debug_info section.
+    /// Returns `None` if the offset is not within this unit entries.
+    pub fn to_unit_offset<Endian>(&self, unit: &CompilationUnitHeader<Endian>) -> Option<UnitOffset>
+        where Endian: Endianity
+    {
+        if self.0 < unit.offset.0 {
+            return None;
+        }
+        let offset = UnitOffset(self.0 - unit.offset.0);
+        if !unit.header.is_valid_offset(offset) {
+            return None;
+        }
+        Some(offset)
+    }
+}
+
 /// An offset into the current compilation or type unit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct UnitOffset(pub usize);
+
+impl UnitOffset {
+    /// Convert an offset to be relative to the start of the .debug_info section,
+    /// instead of relative to the start of the given compilation unit.
+    pub fn to_debug_info_offset<Endian>(&self,
+                                        unit: &CompilationUnitHeader<Endian>)
+                                        -> DebugInfoOffset
+        where Endian: Endianity
+    {
+        DebugInfoOffset(unit.offset.0 + self.0)
+    }
+
+    /// Convert an offset to be relative to the start of the .debug_types section,
+    /// instead of relative to the start of the given type unit.
+    pub fn to_debug_types_offset<Endian>(&self, unit: &TypeUnitHeader<Endian>) -> DebugTypesOffset
+        where Endian: Endianity
+    {
+        DebugTypesOffset(unit.offset.0 + self.0)
+    }
+}
 
 /// The `DebugInfo` struct represents the DWARF debugging information found in
 /// the `.debug_info` section.
@@ -4515,5 +4571,82 @@ mod tests {
         assert_entry(iter.next(), "2a");
         assert_entry(iter.next(), "2b");
         assert_null(iter.next());
+    }
+
+    #[test]
+    fn test_debug_info_offset() {
+        let padding = &[0; 10];
+        let entries = &[0; 20];
+        let mut unit = CompilationUnitHeader::<LittleEndian> {
+            header: UnitHeader {
+                unit_length: 0,
+                version: 4,
+                debug_abbrev_offset: DebugAbbrevOffset(0),
+                address_size: 4,
+                format: Format::Dwarf32,
+                entries_buf: EndianBuf::new(entries),
+            },
+            offset: DebugInfoOffset(0),
+        };
+        Section::with_endian(Endian::Little)
+            .append_bytes(padding)
+            .comp_unit(&mut unit);
+        let offset = padding.len();
+        let header_length = CompilationUnitHeader::<LittleEndian>::size_of_header(unit.format());
+        let length = unit.length_including_self() as usize;
+        assert_eq!(DebugInfoOffset(0).to_unit_offset(&unit), None);
+        assert_eq!(DebugInfoOffset(offset - 1).to_unit_offset(&unit), None);
+        assert_eq!(DebugInfoOffset(offset).to_unit_offset(&unit), None);
+        assert_eq!(DebugInfoOffset(offset + header_length - 1).to_unit_offset(&unit),
+                   None);
+        assert_eq!(DebugInfoOffset(offset + header_length).to_unit_offset(&unit),
+                   Some(UnitOffset(header_length)));
+        assert_eq!(DebugInfoOffset(offset + length - 1).to_unit_offset(&unit),
+                   Some(UnitOffset(length - 1)));
+        assert_eq!(DebugInfoOffset(offset + length).to_unit_offset(&unit), None);
+        assert_eq!(UnitOffset(header_length).to_debug_info_offset(&unit),
+                   DebugInfoOffset(offset + header_length));
+        assert_eq!(UnitOffset(length - 1).to_debug_info_offset(&unit),
+                   DebugInfoOffset(offset + length - 1));
+    }
+
+    #[test]
+    fn test_debug_types_offset() {
+        let padding = &[0; 10];
+        let entries = &[0; 20];
+        let mut unit = TypeUnitHeader::<LittleEndian> {
+            header: UnitHeader {
+                unit_length: 0,
+                version: 4,
+                debug_abbrev_offset: DebugAbbrevOffset(0),
+                address_size: 4,
+                format: Format::Dwarf32,
+                entries_buf: EndianBuf::new(entries),
+            },
+            type_signature: DebugTypeSignature(0),
+            type_offset: UnitOffset(0),
+            offset: DebugTypesOffset(0),
+        };
+        Section::with_endian(Endian::Little)
+            .append_bytes(padding)
+            .type_unit(&mut unit);
+        let offset = padding.len();
+        let header_length = TypeUnitHeader::<LittleEndian>::size_of_header(unit.format());
+        let length = unit.length_including_self() as usize;
+        assert_eq!(DebugTypesOffset(0).to_unit_offset(&unit), None);
+        assert_eq!(DebugTypesOffset(offset - 1).to_unit_offset(&unit), None);
+        assert_eq!(DebugTypesOffset(offset).to_unit_offset(&unit), None);
+        assert_eq!(DebugTypesOffset(offset + header_length - 1).to_unit_offset(&unit),
+                   None);
+        assert_eq!(DebugTypesOffset(offset + header_length).to_unit_offset(&unit),
+                   Some(UnitOffset(header_length)));
+        assert_eq!(DebugTypesOffset(offset + length - 1).to_unit_offset(&unit),
+                   Some(UnitOffset(length - 1)));
+        assert_eq!(DebugTypesOffset(offset + length).to_unit_offset(&unit),
+                   None);
+        assert_eq!(UnitOffset(header_length).to_debug_types_offset(&unit),
+                   DebugTypesOffset(offset + header_length));
+        assert_eq!(UnitOffset(length - 1).to_debug_types_offset(&unit),
+                   DebugTypesOffset(offset + length - 1));
     }
 }
