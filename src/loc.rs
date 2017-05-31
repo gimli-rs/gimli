@@ -224,7 +224,7 @@ impl<'input, Endian> FallibleIterator for LocationListIter<'input, Endian>
 }
 
 /// A location list entry from the `.debug_loc` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LocationListEntry<'input, Endian>
     where Endian: Endianity
 {
