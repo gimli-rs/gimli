@@ -23,7 +23,7 @@ pub trait Endianity
 }
 
 /// Little endian byte order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LittleEndian {}
 
 impl Default for LittleEndian {
@@ -66,7 +66,7 @@ impl Endianity for LittleEndian {
 }
 
 /// Big endian byte order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BigEndian {}
 
 impl Default for BigEndian {
@@ -115,7 +115,7 @@ pub type NativeEndian = LittleEndian;
 pub type NativeEndian = BigEndian;
 
 /// A `&[u8]` slice with compile-time endianity metadata.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EndianBuf<'input, Endian>(pub &'input [u8], pub PhantomData<Endian>)
     where Endian: Endianity;
 

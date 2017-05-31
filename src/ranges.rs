@@ -220,7 +220,7 @@ impl<'input, Endian> FallibleIterator for RangesIter<'input, Endian>
 }
 
 /// An address range from the `.debug_ranges` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Range {
     /// The beginning address of the range.
     pub begin: u64,
