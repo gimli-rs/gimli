@@ -753,7 +753,7 @@ pub fn parse_signed_leb(mut input: &[u8]) -> Result<(&[u8], i64)> {
 }
 
 /// Whether the format of a compilation unit is 32- or 64-bit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Format {
     /// 64-bit DWARF
     Dwarf64,
