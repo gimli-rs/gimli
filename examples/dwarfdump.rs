@@ -306,7 +306,10 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
             }
             println!("");
         }
-        gimli::AttributeValue::Data(_) => {
+        gimli::AttributeValue::Data1(_) |
+        gimli::AttributeValue::Data2(_) |
+        gimli::AttributeValue::Data4(_) |
+        gimli::AttributeValue::Data8(_) => {
             if let (Some(udata), Some(sdata)) = (attr.udata_value(), attr.sdata_value()) {
                 if sdata >= 0 {
                     println!("{}", udata);
