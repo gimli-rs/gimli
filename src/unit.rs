@@ -13,8 +13,10 @@ use parser::{Error, Result, Format, DebugMacinfoOffset, parse_u8, parse_u16, par
              parse_address_as_offset, u64_to_offset};
 use ranges::DebugRangesOffset;
 use std::cell::Cell;
+use std::convert::AsMut;
 use std::ffi;
 use std::marker::PhantomData;
+use std::mem;
 use std::ops::{Range, RangeFrom, RangeTo};
 use std::{u8, u16};
 use str::{DebugStr, DebugStrOffset};
@@ -894,6 +896,10 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
 }
 
 /// The value of an attribute in a `DebuggingInformationEntry`.
+//
+// Set the discriminant size so that all variants use the same alignment
+// for their data.  This gives better code generation in `parse_attribute`.
+#[repr(u64)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AttributeValue<'input, Endian>
     where Endian: Endianity
@@ -904,13 +910,33 @@ pub enum AttributeValue<'input, Endian>
     /// A slice of an arbitrary number of bytes.
     Block(EndianBuf<'input, Endian>),
 
-    /// A one, two, four, or eight byte constant data value. How to interpret
-    /// the bytes depends on context.
+    /// A one byte constant data value. How to interpret the byte depends on context.
     ///
     /// From section 7 of the standard: "Depending on context, it may be a
     /// signed integer, an unsigned integer, a floating-point constant, or
     /// anything else."
-    Data(EndianBuf<'input, Endian>),
+    Data1([u8; 1]),
+
+    /// A two byte constant data value. How to interpret the bytes depends on context.
+    ///
+    /// From section 7 of the standard: "Depending on context, it may be a
+    /// signed integer, an unsigned integer, a floating-point constant, or
+    /// anything else."
+    Data2([u8; 2]),
+
+    /// A four byte constant data value. How to interpret the bytes depends on context.
+    ///
+    /// From section 7 of the standard: "Depending on context, it may be a
+    /// signed integer, an unsigned integer, a floating-point constant, or
+    /// anything else."
+    Data4([u8; 4]),
+
+    /// An eight byte constant data value. How to interpret the bytes depends on context.
+    ///
+    /// From section 7 of the standard: "Depending on context, it may be a
+    /// signed integer, an unsigned integer, a floating-point constant, or
+    /// anything else."
+    Data8([u8; 8]),
 
     /// A signed integer constant.
     Sdata(i64),
@@ -1443,10 +1469,10 @@ impl<'input, Endian> Attribute<'input, Endian>
     /// Try to convert this attribute's value to an unsigned integer.
     pub fn udata_value(&self) -> Option<u64> {
         Some(match self.value {
-            AttributeValue::Data(data) if data.len() == 1 => data[0] as u64,
-            AttributeValue::Data(data) if data.len() == 2 => Endian::read_u16(data.into()) as u64,
-            AttributeValue::Data(data) if data.len() == 4 => Endian::read_u32(data.into()) as u64,
-            AttributeValue::Data(data) if data.len() == 8 => Endian::read_u64(data.into()),
+            AttributeValue::Data1(ref data) => data[0] as u64,
+            AttributeValue::Data2(ref data) => Endian::read_u16(data) as u64,
+            AttributeValue::Data4(ref data) => Endian::read_u32(data) as u64,
+            AttributeValue::Data8(ref data) => Endian::read_u64(data),
             AttributeValue::Udata(data) => data,
             _ => return None,
         })
@@ -1455,14 +1481,14 @@ impl<'input, Endian> Attribute<'input, Endian>
     /// Try to convert this attribute's value to a signed integer.
     pub fn sdata_value(&self) -> Option<i64> {
         Some(match self.value {
-            AttributeValue::Data(data) if data.len() == 1 => data[0] as i8 as i64,
-            AttributeValue::Data(data) if data.len() == 2 => {
-                Endian::read_u16(data.into()) as i16 as i64
+            AttributeValue::Data1(ref data) => data[0] as i8 as i64,
+            AttributeValue::Data2(ref data) => {
+                Endian::read_u16(data) as i16 as i64
             }
-            AttributeValue::Data(data) if data.len() == 4 => {
-                Endian::read_u32(data.into()) as i32 as i64
+            AttributeValue::Data4(ref data) => {
+                Endian::read_u32(data) as i32 as i64
             }
-            AttributeValue::Data(data) if data.len() == 8 => Endian::read_u64(data.into()) as i64,
+            AttributeValue::Data8(ref data) => Endian::read_u64(data) as i64,
             AttributeValue::Sdata(data) => data,
             _ => return None,
         })
@@ -1473,12 +1499,12 @@ impl<'input, Endian> Attribute<'input, Endian>
     /// Offsets will be `Data` in DWARF version 2/3, and `SecOffset` otherwise.
     pub fn offset_value(&self) -> Option<usize> {
         match self.value {
-            AttributeValue::Data(data) => {
-                let offset = match data.len() {
-                    4 => Endian::read_u32(data.into()) as u64,
-                    8 => Endian::read_u64(data.into()),
-                    _ => return None,
-                };
+            AttributeValue::Data4(ref data) => {
+                let offset = Endian::read_u32(data) as u64;
+                u64_to_offset(offset).ok()
+            }
+            AttributeValue::Data8(ref data) => {
+                let offset = Endian::read_u64(data);
                 u64_to_offset(offset).ok()
             }
             AttributeValue::SecOffset(offset) => Some(offset),
@@ -1538,6 +1564,20 @@ fn length_u32_value<Endian>(input: EndianBuf<Endian>)
     take(len as usize, rest)
 }
 
+fn parse_u8_array<A>(input: &[u8]) -> Result<(&[u8], A)>
+    where A: Sized + Default + AsMut<[u8]>
+{
+    let len = mem::size_of::<A>();
+    if input.len() < len {
+        Err(Error::UnexpectedEof)
+    } else {
+        let (data, rest) = input.split_at(len);
+        let mut a = Default::default();
+        <A as AsMut<[u8]>>::as_mut(&mut a).clone_from_slice(data);
+        Ok((rest, a))
+    }
+}
+
 fn parse_attribute<'input, 'unit, Endian>
     (mut input: EndianBuf<'input, Endian>,
      unit: &'unit UnitHeader<'input, Endian>,
@@ -1547,75 +1587,40 @@ fn parse_attribute<'input, 'unit, Endian>
 {
     let mut form = spec.form();
     loop {
-        match form {
+        let (rest, value) = match form {
             constants::DW_FORM_indirect => {
-                let (rest, dynamic_form) = try!(parse_unsigned_leb(input.into()));
+                let (rest, dynamic_form) = parse_unsigned_leb(input.into())?;
                 form = constants::DwForm(dynamic_form);
                 input = EndianBuf::new(rest);
                 continue;
             }
             constants::DW_FORM_addr => {
-                return parse_address(input, unit.address_size()).map(|(rest, addr)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::Addr(addr),
-                    };
-                    (rest, attr)
-                });
+                let (rest, addr) = parse_address(input, unit.address_size())?;
+                (rest, AttributeValue::Addr(addr))
             }
             constants::DW_FORM_block1 => {
-                return length_u8_value(input.into()).map(|(rest, block)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::Block(block),
-                    };
-                    (rest, attr)
-                });
+                let (rest, block) = length_u8_value(input)?;
+                (rest, AttributeValue::Block(block))
             }
             constants::DW_FORM_block2 => {
-                return length_u16_value(input.into()).map(|(rest, block)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::Block(block),
-                    };
-                    (rest, attr)
-                });
+                let (rest, block) = length_u16_value(input)?;
+                (rest, AttributeValue::Block(block))
             }
             constants::DW_FORM_block4 => {
-                return length_u32_value(input.into()).map(|(rest, block)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::Block(block),
-                    };
-                    (rest, attr)
-                });
+                let (rest, block) = length_u32_value(input)?;
+                (rest, AttributeValue::Block(block))
             }
             constants::DW_FORM_block => {
-                return parse_length_uleb_value(input.into()).map(|(rest, block)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::Block(block),
-                    };
-                    (rest, attr)
-                });
+                let (rest, block) = parse_length_uleb_value(input)?;
+                (rest, AttributeValue::Block(block))
             }
             constants::DW_FORM_data1 => {
-                return take(1, input.into()).map(|(rest, data)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::Data(data),
-                    };
-                    (rest, attr)
-                });
+                let (rest, data) = parse_u8_array(input.into())?;
+                (EndianBuf::new(rest), AttributeValue::Data1(data))
             }
             constants::DW_FORM_data2 => {
-                return take(2, input.into()).map(|(rest, data)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::Data(data),
-                    };
-                    (rest, attr)
-                });
+                let (rest, data) = parse_u8_array(input.into())?;
+                (EndianBuf::new(rest), AttributeValue::Data2(data))
             }
             constants::DW_FORM_data4 => {
                 // DWARF version 2/3 may use DW_FORM_data4/8 for section offsets.
@@ -1624,21 +1629,12 @@ fn parse_attribute<'input, 'unit, Endian>
                 // `DW_AT_data_member_location`.
                 if (unit.version() == 2 || unit.version() == 3) &&
                    spec.name() == constants::DW_AT_data_member_location {
-                    let (rest, offset) = try!(parse_u32(input.into()));
-                    let offset = try!(u64_to_offset(offset as u64));
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::SecOffset(offset as usize),
-                    };
-                    return Ok((rest, attr));
+                    let (rest, offset) = parse_u32(input)?;
+                    let offset = u64_to_offset(offset as u64)?;
+                    (rest, AttributeValue::SecOffset(offset as usize))
                 } else {
-                    return take(4, input.into()).map(|(rest, data)| {
-                        let attr = Attribute {
-                            name: spec.name(),
-                            value: AttributeValue::Data(data),
-                        };
-                        (rest, attr)
-                    });
+                    let (rest, data) = parse_u8_array(input.into())?;
+                    (EndianBuf::new(rest), AttributeValue::Data4(data))
                 }
             }
             constants::DW_FORM_data8 => {
@@ -1648,180 +1644,91 @@ fn parse_attribute<'input, 'unit, Endian>
                 // `DW_AT_data_member_location`.
                 if (unit.version() == 2 || unit.version() == 3) &&
                    spec.name() == constants::DW_AT_data_member_location {
-                    let (rest, offset) = try!(parse_u64(input.into()));
-                    let offset = try!(u64_to_offset(offset));
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::SecOffset(offset as usize),
-                    };
-                    return Ok((rest, attr));
+                    let (rest, offset) = parse_u64(input)?;
+                    let offset = u64_to_offset(offset)?;
+                    (rest, AttributeValue::SecOffset(offset as usize))
                 } else {
-                    return take(8, input.into()).map(|(rest, data)| {
-                        let attr = Attribute {
-                            name: spec.name(),
-                            value: AttributeValue::Data(data),
-                        };
-                        (rest, attr)
-                    });
+                    let (rest, data) = parse_u8_array(input.into())?;
+                    (EndianBuf::new(rest), AttributeValue::Data8(data))
                 }
             }
             constants::DW_FORM_udata => {
-                return parse_unsigned_leb(input.into()).map(|(rest, data)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::Udata(data),
-                    };
-                    (EndianBuf::new(rest), attr)
-                });
+                let (rest, data) = parse_unsigned_leb(input.into())?;
+                (EndianBuf::new(rest), AttributeValue::Udata(data))
             }
             constants::DW_FORM_sdata => {
-                return parse_signed_leb(input.into()).map(|(rest, data)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::Sdata(data),
-                    };
-                    (EndianBuf::new(rest), attr)
-                });
+                let (rest, data) = parse_signed_leb(input.into())?;
+                (EndianBuf::new(rest), AttributeValue::Sdata(data))
             }
             constants::DW_FORM_exprloc => {
-                return parse_length_uleb_value(input.into()).map(|(rest, block)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::Exprloc(block),
-                    };
-                    (rest, attr)
-                })
+                let (rest, block) = parse_length_uleb_value(input)?;
+                (rest, AttributeValue::Exprloc(block))
             }
             constants::DW_FORM_flag => {
-                return parse_u8(input.into()).map(|(rest, present)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::Flag(present != 0),
-                    };
-                    (EndianBuf::new(rest), attr)
-                })
+                let (rest, present) = parse_u8(input.into())?;
+                (EndianBuf::new(rest), AttributeValue::Flag(present != 0))
             }
             constants::DW_FORM_flag_present => {
                 // FlagPresent is this weird compile time always true thing that
-                // isn't actually present in the serialized DIEs, only in Ok(
-                return Ok((input,
-                           Attribute {
-                    name: spec.name(),
-                    value: AttributeValue::Flag(true),
-                }));
+                // isn't actually present in the serialized DIEs, only in the abbreviation.
+                (input, AttributeValue::Flag(true))
             }
             constants::DW_FORM_sec_offset => {
-                return parse_offset(input.into(), unit.format()).map(|(rest, offset)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::SecOffset(offset),
-                    };
-                    (rest, attr)
-                });
+                let (rest, offset) = parse_offset(input, unit.format())?;
+                (rest, AttributeValue::SecOffset(offset))
             }
             constants::DW_FORM_ref1 => {
-                return parse_u8(input.into()).map(|(rest, reference)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::UnitRef(UnitOffset(reference as usize)),
-                    };
-                    (EndianBuf::new(rest), attr)
-                });
+                let (rest, reference) = parse_u8(input.into())?;
+                (EndianBuf::new(rest), AttributeValue::UnitRef(UnitOffset(reference as usize)))
             }
             constants::DW_FORM_ref2 => {
-                return parse_u16(input.into()).map(|(rest, reference)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::UnitRef(UnitOffset(reference as usize)),
-                    };
-                    (rest, attr)
-                });
+                let (rest, reference) = parse_u16(input)?;
+                (rest, AttributeValue::UnitRef(UnitOffset(reference as usize)))
             }
             constants::DW_FORM_ref4 => {
-                return parse_u32(input.into()).map(|(rest, reference)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::UnitRef(UnitOffset(reference as usize)),
-                    };
-                    (rest, attr)
-                });
+                let (rest, reference) = parse_u32(input)?;
+                (rest, AttributeValue::UnitRef(UnitOffset(reference as usize)))
             }
             constants::DW_FORM_ref8 => {
-                return parse_u64_as_offset(input.into()).map(|(rest, reference)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::UnitRef(UnitOffset(reference)),
-                    };
-                    (rest, attr)
-                });
+                let (rest, reference) = parse_u64_as_offset(input)?;
+                (rest, AttributeValue::UnitRef(UnitOffset(reference)))
             }
             constants::DW_FORM_ref_udata => {
-                return parse_uleb_as_offset(input.into()).map(|(rest, reference)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::UnitRef(UnitOffset(reference)),
-                    };
-                    (rest, attr)
-                });
+                let (rest, reference) = parse_uleb_as_offset(input)?;
+                (rest, AttributeValue::UnitRef(UnitOffset(reference)))
             }
             constants::DW_FORM_ref_addr => {
                 // This is an offset, but DWARF version 2 specifies that DW_FORM_ref_addr
                 // has the same size as an address on the target system.  This was changed
                 // in DWARF version 3.
-                if unit.version() == 2 {
-                    return parse_address_as_offset(input, unit.address_size())
-                        .map(|(rest, offset)| {
-                            let offset = DebugInfoOffset(offset);
-                            let attr = Attribute {
-                                name: spec.name(),
-                                value: AttributeValue::DebugInfoRef(offset),
-                            };
-                            (rest, attr)
-                        });
+                let (rest, offset) = if unit.version() == 2 {
+                    parse_address_as_offset(input, unit.address_size())?
                 } else {
-                    return parse_offset(input, unit.format()).map(|(rest, offset)| {
-                        let offset = DebugInfoOffset(offset);
-                        let attr = Attribute {
-                            name: spec.name(),
-                            value: AttributeValue::DebugInfoRef(offset),
-                        };
-                        (rest, attr)
-                    });
-                }
+                    parse_offset(input, unit.format())?
+                };
+                (rest, AttributeValue::DebugInfoRef(DebugInfoOffset(offset)))
             }
             constants::DW_FORM_ref_sig8 => {
-                return parse_u64(input.into()).map(|(rest, signature)| {
-                    let signature = DebugTypeSignature(signature);
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::DebugTypesRef(signature),
-                    };
-                    (rest, attr)
-                });
+                let (rest, signature) = parse_u64(input)?;
+                (rest, AttributeValue::DebugTypesRef(DebugTypeSignature(signature)))
             }
             constants::DW_FORM_string => {
-                return parse_null_terminated_string(input.0).map(|(rest, string)| {
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::String(string),
-                    };
-                    (EndianBuf::new(rest), attr)
-                });
+                let (rest, string) = parse_null_terminated_string(input.0)?;
+                (EndianBuf::new(rest), AttributeValue::String(string))
             }
             constants::DW_FORM_strp => {
-                return parse_offset(input.into(), unit.format()).map(|(rest, offset)| {
-                    let offset = DebugStrOffset(offset);
-                    let attr = Attribute {
-                        name: spec.name(),
-                        value: AttributeValue::DebugStrRef(offset),
-                    };
-                    (rest, attr)
-                });
+                let (rest, offset) = parse_offset(input, unit.format())?;
+                (rest, AttributeValue::DebugStrRef(DebugStrOffset(offset)))
             }
             _ => {
                 return Err(Error::UnknownForm);
             }
         };
+        let attr = Attribute {
+            name: spec.name(),
+            value: value,
+        };
+        return Ok((rest, attr));
     }
 }
 
@@ -1871,8 +1778,9 @@ impl<'input, 'abbrev, 'entry, 'unit, Endian> AttrsIter<'input, 'abbrev, 'entry, 
         }
 
         let attr = self.attributes[0];
+        let rest_attr = &self.attributes[1..];
         let (rest, attr) = try!(parse_attribute(EndianBuf::new(self.input), self.entry.unit, attr));
-        self.attributes = &self.attributes[1..];
+        self.attributes = rest_attr;
         self.input = rest.into();
         Ok(Some(attr))
     }
@@ -3292,7 +3200,7 @@ mod tests {
                       constants::DW_AT_data_member_location,
                       constants::DW_FORM_data4,
                       data4,
-                      AttributeValue::Data(data4),
+                      AttributeValue::Data4([4, 3, 2, 1]),
                       AttributeValue::Udata(0x01020304)),
                      (2,
                       constants::DW_AT_data_member_location,
@@ -3304,7 +3212,7 @@ mod tests {
                       constants::DW_AT_data_member_location,
                       constants::DW_FORM_data8,
                       data8,
-                      AttributeValue::Data(data8),
+                      AttributeValue::Data8([8, 7, 6, 5, 4, 3, 2, 1]),
                       AttributeValue::Udata(0x0102030405060708))];
 
         for test in tests.iter() {
@@ -3320,31 +3228,14 @@ mod tests {
 
     #[test]
     fn test_attribute_udata_sdata_value() {
-        let buf = section_contents(|s| s.D8(1));
-        let p1i8 = EndianBuf::<LittleEndian>::new(&buf);
-        let buf = section_contents(|s| s.D8(std::u8::MAX));
-        let n1i8 = EndianBuf::<LittleEndian>::new(&buf);
-        let buf = section_contents(|s| s.D16(1));
-        let p1i16 = EndianBuf::<LittleEndian>::new(&buf);
-        let buf = section_contents(|s| s.D16(std::u16::MAX));
-        let n1i16 = EndianBuf::<LittleEndian>::new(&buf);
-        let buf = section_contents(|s| s.D32(1));
-        let p1i32 = EndianBuf::<LittleEndian>::new(&buf);
-        let buf = section_contents(|s| s.D32(std::u32::MAX));
-        let n1i32 = EndianBuf::<LittleEndian>::new(&buf);
-        let buf = section_contents(|s| s.D64(1));
-        let p1i64 = EndianBuf::<LittleEndian>::new(&buf);
-        let buf = section_contents(|s| s.D64(std::u64::MAX));
-        let n1i64 = EndianBuf::<LittleEndian>::new(&buf);
-
-        let tests = [(AttributeValue::Data(p1i8), Some(1), Some(1)),
-                     (AttributeValue::Data(n1i8), Some(std::u8::MAX as u64), Some(-1)),
-                     (AttributeValue::Data(p1i16), Some(1), Some(1)),
-                     (AttributeValue::Data(n1i16), Some(std::u16::MAX as u64), Some(-1)),
-                     (AttributeValue::Data(p1i32), Some(1), Some(1)),
-                     (AttributeValue::Data(n1i32), Some(std::u32::MAX as u64), Some(-1)),
-                     (AttributeValue::Data(p1i64), Some(1), Some(1)),
-                     (AttributeValue::Data(n1i64), Some(std::u64::MAX), Some(-1)),
+        let tests: &[(AttributeValue<LittleEndian>, _, _)] = &[(AttributeValue::Data1([1]), Some(1), Some(1)),
+                     (AttributeValue::Data1([255]), Some(std::u8::MAX as u64), Some(-1)),
+                     (AttributeValue::Data2([1, 0]), Some(1), Some(1)),
+                     (AttributeValue::Data2([255; 2]), Some(std::u16::MAX as u64), Some(-1)),
+                     (AttributeValue::Data4([1, 0, 0, 0]), Some(1), Some(1)),
+                     (AttributeValue::Data4([255; 4]), Some(std::u32::MAX as u64), Some(-1)),
+                     (AttributeValue::Data8([1, 0, 0, 0, 0, 0, 0, 0]), Some(1), Some(1)),
+                     (AttributeValue::Data8([255; 8]), Some(std::u64::MAX), Some(-1)),
                      (AttributeValue::Sdata(1), None, Some(1)),
                      (AttributeValue::Udata(1), Some(1), None)];
         for test in tests.iter() {
@@ -3464,7 +3355,7 @@ mod tests {
         let buf = [0x03];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_data1;
-        let value = AttributeValue::Data(EndianBuf::new(&buf[..]));
+        let value = AttributeValue::Data1([0x03]);
         test_parse_attribute(&buf, 1, &unit, form, value);
     }
 
@@ -3473,7 +3364,7 @@ mod tests {
         let buf = [0x02, 0x01, 0x0];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_data2;
-        let value = AttributeValue::Data(EndianBuf::new(&buf[..2]));
+        let value = AttributeValue::Data2([0x02, 0x01]);
         test_parse_attribute(&buf, 2, &unit, form, value);
     }
 
@@ -3482,7 +3373,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_data4;
-        let value = AttributeValue::Data(EndianBuf::new(&buf[..4]));
+        let value = AttributeValue::Data4([0x01, 0x02, 0x03, 0x04]);
         test_parse_attribute(&buf, 4, &unit, form, value);
     }
 
@@ -3491,7 +3382,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_data8;
-        let value = AttributeValue::Data(EndianBuf::new(&buf[..8]));
+        let value = AttributeValue::Data8([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
         test_parse_attribute(&buf, 8, &unit, form, value);
     }
 
