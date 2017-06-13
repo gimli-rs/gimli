@@ -74,8 +74,7 @@ impl<'input, Endian> DebugLine<'input, Endian>
             return Err(parser::Error::UnexpectedEof);
         }
         let input = self.debug_line_section.range_from(offset.0..);
-        let (_, header) =
-            try!(LineNumberProgramHeader::parse(input, address_size, comp_dir, comp_name));
+        let (_, header) = LineNumberProgramHeader::parse(input, address_size, comp_dir, comp_name)?;
         let program = IncompleteLineNumberProgram { header: header };
         Ok(program)
     }
@@ -109,7 +108,8 @@ pub trait LineNumberProgram<'input, Endian>
     fn add_file(&mut self, file: FileEntry<'input>);
 }
 
-impl<'input, Endian> LineNumberProgram<'input, Endian> for IncompleteLineNumberProgram<'input, Endian>
+impl<'input, Endian> LineNumberProgram<'input, Endian>
+    for IncompleteLineNumberProgram<'input, Endian>
     where Endian: Endianity
 {
     fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<'input, Endian> {
@@ -120,14 +120,15 @@ impl<'input, Endian> LineNumberProgram<'input, Endian> for IncompleteLineNumberP
     }
 }
 
-impl<'program, 'input, Endian> LineNumberProgram<'input, Endian> for &'program CompleteLineNumberProgram<'input, Endian>
+impl<'program, 'input, Endian> LineNumberProgram<'input, Endian>
+    for &'program CompleteLineNumberProgram<'input, Endian>
     where Endian: Endianity
 {
     fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<'input, Endian> {
         &self.header
     }
     fn add_file(&mut self, _: FileEntry<'input>) {
-// Nop. Our file table is already complete.
+        // Nop. Our file table is already complete.
     }
 }
 
@@ -150,7 +151,7 @@ pub struct StateMachine<'input, Program, Endian>
 
 type OneShotStateMachine<'input, Endian> = StateMachine<'input,
                                                         IncompleteLineNumberProgram<'input,
-                                                                                          Endian>,
+                                                                                    Endian>,
                                                         Endian>;
 
 type ResumedStateMachine<'program, 'input, Endian> =
@@ -206,8 +207,8 @@ impl<'input, Program, Endian> StateMachine<'input, Program, Endian>
     /// Step 2 of section 6.2.5.1
     fn apply_operation_advance(&mut self, operation_advance: u64) {
         let minimum_instruction_length = self.header().minimum_instruction_length as u64;
-        let maximum_operations_per_instruction =
-            self.header().maximum_operations_per_instruction as u64;
+        let maximum_operations_per_instruction = self.header().maximum_operations_per_instruction as
+                                                 u64;
 
         let op_index_with_advance = self.row.registers.op_index + operation_advance;
 
@@ -363,7 +364,9 @@ impl<'input, Program, Endian> StateMachine<'input, Program, Endian>
             // as specified in Section 6.2.5.3.
 
             // Split the borrow here, rather than calling `self.header()`.
-            self.row.registers.reset(self.program.header().default_is_stmt);
+            self.row
+                .registers
+                .reset(self.program.header().default_is_stmt);
         } else {
             // Previous opcode was one of:
             // - Special - specified in Section 6.2.5.1, steps 4-7
@@ -553,9 +556,9 @@ impl<'input> Opcode<'input> {
         where Endian: 'header + Endianity,
               'input: 'header
     {
-        let (rest, opcode) = try!(parser::parse_u8(input));
+        let (rest, opcode) = parser::parse_u8(input)?;
         if opcode == 0 {
-            let (rest, length) = try!(parser::parse_unsigned_leb(rest));
+            let (rest, length) = parser::parse_unsigned_leb(rest)?;
             let length = length as usize;
             if rest.len() < length {
                 return Err(parser::Error::UnexpectedEof);
@@ -563,25 +566,24 @@ impl<'input> Opcode<'input> {
 
             let instr_rest = &rest[..length];
             let rest = &rest[length..];
-            let (instr_rest, opcode) = try!(parser::parse_u8(instr_rest));
+            let (instr_rest, opcode) = parser::parse_u8(instr_rest)?;
 
             match constants::DwLne(opcode) {
                 constants::DW_LNE_end_sequence => Ok((rest, Opcode::EndSequence)),
 
                 constants::DW_LNE_set_address => {
-                    let (_, address) =
-                        try!(parser::parse_address(EndianBuf::<Endian>::new(instr_rest),
-                                                   header.address_size));
+                    let (_, address) = parser::parse_address(EndianBuf::<Endian>::new(instr_rest),
+                                                             header.address_size)?;
                     Ok((rest, Opcode::SetAddress(address)))
                 }
 
                 constants::DW_LNE_define_file => {
-                    let (_, entry) = try!(FileEntry::parse(instr_rest));
+                    let (_, entry) = FileEntry::parse(instr_rest)?;
                     Ok((rest, Opcode::DefineFile(entry)))
                 }
 
                 constants::DW_LNE_set_discriminator => {
-                    let (_, discriminator) = try!(parser::parse_unsigned_leb(instr_rest));
+                    let (_, discriminator) = parser::parse_unsigned_leb(instr_rest)?;
                     Ok((rest, Opcode::SetDiscriminator(discriminator)))
                 }
 
@@ -594,22 +596,22 @@ impl<'input> Opcode<'input> {
                 constants::DW_LNS_copy => Ok((rest, Opcode::Copy)),
 
                 constants::DW_LNS_advance_pc => {
-                    let (rest, advance) = try!(parser::parse_unsigned_leb(rest));
+                    let (rest, advance) = parser::parse_unsigned_leb(rest)?;
                     Ok((rest, Opcode::AdvancePc(advance)))
                 }
 
                 constants::DW_LNS_advance_line => {
-                    let (rest, increment) = try!(parser::parse_signed_leb(rest));
+                    let (rest, increment) = parser::parse_signed_leb(rest)?;
                     Ok((rest, Opcode::AdvanceLine(increment)))
                 }
 
                 constants::DW_LNS_set_file => {
-                    let (rest, file) = try!(parser::parse_unsigned_leb(rest));
+                    let (rest, file) = parser::parse_unsigned_leb(rest)?;
                     Ok((rest, Opcode::SetFile(file)))
                 }
 
                 constants::DW_LNS_set_column => {
-                    let (rest, column) = try!(parser::parse_unsigned_leb(rest));
+                    let (rest, column) = parser::parse_unsigned_leb(rest)?;
                     Ok((rest, Opcode::SetColumn(column)))
                 }
 
@@ -620,7 +622,7 @@ impl<'input> Opcode<'input> {
                 constants::DW_LNS_const_add_pc => Ok((rest, Opcode::ConstAddPc)),
 
                 constants::DW_LNS_fixed_advance_pc => {
-                    let (rest, advance) = try!(parser::parse_u16(EndianBuf::<Endian>::new(rest)));
+                    let (rest, advance) = parser::parse_u16(EndianBuf::<Endian>::new(rest))?;
                     Ok((rest.into(), Opcode::FixedAddPc(advance)))
                 }
 
@@ -629,7 +631,7 @@ impl<'input> Opcode<'input> {
                 constants::DW_LNS_set_epilogue_begin => Ok((rest, Opcode::SetEpilogueBegin)),
 
                 constants::DW_LNS_set_isa => {
-                    let (rest, isa) = try!(parser::parse_unsigned_leb(rest));
+                    let (rest, isa) = parser::parse_unsigned_leb(rest)?;
                     Ok((rest, Opcode::SetIsa(isa)))
                 }
 
@@ -638,7 +640,7 @@ impl<'input> Opcode<'input> {
                 }
 
                 otherwise if header.standard_opcode_lengths[(opcode - 1) as usize] == 1 => {
-                    let (rest, arg) = try!(parser::parse_unsigned_leb(rest));
+                    let (rest, arg) = parser::parse_unsigned_leb(rest)?;
                     Ok((rest, Opcode::UnknownStandard1(otherwise, arg)))
                 }
 
@@ -647,7 +649,7 @@ impl<'input> Opcode<'input> {
                     let mut args = Vec::with_capacity(num_args as usize);
                     let mut rest = rest;
                     for _ in 0..num_args {
-                        let (rest1, arg) = try!(parser::parse_unsigned_leb(rest));
+                        let (rest1, arg) = parser::parse_unsigned_leb(rest)?;
                         args.push(arg);
                         rest = rest1;
                     }
@@ -721,9 +723,8 @@ impl<'input, Endian> OpcodesIter<'input, Endian>
     fn remove_trailing(&self, other: &OpcodesIter<'input, Endian>) -> OpcodesIter<'input, Endian> {
         debug_assert!(other.input.len() < self.input.len());
         debug_assert!(other.input.as_ptr() > self.input.as_ptr());
-        debug_assert!(other.input.as_ptr() <= unsafe {
-            self.input.as_ptr().offset(self.input.len() as isize)
-        });
+        debug_assert!(other.input.as_ptr() <=
+                      unsafe { self.input.as_ptr().offset(self.input.len() as isize) });
         OpcodesIter {
             input: self.input.split_at(self.input.len() - other.input.len()).0,
             endian: self.endian,
@@ -751,9 +752,9 @@ impl<'input, Endian> OpcodesIter<'input, Endian>
         }
 
         Opcode::parse(header, self.input).map(|(rest, opcode)| {
-            self.input = rest;
-            Some(opcode)
-        })
+                                                  self.input = rest;
+                                                  Some(opcode)
+                                              })
     }
 }
 
@@ -1154,19 +1155,19 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
          comp_dir: Option<&'input ffi::CStr>,
          comp_name: Option<&'input ffi::CStr>)
          -> parser::Result<(EndianBuf<'input, Endian>, LineNumberProgramHeader<'input, Endian>)> {
-        let (rest, (unit_length, format)) = try!(parser::parse_initial_length(input));
+        let (rest, (unit_length, format)) = parser::parse_initial_length(input)?;
         if (rest.len() as u64) < unit_length {
             return Err(parser::Error::UnexpectedEof);
         }
         let next_header_input = rest.range_from(unit_length as usize..);
         let rest = rest.range_to(..unit_length as usize);
 
-        let (rest, version) = try!(parser::parse_u16(rest));
+        let (rest, version) = parser::parse_u16(rest)?;
         if version < 2 || version > 4 {
             return Err(parser::Error::UnknownVersion);
         }
 
-        let (rest, header_length) = try!(parser::parse_word(rest, format));
+        let (rest, header_length) = parser::parse_word(rest, format)?;
 
         if header_length as usize > rest.len() {
             return Err(parser::Error::UnitHeaderLengthTooShort);
@@ -1174,7 +1175,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         let program_buf = rest.range_from(header_length as usize..);
         let rest = rest.range_to(..header_length as usize);
 
-        let (rest, minimum_instruction_length) = try!(parser::parse_u8(rest.0));
+        let (rest, minimum_instruction_length) = parser::parse_u8(rest.0)?;
         if minimum_instruction_length == 0 {
             return Err(parser::Error::MinimumInstructionLengthZero);
         }
@@ -1182,7 +1183,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         // This field did not exist before DWARF 4, but is specified to be 1 for
         // non-VLIW architectures, which makes it a no-op.
         let (rest, maximum_operations_per_instruction) = if version >= 4 {
-            try!(parser::parse_u8(rest))
+            parser::parse_u8(rest)?
         } else {
             (rest, 1)
         };
@@ -1190,14 +1191,14 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
             return Err(parser::Error::MaximumOperationsPerInstructionZero);
         }
 
-        let (rest, default_is_stmt) = try!(parser::parse_u8(rest));
-        let (rest, line_base) = try!(parser::parse_i8(rest));
-        let (rest, line_range) = try!(parser::parse_u8(rest));
+        let (rest, default_is_stmt) = parser::parse_u8(rest)?;
+        let (rest, line_base) = parser::parse_i8(rest)?;
+        let (rest, line_range) = parser::parse_u8(rest)?;
         if line_range == 0 {
             return Err(parser::Error::LineRangeZero);
         }
 
-        let (rest, opcode_base) = try!(parser::parse_u8(rest));
+        let (rest, opcode_base) = parser::parse_u8(rest)?;
         if opcode_base == 0 {
             return Err(parser::Error::OpcodeBaseZero);
         }
@@ -1220,7 +1221,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
                 break;
             }
 
-            let (rest1, include_directory) = try!(parser::parse_null_terminated_string(rest.0));
+            let (rest1, include_directory) = parser::parse_null_terminated_string(rest.0)?;
             rest = EndianBuf::new(rest1);
             include_directories.push(include_directory);
         }
@@ -1233,13 +1234,13 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
 
             if rest[0] == 0 {
                 let comp_name = comp_name.map(|name| {
-                    FileEntry {
-                        path_name: name,
-                        directory_index: 0,
-                        last_modification: 0,
-                        length: 0,
-                    }
-                });
+                                                  FileEntry {
+                                                      path_name: name,
+                                                      directory_index: 0,
+                                                      last_modification: 0,
+                                                      length: 0,
+                                                  }
+                                              });
                 let header = LineNumberProgramHeader {
                     unit_length: unit_length,
                     version: version,
@@ -1262,7 +1263,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
                 return Ok((next_header_input, header));
             }
 
-            let (rest1, file_name) = try!(FileEntry::parse(rest.0));
+            let (rest1, file_name) = FileEntry::parse(rest.0)?;
             rest = EndianBuf::new(rest1);
             file_names.push(file_name);
         }
@@ -1336,12 +1337,12 @@ impl<'input, Endian> IncompleteLineNumberProgram<'input, Endian>
 
             // We just finished a sequence.
             sequences.push(LineNumberSequence {
-                // In theory one could have multiple DW_LNE_end_sequence opcodes
-                // in a row.
-                start: sequence_start_addr.unwrap_or(0),
-                end: sequence_end_addr,
-                opcodes: opcodes.remove_trailing(&state_machine.opcodes),
-            });
+                               // In theory one could have multiple DW_LNE_end_sequence opcodes
+                               // in a row.
+                               start: sequence_start_addr.unwrap_or(0),
+                               end: sequence_end_addr,
+                               opcodes: opcodes.remove_trailing(&state_machine.opcodes),
+                           });
             sequence_start_addr = None;
             opcodes = state_machine.opcodes.clone();
         }
@@ -1406,10 +1407,10 @@ pub struct FileEntry<'input> {
 
 impl<'input> FileEntry<'input> {
     fn parse(input: &'input [u8]) -> parser::Result<(&'input [u8], FileEntry<'input>)> {
-        let (rest, path_name) = try!(parser::parse_null_terminated_string(input));
-        let (rest, directory_index) = try!(parser::parse_unsigned_leb(rest));
-        let (rest, last_modification) = try!(parser::parse_unsigned_leb(rest));
-        let (rest, length) = try!(parser::parse_unsigned_leb(rest));
+        let (rest, path_name) = parser::parse_null_terminated_string(input)?;
+        let (rest, directory_index) = parser::parse_unsigned_leb(rest)?;
+        let (rest, last_modification) = parser::parse_unsigned_leb(rest)?;
+        let (rest, length) = parser::parse_unsigned_leb(rest)?;
 
         let entry = FileEntry {
             path_name: path_name,
@@ -1894,11 +1895,11 @@ mod tests {
         test(constants::DW_LNE_define_file,
              file,
              Opcode::DefineFile(FileEntry {
-                 path_name: ffi::CStr::from_bytes_with_nul(&path_name).unwrap(),
-                 directory_index: 0,
-                 last_modification: 1,
-                 length: 2,
-             }));
+                                    path_name: ffi::CStr::from_bytes_with_nul(&path_name).unwrap(),
+                                    directory_index: 0,
+                                    last_modification: 1,
+                                    length: 2,
+                                }));
 
         // Unknown extended opcode.
         let operands = [1, 2, 3, 4, 5, 6];

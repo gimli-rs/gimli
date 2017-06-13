@@ -233,7 +233,7 @@ pub use unit::{AttrsIter, Attribute, AttributeValue};
 ///
 /// let debug_info: DebugInfo<LittleEndian> = load_section(|_: &'static str| &buf);
 /// ```
-pub trait Section<'input> : From<&'input [u8]> {
+pub trait Section<'input>: From<&'input [u8]> {
     /// Returns the ELF section name for this type.
     fn section_name() -> &'static str;
 }

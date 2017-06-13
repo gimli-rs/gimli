@@ -99,7 +99,7 @@ impl<'input, Endian, Parser> LookupEntryIter<'input, Endian, Parser>
                 Ok(None)
             } else {
                 // Parse the next header.
-                let (input, set, header) = try!(Parser::parse_header(self.remaining_input));
+                let (input, set, header) = Parser::parse_header(self.remaining_input)?;
                 self.remaining_input = input;
                 self.current_set = set;
                 self.current_header = Some(header);
@@ -108,7 +108,7 @@ impl<'input, Endian, Parser> LookupEntryIter<'input, Endian, Parser>
             }
         } else {
             let (remaining_set, entry) =
-                try!(Parser::parse_entry(self.current_set, self.current_header.as_ref().unwrap()));
+                Parser::parse_entry(self.current_set, self.current_header.as_ref().unwrap())?;
             self.current_set = remaining_set;
             match entry {
                 None => self.next(),
@@ -175,22 +175,23 @@ impl<'input, Endian, Switch> LookupParser<'input, Endian> for PubStuffParser<'in
     #[allow(type_complexity)]
     fn parse_header(input: EndianBuf<Endian>)
                     -> Result<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<Self::Header>)> {
-        let (rest, (set_length, format)) = try!(parse_initial_length(input.into()));
-        let (rest, version) = try!(parse_u16(rest.into()));
+        let (rest, (set_length, format)) = parse_initial_length(input.into())?;
+        let (rest, version) = parse_u16(rest.into())?;
 
         if version != 2 {
             return Err(Error::UnknownVersion);
         }
 
-        let (rest, info_offset) = try!(Switch::parse_offset(rest.into(), format));
-        let (rest, info_length) = try!(parse_word(rest.into(), format));
+        let (rest, info_offset) = Switch::parse_offset(rest.into(), format)?;
+        let (rest, info_length) = parse_word(rest.into(), format)?;
 
         let header_length = match format {
             Format::Dwarf32 => 10,
             Format::Dwarf64 => 18,
         };
-        let dividing_line: usize = try!(set_length.checked_sub(header_length)
-            .ok_or(Error::BadLength)) as usize;
+        let dividing_line: usize = set_length
+            .checked_sub(header_length)
+            .ok_or(Error::BadLength)? as usize;
 
         Ok((rest.range_from(dividing_line..),
             rest.range_to(..dividing_line),
@@ -201,12 +202,12 @@ impl<'input, Endian, Switch> LookupParser<'input, Endian> for PubStuffParser<'in
     fn parse_entry(input: EndianBuf<'input, Endian>,
                    header: &Rc<Self::Header>)
                    -> Result<(EndianBuf<'input, Endian>, Option<Self::Entry>)> {
-        let (rest, offset) = try!(parse_word(input.into(), Switch::format_from(header)));
+        let (rest, offset) = parse_word(input.into(), Switch::format_from(header))?;
 
         if offset == 0 {
             Ok((EndianBuf::new(&[]), None))
         } else {
-            let (rest, name) = try!(parse_null_terminated_string(rest.into()));
+            let (rest, name) = parse_null_terminated_string(rest.into())?;
 
             Ok((EndianBuf::new(rest), Some(Switch::new_entry(offset, name, header))))
         }

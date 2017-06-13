@@ -260,7 +260,7 @@ pub trait UnwindSection<'input, Endian>
         }
 
         let input = self.section().range_from(offset..);
-        if let Some((_, entry)) = try!(CommonInformationEntry::parse(bases, *self, input)) {
+        if let Some((_, entry)) = CommonInformationEntry::parse(bases, *self, input)? {
             Ok(entry)
         } else {
             Err(Error::NoEntryAtGivenOffset)
@@ -312,15 +312,16 @@ pub trait UnwindSection<'input, Endian>
          bases: &'bases BaseAddresses,
          ctx: UninitializedUnwindContext<'input, Endian, Self>,
          address: u64)
-         -> Result<(UnwindTableRow<'input, Endian>, UninitializedUnwindContext<'input, Endian, Self>)> {
+         -> Result<(UnwindTableRow<'input, Endian>,
+                    UninitializedUnwindContext<'input, Endian, Self>)> {
         let mut target_fde = None;
 
         let mut entries = self.entries(bases);
-        while let Some(entry) = try!(entries.next()) {
+        while let Some(entry) = entries.next()? {
             match entry {
                 CieOrFde::Cie(_) => continue,
                 CieOrFde::Fde(partial) => {
-                    let fde = try!(partial.parse(|offset| self.cie_from_offset(bases, offset)));
+                    let fde = partial.parse(|offset| self.cie_from_offset(bases, offset))?;
                     if fde.contains(address) {
                         target_fde = Some(fde);
                         break;
@@ -331,11 +332,11 @@ pub trait UnwindSection<'input, Endian>
 
         if let Some(fde) = target_fde {
             let mut result_row = None;
-            let mut ctx = try!(ctx.initialize(fde.cie()));
+            let mut ctx = ctx.initialize(fde.cie())?;
 
             {
                 let mut table = UnwindTable::new(&mut ctx, &fde);
-                while let Some(row) = try!(table.next_row()) {
+                while let Some(row) = table.next_row()? {
                     if row.contains(address) {
                         result_row = Some(row.clone());
                         break;
@@ -643,13 +644,13 @@ struct CfiEntryCommon<'input, Endian>
 /// end-of-entries sentinel, return `Ok(None)`. Otherwise, return
 /// `Ok(Some(tuple))`, where `tuple.0` is the start of the next entry and
 /// `tuple.1` is the parsed CFI entry data.
-fn parse_cfi_entry_common<'input, Endian, Section>(input: EndianBuf<'input, Endian>)
-                                                   -> Result<Option<(EndianBuf<'input, Endian>,
-                                                                     CfiEntryCommon<'input, Endian>)>>
+fn parse_cfi_entry_common<'input, Endian, Section>
+    (input: EndianBuf<'input, Endian>)
+     -> Result<Option<(EndianBuf<'input, Endian>, CfiEntryCommon<'input, Endian>)>>
     where Endian: Endianity,
           Section: UnwindSection<'input, Endian>
 {
-    let (rest, (length, format)) = try!(parse_initial_length(input));
+    let (rest, (length, format)) = parse_initial_length(input)?;
 
     if Section::length_value_is_end_of_entries(length) {
         return Ok(None);
@@ -663,17 +664,18 @@ fn parse_cfi_entry_common<'input, Endian, Section>(input: EndianBuf<'input, Endi
     let cie_offset_input = rest.range_to(..length as usize);
 
     let (rest, cie_id_or_offset) = match Section::cie_offset_encoding(format) {
-        CieOffsetEncoding::U32 => try!(parse_u32_as_u64(cie_offset_input)),
-        CieOffsetEncoding::U64 => try!(parse_u64(cie_offset_input)),
+        CieOffsetEncoding::U32 => parse_u32_as_u64(cie_offset_input)?,
+        CieOffsetEncoding::U64 => parse_u64(cie_offset_input)?,
     };
 
-    Ok(Some((rest_rest, CfiEntryCommon {
-        length: length,
-        format: format,
-        cie_offset_input: cie_offset_input,
-        cie_id_or_offset: cie_id_or_offset,
-        rest: rest
-    })))
+    Ok(Some((rest_rest,
+             CfiEntryCommon {
+                 length: length,
+                 format: format,
+                 cie_offset_input: cie_offset_input,
+                 cie_id_or_offset: cie_id_or_offset,
+                 rest: rest,
+             })))
 }
 
 /// Either a `CommonInformationEntry` (CIE) or a `FrameDescriptionEntry` (FDE).
@@ -699,17 +701,23 @@ fn parse_cfi_entry<'bases, 'input, Endian, Section>
     where Endian: Endianity,
           Section: UnwindSection<'input, Endian>
 {
-    let (rest_rest, CfiEntryCommon { length, format, cie_offset_input, cie_id_or_offset, rest }) =
-        match try!(parse_cfi_entry_common::<Endian, Section>(input)) {
-            None => return Ok(None),
-            Some(common) => common,
-        };
+    let (rest_rest,
+         CfiEntryCommon {
+             length,
+             format,
+             cie_offset_input,
+             cie_id_or_offset,
+             rest,
+         }) = match parse_cfi_entry_common::<Endian, Section>(input)? {
+        None => return Ok(None),
+        Some(common) => common,
+    };
 
     if Section::is_cie(format, cie_id_or_offset) {
-        let cie = try!(CommonInformationEntry::parse_rest(length, format, bases, section, rest));
+        let cie = CommonInformationEntry::parse_rest(length, format, bases, section, rest)?;
         Ok(Some((rest_rest, CieOrFde::Cie(cie))))
     } else {
-        let cie_offset = try!(u64_to_offset(cie_id_or_offset));
+        let cie_offset = u64_to_offset(cie_id_or_offset)?;
         let cie_offset = match section.resolve_cie_offset(cie_offset_input, cie_offset) {
             None => return Err(Error::OffsetOutOfBounds),
             Some(offset) => offset,
@@ -791,7 +799,8 @@ impl Augmentation {
 
         let mut chars = augmentation_str.chars();
 
-        let first = chars.next()
+        let first = chars
+            .next()
             .expect("Is valid UTF-8 and length > 0, so must have at least one char.");
         if first != 'z' {
             return Err(Error::UnknownAugmentation);
@@ -799,28 +808,28 @@ impl Augmentation {
 
         let mut augmentation = Augmentation::default();
 
-        let (rest, augmentation_length) = try!(parse_unsigned_lebe(input));
-        let (mut rest, rest_rest) = try!(rest.try_split_at(augmentation_length as usize));
+        let (rest, augmentation_length) = parse_unsigned_lebe(input)?;
+        let (mut rest, rest_rest) = rest.try_split_at(augmentation_length as usize)?;
 
         for ch in chars {
             match ch {
                 'L' => {
-                    let (rest_, encoding) = try!(parse_pointer_encoding(rest));
+                    let (rest_, encoding) = parse_pointer_encoding(rest)?;
                     augmentation.lsda = Some(encoding);
                     rest = rest_;
                 }
                 'P' => {
-                    let (rest_, encoding) = try!(parse_pointer_encoding(rest));
-                    let (rest_, personality) = try!(parse_encoded_pointer(encoding,
-                                                                          bases,
-                                                                          address_size,
-                                                                          section.section(),
-                                                                          rest_));
+                    let (rest_, encoding) = parse_pointer_encoding(rest)?;
+                    let (rest_, personality) = parse_encoded_pointer(encoding,
+                                                                     bases,
+                                                                     address_size,
+                                                                     section.section(),
+                                                                     rest_)?;
                     augmentation.personality = Some(personality);
                     rest = rest_;
                 }
                 'R' => {
-                    let (rest_, encoding) = try!(parse_pointer_encoding(rest));
+                    let (rest_, encoding) = parse_pointer_encoding(rest)?;
                     augmentation.fde_address_encoding = Some(encoding);
                     rest = rest_;
                 }
@@ -855,12 +864,12 @@ impl AugmentationData {
         // that defines augmentation data in the FDE is the 'L' character, so we
         // can just check for its presence directly.
 
-        let (rest, aug_data_len) = try!(parse_unsigned_lebe(input));
-        let (rest, rest_rest) = try!(rest.try_split_at(aug_data_len as usize));
+        let (rest, aug_data_len) = parse_unsigned_lebe(input)?;
+        let (rest, rest_rest) = rest.try_split_at(aug_data_len as usize)?;
         let mut augmentation_data = AugmentationData::default();
         if let Some(encoding) = augmentation.lsda {
             let (_, lsda) =
-                try!(parse_encoded_pointer(encoding, bases, address_size, section.section(), rest));
+                parse_encoded_pointer(encoding, bases, address_size, section.section(), rest)?;
             augmentation_data.lsda = Some(lsda);
         }
         Ok((rest_rest, augmentation_data))
@@ -936,14 +945,16 @@ impl<'input, Endian, Section> CommonInformationEntry<'input, Endian, Section>
         (bases: &'bases BaseAddresses,
          section: Section,
          input: EndianBuf<'input, Endian>)
-         -> Result<Option<(EndianBuf<'input, Endian>, CommonInformationEntry<'input, Endian, Section>)>> {
-        let (rest_rest, CfiEntryCommon {
-            length,
-            format,
-            cie_id_or_offset: cie_id,
-            rest,
-            ..
-        }) = match try!(parse_cfi_entry_common::<Endian, Section>(input)) {
+         -> Result<Option<(EndianBuf<'input, Endian>,
+                           CommonInformationEntry<'input, Endian, Section>)>> {
+        let (rest_rest,
+             CfiEntryCommon {
+                 length,
+                 format,
+                 cie_id_or_offset: cie_id,
+                 rest,
+                 ..
+             }) = match parse_cfi_entry_common::<Endian, Section>(input)? {
             None => return Ok(None),
             Some(common) => common,
         };
@@ -952,7 +963,7 @@ impl<'input, Endian, Section> CommonInformationEntry<'input, Endian, Section>
             return Err(Error::NotCieId);
         }
 
-        let entry = try!(Self::parse_rest(length, format, bases, section, rest));
+        let entry = Self::parse_rest(length, format, bases, section, rest)?;
         Ok(Some((rest_rest, entry)))
     }
 
@@ -962,44 +973,44 @@ impl<'input, Endian, Section> CommonInformationEntry<'input, Endian, Section>
                           section: Section,
                           rest: EndianBuf<'input, Endian>)
                           -> Result<CommonInformationEntry<'input, Endian, Section>> {
-        let (rest, version) = try!(parse_u8(rest.into()));
+        let (rest, version) = parse_u8(rest.into())?;
         if !Section::compatible_version(version) {
             return Err(Error::UnknownVersion);
         }
 
-        let (rest, augmentation_string) = try!(parse_null_terminated_string(rest));
+        let (rest, augmentation_string) = parse_null_terminated_string(rest)?;
         let rest = EndianBuf::new(rest);
         let aug_len = augmentation_string.to_bytes().len();
 
         let (rest, address_size, segment_size) =
             if Section::has_address_and_segment_sizes(version) {
-                let (rest, address_size) = try!(parse_u8e(rest));
-                let (rest, segment_size) = try!(parse_u8e(rest));
+                let (rest, address_size) = parse_u8e(rest)?;
+                let (rest, segment_size) = parse_u8e(rest)?;
                 (rest, address_size, segment_size)
             } else {
                 // Assume no segments and native word size.
                 (rest, mem::size_of::<usize>() as u8, 0)
             };
 
-        let (rest, code_alignment_factor) = try!(parse_unsigned_lebe(rest));
-        let (rest, data_alignment_factor) = try!(parse_signed_lebe(rest));
+        let (rest, code_alignment_factor) = parse_unsigned_lebe(rest)?;
+        let (rest, data_alignment_factor) = parse_signed_lebe(rest)?;
 
         let (rest, return_address_register) =
             match Section::return_address_register_encoding(version) {
                 ReturnAddressRegisterEncoding::U8 => {
-                    let (rest, reg) = try!(parse_u8e(rest));
+                    let (rest, reg) = parse_u8e(rest)?;
                     (rest, reg as u64)
                 }
-                ReturnAddressRegisterEncoding::Uleb => try!(parse_unsigned_lebe(rest)),
+                ReturnAddressRegisterEncoding::Uleb => parse_unsigned_lebe(rest)?,
             };
 
         let (rest, augmentation) = if aug_len == 0 {
             (rest, None)
         } else {
-            let augmentation_string = try!(str::from_utf8(augmentation_string.to_bytes())
-                .map_err(|_| Error::BadUtf8));
+            let augmentation_string = str::from_utf8(augmentation_string.to_bytes())
+                .map_err(|_| Error::BadUtf8)?;
             let (rest, augmentation) =
-                try!(Augmentation::parse(augmentation_string, bases, address_size, section, rest));
+                Augmentation::parse(augmentation_string, bases, address_size, section, rest)?;
             (rest, Some(augmentation))
         };
 
@@ -1135,20 +1146,20 @@ impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
             *func = Some(offset as u64);
         }
 
-        let cie = try!(get_cie(cie_pointer));
+        let cie = get_cie(cie_pointer)?;
 
         let (rest, initial_segment) = if cie.segment_size > 0 {
-            try!(parse_address(rest, cie.segment_size))
+            parse_address(rest, cie.segment_size)?
         } else {
             (rest, 0)
         };
 
         let (rest, initial_address, address_range) =
-            try!(Self::parse_addresses(rest, &cie, bases, section));
+            Self::parse_addresses(rest, &cie, bases, section)?;
 
         let (rest, aug_data) = if let Some(ref augmentation) = cie.augmentation {
             let (rest, aug_data) =
-                try!(AugmentationData::parse(augmentation, bases, cie.address_size, section, rest));
+                AugmentationData::parse(augmentation, bases, cie.address_size, section, rest)?;
             (rest, Some(aug_data))
         } else {
             (rest, None)
@@ -1173,28 +1184,27 @@ impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
                        bases: &BaseAddresses,
                        section: Section)
                        -> Result<(EndianBuf<'input, Endian>, u64, u64)> {
-        let encoding = cie.augmentation.as_ref().and_then(|a| a.fde_address_encoding);
+        let encoding = cie.augmentation
+            .as_ref()
+            .and_then(|a| a.fde_address_encoding);
         if let Some(encoding) = encoding {
-            let (rest, initial_address) = try!(parse_encoded_pointer(encoding,
-                                                                     bases,
-                                                                     cie.address_size,
-                                                                     section.section(),
-                                                                     input));
+            let (rest, initial_address) =
+                parse_encoded_pointer(encoding, bases, cie.address_size, section.section(), input)?;
 
             // Ignore indirection.
             let initial_address = initial_address.into();
 
             // Address ranges cannot be relative to anything, so just grab the
             // data format bits from the encoding.
-            let (rest, address_range) = try!(parse_encoded_pointer(encoding.format(),
-                                                                   bases,
-                                                                   cie.address_size,
-                                                                   section.section(),
-                                                                   rest));
+            let (rest, address_range) = parse_encoded_pointer(encoding.format(),
+                                                              bases,
+                                                              cie.address_size,
+                                                              section.section(),
+                                                              rest)?;
             Ok((rest, initial_address, address_range.into()))
         } else {
-            let (rest, initial_address) = try!(parse_address(input, cie.address_size));
-            let (rest, address_range) = try!(parse_address(rest, cie.address_size));
+            let (rest, initial_address) = parse_address(input, cie.address_size)?;
+            let (rest, address_range) = parse_address(rest, cie.address_size)?;
             Ok((rest, initial_address, address_range))
         }
     }
@@ -1231,7 +1241,9 @@ impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
 
     /// Return true if this FDE's function is a trampoline for a signal handler.
     pub fn is_signal_trampoline(&self) -> bool {
-        self.cie().augmentation.map_or(false, |a| a.is_signal_trampoline)
+        self.cie()
+            .augmentation
+            .map_or(false, |a| a.is_signal_trampoline)
     }
 
     /// Return the address of the FDE's function's personality routine
@@ -1318,8 +1330,8 @@ impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
 /// ```
 #[derive(Clone, Debug)]
 pub struct UninitializedUnwindContext<'input, Endian, Section>(Box<UnwindContext<'input,
-                                                                                 Endian,
-                                                                                 Section>>)
+                                                                                  Endian,
+                                                                                  Section>>)
     where Endian: Endianity,
           Section: UnwindSection<'input, Endian>;
 
@@ -1350,7 +1362,7 @@ impl<'input, Endian, Section> UninitializedUnwindContext<'input, Endian, Section
 
         {
             let mut table = UnwindTable::new_internal(&mut self.0, cie, None);
-            while let Some(_) = try!(table.next_row()) {}
+            while let Some(_) = table.next_row()? {}
         }
 
         self.0.save_initial_rules();
@@ -1365,8 +1377,8 @@ impl<'input, Endian, Section> UninitializedUnwindContext<'input, Endian, Section
 /// more details.
 #[derive(Clone, Debug)]
 pub struct InitializedUnwindContext<'input, Endian, Section>(Box<UnwindContext<'input,
-                                                                               Endian,
-                                                                               Section>>)
+                                                                                Endian,
+                                                                                Section>>)
     where Endian: Endianity,
           Section: UnwindSection<'input, Endian>;
 
@@ -1382,8 +1394,8 @@ impl<'input, Endian, Section> InitializedUnwindContext<'input, Endian, Section>
 }
 
 const MAX_UNWIND_STACK_DEPTH: usize = 4;
-type UnwindContextStack<'input, Endian> =
-    ArrayVec<[UnwindTableRow<'input, Endian>; MAX_UNWIND_STACK_DEPTH]>;
+type UnwindContextStack<'input, Endian> = ArrayVec<[UnwindTableRow<'input, Endian>;
+                                                    MAX_UNWIND_STACK_DEPTH]>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct UnwindContext<'input, Endian, Section>
@@ -1457,7 +1469,8 @@ impl<'input, Endian, Section> UnwindContext<'input, Endian, Section>
 
     fn save_initial_rules(&mut self) {
         assert_eq!(self.is_initialized, false);
-        self.initial_rules.clone_from(&self.stack.last().unwrap().registers);
+        self.initial_rules
+            .clone_from(&self.stack.last().unwrap().registers);
         self.is_initialized = true;
     }
 
@@ -1606,12 +1619,8 @@ impl<'input, 'fde, 'ctx, Endian, Section> UnwindTable<'input, 'fde, 'fde, 'ctx, 
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
-impl<'input, 'cie, 'fde, 'ctx, Endian, Section> UnwindTable<'input,
-                                                            'cie,
-                                                            'fde,
-                                                            'ctx,
-                                                            Endian,
-                                                            Section>
+impl<'input, 'cie, 'fde, 'ctx, Endian, Section>
+    UnwindTable<'input, 'cie, 'fde, 'ctx, Endian, Section>
     where Endian: Endianity,
           Section: UnwindSection<'input, Endian>
 {
@@ -1662,7 +1671,7 @@ impl<'input, 'cie, 'fde, 'ctx, Endian, Section> UnwindTable<'input,
                 }
 
                 Ok(Some(instruction)) => {
-                    if try!(self.evaluate(instruction)) {
+                    if self.evaluate(instruction)? {
                         return Ok(Some(self.ctx.row()));
                     }
                 }
@@ -1696,36 +1705,39 @@ impl<'input, 'cie, 'fde, 'ctx, Endian, Section> UnwindTable<'input,
             // Instructions that modify the CFA.
             DefCfa { register, offset } => {
                 self.ctx.set_cfa(CfaRule::RegisterAndOffset {
-                    register: register,
-                    offset: offset as i64,
-                });
+                                     register: register,
+                                     offset: offset as i64,
+                                 });
             }
-            DefCfaSf { register, factored_offset } => {
+            DefCfaSf {
+                register,
+                factored_offset,
+            } => {
                 let data_align = self.cie.data_alignment_factor as i64;
                 self.ctx.set_cfa(CfaRule::RegisterAndOffset {
-                    register: register,
-                    offset: factored_offset * data_align,
-                });
+                                     register: register,
+                                     offset: factored_offset * data_align,
+                                 });
             }
             DefCfaRegister { register } => {
-                if let CfaRule::RegisterAndOffset { register: ref mut reg, .. } = *self.ctx
-                    .cfa_mut() {
+                if let CfaRule::RegisterAndOffset { register: ref mut reg, .. } =
+                    *self.ctx.cfa_mut() {
                     *reg = register;
                 } else {
                     return Err(Error::CfiInstructionInInvalidContext);
                 }
             }
             DefCfaOffset { offset } => {
-                if let CfaRule::RegisterAndOffset { offset: ref mut off, .. } = *self.ctx
-                    .cfa_mut() {
+                if let CfaRule::RegisterAndOffset { offset: ref mut off, .. } =
+                    *self.ctx.cfa_mut() {
                     *off = offset as i64;
                 } else {
                     return Err(Error::CfiInstructionInInvalidContext);
                 }
             }
             DefCfaOffsetSf { factored_offset } => {
-                if let CfaRule::RegisterAndOffset { offset: ref mut off, .. } = *self.ctx
-                    .cfa_mut() {
+                if let CfaRule::RegisterAndOffset { offset: ref mut off, .. } =
+                    *self.ctx.cfa_mut() {
                     let data_align = self.cie.data_alignment_factor as i64;
                     *off = factored_offset * data_align;
                 } else {
@@ -1738,38 +1750,65 @@ impl<'input, 'cie, 'fde, 'ctx, Endian, Section> UnwindTable<'input,
 
             // Instructions that define register rules.
             Undefined { register } => {
-                try!(self.ctx.set_register_rule(register, RegisterRule::Undefined));
+                self.ctx
+                    .set_register_rule(register, RegisterRule::Undefined)?;
             }
             SameValue { register } => {
-                try!(self.ctx.set_register_rule(register, RegisterRule::SameValue));
+                self.ctx
+                    .set_register_rule(register, RegisterRule::SameValue)?;
             }
-            Offset { register, factored_offset } => {
+            Offset {
+                register,
+                factored_offset,
+            } => {
                 let offset = factored_offset as i64 * self.cie.data_alignment_factor;
-                try!(self.ctx.set_register_rule(register, RegisterRule::Offset(offset)));
+                self.ctx
+                    .set_register_rule(register, RegisterRule::Offset(offset))?;
             }
-            OffsetExtendedSf { register, factored_offset } => {
+            OffsetExtendedSf {
+                register,
+                factored_offset,
+            } => {
                 let offset = factored_offset * self.cie.data_alignment_factor;
-                try!(self.ctx.set_register_rule(register, RegisterRule::Offset(offset)));
+                self.ctx
+                    .set_register_rule(register, RegisterRule::Offset(offset))?;
             }
-            ValOffset { register, factored_offset } => {
+            ValOffset {
+                register,
+                factored_offset,
+            } => {
                 let offset = factored_offset as i64 * self.cie.data_alignment_factor;
-                try!(self.ctx.set_register_rule(register, RegisterRule::ValOffset(offset)));
+                self.ctx
+                    .set_register_rule(register, RegisterRule::ValOffset(offset))?;
             }
-            ValOffsetSf { register, factored_offset } => {
+            ValOffsetSf {
+                register,
+                factored_offset,
+            } => {
                 let offset = factored_offset * self.cie.data_alignment_factor;
-                try!(self.ctx.set_register_rule(register, RegisterRule::ValOffset(offset)));
+                self.ctx
+                    .set_register_rule(register, RegisterRule::ValOffset(offset))?;
             }
-            Register { dest_register, src_register } => {
-                try!(self.ctx
-                    .set_register_rule(dest_register, RegisterRule::Register(src_register)));
+            Register {
+                dest_register,
+                src_register,
+            } => {
+                self.ctx
+                    .set_register_rule(dest_register, RegisterRule::Register(src_register))?;
             }
-            Expression { register, expression } => {
+            Expression {
+                register,
+                expression,
+            } => {
                 let expression = RegisterRule::Expression(expression);
-                try!(self.ctx.set_register_rule(register, expression));
+                self.ctx.set_register_rule(register, expression)?;
             }
-            ValExpression { register, expression } => {
+            ValExpression {
+                register,
+                expression,
+            } => {
                 let expression = RegisterRule::ValExpression(expression);
-                try!(self.ctx.set_register_rule(register, expression));
+                self.ctx.set_register_rule(register, expression)?;
             }
             Restore { register } => {
                 let initial_rule = if let Some(rule) = self.ctx.get_initial_rule(register) {
@@ -1780,12 +1819,12 @@ impl<'input, 'cie, 'fde, 'ctx, Endian, Section> UnwindTable<'input,
                     return Err(Error::CfiInstructionInInvalidContext);
                 };
 
-                try!(self.ctx.set_register_rule(register, initial_rule));
+                self.ctx.set_register_rule(register, initial_rule)?;
             }
 
             // Row push and pop instructions.
             RememberState => {
-                try!(self.ctx.push_row());
+                self.ctx.push_row()?;
             }
             RestoreState => {
                 assert!(self.ctx.stack.len() > 0);
@@ -1833,9 +1872,9 @@ impl<'input, Endian> RegisterRuleMap<'input, Endian>
             .iter()
             .find(|rule| rule.0 == register)
             .map(|r| {
-                debug_assert_ne!(r.1, RegisterRule::Undefined);
-                r.1.clone()
-            })
+                     debug_assert_ne!(r.1, RegisterRule::Undefined);
+                     r.1.clone()
+                 })
             .unwrap_or(RegisterRule::Undefined)
     }
 
@@ -1876,17 +1915,19 @@ impl<'input, Endian> RegisterRuleMap<'input, Endian>
     }
 }
 
-impl<'a, 'input, Endian> FromIterator<&'a (u8, RegisterRule<'input, Endian>)> for RegisterRuleMap<'input, Endian>
+impl<'a, 'input, Endian> FromIterator<&'a (u8, RegisterRule<'input, Endian>)>
+    for RegisterRuleMap<'input, Endian>
     where Endian: 'a + Endianity,
           'input: 'a
 {
     fn from_iter<T>(iter: T) -> RegisterRuleMap<'input, Endian>
-        where T: IntoIterator<Item=&'a (u8, RegisterRule<'input, Endian>)>
+        where T: IntoIterator<Item = &'a (u8, RegisterRule<'input, Endian>)>
     {
         let iter = iter.into_iter();
         let mut rules = RegisterRuleMap::default();
         for &(reg, ref rule) in iter.filter(|r| r.1 != RegisterRule::Undefined) {
-            rules.set(reg, rule.clone())
+            rules
+                .set(reg, rule.clone())
                 .expect("This is only used in tests, impl isn't exposed publicly.
                          If you trip this, fix your test");
         }
@@ -1921,9 +1962,9 @@ impl<'input, Endian> Eq for RegisterRuleMap<'input, Endian> where Endian: Endian
 /// An unordered iterator for register rules.
 #[derive(Debug, Clone)]
 pub struct RegisterRuleIter<'iter, 'input, Endian>(::std::slice::Iter<'iter,
-                                                                        (u8,
-                                                                         RegisterRule<'input,
-                                                                                      Endian>)>)
+                                                                       (u8,
+                                                                        RegisterRule<'input,
+                                                                                     Endian>)>)
     where Endian: 'iter + Endianity,
           'input: 'iter;
 
@@ -2416,7 +2457,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
 {
     fn parse(input: EndianBuf<'input, Endian>)
              -> Result<(EndianBuf<'input, Endian>, CallFrameInstruction<'input, Endian>)> {
-        let (rest, instruction) = try!(parse_u8e(input));
+        let (rest, instruction) = parse_u8e(input)?;
         let high_bits = instruction & CFI_INSTRUCTION_HIGH_BITS_MASK;
 
         if high_bits == constants::DW_CFA_advance_loc.0 {
@@ -2426,12 +2467,12 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
 
         if high_bits == constants::DW_CFA_offset.0 {
             let register = instruction & CFI_INSTRUCTION_LOW_BITS_MASK;
-            let (rest, offset) = try!(parse_unsigned_lebe(rest));
+            let (rest, offset) = parse_unsigned_lebe(rest)?;
             return Ok((rest,
                        CallFrameInstruction::Offset {
-                register: register,
-                factored_offset: offset,
-            }));
+                           register: register,
+                           factored_offset: offset,
+                       }));
         }
 
         if high_bits == constants::DW_CFA_restore.0 {
@@ -2446,58 +2487,58 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             constants::DW_CFA_nop => Ok((rest, CallFrameInstruction::Nop)),
 
             constants::DW_CFA_set_loc => {
-                let (rest, address) = try!(parse_unsigned_lebe(rest));
+                let (rest, address) = parse_unsigned_lebe(rest)?;
                 Ok((rest, CallFrameInstruction::SetLoc { address: address }))
             }
 
             constants::DW_CFA_advance_loc1 => {
-                let (rest, delta) = try!(parse_u8e(rest));
+                let (rest, delta) = parse_u8e(rest)?;
                 Ok((rest, CallFrameInstruction::AdvanceLoc { delta: delta as u32 }))
             }
 
             constants::DW_CFA_advance_loc2 => {
-                let (rest, delta) = try!(parse_u16(rest));
+                let (rest, delta) = parse_u16(rest)?;
                 Ok((rest, CallFrameInstruction::AdvanceLoc { delta: delta as u32 }))
             }
 
             constants::DW_CFA_advance_loc4 => {
-                let (rest, delta) = try!(parse_u32(rest));
+                let (rest, delta) = parse_u32(rest)?;
                 Ok((rest, CallFrameInstruction::AdvanceLoc { delta: delta }))
             }
 
             constants::DW_CFA_offset_extended => {
-                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
-                let (rest, offset) = try!(parse_unsigned_lebe(rest));
+                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
+                let (rest, offset) = parse_unsigned_lebe(rest)?;
                 Ok((rest,
                     CallFrameInstruction::Offset {
-                    register: register,
-                    factored_offset: offset,
-                }))
+                        register: register,
+                        factored_offset: offset,
+                    }))
             }
 
             constants::DW_CFA_restore_extended => {
-                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
+                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
                 Ok((rest, CallFrameInstruction::Restore { register: register }))
             }
 
             constants::DW_CFA_undefined => {
-                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
+                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
                 Ok((rest, CallFrameInstruction::Undefined { register: register }))
             }
 
             constants::DW_CFA_same_value => {
-                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
+                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
                 Ok((rest, CallFrameInstruction::SameValue { register: register }))
             }
 
             constants::DW_CFA_register => {
-                let (rest, dest) = try!(parse_unsigned_leb_as_u8e(rest));
-                let (rest, src) = try!(parse_unsigned_leb_as_u8e(rest));
+                let (rest, dest) = parse_unsigned_leb_as_u8e(rest)?;
+                let (rest, src) = parse_unsigned_leb_as_u8e(rest)?;
                 Ok((rest,
                     CallFrameInstruction::Register {
-                    dest_register: dest,
-                    src_register: src,
-                }))
+                        dest_register: dest,
+                        src_register: src,
+                    }))
             }
 
             constants::DW_CFA_remember_state => Ok((rest, CallFrameInstruction::RememberState)),
@@ -2505,93 +2546,93 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             constants::DW_CFA_restore_state => Ok((rest, CallFrameInstruction::RestoreState)),
 
             constants::DW_CFA_def_cfa => {
-                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
-                let (rest, offset) = try!(parse_unsigned_lebe(rest));
+                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
+                let (rest, offset) = parse_unsigned_lebe(rest)?;
                 Ok((rest,
                     CallFrameInstruction::DefCfa {
-                    register: register,
-                    offset: offset,
-                }))
+                        register: register,
+                        offset: offset,
+                    }))
             }
 
             constants::DW_CFA_def_cfa_register => {
-                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
+                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
                 Ok((rest, CallFrameInstruction::DefCfaRegister { register: register }))
             }
 
             constants::DW_CFA_def_cfa_offset => {
-                let (rest, offset) = try!(parse_unsigned_lebe(rest));
+                let (rest, offset) = parse_unsigned_lebe(rest)?;
                 Ok((rest, CallFrameInstruction::DefCfaOffset { offset: offset }))
             }
 
             constants::DW_CFA_def_cfa_expression => {
-                let (rest, expression) = try!(parse_length_uleb_value(rest));
+                let (rest, expression) = parse_length_uleb_value(rest)?;
                 Ok((rest, CallFrameInstruction::DefCfaExpression { expression: expression }))
             }
 
             constants::DW_CFA_expression => {
-                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
-                let (rest, expression) = try!(parse_length_uleb_value(rest));
+                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
+                let (rest, expression) = parse_length_uleb_value(rest)?;
                 Ok((rest,
                     CallFrameInstruction::Expression {
-                    register: register,
-                    expression: expression,
-                }))
+                        register: register,
+                        expression: expression,
+                    }))
             }
 
             constants::DW_CFA_offset_extended_sf => {
-                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
-                let (rest, offset) = try!(parse_signed_lebe(rest));
+                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
+                let (rest, offset) = parse_signed_lebe(rest)?;
                 Ok((rest,
                     CallFrameInstruction::OffsetExtendedSf {
-                    register: register,
-                    factored_offset: offset,
-                }))
+                        register: register,
+                        factored_offset: offset,
+                    }))
             }
 
             constants::DW_CFA_def_cfa_sf => {
-                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
-                let (rest, offset) = try!(parse_signed_lebe(rest));
+                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
+                let (rest, offset) = parse_signed_lebe(rest)?;
                 Ok((rest,
                     CallFrameInstruction::DefCfaSf {
-                    register: register,
-                    factored_offset: offset,
-                }))
+                        register: register,
+                        factored_offset: offset,
+                    }))
             }
 
             constants::DW_CFA_def_cfa_offset_sf => {
-                let (rest, offset) = try!(parse_signed_lebe(rest));
+                let (rest, offset) = parse_signed_lebe(rest)?;
                 Ok((rest, CallFrameInstruction::DefCfaOffsetSf { factored_offset: offset }))
             }
 
             constants::DW_CFA_val_offset => {
-                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
-                let (rest, offset) = try!(parse_unsigned_lebe(rest));
+                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
+                let (rest, offset) = parse_unsigned_lebe(rest)?;
                 Ok((rest,
                     CallFrameInstruction::ValOffset {
-                    register: register,
-                    factored_offset: offset,
-                }))
+                        register: register,
+                        factored_offset: offset,
+                    }))
             }
 
             constants::DW_CFA_val_offset_sf => {
-                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
-                let (rest, offset) = try!(parse_signed_lebe(rest));
+                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
+                let (rest, offset) = parse_signed_lebe(rest)?;
                 Ok((rest,
                     CallFrameInstruction::ValOffsetSf {
-                    register: register,
-                    factored_offset: offset,
-                }))
+                        register: register,
+                        factored_offset: offset,
+                    }))
             }
 
             constants::DW_CFA_val_expression => {
-                let (rest, register) = try!(parse_unsigned_leb_as_u8e(rest));
-                let (rest, expression) = try!(parse_length_uleb_value(rest));
+                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
+                let (rest, expression) = parse_length_uleb_value(rest)?;
                 Ok((rest,
                     CallFrameInstruction::ValExpression {
-                    register: register,
-                    expression: expression,
-                }))
+                        register: register,
+                        expression: expression,
+                    }))
             }
 
             otherwise => Err(Error::UnknownCallFrameInstruction(otherwise)),
@@ -2730,7 +2771,8 @@ mod tests {
                 }
                 Format::Dwarf64 => {
                     let section = self.e32(endian, 0xffffffff);
-                    section.e64(endian, &length)
+                    section
+                        .e64(endian, &length)
                         .mark(&start)
                         .e64(endian, 0xffffffffffffffff)
                 }
@@ -2751,7 +2793,8 @@ mod tests {
                 section
             };
 
-            let section = section.uleb(cie.code_alignment_factor)
+            let section = section
+                .uleb(cie.code_alignment_factor)
                 .sleb(cie.data_alignment_factor)
                 .uleb(cie.return_address_register)
                 .append_bytes(cie.initial_instructions.into())
@@ -2780,8 +2823,7 @@ mod tests {
 
             let section = match T::cie_offset_encoding(fde.format) {
                 CieOffsetEncoding::U32 => {
-                    let section = self.e32(endian, &length)
-                        .mark(&start);
+                    let section = self.e32(endian, &length).mark(&start);
                     match cie_offset.to_labelornum() {
                         LabelOrNum::Label(ref l) => section.e32(endian, l),
                         LabelOrNum::Num(o) => section.e32(endian, o as u32),
@@ -2789,7 +2831,8 @@ mod tests {
                 }
                 CieOffsetEncoding::U64 => {
                     let section = self.e32(endian, 0xffffffff);
-                    section.e64(endian, &length)
+                    section
+                        .e64(endian, &length)
                         .mark(&start)
                         .e64(endian, cie_offset)
                 }
@@ -2804,22 +2847,29 @@ mod tests {
 
             let section = match fde.cie.address_size {
                 4 => {
-                    section.e32(endian, fde.initial_address as u32)
+                    section
+                        .e32(endian, fde.initial_address as u32)
                         .e32(endian, fde.address_range as u32)
                 }
                 8 => {
-                    section.e64(endian, fde.initial_address)
+                    section
+                        .e64(endian, fde.initial_address)
                         .e64(endian, fde.address_range)
                 }
                 x => panic!("Unsupported address size: {}", x),
             };
 
             let section = if let Some(ref augmentation) = fde.augmentation {
-                let cie_aug = fde.cie.augmentation.expect("FDE has augmentation, but CIE doesn't");
+                let cie_aug = fde.cie
+                    .augmentation
+                    .expect("FDE has augmentation, but CIE doesn't");
 
                 if let Some(lsda) = augmentation.lsda {
                     // We only support writing `DW_EH_PE_absptr` here.
-                    assert_eq!(cie_aug.lsda.expect("FDE has lsda, but CIE doesn't").format(),
+                    assert_eq!(cie_aug
+                                   .lsda
+                                   .expect("FDE has lsda, but CIE doesn't")
+                                   .format(),
                                constants::DW_EH_PE_absptr);
 
                     // Augmentation data length
@@ -2961,9 +3011,7 @@ mod tests {
     #[test]
     fn test_parse_cie_32_ok() {
         let expected_rest = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let expected_instrs: Vec<_> = (0..4)
-            .map(|_| constants::DW_CFA_nop.0)
-            .collect();
+        let expected_instrs: Vec<_> = (0..4).map(|_| constants::DW_CFA_nop.0).collect();
 
         let mut cie: DebugFrameCie<LittleEndian> = DebugFrameCie {
             length: 0,
@@ -3131,9 +3179,7 @@ mod tests {
     fn test_parse_fde_32_with_segment_ok() {
         let expected_rest = [1, 2, 3, 4, 5, 6, 7, 8, 9];
         let cie_offset = 0xbad0bad1;
-        let expected_instrs: Vec<_> = (0..92)
-            .map(|_| constants::DW_CFA_nop.0)
-            .collect();
+        let expected_instrs: Vec<_> = (0..92).map(|_| constants::DW_CFA_nop.0).collect();
 
         let cie = DebugFrameCie {
             length: 100,
@@ -3180,9 +3226,7 @@ mod tests {
     fn test_parse_fde_64_ok() {
         let expected_rest = [1, 2, 3, 4, 5, 6, 7, 8, 9];
         let cie_offset = 0xbad0bad1;
-        let expected_instrs: Vec<_> = (0..7)
-            .map(|_| constants::DW_CFA_nop.0)
-            .collect();
+        let expected_instrs: Vec<_> = (0..7).map(|_| constants::DW_CFA_nop.0).collect();
 
         let cie = DebugFrameCie {
             length: 100,
@@ -3228,9 +3272,7 @@ mod tests {
     #[test]
     fn test_parse_cfi_entry_on_cie_32_ok() {
         let expected_rest = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let expected_instrs: Vec<_> = (0..4)
-            .map(|_| constants::DW_CFA_nop.0)
-            .collect();
+        let expected_instrs: Vec<_> = (0..4).map(|_| constants::DW_CFA_nop.0).collect();
 
         let mut cie = DebugFrameCie {
             length: 0,
@@ -3261,9 +3303,7 @@ mod tests {
     fn test_parse_cfi_entry_on_fde_32_ok() {
         let cie_offset = 0x12345678;
         let expected_rest = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let expected_instrs: Vec<_> = (0..4)
-            .map(|_| constants::DW_CFA_nop.0)
-            .collect();
+        let expected_instrs: Vec<_> = (0..4).map(|_| constants::DW_CFA_nop.0).collect();
 
         let cie = DebugFrameCie {
             length: 0,
@@ -3319,21 +3359,13 @@ mod tests {
 
     #[test]
     fn test_cfi_entries_iter() {
-        let expected_instrs1: Vec<_> = (0..4)
-            .map(|_| constants::DW_CFA_nop.0)
-            .collect();
+        let expected_instrs1: Vec<_> = (0..4).map(|_| constants::DW_CFA_nop.0).collect();
 
-        let expected_instrs2: Vec<_> = (0..8)
-            .map(|_| constants::DW_CFA_nop.0)
-            .collect();
+        let expected_instrs2: Vec<_> = (0..8).map(|_| constants::DW_CFA_nop.0).collect();
 
-        let expected_instrs3: Vec<_> = (0..12)
-            .map(|_| constants::DW_CFA_nop.0)
-            .collect();
+        let expected_instrs3: Vec<_> = (0..12).map(|_| constants::DW_CFA_nop.0).collect();
 
-        let expected_instrs4: Vec<_> = (0..16)
-            .map(|_| constants::DW_CFA_nop.0)
-            .collect();
+        let expected_instrs4: Vec<_> = (0..16).map(|_| constants::DW_CFA_nop.0).collect();
 
         let mut cie1 = DebugFrameCie {
             length: 0,
@@ -3397,7 +3429,8 @@ mod tests {
             instructions: EndianBuf::<BigEndian>::new(&expected_instrs4),
         };
 
-        let section = section.fde(Endian::Big, &cie1_location, &mut fde1)
+        let section = section
+            .fde(Endian::Big, &cie1_location, &mut fde1)
             .fde(Endian::Big, &cie2_location, &mut fde2);
 
         section.start().set_const(0);
@@ -3513,9 +3546,9 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::Offset {
-                       register: expected_reg as u8,
-                       factored_offset: expected_offset,
-                   })));
+                           register: expected_reg as u8,
+                           factored_offset: expected_offset,
+                       })));
     }
 
     #[test]
@@ -3619,9 +3652,9 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::Offset {
-                       register: expected_reg as u8,
-                       factored_offset: expected_offset,
-                   })));
+                           register: expected_reg as u8,
+                           factored_offset: expected_offset,
+                       })));
     }
 
     #[test]
@@ -3684,9 +3717,9 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::Register {
-                       dest_register: expected_dest_reg as u8,
-                       src_register: expected_src_reg as u8,
-                   })));
+                           dest_register: expected_dest_reg as u8,
+                           src_register: expected_src_reg as u8,
+                       })));
     }
 
     #[test]
@@ -3728,9 +3761,9 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::DefCfa {
-                       register: expected_reg as u8,
-                       offset: expected_offset,
-                   })));
+                           register: expected_reg as u8,
+                           offset: expected_offset,
+                       })));
     }
 
     #[test]
@@ -3787,8 +3820,8 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::DefCfaExpression {
-                       expression: EndianBuf::new(&expected_expr),
-                   })));
+                           expression: EndianBuf::new(&expected_expr),
+                       })));
     }
 
     #[test]
@@ -3817,9 +3850,9 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::Expression {
-                       register: expected_reg as u8,
-                       expression: EndianBuf::new(&expected_expr),
-                   })));
+                           register: expected_reg as u8,
+                           expression: EndianBuf::new(&expected_expr),
+                       })));
     }
 
     #[test]
@@ -3837,9 +3870,9 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::OffsetExtendedSf {
-                       register: expected_reg as u8,
-                       factored_offset: expected_offset,
-                   })));
+                           register: expected_reg as u8,
+                           factored_offset: expected_offset,
+                       })));
     }
 
     #[test]
@@ -3857,9 +3890,9 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::DefCfaSf {
-                       register: expected_reg as u8,
-                       factored_offset: expected_offset,
-                   })));
+                           register: expected_reg as u8,
+                           factored_offset: expected_offset,
+                       })));
     }
 
     #[test]
@@ -3892,9 +3925,9 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::ValOffset {
-                       register: expected_reg as u8,
-                       factored_offset: expected_offset,
-                   })));
+                           register: expected_reg as u8,
+                           factored_offset: expected_offset,
+                       })));
     }
 
     #[test]
@@ -3912,9 +3945,9 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::ValOffsetSf {
-                       register: expected_reg as u8,
-                       factored_offset: expected_offset,
-                   })));
+                           register: expected_reg as u8,
+                           factored_offset: expected_offset,
+                       })));
     }
 
     #[test]
@@ -3943,9 +3976,9 @@ mod tests {
         assert_eq!(CallFrameInstruction::parse(input),
                    Ok((EndianBuf::new(&expected_rest),
                        CallFrameInstruction::ValExpression {
-                       register: expected_reg as u8,
-                       expression: EndianBuf::new(&expected_expr),
-                   })));
+                           register: expected_reg as u8,
+                           expression: EndianBuf::new(&expected_expr),
+                       })));
     }
 
     #[test]
@@ -3988,9 +4021,9 @@ mod tests {
 
         assert_eq!(iter.next(),
                    Ok(Some(CallFrameInstruction::ValExpression {
-                       register: expected_reg as u8,
-                       expression: EndianBuf::new(&expected_expr),
-                   })));
+                               register: expected_reg as u8,
+                               expression: EndianBuf::new(&expected_expr),
+                           })));
 
         assert_eq!(iter.next(),
                    Ok(Some(CallFrameInstruction::AdvanceLoc { delta: expected_delta as u32 })));
@@ -4085,14 +4118,14 @@ mod tests {
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.set_cfa(CfaRule::RegisterAndOffset {
-            register: 42,
-            offset: 36,
-        });
+                             register: 42,
+                             offset: 36,
+                         });
         let instructions = [(Ok(false),
                              CallFrameInstruction::DefCfa {
-                                register: 42,
-                                offset: 36,
-                            })];
+                                 register: 42,
+                                 offset: 36,
+                             })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
 
@@ -4102,14 +4135,14 @@ mod tests {
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected.set_cfa(CfaRule::RegisterAndOffset {
-            register: 42,
-            offset: 36 * cie.data_alignment_factor as i64,
-        });
+                             register: 42,
+                             offset: 36 * cie.data_alignment_factor as i64,
+                         });
         let instructions = [(Ok(false),
                              CallFrameInstruction::DefCfaSf {
-                                register: 42,
-                                factored_offset: 36,
-                            })];
+                                 register: 42,
+                                 factored_offset: 36,
+                             })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
 
@@ -4118,14 +4151,14 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let mut ctx = UnwindContext::new();
         ctx.set_cfa(CfaRule::RegisterAndOffset {
-            register: 3,
-            offset: 8,
-        });
+                        register: 3,
+                        offset: 8,
+                    });
         let mut expected = ctx.clone();
         expected.set_cfa(CfaRule::RegisterAndOffset {
-            register: 42,
-            offset: 8,
-        });
+                             register: 42,
+                             offset: 8,
+                         });
         let instructions = [(Ok(false), CallFrameInstruction::DefCfaRegister { register: 42 })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
@@ -4146,14 +4179,14 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let mut ctx = UnwindContext::new();
         ctx.set_cfa(CfaRule::RegisterAndOffset {
-            register: 3,
-            offset: 8,
-        });
+                        register: 3,
+                        offset: 8,
+                    });
         let mut expected = ctx.clone();
         expected.set_cfa(CfaRule::RegisterAndOffset {
-            register: 3,
-            offset: 42,
-        });
+                             register: 3,
+                             offset: 42,
+                         });
         let instructions = [(Ok(false), CallFrameInstruction::DefCfaOffset { offset: 42 })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
@@ -4187,7 +4220,9 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_register_rule(5, RegisterRule::Undefined).unwrap();
+        expected
+            .set_register_rule(5, RegisterRule::Undefined)
+            .unwrap();
         let instructions = [(Ok(false), CallFrameInstruction::Undefined { register: 5 })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
@@ -4197,7 +4232,9 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_register_rule(0, RegisterRule::SameValue).unwrap();
+        expected
+            .set_register_rule(0, RegisterRule::SameValue)
+            .unwrap();
         let instructions = [(Ok(false), CallFrameInstruction::SameValue { register: 0 })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
@@ -4207,12 +4244,14 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_register_rule(2, RegisterRule::Offset(3 * cie.data_alignment_factor)).unwrap();
+        expected
+            .set_register_rule(2, RegisterRule::Offset(3 * cie.data_alignment_factor))
+            .unwrap();
         let instructions = [(Ok(false),
                              CallFrameInstruction::Offset {
-                                register: 2,
-                                factored_offset: 3,
-                            })];
+                                 register: 2,
+                                 factored_offset: 3,
+                             })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
 
@@ -4221,13 +4260,14 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_register_rule(4, RegisterRule::Offset(-3 * cie.data_alignment_factor))
+        expected
+            .set_register_rule(4, RegisterRule::Offset(-3 * cie.data_alignment_factor))
             .unwrap();
         let instructions = [(Ok(false),
                              CallFrameInstruction::OffsetExtendedSf {
-                                register: 4,
-                                factored_offset: -3,
-                            })];
+                                 register: 4,
+                                 factored_offset: -3,
+                             })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
 
@@ -4236,13 +4276,14 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_register_rule(5, RegisterRule::ValOffset(7 * cie.data_alignment_factor))
+        expected
+            .set_register_rule(5, RegisterRule::ValOffset(7 * cie.data_alignment_factor))
             .unwrap();
         let instructions = [(Ok(false),
                              CallFrameInstruction::ValOffset {
-                                register: 5,
-                                factored_offset: 7,
-                            })];
+                                 register: 5,
+                                 factored_offset: 7,
+                             })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
 
@@ -4251,13 +4292,14 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_register_rule(5, RegisterRule::ValOffset(-7 * cie.data_alignment_factor))
+        expected
+            .set_register_rule(5, RegisterRule::ValOffset(-7 * cie.data_alignment_factor))
             .unwrap();
         let instructions = [(Ok(false),
                              CallFrameInstruction::ValOffsetSf {
-                                register: 5,
-                                factored_offset: -7,
-                            })];
+                                 register: 5,
+                                 factored_offset: -7,
+                             })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
 
@@ -4267,12 +4309,14 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_register_rule(9, RegisterRule::Expression(EndianBuf::new(&expr))).unwrap();
+        expected
+            .set_register_rule(9, RegisterRule::Expression(EndianBuf::new(&expr)))
+            .unwrap();
         let instructions = [(Ok(false),
                              CallFrameInstruction::Expression {
-                                register: 9,
-                                expression: EndianBuf::new(&expr),
-                            })];
+                                 register: 9,
+                                 expression: EndianBuf::new(&expr),
+                             })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
 
@@ -4282,12 +4326,14 @@ mod tests {
         let cie: DebugFrameCie<_> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_register_rule(9, RegisterRule::ValExpression(EndianBuf::new(&expr))).unwrap();
+        expected
+            .set_register_rule(9, RegisterRule::ValExpression(EndianBuf::new(&expr)))
+            .unwrap();
         let instructions = [(Ok(false),
                              CallFrameInstruction::ValExpression {
-                                register: 9,
-                                expression: EndianBuf::new(&expr),
-                            })];
+                                 register: 9,
+                                 expression: EndianBuf::new(&expr),
+                             })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
 
@@ -4482,7 +4528,8 @@ mod tests {
                     register: 4,
                     offset: -12,
                 },
-                registers: [(0, RegisterRule::Offset(-16)), (3, RegisterRule::Offset(-4))]
+                registers: [(0, RegisterRule::Offset(-16)),
+                            (3, RegisterRule::Offset(-4))]
                     .into_iter()
                     .collect(),
             };
@@ -4521,9 +4568,7 @@ mod tests {
             .sleb(-12);
         let instrs1 = instrs1.get_contents().unwrap();
 
-        let instrs2: Vec<_> = (0..8)
-            .map(|_| constants::DW_CFA_nop.0)
-            .collect();
+        let instrs2: Vec<_> = (0..8).map(|_| constants::DW_CFA_nop.0).collect();
 
         let instrs3 = Section::with_endian(Endian::Big)
             // Initial instructions form a row, advance the address by 100.
@@ -4535,9 +4580,7 @@ mod tests {
             .sleb(-16);
         let instrs3 = instrs3.get_contents().unwrap();
 
-        let instrs4: Vec<_> = (0..16)
-            .map(|_| constants::DW_CFA_nop.0)
-            .collect();
+        let instrs4: Vec<_> = (0..16).map(|_| constants::DW_CFA_nop.0).collect();
 
         let mut cie1 = DebugFrameCie {
             length: 0,
@@ -4601,7 +4644,8 @@ mod tests {
             instructions: EndianBuf::<BigEndian>::new(&instrs4),
         };
 
-        let section = section.fde(Endian::Big, &cie1_location, &mut fde1)
+        let section = section
+            .fde(Endian::Big, &cie1_location, &mut fde1)
             .fde(Endian::Big, &cie2_location, &mut fde2);
         section.start().set_const(0);
 

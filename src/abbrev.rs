@@ -137,7 +137,7 @@ impl Abbreviations {
         let mut abbrevs = Abbreviations::empty();
 
         loop {
-            let (rest, abbrev) = try!(Abbreviation::parse(input));
+            let (rest, abbrev) = Abbreviation::parse(input)?;
             input = rest;
 
             match abbrev {
@@ -210,7 +210,7 @@ impl Abbreviation {
 
     /// Parse an abbreviation's tag.
     fn parse_tag(input: &[u8]) -> Result<(&[u8], constants::DwTag)> {
-        let (rest, val) = try!(parse_unsigned_leb(input));
+        let (rest, val) = parse_unsigned_leb(input)?;
         if val == 0 {
             Err(Error::AbbreviationTagZero)
         } else {
@@ -220,7 +220,7 @@ impl Abbreviation {
 
     /// Parse an abbreviation's "does the type have children?" byte.
     fn parse_has_children(input: &[u8]) -> Result<(&[u8], constants::DwChildren)> {
-        let (rest, val) = try!(parse_u8(input));
+        let (rest, val) = parse_u8(input)?;
         let val = constants::DwChildren(val);
         if val == constants::DW_CHILDREN_no || val == constants::DW_CHILDREN_yes {
             Ok((rest, val))
@@ -235,7 +235,7 @@ impl Abbreviation {
         let mut attrs = Vec::new();
 
         loop {
-            let (rest, attr) = try!(AttributeSpecification::parse(input));
+            let (rest, attr) = AttributeSpecification::parse(input)?;
             input = rest;
 
             match attr {
@@ -250,14 +250,14 @@ impl Abbreviation {
     /// Parse an abbreviation. Return `None` for the null abbreviation, `Some`
     /// for an actual abbreviation.
     fn parse(input: &[u8]) -> Result<(&[u8], Option<Abbreviation>)> {
-        let (rest, code) = try!(parse_unsigned_leb(input));
+        let (rest, code) = parse_unsigned_leb(input)?;
         if code == 0 {
             return Ok((rest, None));
         }
 
-        let (rest, tag) = try!(Self::parse_tag(rest));
-        let (rest, has_children) = try!(Self::parse_has_children(rest));
-        let (rest, attributes) = try!(Self::parse_attributes(rest));
+        let (rest, tag) = Self::parse_tag(rest)?;
+        let (rest, has_children) = Self::parse_has_children(rest)?;
+        let (rest, attributes) = Self::parse_attributes(rest)?;
         let abbrev = Abbreviation::new(code, tag, has_children, attributes);
         Ok((rest, Some(abbrev)))
     }
@@ -345,7 +345,7 @@ impl AttributeSpecification {
 
     /// Parse an attribute's form.
     fn parse_form(input: &[u8]) -> Result<(&[u8], constants::DwForm)> {
-        let (rest, val) = try!(parse_unsigned_leb(input));
+        let (rest, val) = parse_unsigned_leb(input)?;
         if val == 0 {
             Err(Error::AttributeFormZero)
         } else {
@@ -356,10 +356,10 @@ impl AttributeSpecification {
     /// Parse an attribute specification. Returns `None` for the null attribute
     /// specification, `Some` for an actual attribute specification.
     fn parse(input: &[u8]) -> Result<(&[u8], Option<AttributeSpecification>)> {
-        let (rest, name) = try!(parse_unsigned_leb(input));
+        let (rest, name) = parse_unsigned_leb(input)?;
         if name == 0 {
             // Parse the null attribute specification.
-            let (rest, form) = try!(parse_unsigned_leb(rest));
+            let (rest, form) = parse_unsigned_leb(rest)?;
             return if form == 0 {
                 Ok((rest, None))
             } else {
@@ -368,7 +368,7 @@ impl AttributeSpecification {
         }
 
         let name = constants::DwAt(name);
-        let (rest, form) = try!(Self::parse_form(rest));
+        let (rest, form) = Self::parse_form(rest)?;
         let spec = AttributeSpecification::new(name, form);
         Ok((rest, Some(spec)))
     }
@@ -431,24 +431,25 @@ pub mod tests {
             .get_contents()
             .unwrap();
 
-        let abbrev1 = Abbreviation::new(1,
-                                        constants::DW_TAG_compile_unit,
-                                        constants::DW_CHILDREN_yes,
-                                        vec![
-                AttributeSpecification::new(constants::DW_AT_producer, constants::DW_FORM_strp),
-                AttributeSpecification::new(constants::DW_AT_language, constants::DW_FORM_data2),
-            ]);
+        let abbrev1 =
+            Abbreviation::new(1,
+                              constants::DW_TAG_compile_unit,
+                              constants::DW_CHILDREN_yes,
+                              vec![AttributeSpecification::new(constants::DW_AT_producer,
+                                                               constants::DW_FORM_strp),
+                                   AttributeSpecification::new(constants::DW_AT_language,
+                                                               constants::DW_FORM_data2)]);
 
         let abbrev2 = Abbreviation::new(2,
                                         constants::DW_TAG_subprogram,
                                         constants::DW_CHILDREN_no,
-                                        vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
-            ]);
+                                        vec![AttributeSpecification::new(constants::DW_AT_name,
+                                                               constants::DW_FORM_string)]);
 
         let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&buf);
         let debug_abbrev_offset = DebugAbbrevOffset(extra_start.len());
-        let abbrevs = debug_abbrev.abbreviations(debug_abbrev_offset)
+        let abbrevs = debug_abbrev
+            .abbreviations(debug_abbrev_offset)
             .expect("Should parse abbreviations");
         assert_eq!(abbrevs.get(1), Some(&abbrev1));
         assert_eq!(abbrevs.get(2), Some(&abbrev2));
@@ -563,20 +564,20 @@ pub mod tests {
             .get_contents()
             .unwrap();
 
-        let abbrev1 = Abbreviation::new(1,
-                                        constants::DW_TAG_compile_unit,
-                                        constants::DW_CHILDREN_yes,
-                                        vec![
-                AttributeSpecification::new(constants::DW_AT_producer, constants::DW_FORM_strp),
-                AttributeSpecification::new(constants::DW_AT_language, constants::DW_FORM_data2),
-            ]);
+        let abbrev1 =
+            Abbreviation::new(1,
+                              constants::DW_TAG_compile_unit,
+                              constants::DW_CHILDREN_yes,
+                              vec![AttributeSpecification::new(constants::DW_AT_producer,
+                                                               constants::DW_FORM_strp),
+                                   AttributeSpecification::new(constants::DW_AT_language,
+                                                               constants::DW_FORM_data2)]);
 
         let abbrev2 = Abbreviation::new(2,
                                         constants::DW_TAG_subprogram,
                                         constants::DW_CHILDREN_no,
-                                        vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
-            ]);
+                                        vec![AttributeSpecification::new(constants::DW_AT_name,
+                                                               constants::DW_FORM_string)]);
 
         let (rest, abbrevs) = Abbreviations::parse(&buf).expect("Should parse abbreviations");
         assert_eq!(abbrevs.get(1), Some(&abbrev1));
@@ -651,10 +652,8 @@ pub mod tests {
         let expect = Some(Abbreviation::new(1,
                                             constants::DW_TAG_subprogram,
                                             constants::DW_CHILDREN_no,
-                                            vec![
-                    AttributeSpecification::new(constants::DW_AT_name,
-                                                constants::DW_FORM_string),
-                ]));
+                                            vec![AttributeSpecification::new(constants::DW_AT_name,
+                                                                    constants::DW_FORM_string)]));
 
         let (rest, abbrev) = Abbreviation::parse(&buf).expect("Should parse abbreviation");
         assert_eq!(abbrev, expect);

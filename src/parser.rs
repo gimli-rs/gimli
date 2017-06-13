@@ -361,7 +361,7 @@ pub fn parse_i64<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>,
 pub fn parse_u8e<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u8)>
     where Endian: Endianity
 {
-    let (bytes, value) = try!(parse_u8(bytes.into()));
+    let (bytes, value) = parse_u8(bytes.into())?;
     Ok((EndianBuf::new(bytes), value))
 }
 
@@ -371,7 +371,7 @@ pub fn parse_u8e<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>,
 pub fn parse_i8e<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, i8)>
     where Endian: Endianity
 {
-    let (bytes, value) = try!(parse_i8(bytes.into()));
+    let (bytes, value) = parse_i8(bytes.into())?;
     Ok((EndianBuf::new(bytes), value))
 }
 
@@ -381,7 +381,7 @@ pub fn parse_i8e<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>,
 pub fn parse_unsigned_lebe<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
-    let (bytes, value) = try!(parse_unsigned_leb(bytes.into()));
+    let (bytes, value) = parse_unsigned_leb(bytes.into())?;
     Ok((EndianBuf::new(bytes), value))
 }
 
@@ -392,8 +392,8 @@ pub fn parse_unsigned_leb_as_u8e<Endian>(bytes: EndianBuf<Endian>)
                                          -> Result<(EndianBuf<Endian>, u8)>
     where Endian: Endianity
 {
-    let (bytes, value) = try!(parse_unsigned_leb(bytes.into()));
-    let value = try!(u64_to_u8(value));
+    let (bytes, value) = parse_unsigned_leb(bytes.into())?;
+    let value = u64_to_u8(value)?;
     Ok((EndianBuf::new(bytes), value))
 }
 
@@ -403,7 +403,7 @@ pub fn parse_unsigned_leb_as_u8e<Endian>(bytes: EndianBuf<Endian>)
 pub fn parse_signed_lebe<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, i64)>
     where Endian: Endianity
 {
-    let (bytes, value) = try!(parse_signed_leb(bytes.into()));
+    let (bytes, value) = parse_signed_leb(bytes.into())?;
     Ok((EndianBuf::new(bytes), value))
 }
 
@@ -450,8 +450,8 @@ pub fn u64_to_u8(x: u64) -> Result<u8> {
 pub fn parse_u64_as_offset<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, usize)>
     where Endian: Endianity
 {
-    let (rest, offset) = try!(parse_u64(input));
-    let offset = try!(u64_to_offset(offset));
+    let (rest, offset) = parse_u64(input)?;
+    let offset = u64_to_offset(offset)?;
     Ok((rest, offset))
 }
 
@@ -461,8 +461,8 @@ pub fn parse_u64_as_offset<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBu
 pub fn parse_uleb_as_offset<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, usize)>
     where Endian: Endianity
 {
-    let (rest, offset) = try!(parse_unsigned_lebe(input));
-    let offset = try!(u64_to_offset(offset));
+    let (rest, offset) = parse_unsigned_lebe(input)?;
+    let offset = u64_to_offset(offset)?;
     Ok((rest, offset))
 }
 
@@ -488,8 +488,8 @@ pub fn parse_offset<Endian>(input: EndianBuf<Endian>,
                             -> Result<(EndianBuf<Endian>, usize)>
     where Endian: Endianity
 {
-    let (rest, offset) = try!(parse_word(input, format));
-    let offset = try!(u64_to_offset(offset));
+    let (rest, offset) = parse_word(input, format)?;
+    let offset = u64_to_offset(offset)?;
     Ok((rest, offset))
 }
 
@@ -523,8 +523,8 @@ pub fn parse_address_as_offset<Endian>(input: EndianBuf<Endian>,
                                        -> Result<(EndianBuf<Endian>, usize)>
     where Endian: Endianity
 {
-    let (rest, offset) = try!(parse_address(input, address_size));
-    let offset = try!(u64_to_offset(offset));
+    let (rest, offset) = parse_address(input, address_size)?;
+    let offset = u64_to_offset(offset)?;
     Ok((rest, offset))
 }
 
@@ -554,7 +554,7 @@ pub fn parse_pointer_encoding<Endian>(input: EndianBuf<Endian>)
                                       -> Result<(EndianBuf<Endian>, constants::DwEhPe)>
     where Endian: Endianity
 {
-    let (rest, eh_pe) = try!(parse_u8e(input));
+    let (rest, eh_pe) = parse_u8e(input)?;
     let eh_pe = constants::DwEhPe(eh_pe);
 
     if eh_pe.is_valid_encoding() {
@@ -588,7 +588,8 @@ impl Default for Pointer {
 impl Into<u64> for Pointer {
     fn into(self) -> u64 {
         match self {
-            Pointer::Direct(p) | Pointer::Indirect(p) => p,
+            Pointer::Direct(p) |
+            Pointer::Indirect(p) => p,
         }
     }
 }
@@ -625,23 +626,23 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>
         match encoding.format() {
             // Unsigned variants.
             constants::DW_EH_PE_absptr => {
-                let (rest, a) = try!(parse_address(input, address_size));
+                let (rest, a) = parse_address(input, address_size)?;
                 Ok((rest, a))
             }
             constants::DW_EH_PE_uleb128 => {
-                let (rest, a) = try!(parse_unsigned_lebe(input));
+                let (rest, a) = parse_unsigned_lebe(input)?;
                 Ok((rest, a))
             }
             constants::DW_EH_PE_udata2 => {
-                let (rest, a) = try!(parse_u16(input));
+                let (rest, a) = parse_u16(input)?;
                 Ok((rest, a as u64))
             }
             constants::DW_EH_PE_udata4 => {
-                let (rest, a) = try!(parse_u32(input));
+                let (rest, a) = parse_u32(input)?;
                 Ok((rest, a as u64))
             }
             constants::DW_EH_PE_udata8 => {
-                let (rest, a) = try!(parse_u64(input));
+                let (rest, a) = parse_u64(input)?;
                 Ok((rest, a))
             }
 
@@ -650,19 +651,19 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>
             // in Rust), return them as u64, and rely on wrapping addition to do
             // the right thing when adding these offsets to their bases.
             constants::DW_EH_PE_sleb128 => {
-                let (rest, a) = try!(parse_signed_lebe(input));
+                let (rest, a) = parse_signed_lebe(input)?;
                 Ok((rest, a as u64))
             }
             constants::DW_EH_PE_sdata2 => {
-                let (rest, a) = try!(parse_i16(input));
+                let (rest, a) = parse_i16(input)?;
                 Ok((rest, a as u64))
             }
             constants::DW_EH_PE_sdata4 => {
-                let (rest, a) = try!(parse_i32(input));
+                let (rest, a) = parse_i32(input)?;
                 Ok((rest, a as u64))
             }
             constants::DW_EH_PE_sdata8 => {
-                let (rest, a) = try!(parse_i64(input));
+                let (rest, a) = parse_i64(input)?;
                 Ok((rest, a as u64))
             }
 
@@ -681,14 +682,15 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>
 
     match encoding.application() {
         constants::DW_EH_PE_absptr => {
-            let (rest, addr) = try!(parse_data(encoding, address_size, input));
+            let (rest, addr) = parse_data(encoding, address_size, input)?;
             Ok((rest, Pointer::new(encoding, addr.into())))
         }
         constants::DW_EH_PE_pcrel => {
             if let Some(cfi) = bases.cfi {
-                let (rest, offset) = try!(parse_data(encoding, address_size, input));
+                let (rest, offset) = parse_data(encoding, address_size, input)?;
                 let offset_from_section = input.as_ptr() as usize - section.as_ptr() as usize;
-                let p = cfi.wrapping_add(offset_from_section as u64).wrapping_add(offset);
+                let p = cfi.wrapping_add(offset_from_section as u64)
+                    .wrapping_add(offset);
                 Ok((rest, Pointer::new(encoding, p)))
             } else {
                 Err(Error::CfiRelativePointerButCfiBaseIsUndefined)
@@ -696,7 +698,7 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>
         }
         constants::DW_EH_PE_textrel => {
             if let Some(text) = bases.text {
-                let (rest, offset) = try!(parse_data(encoding, address_size, input));
+                let (rest, offset) = parse_data(encoding, address_size, input)?;
                 Ok((rest, Pointer::new(encoding, text.wrapping_add(offset))))
             } else {
                 Err(Error::TextRelativePointerButTextBaseIsUndefined)
@@ -704,7 +706,7 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>
         }
         constants::DW_EH_PE_datarel => {
             if let Some(data) = bases.data {
-                let (rest, offset) = try!(parse_data(encoding, address_size, input));
+                let (rest, offset) = parse_data(encoding, address_size, input)?;
                 Ok((rest, Pointer::new(encoding, data.wrapping_add(offset))))
             } else {
                 Err(Error::DataRelativePointerButDataBaseIsUndefined)
@@ -713,7 +715,7 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>
         constants::DW_EH_PE_funcrel => {
             let func = bases.func.borrow();
             if let Some(func) = *func {
-                let (rest, offset) = try!(parse_data(encoding, address_size, input));
+                let (rest, offset) = parse_data(encoding, address_size, input)?;
                 Ok((rest, Pointer::new(encoding, func.wrapping_add(offset))))
             } else {
                 Err(Error::FuncRelativePointerInBadContext)
@@ -771,11 +773,11 @@ pub fn parse_initial_length<Endian>(input: EndianBuf<Endian>)
                                     -> Result<(EndianBuf<Endian>, (u64, Format))>
     where Endian: Endianity
 {
-    let (rest, val) = try!(parse_u32_as_u64(input));
+    let (rest, val) = parse_u32_as_u64(input)?;
     if val < MAX_DWARF_32_UNIT_LENGTH {
         Ok((rest, (val, Format::Dwarf32)))
     } else if val == DWARF_64_INITIAL_UNIT_LENGTH {
-        let (rest, val) = try!(parse_u64(rest));
+        let (rest, val) = parse_u64(rest)?;
         Ok((rest, (val, Format::Dwarf64)))
     } else {
         Err(Error::UnknownReservedLength)
@@ -811,7 +813,7 @@ pub fn parse_length_uleb_value<Endian>(input: EndianBuf<Endian>)
                                        -> Result<(EndianBuf<Endian>, EndianBuf<Endian>)>
     where Endian: Endianity
 {
-    let (rest, len) = try!(parse_unsigned_leb(input.into()));
+    let (rest, len) = parse_unsigned_leb(input.into())?;
     take(len as usize, EndianBuf::new(rest))
 }
 
