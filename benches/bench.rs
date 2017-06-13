@@ -3,8 +3,8 @@
 extern crate gimli;
 extern crate test;
 
-use gimli::{DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset, DebugPubNames,
-            DebugPubTypes, LittleEndian, EntriesTreeIter};
+use gimli::{DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset, DebugLoc,
+            DebugPubNames, DebugPubTypes, DebugRanges, LittleEndian, EntriesTreeIter};
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -183,6 +183,114 @@ fn bench_executing_line_number_programs(b: &mut test::Bencher) {
             test::black_box(row);
         }
     });
+}
+
+#[bench]
+fn bench_parsing_debug_loc(b: &mut test::Bencher) {
+    let debug_info = read_section("debug_info");
+    let debug_info = DebugInfo::<LittleEndian>::new(&debug_info);
+
+    let debug_abbrev = read_section("debug_abbrev");
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&debug_abbrev);
+
+    let debug_loc = read_section("debug_loc");
+    let debug_loc = DebugLoc::<LittleEndian>::new(&debug_loc);
+
+    let mut offsets = Vec::new();
+
+    let mut iter = debug_info.units();
+    while let Some(unit) = iter.next().expect("Should parse compilation unit") {
+        let abbrevs = unit.abbreviations(debug_abbrev)
+            .expect("Should parse abbreviations");
+
+        let mut cursor = unit.entries(&abbrevs);
+        cursor.next_dfs().expect("Should parse next dfs");
+
+        let mut low_pc = 0;
+
+        {
+            let unit_entry = cursor.current().expect("Should have a root entry");
+            let low_pc_attr = unit_entry
+                .attr_value(gimli::DW_AT_low_pc)
+                .expect("Should parse low_pc");
+            if let Some(gimli::AttributeValue::Addr(address)) = low_pc_attr {
+                low_pc = address;
+            }
+        }
+
+        while cursor.next_dfs().expect("Should parse next dfs").is_some() {
+            let entry = cursor.current().expect("Should have a current entry");
+            let mut attrs = entry.attrs();
+            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+                if let gimli::AttributeValue::DebugLocRef(offset) = attr.value() {
+                    offsets.push((offset, unit.address_size(), low_pc));
+                }
+            }
+        }
+    }
+
+    b.iter(|| for &(offset, address_size, base_address) in &*offsets {
+               let mut locs = debug_loc
+                   .locations(offset, address_size, base_address)
+                   .expect("Should parse locations OK");
+               while let Some(loc) = locs.next().expect("Should parse next location") {
+                   test::black_box(loc);
+               }
+           });
+}
+
+#[bench]
+fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
+    let debug_info = read_section("debug_info");
+    let debug_info = DebugInfo::<LittleEndian>::new(&debug_info);
+
+    let debug_abbrev = read_section("debug_abbrev");
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&debug_abbrev);
+
+    let debug_ranges = read_section("debug_ranges");
+    let debug_ranges = DebugRanges::<LittleEndian>::new(&debug_ranges);
+
+    let mut offsets = Vec::new();
+
+    let mut iter = debug_info.units();
+    while let Some(unit) = iter.next().expect("Should parse compilation unit") {
+        let abbrevs = unit.abbreviations(debug_abbrev)
+            .expect("Should parse abbreviations");
+
+        let mut cursor = unit.entries(&abbrevs);
+        cursor.next_dfs().expect("Should parse next dfs");
+
+        let mut low_pc = 0;
+
+        {
+            let unit_entry = cursor.current().expect("Should have a root entry");
+            let low_pc_attr = unit_entry
+                .attr_value(gimli::DW_AT_low_pc)
+                .expect("Should parse low_pc");
+            if let Some(gimli::AttributeValue::Addr(address)) = low_pc_attr {
+                low_pc = address;
+            }
+        }
+
+        while cursor.next_dfs().expect("Should parse next dfs").is_some() {
+            let entry = cursor.current().expect("Should have a current entry");
+            let mut attrs = entry.attrs();
+            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+                if let gimli::AttributeValue::DebugRangesRef(offset) = attr.value() {
+                    offsets.push((offset, unit.address_size(), low_pc));
+                }
+            }
+        }
+    }
+
+    b.iter(|| for &(offset, address_size, base_address) in &*offsets {
+               let mut ranges = debug_ranges
+                   .ranges(offset, address_size, base_address)
+                   .expect("Should parse ranges OK");
+               while let Some(range) = ranges.next().expect("Should parse next range") {
+                   test::black_box(range);
+               }
+           });
 }
 
 // See comment above `test_parse_self_eh_frame`.
