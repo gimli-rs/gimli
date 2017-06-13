@@ -1,2 +1,2 @@
 write_mode = "Overwrite"
-
+use_try_shorthand = true

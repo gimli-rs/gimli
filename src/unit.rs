@@ -402,7 +402,7 @@ impl<'input, Endian> CompilationUnitHeader<'input, Endian>
     fn parse(input: EndianBuf<Endian>,
              offset: DebugInfoOffset)
              -> Result<(EndianBuf<Endian>, CompilationUnitHeader<Endian>)> {
-        let (after_unit, header) = try!(parse_unit_header(input));
+        let (after_unit, header) = parse_unit_header(input)?;
         Ok((after_unit,
             CompilationUnitHeader {
                 header: header,
@@ -415,7 +415,7 @@ impl<'input, Endian> CompilationUnitHeader<'input, Endian>
 fn parse_version<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u16)>
     where Endian: Endianity
 {
-    let (rest, val) = try!(parse_u16(input));
+    let (rest, val) = parse_u16(input)?;
 
     // DWARF 1 was very different, and is obsolete, so isn't supported by this
     // reader.
@@ -636,10 +636,10 @@ impl<'input, Endian> UnitHeader<'input, Endian>
                                       offset: Option<UnitOffset>)
                                       -> Result<EntriesTree<'input, 'abbrev, 'me, Endian>> {
         let mut cursor = match offset {
-            Some(offset) => try!(self.entries_at_offset(abbreviations, offset)),
+            Some(offset) => self.entries_at_offset(abbreviations, offset)?,
             None => self.entries(abbreviations),
         };
-        if try!(cursor.next_entry()).is_none() {
+        if cursor.next_entry()?.is_none() {
             return Err(Error::UnexpectedEof);
         }
         if cursor.current().is_none() {
@@ -659,16 +659,16 @@ fn parse_unit_header<Endian>(input: EndianBuf<Endian>)
                              -> Result<(EndianBuf<Endian>, UnitHeader<Endian>)>
     where Endian: Endianity
 {
-    let (rest, (unit_length, format)) = try!(parse_initial_length(input));
+    let (rest, (unit_length, format)) = parse_initial_length(input)?;
     if unit_length as usize > rest.len() {
         return Err(Error::UnexpectedEof);
     }
     let after_unit = rest.range_from(unit_length as usize..);
     let rest = rest.range_to(..unit_length as usize);
 
-    let (rest, version) = try!(parse_version(rest));
-    let (rest, offset) = try!(parse_debug_abbrev_offset(rest, format));
-    let (rest, address_size) = try!(parse_address_size(rest.into()));
+    let (rest, version) = parse_version(rest)?;
+    let (rest, offset) = parse_debug_abbrev_offset(rest, format)?;
+    let (rest, address_size) = parse_address_size(rest.into())?;
 
     Ok((after_unit,
         UnitHeader::new(unit_length,
@@ -869,7 +869,7 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
     /// and return it. Returns `Ok(None)` if no attribute is found.
     pub fn attr(&self, name: constants::DwAt) -> Result<Option<Attribute<'input, Endian>>> {
         let mut attrs = self.attrs();
-        while let Some(attr) = try!(attrs.next()) {
+        while let Some(attr) = attrs.next()? {
             if attr.name() == name {
                 return Ok(Some(attr));
             }
@@ -1541,7 +1541,7 @@ fn length_u8_value<Endian>(input: EndianBuf<Endian>)
                            -> Result<(EndianBuf<Endian>, EndianBuf<Endian>)>
     where Endian: Endianity
 {
-    let (rest, len) = try!(parse_u8(input.into()));
+    let (rest, len) = parse_u8(input.into())?;
     take(len as usize, EndianBuf::new(rest))
 }
 
@@ -1549,7 +1549,7 @@ fn length_u16_value<Endian>(input: EndianBuf<Endian>)
                             -> Result<(EndianBuf<Endian>, EndianBuf<Endian>)>
     where Endian: Endianity
 {
-    let (rest, len) = try!(parse_u16(input));
+    let (rest, len) = parse_u16(input)?;
     take(len as usize, rest)
 }
 
@@ -1557,7 +1557,7 @@ fn length_u32_value<Endian>(input: EndianBuf<Endian>)
                             -> Result<(EndianBuf<Endian>, EndianBuf<Endian>)>
     where Endian: Endianity
 {
-    let (rest, len) = try!(parse_u32(input));
+    let (rest, len) = parse_u32(input)?;
     take(len as usize, rest)
 }
 
@@ -1776,7 +1776,7 @@ impl<'input, 'abbrev, 'entry, 'unit, Endian> AttrsIter<'input, 'abbrev, 'entry, 
 
         let attr = self.attributes[0];
         let rest_attr = &self.attributes[1..];
-        let (rest, attr) = try!(parse_attribute(EndianBuf::new(self.input), self.entry.unit, attr));
+        let (rest, attr) = parse_attribute(EndianBuf::new(self.input), self.entry.unit, attr)?;
         self.attributes = rest_attr;
         self.input = rest.into();
         Ok(Some(attr))
@@ -1839,7 +1839,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                 Ok(after_attrs)
             } else {
                 let mut attrs = current.attrs();
-                while let Some(_) = try!(attrs.next()) {}
+                while let Some(_) = attrs.next()? {}
                 Ok(current
                        .after_attrs
                        .get()
@@ -1863,7 +1863,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
     /// Returns `Some` if there is a next entry, even if this entry is null.
     /// If there is no next entry, then `None` is returned.
     pub fn next_entry(&mut self) -> Result<Option<()>> {
-        let input = try!(self.after_entry());
+        let input = self.after_entry()?;
         if input.is_empty() {
             self.input = input;
             self.cached_current = None;
@@ -1872,7 +1872,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
         }
 
         let offset = self.get_offset(input);
-        match try!(parse_unsigned_leb(input)) {
+        match parse_unsigned_leb(input)? {
             (rest, 0) => {
                 self.input = rest;
                 self.cached_current = None;
@@ -2024,7 +2024,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
             // entries, but this while loop is slightly more efficient.
             // Note that this doesn't handle unusual LEB128 encodings of zero
             // such as [0x80, 0x00]; they are still handled by next_entry().
-            let mut input = try!(self.after_entry());
+            let mut input = self.after_entry()?;
             while !input.is_empty() && input[0] == 0 {
                 delta_depth -= 1;
                 input = &input[1..];
@@ -2033,7 +2033,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
             self.cached_current = None;
 
             // The next entry should be the one we want.
-            if try!(self.next_entry()).is_some() {
+            if self.next_entry()?.is_some() {
                 if let Some(ref entry) = self.cached_current {
                     return Ok(Some((delta_depth, entry)));
                 }
@@ -2171,8 +2171,9 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                 // down one level.
                 depth += 1;
 
-                let sibling_ptr =
-                    try!(self.current().unwrap().attr_value(constants::DW_AT_sibling));
+                let sibling_ptr = self.current()
+                    .unwrap()
+                    .attr_value(constants::DW_AT_sibling)?;
                 if let Some(AttributeValue::UnitRef(offset)) = sibling_ptr {
                     if self.unit.is_valid_offset(offset) {
                         // Fast path: this entry has a DW_AT_sibling
@@ -2185,7 +2186,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                 }
             }
 
-            if try!(self.next_entry()).is_none() {
+            if self.next_entry()?.is_none() {
                 // End of input.
                 return Ok(None);
             }
@@ -2292,7 +2293,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesTree<'input, 'abbrev, 'unit, Endian>
                 return Ok(false);
             }
             // The next entry is the child.
-            try!(self.cursor.next_entry());
+            self.cursor.next_entry()?;
             if self.cursor.current().is_none() {
                 // No children, don't adjust depth.
                 return Ok(false);
@@ -2305,9 +2306,9 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesTree<'input, 'abbrev, 'unit, Endian>
 
         loop {
             if self.cursor.current().is_some() {
-                try!(self.cursor.next_sibling());
+                self.cursor.next_sibling()?;
             } else {
-                try!(self.cursor.next_entry());
+                self.cursor.next_entry()?;
             }
             if self.depth == depth {
                 if self.cursor.current().is_none() {
@@ -2388,7 +2389,7 @@ impl<'input, 'abbrev, 'unit, 'tree, Endian> EntriesTreeIter<'input, 'abbrev, 'un
                      -> Result<Option<EntriesTreeIter<'input, 'abbrev, 'unit, 'me, Endian>>> {
         if self.state == EntriesTreeIterState::None {
             Ok(None)
-        } else if try!(self.tree.next(self.depth)) {
+        } else if self.tree.next(self.depth)? {
             self.state = EntriesTreeIterState::Child;
             Ok(Some(EntriesTreeIter::new(self.tree, self.depth + 1)))
         } else {
@@ -2404,7 +2405,7 @@ fn parse_type_signature<Endian>(input: EndianBuf<Endian>)
                                 -> Result<(EndianBuf<Endian>, DebugTypeSignature)>
     where Endian: Endianity
 {
-    let (rest, offset) = try!(parse_u64(input));
+    let (rest, offset) = parse_u64(input)?;
     Ok((rest, DebugTypeSignature(offset)))
 }
 
@@ -2730,9 +2731,9 @@ fn parse_type_unit_header<Endian>(input: EndianBuf<Endian>,
                                   -> Result<(EndianBuf<Endian>, TypeUnitHeader<Endian>)>
     where Endian: Endianity
 {
-    let (after_unit, mut header) = try!(parse_unit_header(input));
-    let (rest, signature) = try!(parse_type_signature(header.entries_buf));
-    let (rest, type_offset) = try!(parse_type_offset(rest, header.format()));
+    let (after_unit, mut header) = parse_unit_header(input)?;
+    let (rest, signature) = parse_type_signature(header.entries_buf)?;
+    let (rest, type_offset) = parse_type_offset(rest, header.format())?;
     header.entries_buf = rest;
     Ok((after_unit, TypeUnitHeader::new(header, offset, signature, type_offset)))
 }

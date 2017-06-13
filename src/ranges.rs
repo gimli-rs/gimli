@@ -126,7 +126,7 @@ impl<'input, Endian> RawRangesIter<'input, Endian>
             return Ok(None);
         }
 
-        let (rest, range) = try!(Range::parse(self.input, self.address_size));
+        let (rest, range) = Range::parse(self.input, self.address_size)?;
         if range.is_end() {
             self.input = EndianBuf::new(&[]);
         } else {
@@ -178,7 +178,7 @@ impl<'input, Endian> RangesIter<'input, Endian>
     /// Advance the iterator to the next range.
     pub fn next(&mut self) -> Result<Option<Range>> {
         loop {
-            let mut range = match try!(self.raw.next()) {
+            let mut range = match self.raw.next()? {
                 Some(range) => range,
                 None => return Ok(None),
             };
@@ -264,8 +264,8 @@ impl Range {
                          -> Result<(EndianBuf<Endian>, Range)>
         where Endian: Endianity
     {
-        let (rest, begin) = try!(parse_address(input, address_size));
-        let (rest, end) = try!(parse_address(rest, address_size));
+        let (rest, begin) = parse_address(input, address_size)?;
+        let (rest, end) = parse_address(rest, address_size)?;
         let range = Range {
             begin: begin,
             end: end,

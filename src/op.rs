@@ -292,11 +292,11 @@ impl<'input, Endian> Operation<'input, Endian>
                  -> Result<(EndianBuf<'input, Endian>, Operation<'input, Endian>), Error>
         where Endian: Endianity
     {
-        let (bytes, opcode) = try!(parse_u8e(bytes));
+        let (bytes, opcode) = parse_u8e(bytes)?;
         let name = constants::DwOp(opcode);
         match name {
             constants::DW_OP_addr => {
-                let (newbytes, value) = try!(parse_address(bytes, address_size));
+                let (newbytes, value) = parse_address(bytes, address_size)?;
                 Ok((newbytes, Operation::Literal { value: value }))
             }
             constants::DW_OP_deref => {
@@ -307,50 +307,50 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_const1u => {
-                let (newbytes, value) = try!(parse_u8e(bytes));
+                let (newbytes, value) = parse_u8e(bytes)?;
                 Ok((newbytes, Operation::Literal { value: value as u64 }))
             }
             constants::DW_OP_const1s => {
-                let (newbytes, value) = try!(parse_i8e(bytes));
+                let (newbytes, value) = parse_i8e(bytes)?;
                 Ok((newbytes, Operation::Literal { value: value as u64 }))
             }
             constants::DW_OP_const2u => {
-                let (newbytes, value) = try!(parse_u16(bytes));
+                let (newbytes, value) = parse_u16(bytes)?;
                 Ok((newbytes, Operation::Literal { value: value as u64 }))
             }
             constants::DW_OP_const2s => {
-                let (newbytes, value) = try!(parse_i16(bytes));
+                let (newbytes, value) = parse_i16(bytes)?;
                 Ok((newbytes, Operation::Literal { value: value as u64 }))
             }
             constants::DW_OP_const4u => {
-                let (newbytes, value) = try!(parse_u32(bytes));
+                let (newbytes, value) = parse_u32(bytes)?;
                 Ok((newbytes, Operation::Literal { value: value as u64 }))
             }
             constants::DW_OP_const4s => {
-                let (newbytes, value) = try!(parse_i32(bytes));
+                let (newbytes, value) = parse_i32(bytes)?;
                 Ok((newbytes, Operation::Literal { value: value as u64 }))
             }
             constants::DW_OP_const8u => {
-                let (newbytes, value) = try!(parse_u64(bytes));
+                let (newbytes, value) = parse_u64(bytes)?;
                 Ok((newbytes, Operation::Literal { value: value }))
             }
             constants::DW_OP_const8s => {
-                let (newbytes, value) = try!(parse_i64(bytes));
+                let (newbytes, value) = parse_i64(bytes)?;
                 Ok((newbytes, Operation::Literal { value: value as u64 }))
             }
             constants::DW_OP_constu => {
-                let (newbytes, value) = try!(parse_unsigned_lebe(bytes));
+                let (newbytes, value) = parse_unsigned_lebe(bytes)?;
                 Ok((newbytes, Operation::Literal { value: value }))
             }
             constants::DW_OP_consts => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes, Operation::Literal { value: value as u64 }))
             }
             constants::DW_OP_dup => Ok((bytes, Operation::Pick { index: 0 })),
             constants::DW_OP_drop => Ok((bytes, Operation::Drop)),
             constants::DW_OP_over => Ok((bytes, Operation::Pick { index: 1 })),
             constants::DW_OP_pick => {
-                let (newbytes, value) = try!(parse_u8e(bytes));
+                let (newbytes, value) = parse_u8e(bytes)?;
                 Ok((newbytes, Operation::Pick { index: value }))
             }
             constants::DW_OP_swap => Ok((bytes, Operation::Swap)),
@@ -373,7 +373,7 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_or => Ok((bytes, Operation::Or)),
             constants::DW_OP_plus => Ok((bytes, Operation::Plus)),
             constants::DW_OP_plus_uconst => {
-                let (newbytes, value) = try!(parse_unsigned_lebe(bytes));
+                let (newbytes, value) = parse_unsigned_lebe(bytes)?;
                 Ok((newbytes, Operation::PlusConstant { value: value }))
             }
             constants::DW_OP_shl => Ok((bytes, Operation::Shl)),
@@ -381,9 +381,8 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_shra => Ok((bytes, Operation::Shra)),
             constants::DW_OP_xor => Ok((bytes, Operation::Xor)),
             constants::DW_OP_bra => {
-                let (newbytes, value) = try!(parse_i16(bytes));
-                Ok((newbytes,
-                    Operation::Bra { target: try!(compute_pc(newbytes, bytecode, value)) }))
+                let (newbytes, value) = parse_i16(bytes)?;
+                Ok((newbytes, Operation::Bra { target: compute_pc(newbytes, bytecode, value)? }))
             }
             constants::DW_OP_eq => Ok((bytes, Operation::Eq)),
             constants::DW_OP_ge => Ok((bytes, Operation::Ge)),
@@ -392,9 +391,8 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_lt => Ok((bytes, Operation::Lt)),
             constants::DW_OP_ne => Ok((bytes, Operation::Ne)),
             constants::DW_OP_skip => {
-                let (newbytes, value) = try!(parse_i16(bytes));
-                Ok((newbytes,
-                    Operation::Skip { target: try!(compute_pc(newbytes, bytecode, value)) }))
+                let (newbytes, value) = parse_i16(bytes)?;
+                Ok((newbytes, Operation::Skip { target: compute_pc(newbytes, bytecode, value)? }))
             }
             constants::DW_OP_lit0 => Ok((bytes, Operation::Literal { value: 0 })),
             constants::DW_OP_lit1 => Ok((bytes, Operation::Literal { value: 1 })),
@@ -461,7 +459,7 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_reg30 => Ok((bytes, Operation::Register { register: 30 })),
             constants::DW_OP_reg31 => Ok((bytes, Operation::Register { register: 31 })),
             constants::DW_OP_breg0 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 0,
@@ -469,7 +467,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg1 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 1,
@@ -477,7 +475,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg2 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 2,
@@ -485,7 +483,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg3 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 3,
@@ -493,7 +491,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg4 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 4,
@@ -501,7 +499,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg5 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 5,
@@ -509,7 +507,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg6 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 6,
@@ -517,7 +515,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg7 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 7,
@@ -525,7 +523,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg8 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 8,
@@ -533,7 +531,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg9 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 9,
@@ -541,7 +539,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg10 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 10,
@@ -549,7 +547,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg11 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 11,
@@ -557,7 +555,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg12 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 12,
@@ -565,7 +563,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg13 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 13,
@@ -573,7 +571,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg14 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 14,
@@ -581,7 +579,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg15 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 15,
@@ -589,7 +587,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg16 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 16,
@@ -597,7 +595,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg17 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 17,
@@ -605,7 +603,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg18 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 18,
@@ -613,7 +611,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg19 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 19,
@@ -621,7 +619,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg20 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 20,
@@ -629,7 +627,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg21 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 21,
@@ -637,7 +635,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg22 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 22,
@@ -645,7 +643,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg23 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 23,
@@ -653,7 +651,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg24 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 24,
@@ -661,7 +659,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg25 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 25,
@@ -669,7 +667,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg26 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 26,
@@ -677,7 +675,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg27 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 27,
@@ -685,7 +683,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg28 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 28,
@@ -693,7 +691,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg29 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 29,
@@ -701,7 +699,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg30 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 30,
@@ -709,7 +707,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg31 => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 31,
@@ -717,16 +715,16 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_regx => {
-                let (newbytes, value) = try!(parse_unsigned_lebe(bytes));
+                let (newbytes, value) = parse_unsigned_lebe(bytes)?;
                 Ok((newbytes, Operation::Register { register: value }))
             }
             constants::DW_OP_fbreg => {
-                let (newbytes, value) = try!(parse_signed_lebe(bytes));
+                let (newbytes, value) = parse_signed_lebe(bytes)?;
                 Ok((newbytes, Operation::FrameOffset { offset: value }))
             }
             constants::DW_OP_bregx => {
-                let (newbytes, regno) = try!(parse_unsigned_lebe(bytes));
-                let (newbytes, offset) = try!(parse_signed_lebe(newbytes));
+                let (newbytes, regno) = parse_unsigned_lebe(bytes)?;
+                let (newbytes, offset) = parse_signed_lebe(newbytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: regno,
@@ -734,7 +732,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_piece => {
-                let (newbytes, size) = try!(parse_unsigned_lebe(bytes));
+                let (newbytes, size) = parse_unsigned_lebe(bytes)?;
                 Ok((newbytes,
                     Operation::Piece {
                         size_in_bits: 8 * size,
@@ -742,7 +740,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_deref_size => {
-                let (newbytes, size) = try!(parse_u8e(bytes));
+                let (newbytes, size) = parse_u8e(bytes)?;
                 Ok((newbytes,
                     Operation::Deref {
                         size: size,
@@ -750,7 +748,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_xderef_size => {
-                let (newbytes, size) = try!(parse_u8e(bytes));
+                let (newbytes, size) = parse_u8e(bytes)?;
                 Ok((newbytes,
                     Operation::Deref {
                         size: size,
@@ -760,17 +758,17 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_nop => Ok((bytes, Operation::Nop)),
             constants::DW_OP_push_object_address => Ok((bytes, Operation::PushObjectAddress)),
             constants::DW_OP_call2 => {
-                let (newbytes, value) = try!(parse_u16(bytes));
+                let (newbytes, value) = parse_u16(bytes)?;
                 Ok((newbytes,
                     Operation::Call { offset: DieReference::UnitRef(UnitOffset(value as usize)) }))
             }
             constants::DW_OP_call4 => {
-                let (newbytes, value) = try!(parse_u32(bytes));
+                let (newbytes, value) = parse_u32(bytes)?;
                 Ok((newbytes,
                     Operation::Call { offset: DieReference::UnitRef(UnitOffset(value as usize)) }))
             }
             constants::DW_OP_call_ref => {
-                let (newbytes, value) = try!(parse_offset(bytes, format));
+                let (newbytes, value) = parse_offset(bytes, format)?;
                 Ok((newbytes,
                     Operation::Call { offset: DieReference::DebugInfoRef(DebugInfoOffset(value)) }))
             }
@@ -778,8 +776,8 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_GNU_push_tls_address => Ok((bytes, Operation::TLS)),
             constants::DW_OP_call_frame_cfa => Ok((bytes, Operation::CallFrameCFA)),
             constants::DW_OP_bit_piece => {
-                let (newbytes, size) = try!(parse_unsigned_lebe(bytes));
-                let (newbytes, offset) = try!(parse_unsigned_lebe(newbytes));
+                let (newbytes, size) = parse_unsigned_lebe(bytes)?;
+                let (newbytes, offset) = parse_unsigned_lebe(newbytes)?;
                 Ok((newbytes,
                     Operation::Piece {
                         size_in_bits: size,
@@ -787,14 +785,14 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_implicit_value => {
-                let (newbytes, data) = try!(parse_length_uleb_value(bytes));
+                let (newbytes, data) = parse_length_uleb_value(bytes)?;
                 Ok((newbytes, Operation::ImplicitValue { data: data.into() }))
             }
             constants::DW_OP_stack_value => Ok((bytes, Operation::StackValue)),
             constants::DW_OP_implicit_pointer |
             constants::DW_OP_GNU_implicit_pointer => {
-                let (newbytes, value) = try!(parse_offset(bytes, format));
-                let (newbytes, byte_offset) = try!(parse_signed_lebe(newbytes));
+                let (newbytes, value) = parse_offset(bytes, format)?;
+                let (newbytes, byte_offset) = parse_signed_lebe(newbytes)?;
                 Ok((newbytes,
                     Operation::ImplicitPointer {
                         value: DebugInfoOffset(value),
@@ -803,7 +801,7 @@ impl<'input, Endian> Operation<'input, Endian>
             }
             constants::DW_OP_entry_value |
             constants::DW_OP_GNU_entry_value => {
-                let (newbytes, expression) = try!(parse_length_uleb_value(bytes));
+                let (newbytes, expression) = parse_length_uleb_value(bytes)?;
                 Ok((newbytes, Operation::EntryValue { expression: expression }))
             }
 
@@ -1060,8 +1058,8 @@ impl<'input, Endian> Evaluation<'input, Endian>
 
         match *operation {
             Operation::Deref { size, space } => {
-                let addr = try!(self.pop());
-                let addr_space = if space { Some(try!(self.pop())) } else { None };
+                let addr = self.pop()?;
+                let addr_space = if space { Some(self.pop()?) } else { None };
                 return Ok(OperationEvaluationResult::AwaitingMemory {
                               address: addr,
                               size: size,
@@ -1070,7 +1068,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
             }
 
             Operation::Drop => {
-                try!(self.pop());
+                self.pop()?;
             }
             Operation::Pick { index } => {
                 let len = self.stack.len();
@@ -1082,80 +1080,80 @@ impl<'input, Endian> Evaluation<'input, Endian>
                 self.push(value);
             }
             Operation::Swap => {
-                let top = try!(self.pop());
-                let next = try!(self.pop());
+                let top = self.pop()?;
+                let next = self.pop()?;
                 self.push(top);
                 self.push(next);
             }
             Operation::Rot => {
-                let one = try!(self.pop());
-                let two = try!(self.pop());
-                let three = try!(self.pop());
+                let one = self.pop()?;
+                let two = self.pop()?;
+                let three = self.pop()?;
                 self.push(one);
                 self.push(three);
                 self.push(two);
             }
 
             Operation::Abs => {
-                let value = try!(self.pop_signed());
+                let value = self.pop_signed()?;
                 self.push(value.abs() as u64);
             }
             Operation::And => {
-                let v1 = try!(self.pop());
-                let v2 = try!(self.pop());
+                let v1 = self.pop()?;
+                let v2 = self.pop()?;
                 self.push(v2 & v1);
             }
             Operation::Div => {
-                let v1 = try!(self.pop_signed());
-                let v2 = try!(self.pop_signed());
+                let v1 = self.pop_signed()?;
+                let v2 = self.pop_signed()?;
                 if v1 == 0 {
                     return Err(Error::DivisionByZero.into());
                 }
                 self.push(v2.wrapping_div(v1) as u64);
             }
             Operation::Minus => {
-                let v1 = try!(self.pop());
-                let v2 = try!(self.pop());
+                let v1 = self.pop()?;
+                let v2 = self.pop()?;
                 self.push(v2.wrapping_sub(v1));
             }
             Operation::Mod => {
-                let v1 = try!(self.pop());
-                let v2 = try!(self.pop());
+                let v1 = self.pop()?;
+                let v2 = self.pop()?;
                 if v1 == 0 {
                     return Err(Error::DivisionByZero.into());
                 }
                 self.push(v2.wrapping_rem(v1));
             }
             Operation::Mul => {
-                let v1 = try!(self.pop());
-                let v2 = try!(self.pop());
+                let v1 = self.pop()?;
+                let v2 = self.pop()?;
                 self.push(v2.wrapping_mul(v1));
             }
             Operation::Neg => {
-                let v = try!(self.pop());
+                let v = self.pop()?;
                 self.push(v.wrapping_neg());
             }
             Operation::Not => {
-                let value = try!(self.pop());
+                let value = self.pop()?;
                 self.push(!value);
             }
             Operation::Or => {
-                let v1 = try!(self.pop());
-                let v2 = try!(self.pop());
+                let v1 = self.pop()?;
+                let v2 = self.pop()?;
                 self.push(v2 | v1);
             }
             Operation::Plus => {
-                let v1 = try!(self.pop());
-                let v2 = try!(self.pop());
+                let v1 = self.pop()?;
+                let v2 = self.pop()?;
                 self.push(v2.wrapping_add(v1));
             }
             Operation::PlusConstant { value } => {
-                let v = try!(self.pop());
+                let v = self.pop()?;
                 self.push(v.wrapping_add(value));
             }
             Operation::Shl => {
-                let v1 = try!(self.pop());
-                let v2 = try!(self.pop());
+                let v1 = self.pop()?;
+                let v2 = self.pop()?;
                 // Because wrapping_shl takes a u32, not a u64, we do
                 // the check by hand.
                 if v1 >= 64 {
@@ -1165,8 +1163,8 @@ impl<'input, Endian> Evaluation<'input, Endian>
                 }
             }
             Operation::Shr => {
-                let v1 = try!(self.pop());
-                let v2 = try!(self.pop());
+                let v1 = self.pop()?;
+                let v2 = self.pop()?;
                 // Because wrapping_shr takes a u32, not a u64, we do
                 // the check by hand.
                 if v1 >= 64 {
@@ -1176,8 +1174,8 @@ impl<'input, Endian> Evaluation<'input, Endian>
                 }
             }
             Operation::Shra => {
-                let v1 = try!(self.pop());
-                let v2 = try!(self.pop_signed());
+                let v1 = self.pop()?;
+                let v2 = self.pop_signed()?;
                 // Because wrapping_shr takes a u32, not a u64, we do
                 // the check by hand.
                 if v1 >= 64 {
@@ -1191,46 +1189,46 @@ impl<'input, Endian> Evaluation<'input, Endian>
                 }
             }
             Operation::Xor => {
-                let v1 = try!(self.pop());
-                let v2 = try!(self.pop());
+                let v1 = self.pop()?;
+                let v2 = self.pop()?;
                 self.push(v2 ^ v1);
             }
 
             Operation::Bra { target } => {
-                let v = try!(self.pop());
+                let v = self.pop()?;
                 if v != 0 {
                     self.pc = target;
                 }
             }
 
             Operation::Eq => {
-                let v1 = try!(self.pop_signed());
-                let v2 = try!(self.pop_signed());
+                let v1 = self.pop_signed()?;
+                let v2 = self.pop_signed()?;
                 self.push(if v2 == v1 { 1 } else { 0 });
             }
             Operation::Ge => {
-                let v1 = try!(self.pop_signed());
-                let v2 = try!(self.pop_signed());
+                let v1 = self.pop_signed()?;
+                let v2 = self.pop_signed()?;
                 self.push(if v2 >= v1 { 1 } else { 0 });
             }
             Operation::Gt => {
-                let v1 = try!(self.pop_signed());
-                let v2 = try!(self.pop_signed());
+                let v1 = self.pop_signed()?;
+                let v2 = self.pop_signed()?;
                 self.push(if v2 > v1 { 1 } else { 0 });
             }
             Operation::Le => {
-                let v1 = try!(self.pop_signed());
-                let v2 = try!(self.pop_signed());
+                let v1 = self.pop_signed()?;
+                let v2 = self.pop_signed()?;
                 self.push(if v2 <= v1 { 1 } else { 0 });
             }
             Operation::Lt => {
-                let v1 = try!(self.pop_signed());
-                let v2 = try!(self.pop_signed());
+                let v1 = self.pop_signed()?;
+                let v2 = self.pop_signed()?;
                 self.push(if v2 < v1 { 1 } else { 0 });
             }
             Operation::Ne => {
-                let v1 = try!(self.pop_signed());
-                let v2 = try!(self.pop_signed());
+                let v1 = self.pop_signed()?;
+                let v2 = self.pop_signed()?;
                 self.push(if v2 != v1 { 1 } else { 0 });
             }
 
@@ -1268,7 +1266,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
             }
 
             Operation::TLS => {
-                let value = try!(self.pop());
+                let value = self.pop()?;
                 return Ok(OperationEvaluationResult::AwaitingTls { index: value });
             }
 
@@ -1288,7 +1286,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
 
             Operation::StackValue => {
                 terminated = true;
-                current_location = Location::Scalar { value: try!(self.pop()) };
+                current_location = Location::Scalar { value: self.pop()? };
             }
 
             Operation::ImplicitPointer { value, byte_offset } => {
@@ -1561,10 +1559,10 @@ impl<'input, Endian> Evaluation<'input, Endian>
             }
 
             let (newpc, operation) =
-                try!(Operation::parse(self.pc, self.bytecode, self.address_size, self.format));
+                Operation::parse(self.pc, self.bytecode, self.address_size, self.format)?;
             self.pc = newpc;
 
-            let op_result = try!(self.evaluate_one_operation(&operation));
+            let op_result = self.evaluate_one_operation(&operation)?;
             match op_result {
                 OperationEvaluationResult::Complete {
                     terminated,
@@ -1584,13 +1582,13 @@ impl<'input, Endian> Evaluation<'input, Endian>
                             // result is the address on the stack.
                             assert_eq!(current_location, Location::Empty);
                             if !self.stack.is_empty() {
-                                current_location = Location::Address { address: try!(self.pop()) };
+                                current_location = Location::Address { address: self.pop()? };
                             }
                         } else if !eof {
-                            let (newpc, operation) = try!(Operation::parse(self.pc,
-                                                                           self.bytecode,
-                                                                           self.address_size,
-                                                                           self.format));
+                            let (newpc, operation) = Operation::parse(self.pc,
+                                                                      self.bytecode,
+                                                                      self.address_size,
+                                                                      self.format)?;
                             self.pc = newpc;
                             pieceop = operation;
                         }
@@ -1669,7 +1667,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
         // If no pieces have been seen, use the stack top as the
         // result.
         if self.result.is_empty() {
-            let addr = try!(self.pop());
+            let addr = self.pop()?;
             self.result.push(Piece {
                                  size_in_bits: None,
                                  bit_offset: None,

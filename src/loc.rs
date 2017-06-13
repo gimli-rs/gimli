@@ -130,7 +130,7 @@ impl<'input, Endian> RawLocationListIter<'input, Endian>
             return Ok(None);
         }
 
-        let (rest, location) = try!(LocationListEntry::parse(self.input, self.address_size));
+        let (rest, location) = LocationListEntry::parse(self.input, self.address_size)?;
         if location.range.is_end() {
             self.input = EndianBuf::new(&[]);
         } else {
@@ -182,7 +182,7 @@ impl<'input, Endian> LocationListIter<'input, Endian>
     /// Advance the iterator to the next location.
     pub fn next(&mut self) -> Result<Option<LocationListEntry<'input, Endian>>> {
         loop {
-            let mut location = match try!(self.raw.next()) {
+            let mut location = match self.raw.next()? {
                 Some(location) => location,
                 None => return Ok(None),
             };
@@ -246,7 +246,7 @@ impl<'input, Endian> LocationListEntry<'input, Endian>
              -> Result<(EndianBuf<Endian>, LocationListEntry<Endian>)>
         where Endian: Endianity
     {
-        let (rest, range) = try!(Range::parse(input, address_size));
+        let (rest, range) = Range::parse(input, address_size)?;
         if range.is_end() || range.is_base_address(address_size) {
             let location = LocationListEntry {
                 range: range,
@@ -254,8 +254,8 @@ impl<'input, Endian> LocationListEntry<'input, Endian>
             };
             Ok((rest, location))
         } else {
-            let (rest, len) = try!(parse_u16(rest));
-            let (rest, data) = try!(take(len as usize, rest));
+            let (rest, len) = parse_u16(rest)?;
+            let (rest, data) = take(len as usize, rest)?;
             let location = LocationListEntry {
                 range: range,
                 data: data,

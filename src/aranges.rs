@@ -110,21 +110,21 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
     #[allow(type_complexity)]
     fn parse_header(input: EndianBuf<Endian>)
                     -> Result<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<Self::Header>)> {
-        let (rest, (length, format)) = try!(parse_initial_length(input));
+        let (rest, (length, format)) = parse_initial_length(input)?;
         if length as usize > rest.len() {
             return Err(Error::UnexpectedEof);
         }
         let after_set = rest.range_from(length as usize..);
         let rest = rest.range_to(..length as usize);
 
-        let (rest, version) = try!(parse_u16(rest));
+        let (rest, version) = parse_u16(rest)?;
         if version != 2 {
             return Err(Error::UnknownVersion);
         }
 
-        let (rest, offset) = try!(parse_debug_info_offset(rest, format));
-        let (rest, address_size) = try!(parse_address_size(rest));
-        let (rest, segment_size) = try!(parse_address_size(rest));
+        let (rest, offset) = parse_debug_info_offset(rest, format)?;
+        let (rest, address_size) = parse_address_size(rest)?;
+        let (rest, segment_size) = parse_address_size(rest)?;
 
         // unit_length + version + offset + address_size + segment_size
         let header_length = match format {
@@ -171,12 +171,12 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
         }
 
         let (rest, segment) = if segment_size != 0 {
-            try!(parse_address(input, segment_size))
+            parse_address(input, segment_size)?
         } else {
             (input, 0)
         };
-        let (rest, address) = try!(parse_address(rest, address_size));
-        let (rest, length) = try!(parse_address(rest, address_size));
+        let (rest, address) = parse_address(rest, address_size)?;
+        let (rest, length) = parse_address(rest, address_size)?;
 
         match (segment, address, length) {
             // There may be multiple sets of tuples, each terminated by a zero tuple.

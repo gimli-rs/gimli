@@ -74,8 +74,7 @@ impl<'input, Endian> DebugLine<'input, Endian>
             return Err(parser::Error::UnexpectedEof);
         }
         let input = self.debug_line_section.range_from(offset.0..);
-        let (_, header) =
-            try!(LineNumberProgramHeader::parse(input, address_size, comp_dir, comp_name));
+        let (_, header) = LineNumberProgramHeader::parse(input, address_size, comp_dir, comp_name)?;
         let program = IncompleteLineNumberProgram { header: header };
         Ok(program)
     }
@@ -557,9 +556,9 @@ impl<'input> Opcode<'input> {
         where Endian: 'header + Endianity,
               'input: 'header
     {
-        let (rest, opcode) = try!(parser::parse_u8(input));
+        let (rest, opcode) = parser::parse_u8(input)?;
         if opcode == 0 {
-            let (rest, length) = try!(parser::parse_unsigned_leb(rest));
+            let (rest, length) = parser::parse_unsigned_leb(rest)?;
             let length = length as usize;
             if rest.len() < length {
                 return Err(parser::Error::UnexpectedEof);
@@ -567,25 +566,24 @@ impl<'input> Opcode<'input> {
 
             let instr_rest = &rest[..length];
             let rest = &rest[length..];
-            let (instr_rest, opcode) = try!(parser::parse_u8(instr_rest));
+            let (instr_rest, opcode) = parser::parse_u8(instr_rest)?;
 
             match constants::DwLne(opcode) {
                 constants::DW_LNE_end_sequence => Ok((rest, Opcode::EndSequence)),
 
                 constants::DW_LNE_set_address => {
-                    let (_, address) =
-                        try!(parser::parse_address(EndianBuf::<Endian>::new(instr_rest),
-                                                   header.address_size));
+                    let (_, address) = parser::parse_address(EndianBuf::<Endian>::new(instr_rest),
+                                                             header.address_size)?;
                     Ok((rest, Opcode::SetAddress(address)))
                 }
 
                 constants::DW_LNE_define_file => {
-                    let (_, entry) = try!(FileEntry::parse(instr_rest));
+                    let (_, entry) = FileEntry::parse(instr_rest)?;
                     Ok((rest, Opcode::DefineFile(entry)))
                 }
 
                 constants::DW_LNE_set_discriminator => {
-                    let (_, discriminator) = try!(parser::parse_unsigned_leb(instr_rest));
+                    let (_, discriminator) = parser::parse_unsigned_leb(instr_rest)?;
                     Ok((rest, Opcode::SetDiscriminator(discriminator)))
                 }
 
@@ -598,22 +596,22 @@ impl<'input> Opcode<'input> {
                 constants::DW_LNS_copy => Ok((rest, Opcode::Copy)),
 
                 constants::DW_LNS_advance_pc => {
-                    let (rest, advance) = try!(parser::parse_unsigned_leb(rest));
+                    let (rest, advance) = parser::parse_unsigned_leb(rest)?;
                     Ok((rest, Opcode::AdvancePc(advance)))
                 }
 
                 constants::DW_LNS_advance_line => {
-                    let (rest, increment) = try!(parser::parse_signed_leb(rest));
+                    let (rest, increment) = parser::parse_signed_leb(rest)?;
                     Ok((rest, Opcode::AdvanceLine(increment)))
                 }
 
                 constants::DW_LNS_set_file => {
-                    let (rest, file) = try!(parser::parse_unsigned_leb(rest));
+                    let (rest, file) = parser::parse_unsigned_leb(rest)?;
                     Ok((rest, Opcode::SetFile(file)))
                 }
 
                 constants::DW_LNS_set_column => {
-                    let (rest, column) = try!(parser::parse_unsigned_leb(rest));
+                    let (rest, column) = parser::parse_unsigned_leb(rest)?;
                     Ok((rest, Opcode::SetColumn(column)))
                 }
 
@@ -624,7 +622,7 @@ impl<'input> Opcode<'input> {
                 constants::DW_LNS_const_add_pc => Ok((rest, Opcode::ConstAddPc)),
 
                 constants::DW_LNS_fixed_advance_pc => {
-                    let (rest, advance) = try!(parser::parse_u16(EndianBuf::<Endian>::new(rest)));
+                    let (rest, advance) = parser::parse_u16(EndianBuf::<Endian>::new(rest))?;
                     Ok((rest.into(), Opcode::FixedAddPc(advance)))
                 }
 
@@ -633,7 +631,7 @@ impl<'input> Opcode<'input> {
                 constants::DW_LNS_set_epilogue_begin => Ok((rest, Opcode::SetEpilogueBegin)),
 
                 constants::DW_LNS_set_isa => {
-                    let (rest, isa) = try!(parser::parse_unsigned_leb(rest));
+                    let (rest, isa) = parser::parse_unsigned_leb(rest)?;
                     Ok((rest, Opcode::SetIsa(isa)))
                 }
 
@@ -642,7 +640,7 @@ impl<'input> Opcode<'input> {
                 }
 
                 otherwise if header.standard_opcode_lengths[(opcode - 1) as usize] == 1 => {
-                    let (rest, arg) = try!(parser::parse_unsigned_leb(rest));
+                    let (rest, arg) = parser::parse_unsigned_leb(rest)?;
                     Ok((rest, Opcode::UnknownStandard1(otherwise, arg)))
                 }
 
@@ -651,7 +649,7 @@ impl<'input> Opcode<'input> {
                     let mut args = Vec::with_capacity(num_args as usize);
                     let mut rest = rest;
                     for _ in 0..num_args {
-                        let (rest1, arg) = try!(parser::parse_unsigned_leb(rest));
+                        let (rest1, arg) = parser::parse_unsigned_leb(rest)?;
                         args.push(arg);
                         rest = rest1;
                     }
@@ -1157,19 +1155,19 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
          comp_dir: Option<&'input ffi::CStr>,
          comp_name: Option<&'input ffi::CStr>)
          -> parser::Result<(EndianBuf<'input, Endian>, LineNumberProgramHeader<'input, Endian>)> {
-        let (rest, (unit_length, format)) = try!(parser::parse_initial_length(input));
+        let (rest, (unit_length, format)) = parser::parse_initial_length(input)?;
         if (rest.len() as u64) < unit_length {
             return Err(parser::Error::UnexpectedEof);
         }
         let next_header_input = rest.range_from(unit_length as usize..);
         let rest = rest.range_to(..unit_length as usize);
 
-        let (rest, version) = try!(parser::parse_u16(rest));
+        let (rest, version) = parser::parse_u16(rest)?;
         if version < 2 || version > 4 {
             return Err(parser::Error::UnknownVersion);
         }
 
-        let (rest, header_length) = try!(parser::parse_word(rest, format));
+        let (rest, header_length) = parser::parse_word(rest, format)?;
 
         if header_length as usize > rest.len() {
             return Err(parser::Error::UnitHeaderLengthTooShort);
@@ -1177,7 +1175,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         let program_buf = rest.range_from(header_length as usize..);
         let rest = rest.range_to(..header_length as usize);
 
-        let (rest, minimum_instruction_length) = try!(parser::parse_u8(rest.0));
+        let (rest, minimum_instruction_length) = parser::parse_u8(rest.0)?;
         if minimum_instruction_length == 0 {
             return Err(parser::Error::MinimumInstructionLengthZero);
         }
@@ -1185,7 +1183,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         // This field did not exist before DWARF 4, but is specified to be 1 for
         // non-VLIW architectures, which makes it a no-op.
         let (rest, maximum_operations_per_instruction) = if version >= 4 {
-            try!(parser::parse_u8(rest))
+            parser::parse_u8(rest)?
         } else {
             (rest, 1)
         };
@@ -1193,14 +1191,14 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
             return Err(parser::Error::MaximumOperationsPerInstructionZero);
         }
 
-        let (rest, default_is_stmt) = try!(parser::parse_u8(rest));
-        let (rest, line_base) = try!(parser::parse_i8(rest));
-        let (rest, line_range) = try!(parser::parse_u8(rest));
+        let (rest, default_is_stmt) = parser::parse_u8(rest)?;
+        let (rest, line_base) = parser::parse_i8(rest)?;
+        let (rest, line_range) = parser::parse_u8(rest)?;
         if line_range == 0 {
             return Err(parser::Error::LineRangeZero);
         }
 
-        let (rest, opcode_base) = try!(parser::parse_u8(rest));
+        let (rest, opcode_base) = parser::parse_u8(rest)?;
         if opcode_base == 0 {
             return Err(parser::Error::OpcodeBaseZero);
         }
@@ -1223,7 +1221,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
                 break;
             }
 
-            let (rest1, include_directory) = try!(parser::parse_null_terminated_string(rest.0));
+            let (rest1, include_directory) = parser::parse_null_terminated_string(rest.0)?;
             rest = EndianBuf::new(rest1);
             include_directories.push(include_directory);
         }
@@ -1265,7 +1263,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
                 return Ok((next_header_input, header));
             }
 
-            let (rest1, file_name) = try!(FileEntry::parse(rest.0));
+            let (rest1, file_name) = FileEntry::parse(rest.0)?;
             rest = EndianBuf::new(rest1);
             file_names.push(file_name);
         }
@@ -1409,10 +1407,10 @@ pub struct FileEntry<'input> {
 
 impl<'input> FileEntry<'input> {
     fn parse(input: &'input [u8]) -> parser::Result<(&'input [u8], FileEntry<'input>)> {
-        let (rest, path_name) = try!(parser::parse_null_terminated_string(input));
-        let (rest, directory_index) = try!(parser::parse_unsigned_leb(rest));
-        let (rest, last_modification) = try!(parser::parse_unsigned_leb(rest));
-        let (rest, length) = try!(parser::parse_unsigned_leb(rest));
+        let (rest, path_name) = parser::parse_null_terminated_string(input)?;
+        let (rest, directory_index) = parser::parse_unsigned_leb(rest)?;
+        let (rest, last_modification) = parser::parse_unsigned_leb(rest)?;
+        let (rest, length) = parser::parse_unsigned_leb(rest)?;
 
         let entry = FileEntry {
             path_name: path_name,
