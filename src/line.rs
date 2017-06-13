@@ -166,10 +166,7 @@ impl<'input, Program, Endian> StateMachine<'input, Program, Endian>
            -> OneShotStateMachine<'input, Endian> {
         let mut row = LineNumberRow::default();
         row.registers.reset(program.header().default_is_stmt());
-        let opcodes = OpcodesIter {
-            input: program.header().program_buf.0,
-            endian: PhantomData,
-        };
+        let opcodes = OpcodesIter { input: program.header().program_buf };
         StateMachine {
             program: program,
             row: row,
@@ -243,7 +240,7 @@ impl<'input, Program, Endian> StateMachine<'input, Program, Endian>
     /// line number matrix needs to be generated.
     ///
     /// Unknown opcodes are treated as no-ops.
-    fn execute(&mut self, opcode: Opcode<'input>) -> bool {
+    fn execute(&mut self, opcode: Opcode<'input, Endian>) -> bool {
         match opcode {
             Opcode::Special(opcode) => {
                 self.exec_special_opcode(opcode);
@@ -419,7 +416,9 @@ impl<'input, Program, Endian> StateMachine<'input, Program, Endian>
 
 /// A parsed line number program opcode.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Opcode<'input> {
+pub enum Opcode<'input, Endian>
+    where Endian: Endianity
+{
     /// > ### 6.2.5.1 Special Opcodes
     /// >
     /// > Each ubyte special opcode has the following effect on the state machine:
@@ -546,14 +545,16 @@ pub enum Opcode<'input> {
     SetDiscriminator(u64),
 
     /// An unknown extended opcode and the slice of its unparsed operands.
-    UnknownExtended(constants::DwLne, &'input [u8]),
+    UnknownExtended(constants::DwLne, EndianBuf<'input, Endian>),
 }
 
-impl<'input> Opcode<'input> {
-    fn parse<'header, Endian>(header: &'header LineNumberProgramHeader<'input, Endian>,
-                              input: &'input [u8])
-                              -> parser::Result<(&'input [u8], Opcode<'input>)>
-        where Endian: 'header + Endianity,
+impl<'input, Endian> Opcode<'input, Endian>
+    where Endian: Endianity
+{
+    fn parse<'header>(header: &'header LineNumberProgramHeader<'input, Endian>,
+                      input: EndianBuf<'input, Endian>)
+                      -> parser::Result<(EndianBuf<'input, Endian>, Opcode<'input, Endian>)>
+        where Endian: 'header,
               'input: 'header
     {
         let (rest, opcode) = parser::parse_u8(input)?;
@@ -564,16 +565,15 @@ impl<'input> Opcode<'input> {
                 return Err(parser::Error::UnexpectedEof);
             }
 
-            let instr_rest = &rest[..length];
-            let rest = &rest[length..];
+            let instr_rest = rest.range_to(..length);
+            let rest = rest.range_from(length..);
             let (instr_rest, opcode) = parser::parse_u8(instr_rest)?;
 
             match constants::DwLne(opcode) {
                 constants::DW_LNE_end_sequence => Ok((rest, Opcode::EndSequence)),
 
                 constants::DW_LNE_set_address => {
-                    let (_, address) = parser::parse_address(EndianBuf::<Endian>::new(instr_rest),
-                                                             header.address_size)?;
+                    let (_, address) = parser::parse_address(instr_rest, header.address_size)?;
                     Ok((rest, Opcode::SetAddress(address)))
                 }
 
@@ -622,7 +622,7 @@ impl<'input> Opcode<'input> {
                 constants::DW_LNS_const_add_pc => Ok((rest, Opcode::ConstAddPc)),
 
                 constants::DW_LNS_fixed_advance_pc => {
-                    let (rest, advance) = parser::parse_u16(EndianBuf::<Endian>::new(rest))?;
+                    let (rest, advance) = parser::parse_u16(rest)?;
                     Ok((rest.into(), Opcode::FixedAddPc(advance)))
                 }
 
@@ -660,7 +660,9 @@ impl<'input> Opcode<'input> {
     }
 }
 
-impl<'input> fmt::Display for Opcode<'input> {
+impl<'input, Endian> fmt::Display for Opcode<'input, Endian>
+    where Endian: Endianity
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match *self {
             Opcode::Special(opcode) => write!(f, "Special opcode {}", opcode),
@@ -713,8 +715,7 @@ impl<'input> fmt::Display for Opcode<'input> {
 pub struct OpcodesIter<'input, Endian>
     where Endian: Endianity
 {
-    input: &'input [u8],
-    endian: PhantomData<Endian>,
+    input: EndianBuf<'input, Endian>,
 }
 
 impl<'input, Endian> OpcodesIter<'input, Endian>
@@ -725,10 +726,7 @@ impl<'input, Endian> OpcodesIter<'input, Endian>
         debug_assert!(other.input.as_ptr() > self.input.as_ptr());
         debug_assert!(other.input.as_ptr() <=
                       unsafe { self.input.as_ptr().offset(self.input.len() as isize) });
-        OpcodesIter {
-            input: self.input.split_at(self.input.len() - other.input.len()).0,
-            endian: self.endian,
-        }
+        OpcodesIter { input: self.input.split_at(self.input.len() - other.input.len()).0 }
     }
 }
 
@@ -746,7 +744,7 @@ impl<'input, Endian> OpcodesIter<'input, Endian>
     /// `FallibleIterator`.
     pub fn next_opcode(&mut self,
                        header: &LineNumberProgramHeader<'input, Endian>)
-                       -> parser::Result<Option<Opcode<'input>>> {
+                       -> parser::Result<Option<Opcode<'input, Endian>>> {
         if self.input.is_empty() {
             return Ok(None);
         }
@@ -1143,10 +1141,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
     /// Iterate over the opcodes in this header's line number program, parsing
     /// them as we go.
     pub fn opcodes(&self) -> OpcodesIter<'input, Endian> {
-        OpcodesIter {
-            input: self.program_buf.0,
-            endian: PhantomData,
-        }
+        OpcodesIter { input: self.program_buf }
     }
 
     fn parse
@@ -1175,7 +1170,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         let program_buf = rest.range_from(header_length as usize..);
         let rest = rest.range_to(..header_length as usize);
 
-        let (rest, minimum_instruction_length) = parser::parse_u8(rest.0)?;
+        let (rest, minimum_instruction_length) = parser::parse_u8(rest)?;
         if minimum_instruction_length == 0 {
             return Err(parser::Error::MinimumInstructionLengthZero);
         }
@@ -1207,8 +1202,8 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         if rest.len() < standard_opcode_count {
             return Err(parser::Error::UnexpectedEof);
         }
-        let standard_opcode_lengths = &rest[..standard_opcode_count];
-        let mut rest = EndianBuf::<Endian>::new(&rest[standard_opcode_count..]);
+        let standard_opcode_lengths = rest.range_to(..standard_opcode_count);
+        let mut rest = rest.range_from(standard_opcode_count..);
 
         let mut include_directories = Vec::new();
         loop {
@@ -1221,8 +1216,8 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
                 break;
             }
 
-            let (rest1, include_directory) = parser::parse_null_terminated_string(rest.0)?;
-            rest = EndianBuf::new(rest1);
+            let (rest1, include_directory) = parser::parse_null_terminated_string(rest)?;
+            rest = rest1;
             include_directories.push(include_directory);
         }
 
@@ -1251,7 +1246,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
                     line_base: line_base,
                     line_range: line_range,
                     opcode_base: opcode_base,
-                    standard_opcode_lengths: standard_opcode_lengths,
+                    standard_opcode_lengths: standard_opcode_lengths.0,
                     include_directories: include_directories,
                     file_names: file_names,
                     format: format,
@@ -1263,8 +1258,8 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
                 return Ok((next_header_input, header));
             }
 
-            let (rest1, file_name) = FileEntry::parse(rest.0)?;
-            rest = EndianBuf::new(rest1);
+            let (rest1, file_name) = FileEntry::parse(rest)?;
+            rest = rest1;
             file_names.push(file_name);
         }
     }
@@ -1406,7 +1401,10 @@ pub struct FileEntry<'input> {
 }
 
 impl<'input> FileEntry<'input> {
-    fn parse(input: &'input [u8]) -> parser::Result<(&'input [u8], FileEntry<'input>)> {
+    fn parse<Endian>(input: EndianBuf<'input, Endian>)
+                     -> parser::Result<(EndianBuf<'input, Endian>, FileEntry<'input>)>
+        where Endian: Endianity
+    {
         let (rest, path_name) = parser::parse_null_terminated_string(input)?;
         let (rest, directory_index) = parser::parse_unsigned_leb(rest)?;
         let (rest, last_modification) = parser::parse_unsigned_leb(rest)?;
@@ -1703,14 +1701,14 @@ mod tests {
     const OPCODE_BASE: u8 = 13;
     const STANDARD_OPCODE_LENGTHS: &'static [u8] = &[0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1];
 
-    fn make_test_header(buf: &[u8]) -> LineNumberProgramHeader<LittleEndian> {
+    fn make_test_header(buf: EndianBuf<LittleEndian>) -> LineNumberProgramHeader<LittleEndian> {
         LineNumberProgramHeader {
             opcode_base: OPCODE_BASE,
             address_size: 8,
             minimum_instruction_length: 1,
             maximum_operations_per_instruction: 1,
             default_is_stmt: true,
-            program_buf: EndianBuf::new(buf),
+            program_buf: buf,
             version: 4,
             header_length: 1,
             file_names: vec![FileEntry {
@@ -1738,7 +1736,8 @@ mod tests {
         }
     }
 
-    fn make_test_program(buf: &[u8]) -> IncompleteLineNumberProgram<LittleEndian> {
+    fn make_test_program(buf: EndianBuf<LittleEndian>)
+                         -> IncompleteLineNumberProgram<LittleEndian> {
         IncompleteLineNumberProgram { header: make_test_header(buf) }
     }
 
@@ -1746,19 +1745,19 @@ mod tests {
     fn test_parse_special_opcodes() {
         for i in OPCODE_BASE..u8::MAX {
             let input = [i, 0, 0, 0];
-            let header = make_test_header(&input);
+            let input = EndianBuf::<LittleEndian>::new(&input);
+            let header = make_test_header(input);
 
-            let (rest, opcode) = Opcode::parse(&header, &input)
-                .expect("Should parse the opcode OK");
+            let (rest, opcode) = Opcode::parse(&header, input).expect("Should parse the opcode OK");
 
-            assert_eq!(rest, &input[1..]);
+            assert_eq!(*rest, *input.range_from(1..));
             assert_eq!(opcode, Opcode::Special(i));
         }
     }
 
     #[test]
     fn test_parse_standard_opcodes() {
-        fn test<Operands>(raw: constants::DwLns, operands: Operands, expected: Opcode)
+        fn test<Operands>(raw: constants::DwLns, operands: Operands, expected: Opcode<LittleEndian>)
             where Operands: AsRef<[u8]>
         {
             let mut input = Vec::new();
@@ -1768,13 +1767,13 @@ mod tests {
             let expected_rest = [0, 1, 2, 3, 4];
             input.extend_from_slice(&expected_rest);
 
-            let header = make_test_header(&input);
+            let input = EndianBuf::<LittleEndian>::new(&*input);
+            let header = make_test_header(input);
 
-            let (rest, opcode) = Opcode::parse(&header, &input)
-                .expect("Should parse the opcode OK");
+            let (rest, opcode) = Opcode::parse(&header, input).expect("Should parse the opcode OK");
 
             assert_eq!(opcode, expected);
-            assert_eq!(rest, &expected_rest);
+            assert_eq!(*rest, expected_rest);
         }
 
         test(constants::DW_LNS_copy, [], Opcode::Copy);
@@ -1799,57 +1798,60 @@ mod tests {
     #[test]
     fn test_parse_unknown_standard_opcode_no_args() {
         let input = [OPCODE_BASE, 1, 2, 3];
+        let input = EndianBuf::<LittleEndian>::new(&input);
         let mut standard_opcode_lengths = Vec::new();
-        let mut header = make_test_header(&input);
+        let mut header = make_test_header(input);
         standard_opcode_lengths.extend(header.standard_opcode_lengths);
         standard_opcode_lengths.push(0);
         header.opcode_base += 1;
         header.standard_opcode_lengths = &standard_opcode_lengths;
 
-        let (rest, opcode) = Opcode::parse(&header, &input).expect("Should parse the opcode OK");
+        let (rest, opcode) = Opcode::parse(&header, input).expect("Should parse the opcode OK");
 
         assert_eq!(opcode,
                    Opcode::UnknownStandard0(constants::DwLns(OPCODE_BASE)));
-        assert_eq!(rest, &input[1..]);
+        assert_eq!(*rest, *input.range_from(1..));
     }
 
     #[test]
     fn test_parse_unknown_standard_opcode_one_arg() {
         let input = [OPCODE_BASE, 1, 2, 3];
+        let input = EndianBuf::<LittleEndian>::new(&input);
         let mut standard_opcode_lengths = Vec::new();
-        let mut header = make_test_header(&input);
+        let mut header = make_test_header(input);
         standard_opcode_lengths.extend(header.standard_opcode_lengths);
         standard_opcode_lengths.push(1);
         header.opcode_base += 1;
         header.standard_opcode_lengths = &standard_opcode_lengths;
 
-        let (rest, opcode) = Opcode::parse(&header, &input).expect("Should parse the opcode OK");
+        let (rest, opcode) = Opcode::parse(&header, input).expect("Should parse the opcode OK");
 
         assert_eq!(opcode,
                    Opcode::UnknownStandard1(constants::DwLns(OPCODE_BASE), 1));
-        assert_eq!(rest, &input[2..]);
+        assert_eq!(*rest, *input.range_from(2..));
     }
 
     #[test]
     fn test_parse_unknown_standard_opcode_many_args() {
         let input = [OPCODE_BASE, 1, 2, 3];
+        let input = EndianBuf::<LittleEndian>::new(&input);
         let mut standard_opcode_lengths = Vec::new();
-        let mut header = make_test_header(&input);
+        let mut header = make_test_header(input);
         standard_opcode_lengths.extend(header.standard_opcode_lengths);
         standard_opcode_lengths.push(3);
         header.opcode_base += 1;
         header.standard_opcode_lengths = &standard_opcode_lengths;
 
-        let (rest, opcode) = Opcode::parse(&header, &input).expect("Should parse the opcode OK");
+        let (rest, opcode) = Opcode::parse(&header, input).expect("Should parse the opcode OK");
 
         assert_eq!(opcode,
                    Opcode::UnknownStandardN(constants::DwLns(OPCODE_BASE), vec![1, 2, 3]));
-        assert_eq!(rest, &[]);
+        assert_eq!(*rest, []);
     }
 
     #[test]
     fn test_parse_extended_opcodes() {
-        fn test<Operands>(raw: constants::DwLne, operands: Operands, expected: Opcode)
+        fn test<Operands>(raw: constants::DwLne, operands: Operands, expected: Opcode<LittleEndian>)
             where Operands: AsRef<[u8]>
         {
             let mut input = Vec::new();
@@ -1864,13 +1866,13 @@ mod tests {
             let expected_rest = [0, 1, 2, 3, 4];
             input.extend_from_slice(&expected_rest);
 
-            let header = make_test_header(&input);
+            let input = EndianBuf::<LittleEndian>::new(&input);
+            let header = make_test_header(input);
 
-            let (rest, opcode) = Opcode::parse(&header, &input)
-                .expect("Should parse the opcode OK");
+            let (rest, opcode) = Opcode::parse(&header, input).expect("Should parse the opcode OK");
 
             assert_eq!(opcode, expected);
-            assert_eq!(rest, &expected_rest);
+            assert_eq!(*rest, expected_rest);
         }
 
         test(constants::DW_LNE_end_sequence, [], Opcode::EndSequence);
@@ -1904,7 +1906,9 @@ mod tests {
         // Unknown extended opcode.
         let operands = [1, 2, 3, 4, 5, 6];
         let opcode = constants::DwLne(99);
-        test(opcode, operands, Opcode::UnknownExtended(opcode, &operands));
+        test(opcode,
+             operands,
+             Opcode::UnknownExtended(opcode, EndianBuf::new(&operands)));
     }
 
     #[test]
@@ -1919,7 +1923,7 @@ mod tests {
         };
 
         let buf = [b'd', b'i', b'r', 0];
-        let mut header = make_test_header(&buf[..0]);
+        let mut header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
 
         let dir = ffi::CStr::from_bytes_with_nul(&buf).unwrap();
         header.include_directories.push(dir);
@@ -1940,7 +1944,7 @@ mod tests {
 
     fn assert_exec_opcode<'input>(header: LineNumberProgramHeader<'input, LittleEndian>,
                                   initial_registers: StateMachineRegisters,
-                                  opcode: Opcode<'input>,
+                                  opcode: Opcode<'input, LittleEndian>,
                                   expected_registers: StateMachineRegisters,
                                   expect_new_row: bool) {
         let mut sm = OneShotStateMachine::new(IncompleteLineNumberProgram { header: header });
@@ -1954,7 +1958,7 @@ mod tests {
 
     #[test]
     fn test_exec_special_noop() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
 
         let initial_registers = new_registers();
         let opcode = Opcode::Special(16);
@@ -1965,7 +1969,7 @@ mod tests {
 
     #[test]
     fn test_exec_special_negative_line_advance() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
 
         let mut initial_registers = new_registers();
         initial_registers.line = 10;
@@ -1980,7 +1984,7 @@ mod tests {
 
     #[test]
     fn test_exec_special_positive_line_advance() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
 
         let initial_registers = new_registers();
 
@@ -1994,7 +1998,7 @@ mod tests {
 
     #[test]
     fn test_exec_special_positive_address_advance() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
 
         let initial_registers = new_registers();
 
@@ -2008,7 +2012,7 @@ mod tests {
 
     #[test]
     fn test_exec_special_positive_address_and_line_advance() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
 
         let initial_registers = new_registers();
 
@@ -2023,7 +2027,7 @@ mod tests {
 
     #[test]
     fn test_exec_special_positive_address_and_negative_line_advance() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
 
         let mut initial_registers = new_registers();
         initial_registers.line = 10;
@@ -2039,7 +2043,7 @@ mod tests {
 
     #[test]
     fn test_exec_special_line_underflow() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
 
         let mut initial_registers = new_registers();
         initial_registers.line = 2;
@@ -2057,7 +2061,7 @@ mod tests {
 
     #[test]
     fn test_exec_copy() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
 
         let mut initial_registers = new_registers();
         initial_registers.address = 1337;
@@ -2072,7 +2076,7 @@ mod tests {
 
     #[test]
     fn test_exec_advance_pc() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
         let initial_registers = new_registers();
         let opcode = Opcode::AdvancePc(42);
 
@@ -2084,7 +2088,7 @@ mod tests {
 
     #[test]
     fn test_exec_advance_line() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
         let initial_registers = new_registers();
         let opcode = Opcode::AdvanceLine(42);
 
@@ -2097,7 +2101,7 @@ mod tests {
     #[test]
     fn test_exec_set_file_in_bounds() {
         for file_idx in 1..3 {
-            let header = make_test_header(&[]);
+            let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
             let initial_registers = new_registers();
             let opcode = Opcode::SetFile(file_idx);
 
@@ -2110,7 +2114,7 @@ mod tests {
 
     #[test]
     fn test_exec_set_file_out_of_bounds() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
         let initial_registers = new_registers();
         let opcode = Opcode::SetFile(100);
 
@@ -2133,7 +2137,7 @@ mod tests {
         let out_of_bounds_indices = [0, 100];
 
         for file_idx in &out_of_bounds_indices[..] {
-            let header = make_test_header(&[]);
+            let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
             let mut regs = new_registers();
 
             regs.file = *file_idx;
@@ -2146,7 +2150,7 @@ mod tests {
 
     #[test]
     fn test_file_entry_file_index_in_bounds() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
         let mut regs = new_registers();
 
         regs.file = 2;
@@ -2158,7 +2162,7 @@ mod tests {
 
     #[test]
     fn test_exec_set_column() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
         let initial_registers = new_registers();
         let opcode = Opcode::SetColumn(42);
 
@@ -2170,7 +2174,7 @@ mod tests {
 
     #[test]
     fn test_exec_negate_statement() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
         let initial_registers = new_registers();
         let opcode = Opcode::NegateStatement;
 
@@ -2182,7 +2186,7 @@ mod tests {
 
     #[test]
     fn test_exec_set_basic_block() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
 
         let mut initial_registers = new_registers();
         initial_registers.basic_block = false;
@@ -2197,7 +2201,7 @@ mod tests {
 
     #[test]
     fn test_exec_const_add_pc() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
         let initial_registers = new_registers();
         let opcode = Opcode::ConstAddPc;
 
@@ -2209,7 +2213,7 @@ mod tests {
 
     #[test]
     fn test_exec_fixed_add_pc() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
 
         let mut initial_registers = new_registers();
         initial_registers.op_index = 1;
@@ -2225,7 +2229,7 @@ mod tests {
 
     #[test]
     fn test_exec_set_prologue_end() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
 
         let mut initial_registers = new_registers();
         initial_registers.prologue_end = false;
@@ -2240,7 +2244,7 @@ mod tests {
 
     #[test]
     fn test_exec_set_isa() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
         let initial_registers = new_registers();
         let opcode = Opcode::SetIsa(1993);
 
@@ -2252,7 +2256,7 @@ mod tests {
 
     #[test]
     fn test_exec_unknown_standard_0() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
         let initial_registers = new_registers();
         let opcode = Opcode::UnknownStandard0(constants::DwLns(111));
         let expected_registers = initial_registers.clone();
@@ -2261,7 +2265,7 @@ mod tests {
 
     #[test]
     fn test_exec_unknown_standard_1() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
         let initial_registers = new_registers();
         let opcode = Opcode::UnknownStandard1(constants::DwLns(111), 2);
         let expected_registers = initial_registers.clone();
@@ -2270,7 +2274,7 @@ mod tests {
 
     #[test]
     fn test_exec_unknown_standard_n() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
         let initial_registers = new_registers();
         let opcode = Opcode::UnknownStandardN(constants::DwLns(111), vec![2, 2, 2]);
         let expected_registers = initial_registers.clone();
@@ -2279,7 +2283,7 @@ mod tests {
 
     #[test]
     fn test_exec_end_sequence() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
         let initial_registers = new_registers();
         let opcode = Opcode::EndSequence;
 
@@ -2291,7 +2295,7 @@ mod tests {
 
     #[test]
     fn test_exec_set_address() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
         let initial_registers = new_registers();
         let opcode = Opcode::SetAddress(3030);
 
@@ -2303,7 +2307,7 @@ mod tests {
 
     #[test]
     fn test_exec_define_file() {
-        let program = make_test_program(&[]);
+        let program = make_test_program(EndianBuf::<LittleEndian>::new(&[]));
         let mut sm = program.rows();
 
         let file = FileEntry {
@@ -2322,7 +2326,7 @@ mod tests {
 
     #[test]
     fn test_exec_set_discriminator() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
         let initial_registers = new_registers();
         let opcode = Opcode::SetDiscriminator(9);
 
@@ -2334,9 +2338,9 @@ mod tests {
 
     #[test]
     fn test_exec_unknown_extended() {
-        let header = make_test_header(&[]);
+        let header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
         let initial_registers = new_registers();
-        let opcode = Opcode::UnknownExtended(constants::DwLne(74), &[]);
+        let opcode = Opcode::UnknownExtended(constants::DwLne(74), EndianBuf::new(&[]));
         let expected_registers = initial_registers.clone();
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }

@@ -207,9 +207,8 @@ impl<'input, Endian, Switch> LookupParser<'input, Endian> for PubStuffParser<'in
         if offset == 0 {
             Ok((EndianBuf::new(&[]), None))
         } else {
-            let (rest, name) = parse_null_terminated_string(rest.into())?;
-
-            Ok((EndianBuf::new(rest), Some(Switch::new_entry(offset, name, header))))
+            let (rest, name) = parse_null_terminated_string(rest)?;
+            Ok((rest, Some(Switch::new_entry(offset, name, header))))
         }
     }
 }

@@ -55,7 +55,7 @@ impl<'input, Endian> DebugStr<'input, Endian>
             return Err(Error::UnexpectedEof);
         }
         let buf = self.debug_str_section.range_from(offset.0..);
-        let result = parse_null_terminated_string(buf.0);
+        let result = parse_null_terminated_string(buf);
         result.map(|(_, cstr)| cstr)
     }
 }

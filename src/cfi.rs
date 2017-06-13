@@ -4,8 +4,8 @@ use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use parser::{Error, Format, Pointer, Result, parse_address, parse_encoded_pointer,
              parse_initial_length, parse_length_uleb_value, parse_null_terminated_string,
-             parse_pointer_encoding, parse_signed_lebe, parse_u8, parse_u8e, parse_u16, parse_u32,
-             parse_u32_as_u64, parse_u64, parse_unsigned_lebe, parse_unsigned_leb_as_u8e,
+             parse_pointer_encoding, parse_signed_leb, parse_u8, parse_u16, parse_u32,
+             parse_u32_as_u64, parse_u64, parse_unsigned_leb, parse_unsigned_leb_as_u8,
              u64_to_offset};
 use std::cell::RefCell;
 use std::fmt::Debug;
@@ -808,7 +808,7 @@ impl Augmentation {
 
         let mut augmentation = Augmentation::default();
 
-        let (rest, augmentation_length) = parse_unsigned_lebe(input)?;
+        let (rest, augmentation_length) = parse_unsigned_leb(input)?;
         let (mut rest, rest_rest) = rest.try_split_at(augmentation_length as usize)?;
 
         for ch in chars {
@@ -864,7 +864,7 @@ impl AugmentationData {
         // that defines augmentation data in the FDE is the 'L' character, so we
         // can just check for its presence directly.
 
-        let (rest, aug_data_len) = parse_unsigned_lebe(input)?;
+        let (rest, aug_data_len) = parse_unsigned_leb(input)?;
         let (rest, rest_rest) = rest.try_split_at(aug_data_len as usize)?;
         let mut augmentation_data = AugmentationData::default();
         if let Some(encoding) = augmentation.lsda {
@@ -979,29 +979,28 @@ impl<'input, Endian, Section> CommonInformationEntry<'input, Endian, Section>
         }
 
         let (rest, augmentation_string) = parse_null_terminated_string(rest)?;
-        let rest = EndianBuf::new(rest);
         let aug_len = augmentation_string.to_bytes().len();
 
         let (rest, address_size, segment_size) =
             if Section::has_address_and_segment_sizes(version) {
-                let (rest, address_size) = parse_u8e(rest)?;
-                let (rest, segment_size) = parse_u8e(rest)?;
+                let (rest, address_size) = parse_u8(rest)?;
+                let (rest, segment_size) = parse_u8(rest)?;
                 (rest, address_size, segment_size)
             } else {
                 // Assume no segments and native word size.
                 (rest, mem::size_of::<usize>() as u8, 0)
             };
 
-        let (rest, code_alignment_factor) = parse_unsigned_lebe(rest)?;
-        let (rest, data_alignment_factor) = parse_signed_lebe(rest)?;
+        let (rest, code_alignment_factor) = parse_unsigned_leb(rest)?;
+        let (rest, data_alignment_factor) = parse_signed_leb(rest)?;
 
         let (rest, return_address_register) =
             match Section::return_address_register_encoding(version) {
                 ReturnAddressRegisterEncoding::U8 => {
-                    let (rest, reg) = parse_u8e(rest)?;
+                    let (rest, reg) = parse_u8(rest)?;
                     (rest, reg as u64)
                 }
-                ReturnAddressRegisterEncoding::Uleb => parse_unsigned_lebe(rest)?,
+                ReturnAddressRegisterEncoding::Uleb => parse_unsigned_leb(rest)?,
             };
 
         let (rest, augmentation) = if aug_len == 0 {
@@ -2457,7 +2456,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
 {
     fn parse(input: EndianBuf<'input, Endian>)
              -> Result<(EndianBuf<'input, Endian>, CallFrameInstruction<'input, Endian>)> {
-        let (rest, instruction) = parse_u8e(input)?;
+        let (rest, instruction) = parse_u8(input)?;
         let high_bits = instruction & CFI_INSTRUCTION_HIGH_BITS_MASK;
 
         if high_bits == constants::DW_CFA_advance_loc.0 {
@@ -2467,7 +2466,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
 
         if high_bits == constants::DW_CFA_offset.0 {
             let register = instruction & CFI_INSTRUCTION_LOW_BITS_MASK;
-            let (rest, offset) = parse_unsigned_lebe(rest)?;
+            let (rest, offset) = parse_unsigned_leb(rest)?;
             return Ok((rest,
                        CallFrameInstruction::Offset {
                            register: register,
@@ -2487,12 +2486,12 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             constants::DW_CFA_nop => Ok((rest, CallFrameInstruction::Nop)),
 
             constants::DW_CFA_set_loc => {
-                let (rest, address) = parse_unsigned_lebe(rest)?;
+                let (rest, address) = parse_unsigned_leb(rest)?;
                 Ok((rest, CallFrameInstruction::SetLoc { address: address }))
             }
 
             constants::DW_CFA_advance_loc1 => {
-                let (rest, delta) = parse_u8e(rest)?;
+                let (rest, delta) = parse_u8(rest)?;
                 Ok((rest, CallFrameInstruction::AdvanceLoc { delta: delta as u32 }))
             }
 
@@ -2507,8 +2506,8 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_offset_extended => {
-                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
-                let (rest, offset) = parse_unsigned_lebe(rest)?;
+                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
+                let (rest, offset) = parse_unsigned_leb(rest)?;
                 Ok((rest,
                     CallFrameInstruction::Offset {
                         register: register,
@@ -2517,23 +2516,23 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_restore_extended => {
-                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
+                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
                 Ok((rest, CallFrameInstruction::Restore { register: register }))
             }
 
             constants::DW_CFA_undefined => {
-                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
+                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
                 Ok((rest, CallFrameInstruction::Undefined { register: register }))
             }
 
             constants::DW_CFA_same_value => {
-                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
+                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
                 Ok((rest, CallFrameInstruction::SameValue { register: register }))
             }
 
             constants::DW_CFA_register => {
-                let (rest, dest) = parse_unsigned_leb_as_u8e(rest)?;
-                let (rest, src) = parse_unsigned_leb_as_u8e(rest)?;
+                let (rest, dest) = parse_unsigned_leb_as_u8(rest)?;
+                let (rest, src) = parse_unsigned_leb_as_u8(rest)?;
                 Ok((rest,
                     CallFrameInstruction::Register {
                         dest_register: dest,
@@ -2546,8 +2545,8 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             constants::DW_CFA_restore_state => Ok((rest, CallFrameInstruction::RestoreState)),
 
             constants::DW_CFA_def_cfa => {
-                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
-                let (rest, offset) = parse_unsigned_lebe(rest)?;
+                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
+                let (rest, offset) = parse_unsigned_leb(rest)?;
                 Ok((rest,
                     CallFrameInstruction::DefCfa {
                         register: register,
@@ -2556,12 +2555,12 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_def_cfa_register => {
-                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
+                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
                 Ok((rest, CallFrameInstruction::DefCfaRegister { register: register }))
             }
 
             constants::DW_CFA_def_cfa_offset => {
-                let (rest, offset) = parse_unsigned_lebe(rest)?;
+                let (rest, offset) = parse_unsigned_leb(rest)?;
                 Ok((rest, CallFrameInstruction::DefCfaOffset { offset: offset }))
             }
 
@@ -2571,7 +2570,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_expression => {
-                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
+                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
                 let (rest, expression) = parse_length_uleb_value(rest)?;
                 Ok((rest,
                     CallFrameInstruction::Expression {
@@ -2581,8 +2580,8 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_offset_extended_sf => {
-                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
-                let (rest, offset) = parse_signed_lebe(rest)?;
+                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
+                let (rest, offset) = parse_signed_leb(rest)?;
                 Ok((rest,
                     CallFrameInstruction::OffsetExtendedSf {
                         register: register,
@@ -2591,8 +2590,8 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_def_cfa_sf => {
-                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
-                let (rest, offset) = parse_signed_lebe(rest)?;
+                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
+                let (rest, offset) = parse_signed_leb(rest)?;
                 Ok((rest,
                     CallFrameInstruction::DefCfaSf {
                         register: register,
@@ -2601,13 +2600,13 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_def_cfa_offset_sf => {
-                let (rest, offset) = parse_signed_lebe(rest)?;
+                let (rest, offset) = parse_signed_leb(rest)?;
                 Ok((rest, CallFrameInstruction::DefCfaOffsetSf { factored_offset: offset }))
             }
 
             constants::DW_CFA_val_offset => {
-                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
-                let (rest, offset) = parse_unsigned_lebe(rest)?;
+                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
+                let (rest, offset) = parse_unsigned_leb(rest)?;
                 Ok((rest,
                     CallFrameInstruction::ValOffset {
                         register: register,
@@ -2616,8 +2615,8 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_val_offset_sf => {
-                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
-                let (rest, offset) = parse_signed_lebe(rest)?;
+                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
+                let (rest, offset) = parse_signed_leb(rest)?;
                 Ok((rest,
                     CallFrameInstruction::ValOffsetSf {
                         register: register,
@@ -2626,7 +2625,7 @@ impl<'input, Endian> CallFrameInstruction<'input, Endian>
             }
 
             constants::DW_CFA_val_expression => {
-                let (rest, register) = parse_unsigned_leb_as_u8e(rest)?;
+                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
                 let (rest, expression) = parse_length_uleb_value(rest)?;
                 Ok((rest,
                     CallFrameInstruction::ValExpression {

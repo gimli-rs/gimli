@@ -1,8 +1,8 @@
 //! Functions for parsing and evaluating DWARF expressions.
 
 use constants;
-use parser::{Error, Format, parse_u8e, parse_i8e, parse_u16, parse_i16, parse_u32, parse_i32,
-             parse_u64, parse_i64, parse_unsigned_lebe, parse_signed_lebe, parse_offset,
+use parser::{Error, Format, parse_u8, parse_i8, parse_u16, parse_i16, parse_u32, parse_i32,
+             parse_u64, parse_i64, parse_unsigned_leb, parse_signed_leb, parse_offset,
              parse_address, parse_length_uleb_value};
 use endianity::{Endianity, EndianBuf};
 use unit::{UnitOffset, DebugInfoOffset};
@@ -292,7 +292,7 @@ impl<'input, Endian> Operation<'input, Endian>
                  -> Result<(EndianBuf<'input, Endian>, Operation<'input, Endian>), Error>
         where Endian: Endianity
     {
-        let (bytes, opcode) = parse_u8e(bytes)?;
+        let (bytes, opcode) = parse_u8(bytes)?;
         let name = constants::DwOp(opcode);
         match name {
             constants::DW_OP_addr => {
@@ -307,11 +307,11 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_const1u => {
-                let (newbytes, value) = parse_u8e(bytes)?;
+                let (newbytes, value) = parse_u8(bytes)?;
                 Ok((newbytes, Operation::Literal { value: value as u64 }))
             }
             constants::DW_OP_const1s => {
-                let (newbytes, value) = parse_i8e(bytes)?;
+                let (newbytes, value) = parse_i8(bytes)?;
                 Ok((newbytes, Operation::Literal { value: value as u64 }))
             }
             constants::DW_OP_const2u => {
@@ -339,18 +339,18 @@ impl<'input, Endian> Operation<'input, Endian>
                 Ok((newbytes, Operation::Literal { value: value as u64 }))
             }
             constants::DW_OP_constu => {
-                let (newbytes, value) = parse_unsigned_lebe(bytes)?;
+                let (newbytes, value) = parse_unsigned_leb(bytes)?;
                 Ok((newbytes, Operation::Literal { value: value }))
             }
             constants::DW_OP_consts => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes, Operation::Literal { value: value as u64 }))
             }
             constants::DW_OP_dup => Ok((bytes, Operation::Pick { index: 0 })),
             constants::DW_OP_drop => Ok((bytes, Operation::Drop)),
             constants::DW_OP_over => Ok((bytes, Operation::Pick { index: 1 })),
             constants::DW_OP_pick => {
-                let (newbytes, value) = parse_u8e(bytes)?;
+                let (newbytes, value) = parse_u8(bytes)?;
                 Ok((newbytes, Operation::Pick { index: value }))
             }
             constants::DW_OP_swap => Ok((bytes, Operation::Swap)),
@@ -373,7 +373,7 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_or => Ok((bytes, Operation::Or)),
             constants::DW_OP_plus => Ok((bytes, Operation::Plus)),
             constants::DW_OP_plus_uconst => {
-                let (newbytes, value) = parse_unsigned_lebe(bytes)?;
+                let (newbytes, value) = parse_unsigned_leb(bytes)?;
                 Ok((newbytes, Operation::PlusConstant { value: value }))
             }
             constants::DW_OP_shl => Ok((bytes, Operation::Shl)),
@@ -459,7 +459,7 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_reg30 => Ok((bytes, Operation::Register { register: 30 })),
             constants::DW_OP_reg31 => Ok((bytes, Operation::Register { register: 31 })),
             constants::DW_OP_breg0 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 0,
@@ -467,7 +467,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg1 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 1,
@@ -475,7 +475,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg2 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 2,
@@ -483,7 +483,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg3 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 3,
@@ -491,7 +491,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg4 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 4,
@@ -499,7 +499,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg5 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 5,
@@ -507,7 +507,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg6 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 6,
@@ -515,7 +515,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg7 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 7,
@@ -523,7 +523,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg8 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 8,
@@ -531,7 +531,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg9 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 9,
@@ -539,7 +539,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg10 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 10,
@@ -547,7 +547,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg11 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 11,
@@ -555,7 +555,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg12 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 12,
@@ -563,7 +563,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg13 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 13,
@@ -571,7 +571,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg14 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 14,
@@ -579,7 +579,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg15 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 15,
@@ -587,7 +587,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg16 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 16,
@@ -595,7 +595,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg17 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 17,
@@ -603,7 +603,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg18 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 18,
@@ -611,7 +611,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg19 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 19,
@@ -619,7 +619,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg20 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 20,
@@ -627,7 +627,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg21 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 21,
@@ -635,7 +635,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg22 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 22,
@@ -643,7 +643,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg23 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 23,
@@ -651,7 +651,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg24 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 24,
@@ -659,7 +659,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg25 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 25,
@@ -667,7 +667,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg26 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 26,
@@ -675,7 +675,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg27 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 27,
@@ -683,7 +683,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg28 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 28,
@@ -691,7 +691,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg29 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 29,
@@ -699,7 +699,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg30 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 30,
@@ -707,7 +707,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_breg31 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: 31,
@@ -715,16 +715,16 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_regx => {
-                let (newbytes, value) = parse_unsigned_lebe(bytes)?;
+                let (newbytes, value) = parse_unsigned_leb(bytes)?;
                 Ok((newbytes, Operation::Register { register: value }))
             }
             constants::DW_OP_fbreg => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
+                let (newbytes, value) = parse_signed_leb(bytes)?;
                 Ok((newbytes, Operation::FrameOffset { offset: value }))
             }
             constants::DW_OP_bregx => {
-                let (newbytes, regno) = parse_unsigned_lebe(bytes)?;
-                let (newbytes, offset) = parse_signed_lebe(newbytes)?;
+                let (newbytes, regno) = parse_unsigned_leb(bytes)?;
+                let (newbytes, offset) = parse_signed_leb(newbytes)?;
                 Ok((newbytes,
                     Operation::RegisterOffset {
                         register: regno,
@@ -732,7 +732,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_piece => {
-                let (newbytes, size) = parse_unsigned_lebe(bytes)?;
+                let (newbytes, size) = parse_unsigned_leb(bytes)?;
                 Ok((newbytes,
                     Operation::Piece {
                         size_in_bits: 8 * size,
@@ -740,7 +740,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_deref_size => {
-                let (newbytes, size) = parse_u8e(bytes)?;
+                let (newbytes, size) = parse_u8(bytes)?;
                 Ok((newbytes,
                     Operation::Deref {
                         size: size,
@@ -748,7 +748,7 @@ impl<'input, Endian> Operation<'input, Endian>
                     }))
             }
             constants::DW_OP_xderef_size => {
-                let (newbytes, size) = parse_u8e(bytes)?;
+                let (newbytes, size) = parse_u8(bytes)?;
                 Ok((newbytes,
                     Operation::Deref {
                         size: size,
@@ -776,8 +776,8 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_GNU_push_tls_address => Ok((bytes, Operation::TLS)),
             constants::DW_OP_call_frame_cfa => Ok((bytes, Operation::CallFrameCFA)),
             constants::DW_OP_bit_piece => {
-                let (newbytes, size) = parse_unsigned_lebe(bytes)?;
-                let (newbytes, offset) = parse_unsigned_lebe(newbytes)?;
+                let (newbytes, size) = parse_unsigned_leb(bytes)?;
+                let (newbytes, offset) = parse_unsigned_leb(newbytes)?;
                 Ok((newbytes,
                     Operation::Piece {
                         size_in_bits: size,
@@ -792,7 +792,7 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_implicit_pointer |
             constants::DW_OP_GNU_implicit_pointer => {
                 let (newbytes, value) = parse_offset(bytes, format)?;
-                let (newbytes, byte_offset) = parse_signed_lebe(newbytes)?;
+                let (newbytes, byte_offset) = parse_signed_leb(newbytes)?;
                 Ok((newbytes,
                     Operation::ImplicitPointer {
                         value: DebugInfoOffset(value),

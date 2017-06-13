@@ -258,22 +258,26 @@ pub type Result<T> = result::Result<T, Error>;
 /// Parse a `u8` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_u8(input: &[u8]) -> Result<(&[u8], u8)> {
+pub fn parse_u8<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u8)>
+    where Endian: Endianity
+{
     if input.is_empty() {
         Err(Error::UnexpectedEof)
     } else {
-        Ok((&input[1..], input[0]))
+        Ok((input.range_from(1..), input[0]))
     }
 }
 
 /// Parse a `i8` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_i8(input: &[u8]) -> Result<(&[u8], i8)> {
+pub fn parse_i8<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, i8)>
+    where Endian: Endianity
+{
     if input.is_empty() {
         Err(Error::UnexpectedEof)
     } else {
-        Ok((&input[1..], input[0] as i8))
+        Ok((input.range_from(1..), input[0] as i8))
     }
 }
 
@@ -355,56 +359,45 @@ pub fn parse_i64<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>,
     }
 }
 
-/// Like `parse_u8` but takes and returns an `EndianBuf` for convenience.
+/// Parse an unsigned LEB128 encoded integer.
 #[doc(hidden)]
 #[inline]
-pub fn parse_u8e<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u8)>
+pub fn parse_unsigned_leb<Endian>(mut input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u64)>
     where Endian: Endianity
 {
-    let (bytes, value) = parse_u8(bytes.into())?;
-    Ok((EndianBuf::new(bytes), value))
+    match leb128::read::unsigned(&mut input.0) {
+        Ok(val) => Ok((input, val)),
+        Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
+            Err(Error::UnexpectedEof)
+        }
+        Err(_) => Err(Error::BadUnsignedLeb128),
+    }
 }
 
-/// Like `parse_i8` but takes and returns an `EndianBuf` for convenience.
+/// Parse an unsigned LEB128 encoded integer return it as a `u8`.
 #[doc(hidden)]
 #[inline]
-pub fn parse_i8e<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, i8)>
+pub fn parse_unsigned_leb_as_u8<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u8)>
     where Endian: Endianity
 {
-    let (bytes, value) = parse_i8(bytes.into())?;
-    Ok((EndianBuf::new(bytes), value))
-}
-
-/// Like `parse_unsigned_leb` but takes and returns an `EndianBuf` for convenience.
-#[doc(hidden)]
-#[inline]
-pub fn parse_unsigned_lebe<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u64)>
-    where Endian: Endianity
-{
-    let (bytes, value) = parse_unsigned_leb(bytes.into())?;
-    Ok((EndianBuf::new(bytes), value))
-}
-
-/// Like `parse_unsigned_leb` but takes and returns an `EndianBuf` for convenience.
-#[doc(hidden)]
-#[inline]
-pub fn parse_unsigned_leb_as_u8e<Endian>(bytes: EndianBuf<Endian>)
-                                         -> Result<(EndianBuf<Endian>, u8)>
-    where Endian: Endianity
-{
-    let (bytes, value) = parse_unsigned_leb(bytes.into())?;
+    let (input, value) = parse_unsigned_leb(input)?;
     let value = u64_to_u8(value)?;
-    Ok((EndianBuf::new(bytes), value))
+    Ok((input, value))
 }
 
-/// Like `parse_signed_leb` but takes and returns an `EndianBuf` for convenience.
+/// Parse a signed LEB128 encoded integer.
 #[doc(hidden)]
 #[inline]
-pub fn parse_signed_lebe<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, i64)>
+pub fn parse_signed_leb<Endian>(mut input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, i64)>
     where Endian: Endianity
 {
-    let (bytes, value) = parse_signed_leb(bytes.into())?;
-    Ok((EndianBuf::new(bytes), value))
+    match leb128::read::signed(&mut input.0) {
+        Ok(val) => Ok((input, val)),
+        Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
+            Err(Error::UnexpectedEof)
+        }
+        Err(_) => Err(Error::BadSignedLeb128),
+    }
 }
 
 /// Parse a `u32` from the input and return it as a `u64`.
@@ -461,7 +454,7 @@ pub fn parse_u64_as_offset<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBu
 pub fn parse_uleb_as_offset<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, usize)>
     where Endian: Endianity
 {
-    let (rest, offset) = parse_unsigned_lebe(input)?;
+    let (rest, offset) = parse_unsigned_leb(input)?;
     let offset = u64_to_offset(offset)?;
     Ok((rest, offset))
 }
@@ -531,17 +524,20 @@ pub fn parse_address_as_offset<Endian>(input: EndianBuf<Endian>,
 /// Parse a null-terminated slice from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_null_terminated_string(input: &[u8]) -> Result<(&[u8], &ffi::CStr)> {
-    let null_idx = input.iter().position(|ch| *ch == 0);
+pub fn parse_null_terminated_string<Endian>(input: EndianBuf<Endian>)
+                                            -> Result<(EndianBuf<Endian>, &ffi::CStr)>
+    where Endian: Endianity
+{
+    let null_idx = input.0.iter().position(|ch| *ch == 0);
 
     if let Some(idx) = null_idx {
         let cstr = unsafe {
             // It is safe to use the unchecked variant here because we know we
             // grabbed the index of the first null byte in the input and
             // therefore there can't be any interior null bytes in this slice.
-            ffi::CStr::from_bytes_with_nul_unchecked(&input[0..idx + 1])
+            ffi::CStr::from_bytes_with_nul_unchecked(&input.0[0..idx + 1])
         };
-        Ok((&input[idx + 1..], cstr))
+        Ok((input.range_from(idx + 1..), cstr))
     } else {
         Err(Error::UnexpectedEof)
     }
@@ -554,7 +550,7 @@ pub fn parse_pointer_encoding<Endian>(input: EndianBuf<Endian>)
                                       -> Result<(EndianBuf<Endian>, constants::DwEhPe)>
     where Endian: Endianity
 {
-    let (rest, eh_pe) = parse_u8e(input)?;
+    let (rest, eh_pe) = parse_u8(input)?;
     let eh_pe = constants::DwEhPe(eh_pe);
 
     if eh_pe.is_valid_encoding() {
@@ -630,7 +626,7 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>
                 Ok((rest, a))
             }
             constants::DW_EH_PE_uleb128 => {
-                let (rest, a) = parse_unsigned_lebe(input)?;
+                let (rest, a) = parse_unsigned_leb(input)?;
                 Ok((rest, a))
             }
             constants::DW_EH_PE_udata2 => {
@@ -651,7 +647,7 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>
             // in Rust), return them as u64, and rely on wrapping addition to do
             // the right thing when adding these offsets to their bases.
             constants::DW_EH_PE_sleb128 => {
-                let (rest, a) = parse_signed_lebe(input)?;
+                let (rest, a) = parse_signed_leb(input)?;
                 Ok((rest, a as u64))
             }
             constants::DW_EH_PE_sdata2 => {
@@ -730,30 +726,6 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugMacinfoOffset(pub usize);
 
-/// Parse an unsigned LEB128 encoded integer.
-#[inline]
-pub fn parse_unsigned_leb(mut input: &[u8]) -> Result<(&[u8], u64)> {
-    match leb128::read::unsigned(&mut input) {
-        Ok(val) => Ok((input, val)),
-        Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
-            Err(Error::UnexpectedEof)
-        }
-        Err(_) => Err(Error::BadUnsignedLeb128),
-    }
-}
-
-/// Parse a signed LEB128 encoded integer.
-#[inline]
-pub fn parse_signed_leb(mut input: &[u8]) -> Result<(&[u8], i64)> {
-    match leb128::read::signed(&mut input) {
-        Ok(val) => Ok((input, val)),
-        Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
-            Err(Error::UnexpectedEof)
-        }
-        Err(_) => Err(Error::BadSignedLeb128),
-    }
-}
-
 /// Whether the format of a compilation unit is 32- or 64-bit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Format {
@@ -788,7 +760,7 @@ pub fn parse_initial_length<Endian>(input: EndianBuf<Endian>)
 pub fn parse_address_size<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u8)>
     where Endian: Endianity
 {
-    parse_u8(input.into()).map(|(r, u)| (EndianBuf::new(r), u))
+    parse_u8(input)
 }
 
 /// Take a slice of size `bytes` from the input.
@@ -813,8 +785,8 @@ pub fn parse_length_uleb_value<Endian>(input: EndianBuf<Endian>)
                                        -> Result<(EndianBuf<Endian>, EndianBuf<Endian>)>
     where Endian: Endianity
 {
-    let (rest, len) = parse_unsigned_leb(input.into())?;
-    take(len as usize, EndianBuf::new(rest))
+    let (rest, len) = parse_unsigned_leb(input)?;
+    take(len as usize, rest)
 }
 
 #[cfg(test)]
