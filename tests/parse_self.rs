@@ -43,8 +43,7 @@ fn test_parse_self_debug_info() {
             let entry = cursor.current().expect("Should have a current entry");
 
             let mut attrs = entry.attrs();
-            while let Some(_) = attrs.next().expect("Should parse entry's attribute") {
-            }
+            while let Some(_) = attrs.next().expect("Should parse entry's attribute") {}
         }
     }
 }
@@ -71,38 +70,47 @@ fn test_parse_self_debug_line() {
         let mut cursor = unit.entries(&abbrevs);
         cursor.next_dfs().expect("Should parse next dfs");
 
-        let unit_entry = cursor.current()
-            .expect("Should have a root entry");
+        let unit_entry = cursor.current().expect("Should have a root entry");
 
-        let comp_dir = unit_entry.attr(gimli::DW_AT_comp_dir)
+        let comp_dir = unit_entry
+            .attr(gimli::DW_AT_comp_dir)
             .expect("Should parse comp_dir attribute")
             .and_then(|attr| attr.string_value(&debug_str));
-        let comp_name = unit_entry.attr(gimli::DW_AT_name)
+        let comp_name = unit_entry
+            .attr(gimli::DW_AT_name)
             .expect("Should parse name attribute")
             .and_then(|attr| attr.string_value(&debug_str));
 
         if let Some(AttributeValue::DebugLineRef(offset)) =
-            unit_entry.attr_value(gimli::DW_AT_stmt_list).expect("Should parse stmt_list") {
-            let program = debug_line.program(offset, unit.address_size(), comp_dir, comp_name)
+            unit_entry
+                .attr_value(gimli::DW_AT_stmt_list)
+                .expect("Should parse stmt_list") {
+            let program = debug_line
+                .program(offset, unit.address_size(), comp_dir, comp_name)
                 .expect("should parse line number program header");
 
             let mut results = Vec::new();
             let mut rows = program.rows();
-            while let Some((_, row)) = rows.next_row()
-                .expect("Should parse and execute all rows in the line number program") {
+            while let Some((_, row)) =
+                rows.next_row()
+                    .expect("Should parse and execute all rows in the line number program") {
                 results.push(*row);
             }
             results.reverse();
 
-            let program = debug_line.program(offset, unit.address_size(), comp_dir, comp_name)
+            let program = debug_line
+                .program(offset, unit.address_size(), comp_dir, comp_name)
                 .expect("should parse line number program header");
-            let (program, sequences) = program.sequences()
-                .expect("should parse and execute the entire line number program");
+            let (program, sequences) =
+                program
+                    .sequences()
+                    .expect("should parse and execute the entire line number program");
             assert!(!sequences.is_empty()); // Should be at least one sequence.
             for sequence in sequences {
                 let mut rows = program.resume_from(&sequence);
-                while let Some((_, row)) = rows.next_row()
-                    .expect("Should parse and execute all rows after resuming") {
+                while let Some((_, row)) =
+                    rows.next_row()
+                        .expect("Should parse and execute all rows after resuming") {
                     let other_row = results.pop().unwrap();
                     assert!(row.address() >= sequence.start);
                     assert!(row.address() <= sequence.end);
@@ -151,7 +159,7 @@ fn test_parse_self_debug_pubtypes() {
 // Because `.eh_frame` doesn't contain address sizes, we need to assume the
 // native word size, so this test is only valid on 64-bit machines (as the
 // `.eh_frame` fixture data was created on a 64-bit machine).
-#[cfg(target_pointer_width="64")]
+#[cfg(target_pointer_width = "64")]
 #[test]
 fn test_parse_self_eh_frame() {
     use gimli::{BaseAddresses, CieOrFde, EhFrame, UnwindSection};
@@ -159,10 +167,7 @@ fn test_parse_self_eh_frame() {
     let eh_frame = read_section("eh_frame");
     let eh_frame = EhFrame::<LittleEndian>::new(&eh_frame);
 
-    let bases = BaseAddresses::default()
-        .set_cfi(0)
-        .set_data(0)
-        .set_text(0);
+    let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
     let mut entries = eh_frame.entries(&bases);
     while let Some(entry) = entries.next().expect("Should parse CFI entry OK") {
         match entry {
@@ -173,7 +178,8 @@ fn test_parse_self_eh_frame() {
                 }
             }
             CieOrFde::Fde(partial) => {
-                let fde = partial.parse(|offset| eh_frame.cie_from_offset(&bases, offset))
+                let fde = partial
+                    .parse(|offset| eh_frame.cie_from_offset(&bases, offset))
                     .expect("Should be able to get CIE for FDE");
 
                 let mut instrs = fde.instructions();

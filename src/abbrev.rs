@@ -431,24 +431,26 @@ pub mod tests {
             .get_contents()
             .unwrap();
 
-        let abbrev1 = Abbreviation::new(1,
-                                        constants::DW_TAG_compile_unit,
-                                        constants::DW_CHILDREN_yes,
-                                        vec![
-                AttributeSpecification::new(constants::DW_AT_producer, constants::DW_FORM_strp),
-                AttributeSpecification::new(constants::DW_AT_language, constants::DW_FORM_data2),
-            ]);
+        let abbrev1 =
+            Abbreviation::new(1,
+                              constants::DW_TAG_compile_unit,
+                              constants::DW_CHILDREN_yes,
+                              vec![AttributeSpecification::new(constants::DW_AT_producer,
+                                                               constants::DW_FORM_strp),
+                                   AttributeSpecification::new(constants::DW_AT_language,
+                                                               constants::DW_FORM_data2)]);
 
-        let abbrev2 = Abbreviation::new(2,
-                                        constants::DW_TAG_subprogram,
-                                        constants::DW_CHILDREN_no,
-                                        vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
-            ]);
+        let abbrev2 =
+            Abbreviation::new(2,
+                              constants::DW_TAG_subprogram,
+                              constants::DW_CHILDREN_no,
+                              vec![AttributeSpecification::new(constants::DW_AT_name,
+                                                               constants::DW_FORM_string)]);
 
         let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&buf);
         let debug_abbrev_offset = DebugAbbrevOffset(extra_start.len());
-        let abbrevs = debug_abbrev.abbreviations(debug_abbrev_offset)
+        let abbrevs = debug_abbrev
+            .abbreviations(debug_abbrev_offset)
             .expect("Should parse abbreviations");
         assert_eq!(abbrevs.get(1), Some(&abbrev1));
         assert_eq!(abbrevs.get(2), Some(&abbrev2));
@@ -563,20 +565,21 @@ pub mod tests {
             .get_contents()
             .unwrap();
 
-        let abbrev1 = Abbreviation::new(1,
-                                        constants::DW_TAG_compile_unit,
-                                        constants::DW_CHILDREN_yes,
-                                        vec![
-                AttributeSpecification::new(constants::DW_AT_producer, constants::DW_FORM_strp),
-                AttributeSpecification::new(constants::DW_AT_language, constants::DW_FORM_data2),
-            ]);
+        let abbrev1 =
+            Abbreviation::new(1,
+                              constants::DW_TAG_compile_unit,
+                              constants::DW_CHILDREN_yes,
+                              vec![AttributeSpecification::new(constants::DW_AT_producer,
+                                                               constants::DW_FORM_strp),
+                                   AttributeSpecification::new(constants::DW_AT_language,
+                                                               constants::DW_FORM_data2)]);
 
-        let abbrev2 = Abbreviation::new(2,
-                                        constants::DW_TAG_subprogram,
-                                        constants::DW_CHILDREN_no,
-                                        vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
-            ]);
+        let abbrev2 =
+            Abbreviation::new(2,
+                              constants::DW_TAG_subprogram,
+                              constants::DW_CHILDREN_no,
+                              vec![AttributeSpecification::new(constants::DW_AT_name,
+                                                               constants::DW_FORM_string)]);
 
         let (rest, abbrevs) = Abbreviations::parse(&buf).expect("Should parse abbreviations");
         assert_eq!(abbrevs.get(1), Some(&abbrev1));
@@ -648,13 +651,12 @@ pub mod tests {
             .get_contents()
             .unwrap();
 
-        let expect = Some(Abbreviation::new(1,
-                                            constants::DW_TAG_subprogram,
-                                            constants::DW_CHILDREN_no,
-                                            vec![
-                    AttributeSpecification::new(constants::DW_AT_name,
-                                                constants::DW_FORM_string),
-                ]));
+        let expect =
+            Some(Abbreviation::new(1,
+                                   constants::DW_TAG_subprogram,
+                                   constants::DW_CHILDREN_no,
+                                   vec![AttributeSpecification::new(constants::DW_AT_name,
+                                                                    constants::DW_FORM_string)]));
 
         let (rest, abbrev) = Abbreviation::parse(&buf).expect("Should parse abbreviation");
         assert_eq!(abbrev, expect);

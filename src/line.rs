@@ -109,7 +109,8 @@ pub trait LineNumberProgram<'input, Endian>
     fn add_file(&mut self, file: FileEntry<'input>);
 }
 
-impl<'input, Endian> LineNumberProgram<'input, Endian> for IncompleteLineNumberProgram<'input, Endian>
+impl<'input, Endian> LineNumberProgram<'input, Endian>
+    for IncompleteLineNumberProgram<'input, Endian>
     where Endian: Endianity
 {
     fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<'input, Endian> {
@@ -120,14 +121,15 @@ impl<'input, Endian> LineNumberProgram<'input, Endian> for IncompleteLineNumberP
     }
 }
 
-impl<'program, 'input, Endian> LineNumberProgram<'input, Endian> for &'program CompleteLineNumberProgram<'input, Endian>
+impl<'program, 'input, Endian> LineNumberProgram<'input, Endian>
+    for &'program CompleteLineNumberProgram<'input, Endian>
     where Endian: Endianity
 {
     fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<'input, Endian> {
         &self.header
     }
     fn add_file(&mut self, _: FileEntry<'input>) {
-// Nop. Our file table is already complete.
+        // Nop. Our file table is already complete.
     }
 }
 
@@ -150,7 +152,7 @@ pub struct StateMachine<'input, Program, Endian>
 
 type OneShotStateMachine<'input, Endian> = StateMachine<'input,
                                                         IncompleteLineNumberProgram<'input,
-                                                                                          Endian>,
+                                                                                    Endian>,
                                                         Endian>;
 
 type ResumedStateMachine<'program, 'input, Endian> =
@@ -206,8 +208,8 @@ impl<'input, Program, Endian> StateMachine<'input, Program, Endian>
     /// Step 2 of section 6.2.5.1
     fn apply_operation_advance(&mut self, operation_advance: u64) {
         let minimum_instruction_length = self.header().minimum_instruction_length as u64;
-        let maximum_operations_per_instruction =
-            self.header().maximum_operations_per_instruction as u64;
+        let maximum_operations_per_instruction = self.header().maximum_operations_per_instruction as
+                                                 u64;
 
         let op_index_with_advance = self.row.registers.op_index + operation_advance;
 
@@ -363,7 +365,9 @@ impl<'input, Program, Endian> StateMachine<'input, Program, Endian>
             // as specified in Section 6.2.5.3.
 
             // Split the borrow here, rather than calling `self.header()`.
-            self.row.registers.reset(self.program.header().default_is_stmt);
+            self.row
+                .registers
+                .reset(self.program.header().default_is_stmt);
         } else {
             // Previous opcode was one of:
             // - Special - specified in Section 6.2.5.1, steps 4-7
@@ -721,9 +725,8 @@ impl<'input, Endian> OpcodesIter<'input, Endian>
     fn remove_trailing(&self, other: &OpcodesIter<'input, Endian>) -> OpcodesIter<'input, Endian> {
         debug_assert!(other.input.len() < self.input.len());
         debug_assert!(other.input.as_ptr() > self.input.as_ptr());
-        debug_assert!(other.input.as_ptr() <= unsafe {
-            self.input.as_ptr().offset(self.input.len() as isize)
-        });
+        debug_assert!(other.input.as_ptr() <=
+                      unsafe { self.input.as_ptr().offset(self.input.len() as isize) });
         OpcodesIter {
             input: self.input.split_at(self.input.len() - other.input.len()).0,
             endian: self.endian,
@@ -751,9 +754,9 @@ impl<'input, Endian> OpcodesIter<'input, Endian>
         }
 
         Opcode::parse(header, self.input).map(|(rest, opcode)| {
-            self.input = rest;
-            Some(opcode)
-        })
+                                                  self.input = rest;
+                                                  Some(opcode)
+                                              })
     }
 }
 
@@ -1233,13 +1236,13 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
 
             if rest[0] == 0 {
                 let comp_name = comp_name.map(|name| {
-                    FileEntry {
-                        path_name: name,
-                        directory_index: 0,
-                        last_modification: 0,
-                        length: 0,
-                    }
-                });
+                                                  FileEntry {
+                                                      path_name: name,
+                                                      directory_index: 0,
+                                                      last_modification: 0,
+                                                      length: 0,
+                                                  }
+                                              });
                 let header = LineNumberProgramHeader {
                     unit_length: unit_length,
                     version: version,
@@ -1336,12 +1339,12 @@ impl<'input, Endian> IncompleteLineNumberProgram<'input, Endian>
 
             // We just finished a sequence.
             sequences.push(LineNumberSequence {
-                // In theory one could have multiple DW_LNE_end_sequence opcodes
-                // in a row.
-                start: sequence_start_addr.unwrap_or(0),
-                end: sequence_end_addr,
-                opcodes: opcodes.remove_trailing(&state_machine.opcodes),
-            });
+                               // In theory one could have multiple DW_LNE_end_sequence opcodes
+                               // in a row.
+                               start: sequence_start_addr.unwrap_or(0),
+                               end: sequence_end_addr,
+                               opcodes: opcodes.remove_trailing(&state_machine.opcodes),
+                           });
             sequence_start_addr = None;
             opcodes = state_machine.opcodes.clone();
         }
@@ -1894,11 +1897,11 @@ mod tests {
         test(constants::DW_LNE_define_file,
              file,
              Opcode::DefineFile(FileEntry {
-                 path_name: ffi::CStr::from_bytes_with_nul(&path_name).unwrap(),
-                 directory_index: 0,
-                 last_modification: 1,
-                 length: 2,
-             }));
+                                    path_name: ffi::CStr::from_bytes_with_nul(&path_name).unwrap(),
+                                    directory_index: 0,
+                                    last_modification: 1,
+                                    length: 2,
+                                }));
 
         // Unknown extended opcode.
         let operands = [1, 2, 3, 4, 5, 6];

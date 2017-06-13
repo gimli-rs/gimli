@@ -350,43 +350,44 @@ mod tests {
         // A normal range.
         assert_eq!(ranges.next(),
                    Ok(Some(Range {
-                       begin: 0x01010200,
-                       end: 0x01010300,
-                   })));
+                               begin: 0x01010200,
+                               end: 0x01010300,
+                           })));
 
         // A base address selection followed by a normal range.
         assert_eq!(ranges.next(),
                    Ok(Some(Range {
-                       begin: 0x02010400,
-                       end: 0x02010500,
-                   })));
+                               begin: 0x02010400,
+                               end: 0x02010500,
+                           })));
 
         // An empty range followed by a normal range.
         assert_eq!(ranges.next(),
                    Ok(Some(Range {
-                       begin: 0x02010800,
-                       end: 0x02010900,
-                   })));
+                               begin: 0x02010800,
+                               end: 0x02010900,
+                           })));
 
         // A range that starts at 0.
         assert_eq!(ranges.next(),
                    Ok(Some(Range {
-                       begin: 0x02000000,
-                       end: 0x02000001,
-                   })));
+                               begin: 0x02000000,
+                               end: 0x02000001,
+                           })));
 
         // A range that ends at -1.
         assert_eq!(ranges.next(),
                    Ok(Some(Range {
-                       begin: 0x00000000,
-                       end: 0xffffffff,
-                   })));
+                               begin: 0x00000000,
+                               end: 0xffffffff,
+                           })));
 
         // A range end.
         assert_eq!(ranges.next(), Ok(None));
 
         // An offset at the end of buf.
-        let mut ranges = debug_ranges.ranges(DebugRangesOffset(buf.len()), 4, 0x01000000)
+        let mut ranges = debug_ranges
+            .ranges(DebugRangesOffset(buf.len()), 4, 0x01000000)
             .unwrap();
         assert_eq!(ranges.next(), Ok(None));
     }
@@ -426,43 +427,44 @@ mod tests {
         // A normal range.
         assert_eq!(ranges.next(),
                    Ok(Some(Range {
-                       begin: 0x01010200,
-                       end: 0x01010300,
-                   })));
+                               begin: 0x01010200,
+                               end: 0x01010300,
+                           })));
 
         // A base address selection followed by a normal range.
         assert_eq!(ranges.next(),
                    Ok(Some(Range {
-                       begin: 0x02010400,
-                       end: 0x02010500,
-                   })));
+                               begin: 0x02010400,
+                               end: 0x02010500,
+                           })));
 
         // An empty range followed by a normal range.
         assert_eq!(ranges.next(),
                    Ok(Some(Range {
-                       begin: 0x02010800,
-                       end: 0x02010900,
-                   })));
+                               begin: 0x02010800,
+                               end: 0x02010900,
+                           })));
 
         // A range that starts at 0.
         assert_eq!(ranges.next(),
                    Ok(Some(Range {
-                       begin: 0x02000000,
-                       end: 0x02000001,
-                   })));
+                               begin: 0x02000000,
+                               end: 0x02000001,
+                           })));
 
         // A range that ends at -1.
         assert_eq!(ranges.next(),
                    Ok(Some(Range {
-                       begin: 0x0,
-                       end: 0xffffffffffffffff,
-                   })));
+                               begin: 0x0,
+                               end: 0xffffffffffffffff,
+                           })));
 
         // A range end.
         assert_eq!(ranges.next(), Ok(None));
 
         // An offset at the end of buf.
-        let mut ranges = debug_ranges.ranges(DebugRangesOffset(buf.len()), 8, 0x01000000)
+        let mut ranges = debug_ranges
+            .ranges(DebugRangesOffset(buf.len()), 8, 0x01000000)
             .unwrap();
         assert_eq!(ranges.next(), Ok(None));
     }
@@ -479,11 +481,15 @@ mod tests {
         let debug_ranges = DebugRanges::<LittleEndian>::new(&buf);
 
         // An invalid range.
-        let mut ranges = debug_ranges.ranges(DebugRangesOffset(0x0), 4, 0x01000000).unwrap();
+        let mut ranges = debug_ranges
+            .ranges(DebugRangesOffset(0x0), 4, 0x01000000)
+            .unwrap();
         assert_eq!(ranges.next(), Err(Error::InvalidAddressRange));
 
         // An invalid range after wrapping.
-        let mut ranges = debug_ranges.ranges(DebugRangesOffset(0x8), 4, 0x01000000).unwrap();
+        let mut ranges = debug_ranges
+            .ranges(DebugRangesOffset(0x8), 4, 0x01000000)
+            .unwrap();
         assert_eq!(ranges.next(), Err(Error::InvalidAddressRange));
 
         // An invalid offset.

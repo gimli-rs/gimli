@@ -201,7 +201,9 @@ impl<'input, Endian> LocationListIter<'input, Endian>
                 continue;
             }
 
-            location.range.add_base_address(self.base_address, self.raw.address_size);
+            location
+                .range
+                .add_base_address(self.base_address, self.raw.address_size);
             if location.range.begin > location.range.end {
                 self.raw.input = EndianBuf::new(&[]);
                 return Err(Error::InvalidLocationAddressRange);
@@ -308,58 +310,59 @@ mod tests {
         // A normal location.
         assert_eq!(locations.next(),
                    Ok(Some(LocationListEntry {
-                       range: Range {
-                           begin: 0x01010200,
-                           end: 0x01010300,
-                       },
-                       data: EndianBuf::new(&[2, 0, 0, 0]),
-                   })));
+                               range: Range {
+                                   begin: 0x01010200,
+                                   end: 0x01010300,
+                               },
+                               data: EndianBuf::new(&[2, 0, 0, 0]),
+                           })));
 
         // A base address selection followed by a normal location.
         assert_eq!(locations.next(),
                    Ok(Some(LocationListEntry {
-                       range: Range {
-                           begin: 0x02010400,
-                           end: 0x02010500,
-                       },
-                       data: EndianBuf::new(&[3, 0, 0, 0]),
-                   })));
+                               range: Range {
+                                   begin: 0x02010400,
+                                   end: 0x02010500,
+                               },
+                               data: EndianBuf::new(&[3, 0, 0, 0]),
+                           })));
 
         // An empty location range followed by a normal location.
         assert_eq!(locations.next(),
                    Ok(Some(LocationListEntry {
-                       range: Range {
-                           begin: 0x02010800,
-                           end: 0x02010900,
-                       },
-                       data: EndianBuf::new(&[5, 0, 0, 0]),
-                   })));
+                               range: Range {
+                                   begin: 0x02010800,
+                                   end: 0x02010900,
+                               },
+                               data: EndianBuf::new(&[5, 0, 0, 0]),
+                           })));
 
         // A location range that starts at 0.
         assert_eq!(locations.next(),
                    Ok(Some(LocationListEntry {
-                       range: Range {
-                           begin: 0x02000000,
-                           end: 0x02000001,
-                       },
-                       data: EndianBuf::new(&[6, 0, 0, 0]),
-                   })));
+                               range: Range {
+                                   begin: 0x02000000,
+                                   end: 0x02000001,
+                               },
+                               data: EndianBuf::new(&[6, 0, 0, 0]),
+                           })));
 
         // A location range that ends at -1.
         assert_eq!(locations.next(),
                    Ok(Some(LocationListEntry {
-                       range: Range {
-                           begin: 0x00000000,
-                           end: 0xffffffff,
-                       },
-                       data: EndianBuf::new(&[7, 0, 0, 0]),
-                   })));
+                               range: Range {
+                                   begin: 0x00000000,
+                                   end: 0xffffffff,
+                               },
+                               data: EndianBuf::new(&[7, 0, 0, 0]),
+                           })));
 
         // A location list end.
         assert_eq!(locations.next(), Ok(None));
 
         // An offset at the end of buf.
-        let mut locations = debug_loc.locations(DebugLocOffset(buf.len()), 4, 0x01000000)
+        let mut locations = debug_loc
+            .locations(DebugLocOffset(buf.len()), 4, 0x01000000)
             .unwrap();
         assert_eq!(locations.next(), Ok(None));
     }
@@ -399,58 +402,59 @@ mod tests {
         // A normal location.
         assert_eq!(locations.next(),
                    Ok(Some(LocationListEntry {
-                       range: Range {
-                           begin: 0x01010200,
-                           end: 0x01010300,
-                       },
-                       data: EndianBuf::new(&[2, 0, 0, 0]),
-                   })));
+                               range: Range {
+                                   begin: 0x01010200,
+                                   end: 0x01010300,
+                               },
+                               data: EndianBuf::new(&[2, 0, 0, 0]),
+                           })));
 
         // A base address selection followed by a normal location.
         assert_eq!(locations.next(),
                    Ok(Some(LocationListEntry {
-                       range: Range {
-                           begin: 0x02010400,
-                           end: 0x02010500,
-                       },
-                       data: EndianBuf::new(&[3, 0, 0, 0]),
-                   })));
+                               range: Range {
+                                   begin: 0x02010400,
+                                   end: 0x02010500,
+                               },
+                               data: EndianBuf::new(&[3, 0, 0, 0]),
+                           })));
 
         // An empty location range followed by a normal location.
         assert_eq!(locations.next(),
                    Ok(Some(LocationListEntry {
-                       range: Range {
-                           begin: 0x02010800,
-                           end: 0x02010900,
-                       },
-                       data: EndianBuf::new(&[5, 0, 0, 0]),
-                   })));
+                               range: Range {
+                                   begin: 0x02010800,
+                                   end: 0x02010900,
+                               },
+                               data: EndianBuf::new(&[5, 0, 0, 0]),
+                           })));
 
         // A location range that starts at 0.
         assert_eq!(locations.next(),
                    Ok(Some(LocationListEntry {
-                       range: Range {
-                           begin: 0x02000000,
-                           end: 0x02000001,
-                       },
-                       data: EndianBuf::new(&[6, 0, 0, 0]),
-                   })));
+                               range: Range {
+                                   begin: 0x02000000,
+                                   end: 0x02000001,
+                               },
+                               data: EndianBuf::new(&[6, 0, 0, 0]),
+                           })));
 
         // A location range that ends at -1.
         assert_eq!(locations.next(),
                    Ok(Some(LocationListEntry {
-                       range: Range {
-                           begin: 0x0,
-                           end: 0xffffffffffffffff,
-                       },
-                       data: EndianBuf::new(&[7, 0, 0, 0]),
-                   })));
+                               range: Range {
+                                   begin: 0x0,
+                                   end: 0xffffffffffffffff,
+                               },
+                               data: EndianBuf::new(&[7, 0, 0, 0]),
+                           })));
 
         // A location list end.
         assert_eq!(locations.next(), Ok(None));
 
         // An offset at the end of buf.
-        let mut locations = debug_loc.locations(DebugLocOffset(buf.len()), 8, 0x01000000)
+        let mut locations = debug_loc
+            .locations(DebugLocOffset(buf.len()), 8, 0x01000000)
             .unwrap();
         assert_eq!(locations.next(), Ok(None));
     }
@@ -467,11 +471,15 @@ mod tests {
         let debug_loc = DebugLoc::<LittleEndian>::new(&buf);
 
         // An invalid location range.
-        let mut locations = debug_loc.locations(DebugLocOffset(0x0), 4, 0x01000000).unwrap();
+        let mut locations = debug_loc
+            .locations(DebugLocOffset(0x0), 4, 0x01000000)
+            .unwrap();
         assert_eq!(locations.next(), Err(Error::InvalidLocationAddressRange));
 
         // An invalid location range after wrapping.
-        let mut locations = debug_loc.locations(DebugLocOffset(0x8), 4, 0x01000000).unwrap();
+        let mut locations = debug_loc
+            .locations(DebugLocOffset(0x8), 4, 0x01000000)
+            .unwrap();
         assert_eq!(locations.next(), Err(Error::InvalidLocationAddressRange));
 
         // An invalid offset.

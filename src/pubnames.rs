@@ -58,12 +58,12 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for NamesSwitch<'input, 
                   length: u64)
                   -> Rc<PubNamesHeader> {
         Rc::new(PubNamesHeader {
-            format: format,
-            length: set_length,
-            version: version,
-            info_offset: offset,
-            info_length: length,
-        })
+                    format: format,
+                    length: set_length,
+                    version: version,
+                    info_offset: offset,
+                    info_length: length,
+                })
     }
 
     fn new_entry(offset: u64,

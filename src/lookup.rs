@@ -189,8 +189,10 @@ impl<'input, Endian, Switch> LookupParser<'input, Endian> for PubStuffParser<'in
             Format::Dwarf32 => 10,
             Format::Dwarf64 => 18,
         };
-        let dividing_line: usize = try!(set_length.checked_sub(header_length)
-            .ok_or(Error::BadLength)) as usize;
+        let dividing_line: usize = try!(set_length
+                                            .checked_sub(header_length)
+                                            .ok_or(Error::BadLength)) as
+                                   usize;
 
         Ok((rest.range_from(dividing_line..),
             rest.range_to(..dividing_line),

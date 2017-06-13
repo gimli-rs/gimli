@@ -588,7 +588,8 @@ impl Default for Pointer {
 impl Into<u64> for Pointer {
     fn into(self) -> u64 {
         match self {
-            Pointer::Direct(p) | Pointer::Indirect(p) => p,
+            Pointer::Direct(p) |
+            Pointer::Indirect(p) => p,
         }
     }
 }
@@ -688,7 +689,8 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>
             if let Some(cfi) = bases.cfi {
                 let (rest, offset) = try!(parse_data(encoding, address_size, input));
                 let offset_from_section = input.as_ptr() as usize - section.as_ptr() as usize;
-                let p = cfi.wrapping_add(offset_from_section as u64).wrapping_add(offset);
+                let p = cfi.wrapping_add(offset_from_section as u64)
+                    .wrapping_add(offset);
                 Ok((rest, Pointer::new(encoding, p)))
             } else {
                 Err(Error::CfiRelativePointerButCfiBaseIsUndefined)

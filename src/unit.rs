@@ -405,9 +405,9 @@ impl<'input, Endian> CompilationUnitHeader<'input, Endian>
         let (after_unit, header) = try!(parse_unit_header(input));
         Ok((after_unit,
             CompilationUnitHeader {
-            header: header,
-            offset: offset,
-        }))
+                header: header,
+                offset: offset,
+            }))
     }
 }
 
@@ -621,12 +621,12 @@ impl<'input, Endian> UnitHeader<'input, Endian>
         }
         let input = self.range_from(offset..);
         Ok(EntriesCursor {
-            unit: self,
-            input: input,
-            abbreviations: abbreviations,
-            cached_current: None,
-            delta_depth: 0,
-        })
+               unit: self,
+               input: input,
+               abbreviations: abbreviations,
+               cached_current: None,
+               delta_depth: 0,
+           })
     }
 
     /// Navigate this unit's `DebuggingInformationEntry`s as a tree
@@ -882,7 +882,8 @@ impl<'input, 'abbrev, 'unit, Endian> DebuggingInformationEntry<'input, 'abbrev, 
     pub fn attr_value_raw(&self,
                           name: constants::DwAt)
                           -> Result<Option<AttributeValue<'input, Endian>>> {
-        self.attr(name).map(|attr| attr.map(|attr| attr.raw_value()))
+        self.attr(name)
+            .map(|attr| attr.map(|attr| attr.raw_value()))
     }
 
     /// Find the first attribute in this entry which has the given name,
@@ -1469,29 +1470,25 @@ impl<'input, Endian> Attribute<'input, Endian>
     /// Try to convert this attribute's value to an unsigned integer.
     pub fn udata_value(&self) -> Option<u64> {
         Some(match self.value {
-            AttributeValue::Data1(ref data) => data[0] as u64,
-            AttributeValue::Data2(ref data) => Endian::read_u16(data) as u64,
-            AttributeValue::Data4(ref data) => Endian::read_u32(data) as u64,
-            AttributeValue::Data8(ref data) => Endian::read_u64(data),
-            AttributeValue::Udata(data) => data,
-            _ => return None,
-        })
+                 AttributeValue::Data1(ref data) => data[0] as u64,
+                 AttributeValue::Data2(ref data) => Endian::read_u16(data) as u64,
+                 AttributeValue::Data4(ref data) => Endian::read_u32(data) as u64,
+                 AttributeValue::Data8(ref data) => Endian::read_u64(data),
+                 AttributeValue::Udata(data) => data,
+                 _ => return None,
+             })
     }
 
     /// Try to convert this attribute's value to a signed integer.
     pub fn sdata_value(&self) -> Option<i64> {
         Some(match self.value {
-            AttributeValue::Data1(ref data) => data[0] as i8 as i64,
-            AttributeValue::Data2(ref data) => {
-                Endian::read_u16(data) as i16 as i64
-            }
-            AttributeValue::Data4(ref data) => {
-                Endian::read_u32(data) as i32 as i64
-            }
-            AttributeValue::Data8(ref data) => Endian::read_u64(data) as i64,
-            AttributeValue::Sdata(data) => data,
-            _ => return None,
-        })
+                 AttributeValue::Data1(ref data) => data[0] as i8 as i64,
+                 AttributeValue::Data2(ref data) => Endian::read_u16(data) as i16 as i64,
+                 AttributeValue::Data4(ref data) => Endian::read_u32(data) as i32 as i64,
+                 AttributeValue::Data8(ref data) => Endian::read_u64(data) as i64,
+                 AttributeValue::Sdata(data) => data,
+                 _ => return None,
+             })
     }
 
     /// Try to convert this attribute's value to an offset.
@@ -1519,10 +1516,10 @@ impl<'input, Endian> Attribute<'input, Endian>
     /// it is encountered in practice.
     fn exprloc_value(&self) -> Option<EndianBuf<'input, Endian>> {
         Some(match self.value {
-            AttributeValue::Block(data) |
-            AttributeValue::Exprloc(data) => data,
-            _ => return None,
-        })
+                 AttributeValue::Block(data) |
+                 AttributeValue::Exprloc(data) => data,
+                 _ => return None,
+             })
     }
 
     /// Try to return this attribute's value as a string reference.
@@ -1842,11 +1839,11 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
                 Ok(after_attrs)
             } else {
                 let mut attrs = current.attrs();
-                while let Some(_) = try!(attrs.next()) {
-                }
-                Ok(current.after_attrs
-                    .get()
-                    .expect("should have after_attrs after iterating attrs"))
+                while let Some(_) = try!(attrs.next()) {}
+                Ok(current
+                       .after_attrs
+                       .get()
+                       .expect("should have after_attrs after iterating attrs"))
             }
         } else {
             Ok(self.input)
@@ -1885,12 +1882,12 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
             (rest, code) => {
                 if let Some(abbrev) = self.abbreviations.get(code) {
                     self.cached_current = Some(DebuggingInformationEntry {
-                        offset: offset,
-                        attrs_slice: rest,
-                        after_attrs: Cell::new(None),
-                        abbrev: abbrev,
-                        unit: self.unit,
-                    });
+                                                   offset: offset,
+                                                   attrs_slice: rest,
+                                                   after_attrs: Cell::new(None),
+                                                   abbrev: abbrev,
+                                                   unit: self.unit,
+                                               });
                     self.delta_depth = abbrev.has_children() as isize;
 
                     Ok(Some(()))
@@ -2167,7 +2164,9 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
         // Loop until we find an entry at the current level.
         let mut depth = 0;
         loop {
-            if self.current().map(|entry| entry.has_children()).unwrap_or(false) {
+            if self.current()
+                   .map(|entry| entry.has_children())
+                   .unwrap_or(false) {
                 // This entry has children, so the next entry is
                 // down one level.
                 depth += 1;
@@ -2285,7 +2284,10 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesTree<'input, 'abbrev, 'unit, Endian>
     fn next(&mut self, depth: isize) -> Result<bool> {
         if self.depth < depth {
             debug_assert_eq!(self.depth + 1, depth);
-            if !self.cursor.current().map(|entry| entry.has_children()).unwrap_or(false) {
+            if !self.cursor
+                   .current()
+                   .map(|entry| entry.has_children())
+                   .unwrap_or(false) {
                 // Never any children.
                 return Ok(false);
             }
@@ -2801,13 +2803,11 @@ mod tests {
 
             let section = match unit.format {
                 Format::Dwarf32 => self.L32(&length),
-                Format::Dwarf64 => {
-                    self.L32(0xffffffff)
-                        .L64(&length)
-                }
+                Format::Dwarf64 => self.L32(0xffffffff).L64(&length),
             };
 
-            let section = section.mark(&start)
+            let section = section
+                .mark(&start)
                 .L16(unit.version)
                 .offset(unit.debug_abbrev_offset.0, unit.format)
                 .D8(unit.address_size)
@@ -3166,7 +3166,9 @@ mod tests {
     fn section_contents<F>(f: F) -> Vec<u8>
         where F: Fn(Section) -> Section
     {
-        f(Section::with_endian(Endian::Little)).get_contents().unwrap()
+        f(Section::with_endian(Endian::Little))
+            .get_contents()
+            .unwrap()
     }
 
     #[test]
@@ -3228,16 +3230,17 @@ mod tests {
 
     #[test]
     fn test_attribute_udata_sdata_value() {
-        let tests: &[(AttributeValue<LittleEndian>, _, _)] = &[(AttributeValue::Data1([1]), Some(1), Some(1)),
-                     (AttributeValue::Data1([255]), Some(std::u8::MAX as u64), Some(-1)),
-                     (AttributeValue::Data2([1, 0]), Some(1), Some(1)),
-                     (AttributeValue::Data2([255; 2]), Some(std::u16::MAX as u64), Some(-1)),
-                     (AttributeValue::Data4([1, 0, 0, 0]), Some(1), Some(1)),
-                     (AttributeValue::Data4([255; 4]), Some(std::u32::MAX as u64), Some(-1)),
-                     (AttributeValue::Data8([1, 0, 0, 0, 0, 0, 0, 0]), Some(1), Some(1)),
-                     (AttributeValue::Data8([255; 8]), Some(std::u64::MAX), Some(-1)),
-                     (AttributeValue::Sdata(1), None, Some(1)),
-                     (AttributeValue::Udata(1), Some(1), None)];
+        let tests: &[(AttributeValue<LittleEndian>, _, _)] =
+            &[(AttributeValue::Data1([1]), Some(1), Some(1)),
+              (AttributeValue::Data1([255]), Some(std::u8::MAX as u64), Some(-1)),
+              (AttributeValue::Data2([1, 0]), Some(1), Some(1)),
+              (AttributeValue::Data2([255; 2]), Some(std::u16::MAX as u64), Some(-1)),
+              (AttributeValue::Data4([1, 0, 0, 0]), Some(1), Some(1)),
+              (AttributeValue::Data4([255; 4]), Some(std::u32::MAX as u64), Some(-1)),
+              (AttributeValue::Data8([1, 0, 0, 0, 0, 0, 0, 0]), Some(1), Some(1)),
+              (AttributeValue::Data8([255; 8]), Some(std::u64::MAX), Some(-1)),
+              (AttributeValue::Sdata(1), None, Some(1)),
+              (AttributeValue::Udata(1), Some(1), None)];
         for test in tests.iter() {
             let (value, expect_udata, expect_sdata) = *test;
             let attribute = Attribute {
@@ -3628,14 +3631,16 @@ mod tests {
                                                    Format::Dwarf32,
                                                    &[]);
 
-        let abbrev = Abbreviation::new(42,
-                                       constants::DW_TAG_subprogram,
-                                       constants::DW_CHILDREN_yes,
-                                       vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
-                AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr),
-                AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr),
-            ]);
+        let abbrev =
+            Abbreviation::new(42,
+                              constants::DW_TAG_subprogram,
+                              constants::DW_CHILDREN_yes,
+                              vec![AttributeSpecification::new(constants::DW_AT_name,
+                                                               constants::DW_FORM_string),
+                                   AttributeSpecification::new(constants::DW_AT_low_pc,
+                                                               constants::DW_FORM_addr),
+                                   AttributeSpecification::new(constants::DW_AT_high_pc,
+                                                               constants::DW_FORM_addr)]);
 
         // "foo", 42, 1337, 4 dangling bytes of 0xaa where children would be
         let buf = [0x66, 0x6f, 0x6f, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x39, 0x05, 0x00, 0x00, 0xaa,
@@ -3662,7 +3667,7 @@ mod tests {
                                name: constants::DW_AT_name,
                                value:
                                    AttributeValue::String(ffi::CStr::from_bytes_with_nul(b"foo\0")
-                                   .unwrap()),
+                                                              .unwrap()),
                            });
             }
             otherwise => {
@@ -3707,7 +3712,10 @@ mod tests {
 
         assert!(attrs.next().expect("should parse next").is_none());
         assert!(entry.after_attrs.get().is_some());
-        assert_eq!(entry.after_attrs.get().expect("should have entry.after_attrs"),
+        assert_eq!(entry
+                       .after_attrs
+                       .get()
+                       .expect("should have entry.after_attrs"),
                    &buf[buf.len() - 4..])
     }
 
@@ -3720,14 +3728,16 @@ mod tests {
                                                    Format::Dwarf32,
                                                    &[]);
 
-        let abbrev = Abbreviation::new(42,
-                                       constants::DW_TAG_subprogram,
-                                       constants::DW_CHILDREN_yes,
-                                       vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
-                AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr),
-                AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr),
-            ]);
+        let abbrev =
+            Abbreviation::new(42,
+                              constants::DW_TAG_subprogram,
+                              constants::DW_CHILDREN_yes,
+                              vec![AttributeSpecification::new(constants::DW_AT_name,
+                                                               constants::DW_FORM_string),
+                                   AttributeSpecification::new(constants::DW_AT_low_pc,
+                                                               constants::DW_FORM_addr),
+                                   AttributeSpecification::new(constants::DW_AT_high_pc,
+                                                               constants::DW_FORM_addr)]);
 
         // "foo"
         let buf = [0x66, 0x6f, 0x6f, 0x00];
@@ -3753,7 +3763,7 @@ mod tests {
                                name: constants::DW_AT_name,
                                value:
                                    AttributeValue::String(ffi::CStr::from_bytes_with_nul(b"foo\0")
-                                   .unwrap()),
+                                                              .unwrap()),
                            });
             }
             otherwise => {
@@ -3779,7 +3789,8 @@ mod tests {
     fn assert_entry_name<Endian>(entry: &DebuggingInformationEntry<Endian>, name: &str)
         where Endian: Endianity
     {
-        let value = entry.attr_value(constants::DW_AT_name)
+        let value = entry
+            .attr_value(constants::DW_AT_name)
             .expect("Should have parsed the name attribute")
             .expect("Should have found the name attribute");
 
@@ -3800,7 +3811,8 @@ mod tests {
     fn assert_next_entry<Endian>(cursor: &mut EntriesCursor<Endian>, name: &str)
         where Endian: Endianity
     {
-        cursor.next_entry()
+        cursor
+            .next_entry()
             .expect("Should parse next entry")
             .expect("Should have an entry");
         assert_current_name(cursor, name);
@@ -3809,7 +3821,8 @@ mod tests {
     fn assert_next_entry_null<Endian>(cursor: &mut EntriesCursor<Endian>)
         where Endian: Endianity
     {
-        cursor.next_entry()
+        cursor
+            .next_entry()
             .expect("Should parse next entry")
             .expect("Should have an entry");
         assert!(cursor.current().is_none());
@@ -3819,7 +3832,8 @@ mod tests {
         where Endian: Endianity
     {
         {
-            let (val, entry) = cursor.next_dfs()
+            let (val, entry) = cursor
+                .next_dfs()
                 .expect("Should parse next dfs")
                 .expect("Should not be done with traversal");
             assert_eq!(val, depth);
@@ -3832,7 +3846,8 @@ mod tests {
         where Endian: Endianity
     {
         {
-            let entry = cursor.next_sibling()
+            let entry = cursor
+                .next_sibling()
                 .expect("Should parse next sibling")
                 .expect("Should not be done with traversal");
             assert_entry_name(entry, name);
@@ -3843,7 +3858,8 @@ mod tests {
     fn assert_valid_sibling_ptr<Endian>(cursor: &EntriesCursor<Endian>)
         where Endian: Endianity
     {
-        let sibling_ptr = cursor.current()
+        let sibling_ptr = cursor
+            .current()
             .expect("Should have current entry")
             .attr_value(constants::DW_AT_sibling);
         match sibling_ptr {
@@ -4072,7 +4088,8 @@ mod tests {
         let info_buf = &entries_cursor_tests_debug_info_buf();
         let debug_info = DebugInfo::<LittleEndian>::new(info_buf);
 
-        let unit = debug_info.units()
+        let unit = debug_info
+            .units()
             .next()
             .expect("should have a unit result")
             .expect("and it should be ok");
@@ -4096,10 +4113,22 @@ mod tests {
         assert_next_sibling(&mut cursor, "004");
         assert_next_dfs(&mut cursor, "005", 1);
         assert_next_sibling(&mut cursor, "006");
-        assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
-        assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
-        assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
-        assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+        assert!(cursor
+                    .next_sibling()
+                    .expect("Should parse next sibling")
+                    .is_none());
+        assert!(cursor
+                    .next_sibling()
+                    .expect("Should parse next sibling")
+                    .is_none());
+        assert!(cursor
+                    .next_sibling()
+                    .expect("Should parse next sibling")
+                    .is_none());
+        assert!(cursor
+                    .next_sibling()
+                    .expect("Should parse next sibling")
+                    .is_none());
 
         // And we should be able to continue with the children of the root entry.
 
@@ -4108,7 +4137,10 @@ mod tests {
 
         // There should be no more siblings.
 
-        assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+        assert!(cursor
+                    .next_sibling()
+                    .expect("Should parse next sibling")
+                    .is_none());
         assert!(cursor.current().is_none());
     }
 
@@ -4191,7 +4223,10 @@ mod tests {
 
         // There should be no more siblings.
 
-        assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+        assert!(cursor
+                    .next_sibling()
+                    .expect("Should parse next sibling")
+                    .is_none());
         assert!(cursor.current().is_none());
     }
 
@@ -4216,7 +4251,8 @@ mod tests {
         let info_buf = section.get_contents().unwrap();
         let debug_info = DebugInfo::<LittleEndian>::new(&info_buf);
 
-        let unit = debug_info.units()
+        let unit = debug_info
+            .units()
             .next()
             .expect("should have a unit result")
             .expect("and it should be ok");
@@ -4254,7 +4290,8 @@ mod tests {
         let info_buf = section.get_contents().unwrap();
         let debug_types = DebugTypes::<LittleEndian>::new(&info_buf);
 
-        let unit = debug_types.units()
+        let unit = debug_types
+            .units()
             .next()
             .expect("should have a unit result")
             .expect("and it should be ok");
@@ -4274,7 +4311,8 @@ mod tests {
         let info_buf = &entries_cursor_tests_debug_info_buf();
         let debug_info = DebugInfo::<LittleEndian>::new(info_buf);
 
-        let unit = debug_info.units()
+        let unit = debug_info
+            .units()
             .next()
             .expect("should have a unit result")
             .expect("and it should be ok");
@@ -4285,7 +4323,8 @@ mod tests {
         let abbrevs = unit.abbreviations(debug_abbrev)
             .expect("Should parse abbreviations");
 
-        let mut cursor = unit.entries_at_offset(&abbrevs, UnitOffset(unit.header_size())).unwrap();
+        let mut cursor = unit.entries_at_offset(&abbrevs, UnitOffset(unit.header_size()))
+            .unwrap();
         assert_next_entry(&mut cursor, "001");
 
         let cursor = unit.entries_at_offset(&abbrevs, UnitOffset(0));
@@ -4357,7 +4396,8 @@ mod tests {
              -> EntriesTreeIter<'input, 'abbrev, 'unit, 'tree, Endian>
             where Endian: Endianity
         {
-            let iter = iter.expect("Should parse entry").expect("Should have entry");
+            let iter = iter.expect("Should parse entry")
+                .expect("Should have entry");
             assert_entry_name(iter.entry().expect("Should have current entry"), name);
             iter
         }
@@ -4389,16 +4429,21 @@ mod tests {
             },
             offset: DebugInfoOffset(0),
         };
-        let info_buf =
-            Section::with_endian(Endian::Little).comp_unit(&mut unit).get_contents().unwrap();
+        let info_buf = Section::with_endian(Endian::Little)
+            .comp_unit(&mut unit)
+            .get_contents()
+            .unwrap();
         let debug_info = DebugInfo::<LittleEndian>::new(&info_buf);
 
-        let unit = debug_info.units()
+        let unit = debug_info
+            .units()
             .next()
             .expect("Should parse unit")
             .expect("and it should be some");
-        let abbrevs = unit.abbreviations(debug_abbrev).expect("Should parse abbreviations");
-        let mut tree = unit.entries_tree(&abbrevs, None).expect("Should have entries tree");
+        let abbrevs = unit.abbreviations(debug_abbrev)
+            .expect("Should parse abbreviations");
+        let mut tree = unit.entries_tree(&abbrevs, None)
+            .expect("Should have entries tree");
 
         // Test we can restart iteration of the tree.
         {
@@ -4456,7 +4501,8 @@ mod tests {
         assert_null(iter.next());
 
         // Test starting at an offset.
-        let mut tree = unit.entries_tree(&abbrevs, Some(entry2)).expect("Should have entries tree");
+        let mut tree = unit.entries_tree(&abbrevs, Some(entry2))
+            .expect("Should have entries tree");
         let mut iter = tree.iter();
         assert_entry_name(iter.entry().expect("Should have root entry"), "2");
         assert_entry(iter.next(), "2a");

@@ -200,23 +200,12 @@ enum OperationEvaluationResult<'input, Endian>
         size: u8,
         space: Option<u64>,
     },
-    AwaitingRegister {
-        register: u64,
-        offset: u64,
-    },
-    AwaitingFrameBase {
-        offset: u64,
-    },
-    AwaitingTls {
-        index: u64,
-    },
+    AwaitingRegister { register: u64, offset: u64 },
+    AwaitingFrameBase { offset: u64 },
+    AwaitingTls { index: u64 },
     AwaitingCfa,
-    AwaitingAtLocation {
-        location: DieReference,
-    },
-    AwaitingEntryValue {
-        expression: EndianBuf<'input, Endian>,
-    },
+    AwaitingAtLocation { location: DieReference },
+    AwaitingEntryValue { expression: EndianBuf<'input, Endian>, },
 }
 
 /// A single location of a piece of the result of a DWARF expression.
@@ -313,9 +302,9 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_deref => {
                 Ok((bytes,
                     Operation::Deref {
-                    size: address_size,
-                    space: false,
-                }))
+                        size: address_size,
+                        space: false,
+                    }))
             }
             constants::DW_OP_const1u => {
                 let (newbytes, value) = try!(parse_u8e(bytes));
@@ -369,9 +358,9 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_xderef => {
                 Ok((bytes,
                     Operation::Deref {
-                    size: address_size,
-                    space: true,
-                }))
+                        size: address_size,
+                        space: true,
+                    }))
             }
             constants::DW_OP_abs => Ok((bytes, Operation::Abs)),
             constants::DW_OP_and => Ok((bytes, Operation::And)),
@@ -475,257 +464,257 @@ impl<'input, Endian> Operation<'input, Endian>
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 0,
-                    offset: value,
-                }))
+                        register: 0,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg1 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 1,
-                    offset: value,
-                }))
+                        register: 1,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg2 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 2,
-                    offset: value,
-                }))
+                        register: 2,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg3 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 3,
-                    offset: value,
-                }))
+                        register: 3,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg4 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 4,
-                    offset: value,
-                }))
+                        register: 4,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg5 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 5,
-                    offset: value,
-                }))
+                        register: 5,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg6 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 6,
-                    offset: value,
-                }))
+                        register: 6,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg7 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 7,
-                    offset: value,
-                }))
+                        register: 7,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg8 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 8,
-                    offset: value,
-                }))
+                        register: 8,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg9 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 9,
-                    offset: value,
-                }))
+                        register: 9,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg10 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 10,
-                    offset: value,
-                }))
+                        register: 10,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg11 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 11,
-                    offset: value,
-                }))
+                        register: 11,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg12 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 12,
-                    offset: value,
-                }))
+                        register: 12,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg13 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 13,
-                    offset: value,
-                }))
+                        register: 13,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg14 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 14,
-                    offset: value,
-                }))
+                        register: 14,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg15 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 15,
-                    offset: value,
-                }))
+                        register: 15,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg16 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 16,
-                    offset: value,
-                }))
+                        register: 16,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg17 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 17,
-                    offset: value,
-                }))
+                        register: 17,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg18 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 18,
-                    offset: value,
-                }))
+                        register: 18,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg19 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 19,
-                    offset: value,
-                }))
+                        register: 19,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg20 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 20,
-                    offset: value,
-                }))
+                        register: 20,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg21 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 21,
-                    offset: value,
-                }))
+                        register: 21,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg22 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 22,
-                    offset: value,
-                }))
+                        register: 22,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg23 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 23,
-                    offset: value,
-                }))
+                        register: 23,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg24 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 24,
-                    offset: value,
-                }))
+                        register: 24,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg25 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 25,
-                    offset: value,
-                }))
+                        register: 25,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg26 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 26,
-                    offset: value,
-                }))
+                        register: 26,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg27 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 27,
-                    offset: value,
-                }))
+                        register: 27,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg28 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 28,
-                    offset: value,
-                }))
+                        register: 28,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg29 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 29,
-                    offset: value,
-                }))
+                        register: 29,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg30 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 30,
-                    offset: value,
-                }))
+                        register: 30,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_breg31 => {
                 let (newbytes, value) = try!(parse_signed_lebe(bytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: 31,
-                    offset: value,
-                }))
+                        register: 31,
+                        offset: value,
+                    }))
             }
             constants::DW_OP_regx => {
                 let (newbytes, value) = try!(parse_unsigned_lebe(bytes));
@@ -740,33 +729,33 @@ impl<'input, Endian> Operation<'input, Endian>
                 let (newbytes, offset) = try!(parse_signed_lebe(newbytes));
                 Ok((newbytes,
                     Operation::RegisterOffset {
-                    register: regno,
-                    offset: offset,
-                }))
+                        register: regno,
+                        offset: offset,
+                    }))
             }
             constants::DW_OP_piece => {
                 let (newbytes, size) = try!(parse_unsigned_lebe(bytes));
                 Ok((newbytes,
                     Operation::Piece {
-                    size_in_bits: 8 * size,
-                    bit_offset: None,
-                }))
+                        size_in_bits: 8 * size,
+                        bit_offset: None,
+                    }))
             }
             constants::DW_OP_deref_size => {
                 let (newbytes, size) = try!(parse_u8e(bytes));
                 Ok((newbytes,
                     Operation::Deref {
-                    size: size,
-                    space: false,
-                }))
+                        size: size,
+                        space: false,
+                    }))
             }
             constants::DW_OP_xderef_size => {
                 let (newbytes, size) = try!(parse_u8e(bytes));
                 Ok((newbytes,
                     Operation::Deref {
-                    size: size,
-                    space: true,
-                }))
+                        size: size,
+                        space: true,
+                    }))
             }
             constants::DW_OP_nop => Ok((bytes, Operation::Nop)),
             constants::DW_OP_push_object_address => Ok((bytes, Operation::PushObjectAddress)),
@@ -793,9 +782,9 @@ impl<'input, Endian> Operation<'input, Endian>
                 let (newbytes, offset) = try!(parse_unsigned_lebe(newbytes));
                 Ok((newbytes,
                     Operation::Piece {
-                    size_in_bits: size,
-                    bit_offset: Some(offset),
-                }))
+                        size_in_bits: size,
+                        bit_offset: Some(offset),
+                    }))
             }
             constants::DW_OP_implicit_value => {
                 let (newbytes, data) = try!(parse_length_uleb_value(bytes));
@@ -808,9 +797,9 @@ impl<'input, Endian> Operation<'input, Endian>
                 let (newbytes, byte_offset) = try!(parse_signed_lebe(newbytes));
                 Ok((newbytes,
                     Operation::ImplicitPointer {
-                    value: DebugInfoOffset(value),
-                    byte_offset: byte_offset,
-                }))
+                        value: DebugInfoOffset(value),
+                        byte_offset: byte_offset,
+                    }))
             }
             constants::DW_OP_entry_value |
             constants::DW_OP_GNU_entry_value => {
@@ -1009,8 +998,10 @@ impl<'input, Endian> Evaluation<'input, Endian>
         match self.state {
             EvaluationState::Start(None) => {
                 self.state = EvaluationState::Start(Some(value));
-            },
-            _ => panic!("`Evaluation::set_initial_value` was called twice, or after evaluation began."),
+            }
+            _ => {
+                panic!("`Evaluation::set_initial_value` was called twice, or after evaluation began.")
+            }
         };
     }
 
@@ -1072,10 +1063,10 @@ impl<'input, Endian> Evaluation<'input, Endian>
                 let addr = try!(self.pop());
                 let addr_space = if space { Some(try!(self.pop())) } else { None };
                 return Ok(OperationEvaluationResult::AwaitingMemory {
-                    address: addr,
-                    size: size,
-                    space: addr_space,
-                });
+                              address: addr,
+                              size: size,
+                              space: addr_space,
+                          });
             }
 
             Operation::Drop => {
@@ -1253,15 +1244,13 @@ impl<'input, Endian> Evaluation<'input, Endian>
 
             Operation::RegisterOffset { register, offset } => {
                 return Ok(OperationEvaluationResult::AwaitingRegister {
-                    register: register,
-                    offset: offset as u64,
-                });
+                              register: register,
+                              offset: offset as u64,
+                          });
             }
 
             Operation::FrameOffset { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingFrameBase {
-                    offset: offset as u64,
-                });
+                return Ok(OperationEvaluationResult::AwaitingFrameBase { offset: offset as u64 });
             }
 
             Operation::Nop => {}
@@ -1275,16 +1264,12 @@ impl<'input, Endian> Evaluation<'input, Endian>
             }
 
             Operation::Call { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingAtLocation {
-                    location: offset,
-                });
+                return Ok(OperationEvaluationResult::AwaitingAtLocation { location: offset });
             }
 
             Operation::TLS => {
                 let value = try!(self.pop());
-                return Ok(OperationEvaluationResult::AwaitingTls {
-                    index: value,
-                });
+                return Ok(OperationEvaluationResult::AwaitingTls { index: value });
             }
 
             Operation::CallFrameCFA => {
@@ -1316,8 +1301,8 @@ impl<'input, Endian> Evaluation<'input, Endian>
 
             Operation::EntryValue { expression } => {
                 return Ok(OperationEvaluationResult::AwaitingEntryValue {
-                    expression: expression.into(),
-                });
+                              expression: expression.into(),
+                          });
             }
 
             Operation::Piece { .. } => {
@@ -1326,10 +1311,10 @@ impl<'input, Endian> Evaluation<'input, Endian>
         }
 
         Ok(OperationEvaluationResult::Complete {
-            terminated: terminated,
-            piece_end: piece_end,
-            current_location: current_location,
-        })
+               terminated: terminated,
+               piece_end: piece_end,
+               current_location: current_location,
+           })
     }
 
     /// Get the result of this `Evaluation`.
@@ -1339,7 +1324,9 @@ impl<'input, Endian> Evaluation<'input, Endian>
     pub fn result(self) -> Vec<Piece<'input>> {
         match self.state {
             EvaluationState::Complete => self.result,
-            _ => panic!("Called `Evaluation::result` on an `Evaluation` that has not been completed"),
+            _ => {
+                panic!("Called `Evaluation::result` on an `Evaluation` that has not been completed")
+            }
         }
     }
 
@@ -1349,7 +1336,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
     /// value and resume the evaluation by calling the appropriate resume_with
     /// method on `Evaluation`.
     pub fn evaluate(&mut self) -> Result<EvaluationResult<'input, Endian>, Error>
-        where Endian: Endianity,
+        where Endian: Endianity
     {
         match self.state {
             EvaluationState::Start(initial_value) => {
@@ -1357,8 +1344,8 @@ impl<'input, Endian> Evaluation<'input, Endian>
                     self.push(value);
                 }
                 self.state = EvaluationState::Ready;
-            },
-            EvaluationState::Ready => {},
+            }
+            EvaluationState::Ready => {}
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Complete => return Ok(EvaluationResult::Complete),
             EvaluationState::Waiting(_) => panic!(),
@@ -1369,7 +1356,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
             Err(e) => {
                 self.state = EvaluationState::Error(e);
                 Err(e)
-            },
+            }
         }
     }
 
@@ -1380,15 +1367,19 @@ impl<'input, Endian> Evaluation<'input, Endian>
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresMemory`.
-    pub fn resume_with_memory(&mut self, value: u64) -> Result<EvaluationResult<'input, Endian>, Error>
+    pub fn resume_with_memory(&mut self,
+                              value: u64)
+                              -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingMemory { .. }) => {
                 self.push(value);
-            },
-            _ => panic!("Called `Evaluation::resume_with_memory` without a preceding `EvaluationResult::RequiresMemory`"),
+            }
+            _ => {
+                panic!("Called `Evaluation::resume_with_memory` without a preceding `EvaluationResult::RequiresMemory`")
+            }
         };
 
         self.evaluate_internal()
@@ -1401,15 +1392,21 @@ impl<'input, Endian> Evaluation<'input, Endian>
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresRegister`.
-    pub fn resume_with_register(&mut self, register: u64) -> Result<EvaluationResult<'input, Endian>, Error>
+    pub fn resume_with_register(&mut self,
+                                register: u64)
+                                -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingRegister { offset, .. }) => {
+            EvaluationState::Waiting(OperationEvaluationResult::AwaitingRegister {
+                                         offset, ..
+                                     }) => {
                 self.push(register.wrapping_add(offset));
-            },
-            _ => panic!("Called `Evaluation::resume_with_register` without a preceding `EvaluationResult::RequiresRegister`"),
+            }
+            _ => {
+                panic!("Called `Evaluation::resume_with_register` without a preceding `EvaluationResult::RequiresRegister`")
+            }
         };
 
         self.evaluate_internal()
@@ -1422,15 +1419,19 @@ impl<'input, Endian> Evaluation<'input, Endian>
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresFrameBase`.
-    pub fn resume_with_frame_base(&mut self, frame_base: u64) -> Result<EvaluationResult<'input, Endian>, Error>
+    pub fn resume_with_frame_base(&mut self,
+                                  frame_base: u64)
+                                  -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingFrameBase { offset }) => {
                 self.push(frame_base.wrapping_add(offset));
-            },
-            _ => panic!("Called `Evaluation::resume_with_frame_base` without a preceding `EvaluationResult::RequiresFrameBase`"),
+            }
+            _ => {
+                panic!("Called `Evaluation::resume_with_frame_base` without a preceding `EvaluationResult::RequiresFrameBase`")
+            }
         };
 
         self.evaluate_internal()
@@ -1450,8 +1451,10 @@ impl<'input, Endian> Evaluation<'input, Endian>
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingTls { .. }) => {
                 self.push(value);
-            },
-            _ => panic!("Called `Evaluation::resume_with_tls` without a preceding `EvaluationResult::RequiresTls`"),
+            }
+            _ => {
+                panic!("Called `Evaluation::resume_with_tls` without a preceding `EvaluationResult::RequiresTls`")
+            }
         };
 
         self.evaluate_internal()
@@ -1464,15 +1467,19 @@ impl<'input, Endian> Evaluation<'input, Endian>
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresCallFrameCfa`.
-    pub fn resume_with_call_frame_cfa(&mut self, cfa: u64) -> Result<EvaluationResult<'input, Endian>, Error>
+    pub fn resume_with_call_frame_cfa(&mut self,
+                                      cfa: u64)
+                                      -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingCfa) => {
                 self.push(cfa);
-            },
-            _ => panic!("Called `Evaluation::resume_with_call_frame_cfa` without a preceding `EvaluationResult::RequiresCallFrameCfa`"),
+            }
+            _ => {
+                panic!("Called `Evaluation::resume_with_call_frame_cfa` without a preceding `EvaluationResult::RequiresCallFrameCfa`")
+            }
         };
 
         self.evaluate_internal()
@@ -1485,7 +1492,9 @@ impl<'input, Endian> Evaluation<'input, Endian>
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresAtLocation`.
-    pub fn resume_with_at_location(&mut self, bytes: EndianBuf<'input, Endian>) -> Result<EvaluationResult<'input, Endian>, Error>
+    pub fn resume_with_at_location(&mut self,
+                                   bytes: EndianBuf<'input, Endian>)
+                                   -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
         match self.state {
@@ -1496,8 +1505,10 @@ impl<'input, Endian> Evaluation<'input, Endian>
                     self.pc = bytes;
                     self.bytecode = bytes;
                 }
-            },
-            _ => panic!("Called `Evaluation::resume_with_at_location` without a precedeing `EvaluationResult::RequiresAtLocation`"),
+            }
+            _ => {
+                panic!("Called `Evaluation::resume_with_at_location` without a precedeing `EvaluationResult::RequiresAtLocation`")
+            }
         };
 
         self.evaluate_internal()
@@ -1510,15 +1521,19 @@ impl<'input, Endian> Evaluation<'input, Endian>
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresEntryValue`.
-    pub fn resume_with_entry_value(&mut self, entry_value: u64) -> Result<EvaluationResult<'input, Endian>, Error>
+    pub fn resume_with_entry_value(&mut self,
+                                   entry_value: u64)
+                                   -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingEntryValue { .. }) => {
                 self.push(entry_value);
-            },
-            _ => panic!("Called `Evaluation::resume_with_entry_value` without a preceding `EvaluationResult::RequiresEntryValue`"),
+            }
+            _ => {
+                panic!("Called `Evaluation::resume_with_entry_value` without a preceding `EvaluationResult::RequiresEntryValue`")
+            }
         };
 
         self.evaluate_internal()
@@ -1551,7 +1566,11 @@ impl<'input, Endian> Evaluation<'input, Endian>
 
             let op_result = try!(self.evaluate_one_operation(&operation));
             match op_result {
-                OperationEvaluationResult::Complete { terminated, piece_end, mut current_location } => {
+                OperationEvaluationResult::Complete {
+                    terminated,
+                    piece_end,
+                    mut current_location,
+                } => {
                     if piece_end || terminated {
                         // If we saw a piece end, like Piece, then we want to use
                         // the operation we already decoded to see what to do.
@@ -1584,18 +1603,21 @@ impl<'input, Endian> Evaluation<'input, Endian>
                                     return Err(Error::InvalidPiece.into());
                                 }
                                 self.result.push(Piece {
-                                    size_in_bits: None,
-                                    bit_offset: None,
-                                    location: current_location,
-                                });
+                                                     size_in_bits: None,
+                                                     bit_offset: None,
+                                                     location: current_location,
+                                                 });
                             }
 
-                            Operation::Piece { size_in_bits, bit_offset } => {
+                            Operation::Piece {
+                                size_in_bits,
+                                bit_offset,
+                            } => {
                                 self.result.push(Piece {
-                                    size_in_bits: Some(size_in_bits),
-                                    bit_offset: bit_offset,
-                                    location: current_location,
-                                });
+                                                     size_in_bits: Some(size_in_bits),
+                                                     bit_offset: bit_offset,
+                                                     location: current_location,
+                                                 });
                             }
 
                             _ => {
@@ -1604,39 +1626,43 @@ impl<'input, Endian> Evaluation<'input, Endian>
                             }
                         }
                     }
-                },
-                OperationEvaluationResult::AwaitingMemory { address, size, space } => {
+                }
+                OperationEvaluationResult::AwaitingMemory {
+                    address,
+                    size,
+                    space,
+                } => {
                     self.state = EvaluationState::Waiting(op_result);
                     return Ok(EvaluationResult::RequiresMemory {
-                        address: address,
-                        size: size,
-                        space: space,
-                    });
-                },
+                                  address: address,
+                                  size: size,
+                                  space: space,
+                              });
+                }
                 OperationEvaluationResult::AwaitingRegister { register, .. } => {
                     self.state = EvaluationState::Waiting(op_result);
                     return Ok(EvaluationResult::RequiresRegister(register));
-                },
+                }
                 OperationEvaluationResult::AwaitingFrameBase { .. } => {
                     self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresFrameBase); 
-                },
+                    return Ok(EvaluationResult::RequiresFrameBase);
+                }
                 OperationEvaluationResult::AwaitingTls { index } => {
                     self.state = EvaluationState::Waiting(op_result);
                     return Ok(EvaluationResult::RequiresTls(index));
-                },
+                }
                 OperationEvaluationResult::AwaitingCfa => {
                     self.state = EvaluationState::Waiting(op_result);
                     return Ok(EvaluationResult::RequiresCallFrameCfa);
-                },
+                }
                 OperationEvaluationResult::AwaitingAtLocation { location } => {
                     self.state = EvaluationState::Waiting(op_result);
                     return Ok(EvaluationResult::RequiresAtLocation(location));
-                },
+                }
                 OperationEvaluationResult::AwaitingEntryValue { expression } => {
                     self.state = EvaluationState::Waiting(op_result);
                     return Ok(EvaluationResult::RequiresEntryValue(expression));
-                },
+                }
             };
         }
 
@@ -1645,10 +1671,10 @@ impl<'input, Endian> Evaluation<'input, Endian>
         if self.result.is_empty() {
             let addr = try!(self.pop());
             self.result.push(Piece {
-                size_in_bits: None,
-                bit_offset: None,
-                location: Location::Address { address: addr },
-            });
+                                 size_in_bits: None,
+                                 bit_offset: None,
+                                 location: Location::Address { address: addr },
+                             });
         }
 
         self.state = EvaluationState::Complete;
@@ -1692,10 +1718,7 @@ mod tests {
                              address_size: u8,
                              format: Format) {
         let buf = EndianBuf::<LittleEndian>::new(input);
-        let value = Operation::parse(buf,
-                                     buf,
-                                     address_size,
-                                     format);
+        let value = Operation::parse(buf, buf, address_size, format);
         match value {
             Ok((pc, val)) => {
                 assert_eq!(val, *expect);
@@ -1707,10 +1730,7 @@ mod tests {
 
     fn check_op_parse_failure(input: &[u8], expect: Error, address_size: u8, format: Format) {
         let buf = EndianBuf::<LittleEndian>::new(input);
-        match Operation::parse(buf,
-                               buf,
-                               address_size,
-                               format) {
+        match Operation::parse(buf, buf, address_size, format) {
             Err(x) => {
                 assert_eq!(x, expect);
             }
@@ -1725,7 +1745,9 @@ mod tests {
                          format: Format)
         where F: Fn(Section) -> Section
     {
-        let input = input(Section::with_endian(Endian::Little)).get_contents().unwrap();
+        let input = input(Section::with_endian(Endian::Little))
+            .get_contents()
+            .unwrap();
         for i in 1..input.len() {
             check_op_parse_failure(&input[..i], Error::UnexpectedEof, address_size, format);
         }
@@ -1741,9 +1763,9 @@ mod tests {
         // Test all single-byte opcodes.
         let inputs = [(constants::DW_OP_deref,
                        Operation::Deref {
-                          size: address_size,
-                          space: false,
-                      }),
+                           size: address_size,
+                           space: false,
+                       }),
                       (constants::DW_OP_dup, Operation::Pick { index: 0 }),
                       (constants::DW_OP_drop, Operation::Drop),
                       (constants::DW_OP_over, Operation::Pick { index: 1 }),
@@ -1751,9 +1773,9 @@ mod tests {
                       (constants::DW_OP_rot, Operation::Rot),
                       (constants::DW_OP_xderef,
                        Operation::Deref {
-                          size: address_size,
-                          space: true,
-                      }),
+                           size: address_size,
+                           space: true,
+                       }),
                       (constants::DW_OP_abs, Operation::Abs),
                       (constants::DW_OP_and, Operation::And),
                       (constants::DW_OP_div, Operation::Div),
@@ -1868,15 +1890,15 @@ mod tests {
                       (constants::DW_OP_deref_size,
                        19,
                        Operation::Deref {
-                          size: 19,
-                          space: false,
-                      }),
+                           size: 19,
+                           space: false,
+                       }),
                       (constants::DW_OP_xderef_size,
                        19,
                        Operation::Deref {
-                          size: 19,
-                          space: true,
-                      })];
+                           size: 19,
+                           space: true,
+                       })];
 
         for item in inputs.iter() {
             let (opcode, arg, ref result) = *item;
@@ -1998,8 +2020,8 @@ mod tests {
                       (constants::DW_OP_call_ref,
                        0x1234567812345678,
                        Operation::Call {
-                          offset: DieReference::DebugInfoRef(DebugInfoOffset(0x1234567812345678)),
-                      })];
+                           offset: DieReference::DebugInfoRef(DebugInfoOffset(0x1234567812345678)),
+                       })];
 
         for item in inputs.iter() {
             let (op, arg, ref expect) = *item;
@@ -2023,17 +2045,16 @@ mod tests {
                       -0x1eeeeeee,
                       -0x7fffffffffffffff];
         for value in values.iter() {
-            let mut inputs = vec!(
-                (constants::DW_OP_consts.0, Operation::Literal { value: *value as u64}),
-                (constants::DW_OP_fbreg.0, Operation::FrameOffset { offset: *value }),
-            );
+            let mut inputs =
+                vec![(constants::DW_OP_consts.0, Operation::Literal { value: *value as u64 }),
+                     (constants::DW_OP_fbreg.0, Operation::FrameOffset { offset: *value })];
 
             for i in 0..32 {
                 inputs.push((constants::DW_OP_breg0.0 + i,
                              Operation::RegisterOffset {
-                    register: i as u64,
-                    offset: *value,
-                }));
+                                 register: i as u64,
+                                 offset: *value,
+                             }));
             }
 
             for item in inputs.iter() {
@@ -2051,19 +2072,18 @@ mod tests {
 
         let values = [0, 1, 0x100, 0x1eeeeeee, 0x7fffffffffffffff, !0u64];
         for value in values.iter() {
-            let mut inputs = vec!(
-                (constants::DW_OP_constu, Operation::Literal { value: *value}),
-                (constants::DW_OP_plus_uconst, Operation::PlusConstant { value: *value }),
-                (constants::DW_OP_regx, Operation::Register { register: *value }),
-            );
+            let mut inputs =
+                vec![(constants::DW_OP_constu, Operation::Literal { value: *value }),
+                     (constants::DW_OP_plus_uconst, Operation::PlusConstant { value: *value }),
+                     (constants::DW_OP_regx, Operation::Register { register: *value })];
 
             // FIXME
             if *value < !0u64 / 8 {
                 inputs.push((constants::DW_OP_piece,
                              Operation::Piece {
-                    size_in_bits: 8 * value,
-                    bit_offset: None,
-                }));
+                                 size_in_bits: 8 * value,
+                                 bit_offset: None,
+                             }));
             }
 
             for item in inputs.iter() {
@@ -2155,7 +2175,8 @@ mod tests {
 
     #[test]
     fn test_op_parse_implicit_pointer() {
-        for op in &[constants::DW_OP_implicit_pointer, constants::DW_OP_GNU_implicit_pointer] {
+        for op in &[constants::DW_OP_implicit_pointer,
+                    constants::DW_OP_GNU_implicit_pointer] {
             check_op_parse(|s| s.D8(op.0).D32(0x12345678).sleb(0x123),
                            &Operation::ImplicitPointer {
                                value: DebugInfoOffset(0x12345678),
@@ -2176,7 +2197,8 @@ mod tests {
 
     #[test]
     fn test_op_parse_entry_value() {
-        for op in &[constants::DW_OP_entry_value, constants::DW_OP_GNU_entry_value] {
+        for op in &[constants::DW_OP_entry_value,
+                    constants::DW_OP_GNU_entry_value] {
             let data = b"hello";
             check_op_parse(|s| s.D8(op.0).uleb(data.len() as u64).append_bytes(&data[..]),
                            &Operation::EntryValue { expression: EndianBuf::new(&data[..]) },
@@ -2267,16 +2289,14 @@ mod tests {
                                initial_value: Option<u64>,
                                max_iterations: Option<u32>,
                                f: F)
-        where for <'a> F: Fn(&mut Evaluation<'a, LittleEndian>,
-                             EvaluationResult<'a, LittleEndian>)
-                             -> Result<EvaluationResult<'a, LittleEndian>>
+        where for<'a> F: Fn(&mut Evaluation<'a, LittleEndian>,
+                            EvaluationResult<'a, LittleEndian>)
+                            -> Result<EvaluationResult<'a, LittleEndian>>
     {
         let bytes = assemble(program);
         let bytes = EndianBuf::<LittleEndian>::new(&bytes);
 
-        let mut eval = Evaluation::<LittleEndian>::new(bytes,
-                                                       address_size,
-                                                       format);
+        let mut eval = Evaluation::<LittleEndian>::new(bytes, address_size, format);
 
         if let Some(val) = object_address {
             eval.set_object_address(val);
@@ -2313,7 +2333,14 @@ mod tests {
                   address_size: u8,
                   format: Format) {
 
-        check_eval_with_args(program, expect, address_size, format, None, None, None, |_, result| Ok(result));
+        check_eval_with_args(program,
+                             expect,
+                             address_size,
+                             format,
+                             None,
+                             None,
+                             None,
+                             |_, result| Ok(result));
     }
 
     #[test]
