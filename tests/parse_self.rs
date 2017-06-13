@@ -1,7 +1,7 @@
 extern crate gimli;
 
-use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugPubNames,
-            DebugPubTypes, DebugRanges, DebugStr, LittleEndian};
+use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLoc,
+            DebugPubNames, DebugPubTypes, DebugRanges, DebugStr, LittleEndian};
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -111,6 +111,54 @@ fn test_parse_self_debug_line() {
                 }
             }
             assert!(results.is_empty());
+        }
+    }
+}
+
+#[test]
+fn test_parse_self_debug_loc() {
+    let debug_info = read_section("debug_info");
+    let debug_info = DebugInfo::<LittleEndian>::new(&debug_info);
+
+    let debug_abbrev = read_section("debug_abbrev");
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&debug_abbrev);
+
+    let debug_loc = read_section("debug_loc");
+    let debug_loc = DebugLoc::<LittleEndian>::new(&debug_loc);
+
+    let mut iter = debug_info.units();
+    while let Some(unit) = iter.next().expect("Should parse compilation unit") {
+        let abbrevs = unit.abbreviations(debug_abbrev)
+            .expect("Should parse abbreviations");
+
+        let mut cursor = unit.entries(&abbrevs);
+        cursor.next_dfs().expect("Should parse next dfs");
+
+        let mut low_pc = 0;
+
+        {
+            let unit_entry = cursor.current().expect("Should have a root entry");
+            let low_pc_attr = unit_entry
+                .attr_value(gimli::DW_AT_low_pc)
+                .expect("Should parse low_pc");
+            if let Some(gimli::AttributeValue::Addr(address)) = low_pc_attr {
+                low_pc = address;
+            }
+        }
+
+        while cursor.next_dfs().expect("Should parse next dfs").is_some() {
+            let entry = cursor.current().expect("Should have a current entry");
+            let mut attrs = entry.attrs();
+            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+                if let AttributeValue::DebugLocRef(offset) = attr.value() {
+                    let mut locs = debug_loc
+                        .locations(offset, unit.address_size(), low_pc)
+                        .expect("Should parse locations OK");
+                    while let Some(loc) = locs.next().expect("Should parse next location") {
+                        assert!(loc.range.begin <= loc.range.end);
+                    }
+                }
+            }
         }
     }
 }
