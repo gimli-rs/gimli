@@ -259,8 +259,8 @@ pub trait UnwindSection<'input, Endian>
             return Err(Error::UnexpectedEof);
         }
 
-        let input = self.section().range_from(offset..);
-        if let Some((_, entry)) = CommonInformationEntry::parse(bases, *self, input)? {
+        let input = &mut self.section().range_from(offset..);
+        if let Some(entry) = CommonInformationEntry::parse(bases, *self, input)? {
             Ok(entry)
         } else {
             Err(Error::NoEntryAtGivenOffset)
@@ -600,7 +600,7 @@ impl<'bases, 'input, Endian, Section> CfiEntriesIter<'bases, 'input, Endian, Sec
         // the last entry.
         self.bases.func.borrow_mut().take();
 
-        match parse_cfi_entry(self.bases, self.section, self.input) {
+        match parse_cfi_entry(self.bases, self.section, &mut self.input) {
             Err(e) => {
                 self.input = EndianBuf::new(&[]);
                 Err(e)
@@ -609,10 +609,7 @@ impl<'bases, 'input, Endian, Section> CfiEntriesIter<'bases, 'input, Endian, Sec
                 self.input = EndianBuf::new(&[]);
                 Ok(None)
             }
-            Ok(Some((rest, entry))) => {
-                self.input = rest;
-                Ok(Some(entry))
-            }
+            Ok(Some(entry)) => Ok(Some(entry)),
         }
     }
 }
@@ -645,37 +642,37 @@ struct CfiEntryCommon<'input, Endian>
 /// `Ok(Some(tuple))`, where `tuple.0` is the start of the next entry and
 /// `tuple.1` is the parsed CFI entry data.
 fn parse_cfi_entry_common<'input, Endian, Section>
-    (input: EndianBuf<'input, Endian>)
-     -> Result<Option<(EndianBuf<'input, Endian>, CfiEntryCommon<'input, Endian>)>>
+    (input: &mut EndianBuf<'input, Endian>)
+     -> Result<Option<CfiEntryCommon<'input, Endian>>>
     where Endian: Endianity,
           Section: UnwindSection<'input, Endian>
 {
-    let (rest, (length, format)) = parse_initial_length(input)?;
+    let (length, format) = parse_initial_length(input)?;
 
     if Section::length_value_is_end_of_entries(length) {
         return Ok(None);
     }
 
-    if length as usize > rest.len() {
+    if length as usize > input.len() {
         return Err(Error::BadLength);
     }
 
-    let rest_rest = rest.range_from(length as usize..);
-    let cie_offset_input = rest.range_to(..length as usize);
+    let cie_offset_input = input.range_to(..length as usize);
+    *input = input.range_from(length as usize..);
 
-    let (rest, cie_id_or_offset) = match Section::cie_offset_encoding(format) {
-        CieOffsetEncoding::U32 => parse_u32_as_u64(cie_offset_input)?,
-        CieOffsetEncoding::U64 => parse_u64(cie_offset_input)?,
+    let mut rest = cie_offset_input;
+    let cie_id_or_offset = match Section::cie_offset_encoding(format) {
+        CieOffsetEncoding::U32 => parse_u32_as_u64(&mut rest)?,
+        CieOffsetEncoding::U64 => parse_u64(&mut rest)?,
     };
 
-    Ok(Some((rest_rest,
-             CfiEntryCommon {
-                 length: length,
-                 format: format,
-                 cie_offset_input: cie_offset_input,
-                 cie_id_or_offset: cie_id_or_offset,
-                 rest: rest,
-             })))
+    Ok(Some(CfiEntryCommon {
+                length: length,
+                format: format,
+                cie_offset_input: cie_offset_input,
+                cie_id_or_offset: cie_id_or_offset,
+                rest: rest,
+            }))
 }
 
 /// Either a `CommonInformationEntry` (CIE) or a `FrameDescriptionEntry` (FDE).
@@ -696,26 +693,25 @@ pub enum CieOrFde<'bases, 'input, Endian, Section>
 fn parse_cfi_entry<'bases, 'input, Endian, Section>
     (bases: &'bases BaseAddresses,
      section: Section,
-     input: EndianBuf<'input, Endian>)
-     -> Result<Option<(EndianBuf<'input, Endian>, CieOrFde<'bases, 'input, Endian, Section>)>>
+     input: &mut EndianBuf<'input, Endian>)
+     -> Result<Option<CieOrFde<'bases, 'input, Endian, Section>>>
     where Endian: Endianity,
           Section: UnwindSection<'input, Endian>
 {
-    let (rest_rest,
-         CfiEntryCommon {
-             length,
-             format,
-             cie_offset_input,
-             cie_id_or_offset,
-             rest,
-         }) = match parse_cfi_entry_common::<Endian, Section>(input)? {
+    let CfiEntryCommon {
+        length,
+        format,
+        cie_offset_input,
+        cie_id_or_offset,
+        rest,
+    } = match parse_cfi_entry_common::<Endian, Section>(input)? {
         None => return Ok(None),
         Some(common) => common,
     };
 
     if Section::is_cie(format, cie_id_or_offset) {
         let cie = CommonInformationEntry::parse_rest(length, format, bases, section, rest)?;
-        Ok(Some((rest_rest, CieOrFde::Cie(cie))))
+        Ok(Some(CieOrFde::Cie(cie)))
     } else {
         let cie_offset = u64_to_offset(cie_id_or_offset)?;
         let cie_offset = match section.resolve_cie_offset(cie_offset_input, cie_offset) {
@@ -732,7 +728,7 @@ fn parse_cfi_entry<'bases, 'input, Endian, Section>
             bases: bases,
         };
 
-        Ok(Some((rest_rest, CieOrFde::Fde(fde))))
+        Ok(Some(CieOrFde::Fde(fde)))
     }
 }
 
@@ -784,13 +780,12 @@ impl Default for Augmentation {
 }
 
 impl Augmentation {
-    fn parse<'aug, 'bases, 'input, Endian, Section>
-        (augmentation_str: &'aug str,
-         bases: &'bases BaseAddresses,
-         address_size: u8,
-         section: Section,
-         input: EndianBuf<'input, Endian>)
-         -> Result<(EndianBuf<'input, Endian>, Augmentation)>
+    fn parse<'aug, 'bases, 'input, Endian, Section>(augmentation_str: &'aug str,
+                                                    bases: &'bases BaseAddresses,
+                                                    address_size: u8,
+                                                    section: Section,
+                                                    input: &mut EndianBuf<'input, Endian>)
+                                                    -> Result<Augmentation>
         where Endian: Endianity,
               Section: UnwindSection<'input, Endian>
     {
@@ -808,37 +803,36 @@ impl Augmentation {
 
         let mut augmentation = Augmentation::default();
 
-        let (rest, augmentation_length) = parse_unsigned_leb(input)?;
-        let (mut rest, rest_rest) = rest.try_split_at(augmentation_length as usize)?;
+        let augmentation_length = parse_unsigned_leb(input)?;
+        let (mut rest, rest_rest) = input.try_split_at(augmentation_length as usize)?;
+        *input = rest_rest;
+        let rest = &mut rest;
 
         for ch in chars {
             match ch {
                 'L' => {
-                    let (rest_, encoding) = parse_pointer_encoding(rest)?;
+                    let encoding = parse_pointer_encoding(rest)?;
                     augmentation.lsda = Some(encoding);
-                    rest = rest_;
                 }
                 'P' => {
-                    let (rest_, encoding) = parse_pointer_encoding(rest)?;
-                    let (rest_, personality) = parse_encoded_pointer(encoding,
-                                                                     bases,
-                                                                     address_size,
-                                                                     section.section(),
-                                                                     rest_)?;
+                    let encoding = parse_pointer_encoding(rest)?;
+                    let personality = parse_encoded_pointer(encoding,
+                                                            bases,
+                                                            address_size,
+                                                            section.section(),
+                                                            rest)?;
                     augmentation.personality = Some(personality);
-                    rest = rest_;
                 }
                 'R' => {
-                    let (rest_, encoding) = parse_pointer_encoding(rest)?;
+                    let encoding = parse_pointer_encoding(rest)?;
                     augmentation.fde_address_encoding = Some(encoding);
-                    rest = rest_;
                 }
                 'S' => augmentation.is_signal_trampoline = true,
                 _ => return Err(Error::UnknownAugmentation),
             }
         }
 
-        Ok((rest_rest, augmentation))
+        Ok(augmentation)
     }
 }
 
@@ -853,8 +847,8 @@ impl AugmentationData {
                                       bases: &BaseAddresses,
                                       address_size: u8,
                                       section: Section,
-                                      input: EndianBuf<'input, Endian>)
-                                      -> Result<(EndianBuf<'input, Endian>, AugmentationData)>
+                                      input: &mut EndianBuf<'input, Endian>)
+                                      -> Result<AugmentationData>
         where Endian: Endianity,
               Section: UnwindSection<'input, Endian>
     {
@@ -864,15 +858,17 @@ impl AugmentationData {
         // that defines augmentation data in the FDE is the 'L' character, so we
         // can just check for its presence directly.
 
-        let (rest, aug_data_len) = parse_unsigned_leb(input)?;
-        let (rest, rest_rest) = rest.try_split_at(aug_data_len as usize)?;
+        let aug_data_len = parse_unsigned_leb(input)?;
+        let (mut rest, rest_rest) = input.try_split_at(aug_data_len as usize)?;
+        *input = rest_rest;
+        let rest = &mut rest;
         let mut augmentation_data = AugmentationData::default();
         if let Some(encoding) = augmentation.lsda {
-            let (_, lsda) =
+            let lsda =
                 parse_encoded_pointer(encoding, bases, address_size, section.section(), rest)?;
             augmentation_data.lsda = Some(lsda);
         }
-        Ok((rest_rest, augmentation_data))
+        Ok(augmentation_data)
     }
 }
 
@@ -941,20 +937,17 @@ impl<'input, Endian, Section> CommonInformationEntry<'input, Endian, Section>
           Section: UnwindSection<'input, Endian>
 {
     #[allow(type_complexity)]
-    fn parse<'bases>
-        (bases: &'bases BaseAddresses,
-         section: Section,
-         input: EndianBuf<'input, Endian>)
-         -> Result<Option<(EndianBuf<'input, Endian>,
-                           CommonInformationEntry<'input, Endian, Section>)>> {
-        let (rest_rest,
-             CfiEntryCommon {
-                 length,
-                 format,
-                 cie_id_or_offset: cie_id,
-                 rest,
-                 ..
-             }) = match parse_cfi_entry_common::<Endian, Section>(input)? {
+    fn parse<'bases>(bases: &'bases BaseAddresses,
+                     section: Section,
+                     input: &mut EndianBuf<'input, Endian>)
+                     -> Result<Option<CommonInformationEntry<'input, Endian, Section>>> {
+        let CfiEntryCommon {
+            length,
+            format,
+            cie_id_or_offset: cie_id,
+            rest,
+            ..
+        } = match parse_cfi_entry_common::<Endian, Section>(input)? {
             None => return Ok(None),
             Some(common) => common,
         };
@@ -964,53 +957,47 @@ impl<'input, Endian, Section> CommonInformationEntry<'input, Endian, Section>
         }
 
         let entry = Self::parse_rest(length, format, bases, section, rest)?;
-        Ok(Some((rest_rest, entry)))
+        Ok(Some(entry))
     }
 
     fn parse_rest<'bases>(length: u64,
                           format: Format,
                           bases: &'bases BaseAddresses,
                           section: Section,
-                          rest: EndianBuf<'input, Endian>)
+                          mut rest: EndianBuf<'input, Endian>)
                           -> Result<CommonInformationEntry<'input, Endian, Section>> {
-        let (rest, version) = parse_u8(rest.into())?;
+        let rest = &mut rest;
+        let version = parse_u8(rest)?;
         if !Section::compatible_version(version) {
             return Err(Error::UnknownVersion);
         }
 
-        let (rest, augmentation_string) = parse_null_terminated_string(rest)?;
+        let augmentation_string = parse_null_terminated_string(rest)?;
         let aug_len = augmentation_string.to_bytes().len();
 
-        let (rest, address_size, segment_size) =
-            if Section::has_address_and_segment_sizes(version) {
-                let (rest, address_size) = parse_u8(rest)?;
-                let (rest, segment_size) = parse_u8(rest)?;
-                (rest, address_size, segment_size)
-            } else {
-                // Assume no segments and native word size.
-                (rest, mem::size_of::<usize>() as u8, 0)
-            };
+        let (address_size, segment_size) = if Section::has_address_and_segment_sizes(version) {
+            let address_size = parse_u8(rest)?;
+            let segment_size = parse_u8(rest)?;
+            (address_size, segment_size)
+        } else {
+            // Assume no segments and native word size.
+            (mem::size_of::<usize>() as u8, 0)
+        };
 
-        let (rest, code_alignment_factor) = parse_unsigned_leb(rest)?;
-        let (rest, data_alignment_factor) = parse_signed_leb(rest)?;
+        let code_alignment_factor = parse_unsigned_leb(rest)?;
+        let data_alignment_factor = parse_signed_leb(rest)?;
 
-        let (rest, return_address_register) =
-            match Section::return_address_register_encoding(version) {
-                ReturnAddressRegisterEncoding::U8 => {
-                    let (rest, reg) = parse_u8(rest)?;
-                    (rest, reg as u64)
-                }
-                ReturnAddressRegisterEncoding::Uleb => parse_unsigned_leb(rest)?,
-            };
+        let return_address_register = match Section::return_address_register_encoding(version) {
+            ReturnAddressRegisterEncoding::U8 => parse_u8(rest)? as u64,
+            ReturnAddressRegisterEncoding::Uleb => parse_unsigned_leb(rest)?,
+        };
 
-        let (rest, augmentation) = if aug_len == 0 {
-            (rest, None)
+        let augmentation = if aug_len == 0 {
+            None
         } else {
             let augmentation_string = str::from_utf8(augmentation_string.to_bytes())
                 .map_err(|_| Error::BadUtf8)?;
-            let (rest, augmentation) =
-                Augmentation::parse(augmentation_string, bases, address_size, section, rest)?;
-            (rest, Some(augmentation))
+            Some(Augmentation::parse(augmentation_string, bases, address_size, section, rest)?)
         };
 
         let entry = CommonInformationEntry {
@@ -1023,7 +1010,7 @@ impl<'input, Endian, Section> CommonInformationEntry<'input, Endian, Section>
             code_alignment_factor: code_alignment_factor,
             data_alignment_factor: data_alignment_factor,
             return_address_register: return_address_register,
-            initial_instructions: rest,
+            initial_instructions: *rest,
             phantom: PhantomData,
         };
 
@@ -1132,13 +1119,15 @@ impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
     fn parse_rest<F>(length: u64,
                      format: Format,
                      cie_pointer: Section::Offset,
-                     rest: EndianBuf<'input, Endian>,
+                     mut rest: EndianBuf<'input, Endian>,
                      section: Section,
                      bases: &BaseAddresses,
                      mut get_cie: F)
                      -> Result<FrameDescriptionEntry<'input, Endian, Section>>
         where F: FnMut(Section::Offset) -> Result<CommonInformationEntry<'input, Endian, Section>>
     {
+        let rest = &mut rest;
+
         {
             let mut func = bases.func.borrow_mut();
             let offset = rest.as_ptr() as usize - section.section().as_ptr() as usize;
@@ -1147,21 +1136,18 @@ impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
 
         let cie = get_cie(cie_pointer)?;
 
-        let (rest, initial_segment) = if cie.segment_size > 0 {
+        let initial_segment = if cie.segment_size > 0 {
             parse_address(rest, cie.segment_size)?
         } else {
-            (rest, 0)
+            0
         };
 
-        let (rest, initial_address, address_range) =
-            Self::parse_addresses(rest, &cie, bases, section)?;
+        let (initial_address, address_range) = Self::parse_addresses(rest, &cie, bases, section)?;
 
-        let (rest, aug_data) = if let Some(ref augmentation) = cie.augmentation {
-            let (rest, aug_data) =
-                AugmentationData::parse(augmentation, bases, cie.address_size, section, rest)?;
-            (rest, Some(aug_data))
+        let aug_data = if let Some(ref augmentation) = cie.augmentation {
+            Some(AugmentationData::parse(augmentation, bases, cie.address_size, section, rest)?)
         } else {
-            (rest, None)
+            None
         };
 
         let entry = FrameDescriptionEntry {
@@ -1172,22 +1158,22 @@ impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
             initial_address: initial_address,
             address_range: address_range,
             augmentation: aug_data,
-            instructions: rest,
+            instructions: *rest,
         };
 
         Ok(entry)
     }
 
-    fn parse_addresses(input: EndianBuf<'input, Endian>,
+    fn parse_addresses(input: &mut EndianBuf<'input, Endian>,
                        cie: &CommonInformationEntry<'input, Endian, Section>,
                        bases: &BaseAddresses,
                        section: Section)
-                       -> Result<(EndianBuf<'input, Endian>, u64, u64)> {
+                       -> Result<(u64, u64)> {
         let encoding = cie.augmentation
             .as_ref()
             .and_then(|a| a.fde_address_encoding);
         if let Some(encoding) = encoding {
-            let (rest, initial_address) =
+            let initial_address =
                 parse_encoded_pointer(encoding, bases, cie.address_size, section.section(), input)?;
 
             // Ignore indirection.
@@ -1195,16 +1181,16 @@ impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
 
             // Address ranges cannot be relative to anything, so just grab the
             // data format bits from the encoding.
-            let (rest, address_range) = parse_encoded_pointer(encoding.format(),
-                                                              bases,
-                                                              cie.address_size,
-                                                              section.section(),
-                                                              rest)?;
-            Ok((rest, initial_address, address_range.into()))
+            let address_range = parse_encoded_pointer(encoding.format(),
+                                                      bases,
+                                                      cie.address_size,
+                                                      section.section(),
+                                                      input)?;
+            Ok((initial_address, address_range.into()))
         } else {
-            let (rest, initial_address) = parse_address(input, cie.address_size)?;
-            let (rest, address_range) = parse_address(rest, cie.address_size)?;
-            Ok((rest, initial_address, address_range))
+            let initial_address = parse_address(input, cie.address_size)?;
+            let address_range = parse_address(input, cie.address_size)?;
+            Ok((initial_address, address_range))
         }
     }
 
@@ -2454,184 +2440,174 @@ const CFI_INSTRUCTION_LOW_BITS_MASK: u8 = !CFI_INSTRUCTION_HIGH_BITS_MASK;
 impl<'input, Endian> CallFrameInstruction<'input, Endian>
     where Endian: Endianity
 {
-    fn parse(input: EndianBuf<'input, Endian>)
-             -> Result<(EndianBuf<'input, Endian>, CallFrameInstruction<'input, Endian>)> {
-        let (rest, instruction) = parse_u8(input)?;
+    fn parse(input: &mut EndianBuf<'input, Endian>)
+             -> Result<CallFrameInstruction<'input, Endian>> {
+        let instruction = parse_u8(input)?;
         let high_bits = instruction & CFI_INSTRUCTION_HIGH_BITS_MASK;
 
         if high_bits == constants::DW_CFA_advance_loc.0 {
             let delta = instruction & CFI_INSTRUCTION_LOW_BITS_MASK;
-            return Ok((rest, CallFrameInstruction::AdvanceLoc { delta: delta as u32 }));
+            return Ok(CallFrameInstruction::AdvanceLoc { delta: delta as u32 });
         }
 
         if high_bits == constants::DW_CFA_offset.0 {
             let register = instruction & CFI_INSTRUCTION_LOW_BITS_MASK;
-            let (rest, offset) = parse_unsigned_leb(rest)?;
-            return Ok((rest,
-                       CallFrameInstruction::Offset {
-                           register: register,
-                           factored_offset: offset,
-                       }));
+            let offset = parse_unsigned_leb(input)?;
+            return Ok(CallFrameInstruction::Offset {
+                          register: register,
+                          factored_offset: offset,
+                      });
         }
 
         if high_bits == constants::DW_CFA_restore.0 {
             let register = instruction & CFI_INSTRUCTION_LOW_BITS_MASK;
-            return Ok((rest, CallFrameInstruction::Restore { register: register }));
+            return Ok(CallFrameInstruction::Restore { register: register });
         }
 
         debug_assert_eq!(high_bits, 0);
         let instruction = constants::DwCfa(instruction);
 
         match instruction {
-            constants::DW_CFA_nop => Ok((rest, CallFrameInstruction::Nop)),
+            constants::DW_CFA_nop => Ok(CallFrameInstruction::Nop),
 
             constants::DW_CFA_set_loc => {
-                let (rest, address) = parse_unsigned_leb(rest)?;
-                Ok((rest, CallFrameInstruction::SetLoc { address: address }))
+                let address = parse_unsigned_leb(input)?;
+                Ok(CallFrameInstruction::SetLoc { address: address })
             }
 
             constants::DW_CFA_advance_loc1 => {
-                let (rest, delta) = parse_u8(rest)?;
-                Ok((rest, CallFrameInstruction::AdvanceLoc { delta: delta as u32 }))
+                let delta = parse_u8(input)?;
+                Ok(CallFrameInstruction::AdvanceLoc { delta: delta as u32 })
             }
 
             constants::DW_CFA_advance_loc2 => {
-                let (rest, delta) = parse_u16(rest)?;
-                Ok((rest, CallFrameInstruction::AdvanceLoc { delta: delta as u32 }))
+                let delta = parse_u16(input)?;
+                Ok(CallFrameInstruction::AdvanceLoc { delta: delta as u32 })
             }
 
             constants::DW_CFA_advance_loc4 => {
-                let (rest, delta) = parse_u32(rest)?;
-                Ok((rest, CallFrameInstruction::AdvanceLoc { delta: delta }))
+                let delta = parse_u32(input)?;
+                Ok(CallFrameInstruction::AdvanceLoc { delta: delta })
             }
 
             constants::DW_CFA_offset_extended => {
-                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
-                let (rest, offset) = parse_unsigned_leb(rest)?;
-                Ok((rest,
-                    CallFrameInstruction::Offset {
-                        register: register,
-                        factored_offset: offset,
-                    }))
+                let register = parse_unsigned_leb_as_u8(input)?;
+                let offset = parse_unsigned_leb(input)?;
+                Ok(CallFrameInstruction::Offset {
+                       register: register,
+                       factored_offset: offset,
+                   })
             }
 
             constants::DW_CFA_restore_extended => {
-                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
-                Ok((rest, CallFrameInstruction::Restore { register: register }))
+                let register = parse_unsigned_leb_as_u8(input)?;
+                Ok(CallFrameInstruction::Restore { register: register })
             }
 
             constants::DW_CFA_undefined => {
-                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
-                Ok((rest, CallFrameInstruction::Undefined { register: register }))
+                let register = parse_unsigned_leb_as_u8(input)?;
+                Ok(CallFrameInstruction::Undefined { register: register })
             }
 
             constants::DW_CFA_same_value => {
-                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
-                Ok((rest, CallFrameInstruction::SameValue { register: register }))
+                let register = parse_unsigned_leb_as_u8(input)?;
+                Ok(CallFrameInstruction::SameValue { register: register })
             }
 
             constants::DW_CFA_register => {
-                let (rest, dest) = parse_unsigned_leb_as_u8(rest)?;
-                let (rest, src) = parse_unsigned_leb_as_u8(rest)?;
-                Ok((rest,
-                    CallFrameInstruction::Register {
-                        dest_register: dest,
-                        src_register: src,
-                    }))
+                let dest = parse_unsigned_leb_as_u8(input)?;
+                let src = parse_unsigned_leb_as_u8(input)?;
+                Ok(CallFrameInstruction::Register {
+                       dest_register: dest,
+                       src_register: src,
+                   })
             }
 
-            constants::DW_CFA_remember_state => Ok((rest, CallFrameInstruction::RememberState)),
+            constants::DW_CFA_remember_state => Ok(CallFrameInstruction::RememberState),
 
-            constants::DW_CFA_restore_state => Ok((rest, CallFrameInstruction::RestoreState)),
+            constants::DW_CFA_restore_state => Ok(CallFrameInstruction::RestoreState),
 
             constants::DW_CFA_def_cfa => {
-                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
-                let (rest, offset) = parse_unsigned_leb(rest)?;
-                Ok((rest,
-                    CallFrameInstruction::DefCfa {
-                        register: register,
-                        offset: offset,
-                    }))
+                let register = parse_unsigned_leb_as_u8(input)?;
+                let offset = parse_unsigned_leb(input)?;
+                Ok(CallFrameInstruction::DefCfa {
+                       register: register,
+                       offset: offset,
+                   })
             }
 
             constants::DW_CFA_def_cfa_register => {
-                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
-                Ok((rest, CallFrameInstruction::DefCfaRegister { register: register }))
+                let register = parse_unsigned_leb_as_u8(input)?;
+                Ok(CallFrameInstruction::DefCfaRegister { register: register })
             }
 
             constants::DW_CFA_def_cfa_offset => {
-                let (rest, offset) = parse_unsigned_leb(rest)?;
-                Ok((rest, CallFrameInstruction::DefCfaOffset { offset: offset }))
+                let offset = parse_unsigned_leb(input)?;
+                Ok(CallFrameInstruction::DefCfaOffset { offset: offset })
             }
 
             constants::DW_CFA_def_cfa_expression => {
-                let (rest, expression) = parse_length_uleb_value(rest)?;
-                Ok((rest, CallFrameInstruction::DefCfaExpression { expression: expression }))
+                let expression = parse_length_uleb_value(input)?;
+                Ok(CallFrameInstruction::DefCfaExpression { expression: expression })
             }
 
             constants::DW_CFA_expression => {
-                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
-                let (rest, expression) = parse_length_uleb_value(rest)?;
-                Ok((rest,
-                    CallFrameInstruction::Expression {
-                        register: register,
-                        expression: expression,
-                    }))
+                let register = parse_unsigned_leb_as_u8(input)?;
+                let expression = parse_length_uleb_value(input)?;
+                Ok(CallFrameInstruction::Expression {
+                       register: register,
+                       expression: expression,
+                   })
             }
 
             constants::DW_CFA_offset_extended_sf => {
-                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
-                let (rest, offset) = parse_signed_leb(rest)?;
-                Ok((rest,
-                    CallFrameInstruction::OffsetExtendedSf {
-                        register: register,
-                        factored_offset: offset,
-                    }))
+                let register = parse_unsigned_leb_as_u8(input)?;
+                let offset = parse_signed_leb(input)?;
+                Ok(CallFrameInstruction::OffsetExtendedSf {
+                       register: register,
+                       factored_offset: offset,
+                   })
             }
 
             constants::DW_CFA_def_cfa_sf => {
-                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
-                let (rest, offset) = parse_signed_leb(rest)?;
-                Ok((rest,
-                    CallFrameInstruction::DefCfaSf {
-                        register: register,
-                        factored_offset: offset,
-                    }))
+                let register = parse_unsigned_leb_as_u8(input)?;
+                let offset = parse_signed_leb(input)?;
+                Ok(CallFrameInstruction::DefCfaSf {
+                       register: register,
+                       factored_offset: offset,
+                   })
             }
 
             constants::DW_CFA_def_cfa_offset_sf => {
-                let (rest, offset) = parse_signed_leb(rest)?;
-                Ok((rest, CallFrameInstruction::DefCfaOffsetSf { factored_offset: offset }))
+                let offset = parse_signed_leb(input)?;
+                Ok(CallFrameInstruction::DefCfaOffsetSf { factored_offset: offset })
             }
 
             constants::DW_CFA_val_offset => {
-                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
-                let (rest, offset) = parse_unsigned_leb(rest)?;
-                Ok((rest,
-                    CallFrameInstruction::ValOffset {
-                        register: register,
-                        factored_offset: offset,
-                    }))
+                let register = parse_unsigned_leb_as_u8(input)?;
+                let offset = parse_unsigned_leb(input)?;
+                Ok(CallFrameInstruction::ValOffset {
+                       register: register,
+                       factored_offset: offset,
+                   })
             }
 
             constants::DW_CFA_val_offset_sf => {
-                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
-                let (rest, offset) = parse_signed_leb(rest)?;
-                Ok((rest,
-                    CallFrameInstruction::ValOffsetSf {
-                        register: register,
-                        factored_offset: offset,
-                    }))
+                let register = parse_unsigned_leb_as_u8(input)?;
+                let offset = parse_signed_leb(input)?;
+                Ok(CallFrameInstruction::ValOffsetSf {
+                       register: register,
+                       factored_offset: offset,
+                   })
             }
 
             constants::DW_CFA_val_expression => {
-                let (rest, register) = parse_unsigned_leb_as_u8(rest)?;
-                let (rest, expression) = parse_length_uleb_value(rest)?;
-                Ok((rest,
-                    CallFrameInstruction::ValExpression {
-                        register: register,
-                        expression: expression,
-                    }))
+                let register = parse_unsigned_leb_as_u8(input)?;
+                let expression = parse_length_uleb_value(input)?;
+                Ok(CallFrameInstruction::ValExpression {
+                       register: register,
+                       expression: expression,
+                   })
             }
 
             otherwise => Err(Error::UnknownCallFrameInstruction(otherwise)),
@@ -2659,11 +2635,8 @@ impl<'input, Endian> CallFrameInstructionIter<'input, Endian>
             return Ok(None);
         }
 
-        match CallFrameInstruction::parse(self.input) {
-            Ok((rest, instruction)) => {
-                self.input = rest;
-                Ok(Some(instruction))
-            }
+        match CallFrameInstruction::parse(&mut self.input) {
+            Ok(instruction) => Ok(Some(instruction)),
             Err(e) => {
                 self.input = EndianBuf::new(&[]);
                 Err(e)
@@ -2711,9 +2684,9 @@ mod tests {
 
     fn parse_fde<'input, Endian, Section, O, F>
         (section: Section,
-         input: EndianBuf<'input, Endian>,
+         input: &mut EndianBuf<'input, Endian>,
          get_cie: F)
-         -> Result<(EndianBuf<'input, Endian>, FrameDescriptionEntry<'input, Endian, Section>)>
+         -> Result<FrameDescriptionEntry<'input, Endian, Section>>
         where Endian: Endianity,
               Section: UnwindSection<'input, Endian, Offset = O>,
               O: Copy + Debug + Eq + Into<usize> + From<usize>,
@@ -2721,9 +2694,7 @@ mod tests {
     {
         let bases = Default::default();
         match parse_cfi_entry(&bases, section, input) {
-            Ok(Some((rest, CieOrFde::Fde(partial)))) => {
-                partial.parse(get_cie).map(|fde| (rest, fde))
-            }
+            Ok(Some(CieOrFde::Fde(partial))) => partial.parse(get_cie),
             Ok(_) => Err(Error::NoEntryAtGivenOffset),
             Err(e) => Err(e),
         }
@@ -2912,9 +2883,11 @@ mod tests {
     {
         let section = section.get_contents().unwrap();
         let debug_frame = DebugFrame::<E>::new(&section);
-        let input = EndianBuf::<E>::new(&section);
+        let input = &mut EndianBuf::<E>::new(&section);
         let bases = Default::default();
-        assert_eq!(DebugFrameCie::parse(&bases, debug_frame, input), expected);
+        let result = DebugFrameCie::parse(&bases, debug_frame, input);
+        let result = result.map(|option| option.map(|cie| (*input, cie)));
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -3090,7 +3063,7 @@ mod tests {
         let bases = Default::default();
         assert_eq!(DebugFrameCie::parse(&bases,
                                         DebugFrame::new(&contents),
-                                        EndianBuf::<LittleEndian>::new(&contents)),
+                                        &mut EndianBuf::<LittleEndian>::new(&contents)),
                    Err(Error::BadLength));
     }
 
@@ -3098,8 +3071,8 @@ mod tests {
     fn test_parse_fde_incomplete_length_32() {
         let section = Section::with_endian(Endian::Little).L16(5);
         let section = section.get_contents().unwrap();
-        let section = EndianBuf::<LittleEndian>::new(&section);
-        assert_eq!(parse_fde(DebugFrame::new(section.into()), section, |_| unreachable!()),
+        let rest = &mut EndianBuf::<LittleEndian>::new(&section);
+        assert_eq!(parse_fde(DebugFrame::new(&*section), rest, |_| unreachable!()),
                    Err(Error::UnexpectedEof));
     }
 
@@ -3109,8 +3082,8 @@ mod tests {
             .L32(0xffffffff)
             .L32(12345);
         let section = section.get_contents().unwrap();
-        let section = EndianBuf::<LittleEndian>::new(&section);
-        assert_eq!(parse_fde(DebugFrame::new(section.into()), section, |_| unreachable!()),
+        let rest = &mut EndianBuf::<LittleEndian>::new(&section);
+        assert_eq!(parse_fde(DebugFrame::new(&*section), rest, |_| unreachable!()),
                    Err(Error::UnexpectedEof));
     }
 
@@ -3121,8 +3094,8 @@ mod tests {
             .B32(3)
             .B32(1994);
         let section = section.get_contents().unwrap();
-        let section = EndianBuf::<BigEndian>::new(&section);
-        assert_eq!(parse_fde(DebugFrame::new(section.into()), section, |_| unreachable!()),
+        let rest = &mut EndianBuf::<BigEndian>::new(&section);
+        assert_eq!(parse_fde(DebugFrame::new(&*section), rest, |_| unreachable!()),
                    Err(Error::UnexpectedEof));
     }
 
@@ -3163,15 +3136,16 @@ mod tests {
             .append_bytes(&expected_rest);
 
         let section = section.get_contents().unwrap();
-        let section = EndianBuf::<LittleEndian>::new(&section);
+        let rest = &mut EndianBuf::<LittleEndian>::new(&section);
 
         let get_cie = |offset| {
             assert_eq!(offset, DebugFrameOffset(cie_offset as usize));
             Ok(cie.clone())
         };
 
-        assert_eq!(parse_fde(DebugFrame::new(section.into()), section, get_cie),
-                   Ok((EndianBuf::new(&expected_rest), fde)));
+        assert_eq!(parse_fde(DebugFrame::new(&*section), rest, get_cie),
+                   Ok(fde));
+        assert_eq!(*rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3210,15 +3184,16 @@ mod tests {
             .append_bytes(&expected_rest);
 
         let section = section.get_contents().unwrap();
-        let section = EndianBuf::<LittleEndian>::new(&section);
+        let rest = &mut EndianBuf::<LittleEndian>::new(&section);
 
         let get_cie = |offset| {
             assert_eq!(offset, DebugFrameOffset(cie_offset as usize));
             Ok(cie.clone())
         };
 
-        assert_eq!(parse_fde(DebugFrame::new(section.into()), section, get_cie),
-                   Ok((EndianBuf::new(&expected_rest), fde)));
+        assert_eq!(parse_fde(DebugFrame::new(&*section), rest, get_cie),
+                   Ok(fde));
+        assert_eq!(*rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3257,15 +3232,16 @@ mod tests {
             .append_bytes(&expected_rest);
 
         let section = section.get_contents().unwrap();
-        let section = EndianBuf::<LittleEndian>::new(&section);
+        let rest = &mut EndianBuf::<LittleEndian>::new(&section);
 
         let get_cie = |offset| {
             assert_eq!(offset, DebugFrameOffset(cie_offset as usize));
             Ok(cie.clone())
         };
 
-        assert_eq!(parse_fde(DebugFrame::new(section.into()), section, get_cie),
-                   Ok((EndianBuf::new(&expected_rest), fde)));
+        assert_eq!(parse_fde(DebugFrame::new(&*section), rest, get_cie),
+                   Ok(fde));
+        assert_eq!(*rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3291,11 +3267,12 @@ mod tests {
             .cie(Endian::Big, None, &mut cie)
             .append_bytes(&expected_rest);
         let section = section.get_contents().unwrap();
-        let section = EndianBuf::<BigEndian>::new(&section);
+        let rest = &mut EndianBuf::<BigEndian>::new(&section);
 
         let bases = Default::default();
-        assert_eq!(parse_cfi_entry(&bases, DebugFrame::new(section.into()), section),
-                   Ok(Some((EndianBuf::new(&expected_rest), CieOrFde::Cie(cie)))));
+        assert_eq!(parse_cfi_entry(&bases, DebugFrame::new(&*section), rest),
+                   Ok(Some(CieOrFde::Cie(cie))));
+        assert_eq!(*rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3334,12 +3311,12 @@ mod tests {
             .append_bytes(&expected_rest);
 
         let section = section.get_contents().unwrap();
-        let section = EndianBuf::<BigEndian>::new(&section);
+        let rest = &mut EndianBuf::<BigEndian>::new(&section);
 
         let bases = Default::default();
-        match parse_cfi_entry(&bases, DebugFrame::new(section.into()), section) {
-            Ok(Some((rest, CieOrFde::Fde(partial)))) => {
-                assert_eq!(rest, EndianBuf::new(&expected_rest));
+        match parse_cfi_entry(&bases, DebugFrame::new(&*section), rest) {
+            Ok(Some(CieOrFde::Fde(partial))) => {
+                assert_eq!(*rest, EndianBuf::new(&expected_rest));
 
                 assert_eq!(partial.length, fde.length);
                 assert_eq!(partial.format, fde.format);
@@ -3525,10 +3502,10 @@ mod tests {
             .D8(constants::DW_CFA_advance_loc.0 | expected_delta)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::AdvanceLoc { delta: expected_delta as u32 })));
+                   Ok(CallFrameInstruction::AdvanceLoc { delta: expected_delta as u32 }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3541,13 +3518,13 @@ mod tests {
             .uleb(expected_offset)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::Offset {
-                           register: expected_reg as u8,
-                           factored_offset: expected_offset,
-                       })));
+                   Ok(CallFrameInstruction::Offset {
+                          register: expected_reg as u8,
+                          factored_offset: expected_offset,
+                      }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3558,10 +3535,10 @@ mod tests {
             .D8(constants::DW_CFA_restore.0 | expected_reg)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::Restore { register: expected_reg as u8 })));
+                   Ok(CallFrameInstruction::Restore { register: expected_reg as u8 }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3571,9 +3548,10 @@ mod tests {
             .D8(constants::DW_CFA_nop.0)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest), CallFrameInstruction::Nop)));
+                   Ok(CallFrameInstruction::Nop));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3585,10 +3563,10 @@ mod tests {
             .uleb(expected_addr)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::SetLoc { address: expected_addr })));
+                   Ok(CallFrameInstruction::SetLoc { address: expected_addr }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3600,10 +3578,10 @@ mod tests {
             .D8(expected_delta)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::AdvanceLoc { delta: expected_delta as u32 })));
+                   Ok(CallFrameInstruction::AdvanceLoc { delta: expected_delta as u32 }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3615,10 +3593,10 @@ mod tests {
             .L16(expected_delta)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::AdvanceLoc { delta: expected_delta as u32 })));
+                   Ok(CallFrameInstruction::AdvanceLoc { delta: expected_delta as u32 }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3630,10 +3608,10 @@ mod tests {
             .L32(expected_delta)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::AdvanceLoc { delta: expected_delta })));
+                   Ok(CallFrameInstruction::AdvanceLoc { delta: expected_delta }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3647,13 +3625,13 @@ mod tests {
             .uleb(expected_offset)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::Offset {
-                           register: expected_reg as u8,
-                           factored_offset: expected_offset,
-                       })));
+                   Ok(CallFrameInstruction::Offset {
+                          register: expected_reg as u8,
+                          factored_offset: expected_offset,
+                      }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3665,10 +3643,10 @@ mod tests {
             .uleb(expected_reg)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::Restore { register: expected_reg as u8 })));
+                   Ok(CallFrameInstruction::Restore { register: expected_reg as u8 }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3680,10 +3658,10 @@ mod tests {
             .uleb(expected_reg)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::Undefined { register: expected_reg as u8 })));
+                   Ok(CallFrameInstruction::Undefined { register: expected_reg as u8 }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3695,10 +3673,10 @@ mod tests {
             .uleb(expected_reg)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::SameValue { register: expected_reg as u8 })));
+                   Ok(CallFrameInstruction::SameValue { register: expected_reg as u8 }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3712,13 +3690,13 @@ mod tests {
             .uleb(expected_src_reg)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::Register {
-                           dest_register: expected_dest_reg as u8,
-                           src_register: expected_src_reg as u8,
-                       })));
+                   Ok(CallFrameInstruction::Register {
+                          dest_register: expected_dest_reg as u8,
+                          src_register: expected_src_reg as u8,
+                      }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3728,9 +3706,10 @@ mod tests {
             .D8(constants::DW_CFA_remember_state.0)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest), CallFrameInstruction::RememberState)));
+                   Ok(CallFrameInstruction::RememberState));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3740,9 +3719,10 @@ mod tests {
             .D8(constants::DW_CFA_restore_state.0)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest), CallFrameInstruction::RestoreState)));
+                   Ok(CallFrameInstruction::RestoreState));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3756,13 +3736,13 @@ mod tests {
             .uleb(expected_offset)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::DefCfa {
-                           register: expected_reg as u8,
-                           offset: expected_offset,
-                       })));
+                   Ok(CallFrameInstruction::DefCfa {
+                          register: expected_reg as u8,
+                          offset: expected_offset,
+                      }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3774,10 +3754,10 @@ mod tests {
             .uleb(expected_reg)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::DefCfaRegister { register: expected_reg as u8 })));
+                   Ok(CallFrameInstruction::DefCfaRegister { register: expected_reg as u8 }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3789,10 +3769,10 @@ mod tests {
             .uleb(expected_offset)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::DefCfaOffset { offset: expected_offset })));
+                   Ok(CallFrameInstruction::DefCfaOffset { offset: expected_offset }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3814,13 +3794,13 @@ mod tests {
 
         length.set_const((&end - &start) as u64);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
 
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::DefCfaExpression {
-                           expression: EndianBuf::new(&expected_expr),
-                       })));
+                   Ok(CallFrameInstruction::DefCfaExpression {
+                          expression: EndianBuf::new(&expected_expr),
+                      }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3844,14 +3824,14 @@ mod tests {
 
         length.set_const((&end - &start) as u64);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
 
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::Expression {
-                           register: expected_reg as u8,
-                           expression: EndianBuf::new(&expected_expr),
-                       })));
+                   Ok(CallFrameInstruction::Expression {
+                          register: expected_reg as u8,
+                          expression: EndianBuf::new(&expected_expr),
+                      }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3865,13 +3845,13 @@ mod tests {
             .sleb(expected_offset)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::OffsetExtendedSf {
-                           register: expected_reg as u8,
-                           factored_offset: expected_offset,
-                       })));
+                   Ok(CallFrameInstruction::OffsetExtendedSf {
+                          register: expected_reg as u8,
+                          factored_offset: expected_offset,
+                      }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3885,13 +3865,13 @@ mod tests {
             .sleb(expected_offset)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::DefCfaSf {
-                           register: expected_reg as u8,
-                           factored_offset: expected_offset,
-                       })));
+                   Ok(CallFrameInstruction::DefCfaSf {
+                          register: expected_reg as u8,
+                          factored_offset: expected_offset,
+                      }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3903,10 +3883,10 @@ mod tests {
             .sleb(expected_offset)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::DefCfaOffsetSf { factored_offset: expected_offset })));
+                   Ok(CallFrameInstruction::DefCfaOffsetSf { factored_offset: expected_offset }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3920,13 +3900,13 @@ mod tests {
             .uleb(expected_offset)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::ValOffset {
-                           register: expected_reg as u8,
-                           factored_offset: expected_offset,
-                       })));
+                   Ok(CallFrameInstruction::ValOffset {
+                          register: expected_reg as u8,
+                          factored_offset: expected_offset,
+                      }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3940,13 +3920,13 @@ mod tests {
             .sleb(expected_offset)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::ValOffsetSf {
-                           register: expected_reg as u8,
-                           factored_offset: expected_offset,
-                       })));
+                   Ok(CallFrameInstruction::ValOffsetSf {
+                          register: expected_reg as u8,
+                          factored_offset: expected_offset,
+                      }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3970,14 +3950,14 @@ mod tests {
 
         length.set_const((&end - &start) as u64);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
 
         assert_eq!(CallFrameInstruction::parse(input),
-                   Ok((EndianBuf::new(&expected_rest),
-                       CallFrameInstruction::ValExpression {
-                           register: expected_reg as u8,
-                           expression: EndianBuf::new(&expected_expr),
-                       })));
+                   Ok(CallFrameInstruction::ValExpression {
+                          register: expected_reg as u8,
+                          expression: EndianBuf::new(&expected_expr),
+                      }));
+        assert_eq!(*input, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -3988,7 +3968,7 @@ mod tests {
             .D8(unknown_instr.0)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&contents);
+        let input = &mut EndianBuf::<LittleEndian>::new(&contents);
         assert_eq!(CallFrameInstruction::parse(input),
                    Err(Error::UnknownCallFrameInstruction(unknown_instr)));
     }
@@ -4684,10 +4664,10 @@ mod tests {
     fn test_eh_frame_stops_at_zero_length() {
         let section = Section::with_endian(Endian::Little).L32(0);
         let section = section.get_contents().unwrap();
-        let section = EndianBuf::<LittleEndian>::new(&section);
+        let rest = &mut EndianBuf::<LittleEndian>::new(&section);
         let bases = Default::default();
 
-        assert_eq!(parse_cfi_entry(&bases, EhFrame::new(section.into()), section),
+        assert_eq!(parse_cfi_entry(&bases, EhFrame::new(&*section), rest),
                    Ok(None));
 
         assert_eq!(EhFrame::<LittleEndian>::new(&section)
@@ -4758,13 +4738,13 @@ mod tests {
 
         let mut offset = None;
         match parse_fde(EhFrame::new(section.into()),
-                        section.range_from(end_of_cie.value().unwrap() as usize..),
+                        &mut section.range_from(end_of_cie.value().unwrap() as usize..),
                         |o| {
                             offset = Some(o);
                             assert_eq!(o, EhFrameOffset(start_of_cie.value().unwrap() as usize));
                             Ok(cie.clone())
                         }) {
-            Ok((_, actual)) => assert_eq!(actual, fde),
+            Ok(actual) => assert_eq!(actual, fde),
             otherwise => panic!("Unexpected result {:?}", otherwise),
         }
         assert!(offset.is_some());
@@ -4798,7 +4778,7 @@ mod tests {
         let section = EndianBuf::<LittleEndian>::new(&section);
 
         let result = parse_fde(EhFrame::new(section.into()),
-                               section.range_from(end_of_cie.value().unwrap() as usize..),
+                               &mut section.range_from(end_of_cie.value().unwrap() as usize..),
                                |_| unreachable!());
         assert_eq!(result, Err(Error::OffsetOutOfBounds));
     }
@@ -4809,7 +4789,7 @@ mod tests {
         let bases = Default::default();
         let address_size = 8;
         let section = EhFrame::<NativeEndian>::new(&[]);
-        let input = EndianBuf::new(&[]);
+        let input = &mut EndianBuf::new(&[]);
         assert_eq!(Augmentation::parse(augmentation, &bases, address_size, section, input),
                    Err(Error::UnknownAugmentation));
     }
@@ -4826,7 +4806,7 @@ mod tests {
             .get_contents()
             .unwrap();
         let section = EhFrame::<LittleEndian>::new(&section);
-        let input = EndianBuf::new(section.section().into());
+        let input = &mut EndianBuf::new(section.section().into());
         assert_eq!(Augmentation::parse(augmentation, &bases, address_size, section, input),
                    Err(Error::UnknownAugmentation));
     }
@@ -4846,13 +4826,14 @@ mod tests {
             .get_contents()
             .unwrap();
         let section = EhFrame::<LittleEndian>::new(&section);
-        let input = EndianBuf::new(section.section().into());
+        let input = &mut EndianBuf::new(section.section().into());
 
         let mut augmentation = Augmentation::default();
         augmentation.lsda = Some(constants::DW_EH_PE_uleb128);
 
         assert_eq!(Augmentation::parse(aug_str, &bases, address_size, section, input),
-                   Ok((EndianBuf::new(&rest), augmentation)));
+                   Ok(augmentation));
+        assert_eq!(*input, EndianBuf::new(&rest));
     }
 
     #[test]
@@ -4871,13 +4852,14 @@ mod tests {
             .get_contents()
             .unwrap();
         let section = EhFrame::<LittleEndian>::new(&section);
-        let input = EndianBuf::new(section.section().into());
+        let input = &mut EndianBuf::new(section.section().into());
 
         let mut augmentation = Augmentation::default();
         augmentation.personality = Some(Pointer::Direct(0xf00df00d));
 
         assert_eq!(Augmentation::parse(aug_str, &bases, address_size, section, input),
-                   Ok((EndianBuf::new(&rest), augmentation)));
+                   Ok(augmentation));
+        assert_eq!(*input, EndianBuf::new(&rest));
     }
 
     #[test]
@@ -4895,13 +4877,14 @@ mod tests {
             .get_contents()
             .unwrap();
         let section = EhFrame::<LittleEndian>::new(&section);
-        let input = EndianBuf::new(section.section().into());
+        let input = &mut EndianBuf::new(section.section().into());
 
         let mut augmentation = Augmentation::default();
         augmentation.fde_address_encoding = Some(constants::DW_EH_PE_udata4);
 
         assert_eq!(Augmentation::parse(aug_str, &bases, address_size, section, input),
-                   Ok((EndianBuf::new(&rest), augmentation)));
+                   Ok(augmentation));
+        assert_eq!(*input, EndianBuf::new(&rest));
     }
 
     #[test]
@@ -4918,13 +4901,14 @@ mod tests {
             .get_contents()
             .unwrap();
         let section = EhFrame::<LittleEndian>::new(&section);
-        let input = EndianBuf::new(section.section().into());
+        let input = &mut EndianBuf::new(section.section().into());
 
         let mut augmentation = Augmentation::default();
         augmentation.is_signal_trampoline = true;
 
         assert_eq!(Augmentation::parse(aug_str, &bases, address_size, section, input),
-                   Ok((EndianBuf::new(&rest), augmentation)));
+                   Ok(augmentation));
+        assert_eq!(*input, EndianBuf::new(&rest));
     }
 
     #[test]
@@ -4947,7 +4931,7 @@ mod tests {
             .get_contents()
             .unwrap();
         let section = EhFrame::<LittleEndian>::new(&section);
-        let input = EndianBuf::new(section.section().into());
+        let input = &mut EndianBuf::new(section.section().into());
 
         let augmentation = Augmentation {
             lsda: Some(constants::DW_EH_PE_uleb128),
@@ -4957,7 +4941,8 @@ mod tests {
         };
 
         assert_eq!(Augmentation::parse(aug_str, &bases, address_size, section, input),
-                   Ok((EndianBuf::new(&rest), augmentation)));
+                   Ok(augmentation));
+        assert_eq!(*input, EndianBuf::new(&rest));
     }
 
     #[test]
@@ -4988,9 +4973,11 @@ mod tests {
             .get_contents()
             .unwrap();
         let section = EhFrame::<LittleEndian>::new(&section);
+        let input = &mut section.section();
 
-        let result = parse_fde(section, section.section(), |_| Ok(cie.clone()));
-        assert_eq!(result, Ok((EndianBuf::new(&rest), fde)));
+        let result = parse_fde(section, input, |_| Ok(cie.clone()));
+        assert_eq!(result, Ok(fde));
+        assert_eq!(*input, EndianBuf::new(&rest));
     }
 
     #[test]
@@ -5022,9 +5009,11 @@ mod tests {
             .get_contents()
             .unwrap();
         let section = EhFrame::<LittleEndian>::new(&section);
+        let input = &mut section.section();
 
-        let result = parse_fde(section, section.section(), |_| Ok(cie.clone()));
-        assert_eq!(result, Ok((EndianBuf::new(&rest), fde)));
+        let result = parse_fde(section, input, |_| Ok(cie.clone()));
+        assert_eq!(result, Ok(fde));
+        assert_eq!(*input, EndianBuf::new(&rest));
     }
 
     #[test]
@@ -5057,9 +5046,11 @@ mod tests {
             .get_contents()
             .unwrap();
         let section = EhFrame::<LittleEndian>::new(&section);
+        let input = &mut section.section();
 
-        let result = parse_fde(section, section.section(), |_| Ok(cie.clone()));
-        assert_eq!(result, Ok((EndianBuf::new(&rest), fde)));
+        let result = parse_fde(section, input, |_| Ok(cie.clone()));
+        assert_eq!(result, Ok(fde));
+        assert_eq!(*input, EndianBuf::new(&rest));
     }
 
     #[test]
@@ -5094,13 +5085,14 @@ mod tests {
             .get_contents()
             .unwrap();
         let section = EhFrame::<LittleEndian>::new(&section);
-        let input = section.section().range_from(10..);
+        let input = &mut section.section().range_from(10..);
 
         // Adjust the FDE's augmentation to be relative to the section.
         fde.augmentation.as_mut().unwrap().lsda = Some(Pointer::Direct(19));
 
         let result = parse_fde(section, input, |_| Ok(cie.clone()));
-        assert_eq!(result, Ok((EndianBuf::new(&rest), fde)));
+        assert_eq!(result, Ok(fde));
+        assert_eq!(*input, EndianBuf::new(&rest));
     }
 
     #[test]

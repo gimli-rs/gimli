@@ -126,11 +126,9 @@ impl<'input, Endian> RawRangesIter<'input, Endian>
             return Ok(None);
         }
 
-        let (rest, range) = Range::parse(self.input, self.address_size)?;
+        let range = Range::parse(&mut self.input, self.address_size)?;
         if range.is_end() {
             self.input = EndianBuf::new(&[]);
-        } else {
-            self.input = rest;
         }
 
         Ok(Some(range))
@@ -259,18 +257,16 @@ impl Range {
     /// Parse an address range entry from `.debug_ranges` or `.debug_loc`.
     #[doc(hidden)]
     #[inline]
-    pub fn parse<Endian>(input: EndianBuf<Endian>,
-                         address_size: u8)
-                         -> Result<(EndianBuf<Endian>, Range)>
+    pub fn parse<Endian>(input: &mut EndianBuf<Endian>, address_size: u8) -> Result<Range>
         where Endian: Endianity
     {
-        let (rest, begin) = parse_address(input, address_size)?;
-        let (rest, end) = parse_address(rest, address_size)?;
+        let begin = parse_address(input, address_size)?;
+        let end = parse_address(input, address_size)?;
         let range = Range {
             begin: begin,
             end: end,
         };
-        Ok((rest, range))
+        Ok(range)
     }
 }
 

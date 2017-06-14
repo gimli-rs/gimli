@@ -507,15 +507,14 @@ fn dump_exprloc<Endian>(data: gimli::EndianBuf<Endian>, unit: &Unit<Endian>)
     let mut space = false;
     while pc.len() != 0 {
         let dwop = gimli::DwOp(pc[0]);
-        match gimli::Operation::parse(pc, data, unit.address_size, unit.format) {
-            Ok((newpc, op)) => {
+        match gimli::Operation::parse(&mut pc, data, unit.address_size, unit.format) {
+            Ok(op) => {
                 if space {
                     print!(" ");
                 } else {
                     space = true;
                 }
-                dump_op(dwop, op, newpc.0);
-                pc = newpc;
+                dump_op(dwop, op, pc.0);
             }
             Err(gimli::Error::InvalidExpression(op)) => {
                 writeln!(&mut std::io::stderr(),
