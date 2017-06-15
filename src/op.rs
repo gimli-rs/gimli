@@ -184,6 +184,14 @@ pub enum Operation<'input, Endian>
         /// The expression to be evaluated.
         expression: EndianBuf<'input, Endian>,
     },
+    /// Represents `DW_OP_GNU_parameter_ref`. This represents a parameter that was
+    /// optimized out. The offset points to the definition of the parameter, and is
+    /// matched to the `DW_TAG_GNU_call_site_parameter` in the caller that also
+    /// points to the same definition of the parameter.
+    ParameterRef {
+        /// The DIE to use.
+        offset: UnitOffset,
+    },
 }
 
 #[derive(Debug)]
@@ -206,6 +214,7 @@ enum OperationEvaluationResult<'input, Endian>
     AwaitingCfa,
     AwaitingAtLocation { location: DieReference },
     AwaitingEntryValue { expression: EndianBuf<'input, Endian>, },
+    AwaitingParameterRef { parameter: UnitOffset },
 }
 
 /// A single location of a piece of the result of a DWARF expression.
@@ -761,6 +770,10 @@ impl<'input, Endian> Operation<'input, Endian>
                 let expression = parse_length_uleb_value(bytes)?;
                 Ok(Operation::EntryValue { expression: expression })
             }
+            constants::DW_OP_GNU_parameter_ref => {
+                let value = parse_u32(bytes)?;
+                Ok(Operation::ParameterRef { offset: UnitOffset(value as usize) })
+            }
 
             _ => Err(Error::InvalidExpression(name)),
         }
@@ -827,6 +840,11 @@ pub enum EvaluationResult<'input, Endian>
     /// caller determines what value to provide it should resume the
     /// `Evaluation` by calling `Evaluation::resume_with_entry_value`.
     RequiresEntryValue(EndianBuf<'input, Endian>),
+    /// The `Evaluation` needs the value of the parameter at the given location
+    /// in the current function's caller.  Once the caller determins what value
+    /// to provide it should resume the `Evaluation` by calling
+    /// `Evaluation::resume_with_parameter_ref`.
+    RequiresParameterRef(UnitOffset),
 }
 
 /// A DWARF expression evaluator.
@@ -1260,6 +1278,10 @@ impl<'input, Endian> Evaluation<'input, Endian>
                           });
             }
 
+            Operation::ParameterRef { offset } => {
+                return Ok(OperationEvaluationResult::AwaitingParameterRef { parameter: offset });
+            }
+
             Operation::Piece { .. } => {
                 piece_end = true;
             }
@@ -1494,6 +1516,31 @@ impl<'input, Endian> Evaluation<'input, Endian>
         self.evaluate_internal()
     }
 
+    /// Resume the `Evaluation` with the provided `parameter_value`.  This will
+    /// apply the provided parameter value to the evaluation and continue evaluating
+    /// opcodes until the evaluation is completed, reaches an error, or needs
+    /// more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresParameterRef`.
+    pub fn resume_with_parameter_ref(&mut self,
+                                     parameter_value: u64)
+                                     -> Result<EvaluationResult<'input, Endian>, Error>
+        where Endian: Endianity
+    {
+        match self.state {
+            EvaluationState::Error(err) => return Err(err),
+            EvaluationState::Waiting(OperationEvaluationResult::AwaitingParameterRef { .. }) => {
+                self.push(parameter_value);
+            }
+            _ => {
+                panic!("Called `Evaluation::resume_with_parameter_ref` without a preceding `EvaluationResult::RequiresParameterRef`")
+            }
+        };
+
+        self.evaluate_internal()
+    }
+
     fn evaluate_internal(&mut self) -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
@@ -1614,6 +1661,10 @@ impl<'input, Endian> Evaluation<'input, Endian>
                 OperationEvaluationResult::AwaitingEntryValue { expression } => {
                     self.state = EvaluationState::Waiting(op_result);
                     return Ok(EvaluationResult::RequiresEntryValue(expression));
+                }
+                OperationEvaluationResult::AwaitingParameterRef { parameter } => {
+                    self.state = EvaluationState::Waiting(op_result);
+                    return Ok(EvaluationResult::RequiresParameterRef(parameter));
                 }
             };
         }
@@ -2159,6 +2210,16 @@ mod tests {
                            4,
                            Format::Dwarf32);
         }
+    }
+
+    #[test]
+    fn test_op_parse_gnu_parameter_ref() {
+        check_op_parse(|s| s.D8(constants::DW_OP_GNU_parameter_ref.0).D32(0x12345678),
+                       &Operation::ParameterRef {
+                           offset: UnitOffset(0x12345678)
+                       },
+                       4,
+                       Format::Dwarf32)
     }
 
     enum AssemblerEntry {
