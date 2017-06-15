@@ -6,7 +6,7 @@ use parser::{Error, Format, Pointer, Result, parse_address, parse_encoded_pointe
              parse_initial_length, parse_length_uleb_value, parse_null_terminated_string,
              parse_pointer_encoding, parse_signed_leb, parse_u8, parse_u16, parse_u32,
              parse_u32_as_u64, parse_u64, parse_unsigned_leb, parse_unsigned_leb_as_u8,
-             u64_to_offset};
+             take, u64_to_offset};
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::iter::FromIterator;
@@ -804,9 +804,7 @@ impl Augmentation {
         let mut augmentation = Augmentation::default();
 
         let augmentation_length = parse_unsigned_leb(input)?;
-        let (mut rest, rest_rest) = input.try_split_at(augmentation_length as usize)?;
-        *input = rest_rest;
-        let rest = &mut rest;
+        let rest = &mut take(augmentation_length as usize, input)?;
 
         for ch in chars {
             match ch {
@@ -859,9 +857,7 @@ impl AugmentationData {
         // can just check for its presence directly.
 
         let aug_data_len = parse_unsigned_leb(input)?;
-        let (mut rest, rest_rest) = input.try_split_at(aug_data_len as usize)?;
-        *input = rest_rest;
-        let rest = &mut rest;
+        let rest = &mut take(aug_data_len as usize, input)?;
         let mut augmentation_data = AugmentationData::default();
         if let Some(encoding) = augmentation.lsda {
             let lsda =
