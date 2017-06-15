@@ -1,7 +1,7 @@
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
-use parser::{parse_null_terminated_string, parse_initial_length, parse_u16, parse_word, Format,
-             Result, Error};
+use parser::{parse_null_terminated_string, parse_initial_length, parse_u16, parse_word, take,
+             Format, Result, Error};
 use std::ffi;
 use std::marker::PhantomData;
 use std::rc::Rc;
@@ -172,26 +172,17 @@ impl<'input, Endian, Switch> LookupParser<'input, Endian> for PubStuffParser<'in
     fn parse_header(input: &mut EndianBuf<'input, Endian>)
                     -> Result<(EndianBuf<'input, Endian>, Rc<Self::Header>)> {
         let (set_length, format) = parse_initial_length(input)?;
-        let version = parse_u16(input)?;
+        let rest = &mut take(set_length as usize, input)?;
 
+        let version = parse_u16(rest)?;
         if version != 2 {
             return Err(Error::UnknownVersion);
         }
 
-        let info_offset = Switch::parse_offset(input, format)?;
-        let info_length = parse_word(input, format)?;
+        let info_offset = Switch::parse_offset(rest, format)?;
+        let info_length = parse_word(rest, format)?;
 
-        let header_length = match format {
-            Format::Dwarf32 => 10,
-            Format::Dwarf64 => 18,
-        };
-        let dividing_line: usize = set_length
-            .checked_sub(header_length)
-            .ok_or(Error::BadLength)? as usize;
-        let rest = input.range_to(..dividing_line);
-        *input = input.range_from(dividing_line..);
-
-        Ok((rest, Switch::new_header(format, set_length, version, info_offset, info_length)))
+        Ok((*rest, Switch::new_header(format, set_length, version, info_offset, info_length)))
     }
 
     /// Parse a single pubthing. Return `None` for the null pubthing, `Some` for an actual pubthing.

@@ -1,7 +1,7 @@
 use endianity::{Endianity, EndianBuf};
 use lookup::{LookupParser, LookupEntryIter, DebugLookup};
-use parser::{parse_address_size, parse_initial_length, parse_u16, parse_address, Error, Format,
-             Result};
+use parser::{parse_address_size, parse_initial_length, parse_u16, parse_address, take, Error,
+             Format, Result};
 use unit::{DebugInfoOffset, parse_debug_info_offset};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
@@ -111,11 +111,7 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
     fn parse_header(input: &mut EndianBuf<'input, Endian>)
                     -> Result<(EndianBuf<'input, Endian>, Rc<Self::Header>)> {
         let (length, format) = parse_initial_length(input)?;
-        if length as usize > input.len() {
-            return Err(Error::UnexpectedEof);
-        }
-        let rest = &mut input.range_to(..length as usize);
-        *input = input.range_from(length as usize..);
+        let rest = &mut take(length as usize, input)?;
 
         let version = parse_u16(rest)?;
         if version != 2 {

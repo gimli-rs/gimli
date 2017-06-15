@@ -656,11 +656,7 @@ fn parse_unit_header<'input, Endian>(input: &mut EndianBuf<'input, Endian>)
     where Endian: Endianity
 {
     let (unit_length, format) = parse_initial_length(input)?;
-    if unit_length as usize > input.len() {
-        return Err(Error::UnexpectedEof);
-    }
-    let rest = &mut input.range_to(..unit_length as usize);
-    *input = input.range_from(unit_length as usize..);
+    let rest = &mut take(unit_length as usize, input)?;
 
     let version = parse_version(rest)?;
     let offset = parse_debug_abbrev_offset(rest, format)?;

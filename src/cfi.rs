@@ -5,8 +5,8 @@ use fallible_iterator::FallibleIterator;
 use parser::{Error, Format, Pointer, Result, parse_address, parse_encoded_pointer,
              parse_initial_length, parse_length_uleb_value, parse_null_terminated_string,
              parse_pointer_encoding, parse_signed_leb, parse_u8, parse_u16, parse_u32,
-             parse_u32_as_u64, parse_u64, parse_unsigned_leb, parse_unsigned_leb_as_u8,
-             take, u64_to_offset};
+             parse_u32_as_u64, parse_u64, parse_unsigned_leb, parse_unsigned_leb_as_u8, take,
+             u64_to_offset};
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::iter::FromIterator;
@@ -653,12 +653,7 @@ fn parse_cfi_entry_common<'input, Endian, Section>
         return Ok(None);
     }
 
-    if length as usize > input.len() {
-        return Err(Error::BadLength);
-    }
-
-    let cie_offset_input = input.range_to(..length as usize);
-    *input = input.range_from(length as usize..);
+    let cie_offset_input = take(length as usize, input)?;
 
     let mut rest = cie_offset_input;
     let cie_id_or_offset = match Section::cie_offset_encoding(format) {
@@ -3060,7 +3055,7 @@ mod tests {
         assert_eq!(DebugFrameCie::parse(&bases,
                                         DebugFrame::new(&contents),
                                         &mut EndianBuf::<LittleEndian>::new(&contents)),
-                   Err(Error::BadLength));
+                   Err(Error::UnexpectedEof));
     }
 
     #[test]

@@ -560,13 +560,7 @@ impl<'input, Endian> Opcode<'input, Endian>
         let opcode = parser::parse_u8(input)?;
         if opcode == 0 {
             let length = parser::parse_unsigned_leb(input)?;
-            let length = length as usize;
-            if input.len() < length {
-                return Err(parser::Error::UnexpectedEof);
-            }
-
-            let instr_rest = &mut input.range_to(..length);
-            *input = input.range_from(length..);
+            let instr_rest = &mut parser::take(length as usize, input)?;
             let opcode = parser::parse_u8(instr_rest)?;
 
             match constants::DwLne(opcode) {
@@ -1144,11 +1138,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
              comp_name: Option<&'input ffi::CStr>)
              -> parser::Result<LineNumberProgramHeader<'input, Endian>> {
         let (unit_length, format) = parser::parse_initial_length(input)?;
-        if (input.len() as u64) < unit_length {
-            return Err(parser::Error::UnexpectedEof);
-        }
-        let rest = &mut input.range_to(..unit_length as usize);
-        *input = input.range_from(unit_length as usize..);
+        let rest = &mut parser::take(unit_length as usize, input)?;
 
         let version = parser::parse_u16(rest)?;
         if version < 2 || version > 4 {
@@ -1192,11 +1182,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
         }
 
         let standard_opcode_count = opcode_base as usize - 1;
-        if rest.len() < standard_opcode_count {
-            return Err(parser::Error::UnexpectedEof);
-        }
-        let standard_opcode_lengths = rest.range_to(..standard_opcode_count);
-        let rest = &mut rest.range_from(standard_opcode_count..);
+        let standard_opcode_lengths = parser::take(standard_opcode_count, rest)?;
 
         let mut include_directories = Vec::new();
         loop {
