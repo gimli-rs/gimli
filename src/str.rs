@@ -1,7 +1,6 @@
 use endianity::{Endianity, EndianBuf};
 use parser::{parse_null_terminated_string, Error, Result};
 use std::ffi;
-use std::marker::PhantomData;
 use Section;
 
 /// An offset into the `.debug_str` section.
@@ -35,7 +34,7 @@ impl<'input, Endian> DebugStr<'input, Endian>
     /// let debug_str = DebugStr::<LittleEndian>::new(read_debug_str_section_somehow());
     /// ```
     pub fn new(debug_str_section: &'input [u8]) -> DebugStr<'input, Endian> {
-        DebugStr { debug_str_section: EndianBuf(debug_str_section, PhantomData) }
+        DebugStr { debug_str_section: EndianBuf::new(debug_str_section) }
     }
 
     /// Lookup a string from the `.debug_str` section by DebugStrOffset.

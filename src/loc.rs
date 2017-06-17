@@ -2,7 +2,6 @@ use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use parser::{Error, Result, parse_u16, take};
 use ranges::Range;
-use std::marker::PhantomData;
 use Section;
 
 /// An offset into the `.debug_loc` section.
@@ -36,7 +35,7 @@ impl<'input, Endian> DebugLoc<'input, Endian>
     /// let debug_loc = DebugLoc::<LittleEndian>::new(read_debug_loc_section_somehow());
     /// ```
     pub fn new(debug_loc_section: &'input [u8]) -> DebugLoc<'input, Endian> {
-        DebugLoc { debug_loc_section: EndianBuf(debug_loc_section, PhantomData) }
+        DebugLoc { debug_loc_section: EndianBuf::new(debug_loc_section) }
     }
 
     /// Iterate over the `LocationListEntry`s starting at the given offset.

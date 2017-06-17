@@ -3,7 +3,6 @@ use endianity::{Endianity, EndianBuf};
 use parser;
 use std::ffi;
 use std::fmt;
-use std::marker::PhantomData;
 use Section;
 
 /// An offset into the `.debug_line` section.
@@ -37,7 +36,7 @@ impl<'input, Endian> DebugLine<'input, Endian>
     /// let debug_line = DebugLine::<LittleEndian>::new(read_debug_line_section_somehow());
     /// ```
     pub fn new(debug_line_section: &'input [u8]) -> DebugLine<'input, Endian> {
-        DebugLine { debug_line_section: EndianBuf(debug_line_section, PhantomData) }
+        DebugLine { debug_line_section: EndianBuf::new(debug_line_section) }
     }
 
     /// Parse the line number program whose header is at the given `offset` in the
@@ -1223,7 +1222,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
                     line_base: line_base,
                     line_range: line_range,
                     opcode_base: opcode_base,
-                    standard_opcode_lengths: standard_opcode_lengths.0,
+                    standard_opcode_lengths: standard_opcode_lengths.buf(),
                     include_directories: include_directories,
                     file_names: file_names,
                     format: format,

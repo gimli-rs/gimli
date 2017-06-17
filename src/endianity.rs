@@ -115,15 +115,27 @@ pub type NativeEndian = BigEndian;
 
 /// A `&[u8]` slice with compile-time endianity metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct EndianBuf<'input, Endian>(pub &'input [u8], pub PhantomData<Endian>)
-    where Endian: Endianity;
+pub struct EndianBuf<'input, Endian>
+    where Endian: Endianity
+{
+    buf: &'input [u8],
+    endian: PhantomData<Endian>,
+}
 
 impl<'input, Endian> EndianBuf<'input, Endian>
     where Endian: Endianity
 {
     /// Construct a new `EndianBuf` with the given buffer.
     pub fn new(buf: &'input [u8]) -> EndianBuf<'input, Endian> {
-        EndianBuf(buf, PhantomData)
+        EndianBuf {
+            buf,
+            endian: PhantomData,
+        }
+    }
+
+    /// Return a reference to the raw buffer.
+    pub fn buf(&self) -> &'input [u8] {
+        self.buf
     }
 
     /// Split the buffer in two at the given index, resulting in the tuple where
@@ -132,6 +144,12 @@ impl<'input, Endian> EndianBuf<'input, Endian>
     #[inline]
     pub fn split_at(&self, idx: usize) -> (EndianBuf<'input, Endian>, EndianBuf<'input, Endian>) {
         (self.range_to(..idx), self.range_from(idx..))
+    }
+
+    /// Find the first occurence of a byte in the buffer, and return its index.
+    #[inline]
+    pub fn find(&self, byte: u8) -> Option<usize> {
+        self.buf.iter().position(|ch| *ch == byte)
     }
 }
 
@@ -156,7 +174,10 @@ impl<'input, Endian> EndianBuf<'input, Endian>
     ///            EndianBuf::new(&buf[1..3]));
     /// ```
     pub fn range(&self, idx: Range<usize>) -> EndianBuf<'input, Endian> {
-        EndianBuf(&self.0[idx], self.1)
+        EndianBuf {
+            buf: &self.buf[idx],
+            endian: self.endian,
+        }
     }
 
     /// Take the given `start..` range of the underlying buffer and return a new
@@ -171,7 +192,10 @@ impl<'input, Endian> EndianBuf<'input, Endian>
     ///            EndianBuf::new(&buf[2..]));
     /// ```
     pub fn range_from(&self, idx: RangeFrom<usize>) -> EndianBuf<'input, Endian> {
-        EndianBuf(&self.0[idx], self.1)
+        EndianBuf {
+            buf: &self.buf[idx],
+            endian: self.endian,
+        }
     }
 
     /// Take the given `..end` range of the underlying buffer and return a new
@@ -186,7 +210,10 @@ impl<'input, Endian> EndianBuf<'input, Endian>
     ///            EndianBuf::new(&buf[..3]));
     /// ```
     pub fn range_to(&self, idx: RangeTo<usize>) -> EndianBuf<'input, Endian> {
-        EndianBuf(&self.0[idx], self.1)
+        EndianBuf {
+            buf: &self.buf[idx],
+            endian: self.endian,
+        }
     }
 }
 
@@ -195,7 +222,7 @@ impl<'input, Endian> Index<usize> for EndianBuf<'input, Endian>
 {
     type Output = u8;
     fn index(&self, idx: usize) -> &Self::Output {
-        &self.0[idx]
+        &self.buf[idx]
     }
 }
 
@@ -204,7 +231,7 @@ impl<'input, Endian> Index<RangeFrom<usize>> for EndianBuf<'input, Endian>
 {
     type Output = [u8];
     fn index(&self, idx: RangeFrom<usize>) -> &Self::Output {
-        &self.0[idx]
+        &self.buf[idx]
     }
 }
 
@@ -213,7 +240,7 @@ impl<'input, Endian> Deref for EndianBuf<'input, Endian>
 {
     type Target = [u8];
     fn deref(&self) -> &Self::Target {
-        self.0
+        self.buf
     }
 }
 
@@ -221,7 +248,7 @@ impl<'input, Endian> Into<&'input [u8]> for EndianBuf<'input, Endian>
     where Endian: Endianity
 {
     fn into(self) -> &'input [u8] {
-        self.0
+        self.buf
     }
 }
 

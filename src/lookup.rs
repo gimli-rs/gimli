@@ -54,7 +54,7 @@ impl<'input, Endian, Parser> DebugLookup<'input, Endian, Parser>
     #[allow(missing_docs)]
     pub fn new(input_buffer: &'input [u8]) -> DebugLookup<'input, Endian, Parser> {
         DebugLookup {
-            input_buffer: EndianBuf(input_buffer, PhantomData),
+            input_buffer: EndianBuf::new(input_buffer),
             phantom: PhantomData,
         }
     }

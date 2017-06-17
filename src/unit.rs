@@ -15,7 +15,6 @@ use ranges::DebugRangesOffset;
 use std::cell::Cell;
 use std::convert::AsMut;
 use std::ffi;
-use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Range, RangeFrom, RangeTo};
 use std::{u8, u16};
@@ -121,7 +120,7 @@ impl<'input, Endian> DebugInfo<'input, Endian>
     /// let debug_info = DebugInfo::<LittleEndian>::new(read_debug_info_section_somehow());
     /// ```
     pub fn new(debug_info_section: &'input [u8]) -> DebugInfo<'input, Endian> {
-        DebugInfo { debug_info_section: EndianBuf(debug_info_section, PhantomData) }
+        DebugInfo { debug_info_section: EndianBuf::new(debug_info_section) }
     }
 
     /// Iterate the compilation- and partial-units in this
@@ -1837,7 +1836,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
 
     /// Return the offset in bytes of the given array from the start of the compilation unit
     fn get_offset(&self, input: EndianBuf<'input, Endian>) -> UnitOffset {
-        let ptr = input.0.as_ptr() as *const u8 as usize;
+        let ptr = input.buf().as_ptr() as *const u8 as usize;
         let start_ptr = self.unit.entries_buf.as_ptr() as *const u8 as usize;
         let offset = ptr - start_ptr + self.unit.header_size();
         UnitOffset(offset)
@@ -2426,7 +2425,7 @@ impl<'input, Endian> DebugTypes<'input, Endian>
     /// let debug_types = DebugTypes::<LittleEndian>::new(read_debug_types_section_somehow());
     /// ```
     pub fn new(debug_types_section: &'input [u8]) -> DebugTypes<'input, Endian> {
-        DebugTypes { debug_types_section: EndianBuf(debug_types_section, PhantomData) }
+        DebugTypes { debug_types_section: EndianBuf::new(debug_types_section) }
     }
 
     /// Iterate the type-units in this `.debug_types` section.

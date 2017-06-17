@@ -1,7 +1,6 @@
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use parser::{Error, Result, parse_address};
-use std::marker::PhantomData;
 use Section;
 
 /// An offset into the `.debug_ranges` section.
@@ -35,7 +34,7 @@ impl<'input, Endian> DebugRanges<'input, Endian>
     /// let debug_ranges = DebugRanges::<LittleEndian>::new(read_debug_ranges_section_somehow());
     /// ```
     pub fn new(debug_ranges_section: &'input [u8]) -> DebugRanges<'input, Endian> {
-        DebugRanges { debug_ranges_section: EndianBuf(debug_ranges_section, PhantomData) }
+        DebugRanges { debug_ranges_section: EndianBuf::new(debug_ranges_section) }
     }
 
     /// Iterate over the `Range` list entries starting at the given offset.

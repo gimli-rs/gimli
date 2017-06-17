@@ -381,8 +381,12 @@ pub fn parse_i64<Endian>(input: &mut EndianBuf<Endian>) -> Result<i64>
 pub fn parse_unsigned_leb<Endian>(input: &mut EndianBuf<Endian>) -> Result<u64>
     where Endian: Endianity
 {
-    match leb128::read::unsigned(&mut input.0) {
-        Ok(val) => Ok(val),
+    let mut buf = input.buf();
+    match leb128::read::unsigned(&mut buf) {
+        Ok(val) => {
+            *input = EndianBuf::new(buf);
+            Ok(val)
+        }
         Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
             Err(Error::UnexpectedEof)
         }
@@ -405,8 +409,12 @@ pub fn parse_unsigned_leb_as_u8<Endian>(input: &mut EndianBuf<Endian>) -> Result
 pub fn parse_signed_leb<Endian>(input: &mut EndianBuf<Endian>) -> Result<i64>
     where Endian: Endianity
 {
-    match leb128::read::signed(&mut input.0) {
-        Ok(val) => Ok(val),
+    let mut buf = input.buf();
+    match leb128::read::signed(&mut buf) {
+        Ok(val) => {
+            *input = EndianBuf::new(buf);
+            Ok(val)
+        }
         Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
             Err(Error::UnexpectedEof)
         }
@@ -492,18 +500,12 @@ pub fn parse_offset<Endian>(input: &mut EndianBuf<Endian>, format: Format) -> Re
 pub fn parse_address<Endian>(input: &mut EndianBuf<Endian>, address_size: u8) -> Result<u64>
     where Endian: Endianity
 {
-    if input.len() < address_size as usize {
-        Err(Error::UnexpectedEof)
-    } else {
-        let address = match address_size {
-            8 => Endian::read_u64(&input.0),
-            4 => Endian::read_u32(&input.0) as u64,
-            2 => Endian::read_u16(&input.0) as u64,
-            1 => input[0] as u64,
-            otherwise => return Err(Error::UnsupportedAddressSize(otherwise)),
-        };
-        *input = input.range_from(address_size as usize..);
-        Ok(address)
+    match address_size {
+        8 => parse_u64(input),
+        4 => parse_u32(input).map(|v| v as u64),
+        2 => parse_u16(input).map(|v| v as u64),
+        1 => parse_u8(input).map(|v| v as u64),
+        otherwise => return Err(Error::UnsupportedAddressSize(otherwise)),
     }
 }
 
@@ -525,16 +527,14 @@ pub fn parse_null_terminated_string<'input, Endian>(input: &mut EndianBuf<'input
                                                     -> Result<&'input ffi::CStr>
     where Endian: Endianity
 {
-    let null_idx = input.0.iter().position(|ch| *ch == 0);
-
-    if let Some(idx) = null_idx {
+    if let Some(idx) = input.find(0) {
+        let slice = &take(idx + 1, input)?;
         let cstr = unsafe {
             // It is safe to use the unchecked variant here because we know we
             // grabbed the index of the first null byte in the input and
             // therefore there can't be any interior null bytes in this slice.
-            ffi::CStr::from_bytes_with_nul_unchecked(&input.0[0..idx + 1])
+            ffi::CStr::from_bytes_with_nul_unchecked(slice.buf())
         };
-        *input = input.range_from(idx + 1..);
         Ok(cstr)
     } else {
         Err(Error::UnexpectedEof)
