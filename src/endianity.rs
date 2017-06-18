@@ -154,6 +154,16 @@ impl<'input, Endian> EndianBuf<'input, Endian>
     pub fn find(&self, byte: u8) -> Option<usize> {
         self.buf.iter().position(|ch| *ch == byte)
     }
+
+    /// Return the offset of the start of the buffer relative to the start
+    /// of the given buffer.
+    pub fn offset_from(&self, base: EndianBuf<'input, Endian>) -> usize {
+        let base_ptr = base.buf.as_ptr() as *const u8 as usize;
+        let ptr = self.buf.as_ptr() as *const u8 as usize;
+        debug_assert!(base_ptr <= ptr);
+        debug_assert!(ptr + self.buf.len() <= base_ptr + base.buf.len());
+        ptr - base_ptr
+    }
 }
 
 /// # Range Methods

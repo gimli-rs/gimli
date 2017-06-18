@@ -712,11 +712,9 @@ impl<'input, Endian> OpcodesIter<'input, Endian>
     where Endian: Endianity
 {
     fn remove_trailing(&self, other: &OpcodesIter<'input, Endian>) -> OpcodesIter<'input, Endian> {
-        debug_assert!(other.input.len() < self.input.len());
-        debug_assert!(other.input.as_ptr() > self.input.as_ptr());
-        debug_assert!(other.input.as_ptr() <=
-                      unsafe { self.input.as_ptr().offset(self.input.len() as isize) });
-        OpcodesIter { input: self.input.split_at(self.input.len() - other.input.len()).0 }
+        let offset = other.input.offset_from(self.input);
+        debug_assert!(offset <= self.input.len());
+        OpcodesIter { input: self.input.range_to(..offset) }
     }
 }
 

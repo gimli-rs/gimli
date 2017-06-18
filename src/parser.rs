@@ -644,7 +644,7 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>(encoding: constants::DwEhPe
         }
         constants::DW_EH_PE_pcrel => {
             if let Some(cfi) = bases.cfi {
-                let offset_from_section = input.as_ptr() as usize - section.as_ptr() as usize;
+                let offset_from_section = input.offset_from(section);
                 let offset = parse_data(encoding, address_size, input)?;
                 let p = cfi.wrapping_add(offset_from_section as u64)
                     .wrapping_add(offset);

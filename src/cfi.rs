@@ -443,18 +443,9 @@ impl<'input, Endian> _UnwindSectionPrivate<'input, Endian> for EhFrame<'input, E
         debug_assert!(section.len() > 0);
         debug_assert!(input_before_offset.len() > 0);
 
-        // Additionally, the input_before_offset slice must be a subset of the
-        // section's slice.
-        debug_assert!(section.as_ptr() as usize <= input_before_offset.as_ptr() as usize);
-        debug_assert!(input_before_offset.as_ptr() as usize + input_before_offset.len() <=
-                      section.as_ptr() as usize + section.len());
-
-        let offset_ptr = (input_before_offset.as_ptr() as usize)
-            .saturating_sub(input_relative_offset);
-        if section.as_ptr() as usize <= offset_ptr &&
-           offset_ptr < section.as_ptr() as usize + section.len() {
-            let section_relative_offset = offset_ptr - section.as_ptr() as usize;
-            Some(section_relative_offset)
+        let input_offset = input_before_offset.offset_from(section);
+        if input_relative_offset <= input_offset {
+            Some(input_offset - input_relative_offset)
         } else {
             None
         }
@@ -1121,7 +1112,7 @@ impl<'input, Endian, Section> FrameDescriptionEntry<'input, Endian, Section>
 
         {
             let mut func = bases.func.borrow_mut();
-            let offset = rest.as_ptr() as usize - section.section().as_ptr() as usize;
+            let offset = rest.offset_from(section.section());
             *func = Some(offset as u64);
         }
 

@@ -1836,10 +1836,7 @@ impl<'input, 'abbrev, 'unit, Endian> EntriesCursor<'input, 'abbrev, 'unit, Endia
 
     /// Return the offset in bytes of the given array from the start of the compilation unit
     fn get_offset(&self, input: EndianBuf<'input, Endian>) -> UnitOffset {
-        let ptr = input.buf().as_ptr() as *const u8 as usize;
-        let start_ptr = self.unit.entries_buf.as_ptr() as *const u8 as usize;
-        let offset = ptr - start_ptr + self.unit.header_size();
-        UnitOffset(offset)
+        UnitOffset(self.unit.header_size() + input.offset_from(self.unit.entries_buf))
     }
 
     /// Move the cursor to the next DIE in the tree.
