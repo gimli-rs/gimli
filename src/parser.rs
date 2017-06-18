@@ -381,12 +381,8 @@ pub fn parse_i64<Endian>(input: &mut EndianBuf<Endian>) -> Result<i64>
 pub fn parse_unsigned_leb<Endian>(input: &mut EndianBuf<Endian>) -> Result<u64>
     where Endian: Endianity
 {
-    let mut buf = input.buf();
-    match leb128::read::unsigned(&mut buf) {
-        Ok(val) => {
-            *input = EndianBuf::new(buf);
-            Ok(val)
-        }
+    match leb128::read::unsigned(input) {
+        Ok(val) => Ok(val),
         Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
             Err(Error::UnexpectedEof)
         }
@@ -409,12 +405,8 @@ pub fn parse_unsigned_leb_as_u8<Endian>(input: &mut EndianBuf<Endian>) -> Result
 pub fn parse_signed_leb<Endian>(input: &mut EndianBuf<Endian>) -> Result<i64>
     where Endian: Endianity
 {
-    let mut buf = input.buf();
-    match leb128::read::signed(&mut buf) {
-        Ok(val) => {
-            *input = EndianBuf::new(buf);
-            Ok(val)
-        }
+    match leb128::read::signed(input) {
+        Ok(val) => Ok(val),
         Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
             Err(Error::UnexpectedEof)
         }
