@@ -2,7 +2,6 @@ use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use parser::{Error, Result, parse_u16, take};
 use ranges::Range;
-use std::marker::PhantomData;
 use Section;
 
 /// An offset into the `.debug_loc` section.
@@ -36,7 +35,7 @@ impl<'input, Endian> DebugLoc<'input, Endian>
     /// let debug_loc = DebugLoc::<LittleEndian>::new(read_debug_loc_section_somehow());
     /// ```
     pub fn new(debug_loc_section: &'input [u8]) -> DebugLoc<'input, Endian> {
-        DebugLoc { debug_loc_section: EndianBuf(debug_loc_section, PhantomData) }
+        DebugLoc { debug_loc_section: EndianBuf::new(debug_loc_section) }
     }
 
     /// Iterate over the `LocationListEntry`s starting at the given offset.
@@ -130,11 +129,9 @@ impl<'input, Endian> RawLocationListIter<'input, Endian>
             return Ok(None);
         }
 
-        let (rest, location) = LocationListEntry::parse(self.input, self.address_size)?;
+        let location = LocationListEntry::parse(&mut self.input, self.address_size)?;
         if location.range.is_end() {
             self.input = EndianBuf::new(&[]);
-        } else {
-            self.input = rest;
         }
 
         Ok(Some(location))
@@ -241,26 +238,26 @@ impl<'input, Endian> LocationListEntry<'input, Endian>
     where Endian: Endianity
 {
     /// Parse a location list entry from `.debug_loc`.
-    fn parse(input: EndianBuf<Endian>,
+    fn parse(input: &mut EndianBuf<'input, Endian>,
              address_size: u8)
-             -> Result<(EndianBuf<Endian>, LocationListEntry<Endian>)>
+             -> Result<LocationListEntry<'input, Endian>>
         where Endian: Endianity
     {
-        let (rest, range) = Range::parse(input, address_size)?;
+        let range = Range::parse(input, address_size)?;
         if range.is_end() || range.is_base_address(address_size) {
             let location = LocationListEntry {
                 range: range,
                 data: EndianBuf::new(&[]),
             };
-            Ok((rest, location))
+            Ok(location)
         } else {
-            let (rest, len) = parse_u16(rest)?;
-            let (rest, data) = take(len as usize, rest)?;
+            let len = parse_u16(input)?;
+            let data = take(len as usize, input)?;
             let location = LocationListEntry {
                 range: range,
                 data: data,
             };
-            Ok((rest, location))
+            Ok(location)
         }
     }
 }

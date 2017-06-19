@@ -1,8 +1,8 @@
 //! Functions for parsing and evaluating DWARF expressions.
 
 use constants;
-use parser::{Error, Format, parse_u8e, parse_i8e, parse_u16, parse_i16, parse_u32, parse_i32,
-             parse_u64, parse_i64, parse_unsigned_lebe, parse_signed_lebe, parse_offset,
+use parser::{Error, Format, parse_u8, parse_i8, parse_u16, parse_i16, parse_u32, parse_i32,
+             parse_u64, parse_i64, parse_unsigned_leb, parse_signed_leb, parse_offset,
              parse_address, parse_length_uleb_value};
 use endianity::{Endianity, EndianBuf};
 use unit::{UnitOffset, DebugInfoOffset};
@@ -285,524 +285,481 @@ impl<'input, Endian> Operation<'input, Endian>
     /// `bytes` points to a the operation to decode.  It should point into
     /// the same array as `bytecode`, which should be the entire
     /// expression.
-    pub fn parse(bytes: EndianBuf<'input, Endian>,
+    pub fn parse(bytes: &mut EndianBuf<'input, Endian>,
                  bytecode: EndianBuf<'input, Endian>,
                  address_size: u8,
                  format: Format)
-                 -> Result<(EndianBuf<'input, Endian>, Operation<'input, Endian>), Error>
+                 -> Result<Operation<'input, Endian>, Error>
         where Endian: Endianity
     {
-        let (bytes, opcode) = parse_u8e(bytes)?;
+        let opcode = parse_u8(bytes)?;
         let name = constants::DwOp(opcode);
         match name {
             constants::DW_OP_addr => {
-                let (newbytes, value) = parse_address(bytes, address_size)?;
-                Ok((newbytes, Operation::Literal { value: value }))
+                let value = parse_address(bytes, address_size)?;
+                Ok(Operation::Literal { value: value })
             }
             constants::DW_OP_deref => {
-                Ok((bytes,
-                    Operation::Deref {
-                        size: address_size,
-                        space: false,
-                    }))
+                Ok(Operation::Deref {
+                       size: address_size,
+                       space: false,
+                   })
             }
             constants::DW_OP_const1u => {
-                let (newbytes, value) = parse_u8e(bytes)?;
-                Ok((newbytes, Operation::Literal { value: value as u64 }))
+                let value = parse_u8(bytes)?;
+                Ok(Operation::Literal { value: value as u64 })
             }
             constants::DW_OP_const1s => {
-                let (newbytes, value) = parse_i8e(bytes)?;
-                Ok((newbytes, Operation::Literal { value: value as u64 }))
+                let value = parse_i8(bytes)?;
+                Ok(Operation::Literal { value: value as u64 })
             }
             constants::DW_OP_const2u => {
-                let (newbytes, value) = parse_u16(bytes)?;
-                Ok((newbytes, Operation::Literal { value: value as u64 }))
+                let value = parse_u16(bytes)?;
+                Ok(Operation::Literal { value: value as u64 })
             }
             constants::DW_OP_const2s => {
-                let (newbytes, value) = parse_i16(bytes)?;
-                Ok((newbytes, Operation::Literal { value: value as u64 }))
+                let value = parse_i16(bytes)?;
+                Ok(Operation::Literal { value: value as u64 })
             }
             constants::DW_OP_const4u => {
-                let (newbytes, value) = parse_u32(bytes)?;
-                Ok((newbytes, Operation::Literal { value: value as u64 }))
+                let value = parse_u32(bytes)?;
+                Ok(Operation::Literal { value: value as u64 })
             }
             constants::DW_OP_const4s => {
-                let (newbytes, value) = parse_i32(bytes)?;
-                Ok((newbytes, Operation::Literal { value: value as u64 }))
+                let value = parse_i32(bytes)?;
+                Ok(Operation::Literal { value: value as u64 })
             }
             constants::DW_OP_const8u => {
-                let (newbytes, value) = parse_u64(bytes)?;
-                Ok((newbytes, Operation::Literal { value: value }))
+                let value = parse_u64(bytes)?;
+                Ok(Operation::Literal { value: value })
             }
             constants::DW_OP_const8s => {
-                let (newbytes, value) = parse_i64(bytes)?;
-                Ok((newbytes, Operation::Literal { value: value as u64 }))
+                let value = parse_i64(bytes)?;
+                Ok(Operation::Literal { value: value as u64 })
             }
             constants::DW_OP_constu => {
-                let (newbytes, value) = parse_unsigned_lebe(bytes)?;
-                Ok((newbytes, Operation::Literal { value: value }))
+                let value = parse_unsigned_leb(bytes)?;
+                Ok(Operation::Literal { value: value })
             }
             constants::DW_OP_consts => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes, Operation::Literal { value: value as u64 }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::Literal { value: value as u64 })
             }
-            constants::DW_OP_dup => Ok((bytes, Operation::Pick { index: 0 })),
-            constants::DW_OP_drop => Ok((bytes, Operation::Drop)),
-            constants::DW_OP_over => Ok((bytes, Operation::Pick { index: 1 })),
+            constants::DW_OP_dup => Ok(Operation::Pick { index: 0 }),
+            constants::DW_OP_drop => Ok(Operation::Drop),
+            constants::DW_OP_over => Ok(Operation::Pick { index: 1 }),
             constants::DW_OP_pick => {
-                let (newbytes, value) = parse_u8e(bytes)?;
-                Ok((newbytes, Operation::Pick { index: value }))
+                let value = parse_u8(bytes)?;
+                Ok(Operation::Pick { index: value })
             }
-            constants::DW_OP_swap => Ok((bytes, Operation::Swap)),
-            constants::DW_OP_rot => Ok((bytes, Operation::Rot)),
+            constants::DW_OP_swap => Ok(Operation::Swap),
+            constants::DW_OP_rot => Ok(Operation::Rot),
             constants::DW_OP_xderef => {
-                Ok((bytes,
-                    Operation::Deref {
-                        size: address_size,
-                        space: true,
-                    }))
+                Ok(Operation::Deref {
+                       size: address_size,
+                       space: true,
+                   })
             }
-            constants::DW_OP_abs => Ok((bytes, Operation::Abs)),
-            constants::DW_OP_and => Ok((bytes, Operation::And)),
-            constants::DW_OP_div => Ok((bytes, Operation::Div)),
-            constants::DW_OP_minus => Ok((bytes, Operation::Minus)),
-            constants::DW_OP_mod => Ok((bytes, Operation::Mod)),
-            constants::DW_OP_mul => Ok((bytes, Operation::Mul)),
-            constants::DW_OP_neg => Ok((bytes, Operation::Neg)),
-            constants::DW_OP_not => Ok((bytes, Operation::Not)),
-            constants::DW_OP_or => Ok((bytes, Operation::Or)),
-            constants::DW_OP_plus => Ok((bytes, Operation::Plus)),
+            constants::DW_OP_abs => Ok(Operation::Abs),
+            constants::DW_OP_and => Ok(Operation::And),
+            constants::DW_OP_div => Ok(Operation::Div),
+            constants::DW_OP_minus => Ok(Operation::Minus),
+            constants::DW_OP_mod => Ok(Operation::Mod),
+            constants::DW_OP_mul => Ok(Operation::Mul),
+            constants::DW_OP_neg => Ok(Operation::Neg),
+            constants::DW_OP_not => Ok(Operation::Not),
+            constants::DW_OP_or => Ok(Operation::Or),
+            constants::DW_OP_plus => Ok(Operation::Plus),
             constants::DW_OP_plus_uconst => {
-                let (newbytes, value) = parse_unsigned_lebe(bytes)?;
-                Ok((newbytes, Operation::PlusConstant { value: value }))
+                let value = parse_unsigned_leb(bytes)?;
+                Ok(Operation::PlusConstant { value: value })
             }
-            constants::DW_OP_shl => Ok((bytes, Operation::Shl)),
-            constants::DW_OP_shr => Ok((bytes, Operation::Shr)),
-            constants::DW_OP_shra => Ok((bytes, Operation::Shra)),
-            constants::DW_OP_xor => Ok((bytes, Operation::Xor)),
+            constants::DW_OP_shl => Ok(Operation::Shl),
+            constants::DW_OP_shr => Ok(Operation::Shr),
+            constants::DW_OP_shra => Ok(Operation::Shra),
+            constants::DW_OP_xor => Ok(Operation::Xor),
             constants::DW_OP_bra => {
-                let (newbytes, value) = parse_i16(bytes)?;
-                Ok((newbytes, Operation::Bra { target: compute_pc(newbytes, bytecode, value)? }))
+                let value = parse_i16(bytes)?;
+                Ok(Operation::Bra { target: compute_pc(*bytes, bytecode, value)? })
             }
-            constants::DW_OP_eq => Ok((bytes, Operation::Eq)),
-            constants::DW_OP_ge => Ok((bytes, Operation::Ge)),
-            constants::DW_OP_gt => Ok((bytes, Operation::Gt)),
-            constants::DW_OP_le => Ok((bytes, Operation::Le)),
-            constants::DW_OP_lt => Ok((bytes, Operation::Lt)),
-            constants::DW_OP_ne => Ok((bytes, Operation::Ne)),
+            constants::DW_OP_eq => Ok(Operation::Eq),
+            constants::DW_OP_ge => Ok(Operation::Ge),
+            constants::DW_OP_gt => Ok(Operation::Gt),
+            constants::DW_OP_le => Ok(Operation::Le),
+            constants::DW_OP_lt => Ok(Operation::Lt),
+            constants::DW_OP_ne => Ok(Operation::Ne),
             constants::DW_OP_skip => {
-                let (newbytes, value) = parse_i16(bytes)?;
-                Ok((newbytes, Operation::Skip { target: compute_pc(newbytes, bytecode, value)? }))
+                let value = parse_i16(bytes)?;
+                Ok(Operation::Skip { target: compute_pc(*bytes, bytecode, value)? })
             }
-            constants::DW_OP_lit0 => Ok((bytes, Operation::Literal { value: 0 })),
-            constants::DW_OP_lit1 => Ok((bytes, Operation::Literal { value: 1 })),
-            constants::DW_OP_lit2 => Ok((bytes, Operation::Literal { value: 2 })),
-            constants::DW_OP_lit3 => Ok((bytes, Operation::Literal { value: 3 })),
-            constants::DW_OP_lit4 => Ok((bytes, Operation::Literal { value: 4 })),
-            constants::DW_OP_lit5 => Ok((bytes, Operation::Literal { value: 5 })),
-            constants::DW_OP_lit6 => Ok((bytes, Operation::Literal { value: 6 })),
-            constants::DW_OP_lit7 => Ok((bytes, Operation::Literal { value: 7 })),
-            constants::DW_OP_lit8 => Ok((bytes, Operation::Literal { value: 8 })),
-            constants::DW_OP_lit9 => Ok((bytes, Operation::Literal { value: 9 })),
-            constants::DW_OP_lit10 => Ok((bytes, Operation::Literal { value: 10 })),
-            constants::DW_OP_lit11 => Ok((bytes, Operation::Literal { value: 11 })),
-            constants::DW_OP_lit12 => Ok((bytes, Operation::Literal { value: 12 })),
-            constants::DW_OP_lit13 => Ok((bytes, Operation::Literal { value: 13 })),
-            constants::DW_OP_lit14 => Ok((bytes, Operation::Literal { value: 14 })),
-            constants::DW_OP_lit15 => Ok((bytes, Operation::Literal { value: 15 })),
-            constants::DW_OP_lit16 => Ok((bytes, Operation::Literal { value: 16 })),
-            constants::DW_OP_lit17 => Ok((bytes, Operation::Literal { value: 17 })),
-            constants::DW_OP_lit18 => Ok((bytes, Operation::Literal { value: 18 })),
-            constants::DW_OP_lit19 => Ok((bytes, Operation::Literal { value: 19 })),
-            constants::DW_OP_lit20 => Ok((bytes, Operation::Literal { value: 20 })),
-            constants::DW_OP_lit21 => Ok((bytes, Operation::Literal { value: 21 })),
-            constants::DW_OP_lit22 => Ok((bytes, Operation::Literal { value: 22 })),
-            constants::DW_OP_lit23 => Ok((bytes, Operation::Literal { value: 23 })),
-            constants::DW_OP_lit24 => Ok((bytes, Operation::Literal { value: 24 })),
-            constants::DW_OP_lit25 => Ok((bytes, Operation::Literal { value: 25 })),
-            constants::DW_OP_lit26 => Ok((bytes, Operation::Literal { value: 26 })),
-            constants::DW_OP_lit27 => Ok((bytes, Operation::Literal { value: 27 })),
-            constants::DW_OP_lit28 => Ok((bytes, Operation::Literal { value: 28 })),
-            constants::DW_OP_lit29 => Ok((bytes, Operation::Literal { value: 29 })),
-            constants::DW_OP_lit30 => Ok((bytes, Operation::Literal { value: 30 })),
-            constants::DW_OP_lit31 => Ok((bytes, Operation::Literal { value: 31 })),
-            constants::DW_OP_reg0 => Ok((bytes, Operation::Register { register: 0 })),
-            constants::DW_OP_reg1 => Ok((bytes, Operation::Register { register: 1 })),
-            constants::DW_OP_reg2 => Ok((bytes, Operation::Register { register: 2 })),
-            constants::DW_OP_reg3 => Ok((bytes, Operation::Register { register: 3 })),
-            constants::DW_OP_reg4 => Ok((bytes, Operation::Register { register: 4 })),
-            constants::DW_OP_reg5 => Ok((bytes, Operation::Register { register: 5 })),
-            constants::DW_OP_reg6 => Ok((bytes, Operation::Register { register: 6 })),
-            constants::DW_OP_reg7 => Ok((bytes, Operation::Register { register: 7 })),
-            constants::DW_OP_reg8 => Ok((bytes, Operation::Register { register: 8 })),
-            constants::DW_OP_reg9 => Ok((bytes, Operation::Register { register: 9 })),
-            constants::DW_OP_reg10 => Ok((bytes, Operation::Register { register: 10 })),
-            constants::DW_OP_reg11 => Ok((bytes, Operation::Register { register: 11 })),
-            constants::DW_OP_reg12 => Ok((bytes, Operation::Register { register: 12 })),
-            constants::DW_OP_reg13 => Ok((bytes, Operation::Register { register: 13 })),
-            constants::DW_OP_reg14 => Ok((bytes, Operation::Register { register: 14 })),
-            constants::DW_OP_reg15 => Ok((bytes, Operation::Register { register: 15 })),
-            constants::DW_OP_reg16 => Ok((bytes, Operation::Register { register: 16 })),
-            constants::DW_OP_reg17 => Ok((bytes, Operation::Register { register: 17 })),
-            constants::DW_OP_reg18 => Ok((bytes, Operation::Register { register: 18 })),
-            constants::DW_OP_reg19 => Ok((bytes, Operation::Register { register: 19 })),
-            constants::DW_OP_reg20 => Ok((bytes, Operation::Register { register: 20 })),
-            constants::DW_OP_reg21 => Ok((bytes, Operation::Register { register: 21 })),
-            constants::DW_OP_reg22 => Ok((bytes, Operation::Register { register: 22 })),
-            constants::DW_OP_reg23 => Ok((bytes, Operation::Register { register: 23 })),
-            constants::DW_OP_reg24 => Ok((bytes, Operation::Register { register: 24 })),
-            constants::DW_OP_reg25 => Ok((bytes, Operation::Register { register: 25 })),
-            constants::DW_OP_reg26 => Ok((bytes, Operation::Register { register: 26 })),
-            constants::DW_OP_reg27 => Ok((bytes, Operation::Register { register: 27 })),
-            constants::DW_OP_reg28 => Ok((bytes, Operation::Register { register: 28 })),
-            constants::DW_OP_reg29 => Ok((bytes, Operation::Register { register: 29 })),
-            constants::DW_OP_reg30 => Ok((bytes, Operation::Register { register: 30 })),
-            constants::DW_OP_reg31 => Ok((bytes, Operation::Register { register: 31 })),
+            constants::DW_OP_lit0 => Ok(Operation::Literal { value: 0 }),
+            constants::DW_OP_lit1 => Ok(Operation::Literal { value: 1 }),
+            constants::DW_OP_lit2 => Ok(Operation::Literal { value: 2 }),
+            constants::DW_OP_lit3 => Ok(Operation::Literal { value: 3 }),
+            constants::DW_OP_lit4 => Ok(Operation::Literal { value: 4 }),
+            constants::DW_OP_lit5 => Ok(Operation::Literal { value: 5 }),
+            constants::DW_OP_lit6 => Ok(Operation::Literal { value: 6 }),
+            constants::DW_OP_lit7 => Ok(Operation::Literal { value: 7 }),
+            constants::DW_OP_lit8 => Ok(Operation::Literal { value: 8 }),
+            constants::DW_OP_lit9 => Ok(Operation::Literal { value: 9 }),
+            constants::DW_OP_lit10 => Ok(Operation::Literal { value: 10 }),
+            constants::DW_OP_lit11 => Ok(Operation::Literal { value: 11 }),
+            constants::DW_OP_lit12 => Ok(Operation::Literal { value: 12 }),
+            constants::DW_OP_lit13 => Ok(Operation::Literal { value: 13 }),
+            constants::DW_OP_lit14 => Ok(Operation::Literal { value: 14 }),
+            constants::DW_OP_lit15 => Ok(Operation::Literal { value: 15 }),
+            constants::DW_OP_lit16 => Ok(Operation::Literal { value: 16 }),
+            constants::DW_OP_lit17 => Ok(Operation::Literal { value: 17 }),
+            constants::DW_OP_lit18 => Ok(Operation::Literal { value: 18 }),
+            constants::DW_OP_lit19 => Ok(Operation::Literal { value: 19 }),
+            constants::DW_OP_lit20 => Ok(Operation::Literal { value: 20 }),
+            constants::DW_OP_lit21 => Ok(Operation::Literal { value: 21 }),
+            constants::DW_OP_lit22 => Ok(Operation::Literal { value: 22 }),
+            constants::DW_OP_lit23 => Ok(Operation::Literal { value: 23 }),
+            constants::DW_OP_lit24 => Ok(Operation::Literal { value: 24 }),
+            constants::DW_OP_lit25 => Ok(Operation::Literal { value: 25 }),
+            constants::DW_OP_lit26 => Ok(Operation::Literal { value: 26 }),
+            constants::DW_OP_lit27 => Ok(Operation::Literal { value: 27 }),
+            constants::DW_OP_lit28 => Ok(Operation::Literal { value: 28 }),
+            constants::DW_OP_lit29 => Ok(Operation::Literal { value: 29 }),
+            constants::DW_OP_lit30 => Ok(Operation::Literal { value: 30 }),
+            constants::DW_OP_lit31 => Ok(Operation::Literal { value: 31 }),
+            constants::DW_OP_reg0 => Ok(Operation::Register { register: 0 }),
+            constants::DW_OP_reg1 => Ok(Operation::Register { register: 1 }),
+            constants::DW_OP_reg2 => Ok(Operation::Register { register: 2 }),
+            constants::DW_OP_reg3 => Ok(Operation::Register { register: 3 }),
+            constants::DW_OP_reg4 => Ok(Operation::Register { register: 4 }),
+            constants::DW_OP_reg5 => Ok(Operation::Register { register: 5 }),
+            constants::DW_OP_reg6 => Ok(Operation::Register { register: 6 }),
+            constants::DW_OP_reg7 => Ok(Operation::Register { register: 7 }),
+            constants::DW_OP_reg8 => Ok(Operation::Register { register: 8 }),
+            constants::DW_OP_reg9 => Ok(Operation::Register { register: 9 }),
+            constants::DW_OP_reg10 => Ok(Operation::Register { register: 10 }),
+            constants::DW_OP_reg11 => Ok(Operation::Register { register: 11 }),
+            constants::DW_OP_reg12 => Ok(Operation::Register { register: 12 }),
+            constants::DW_OP_reg13 => Ok(Operation::Register { register: 13 }),
+            constants::DW_OP_reg14 => Ok(Operation::Register { register: 14 }),
+            constants::DW_OP_reg15 => Ok(Operation::Register { register: 15 }),
+            constants::DW_OP_reg16 => Ok(Operation::Register { register: 16 }),
+            constants::DW_OP_reg17 => Ok(Operation::Register { register: 17 }),
+            constants::DW_OP_reg18 => Ok(Operation::Register { register: 18 }),
+            constants::DW_OP_reg19 => Ok(Operation::Register { register: 19 }),
+            constants::DW_OP_reg20 => Ok(Operation::Register { register: 20 }),
+            constants::DW_OP_reg21 => Ok(Operation::Register { register: 21 }),
+            constants::DW_OP_reg22 => Ok(Operation::Register { register: 22 }),
+            constants::DW_OP_reg23 => Ok(Operation::Register { register: 23 }),
+            constants::DW_OP_reg24 => Ok(Operation::Register { register: 24 }),
+            constants::DW_OP_reg25 => Ok(Operation::Register { register: 25 }),
+            constants::DW_OP_reg26 => Ok(Operation::Register { register: 26 }),
+            constants::DW_OP_reg27 => Ok(Operation::Register { register: 27 }),
+            constants::DW_OP_reg28 => Ok(Operation::Register { register: 28 }),
+            constants::DW_OP_reg29 => Ok(Operation::Register { register: 29 }),
+            constants::DW_OP_reg30 => Ok(Operation::Register { register: 30 }),
+            constants::DW_OP_reg31 => Ok(Operation::Register { register: 31 }),
             constants::DW_OP_breg0 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 0,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 0,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg1 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 1,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 1,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg2 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 2,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 2,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg3 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 3,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 3,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg4 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 4,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 4,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg5 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 5,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 5,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg6 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 6,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 6,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg7 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 7,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 7,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg8 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 8,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 8,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg9 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 9,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 9,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg10 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 10,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 10,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg11 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 11,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 11,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg12 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 12,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 12,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg13 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 13,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 13,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg14 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 14,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 14,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg15 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 15,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 15,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg16 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 16,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 16,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg17 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 17,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 17,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg18 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 18,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 18,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg19 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 19,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 19,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg20 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 20,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 20,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg21 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 21,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 21,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg22 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 22,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 22,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg23 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 23,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 23,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg24 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 24,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 24,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg25 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 25,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 25,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg26 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 26,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 26,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg27 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 27,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 27,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg28 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 28,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 28,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg29 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 29,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 29,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg30 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 30,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 30,
+                       offset: value,
+                   })
             }
             constants::DW_OP_breg31 => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: 31,
-                        offset: value,
-                    }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: 31,
+                       offset: value,
+                   })
             }
             constants::DW_OP_regx => {
-                let (newbytes, value) = parse_unsigned_lebe(bytes)?;
-                Ok((newbytes, Operation::Register { register: value }))
+                let value = parse_unsigned_leb(bytes)?;
+                Ok(Operation::Register { register: value })
             }
             constants::DW_OP_fbreg => {
-                let (newbytes, value) = parse_signed_lebe(bytes)?;
-                Ok((newbytes, Operation::FrameOffset { offset: value }))
+                let value = parse_signed_leb(bytes)?;
+                Ok(Operation::FrameOffset { offset: value })
             }
             constants::DW_OP_bregx => {
-                let (newbytes, regno) = parse_unsigned_lebe(bytes)?;
-                let (newbytes, offset) = parse_signed_lebe(newbytes)?;
-                Ok((newbytes,
-                    Operation::RegisterOffset {
-                        register: regno,
-                        offset: offset,
-                    }))
+                let regno = parse_unsigned_leb(bytes)?;
+                let offset = parse_signed_leb(bytes)?;
+                Ok(Operation::RegisterOffset {
+                       register: regno,
+                       offset: offset,
+                   })
             }
             constants::DW_OP_piece => {
-                let (newbytes, size) = parse_unsigned_lebe(bytes)?;
-                Ok((newbytes,
-                    Operation::Piece {
-                        size_in_bits: 8 * size,
-                        bit_offset: None,
-                    }))
+                let size = parse_unsigned_leb(bytes)?;
+                Ok(Operation::Piece {
+                       size_in_bits: 8 * size,
+                       bit_offset: None,
+                   })
             }
             constants::DW_OP_deref_size => {
-                let (newbytes, size) = parse_u8e(bytes)?;
-                Ok((newbytes,
-                    Operation::Deref {
-                        size: size,
-                        space: false,
-                    }))
+                let size = parse_u8(bytes)?;
+                Ok(Operation::Deref {
+                       size: size,
+                       space: false,
+                   })
             }
             constants::DW_OP_xderef_size => {
-                let (newbytes, size) = parse_u8e(bytes)?;
-                Ok((newbytes,
-                    Operation::Deref {
-                        size: size,
-                        space: true,
-                    }))
+                let size = parse_u8(bytes)?;
+                Ok(Operation::Deref {
+                       size: size,
+                       space: true,
+                   })
             }
-            constants::DW_OP_nop => Ok((bytes, Operation::Nop)),
-            constants::DW_OP_push_object_address => Ok((bytes, Operation::PushObjectAddress)),
+            constants::DW_OP_nop => Ok(Operation::Nop),
+            constants::DW_OP_push_object_address => Ok(Operation::PushObjectAddress),
             constants::DW_OP_call2 => {
-                let (newbytes, value) = parse_u16(bytes)?;
-                Ok((newbytes,
-                    Operation::Call { offset: DieReference::UnitRef(UnitOffset(value as usize)) }))
+                let value = parse_u16(bytes)?;
+                Ok(Operation::Call { offset: DieReference::UnitRef(UnitOffset(value as usize)) })
             }
             constants::DW_OP_call4 => {
-                let (newbytes, value) = parse_u32(bytes)?;
-                Ok((newbytes,
-                    Operation::Call { offset: DieReference::UnitRef(UnitOffset(value as usize)) }))
+                let value = parse_u32(bytes)?;
+                Ok(Operation::Call { offset: DieReference::UnitRef(UnitOffset(value as usize)) })
             }
             constants::DW_OP_call_ref => {
-                let (newbytes, value) = parse_offset(bytes, format)?;
-                Ok((newbytes,
-                    Operation::Call { offset: DieReference::DebugInfoRef(DebugInfoOffset(value)) }))
+                let value = parse_offset(bytes, format)?;
+                Ok(Operation::Call { offset: DieReference::DebugInfoRef(DebugInfoOffset(value)) })
             }
             constants::DW_OP_form_tls_address |
-            constants::DW_OP_GNU_push_tls_address => Ok((bytes, Operation::TLS)),
-            constants::DW_OP_call_frame_cfa => Ok((bytes, Operation::CallFrameCFA)),
+            constants::DW_OP_GNU_push_tls_address => Ok(Operation::TLS),
+            constants::DW_OP_call_frame_cfa => Ok(Operation::CallFrameCFA),
             constants::DW_OP_bit_piece => {
-                let (newbytes, size) = parse_unsigned_lebe(bytes)?;
-                let (newbytes, offset) = parse_unsigned_lebe(newbytes)?;
-                Ok((newbytes,
-                    Operation::Piece {
-                        size_in_bits: size,
-                        bit_offset: Some(offset),
-                    }))
+                let size = parse_unsigned_leb(bytes)?;
+                let offset = parse_unsigned_leb(bytes)?;
+                Ok(Operation::Piece {
+                       size_in_bits: size,
+                       bit_offset: Some(offset),
+                   })
             }
             constants::DW_OP_implicit_value => {
-                let (newbytes, data) = parse_length_uleb_value(bytes)?;
-                Ok((newbytes, Operation::ImplicitValue { data: data.into() }))
+                let data = parse_length_uleb_value(bytes)?;
+                Ok(Operation::ImplicitValue { data: data.into() })
             }
-            constants::DW_OP_stack_value => Ok((bytes, Operation::StackValue)),
+            constants::DW_OP_stack_value => Ok(Operation::StackValue),
             constants::DW_OP_implicit_pointer |
             constants::DW_OP_GNU_implicit_pointer => {
-                let (newbytes, value) = parse_offset(bytes, format)?;
-                let (newbytes, byte_offset) = parse_signed_lebe(newbytes)?;
-                Ok((newbytes,
-                    Operation::ImplicitPointer {
-                        value: DebugInfoOffset(value),
-                        byte_offset: byte_offset,
-                    }))
+                let value = parse_offset(bytes, format)?;
+                let byte_offset = parse_signed_leb(bytes)?;
+                Ok(Operation::ImplicitPointer {
+                       value: DebugInfoOffset(value),
+                       byte_offset: byte_offset,
+                   })
             }
             constants::DW_OP_entry_value |
             constants::DW_OP_GNU_entry_value => {
-                let (newbytes, expression) = parse_length_uleb_value(bytes)?;
-                Ok((newbytes, Operation::EntryValue { expression: expression }))
+                let expression = parse_length_uleb_value(bytes)?;
+                Ok(Operation::EntryValue { expression: expression })
             }
 
             _ => Err(Error::InvalidExpression(name)),
@@ -1558,9 +1515,8 @@ impl<'input, Endian> Evaluation<'input, Endian>
                 }
             }
 
-            let (newpc, operation) =
-                Operation::parse(self.pc, self.bytecode, self.address_size, self.format)?;
-            self.pc = newpc;
+            let operation =
+                Operation::parse(&mut self.pc, self.bytecode, self.address_size, self.format)?;
 
             let op_result = self.evaluate_one_operation(&operation)?;
             match op_result {
@@ -1585,12 +1541,10 @@ impl<'input, Endian> Evaluation<'input, Endian>
                                 current_location = Location::Address { address: self.pop()? };
                             }
                         } else if !eof {
-                            let (newpc, operation) = Operation::parse(self.pc,
-                                                                      self.bytecode,
-                                                                      self.address_size,
-                                                                      self.format)?;
-                            self.pc = newpc;
-                            pieceop = operation;
+                            pieceop = Operation::parse(&mut self.pc,
+                                                       self.bytecode,
+                                                       self.address_size,
+                                                       self.format)?;
                         }
                         match pieceop {
                             _ if eof => {
@@ -1716,9 +1670,10 @@ mod tests {
                              address_size: u8,
                              format: Format) {
         let buf = EndianBuf::<LittleEndian>::new(input);
-        let value = Operation::parse(buf, buf, address_size, format);
+        let mut pc = buf;
+        let value = Operation::parse(&mut pc, buf, address_size, format);
         match value {
-            Ok((pc, val)) => {
+            Ok(val) => {
                 assert_eq!(val, *expect);
                 assert_eq!(pc.len(), 0);
             }
@@ -1728,7 +1683,8 @@ mod tests {
 
     fn check_op_parse_failure(input: &[u8], expect: Error, address_size: u8, format: Format) {
         let buf = EndianBuf::<LittleEndian>::new(input);
-        match Operation::parse(buf, buf, address_size, format) {
+        let mut pc = buf;
+        match Operation::parse(&mut pc, buf, address_size, format) {
             Err(x) => {
                 assert_eq!(x, expect);
             }
@@ -2920,8 +2876,8 @@ mod tests {
         check_eval_with_args(&program, Ok(&result), 8, Format::Dwarf64,
                              None, None, None, |eval, result| {
                                  let entry_value = match result {
-                                     EvaluationResult::RequiresEntryValue(expression) => {
-                                         parse_u64(expression).map(|(_, value)| value)?
+                                     EvaluationResult::RequiresEntryValue(mut expression) => {
+                                         parse_u64(&mut expression)?
                                      },
                                      _ => panic!(),
                                  };

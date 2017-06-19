@@ -1,7 +1,7 @@
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
-use parser::{parse_null_terminated_string, parse_initial_length, parse_u16, parse_word, Format,
-             Result, Error};
+use parser::{parse_null_terminated_string, parse_initial_length, parse_u16, parse_word, take,
+             Format, Result, Error};
 use std::ffi;
 use std::marker::PhantomData;
 use std::rc::Rc;
@@ -23,18 +23,18 @@ pub trait LookupParser<'input, Endian>
     /// The type of the produced entry.
     type Entry;
 
-    /// Parse a header from `input`. Returns a tuple of `input` sliced beyond this header and
-    /// all of its entries, `input` sliced to contain just the entries corresponding to this
-    /// header (without the header itself), and the parsed representation of the header itself.
+    /// Parse a header from `input`. Returns a tuple of `input` sliced to contain just the entries
+    /// corresponding to this header (without the header itself), and the parsed representation of
+    /// the header itself.
     #[allow(type_complexity)]
-    fn parse_header(input: EndianBuf<Endian>)
-                    -> Result<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<Self::Header>)>;
+    fn parse_header(input: &mut EndianBuf<'input, Endian>)
+                    -> Result<(EndianBuf<'input, Endian>, Rc<Self::Header>)>;
 
-    /// Parse a single entry from `input`. Returns a tuple of the amount of `input` remaining
-    /// and either a parsed representation of the entry or None if `input` is exhausted.
-    fn parse_entry(input: EndianBuf<'input, Endian>,
+    /// Parse a single entry from `input`. Returns either a parsed representation of the entry
+    /// or None if `input` is exhausted.
+    fn parse_entry(input: &mut EndianBuf<'input, Endian>,
                    header: &Rc<Self::Header>)
-                   -> Result<(EndianBuf<'input, Endian>, Option<Self::Entry>)>;
+                   -> Result<Option<Self::Entry>>;
 }
 
 #[allow(missing_docs)]
@@ -54,7 +54,7 @@ impl<'input, Endian, Parser> DebugLookup<'input, Endian, Parser>
     #[allow(missing_docs)]
     pub fn new(input_buffer: &'input [u8]) -> DebugLookup<'input, Endian, Parser> {
         DebugLookup {
-            input_buffer: EndianBuf(input_buffer, PhantomData),
+            input_buffer: EndianBuf::new(input_buffer),
             phantom: PhantomData,
         }
     }
@@ -99,17 +99,15 @@ impl<'input, Endian, Parser> LookupEntryIter<'input, Endian, Parser>
                 Ok(None)
             } else {
                 // Parse the next header.
-                let (input, set, header) = Parser::parse_header(self.remaining_input)?;
-                self.remaining_input = input;
+                let (set, header) = Parser::parse_header(&mut self.remaining_input)?;
                 self.current_set = set;
                 self.current_header = Some(header);
                 // Header is parsed, go parse the first entry.
                 self.next()
             }
         } else {
-            let (remaining_set, entry) =
-                Parser::parse_entry(self.current_set, self.current_header.as_ref().unwrap())?;
-            self.current_set = remaining_set;
+            let entry = Parser::parse_entry(&mut self.current_set,
+                                            self.current_header.as_ref().unwrap())?;
             match entry {
                 None => self.next(),
                 Some(entry) => Ok(Some(entry)),
@@ -147,9 +145,7 @@ pub trait NamesOrTypesSwitch<'input, Endian>
 
     fn new_entry(offset: u64, name: &'input ffi::CStr, header: &Rc<Self::Header>) -> Self::Entry;
 
-    fn parse_offset(input: EndianBuf<Endian>,
-                    format: Format)
-                    -> Result<(EndianBuf<Endian>, Self::Offset)>;
+    fn parse_offset(input: &mut EndianBuf<Endian>, format: Format) -> Result<Self::Offset>;
 
     fn format_from(header: &Self::Header) -> Format;
 }
@@ -173,43 +169,34 @@ impl<'input, Endian, Switch> LookupParser<'input, Endian> for PubStuffParser<'in
     /// Parse an pubthings set header. Returns a tuple of the remaining pubthings sets, the
     /// pubthings to be parsed for this set, and the newly created PubThingHeader struct.
     #[allow(type_complexity)]
-    fn parse_header(input: EndianBuf<Endian>)
-                    -> Result<(EndianBuf<Endian>, EndianBuf<Endian>, Rc<Self::Header>)> {
-        let (rest, (set_length, format)) = parse_initial_length(input.into())?;
-        let (rest, version) = parse_u16(rest.into())?;
+    fn parse_header(input: &mut EndianBuf<'input, Endian>)
+                    -> Result<(EndianBuf<'input, Endian>, Rc<Self::Header>)> {
+        let (set_length, format) = parse_initial_length(input)?;
+        let rest = &mut take(set_length as usize, input)?;
 
+        let version = parse_u16(rest)?;
         if version != 2 {
             return Err(Error::UnknownVersion);
         }
 
-        let (rest, info_offset) = Switch::parse_offset(rest.into(), format)?;
-        let (rest, info_length) = parse_word(rest.into(), format)?;
+        let info_offset = Switch::parse_offset(rest, format)?;
+        let info_length = parse_word(rest, format)?;
 
-        let header_length = match format {
-            Format::Dwarf32 => 10,
-            Format::Dwarf64 => 18,
-        };
-        let dividing_line: usize = set_length
-            .checked_sub(header_length)
-            .ok_or(Error::BadLength)? as usize;
-
-        Ok((rest.range_from(dividing_line..),
-            rest.range_to(..dividing_line),
-            Switch::new_header(format, set_length, version, info_offset, info_length)))
+        Ok((*rest, Switch::new_header(format, set_length, version, info_offset, info_length)))
     }
 
     /// Parse a single pubthing. Return `None` for the null pubthing, `Some` for an actual pubthing.
-    fn parse_entry(input: EndianBuf<'input, Endian>,
+    fn parse_entry(input: &mut EndianBuf<'input, Endian>,
                    header: &Rc<Self::Header>)
-                   -> Result<(EndianBuf<'input, Endian>, Option<Self::Entry>)> {
-        let (rest, offset) = parse_word(input.into(), Switch::format_from(header))?;
+                   -> Result<Option<Self::Entry>> {
+        let offset = parse_word(input, Switch::format_from(header))?;
 
         if offset == 0 {
-            Ok((EndianBuf::new(&[]), None))
+            *input = EndianBuf::new(&[]);
+            Ok(None)
         } else {
-            let (rest, name) = parse_null_terminated_string(rest.into())?;
-
-            Ok((EndianBuf::new(rest), Some(Switch::new_entry(offset, name, header))))
+            let name = parse_null_terminated_string(input)?;
+            Ok(Some(Switch::new_entry(offset, name, header)))
         }
     }
 }

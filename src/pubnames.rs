@@ -77,9 +77,7 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for NamesSwitch<'input, 
         }
     }
 
-    fn parse_offset(input: EndianBuf<Endian>,
-                    format: Format)
-                    -> Result<(EndianBuf<Endian>, Self::Offset)> {
+    fn parse_offset(input: &mut EndianBuf<Endian>, format: Format) -> Result<Self::Offset> {
         parse_debug_info_offset(input, format)
     }
 

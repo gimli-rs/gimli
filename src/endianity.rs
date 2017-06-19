@@ -1,8 +1,10 @@
 //! Types for compile-time endianity.
 
 use byteorder;
-use parser::{Error, Result};
+use std::cmp;
 use std::fmt::Debug;
+use std::io;
+use std::io::Read;
 use std::marker::PhantomData;
 use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 
@@ -116,15 +118,27 @@ pub type NativeEndian = BigEndian;
 
 /// A `&[u8]` slice with compile-time endianity metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct EndianBuf<'input, Endian>(pub &'input [u8], pub PhantomData<Endian>)
-    where Endian: Endianity;
+pub struct EndianBuf<'input, Endian>
+    where Endian: Endianity
+{
+    buf: &'input [u8],
+    endian: PhantomData<Endian>,
+}
 
 impl<'input, Endian> EndianBuf<'input, Endian>
     where Endian: Endianity
 {
     /// Construct a new `EndianBuf` with the given buffer.
     pub fn new(buf: &'input [u8]) -> EndianBuf<'input, Endian> {
-        EndianBuf(buf, PhantomData)
+        EndianBuf {
+            buf,
+            endian: PhantomData,
+        }
+    }
+
+    /// Return a reference to the raw buffer.
+    pub fn buf(&self) -> &'input [u8] {
+        self.buf
     }
 
     /// Split the buffer in two at the given index, resulting in the tuple where
@@ -135,17 +149,20 @@ impl<'input, Endian> EndianBuf<'input, Endian>
         (self.range_to(..idx), self.range_from(idx..))
     }
 
-    /// The same as `split_at`, but returns a `Result` rather than panicking
-    /// when the index is out of bounds.
+    /// Find the first occurence of a byte in the buffer, and return its index.
     #[inline]
-    pub fn try_split_at(&self,
-                        idx: usize)
-                        -> Result<(EndianBuf<'input, Endian>, EndianBuf<'input, Endian>)> {
-        if idx > self.len() {
-            Err(Error::BadLength)
-        } else {
-            Ok(self.split_at(idx))
-        }
+    pub fn find(&self, byte: u8) -> Option<usize> {
+        self.buf.iter().position(|ch| *ch == byte)
+    }
+
+    /// Return the offset of the start of the buffer relative to the start
+    /// of the given buffer.
+    pub fn offset_from(&self, base: EndianBuf<'input, Endian>) -> usize {
+        let base_ptr = base.buf.as_ptr() as *const u8 as usize;
+        let ptr = self.buf.as_ptr() as *const u8 as usize;
+        debug_assert!(base_ptr <= ptr);
+        debug_assert!(ptr + self.buf.len() <= base_ptr + base.buf.len());
+        ptr - base_ptr
     }
 }
 
@@ -170,7 +187,10 @@ impl<'input, Endian> EndianBuf<'input, Endian>
     ///            EndianBuf::new(&buf[1..3]));
     /// ```
     pub fn range(&self, idx: Range<usize>) -> EndianBuf<'input, Endian> {
-        EndianBuf(&self.0[idx], self.1)
+        EndianBuf {
+            buf: &self.buf[idx],
+            endian: self.endian,
+        }
     }
 
     /// Take the given `start..` range of the underlying buffer and return a new
@@ -185,7 +205,10 @@ impl<'input, Endian> EndianBuf<'input, Endian>
     ///            EndianBuf::new(&buf[2..]));
     /// ```
     pub fn range_from(&self, idx: RangeFrom<usize>) -> EndianBuf<'input, Endian> {
-        EndianBuf(&self.0[idx], self.1)
+        EndianBuf {
+            buf: &self.buf[idx],
+            endian: self.endian,
+        }
     }
 
     /// Take the given `..end` range of the underlying buffer and return a new
@@ -200,7 +223,10 @@ impl<'input, Endian> EndianBuf<'input, Endian>
     ///            EndianBuf::new(&buf[..3]));
     /// ```
     pub fn range_to(&self, idx: RangeTo<usize>) -> EndianBuf<'input, Endian> {
-        EndianBuf(&self.0[idx], self.1)
+        EndianBuf {
+            buf: &self.buf[idx],
+            endian: self.endian,
+        }
     }
 }
 
@@ -209,7 +235,7 @@ impl<'input, Endian> Index<usize> for EndianBuf<'input, Endian>
 {
     type Output = u8;
     fn index(&self, idx: usize) -> &Self::Output {
-        &self.0[idx]
+        &self.buf[idx]
     }
 }
 
@@ -218,7 +244,7 @@ impl<'input, Endian> Index<RangeFrom<usize>> for EndianBuf<'input, Endian>
 {
     type Output = [u8];
     fn index(&self, idx: RangeFrom<usize>) -> &Self::Output {
-        &self.0[idx]
+        &self.buf[idx]
     }
 }
 
@@ -227,7 +253,7 @@ impl<'input, Endian> Deref for EndianBuf<'input, Endian>
 {
     type Target = [u8];
     fn deref(&self) -> &Self::Target {
-        self.0
+        self.buf
     }
 }
 
@@ -235,14 +261,24 @@ impl<'input, Endian> Into<&'input [u8]> for EndianBuf<'input, Endian>
     where Endian: Endianity
 {
     fn into(self) -> &'input [u8] {
-        self.0
+        self.buf
+    }
+}
+
+impl<'input, Endian> Read for EndianBuf<'input, Endian>
+    where Endian: Endianity
+{
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let len = cmp::min(buf.len(), self.buf.len());
+        buf[..len].copy_from_slice(&self.buf[..len]);
+        self.buf = &self.buf[len..];
+        Ok(len)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parser::Error;
 
     #[test]
     fn test_endian_buf_split_at() {
@@ -258,20 +294,5 @@ mod tests {
         let buf = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
         let eb = EndianBuf::<NativeEndian>::new(&buf);
         eb.split_at(30);
-    }
-
-    #[test]
-    fn test_endian_buf_try_split_at() {
-        let buf = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
-        let eb = EndianBuf::<NativeEndian>::new(&buf);
-        assert_eq!(eb.try_split_at(3),
-                   Ok((EndianBuf::new(&buf[..3]), EndianBuf::new(&buf[3..]))));
-    }
-
-    #[test]
-    fn test_endian_buf_try_split_at_out_of_bounds() {
-        let buf = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
-        let eb = EndianBuf::<NativeEndian>::new(&buf);
-        assert_eq!(Err(Error::BadLength), eb.try_split_at(30));
     }
 }

@@ -258,166 +258,169 @@ pub type Result<T> = result::Result<T, Error>;
 /// Parse a `u8` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_u8(input: &[u8]) -> Result<(&[u8], u8)> {
+pub fn parse_u8<Endian>(input: &mut EndianBuf<Endian>) -> Result<u8>
+    where Endian: Endianity
+{
     if input.is_empty() {
         Err(Error::UnexpectedEof)
     } else {
-        Ok((&input[1..], input[0]))
+        let val = input[0];
+        *input = input.range_from(1..);
+        Ok(val)
     }
 }
 
 /// Parse a `i8` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_i8(input: &[u8]) -> Result<(&[u8], i8)> {
+pub fn parse_i8<Endian>(input: &mut EndianBuf<Endian>) -> Result<i8>
+    where Endian: Endianity
+{
     if input.is_empty() {
         Err(Error::UnexpectedEof)
     } else {
-        Ok((&input[1..], input[0] as i8))
+        let val = input[0] as i8;
+        *input = input.range_from(1..);
+        Ok(val)
     }
 }
 
 /// Parse a `u16` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_u16<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u16)>
+pub fn parse_u16<Endian>(input: &mut EndianBuf<Endian>) -> Result<u16>
     where Endian: Endianity
 {
     if input.len() < 2 {
         Err(Error::UnexpectedEof)
     } else {
-        Ok((input.range_from(2..), Endian::read_u16(&input)))
+        let val = Endian::read_u16(&input);
+        *input = input.range_from(2..);
+        Ok(val)
     }
 }
 
 /// Parse a `i16` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_i16<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, i16)>
+pub fn parse_i16<Endian>(input: &mut EndianBuf<Endian>) -> Result<i16>
     where Endian: Endianity
 {
     if input.len() < 2 {
         Err(Error::UnexpectedEof)
     } else {
-        Ok((input.range_from(2..), Endian::read_i16(&input)))
+        let val = Endian::read_i16(&input);
+        *input = input.range_from(2..);
+        Ok(val)
     }
 }
 
 /// Parse a `u32` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_u32<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u32)>
+pub fn parse_u32<Endian>(input: &mut EndianBuf<Endian>) -> Result<u32>
     where Endian: Endianity
 {
     if input.len() < 4 {
         Err(Error::UnexpectedEof)
     } else {
-        Ok((input.range_from(4..), Endian::read_u32(&input)))
+        let val = Endian::read_u32(&input);
+        *input = input.range_from(4..);
+        Ok(val)
     }
 }
 
 /// Parse a `i32` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_i32<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, i32)>
+pub fn parse_i32<Endian>(input: &mut EndianBuf<Endian>) -> Result<i32>
     where Endian: Endianity
 {
     if input.len() < 4 {
         Err(Error::UnexpectedEof)
     } else {
-        Ok((input.range_from(4..), Endian::read_i32(&input)))
+        let val = Endian::read_i32(&input);
+        *input = input.range_from(4..);
+        Ok(val)
     }
 }
 
 /// Parse a `u64` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_u64<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u64)>
+pub fn parse_u64<Endian>(input: &mut EndianBuf<Endian>) -> Result<u64>
     where Endian: Endianity
 {
     if input.len() < 8 {
         Err(Error::UnexpectedEof)
     } else {
-        Ok((input.range_from(8..), Endian::read_u64(&input)))
+        let val = Endian::read_u64(&input);
+        *input = input.range_from(8..);
+        Ok(val)
     }
 }
 
 /// Parse a `i64` from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_i64<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, i64)>
+pub fn parse_i64<Endian>(input: &mut EndianBuf<Endian>) -> Result<i64>
     where Endian: Endianity
 {
     if input.len() < 8 {
         Err(Error::UnexpectedEof)
     } else {
-        Ok((input.range_from(8..), Endian::read_i64(&input)))
+        let val = Endian::read_i64(&input);
+        *input = input.range_from(8..);
+        Ok(val)
     }
 }
 
-/// Like `parse_u8` but takes and returns an `EndianBuf` for convenience.
+/// Parse an unsigned LEB128 encoded integer.
 #[doc(hidden)]
 #[inline]
-pub fn parse_u8e<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u8)>
+pub fn parse_unsigned_leb<Endian>(input: &mut EndianBuf<Endian>) -> Result<u64>
     where Endian: Endianity
 {
-    let (bytes, value) = parse_u8(bytes.into())?;
-    Ok((EndianBuf::new(bytes), value))
+    match leb128::read::unsigned(input) {
+        Ok(val) => Ok(val),
+        Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
+            Err(Error::UnexpectedEof)
+        }
+        Err(_) => Err(Error::BadUnsignedLeb128),
+    }
 }
 
-/// Like `parse_i8` but takes and returns an `EndianBuf` for convenience.
+/// Parse an unsigned LEB128 encoded integer return it as a `u8`.
 #[doc(hidden)]
 #[inline]
-pub fn parse_i8e<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, i8)>
+pub fn parse_unsigned_leb_as_u8<Endian>(input: &mut EndianBuf<Endian>) -> Result<u8>
     where Endian: Endianity
 {
-    let (bytes, value) = parse_i8(bytes.into())?;
-    Ok((EndianBuf::new(bytes), value))
+    parse_unsigned_leb(input).and_then(u64_to_u8)
 }
 
-/// Like `parse_unsigned_leb` but takes and returns an `EndianBuf` for convenience.
+/// Parse a signed LEB128 encoded integer.
 #[doc(hidden)]
 #[inline]
-pub fn parse_unsigned_lebe<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u64)>
+pub fn parse_signed_leb<Endian>(input: &mut EndianBuf<Endian>) -> Result<i64>
     where Endian: Endianity
 {
-    let (bytes, value) = parse_unsigned_leb(bytes.into())?;
-    Ok((EndianBuf::new(bytes), value))
-}
-
-/// Like `parse_unsigned_leb` but takes and returns an `EndianBuf` for convenience.
-#[doc(hidden)]
-#[inline]
-pub fn parse_unsigned_leb_as_u8e<Endian>(bytes: EndianBuf<Endian>)
-                                         -> Result<(EndianBuf<Endian>, u8)>
-    where Endian: Endianity
-{
-    let (bytes, value) = parse_unsigned_leb(bytes.into())?;
-    let value = u64_to_u8(value)?;
-    Ok((EndianBuf::new(bytes), value))
-}
-
-/// Like `parse_signed_leb` but takes and returns an `EndianBuf` for convenience.
-#[doc(hidden)]
-#[inline]
-pub fn parse_signed_lebe<Endian>(bytes: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, i64)>
-    where Endian: Endianity
-{
-    let (bytes, value) = parse_signed_leb(bytes.into())?;
-    Ok((EndianBuf::new(bytes), value))
+    match leb128::read::signed(input) {
+        Ok(val) => Ok(val),
+        Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
+            Err(Error::UnexpectedEof)
+        }
+        Err(_) => Err(Error::BadSignedLeb128),
+    }
 }
 
 /// Parse a `u32` from the input and return it as a `u64`.
 #[doc(hidden)]
 #[inline]
-pub fn parse_u32_as_u64<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u64)>
+pub fn parse_u32_as_u64<Endian>(input: &mut EndianBuf<Endian>) -> Result<u64>
     where Endian: Endianity
 {
-    if input.len() < 4 {
-        Err(Error::UnexpectedEof)
-    } else {
-        Ok((input.range_from(4..), Endian::read_u32(&input) as u64))
-    }
+    parse_u32(input).map(|v| v as u64)
 }
 
 /// Convert a `u64` to a `usize` and return it.
@@ -447,31 +450,25 @@ pub fn u64_to_u8(x: u64) -> Result<u8> {
 /// Parse a `u64` from the input, and return it as a `usize`.
 #[doc(hidden)]
 #[inline]
-pub fn parse_u64_as_offset<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, usize)>
+pub fn parse_u64_as_offset<Endian>(input: &mut EndianBuf<Endian>) -> Result<usize>
     where Endian: Endianity
 {
-    let (rest, offset) = parse_u64(input)?;
-    let offset = u64_to_offset(offset)?;
-    Ok((rest, offset))
+    parse_u64(input).and_then(u64_to_offset)
 }
 
 /// Parse an unsigned LEB128 encoded integer from the input, and return it as a `usize`.
 #[doc(hidden)]
 #[inline]
-pub fn parse_uleb_as_offset<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, usize)>
+pub fn parse_uleb_as_offset<Endian>(input: &mut EndianBuf<Endian>) -> Result<usize>
     where Endian: Endianity
 {
-    let (rest, offset) = parse_unsigned_lebe(input)?;
-    let offset = u64_to_offset(offset)?;
-    Ok((rest, offset))
+    parse_unsigned_leb(input).and_then(u64_to_offset)
 }
 
 /// Parse a word-sized integer according to the DWARF format, and return it as a `u64`.
 #[doc(hidden)]
 #[inline]
-pub fn parse_word<Endian>(input: EndianBuf<Endian>,
-                          format: Format)
-                          -> Result<(EndianBuf<Endian>, u64)>
+pub fn parse_word<Endian>(input: &mut EndianBuf<Endian>, format: Format) -> Result<u64>
     where Endian: Endianity
 {
     match format {
@@ -483,65 +480,54 @@ pub fn parse_word<Endian>(input: EndianBuf<Endian>,
 /// Parse a word-sized integer according to the DWARF format, and return it as a `usize`.
 #[doc(hidden)]
 #[inline]
-pub fn parse_offset<Endian>(input: EndianBuf<Endian>,
-                            format: Format)
-                            -> Result<(EndianBuf<Endian>, usize)>
+pub fn parse_offset<Endian>(input: &mut EndianBuf<Endian>, format: Format) -> Result<usize>
     where Endian: Endianity
 {
-    let (rest, offset) = parse_word(input, format)?;
-    let offset = u64_to_offset(offset)?;
-    Ok((rest, offset))
+    parse_word(input, format).and_then(u64_to_offset)
 }
 
 /// Parse an address-sized integer, and return it as a `u64`.
 #[doc(hidden)]
 #[inline]
-pub fn parse_address<Endian>(input: EndianBuf<Endian>,
-                             address_size: u8)
-                             -> Result<(EndianBuf<Endian>, u64)>
+pub fn parse_address<Endian>(input: &mut EndianBuf<Endian>, address_size: u8) -> Result<u64>
     where Endian: Endianity
 {
-    if input.len() < address_size as usize {
-        Err(Error::UnexpectedEof)
-    } else {
-        let address = match address_size {
-            8 => Endian::read_u64(&input),
-            4 => Endian::read_u32(&input) as u64,
-            2 => Endian::read_u16(&input) as u64,
-            1 => input[0] as u64,
-            otherwise => return Err(Error::UnsupportedAddressSize(otherwise)),
-        };
-        Ok((input.range_from(address_size as usize..), address))
+    match address_size {
+        8 => parse_u64(input),
+        4 => parse_u32(input).map(|v| v as u64),
+        2 => parse_u16(input).map(|v| v as u64),
+        1 => parse_u8(input).map(|v| v as u64),
+        otherwise => return Err(Error::UnsupportedAddressSize(otherwise)),
     }
 }
 
 /// Parse an address-sized integer, and return it as a `usize`.
 #[doc(hidden)]
 #[inline]
-pub fn parse_address_as_offset<Endian>(input: EndianBuf<Endian>,
+pub fn parse_address_as_offset<Endian>(input: &mut EndianBuf<Endian>,
                                        address_size: u8)
-                                       -> Result<(EndianBuf<Endian>, usize)>
+                                       -> Result<usize>
     where Endian: Endianity
 {
-    let (rest, offset) = parse_address(input, address_size)?;
-    let offset = u64_to_offset(offset)?;
-    Ok((rest, offset))
+    parse_address(input, address_size).and_then(u64_to_offset)
 }
 
 /// Parse a null-terminated slice from the input.
 #[doc(hidden)]
 #[inline]
-pub fn parse_null_terminated_string(input: &[u8]) -> Result<(&[u8], &ffi::CStr)> {
-    let null_idx = input.iter().position(|ch| *ch == 0);
-
-    if let Some(idx) = null_idx {
+pub fn parse_null_terminated_string<'input, Endian>(input: &mut EndianBuf<'input, Endian>)
+                                                    -> Result<&'input ffi::CStr>
+    where Endian: Endianity
+{
+    if let Some(idx) = input.find(0) {
+        let slice = &take(idx + 1, input)?;
         let cstr = unsafe {
             // It is safe to use the unchecked variant here because we know we
             // grabbed the index of the first null byte in the input and
             // therefore there can't be any interior null bytes in this slice.
-            ffi::CStr::from_bytes_with_nul_unchecked(&input[0..idx + 1])
+            ffi::CStr::from_bytes_with_nul_unchecked(slice.buf())
         };
-        Ok((&input[idx + 1..], cstr))
+        Ok(cstr)
     } else {
         Err(Error::UnexpectedEof)
     }
@@ -550,15 +536,14 @@ pub fn parse_null_terminated_string(input: &[u8]) -> Result<(&[u8], &ffi::CStr)>
 /// Parse a `DW_EH_PE_*` pointer encoding.
 #[doc(hidden)]
 #[inline]
-pub fn parse_pointer_encoding<Endian>(input: EndianBuf<Endian>)
-                                      -> Result<(EndianBuf<Endian>, constants::DwEhPe)>
+pub fn parse_pointer_encoding<Endian>(input: &mut EndianBuf<Endian>) -> Result<constants::DwEhPe>
     where Endian: Endianity
 {
-    let (rest, eh_pe) = parse_u8e(input)?;
+    let eh_pe = parse_u8(input)?;
     let eh_pe = constants::DwEhPe(eh_pe);
 
     if eh_pe.is_valid_encoding() {
-        Ok((rest, eh_pe))
+        Ok(eh_pe)
     } else {
         Err(Error::UnknownPointerEncoding)
     }
@@ -604,19 +589,18 @@ impl Pointer {
     }
 }
 
-pub fn parse_encoded_pointer<'bases, 'input, Endian>
-    (encoding: constants::DwEhPe,
-     bases: &'bases BaseAddresses,
-     address_size: u8,
-     section: EndianBuf<'input, Endian>,
-     input: EndianBuf<'input, Endian>)
-     -> Result<(EndianBuf<'input, Endian>, Pointer)>
+pub fn parse_encoded_pointer<'bases, 'input, Endian>(encoding: constants::DwEhPe,
+                                                     bases: &'bases BaseAddresses,
+                                                     address_size: u8,
+                                                     section: EndianBuf<'input, Endian>,
+                                                     input: &mut EndianBuf<'input, Endian>)
+                                                     -> Result<Pointer>
     where Endian: Endianity
 {
     fn parse_data<Endian>(encoding: constants::DwEhPe,
                           address_size: u8,
-                          input: EndianBuf<Endian>)
-                          -> Result<(EndianBuf<Endian>, u64)>
+                          input: &mut EndianBuf<Endian>)
+                          -> Result<u64>
         where Endian: Endianity
     {
         // We should never be called with an invalid encoding: parse_encoded_pointer
@@ -625,47 +609,20 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>
 
         match encoding.format() {
             // Unsigned variants.
-            constants::DW_EH_PE_absptr => {
-                let (rest, a) = parse_address(input, address_size)?;
-                Ok((rest, a))
-            }
-            constants::DW_EH_PE_uleb128 => {
-                let (rest, a) = parse_unsigned_lebe(input)?;
-                Ok((rest, a))
-            }
-            constants::DW_EH_PE_udata2 => {
-                let (rest, a) = parse_u16(input)?;
-                Ok((rest, a as u64))
-            }
-            constants::DW_EH_PE_udata4 => {
-                let (rest, a) = parse_u32(input)?;
-                Ok((rest, a as u64))
-            }
-            constants::DW_EH_PE_udata8 => {
-                let (rest, a) = parse_u64(input)?;
-                Ok((rest, a))
-            }
+            constants::DW_EH_PE_absptr => parse_address(input, address_size),
+            constants::DW_EH_PE_uleb128 => parse_unsigned_leb(input),
+            constants::DW_EH_PE_udata2 => parse_u16(input).map(|a| a as u64),
+            constants::DW_EH_PE_udata4 => parse_u32(input).map(|a| a as u64),
+            constants::DW_EH_PE_udata8 => parse_u64(input),
 
             // Signed variants. Here we sign extend the values (happens by
             // default when casting a signed integer to a larger range integer
             // in Rust), return them as u64, and rely on wrapping addition to do
             // the right thing when adding these offsets to their bases.
-            constants::DW_EH_PE_sleb128 => {
-                let (rest, a) = parse_signed_lebe(input)?;
-                Ok((rest, a as u64))
-            }
-            constants::DW_EH_PE_sdata2 => {
-                let (rest, a) = parse_i16(input)?;
-                Ok((rest, a as u64))
-            }
-            constants::DW_EH_PE_sdata4 => {
-                let (rest, a) = parse_i32(input)?;
-                Ok((rest, a as u64))
-            }
-            constants::DW_EH_PE_sdata8 => {
-                let (rest, a) = parse_i64(input)?;
-                Ok((rest, a as u64))
-            }
+            constants::DW_EH_PE_sleb128 => parse_signed_leb(input).map(|a| a as u64),
+            constants::DW_EH_PE_sdata2 => parse_i16(input).map(|a| a as u64),
+            constants::DW_EH_PE_sdata4 => parse_i32(input).map(|a| a as u64),
+            constants::DW_EH_PE_sdata8 => parse_i64(input).map(|a| a as u64),
 
             // That was all of the valid encoding formats.
             _ => unreachable!(),
@@ -677,37 +634,37 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>
     }
 
     if encoding == constants::DW_EH_PE_omit {
-        return Ok((input, Pointer::Direct(0)));
+        return Ok(Pointer::Direct(0));
     }
 
     match encoding.application() {
         constants::DW_EH_PE_absptr => {
-            let (rest, addr) = parse_data(encoding, address_size, input)?;
-            Ok((rest, Pointer::new(encoding, addr.into())))
+            let addr = parse_data(encoding, address_size, input)?;
+            Ok(Pointer::new(encoding, addr.into()))
         }
         constants::DW_EH_PE_pcrel => {
             if let Some(cfi) = bases.cfi {
-                let (rest, offset) = parse_data(encoding, address_size, input)?;
-                let offset_from_section = input.as_ptr() as usize - section.as_ptr() as usize;
+                let offset_from_section = input.offset_from(section);
+                let offset = parse_data(encoding, address_size, input)?;
                 let p = cfi.wrapping_add(offset_from_section as u64)
                     .wrapping_add(offset);
-                Ok((rest, Pointer::new(encoding, p)))
+                Ok(Pointer::new(encoding, p))
             } else {
                 Err(Error::CfiRelativePointerButCfiBaseIsUndefined)
             }
         }
         constants::DW_EH_PE_textrel => {
             if let Some(text) = bases.text {
-                let (rest, offset) = parse_data(encoding, address_size, input)?;
-                Ok((rest, Pointer::new(encoding, text.wrapping_add(offset))))
+                let offset = parse_data(encoding, address_size, input)?;
+                Ok(Pointer::new(encoding, text.wrapping_add(offset)))
             } else {
                 Err(Error::TextRelativePointerButTextBaseIsUndefined)
             }
         }
         constants::DW_EH_PE_datarel => {
             if let Some(data) = bases.data {
-                let (rest, offset) = parse_data(encoding, address_size, input)?;
-                Ok((rest, Pointer::new(encoding, data.wrapping_add(offset))))
+                let offset = parse_data(encoding, address_size, input)?;
+                Ok(Pointer::new(encoding, data.wrapping_add(offset)))
             } else {
                 Err(Error::DataRelativePointerButDataBaseIsUndefined)
             }
@@ -715,8 +672,8 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>
         constants::DW_EH_PE_funcrel => {
             let func = bases.func.borrow();
             if let Some(func) = *func {
-                let (rest, offset) = parse_data(encoding, address_size, input)?;
-                Ok((rest, Pointer::new(encoding, func.wrapping_add(offset))))
+                let offset = parse_data(encoding, address_size, input)?;
+                Ok(Pointer::new(encoding, func.wrapping_add(offset)))
             } else {
                 Err(Error::FuncRelativePointerInBadContext)
             }
@@ -729,30 +686,6 @@ pub fn parse_encoded_pointer<'bases, 'input, Endian>
 /// An offset into the `.debug_macinfo` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugMacinfoOffset(pub usize);
-
-/// Parse an unsigned LEB128 encoded integer.
-#[inline]
-pub fn parse_unsigned_leb(mut input: &[u8]) -> Result<(&[u8], u64)> {
-    match leb128::read::unsigned(&mut input) {
-        Ok(val) => Ok((input, val)),
-        Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
-            Err(Error::UnexpectedEof)
-        }
-        Err(_) => Err(Error::BadUnsignedLeb128),
-    }
-}
-
-/// Parse a signed LEB128 encoded integer.
-#[inline]
-pub fn parse_signed_leb(mut input: &[u8]) -> Result<(&[u8], i64)> {
-    match leb128::read::signed(&mut input) {
-        Ok(val) => Ok((input, val)),
-        Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
-            Err(Error::UnexpectedEof)
-        }
-        Err(_) => Err(Error::BadSignedLeb128),
-    }
-}
 
 /// Whether the format of a compilation unit is 32- or 64-bit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -769,39 +702,40 @@ const DWARF_64_INITIAL_UNIT_LENGTH: u64 = 0xffffffff;
 
 /// Parse the compilation unit header's length.
 #[doc(hidden)]
-pub fn parse_initial_length<Endian>(input: EndianBuf<Endian>)
-                                    -> Result<(EndianBuf<Endian>, (u64, Format))>
+pub fn parse_initial_length<Endian>(input: &mut EndianBuf<Endian>) -> Result<(u64, Format)>
     where Endian: Endianity
 {
-    let (rest, val) = parse_u32_as_u64(input)?;
+    let val = parse_u32_as_u64(input)?;
     if val < MAX_DWARF_32_UNIT_LENGTH {
-        Ok((rest, (val, Format::Dwarf32)))
+        Ok((val, Format::Dwarf32))
     } else if val == DWARF_64_INITIAL_UNIT_LENGTH {
-        let (rest, val) = parse_u64(rest)?;
-        Ok((rest, (val, Format::Dwarf64)))
+        let val = parse_u64(input)?;
+        Ok((val, Format::Dwarf64))
     } else {
         Err(Error::UnknownReservedLength)
     }
 }
 
 /// Parse the size of addresses (in bytes) on the target architecture.
-pub fn parse_address_size<Endian>(input: EndianBuf<Endian>) -> Result<(EndianBuf<Endian>, u8)>
+pub fn parse_address_size<Endian>(input: &mut EndianBuf<Endian>) -> Result<u8>
     where Endian: Endianity
 {
-    parse_u8(input.into()).map(|(r, u)| (EndianBuf::new(r), u))
+    parse_u8(input)
 }
 
 /// Take a slice of size `bytes` from the input.
 #[inline]
-pub fn take<Endian>(bytes: usize,
-                    input: EndianBuf<Endian>)
-                    -> Result<(EndianBuf<Endian>, EndianBuf<Endian>)>
+pub fn take<'input, Endian>(bytes: usize,
+                            input: &mut EndianBuf<'input, Endian>)
+                            -> Result<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     if input.len() < bytes {
         Err(Error::UnexpectedEof)
     } else {
-        Ok((input.range_from(bytes..), input.range_to(..bytes)))
+        let val = input.range_to(..bytes);
+        *input = input.range_from(bytes..);
+        Ok(val)
     }
 }
 
@@ -809,12 +743,12 @@ pub fn take<Endian>(bytes: usize,
 /// that many bytes from the input.  These bytes are returned as the
 /// second element of the result tuple.
 #[doc(hidden)]
-pub fn parse_length_uleb_value<Endian>(input: EndianBuf<Endian>)
-                                       -> Result<(EndianBuf<Endian>, EndianBuf<Endian>)>
+pub fn parse_length_uleb_value<'input, Endian>(input: &mut EndianBuf<'input, Endian>)
+                                               -> Result<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
-    let (rest, len) = parse_unsigned_leb(input.into())?;
-    take(len as usize, EndianBuf::new(rest))
+    let len = parse_unsigned_leb(input)?;
+    take(len as usize, input)
 }
 
 #[cfg(test)]
@@ -834,9 +768,10 @@ mod tests {
         let section = Section::with_endian(Endian::Little).L32(0x78563412);
         let buf = section.get_contents().unwrap();
 
-        match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
-            Ok((rest, (length, format))) => {
-                assert_eq!(rest.len(), 0);
+        let input = &mut EndianBuf::<LittleEndian>::new(&buf);
+        match parse_initial_length(input) {
+            Ok((length, format)) => {
+                assert_eq!(input.len(), 0);
                 assert_eq!(format, Format::Dwarf32);
                 assert_eq!(0x78563412, length);
             }
@@ -853,9 +788,10 @@ mod tests {
             .L64(0xffdebc9a78563412);
         let buf = section.get_contents().unwrap();
 
-        match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
-            Ok((rest, (length, format))) => {
-                assert_eq!(rest.len(), 0);
+        let input = &mut EndianBuf::<LittleEndian>::new(&buf);
+        match parse_initial_length(input) {
+            Ok((length, format)) => {
+                assert_eq!(input.len(), 0);
                 assert_eq!(format, Format::Dwarf64);
                 assert_eq!(0xffdebc9a78563412, length);
             }
@@ -868,7 +804,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little).L32(0xfffffffe);
         let buf = section.get_contents().unwrap();
 
-        match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
+        match parse_initial_length(&mut EndianBuf::<LittleEndian>::new(&buf)) {
             Err(Error::UnknownReservedLength) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -878,7 +814,7 @@ mod tests {
     fn test_parse_initial_length_incomplete() {
         let buf = [0xff, 0xff, 0xff]; // Need at least 4 bytes.
 
-        match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
+        match parse_initial_length(&mut EndianBuf::<LittleEndian>::new(&buf)) {
             Err(Error::UnexpectedEof) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -893,7 +829,7 @@ mod tests {
             .L32(0x78563412);
         let buf = section.get_contents().unwrap();
 
-        match parse_initial_length(EndianBuf::<LittleEndian>::new(&buf)) {
+        match parse_initial_length(&mut EndianBuf::<LittleEndian>::new(&buf)) {
             Err(Error::UnexpectedEof) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -904,9 +840,10 @@ mod tests {
         let section = Section::with_endian(Endian::Little).L32(0x01234567);
         let buf = section.get_contents().unwrap();
 
-        match parse_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf32) {
-            Ok((rest, val)) => {
-                assert_eq!(rest.len(), 0);
+        let input = &mut EndianBuf::<LittleEndian>::new(&buf);
+        match parse_offset(input, Format::Dwarf32) {
+            Ok(val) => {
+                assert_eq!(input.len(), 0);
                 assert_eq!(val, 0x01234567);
             }
             otherwise => panic!("Unexpected result: {:?}", otherwise),
@@ -918,9 +855,10 @@ mod tests {
         let section = Section::with_endian(Endian::Little).L64(0x01234567);
         let buf = section.get_contents().unwrap();
 
-        match parse_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
-            Ok((rest, val)) => {
-                assert_eq!(rest.len(), 0);
+        let input = &mut EndianBuf::<LittleEndian>::new(&buf);
+        match parse_offset(input, Format::Dwarf64) {
+            Ok(val) => {
+                assert_eq!(input.len(), 0);
                 assert_eq!(val, 0x01234567);
             }
             otherwise => panic!("Unexpected result: {:?}", otherwise),
@@ -933,9 +871,10 @@ mod tests {
         let section = Section::with_endian(Endian::Little).L64(0x0123456789abcdef);
         let buf = section.get_contents().unwrap();
 
-        match parse_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
-            Ok((rest, val)) => {
-                assert_eq!(rest.len(), 0);
+        let input = &mut EndianBuf::<LittleEndian>::new(&buf);
+        match parse_offset(input, Format::Dwarf64) {
+            Ok(val) => {
+                assert_eq!(input.len(), 0);
                 assert_eq!(val, 0x0123456789abcdef);
             }
             otherwise => panic!("Unexpected result: {:?}", otherwise),
@@ -958,8 +897,8 @@ mod tests {
     fn test_parse_address_size_ok() {
         let buf = [0x04];
 
-        match parse_address_size(EndianBuf::<LittleEndian>::new(&buf)) {
-            Ok((_, val)) => assert_eq!(val, 4),
+        match parse_address_size(&mut EndianBuf::<LittleEndian>::new(&buf)) {
+            Ok(val) => assert_eq!(val, 4),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
@@ -970,9 +909,9 @@ mod tests {
         let expected = constants::DwEhPe(constants::DW_EH_PE_uleb128.0 |
                                          constants::DW_EH_PE_pcrel.0);
         let input = [expected.0, 1, 2, 3, 4];
-        let input = EndianBuf::<NativeEndian>::new(&input);
-        assert_eq!(Ok((EndianBuf::new(&[1, 2, 3, 4]), expected)),
-                   parse_pointer_encoding(input));
+        let input = &mut EndianBuf::<NativeEndian>::new(&input);
+        assert_eq!(parse_pointer_encoding(input), Ok(expected));
+        assert_eq!(*input, EndianBuf::new(&[1, 2, 3, 4]));
     }
 
     #[test]
@@ -981,7 +920,7 @@ mod tests {
         let expected = constants::DwEhPe((constants::DW_EH_PE_sdata8.0 + 1) |
                                          constants::DW_EH_PE_pcrel.0);
         let input = [expected.0, 1, 2, 3, 4];
-        let input = EndianBuf::<NativeEndian>::new(&input);
+        let input = &mut EndianBuf::<NativeEndian>::new(&input);
         assert_eq!(Err(Error::UnknownPointerEncoding),
                    parse_pointer_encoding(input));
     }
@@ -998,9 +937,11 @@ mod tests {
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0xf00df00d))));
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
+                   Ok(Pointer::Direct(0xf00df00d)));
+        assert_eq!(rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -1018,13 +959,11 @@ mod tests {
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input.range_from(0x10..);
 
-        assert_eq!(parse_encoded_pointer(encoding,
-                                         &bases,
-                                         address_size,
-                                         input,
-                                         input.range_from(0x10..)),
-                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x111))));
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
+                   Ok(Pointer::Direct(0x111)));
+        assert_eq!(rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -1036,8 +975,9 @@ mod tests {
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
                    Err(Error::CfiRelativePointerButCfiBaseIsUndefined));
     }
 
@@ -1055,9 +995,11 @@ mod tests {
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x11))));
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
+                   Ok(Pointer::Direct(0x11)));
+        assert_eq!(rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -1069,8 +1011,9 @@ mod tests {
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
                    Err(Error::TextRelativePointerButTextBaseIsUndefined));
     }
 
@@ -1088,9 +1031,11 @@ mod tests {
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x11))));
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
+                   Ok(Pointer::Direct(0x11)));
+        assert_eq!(rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -1102,8 +1047,9 @@ mod tests {
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
                    Err(Error::DataRelativePointerButDataBaseIsUndefined));
     }
 
@@ -1122,9 +1068,11 @@ mod tests {
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x11))));
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
+                   Ok(Pointer::Direct(0x11)));
+        assert_eq!(rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -1136,8 +1084,9 @@ mod tests {
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
                    Err(Error::FuncRelativePointerInBadContext));
     }
 
@@ -1154,9 +1103,11 @@ mod tests {
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x123456))));
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
+                   Ok(Pointer::Direct(0x123456)));
+        assert_eq!(rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -1172,9 +1123,11 @@ mod tests {
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x1234))));
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
+                   Ok(Pointer::Direct(0x1234)));
+        assert_eq!(rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -1190,9 +1143,11 @@ mod tests {
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x12345678))));
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
+                   Ok(Pointer::Direct(0x12345678)));
+        assert_eq!(rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -1208,9 +1163,11 @@ mod tests {
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x1234567812345678))));
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
+                   Ok(Pointer::Direct(0x1234567812345678)));
+        assert_eq!(rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -1226,9 +1183,11 @@ mod tests {
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(0x11110000))));
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
+                   Ok(Pointer::Direct(0x11110000)));
+        assert_eq!(rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -1245,9 +1204,11 @@ mod tests {
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(expected as u64))));
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
+                   Ok(Pointer::Direct(expected as u64)));
+        assert_eq!(rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -1264,9 +1225,11 @@ mod tests {
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(expected as u64))));
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
+                   Ok(Pointer::Direct(expected as u64)));
+        assert_eq!(rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -1283,9 +1246,11 @@ mod tests {
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&expected_rest), Pointer::Direct(expected as u64))));
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
+                   Ok(Pointer::Direct(expected as u64)));
+        assert_eq!(rest, EndianBuf::new(&expected_rest));
     }
 
     #[test]
@@ -1297,9 +1262,11 @@ mod tests {
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((input, Pointer::default())));
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
+                   Ok(Pointer::default()));
+        assert_eq!(rest, input);
     }
 
     #[test]
@@ -1311,8 +1278,9 @@ mod tests {
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
                    Err(Error::UnknownPointerEncoding));
     }
 
@@ -1327,14 +1295,15 @@ mod tests {
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
                    Err(Error::UnsupportedPointerEncoding));
     }
 
     #[test]
     fn test_parse_encoded_pointer_indirect() {
-        let rest = [1, 2, 3, 4];
+        let expected_rest = [1, 2, 3, 4];
 
         let encoding = constants::DW_EH_PE_indirect;
         let bases = BaseAddresses::default();
@@ -1342,11 +1311,13 @@ mod tests {
 
         let input = Section::with_endian(Endian::Little)
             .L32(0x12345678)
-            .append_bytes(&rest);
+            .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianBuf::<LittleEndian>::new(&input);
+        let mut rest = input;
 
-        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, input),
-                   Ok((EndianBuf::new(&rest), Pointer::Indirect(0x12345678))));
+        assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, input, &mut rest),
+                   Ok(Pointer::Indirect(0x12345678)));
+        assert_eq!(rest, EndianBuf::new(&expected_rest));
     }
 }

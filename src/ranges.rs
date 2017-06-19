@@ -1,7 +1,6 @@
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use parser::{Error, Result, parse_address};
-use std::marker::PhantomData;
 use Section;
 
 /// An offset into the `.debug_ranges` section.
@@ -35,7 +34,7 @@ impl<'input, Endian> DebugRanges<'input, Endian>
     /// let debug_ranges = DebugRanges::<LittleEndian>::new(read_debug_ranges_section_somehow());
     /// ```
     pub fn new(debug_ranges_section: &'input [u8]) -> DebugRanges<'input, Endian> {
-        DebugRanges { debug_ranges_section: EndianBuf(debug_ranges_section, PhantomData) }
+        DebugRanges { debug_ranges_section: EndianBuf::new(debug_ranges_section) }
     }
 
     /// Iterate over the `Range` list entries starting at the given offset.
@@ -126,11 +125,9 @@ impl<'input, Endian> RawRangesIter<'input, Endian>
             return Ok(None);
         }
 
-        let (rest, range) = Range::parse(self.input, self.address_size)?;
+        let range = Range::parse(&mut self.input, self.address_size)?;
         if range.is_end() {
             self.input = EndianBuf::new(&[]);
-        } else {
-            self.input = rest;
         }
 
         Ok(Some(range))
@@ -259,18 +256,16 @@ impl Range {
     /// Parse an address range entry from `.debug_ranges` or `.debug_loc`.
     #[doc(hidden)]
     #[inline]
-    pub fn parse<Endian>(input: EndianBuf<Endian>,
-                         address_size: u8)
-                         -> Result<(EndianBuf<Endian>, Range)>
+    pub fn parse<Endian>(input: &mut EndianBuf<Endian>, address_size: u8) -> Result<Range>
         where Endian: Endianity
     {
-        let (rest, begin) = parse_address(input, address_size)?;
-        let (rest, end) = parse_address(rest, address_size)?;
+        let begin = parse_address(input, address_size)?;
+        let end = parse_address(input, address_size)?;
         let range = Range {
             begin: begin,
             end: end,
         };
-        Ok((rest, range))
+        Ok(range)
     }
 }
 

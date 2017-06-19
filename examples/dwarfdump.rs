@@ -306,7 +306,7 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
             println!("0x{:08x}", address);
         }
         gimli::AttributeValue::Block(data) => {
-            for byte in data.0 {
+            for byte in data.buf() {
                 print!("{:02x}", byte);
             }
             println!("");
@@ -369,7 +369,7 @@ fn dump_attr_value<Endian>(attr: gimli::Attribute<Endian>,
         gimli::AttributeValue::Exprloc(data) => {
             if let gimli::AttributeValue::Exprloc(_) = attr.raw_value() {
                 print!("len 0x{:04x}: ", data.len());
-                for byte in data.0 {
+                for byte in data.buf() {
                     print!("{:02x}", byte);
                 }
                 print!(": ");
@@ -507,15 +507,14 @@ fn dump_exprloc<Endian>(data: gimli::EndianBuf<Endian>, unit: &Unit<Endian>)
     let mut space = false;
     while pc.len() != 0 {
         let dwop = gimli::DwOp(pc[0]);
-        match gimli::Operation::parse(pc, data, unit.address_size, unit.format) {
-            Ok((newpc, op)) => {
+        match gimli::Operation::parse(&mut pc, data, unit.address_size, unit.format) {
+            Ok(op) => {
                 if space {
                     print!(" ");
                 } else {
                     space = true;
                 }
-                dump_op(dwop, op, newpc.0);
-                pc = newpc;
+                dump_op(dwop, op, pc.buf());
             }
             Err(gimli::Error::InvalidExpression(op)) => {
                 writeln!(&mut std::io::stderr(),
@@ -621,7 +620,7 @@ fn dump_op<Endian>(dwop: gimli::DwOp, op: gimli::Operation<Endian>, newpc: &[u8]
         }
         gimli::Operation::EntryValue { expression } => {
             print!(" 0x{:08x} contents 0x", expression.len());
-            for byte in expression.0 {
+            for byte in expression.buf() {
                 print!("{:02x}", byte);
             }
         }
