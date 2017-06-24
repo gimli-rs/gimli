@@ -1156,6 +1156,7 @@ dw!(DwOp(u8) {
     DW_OP_GNU_push_tls_address = 0xe0,
     DW_OP_GNU_implicit_pointer = 0xf2,
     DW_OP_GNU_entry_value = 0xf3,
+    DW_OP_GNU_parameter_ref = 0xfa,
 });
 
 /// Pointer encoding used by `.eh_frame`. The four lower bits describe the
