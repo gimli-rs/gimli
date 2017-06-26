@@ -30,8 +30,8 @@
 //! # let read_debug_abbrev = || &debug_abbrev_buf;
 //! // Read the .debug_info and .debug_abbrev sections with whatever object
 //! // loader you're using.
-//! let debug_info = gimli::DebugInfo::<gimli::LittleEndian>::new(read_debug_info());
-//! let debug_abbrev = gimli::DebugAbbrev::<gimli::LittleEndian>::new(read_debug_abbrev());
+//! let debug_info = gimli::DebugInfo::<gimli::EndianBuf<gimli::LittleEndian>>::new(read_debug_info());
+//! let debug_abbrev = gimli::DebugAbbrev::<gimli::EndianBuf<gimli::LittleEndian>>::new(read_debug_abbrev());
 //!
 //! // Iterate over all compilation units.
 //! let mut iter = debug_info.units();
@@ -223,7 +223,7 @@ pub use unit::{AttrsIter, Attribute, AttributeValue};
 /// used like:
 ///
 /// ```
-/// use gimli::{DebugInfo, LittleEndian, Section};
+/// use gimli::{DebugInfo, EndianBuf, LittleEndian, Section};
 ///
 /// fn load_section<'a, S, F>(loader: F) -> S
 ///   where S: Section<'a>, F: FnOnce(&'static str) -> &'a [u8]
@@ -234,7 +234,7 @@ pub use unit::{AttrsIter, Attribute, AttributeValue};
 ///
 /// let buf = [0x00, 0x01, 0x02, 0x03];
 ///
-/// let debug_info: DebugInfo<LittleEndian> = load_section(|_: &'static str| &buf);
+/// let debug_info: DebugInfo<EndianBuf<LittleEndian>> = load_section(|_: &'static str| &buf);
 /// ```
 pub trait Section<'input>: From<&'input [u8]> {
     /// Returns the ELF section name for this type.
