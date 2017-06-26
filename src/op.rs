@@ -113,7 +113,7 @@ pub enum Operation<'input, Endian>
         target: EndianBuf<'input, Endian>,
     },
     /// Push a constant value on the stack.  This handles multiple
-    /// DWARF opcodes, including `DW_OP_addr`.
+    /// DWARF opcodes.
     Literal {
         /// The value to push.
         value: u64,
@@ -192,6 +192,12 @@ pub enum Operation<'input, Endian>
         /// The DIE to use.
         offset: UnitOffset,
     },
+    /// An offset relative to the base of the .text section of the binary.
+    /// e.g. for `DW_OP_addr`.
+    TextRelativeOffset {
+        /// The offfset to add.
+        offset: u64,
+    }
 }
 
 #[derive(Debug)]
@@ -215,6 +221,7 @@ enum OperationEvaluationResult<'input, Endian>
     AwaitingAtLocation { location: DieReference },
     AwaitingEntryValue { expression: EndianBuf<'input, Endian>, },
     AwaitingParameterRef { parameter: UnitOffset },
+    AwaitingTextBase { offset: u64 },
 }
 
 /// A single location of a piece of the result of a DWARF expression.
@@ -305,8 +312,8 @@ impl<'input, Endian> Operation<'input, Endian>
         let name = constants::DwOp(opcode);
         match name {
             constants::DW_OP_addr => {
-                let value = parse_address(bytes, address_size)?;
-                Ok(Operation::Literal { value: value })
+                let offset = parse_address(bytes, address_size)?;
+                Ok(Operation::TextRelativeOffset { offset: offset })
             }
             constants::DW_OP_deref => {
                 Ok(Operation::Deref {
@@ -841,10 +848,15 @@ pub enum EvaluationResult<'input, Endian>
     /// `Evaluation` by calling `Evaluation::resume_with_entry_value`.
     RequiresEntryValue(EndianBuf<'input, Endian>),
     /// The `Evaluation` needs the value of the parameter at the given location
-    /// in the current function's caller.  Once the caller determins what value
+    /// in the current function's caller.  Once the caller determines what value
     /// to provide it should resume the `Evaluation` by calling
     /// `Evaluation::resume_with_parameter_ref`.
     RequiresParameterRef(UnitOffset),
+    /// The `Evaluation` needs the base address of the .text section of the
+    /// binary to proceed.  Once the caller determines what value to provide it
+    /// should resume the `Evaluation` by calling
+    /// `Evaluation::resume_with_text_base`.
+    RequiresTextBase,
 }
 
 /// A DWARF expression evaluator.
@@ -1282,6 +1294,10 @@ impl<'input, Endian> Evaluation<'input, Endian>
                 return Ok(OperationEvaluationResult::AwaitingParameterRef { parameter: offset });
             }
 
+            Operation::TextRelativeOffset { offset } => {
+                return Ok(OperationEvaluationResult::AwaitingTextBase { offset: offset });
+            }
+
             Operation::Piece { .. } => {
                 piece_end = true;
             }
@@ -1541,6 +1557,31 @@ impl<'input, Endian> Evaluation<'input, Endian>
         self.evaluate_internal()
     }
 
+    /// Resume the `Evaluation` with the provided `text_base`.  This will apply the
+    /// provided base address to the evaluation and continue evaluating
+    /// opcodes until the evaluation is completed, reaches an error, or needs
+    /// more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresTextBase`.
+    pub fn resume_with_text_base(&mut self,
+                                 text_base: u64)
+                                 -> Result<EvaluationResult<'input, Endian>, Error>
+        where Endian: Endianity
+    {
+        match self.state {
+            EvaluationState::Error(err) => return Err(err),
+            EvaluationState::Waiting(OperationEvaluationResult::AwaitingTextBase { offset }) => {
+                self.push(text_base.wrapping_add(offset));
+            }
+            _ => {
+                panic!("Called `Evaluation::resume_with_text_base` without a preceding `EvaluationResult::RequiresTextBase`")
+            }
+        };
+
+        self.evaluate_internal()
+    }
+
     fn evaluate_internal(&mut self) -> Result<EvaluationResult<'input, Endian>, Error>
         where Endian: Endianity
     {
@@ -1665,6 +1706,10 @@ impl<'input, Endian> Evaluation<'input, Endian>
                 OperationEvaluationResult::AwaitingParameterRef { parameter } => {
                     self.state = EvaluationState::Waiting(op_result);
                     return Ok(EvaluationResult::RequiresParameterRef(parameter));
+                }
+                OperationEvaluationResult::AwaitingTextBase { .. } => {
+                    self.state = EvaluationState::Waiting(op_result);
+                    return Ok(EvaluationResult::RequiresTextBase);
                 }
             };
         }
@@ -1988,7 +2033,7 @@ mod tests {
         let format = Format::Dwarf32;
 
         let inputs =
-            [(constants::DW_OP_addr, 0x12345678, Operation::Literal { value: 0x12345678 }),
+            [(constants::DW_OP_addr, 0x12345678, Operation::TextRelativeOffset { offset: 0x12345678 }),
              (constants::DW_OP_const4u, 0x12345678, Operation::Literal { value: 0x12345678 }),
              (constants::DW_OP_const4s,
               (-23i32) as u32,
@@ -2015,7 +2060,7 @@ mod tests {
 
         let inputs = [(constants::DW_OP_addr,
                        0x1234567812345678,
-                       Operation::Literal { value: 0x1234567812345678 }),
+                       Operation::TextRelativeOffset { offset: 0x1234567812345678 }),
                       (constants::DW_OP_const8u,
                        0x1234567812345678,
                        Operation::Literal { value: 0x1234567812345678 }),
@@ -2835,6 +2880,9 @@ mod tests {
                                          EvaluationResult::RequiresTls(slot) => {
                                              eval.resume_with_tls(!slot)?
                                          }
+                                         EvaluationResult::RequiresTextBase => {
+                                             eval.resume_with_text_base(0)?
+                                         }
                                          _ => panic!(),
                                      };
                                  }
@@ -3127,7 +3175,19 @@ mod tests {
                     location: Location::Address { address: 0x7fffffff } },
         ];
 
-        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+        check_eval_with_args(&program, Ok(&result), 4, Format::Dwarf32, None, None, None,
+                             |eval, mut result| {
+                                 while result != EvaluationResult::Complete {
+                                     result = match result {
+                                         EvaluationResult::RequiresTextBase => {
+                                             eval.resume_with_text_base(0)?
+                                         }
+                                         _ => panic!(),
+                                     };
+                                 }
+
+                                 Ok(result)
+                             });
 
         let program = [
             Op(DW_OP_implicit_value), Uleb(5),
