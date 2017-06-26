@@ -2,7 +2,6 @@ use endianity::{Endianity, EndianBuf};
 use lookup::{PubStuffParser, LookupEntryIter, DebugLookup, NamesOrTypesSwitch};
 use parser::{Format, Result};
 use unit::{DebugInfoOffset, UnitOffset, parse_debug_info_offset};
-use std::ffi;
 use std::marker::PhantomData;
 use Section;
 
@@ -17,16 +16,20 @@ pub struct PubNamesHeader {
 
 /// A single parsed pubname.
 #[derive(Debug, Clone)]
-pub struct PubNamesEntry<'input> {
+pub struct PubNamesEntry<'input, Endian>
+    where Endian: Endianity
+{
     unit_header_offset: DebugInfoOffset,
     die_offset: UnitOffset,
-    name: &'input ffi::CStr,
+    name: EndianBuf<'input, Endian>,
 }
 
-impl<'input> PubNamesEntry<'input> {
+impl<'input, Endian> PubNamesEntry<'input, Endian>
+    where Endian: Endianity
+{
     /// Returns the name this entry refers to.
-    pub fn name(&self) -> &'input ffi::CStr {
-        self.name
+    pub fn name(&self) -> &EndianBuf<'input, Endian> {
+        &self.name
     }
 
     /// Returns the offset into the .debug_info section for the header of the compilation unit
@@ -54,7 +57,7 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for NamesSwitch<'input, 
     where Endian: Endianity
 {
     type Header = PubNamesHeader;
-    type Entry = PubNamesEntry<'input>;
+    type Entry = PubNamesEntry<'input, Endian>;
     type Offset = DebugInfoOffset;
 
     fn new_header(format: Format,
@@ -73,9 +76,9 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for NamesSwitch<'input, 
     }
 
     fn new_entry(offset: u64,
-                 name: &'input ffi::CStr,
+                 name: EndianBuf<'input, Endian>,
                  header: &PubNamesHeader)
-                 -> PubNamesEntry<'input> {
+                 -> PubNamesEntry<'input, Endian> {
         PubNamesEntry {
             unit_header_offset: header.info_offset,
             die_offset: UnitOffset(offset as usize),

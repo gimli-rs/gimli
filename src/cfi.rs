@@ -3,7 +3,7 @@ use constants;
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use parser::{Error, Format, Pointer, Result, parse_address, parse_encoded_pointer,
-             parse_initial_length, parse_length_uleb_value, parse_null_terminated_string,
+             parse_initial_length, parse_length_uleb_value, parse_null_terminated_slice,
              parse_pointer_encoding, parse_signed_leb, parse_u8, parse_u16, parse_u32,
              parse_u32_as_u64, parse_u64, parse_unsigned_leb, parse_unsigned_leb_as_u8, take,
              u64_to_offset};
@@ -954,8 +954,8 @@ impl<'input, Endian, Section> CommonInformationEntry<'input, Endian, Section>
             return Err(Error::UnknownVersion);
         }
 
-        let augmentation_string = parse_null_terminated_string(rest)?;
-        let aug_len = augmentation_string.to_bytes().len();
+        let augmentation_string = parse_null_terminated_slice(rest)?;
+        let aug_len = augmentation_string.len();
 
         let (address_size, segment_size) = if Section::has_address_and_segment_sizes(version) {
             let address_size = parse_u8(rest)?;
@@ -977,7 +977,7 @@ impl<'input, Endian, Section> CommonInformationEntry<'input, Endian, Section>
         let augmentation = if aug_len == 0 {
             None
         } else {
-            let augmentation_string = str::from_utf8(augmentation_string.to_bytes())
+            let augmentation_string = str::from_utf8(augmentation_string.buf())
                 .map_err(|_| Error::BadUtf8)?;
             Some(Augmentation::parse(augmentation_string, bases, address_size, section, rest)?)
         };

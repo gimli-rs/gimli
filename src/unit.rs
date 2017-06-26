@@ -9,12 +9,11 @@ use loc::DebugLocOffset;
 use parser::{Error, Result, Format, DebugMacinfoOffset, parse_u8, parse_u16, parse_u32, parse_u64,
              parse_unsigned_leb, parse_signed_leb, parse_offset, parse_address,
              parse_address_size, parse_initial_length, parse_length_uleb_value,
-             parse_null_terminated_string, take, parse_u64_as_offset, parse_uleb_as_offset,
+             parse_null_terminated_slice, take, parse_u64_as_offset, parse_uleb_as_offset,
              parse_address_as_offset, u64_to_offset};
 use ranges::DebugRangesOffset;
 use std::cell::Cell;
 use std::convert::AsMut;
-use std::ffi;
 use std::mem;
 use std::ops::{Range, RangeFrom, RangeTo};
 use std::{u8, u16};
@@ -958,9 +957,9 @@ pub enum AttributeValue<'input, Endian>
     /// An offset into the `.debug_str` section.
     DebugStrRef(DebugStrOffset),
 
-    /// A null terminated C string, including the final null byte. Not
-    /// guaranteed to be UTF-8 or anything like that.
-    String(&'input ffi::CStr),
+    /// A slice of bytes representing a string. Does not include a final null byte.
+    /// Not guaranteed to be UTF-8 or anything like that.
+    String(EndianBuf<'input, Endian>),
 
     /// The value of a `DW_AT_encoding` attribute.
     Encoding(constants::DwAte),
@@ -1504,7 +1503,9 @@ impl<'input, Endian> Attribute<'input, Endian>
     /// or a `DW_FORM_strp` reference to an offset into the `.debug_str`
     /// section, return the attribute's string value as `Some`. Other attribute
     /// value forms are returned as `None`.
-    pub fn string_value(&self, debug_str: &DebugStr<'input, Endian>) -> Option<&'input ffi::CStr> {
+    pub fn string_value(&self,
+                        debug_str: &DebugStr<'input, Endian>)
+                        -> Option<EndianBuf<'input, Endian>> {
         match self.value {
             AttributeValue::String(string) => Some(string),
             AttributeValue::DebugStrRef(offset) => debug_str.get_str(offset).ok(),
@@ -1686,7 +1687,7 @@ fn parse_attribute<'input, 'unit, Endian>(input: &mut EndianBuf<'input, Endian>,
                 AttributeValue::DebugTypesRef(DebugTypeSignature(signature))
             }
             constants::DW_FORM_string => {
-                let string = parse_null_terminated_string(input)?;
+                let string = parse_null_terminated_slice(input)?;
                 AttributeValue::String(string)
             }
             constants::DW_FORM_strp => {
@@ -2725,7 +2726,6 @@ mod tests {
     use str::DebugStrOffset;
     use std;
     use std::cell::Cell;
-    use std::ffi;
     use test_util::GimliSectionMethods;
 
     // Mixin methods for `Section` to help define binary test data.
@@ -3527,7 +3527,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x0, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_string;
-        let value = AttributeValue::String(ffi::CStr::from_bytes_with_nul(&buf[..6]).unwrap());
+        let value = AttributeValue::String(EndianBuf::new(&buf[..5]));
         test_parse_attribute(&buf, 6, &unit, form, value);
     }
 
@@ -3610,9 +3610,7 @@ mod tests {
                 assert_eq!(attr,
                            Attribute {
                                name: constants::DW_AT_name,
-                               value:
-                                   AttributeValue::String(ffi::CStr::from_bytes_with_nul(b"foo\0")
-                                                              .unwrap()),
+                               value: AttributeValue::String(EndianBuf::new(b"foo")),
                            });
             }
             otherwise => {
@@ -3706,9 +3704,7 @@ mod tests {
                 assert_eq!(attr,
                            Attribute {
                                name: constants::DW_AT_name,
-                               value:
-                                   AttributeValue::String(ffi::CStr::from_bytes_with_nul(b"foo\0")
-                                                              .unwrap()),
+                               value: AttributeValue::String(EndianBuf::new(b"foo")),
                            });
             }
             otherwise => {
@@ -3739,11 +3735,8 @@ mod tests {
             .expect("Should have parsed the name attribute")
             .expect("Should have found the name attribute");
 
-        let mut with_null: Vec<u8> = name.as_bytes().into();
-        with_null.push(0);
-
         assert_eq!(value,
-                   AttributeValue::String(ffi::CStr::from_bytes_with_nul(&with_null).unwrap()));
+                   AttributeValue::String(EndianBuf::new(name.as_bytes())));
     }
 
     fn assert_current_name<Endian>(cursor: &EntriesCursor<Endian>, name: &str)

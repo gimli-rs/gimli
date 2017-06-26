@@ -1,6 +1,5 @@
 use endianity::{Endianity, EndianBuf};
-use parser::{parse_null_terminated_string, Error, Result};
-use std::ffi;
+use parser::{parse_null_terminated_slice, Error, Result};
 use Section;
 
 /// An offset into the `.debug_str` section.
@@ -49,12 +48,12 @@ impl<'input, Endian> DebugStr<'input, Endian>
     /// let debug_str = DebugStr::<LittleEndian>::new(read_debug_str_section_somehow());
     /// println!("Found string {:?}", debug_str.get_str(debug_str_offset_somehow()));
     /// ```
-    pub fn get_str(&self, offset: DebugStrOffset) -> Result<&'input ffi::CStr> {
+    pub fn get_str(&self, offset: DebugStrOffset) -> Result<EndianBuf<'input, Endian>> {
         if self.debug_str_section.len() < offset.0 {
             return Err(Error::UnexpectedEof);
         }
         let buf = &mut self.debug_str_section.range_from(offset.0..);
-        parse_null_terminated_string(buf)
+        parse_null_terminated_slice(buf)
     }
 }
 

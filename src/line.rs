@@ -1,7 +1,6 @@
 use constants;
 use endianity::{Endianity, EndianBuf};
 use parser;
-use std::ffi;
 use std::fmt;
 use Section;
 
@@ -66,8 +65,8 @@ impl<'input, Endian> DebugLine<'input, Endian>
     pub fn program(&self,
                    offset: DebugLineOffset,
                    address_size: u8,
-                   comp_dir: Option<&'input ffi::CStr>,
-                   comp_name: Option<&'input ffi::CStr>)
+                   comp_dir: Option<EndianBuf<'input, Endian>>,
+                   comp_name: Option<EndianBuf<'input, Endian>>)
                    -> parser::Result<IncompleteLineNumberProgram<'input, Endian>> {
         if self.debug_line_section.len() < offset.0 {
             return Err(parser::Error::UnexpectedEof);
@@ -104,7 +103,7 @@ pub trait LineNumberProgram<'input, Endian>
     /// Get a reference to the held `LineNumberProgramHeader`.
     fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<'input, Endian>;
     /// Add a file to the file table if necessary.
-    fn add_file(&mut self, file: FileEntry<'input>);
+    fn add_file(&mut self, file: FileEntry<'input, Endian>);
 }
 
 impl<'input, Endian> LineNumberProgram<'input, Endian>
@@ -114,7 +113,7 @@ impl<'input, Endian> LineNumberProgram<'input, Endian>
     fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<'input, Endian> {
         &self.header
     }
-    fn add_file(&mut self, file: FileEntry<'input>) {
+    fn add_file(&mut self, file: FileEntry<'input, Endian>) {
         self.header.file_names.push(file);
     }
 }
@@ -126,7 +125,7 @@ impl<'program, 'input, Endian> LineNumberProgram<'input, Endian>
     fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<'input, Endian> {
         &self.header
     }
-    fn add_file(&mut self, _: FileEntry<'input>) {
+    fn add_file(&mut self, _: FileEntry<'input, Endian>) {
         // Nop. Our file table is already complete.
     }
 }
@@ -536,7 +535,7 @@ pub enum Opcode<'input, Endian>
 
     /// Defines a new source file in the line number program and appends it to
     /// the line number program header's list of source files.
-    DefineFile(FileEntry<'input>),
+    DefineFile(FileEntry<'input, Endian>),
 
     /// "The DW_LNE_set_discriminator opcode takes a single parameter, an
     /// unsigned LEB128 integer. It sets the discriminator register to the new
@@ -774,7 +773,7 @@ impl LineNumberRow {
     /// The source file corresponding to the current machine instruction.
     pub fn file<'header, 'input, Endian>(&self,
                                          header: &'header LineNumberProgramHeader<'input, Endian>)
-                                         -> Option<&'header FileEntry<'input>>
+                                         -> Option<&'header FileEntry<'input, Endian>>
         where Endian: Endianity
     {
         header.file(self.registers.file)
@@ -983,12 +982,12 @@ pub struct LineNumberProgramHeader<'input, Endian>
     /// > of the compilation.
     /// >
     /// > The last entry is followed by a single null byte.
-    include_directories: Vec<&'input ffi::CStr>,
+    include_directories: Vec<EndianBuf<'input, Endian>>,
 
     /// "Entries in this sequence describe source files that contribute to the
     /// line number information for this compilation unit or is used in other
     /// contexts."
-    file_names: Vec<FileEntry<'input>>,
+    file_names: Vec<FileEntry<'input, Endian>>,
 
     /// Whether this line program is encoded in the 32- or 64-bit DWARF format.
     format: parser::Format,
@@ -1000,10 +999,10 @@ pub struct LineNumberProgramHeader<'input, Endian>
     address_size: u8,
 
     /// The `DW_AT_comp_dir` value from the compilation unit.
-    comp_dir: Option<&'input ffi::CStr>,
+    comp_dir: Option<EndianBuf<'input, Endian>>,
 
     /// The `DW_AT_name` value from the compilation unit.
-    comp_name: Option<FileEntry<'input>>,
+    comp_name: Option<FileEntry<'input, Endian>>,
 }
 
 impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
@@ -1068,14 +1067,14 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
     ///
     /// The compilation's current directory is not included in the return value,
     /// but is implicitly considered to be in the set per spec.
-    pub fn include_directories(&self) -> &[&ffi::CStr] {
+    pub fn include_directories(&self) -> &[EndianBuf<'input, Endian>] {
         &self.include_directories[..]
     }
 
     /// The include directory with the given directory index.
     ///
     /// A directory index of 0 corresponds to the compilation unit directory.
-    pub fn directory(&self, directory: u64) -> Option<&'input ffi::CStr> {
+    pub fn directory(&self, directory: u64) -> Option<EndianBuf<'input, Endian>> {
         if directory == 0 {
             self.comp_dir
         } else {
@@ -1085,14 +1084,14 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
     }
 
     /// Get the list of source files that appear in this header's line program.
-    pub fn file_names(&self) -> &[FileEntry] {
+    pub fn file_names(&self) -> &[FileEntry<Endian>] {
         &self.file_names[..]
     }
 
     /// The source file with the given file index.
     ///
     /// A file index of 0 corresponds to the compilation unit file.
-    pub fn file(&self, file: u64) -> Option<&FileEntry<'input>> {
+    pub fn file(&self, file: u64) -> Option<&FileEntry<'input, Endian>> {
         if file == 0 {
             self.comp_name.as_ref()
         } else {
@@ -1131,8 +1130,8 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
 
     fn parse(input: &mut EndianBuf<'input, Endian>,
              address_size: u8,
-             comp_dir: Option<&'input ffi::CStr>,
-             comp_name: Option<&'input ffi::CStr>)
+             comp_dir: Option<EndianBuf<'input, Endian>>,
+             comp_name: Option<EndianBuf<'input, Endian>>)
              -> parser::Result<LineNumberProgramHeader<'input, Endian>> {
         let (unit_length, format) = parser::parse_initial_length(input)?;
         let rest = &mut parser::take(unit_length as usize, input)?;
@@ -1192,7 +1191,7 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
                 break;
             }
 
-            include_directories.push(parser::parse_null_terminated_string(rest)?);
+            include_directories.push(parser::parse_null_terminated_slice(rest)?);
         }
 
         let mut file_names = Vec::new();
@@ -1365,18 +1364,20 @@ impl<'input, Endian> CompleteLineNumberProgram<'input, Endian>
 
 /// An entry in the `LineNumberProgramHeader`'s `file_names` set.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct FileEntry<'input> {
-    path_name: &'input ffi::CStr,
+pub struct FileEntry<'input, Endian>
+    where Endian: Endianity
+{
+    path_name: EndianBuf<'input, Endian>,
     directory_index: u64,
     last_modification: u64,
     length: u64,
 }
 
-impl<'input> FileEntry<'input> {
-    fn parse<Endian>(input: &mut EndianBuf<'input, Endian>) -> parser::Result<FileEntry<'input>>
-        where Endian: Endianity
-    {
-        let path_name = parser::parse_null_terminated_string(input)?;
+impl<'input, Endian> FileEntry<'input, Endian>
+    where Endian: Endianity
+{
+    fn parse(input: &mut EndianBuf<'input, Endian>) -> parser::Result<FileEntry<'input, Endian>> {
+        let path_name = parser::parse_null_terminated_slice(input)?;
         let directory_index = parser::parse_unsigned_leb(input)?;
         let last_modification = parser::parse_unsigned_leb(input)?;
         let length = parser::parse_unsigned_leb(input)?;
@@ -1391,12 +1392,12 @@ impl<'input> FileEntry<'input> {
         Ok(entry)
     }
 
-    /// > A null-terminated string containing the full or relative path name of
+    /// > A slice containing the full or relative path name of
     /// > a source file. If the entry contains a file name or a relative path
     /// > name, the file is located relative to either the compilation directory
     /// > (as specified by the DW_AT_comp_dir attribute given in the compilation
     /// > unit) or one of the directories in the include_directories section.
-    pub fn path_name(&self) -> &'input ffi::CStr {
+    pub fn path_name(&self) -> EndianBuf<'input, Endian> {
         self.path_name
     }
 
@@ -1418,11 +1419,9 @@ impl<'input> FileEntry<'input> {
     /// Get this file's directory.
     ///
     /// A directory index of 0 corresponds to the compilation unit directory.
-    pub fn directory<Endian>(&self,
-                             header: &LineNumberProgramHeader<'input, Endian>)
-                             -> Option<&'input ffi::CStr>
-        where Endian: Endianity
-    {
+    pub fn directory(&self,
+                     header: &LineNumberProgramHeader<'input, Endian>)
+                     -> Option<EndianBuf<'input, Endian>> {
         header.directory(self.directory_index)
     }
 
@@ -1446,7 +1445,6 @@ mod tests {
     use constants;
     use endianity::{EndianBuf, LittleEndian};
     use parser::{Error, Format};
-    use std::ffi;
     use std::u8;
 
     #[test]
@@ -1503,10 +1501,10 @@ mod tests {
         ];
 
         let rest = &mut EndianBuf::<LittleEndian>::new(&buf);
-        let comp_dir = ffi::CStr::from_bytes_with_nul(b"/comp_dir\0").unwrap();
-        let comp_name = ffi::CStr::from_bytes_with_nul(b"/comp_name\0").unwrap();
+        let comp_dir = EndianBuf::new(b"/comp_dir");
+        let comp_name = EndianBuf::new(b"/comp_name");
 
-        let header = LineNumberProgramHeader::parse(rest, 4, Some(&comp_dir), Some(&comp_name))
+        let header = LineNumberProgramHeader::parse(rest, 4, Some(comp_dir), Some(comp_name))
             .expect("should parse header ok");
 
         assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 16..]));
@@ -1525,20 +1523,20 @@ mod tests {
         assert_eq!(header.standard_opcode_lengths(), &expected_lengths);
 
         let expected_include_directories = [
-            ffi::CStr::from_bytes_with_nul(b"/inc\0").unwrap(),
-            ffi::CStr::from_bytes_with_nul(b"/inc2\0").unwrap(),
+            EndianBuf::new(b"/inc"),
+            EndianBuf::new(b"/inc2"),
         ];
         assert_eq!(header.include_directories(), &expected_include_directories);
 
         let expected_file_names = [
             FileEntry {
-                path_name: ffi::CStr::from_bytes_with_nul(b"foo.rs\0").unwrap(),
+                path_name: EndianBuf::new(b"foo.rs"),
                 directory_index: 0,
                 last_modification: 0,
                 length: 0,
             },
             FileEntry {
-                path_name: ffi::CStr::from_bytes_with_nul(b"bar.h\0").unwrap(),
+                path_name: EndianBuf::new(b"bar.h"),
                 directory_index: 1,
                 last_modification: 0,
                 length: 0,
@@ -1683,15 +1681,13 @@ mod tests {
             version: 4,
             header_length: 1,
             file_names: vec![FileEntry {
-                                 path_name: ffi::CStr::from_bytes_with_nul(&b"foo.c\0"[..])
-                                     .unwrap(),
+                                 path_name: EndianBuf::new(b"foo.c"),
                                  directory_index: 0,
                                  last_modification: 0,
                                  length: 0,
                              },
                              FileEntry {
-                                 path_name: ffi::CStr::from_bytes_with_nul(&b"bar.rs\0"[..])
-                                     .unwrap(),
+                                 path_name: EndianBuf::new(b"bar.rs"),
                                  directory_index: 0,
                                  last_modification: 0,
                                  length: 0,
@@ -1874,7 +1870,7 @@ mod tests {
         test(constants::DW_LNE_define_file,
              file,
              Opcode::DefineFile(FileEntry {
-                                    path_name: ffi::CStr::from_bytes_with_nul(&path_name).unwrap(),
+                                    path_name: EndianBuf::new(b"foo.c"),
                                     directory_index: 0,
                                     last_modification: 1,
                                     length: 2,
@@ -1893,16 +1889,15 @@ mod tests {
         let path_name = [b'f', b'o', b'o', b'.', b'r', b's', 0];
 
         let mut file = FileEntry {
-            path_name: ffi::CStr::from_bytes_with_nul(&path_name).unwrap(),
+            path_name: EndianBuf::new(&path_name),
             directory_index: 1,
             last_modification: 0,
             length: 0,
         };
 
-        let buf = [b'd', b'i', b'r', 0];
         let mut header = make_test_header(EndianBuf::<LittleEndian>::new(&[]));
 
-        let dir = ffi::CStr::from_bytes_with_nul(&buf).unwrap();
+        let dir = EndianBuf::new(b"dir");
         header.include_directories.push(dir);
 
         assert_eq!(file.directory(&header), Some(dir));
@@ -2288,7 +2283,7 @@ mod tests {
         let mut sm = program.rows();
 
         let file = FileEntry {
-            path_name: ffi::CStr::from_bytes_with_nul(&b"test.cpp\0"[..]).unwrap(),
+            path_name: EndianBuf::new(b"test.cpp"),
             directory_index: 0,
             last_modification: 0,
             length: 0,

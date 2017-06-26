@@ -1,6 +1,7 @@
 //! Types for compile-time endianity.
 
 use byteorder;
+use std::borrow::Cow;
 use std::cmp;
 use std::fmt::Debug;
 use std::io;
@@ -163,6 +164,12 @@ impl<'input, Endian> EndianBuf<'input, Endian>
         debug_assert!(base_ptr <= ptr);
         debug_assert!(ptr + self.buf.len() <= base_ptr + base.buf.len());
         ptr - base_ptr
+    }
+
+    /// Converts the buffer to a string, including invalid characters,
+    /// using `String::from_utf8_lossy`.
+    pub fn to_string_lossy(&self) -> Cow<'input, str> {
+        String::from_utf8_lossy(self.buf)
     }
 }
 

@@ -229,8 +229,8 @@ struct Unit<'input, Endian>
     address_size: u8,
     base_address: u64,
     line_program: Option<gimli::IncompleteLineNumberProgram<'input, Endian>>,
-    comp_dir: Option<&'input std::ffi::CStr>,
-    comp_name: Option<&'input std::ffi::CStr>,
+    comp_dir: Option<gimli::EndianBuf<'input, Endian>>,
+    comp_name: Option<gimli::EndianBuf<'input, Endian>>,
 }
 
 #[allow(too_many_arguments)]

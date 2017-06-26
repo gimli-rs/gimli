@@ -1,7 +1,6 @@
 //! Functions for parsing DWARF debugging information.
 
 use std::error;
-use std::ffi;
 use std::fmt::{self, Debug};
 use std::io;
 use std::result;
@@ -512,22 +511,17 @@ pub fn parse_address_as_offset<Endian>(input: &mut EndianBuf<Endian>,
     parse_address(input, address_size).and_then(u64_to_offset)
 }
 
-/// Parse a null-terminated slice from the input.
+/// Parse a null-terminated slice from the input, and return it (excluding the null).
 #[doc(hidden)]
 #[inline]
-pub fn parse_null_terminated_string<'input, Endian>(input: &mut EndianBuf<'input, Endian>)
-                                                    -> Result<&'input ffi::CStr>
+pub fn parse_null_terminated_slice<'input, Endian>(input: &mut EndianBuf<'input, Endian>)
+                                                   -> Result<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     if let Some(idx) = input.find(0) {
-        let slice = &take(idx + 1, input)?;
-        let cstr = unsafe {
-            // It is safe to use the unchecked variant here because we know we
-            // grabbed the index of the first null byte in the input and
-            // therefore there can't be any interior null bytes in this slice.
-            ffi::CStr::from_bytes_with_nul_unchecked(slice.buf())
-        };
-        Ok(cstr)
+        let slice = take(idx, input)?;
+        take(1, input)?;
+        Ok(slice)
     } else {
         Err(Error::UnexpectedEof)
     }
