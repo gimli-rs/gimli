@@ -766,7 +766,7 @@ impl Default for Augmentation {
 }
 
 impl Augmentation {
-    fn parse<'aug, 'bases, 'input, Endian, Section>(augmentation_str: &'aug str,
+    fn parse<'aug, 'bases, 'input, Endian, Section>(augmentation_str: &'aug [u8],
                                                     bases: &'bases BaseAddresses,
                                                     address_size: u8,
                                                     section: Section,
@@ -778,12 +778,12 @@ impl Augmentation {
         debug_assert!(!augmentation_str.is_empty(),
                       "Augmentation::parse should only be called if we have an augmentation");
 
-        let mut chars = augmentation_str.chars();
+        let mut chars = augmentation_str.iter();
 
         let first = chars
             .next()
-            .expect("Is valid UTF-8 and length > 0, so must have at least one char.");
-        if first != 'z' {
+            .expect("length > 0, so must have at least one char.");
+        if *first != b'z' {
             return Err(Error::UnknownAugmentation);
         }
 
@@ -793,12 +793,12 @@ impl Augmentation {
         let rest = &mut take(augmentation_length as usize, input)?;
 
         for ch in chars {
-            match ch {
-                'L' => {
+            match *ch {
+                b'L' => {
                     let encoding = parse_pointer_encoding(rest)?;
                     augmentation.lsda = Some(encoding);
                 }
-                'P' => {
+                b'P' => {
                     let encoding = parse_pointer_encoding(rest)?;
                     let personality = parse_encoded_pointer(encoding,
                                                             bases,
@@ -807,11 +807,11 @@ impl Augmentation {
                                                             rest)?;
                     augmentation.personality = Some(personality);
                 }
-                'R' => {
+                b'R' => {
                     let encoding = parse_pointer_encoding(rest)?;
                     augmentation.fde_address_encoding = Some(encoding);
                 }
-                'S' => augmentation.is_signal_trampoline = true,
+                b'S' => augmentation.is_signal_trampoline = true,
                 _ => return Err(Error::UnknownAugmentation),
             }
         }
@@ -977,9 +977,11 @@ impl<'input, Endian, Section> CommonInformationEntry<'input, Endian, Section>
         let augmentation = if aug_len == 0 {
             None
         } else {
-            let augmentation_string = str::from_utf8(augmentation_string.buf())
-                .map_err(|_| Error::BadUtf8)?;
-            Some(Augmentation::parse(augmentation_string, bases, address_size, section, rest)?)
+            Some(Augmentation::parse(augmentation_string.buf(),
+                                     bases,
+                                     address_size,
+                                     section,
+                                     rest)?)
         };
 
         let entry = CommonInformationEntry {
@@ -4767,7 +4769,7 @@ mod tests {
 
     #[test]
     fn test_augmentation_parse_not_z_augmentation() {
-        let augmentation = "wtf";
+        let augmentation = b"wtf";
         let bases = Default::default();
         let address_size = 8;
         let section = EhFrame::<NativeEndian>::new(&[]);
@@ -4779,7 +4781,7 @@ mod tests {
     #[test]
     fn test_augmentation_parse_unknown_part_of_z_augmentation() {
         // The 'Z' character is not defined by the z-style augmentation.
-        let augmentation = "zZ";
+        let augmentation = b"zZ";
         let bases = Default::default();
         let address_size = 8;
         let section = Section::with_endian(Endian::Little)
@@ -4796,7 +4798,7 @@ mod tests {
     #[test]
     #[allow(non_snake_case)]
     fn test_augmentation_parse_L() {
-        let aug_str = "zL";
+        let aug_str = b"zL";
         let bases = Default::default();
         let address_size = 8;
         let rest = [9, 8, 7, 6, 5, 4, 3, 2, 1];
@@ -4821,7 +4823,7 @@ mod tests {
     #[test]
     #[allow(non_snake_case)]
     fn test_augmentation_parse_P() {
-        let aug_str = "zP";
+        let aug_str = b"zP";
         let bases = Default::default();
         let address_size = 8;
         let rest = [9, 8, 7, 6, 5, 4, 3, 2, 1];
@@ -4847,7 +4849,7 @@ mod tests {
     #[test]
     #[allow(non_snake_case)]
     fn test_augmentation_parse_R() {
-        let aug_str = "zR";
+        let aug_str = b"zR";
         let bases = Default::default();
         let address_size = 8;
         let rest = [9, 8, 7, 6, 5, 4, 3, 2, 1];
@@ -4872,7 +4874,7 @@ mod tests {
     #[test]
     #[allow(non_snake_case)]
     fn test_augmentation_parse_S() {
-        let aug_str = "zS";
+        let aug_str = b"zS";
         let bases = Default::default();
         let address_size = 8;
         let rest = [9, 8, 7, 6, 5, 4, 3, 2, 1];
@@ -4895,7 +4897,7 @@ mod tests {
 
     #[test]
     fn test_augmentation_parse_all() {
-        let aug_str = "zLPRS";
+        let aug_str = b"zLPRS";
         let bases = Default::default();
         let address_size = 8;
         let rest = [9, 8, 7, 6, 5, 4, 3, 2, 1];
