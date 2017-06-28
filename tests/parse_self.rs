@@ -306,7 +306,7 @@ fn test_parse_self_eh_frame() {
     use gimli::{BaseAddresses, CieOrFde, EhFrame, UnwindSection};
 
     let eh_frame = read_section("eh_frame");
-    let eh_frame = EhFrame::<LittleEndian>::new(&eh_frame);
+    let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
 
     let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
     let mut entries = eh_frame.entries(&bases);

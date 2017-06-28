@@ -4,7 +4,8 @@ extern crate gimli;
 extern crate test;
 
 use gimli::{DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset, DebugLoc,
-            DebugPubNames, DebugPubTypes, DebugRanges, EndianBuf, LittleEndian, EntriesTreeIter};
+            DebugPubNames, DebugPubTypes, DebugRanges, Reader, EndianBuf, LittleEndian,
+            EntriesTreeIter};
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -309,7 +310,7 @@ mod cfi {
     #[bench]
     fn iterate_entries_and_do_not_parse_any_fde(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::<LittleEndian>::new(&eh_frame);
+        let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
 
         let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
 
@@ -324,7 +325,7 @@ mod cfi {
     #[bench]
     fn iterate_entries_and_parse_every_fde(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::<LittleEndian>::new(&eh_frame);
+        let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
 
         let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
 
@@ -349,7 +350,7 @@ mod cfi {
     #[bench]
     fn iterate_entries_and_parse_every_fde_and_instructions(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::<LittleEndian>::new(&eh_frame);
+        let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
 
         let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
 
@@ -384,7 +385,7 @@ mod cfi {
     #[bench]
     fn iterate_entries_evaluate_every_fde(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::<LittleEndian>::new(&eh_frame);
+        let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
 
         let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
 
@@ -421,18 +422,14 @@ mod cfi {
         });
     }
 
-    fn instrs_len<'input>(fde: &FrameDescriptionEntry<'input,
-                                                      LittleEndian,
-                                                      EhFrame<'input, LittleEndian>>)
-                          -> usize {
+    fn instrs_len<R: Reader>(fde: &FrameDescriptionEntry<R, EhFrame<R>>) -> usize {
         fde.instructions()
             .fold(0, |count, _| count + 1)
             .expect("fold over instructions OK")
     }
 
-    fn get_fde_with_longest_cfi_instructions
-        (eh_frame: EhFrame<LittleEndian>)
-         -> FrameDescriptionEntry<LittleEndian, EhFrame<LittleEndian>> {
+    fn get_fde_with_longest_cfi_instructions<R: Reader>(eh_frame: EhFrame<R>)
+                                                        -> FrameDescriptionEntry<R, EhFrame<R>> {
         let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
 
         let mut longest: Option<(usize, FrameDescriptionEntry<_, _>)> = None;
@@ -466,7 +463,7 @@ mod cfi {
     #[bench]
     fn parse_longest_fde_instructions(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::<LittleEndian>::new(&eh_frame);
+        let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
         let fde = get_fde_with_longest_cfi_instructions(eh_frame);
 
         b.iter(|| {
@@ -480,7 +477,7 @@ mod cfi {
     #[bench]
     fn eval_longest_fde_instructions_new_ctx_everytime(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::<LittleEndian>::new(&eh_frame);
+        let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
         let fde = get_fde_with_longest_cfi_instructions(eh_frame);
 
         b.iter(|| {
@@ -498,7 +495,7 @@ mod cfi {
     #[bench]
     fn eval_longest_fde_instructions_same_ctx(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::<LittleEndian>::new(&eh_frame);
+        let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
         let fde = get_fde_with_longest_cfi_instructions(eh_frame);
 
         let mut ctx = Some(UninitializedUnwindContext::new());
