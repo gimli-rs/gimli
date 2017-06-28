@@ -11,8 +11,7 @@ use parser::{Error, Result, Format, u64_to_offset};
 /// All read operations advance the section offset of the reader
 /// unless specified otherwise.
 ///
-// TODO: Don't require Copy, Eq
-pub trait Reader: Debug + Clone + Copy + PartialEq + Eq + Read {
+pub trait Reader: Debug + Clone + Read {
     /// The endianity of bytes that are read.
     type Endian: Endianity;
 

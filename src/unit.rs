@@ -140,7 +140,7 @@ impl<R: Reader> DebugInfo<R> {
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn units(&self) -> CompilationUnitHeadersIter<R> {
         CompilationUnitHeadersIter {
-            input: self.debug_info_section,
+            input: self.debug_info_section.clone(),
             offset: DebugInfoOffset(0),
         }
     }
@@ -574,7 +574,7 @@ impl<R: Reader> UnitHeader<R> {
                                  -> EntriesCursor<'abbrev, 'me, R> {
         EntriesCursor {
             unit: self,
-            input: self.entries_buf.into(),
+            input: self.entries_buf.clone(),
             abbreviations: abbreviations,
             cached_current: None,
             delta_depth: 0,
@@ -625,13 +625,13 @@ impl<R: Reader> UnitHeader<R> {
 /// Parse a compilation unit header.
 fn parse_unit_header<R: Reader>(input: &mut R) -> Result<UnitHeader<R>> {
     let (unit_length, format) = parse_initial_length(input)?;
-    let rest = &mut input.split(unit_length as usize)?;
+    let mut rest = input.split(unit_length as usize)?;
 
-    let version = parse_version(rest)?;
-    let offset = parse_debug_abbrev_offset(rest, format)?;
+    let version = parse_version(&mut rest)?;
+    let offset = parse_debug_abbrev_offset(&mut rest, format)?;
     let address_size = rest.read_u8()?;
 
-    Ok(UnitHeader::new(unit_length, version, offset, address_size, format, *rest))
+    Ok(UnitHeader::new(unit_length, version, offset, address_size, format, rest))
 }
 
 /// A Debugging Information Entry (DIE).
@@ -643,7 +643,7 @@ pub struct DebuggingInformationEntry<'abbrev, 'unit, R>
 {
     offset: UnitOffset,
     attrs_slice: R,
-    after_attrs: Cell<Option<R>>,
+    attrs_len: Cell<Option<usize>>,
     abbrev: &'abbrev Abbreviation,
     unit: &'unit UnitHeader<R>,
 }
@@ -811,7 +811,7 @@ impl<'abbrev, 'unit, R: Reader> DebuggingInformationEntry<'abbrev, 'unit, R> {
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn attrs<'me>(&'me self) -> AttrsIter<'abbrev, 'me, 'unit, R> {
         AttrsIter {
-            input: self.attrs_slice,
+            input: self.attrs_slice.clone(),
             attributes: self.abbrev.attributes(),
             entry: self,
         }
@@ -989,7 +989,7 @@ impl<R: Reader> Attribute<R> {
 
     /// Get this attribute's raw value.
     pub fn raw_value(&self) -> AttributeValue<R> {
-        self.value
+        self.value.clone()
     }
 
     /// Get this attribute's normalized value.
@@ -1386,7 +1386,7 @@ impl<R: Reader> Attribute<R> {
             }
             _ => {}
         }
-        self.value
+        self.value.clone()
     }
 
     /// Try to convert this attribute's value to a u8.
@@ -1458,8 +1458,8 @@ impl<R: Reader> Attribute<R> {
     /// it is encountered in practice.
     fn exprloc_value(&self) -> Option<R> {
         Some(match self.value {
-                 AttributeValue::Block(data) |
-                 AttributeValue::Exprloc(data) => data,
+                 AttributeValue::Block(ref data) |
+                 AttributeValue::Exprloc(ref data) => data.clone(),
                  _ => return None,
              })
     }
@@ -1472,7 +1472,7 @@ impl<R: Reader> Attribute<R> {
     /// value forms are returned as `None`.
     pub fn string_value(&self, debug_str: &DebugStr<R>) -> Option<R> {
         match self.value {
-            AttributeValue::String(string) => Some(string),
+            AttributeValue::String(ref string) => Some(string.clone()),
             AttributeValue::DebugStrRef(offset) => debug_str.get_str(offset).ok(),
             _ => None,
         }
@@ -1684,10 +1684,12 @@ impl<'abbrev, 'entry, 'unit, R: Reader> AttrsIter<'abbrev, 'entry, 'unit, R> {
             // either (1) this entry's children start, if the abbreviation says
             // this entry has children; or (2) where this entry's siblings
             // begin.
-            if let Some(end) = self.entry.after_attrs.get() {
-                debug_assert_eq!(end, self.input);
+            if let Some(end) = self.entry.attrs_len.get() {
+                debug_assert_eq!(end, self.input.offset_from(&self.entry.attrs_slice));
             } else {
-                self.entry.after_attrs.set(Some(self.input));
+                self.entry
+                    .attrs_len
+                    .set(Some(self.input.offset_from(&self.entry.attrs_slice)));
             }
 
             return Ok(None);
@@ -1747,23 +1749,26 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// Return the input buffer after the current entry.
     fn after_entry(&self) -> Result<R> {
         if let Some(ref current) = self.cached_current {
-            if let Some(after_attrs) = current.after_attrs.get() {
-                Ok(after_attrs)
+            let attrs_len = if let Some(attrs_len) = current.attrs_len.get() {
+                attrs_len
             } else {
                 let mut attrs = current.attrs();
                 while let Some(_) = attrs.next()? {}
-                Ok(current
-                       .after_attrs
-                       .get()
-                       .expect("should have after_attrs after iterating attrs"))
-            }
+                current
+                    .attrs_len
+                    .get()
+                    .expect("should have attrs_len after iterating attrs")
+            };
+            let mut input = current.attrs_slice.clone();
+            input.skip(attrs_len)?;
+            Ok(input)
         } else {
-            Ok(self.input)
+            Ok(self.input.clone())
         }
     }
 
     /// Return the offset in bytes of the given array from the start of the compilation unit
-    fn get_offset(&self, input: R) -> UnitOffset {
+    fn get_offset(&self, input: &R) -> UnitOffset {
         UnitOffset(self.unit.header_size() + input.offset_from(&self.unit.entries_buf))
     }
 
@@ -1780,7 +1785,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
             return Ok(None);
         }
 
-        let offset = self.get_offset(input);
+        let offset = self.get_offset(&input);
         match input.read_uleb128()? {
             0 => {
                 self.input = input;
@@ -1793,7 +1798,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
                     self.cached_current = Some(DebuggingInformationEntry {
                                                    offset: offset,
                                                    attrs_slice: input,
-                                                   after_attrs: Cell::new(None),
+                                                   attrs_len: Cell::new(None),
                                                    abbrev: abbrev,
                                                    unit: self.unit,
                                                });
@@ -2357,7 +2362,7 @@ impl<R: Reader> DebugTypes<R> {
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn units(&self) -> TypeUnitHeadersIter<R> {
         TypeUnitHeadersIter {
-            input: self.debug_types_section,
+            input: self.debug_types_section.clone(),
             offset: DebugTypesOffset(0),
         }
     }
@@ -3512,7 +3517,7 @@ mod tests {
         let entry = DebuggingInformationEntry {
             offset: UnitOffset(0),
             attrs_slice: EndianBuf::new(&buf),
-            after_attrs: Cell::new(None),
+            attrs_len: Cell::new(None),
             abbrev: &abbrev,
             unit: &unit,
         };
@@ -3537,7 +3542,7 @@ mod tests {
             }
         }
 
-        assert!(entry.after_attrs.get().is_none());
+        assert!(entry.attrs_len.get().is_none());
 
         match attrs.next() {
             Ok(Some(attr)) => {
@@ -3553,7 +3558,7 @@ mod tests {
             }
         }
 
-        assert!(entry.after_attrs.get().is_none());
+        assert!(entry.attrs_len.get().is_none());
 
         match attrs.next() {
             Ok(Some(attr)) => {
@@ -3569,15 +3574,12 @@ mod tests {
             }
         }
 
-        assert!(entry.after_attrs.get().is_none());
+        assert!(entry.attrs_len.get().is_none());
 
         assert!(attrs.next().expect("should parse next").is_none());
-        assert!(entry.after_attrs.get().is_some());
-        assert_eq!(*entry
-                       .after_attrs
-                       .get()
-                       .expect("should have entry.after_attrs"),
-                   buf[buf.len() - 4..])
+        assert!(entry.attrs_len.get().is_some());
+        assert_eq!(entry.attrs_len.get().expect("should have entry.attrs_len"),
+                   buf.len() - 4)
     }
 
     #[test]
@@ -3606,7 +3608,7 @@ mod tests {
         let entry = DebuggingInformationEntry {
             offset: UnitOffset(0),
             attrs_slice: EndianBuf::new(&buf),
-            after_attrs: Cell::new(None),
+            attrs_len: Cell::new(None),
             abbrev: &abbrev,
             unit: &unit,
         };
@@ -3631,18 +3633,18 @@ mod tests {
             }
         }
 
-        assert!(entry.after_attrs.get().is_none());
+        assert!(entry.attrs_len.get().is_none());
 
         // Return error for incomplete attribute.
         assert!(attrs.next().is_err());
-        assert!(entry.after_attrs.get().is_none());
+        assert!(entry.attrs_len.get().is_none());
 
         // Return error for all subsequent calls.
         assert!(attrs.next().is_err());
         assert!(attrs.next().is_err());
         assert!(attrs.next().is_err());
         assert!(attrs.next().is_err());
-        assert!(entry.after_attrs.get().is_none());
+        assert!(entry.attrs_len.get().is_none());
     }
 
     fn assert_entry_name<Endian>(entry: &DebuggingInformationEntry<EndianBuf<Endian>>, name: &str)
