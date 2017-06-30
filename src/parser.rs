@@ -49,9 +49,6 @@ pub enum Error {
     UnknownReservedLength,
     /// Found an unknown DWARF version.
     UnknownVersion,
-    /// The unit header's claimed length is too short to even hold the header
-    /// itself.
-    UnitHeaderLengthTooShort,
     /// Found a record with an unknown abbreviation code.
     UnknownAbbreviation,
     /// Hit the end of input before it was expected.
@@ -178,10 +175,6 @@ impl error::Error for Error {
             Error::DuplicateArange => "Found a duplicate arange",
             Error::UnknownReservedLength => "Found an unknown reserved length value",
             Error::UnknownVersion => "Found an unknown DWARF version",
-            Error::UnitHeaderLengthTooShort => {
-                "The unit header's claimed length is too short to even hold
-                 the header itself"
-            }
             Error::UnknownAbbreviation => "Found a record with an unknown abbreviation code",
             Error::UnexpectedEof => "Hit the end of input before it was expected",
             Error::UnexpectedNull => "Read a null entry before it was expected.",

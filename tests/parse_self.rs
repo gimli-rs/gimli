@@ -58,7 +58,7 @@ fn test_parse_self_debug_line() {
     let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_line = read_section("debug_line");
-    let debug_line = DebugLine::<LittleEndian>::new(&debug_line);
+    let debug_line = DebugLine::<EndianBuf<LittleEndian>>::new(&debug_line);
 
     let debug_str = read_section("debug_str");
     let debug_str = DebugStr::<EndianBuf<LittleEndian>>::new(&debug_str);

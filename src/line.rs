@@ -1,6 +1,7 @@
 use constants;
 use endianity::{Endianity, EndianBuf};
 use parser;
+use reader::Reader;
 use std::fmt;
 use Section;
 
@@ -11,13 +12,11 @@ pub struct DebugLineOffset(pub usize);
 /// The `DebugLine` struct contains the source location to instruction mapping
 /// found in the `.debug_line` section.
 #[derive(Debug, Clone, Copy)]
-pub struct DebugLine<'input, Endian>
-    where Endian: Endianity
-{
-    debug_line_section: EndianBuf<'input, Endian>,
+pub struct DebugLine<R: Reader> {
+    debug_line_section: R,
 }
 
-impl<'input, Endian> DebugLine<'input, Endian>
+impl<'input, Endian> DebugLine<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     /// Construct a new `DebugLine` instance from the data in the `.debug_line`
@@ -28,14 +27,26 @@ impl<'input, Endian> DebugLine<'input, Endian>
     /// Linux, a Mach-O loader on OSX, etc.
     ///
     /// ```
-    /// use gimli::{DebugLine, LittleEndian};
+    /// use gimli::{DebugLine, EndianBuf, LittleEndian};
     ///
     /// # let buf = [0x00, 0x01, 0x02, 0x03];
     /// # let read_debug_line_section_somehow = || &buf;
-    /// let debug_line = DebugLine::<LittleEndian>::new(read_debug_line_section_somehow());
+    /// let debug_line = DebugLine::<EndianBuf<LittleEndian>>::new(read_debug_line_section_somehow());
     /// ```
-    pub fn new(debug_line_section: &'input [u8]) -> DebugLine<'input, Endian> {
-        DebugLine { debug_line_section: EndianBuf::new(debug_line_section) }
+    pub fn new(debug_line_section: &'input [u8]) -> DebugLine<EndianBuf<'input, Endian>> {
+        Self::from_reader(EndianBuf::new(debug_line_section))
+    }
+}
+
+impl<R: Reader> DebugLine<R> {
+    /// Construct a new `DebugLine` instance from the data in the `.debug_line`
+    /// section.
+    ///
+    /// It is the caller's responsibility to read the `.debug_line` section and
+    /// present it as a `&[u8]` slice. That means using some ELF loader on
+    /// Linux, a Mach-O loader on OSX, etc.
+    pub fn from_reader(debug_line_section: R) -> Self {
+        DebugLine { debug_line_section }
     }
 
     /// Parse the line number program whose header is at the given `offset` in the
@@ -47,11 +58,11 @@ impl<'input, Endian> DebugLine<'input, Endian>
     /// compilation unit.
     ///
     /// ```rust,no_run
-    /// use gimli::{DebugLine, DebugLineOffset, IncompleteLineNumberProgram, LittleEndian};
+    /// use gimli::{DebugLine, DebugLineOffset, IncompleteLineNumberProgram, EndianBuf, LittleEndian};
     ///
     /// # let buf = [];
     /// # let read_debug_line_section_somehow = || &buf;
-    /// let debug_line = DebugLine::<LittleEndian>::new(read_debug_line_section_somehow());
+    /// let debug_line = DebugLine::<EndianBuf<LittleEndian>>::new(read_debug_line_section_somehow());
     ///
     /// // In a real example, we'd grab the offset via a compilation unit
     /// // entry's `DW_AT_stmt_list` attribute, and the address size from that
@@ -65,20 +76,18 @@ impl<'input, Endian> DebugLine<'input, Endian>
     pub fn program(&self,
                    offset: DebugLineOffset,
                    address_size: u8,
-                   comp_dir: Option<EndianBuf<'input, Endian>>,
-                   comp_name: Option<EndianBuf<'input, Endian>>)
-                   -> parser::Result<IncompleteLineNumberProgram<'input, Endian>> {
-        if self.debug_line_section.len() < offset.0 {
-            return Err(parser::Error::UnexpectedEof);
-        }
-        let input = &mut self.debug_line_section.range_from(offset.0..);
+                   comp_dir: Option<R>,
+                   comp_name: Option<R>)
+                   -> parser::Result<IncompleteLineNumberProgram<R>> {
+        let input = &mut self.debug_line_section.clone();
+        input.skip(offset.0)?;
         let header = LineNumberProgramHeader::parse(input, address_size, comp_dir, comp_name)?;
         let program = IncompleteLineNumberProgram { header: header };
         Ok(program)
     }
 }
 
-impl<'input, Endian> Section<'input> for DebugLine<'input, Endian>
+impl<'input, Endian> Section<'input> for DebugLine<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     fn section_name() -> &'static str {
@@ -86,7 +95,7 @@ impl<'input, Endian> Section<'input> for DebugLine<'input, Endian>
     }
 }
 
-impl<'input, Endian> From<&'input [u8]> for DebugLine<'input, Endian>
+impl<'input, Endian> From<&'input [u8]> for DebugLine<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     fn from(v: &'input [u8]) -> Self {
@@ -97,35 +106,27 @@ impl<'input, Endian> From<&'input [u8]> for DebugLine<'input, Endian>
 /// A `LineNumberProgram` provides access to a `LineNumberProgramHeader` and
 /// a way to add files to the files table if necessary. Gimli consumers should
 /// never need to use or see this trait.
-pub trait LineNumberProgram<'input, Endian>
-    where Endian: Endianity
-{
+pub trait LineNumberProgram<R: Reader> {
     /// Get a reference to the held `LineNumberProgramHeader`.
-    fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<'input, Endian>;
+    fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<R>;
     /// Add a file to the file table if necessary.
-    fn add_file(&mut self, file: FileEntry<'input, Endian>);
+    fn add_file(&mut self, file: FileEntry<R>);
 }
 
-impl<'input, Endian> LineNumberProgram<'input, Endian>
-    for IncompleteLineNumberProgram<'input, Endian>
-    where Endian: Endianity
-{
-    fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<'input, Endian> {
+impl<R: Reader> LineNumberProgram<R> for IncompleteLineNumberProgram<R> {
+    fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<R> {
         &self.header
     }
-    fn add_file(&mut self, file: FileEntry<'input, Endian>) {
+    fn add_file(&mut self, file: FileEntry<R>) {
         self.header.file_names.push(file);
     }
 }
 
-impl<'program, 'input, Endian> LineNumberProgram<'input, Endian>
-    for &'program CompleteLineNumberProgram<'input, Endian>
-    where Endian: Endianity
-{
-    fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<'input, Endian> {
+impl<'program, R: Reader> LineNumberProgram<R> for &'program CompleteLineNumberProgram<R> {
+    fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<R> {
         &self.header
     }
-    fn add_file(&mut self, _: FileEntry<'input, Endian>) {
+    fn add_file(&mut self, _: FileEntry<R>) {
         // Nop. Our file table is already complete.
     }
 }
@@ -137,34 +138,29 @@ impl<'program, 'input, Endian> LineNumberProgram<'input, Endian>
 /// to expand the byte-coded instruction stream into a matrix of line number
 /// information." -- Section 6.2.1
 #[derive(Debug, Clone)]
-pub struct StateMachine<'input, Program, Endian>
-    where Program: LineNumberProgram<'input, Endian>,
-          Endian: Endianity
+pub struct StateMachine<R, Program>
+    where Program: LineNumberProgram<R>,
+          R: Reader
 {
     program: Program,
     row: LineNumberRow,
-    opcodes: OpcodesIter<'input, Endian>,
+    opcodes: OpcodesIter<R>,
 }
 
 
-type OneShotStateMachine<'input, Endian> = StateMachine<'input,
-                                                        IncompleteLineNumberProgram<'input,
-                                                                                    Endian>,
-                                                        Endian>;
+type OneShotStateMachine<R> = StateMachine<R, IncompleteLineNumberProgram<R>>;
 
-type ResumedStateMachine<'program, 'input, Endian> =
-    StateMachine<'input, &'program CompleteLineNumberProgram<'input, Endian>, Endian>;
+type ResumedStateMachine<'program, R> = StateMachine<R, &'program CompleteLineNumberProgram<R>>;
 
-impl<'input, Program, Endian> StateMachine<'input, Program, Endian>
-    where Program: LineNumberProgram<'input, Endian>,
-          Endian: Endianity
+impl<R, Program> StateMachine<R, Program>
+    where Program: LineNumberProgram<R>,
+          R: Reader
 {
     #[allow(new_ret_no_self)]
-    fn new(program: IncompleteLineNumberProgram<'input, Endian>)
-           -> OneShotStateMachine<'input, Endian> {
+    fn new(program: IncompleteLineNumberProgram<R>) -> OneShotStateMachine<R> {
         let mut row = LineNumberRow::default();
         row.registers.reset(program.header().default_is_stmt());
-        let opcodes = OpcodesIter { input: program.header().program_buf };
+        let opcodes = OpcodesIter { input: program.header().program_buf.clone() };
         StateMachine {
             program: program,
             row: row,
@@ -172,9 +168,9 @@ impl<'input, Program, Endian> StateMachine<'input, Program, Endian>
         }
     }
 
-    fn resume<'program>(program: &'program CompleteLineNumberProgram<'input, Endian>,
-                        sequence: &LineNumberSequence<'input, Endian>)
-                        -> ResumedStateMachine<'program, 'input, Endian> {
+    fn resume<'program>(program: &'program CompleteLineNumberProgram<R>,
+                        sequence: &LineNumberSequence<R>)
+                        -> ResumedStateMachine<'program, R> {
         let mut row = LineNumberRow::default();
         row.registers.reset(program.header().default_is_stmt());
         let opcodes = sequence.opcodes.clone();
@@ -238,7 +234,7 @@ impl<'input, Program, Endian> StateMachine<'input, Program, Endian>
     /// line number matrix needs to be generated.
     ///
     /// Unknown opcodes are treated as no-ops.
-    fn execute(&mut self, opcode: Opcode<'input, Endian>) -> bool {
+    fn execute(&mut self, opcode: Opcode<R>) -> bool {
         match opcode {
             Opcode::Special(opcode) => {
                 self.exec_special_opcode(opcode);
@@ -336,7 +332,7 @@ impl<'input, Program, Endian> StateMachine<'input, Program, Endian>
 
     /// Get a reference to the header for this state machine's line number
     /// program.
-    pub fn header(&self) -> &LineNumberProgramHeader<'input, Endian> {
+    pub fn header(&self) -> &LineNumberProgramHeader<R> {
         self.program.header()
     }
 
@@ -350,9 +346,8 @@ impl<'input, Program, Endian> StateMachine<'input, Program, Endian>
     ///
     /// Unfortunately, the references mean that this cannot be a
     /// `FallibleIterator`.
-    pub fn next_row
-        (&mut self)
-         -> parser::Result<Option<(&LineNumberProgramHeader<'input, Endian>, &LineNumberRow)>> {
+    pub fn next_row(&mut self)
+                    -> parser::Result<Option<(&LineNumberProgramHeader<R>, &LineNumberRow)>> {
         // Perform any reset that was required after copying the previous row.
         if self.row.registers.end_sequence {
             // Previous opcode was EndSequence, so reset everything
@@ -394,7 +389,7 @@ impl<'input, Program, Endian> StateMachine<'input, Program, Endian>
     pub fn run_to_address
         (&mut self,
          addr: &u64)
-         -> parser::Result<Option<(&LineNumberProgramHeader<'input, Endian>, &LineNumberRow)>> {
+         -> parser::Result<Option<(&LineNumberProgramHeader<R>, &LineNumberRow)>> {
         loop {
             match self.next_row() {
                 Ok(Some((_, row))) => {
@@ -414,9 +409,7 @@ impl<'input, Program, Endian> StateMachine<'input, Program, Endian>
 
 /// A parsed line number program opcode.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Opcode<'input, Endian>
-    where Endian: Endianity
-{
+pub enum Opcode<R: Reader> {
     /// > ### 6.2.5.1 Special Opcodes
     /// >
     /// > Each ubyte special opcode has the following effect on the state machine:
@@ -535,7 +528,7 @@ pub enum Opcode<'input, Endian>
 
     /// Defines a new source file in the line number program and appends it to
     /// the line number program header's list of source files.
-    DefineFile(FileEntry<'input, Endian>),
+    DefineFile(FileEntry<R>),
 
     /// "The DW_LNE_set_discriminator opcode takes a single parameter, an
     /// unsigned LEB128 integer. It sets the discriminator register to the new
@@ -543,43 +536,41 @@ pub enum Opcode<'input, Endian>
     SetDiscriminator(u64),
 
     /// An unknown extended opcode and the slice of its unparsed operands.
-    UnknownExtended(constants::DwLne, EndianBuf<'input, Endian>),
+    UnknownExtended(constants::DwLne, R),
 }
 
-impl<'input, Endian> Opcode<'input, Endian>
-    where Endian: Endianity
-{
-    fn parse<'header>(header: &'header LineNumberProgramHeader<'input, Endian>,
-                      input: &mut EndianBuf<'input, Endian>)
-                      -> parser::Result<Opcode<'input, Endian>>
-        where Endian: 'header,
-              'input: 'header
+impl<R: Reader> Opcode<R> {
+    fn parse<'header>(header: &'header LineNumberProgramHeader<R>,
+                      input: &mut R)
+                      -> parser::Result<Opcode<R>>
+        where R: 'header
     {
-        let opcode = parser::parse_u8(input)?;
+        let opcode = input.read_u8()?;
         if opcode == 0 {
-            let length = parser::parse_unsigned_leb(input)?;
-            let instr_rest = &mut parser::take(length as usize, input)?;
-            let opcode = parser::parse_u8(instr_rest)?;
+            let length = input.read_uleb128()?;
+            let mut instr_rest = input.split(length as usize)?;
+            let opcode = instr_rest.read_u8()?;
 
             match constants::DwLne(opcode) {
                 constants::DW_LNE_end_sequence => Ok(Opcode::EndSequence),
 
                 constants::DW_LNE_set_address => {
-                    let address = parser::parse_address(instr_rest, header.address_size)?;
+                    let address = instr_rest.read_address(header.address_size)?;
                     Ok(Opcode::SetAddress(address))
                 }
 
                 constants::DW_LNE_define_file => {
-                    let entry = FileEntry::parse(instr_rest)?;
+                    let path_name = instr_rest.read_null_terminated_slice()?;
+                    let entry = FileEntry::parse(&mut instr_rest, path_name)?;
                     Ok(Opcode::DefineFile(entry))
                 }
 
                 constants::DW_LNE_set_discriminator => {
-                    let discriminator = parser::parse_unsigned_leb(instr_rest)?;
+                    let discriminator = instr_rest.read_uleb128()?;
                     Ok(Opcode::SetDiscriminator(discriminator))
                 }
 
-                otherwise => Ok(Opcode::UnknownExtended(otherwise, *instr_rest)),
+                otherwise => Ok(Opcode::UnknownExtended(otherwise, instr_rest)),
             }
         } else if opcode >= header.opcode_base {
             Ok(Opcode::Special(opcode))
@@ -588,22 +579,22 @@ impl<'input, Endian> Opcode<'input, Endian>
                 constants::DW_LNS_copy => Ok(Opcode::Copy),
 
                 constants::DW_LNS_advance_pc => {
-                    let advance = parser::parse_unsigned_leb(input)?;
+                    let advance = input.read_uleb128()?;
                     Ok(Opcode::AdvancePc(advance))
                 }
 
                 constants::DW_LNS_advance_line => {
-                    let increment = parser::parse_signed_leb(input)?;
+                    let increment = input.read_sleb128()?;
                     Ok(Opcode::AdvanceLine(increment))
                 }
 
                 constants::DW_LNS_set_file => {
-                    let file = parser::parse_unsigned_leb(input)?;
+                    let file = input.read_uleb128()?;
                     Ok(Opcode::SetFile(file))
                 }
 
                 constants::DW_LNS_set_column => {
-                    let column = parser::parse_unsigned_leb(input)?;
+                    let column = input.read_uleb128()?;
                     Ok(Opcode::SetColumn(column))
                 }
 
@@ -614,7 +605,7 @@ impl<'input, Endian> Opcode<'input, Endian>
                 constants::DW_LNS_const_add_pc => Ok(Opcode::ConstAddPc),
 
                 constants::DW_LNS_fixed_advance_pc => {
-                    let advance = parser::parse_u16(input)?;
+                    let advance = input.read_u16()?;
                     Ok(Opcode::FixedAddPc(advance))
                 }
 
@@ -623,35 +614,35 @@ impl<'input, Endian> Opcode<'input, Endian>
                 constants::DW_LNS_set_epilogue_begin => Ok(Opcode::SetEpilogueBegin),
 
                 constants::DW_LNS_set_isa => {
-                    let isa = parser::parse_unsigned_leb(input)?;
+                    let isa = input.read_uleb128()?;
                     Ok(Opcode::SetIsa(isa))
                 }
 
-                otherwise if header.standard_opcode_lengths[(opcode - 1) as usize] == 0 => {
-                    Ok(Opcode::UnknownStandard0(otherwise))
-                }
-
-                otherwise if header.standard_opcode_lengths[(opcode - 1) as usize] == 1 => {
-                    let arg = parser::parse_unsigned_leb(input)?;
-                    Ok(Opcode::UnknownStandard1(otherwise, arg))
-                }
-
                 otherwise => {
-                    let num_args = header.standard_opcode_lengths[(opcode - 1) as usize];
-                    let mut args = Vec::with_capacity(num_args as usize);
-                    for _ in 0..num_args {
-                        args.push(parser::parse_unsigned_leb(input)?);
+                    let mut opcode_lengths = header.standard_opcode_lengths().clone();
+                    opcode_lengths.skip((opcode - 1) as usize)?;
+                    let num_args = opcode_lengths.read_u8()? as usize;
+                    match num_args {
+                        0 => Ok(Opcode::UnknownStandard0(otherwise)),
+                        1 => {
+                            let arg = input.read_uleb128()?;
+                            Ok(Opcode::UnknownStandard1(otherwise, arg))
+                        }
+                        _ => {
+                            let mut args = Vec::with_capacity(num_args as usize);
+                            for _ in 0..num_args {
+                                args.push(input.read_uleb128()?);
+                            }
+                            Ok(Opcode::UnknownStandardN(otherwise, args))
+                        }
                     }
-                    Ok(Opcode::UnknownStandardN(otherwise, args))
                 }
             }
         }
     }
 }
 
-impl<'input, Endian> fmt::Display for Opcode<'input, Endian>
-    where Endian: Endianity
-{
+impl<R: Reader> fmt::Display for Opcode<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match *self {
             Opcode::Special(opcode) => write!(f, "Special opcode {}", opcode),
@@ -701,25 +692,20 @@ impl<'input, Endian> fmt::Display for Opcode<'input, Endian>
 /// [`LineNumberProgramHeader::opcodes`](./struct.LineNumberProgramHeader.html#method.opcodes)
 /// for more details.
 #[derive(Clone, Debug)]
-pub struct OpcodesIter<'input, Endian>
-    where Endian: Endianity
-{
-    input: EndianBuf<'input, Endian>,
+pub struct OpcodesIter<R: Reader> {
+    input: R,
 }
 
-impl<'input, Endian> OpcodesIter<'input, Endian>
-    where Endian: Endianity
-{
-    fn remove_trailing(&self, other: &OpcodesIter<'input, Endian>) -> OpcodesIter<'input, Endian> {
-        let offset = other.input.offset_from(self.input);
-        debug_assert!(offset <= self.input.len());
-        OpcodesIter { input: self.input.range_to(..offset) }
+impl<R: Reader> OpcodesIter<R> {
+    fn remove_trailing(&self, other: &OpcodesIter<R>) -> parser::Result<OpcodesIter<R>> {
+        let offset = other.input.offset_from(&self.input);
+        let mut input = self.input.clone();
+        input.truncate(offset)?;
+        Ok(OpcodesIter { input })
     }
 }
 
-impl<'input, Endian> OpcodesIter<'input, Endian>
-    where Endian: Endianity
-{
+impl<R: Reader> OpcodesIter<R> {
     /// Advance the iterator and return the next opcode.
     ///
     /// Returns the newly parsed opcode as `Ok(Some(opcode))`. Returns
@@ -730,8 +716,8 @@ impl<'input, Endian> OpcodesIter<'input, Endian>
     /// Unfortunately, the `header` parameter means that this cannot be a
     /// `FallibleIterator`.
     pub fn next_opcode(&mut self,
-                       header: &LineNumberProgramHeader<'input, Endian>)
-                       -> parser::Result<Option<Opcode<'input, Endian>>> {
+                       header: &LineNumberProgramHeader<R>)
+                       -> parser::Result<Option<Opcode<R>>> {
         if self.input.is_empty() {
             return Ok(None);
         }
@@ -771,11 +757,9 @@ impl LineNumberRow {
     }
 
     /// The source file corresponding to the current machine instruction.
-    pub fn file<'header, 'input, Endian>(&self,
-                                         header: &'header LineNumberProgramHeader<'input, Endian>)
-                                         -> Option<&'header FileEntry<'input, Endian>>
-        where Endian: Endianity
-    {
+    pub fn file<'header, R: Reader>(&self,
+                                    header: &'header LineNumberProgramHeader<R>)
+                                    -> Option<&'header FileEntry<R>> {
         header.file(self.registers.file)
     }
 
@@ -915,24 +899,20 @@ impl StateMachineRegisters {
 /// 6.2.5 of the standard, is a linear subset of a line number program within
 /// which addresses are monotonically increasing.
 #[derive(Clone, Debug)]
-pub struct LineNumberSequence<'input, Endian>
-    where Endian: Endianity
-{
+pub struct LineNumberSequence<R: Reader> {
     /// The first address that is covered by this sequence within the line number
     /// program.
     pub start: u64,
     /// The first address that is *not* covered by this sequence within the line
     /// number program.
     pub end: u64,
-    opcodes: OpcodesIter<'input, Endian>,
+    opcodes: OpcodesIter<R>,
 }
 
 /// A header for a line number program in the `.debug_line` section, as defined
 /// in section 6.2.4 of the standard.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LineNumberProgramHeader<'input, Endian>
-    where Endian: Endianity
-{
+pub struct LineNumberProgramHeader<R: Reader> {
     unit_length: u64,
 
     /// "A version number. This number is specific to the line number
@@ -972,7 +952,7 @@ pub struct LineNumberProgramHeader<'input, Endian>
     /// standard opcodes. The first element of the array corresponds to the
     /// opcode whose value is 1, and the last element corresponds to the opcode
     /// whose value is `opcode_base - 1`."
-    standard_opcode_lengths: &'input [u8],
+    standard_opcode_lengths: R,
 
     /// > Entries in this sequence describe each path that was searched for
     /// > included source files in this compilation. (The paths include those
@@ -982,32 +962,30 @@ pub struct LineNumberProgramHeader<'input, Endian>
     /// > of the compilation.
     /// >
     /// > The last entry is followed by a single null byte.
-    include_directories: Vec<EndianBuf<'input, Endian>>,
+    include_directories: Vec<R>,
 
     /// "Entries in this sequence describe source files that contribute to the
     /// line number information for this compilation unit or is used in other
     /// contexts."
-    file_names: Vec<FileEntry<'input, Endian>>,
+    file_names: Vec<FileEntry<R>>,
 
     /// Whether this line program is encoded in the 32- or 64-bit DWARF format.
     format: parser::Format,
 
     /// The encoded line program instructions.
-    program_buf: EndianBuf<'input, Endian>,
+    program_buf: R,
 
     /// The size of an address on the debuggee architecture, in bytes.
     address_size: u8,
 
     /// The `DW_AT_comp_dir` value from the compilation unit.
-    comp_dir: Option<EndianBuf<'input, Endian>>,
+    comp_dir: Option<R>,
 
     /// The `DW_AT_name` value from the compilation unit.
-    comp_name: Option<FileEntry<'input, Endian>>,
+    comp_name: Option<FileEntry<R>>,
 }
 
-impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
-    where Endian: Endianity
-{
+impl<R: Reader> LineNumberProgramHeader<R> {
     /// Return the length of the line number program and header, not including
     /// the length of the encoded length itself.
     pub fn unit_length(&self) -> u64 {
@@ -1059,39 +1037,39 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
     }
 
     /// The byte lengths of each standard opcode in this header's line program.
-    pub fn standard_opcode_lengths(&self) -> &'input [u8] {
-        &self.standard_opcode_lengths[..]
+    pub fn standard_opcode_lengths(&self) -> &R {
+        &self.standard_opcode_lengths
     }
 
     /// Get the set of include directories for this header's line program.
     ///
     /// The compilation's current directory is not included in the return value,
     /// but is implicitly considered to be in the set per spec.
-    pub fn include_directories(&self) -> &[EndianBuf<'input, Endian>] {
+    pub fn include_directories(&self) -> &[R] {
         &self.include_directories[..]
     }
 
     /// The include directory with the given directory index.
     ///
     /// A directory index of 0 corresponds to the compilation unit directory.
-    pub fn directory(&self, directory: u64) -> Option<EndianBuf<'input, Endian>> {
+    pub fn directory(&self, directory: u64) -> Option<R> {
         if directory == 0 {
-            self.comp_dir
+            self.comp_dir.clone()
         } else {
             let directory = directory as usize - 1;
-            self.include_directories.get(directory).map(|d| *d)
+            self.include_directories.get(directory).map(|d| d.clone())
         }
     }
 
     /// Get the list of source files that appear in this header's line program.
-    pub fn file_names(&self) -> &[FileEntry<Endian>] {
+    pub fn file_names(&self) -> &[FileEntry<R>] {
         &self.file_names[..]
     }
 
     /// The source file with the given file index.
     ///
     /// A file index of 0 corresponds to the compilation unit file.
-    pub fn file(&self, file: u64) -> Option<&FileEntry<'input, Endian>> {
+    pub fn file(&self, file: u64) -> Option<&FileEntry<R>> {
         if file == 0 {
             self.comp_name.as_ref()
         } else {
@@ -1105,9 +1083,9 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
     ///
     /// ```
     /// # fn foo() {
-    /// use gimli::{LineNumberProgramHeader, NativeEndian};
+    /// use gimli::{LineNumberProgramHeader, EndianBuf, NativeEndian};
     ///
-    /// fn get_line_number_program_header<'a>() -> LineNumberProgramHeader<'a, NativeEndian> {
+    /// fn get_line_number_program_header<'a>() -> LineNumberProgramHeader<EndianBuf<'a, NativeEndian>> {
     ///     // Get a line number program header from some offset in a
     ///     // `.debug_line` section...
     /// #   unimplemented!()
@@ -1118,143 +1096,127 @@ impl<'input, Endian> LineNumberProgramHeader<'input, Endian>
     /// println!("The length of the raw program in bytes is {}", raw_program.len());
     /// # }
     /// ```
-    pub fn raw_program_buf(&self) -> EndianBuf<'input, Endian> {
-        self.program_buf
+    pub fn raw_program_buf(&self) -> R {
+        self.program_buf.clone()
     }
 
     /// Iterate over the opcodes in this header's line number program, parsing
     /// them as we go.
-    pub fn opcodes(&self) -> OpcodesIter<'input, Endian> {
-        OpcodesIter { input: self.program_buf }
+    pub fn opcodes(&self) -> OpcodesIter<R> {
+        OpcodesIter { input: self.program_buf.clone() }
     }
 
-    fn parse(input: &mut EndianBuf<'input, Endian>,
+    fn parse(input: &mut R,
              address_size: u8,
-             comp_dir: Option<EndianBuf<'input, Endian>>,
-             comp_name: Option<EndianBuf<'input, Endian>>)
-             -> parser::Result<LineNumberProgramHeader<'input, Endian>> {
+             comp_dir: Option<R>,
+             comp_name: Option<R>)
+             -> parser::Result<LineNumberProgramHeader<R>> {
         let (unit_length, format) = parser::parse_initial_length(input)?;
-        let rest = &mut parser::take(unit_length as usize, input)?;
+        let rest = &mut input.split(unit_length as usize)?;
 
-        let version = parser::parse_u16(rest)?;
+        let version = rest.read_u16()?;
         if version < 2 || version > 4 {
             return Err(parser::Error::UnknownVersion);
         }
 
-        let header_length = parser::parse_word(rest, format)?;
+        let header_length = rest.read_word(format)?;
 
-        if header_length as usize > rest.len() {
-            return Err(parser::Error::UnitHeaderLengthTooShort);
-        }
-        let program_buf = rest.range_from(header_length as usize..);
-        let rest = &mut rest.range_to(..header_length as usize);
+        let mut program_buf = rest.clone();
+        program_buf.skip(header_length as usize)?;
+        rest.truncate(header_length as usize)?;
 
-        let minimum_instruction_length = parser::parse_u8(rest)?;
+        let minimum_instruction_length = rest.read_u8()?;
         if minimum_instruction_length == 0 {
             return Err(parser::Error::MinimumInstructionLengthZero);
         }
 
         // This field did not exist before DWARF 4, but is specified to be 1 for
         // non-VLIW architectures, which makes it a no-op.
-        let maximum_operations_per_instruction = if version >= 4 {
-            parser::parse_u8(rest)?
-        } else {
-            1
-        };
+        let maximum_operations_per_instruction = if version >= 4 { rest.read_u8()? } else { 1 };
         if maximum_operations_per_instruction == 0 {
             return Err(parser::Error::MaximumOperationsPerInstructionZero);
         }
 
-        let default_is_stmt = parser::parse_u8(rest)?;
-        let line_base = parser::parse_i8(rest)?;
-        let line_range = parser::parse_u8(rest)?;
+        let default_is_stmt = rest.read_u8()?;
+        let line_base = rest.read_i8()?;
+        let line_range = rest.read_u8()?;
         if line_range == 0 {
             return Err(parser::Error::LineRangeZero);
         }
 
-        let opcode_base = parser::parse_u8(rest)?;
+        let opcode_base = rest.read_u8()?;
         if opcode_base == 0 {
             return Err(parser::Error::OpcodeBaseZero);
         }
 
         let standard_opcode_count = opcode_base as usize - 1;
-        let standard_opcode_lengths = parser::take(standard_opcode_count, rest)?;
+        let standard_opcode_lengths = rest.split(standard_opcode_count)?;
 
         let mut include_directories = Vec::new();
         loop {
-            if rest.is_empty() {
-                return Err(parser::Error::UnexpectedEof);
-            }
-
-            if rest[0] == 0 {
-                *rest = rest.range_from(1..);
+            let directory = rest.read_null_terminated_slice()?;
+            if directory.is_empty() {
                 break;
             }
-
-            include_directories.push(parser::parse_null_terminated_slice(rest)?);
+            include_directories.push(directory);
         }
 
         let mut file_names = Vec::new();
         loop {
-            if rest.is_empty() {
-                return Err(parser::Error::UnexpectedEof);
+            let path_name = rest.read_null_terminated_slice()?;
+            if path_name.is_empty() {
+                break;
             }
-
-            if rest[0] == 0 {
-                let comp_name = comp_name.map(|name| {
-                                                  FileEntry {
-                                                      path_name: name,
-                                                      directory_index: 0,
-                                                      last_modification: 0,
-                                                      length: 0,
-                                                  }
-                                              });
-                let header = LineNumberProgramHeader {
-                    unit_length: unit_length,
-                    version: version,
-                    header_length: header_length,
-                    minimum_instruction_length: minimum_instruction_length,
-                    maximum_operations_per_instruction: maximum_operations_per_instruction,
-                    default_is_stmt: default_is_stmt != 0,
-                    line_base: line_base,
-                    line_range: line_range,
-                    opcode_base: opcode_base,
-                    standard_opcode_lengths: standard_opcode_lengths.buf(),
-                    include_directories: include_directories,
-                    file_names: file_names,
-                    format: format,
-                    program_buf: program_buf,
-                    address_size: address_size,
-                    comp_dir: comp_dir,
-                    comp_name: comp_name,
-                };
-                return Ok(header);
-            }
-
-            file_names.push(FileEntry::parse(rest)?);
+            file_names.push(FileEntry::parse(rest, path_name)?);
         }
+
+        let comp_name = comp_name.map(|name| {
+                                          FileEntry {
+                                              path_name: name,
+                                              directory_index: 0,
+                                              last_modification: 0,
+                                              length: 0,
+                                          }
+                                      });
+
+        let header = LineNumberProgramHeader {
+            unit_length: unit_length,
+            version: version,
+            header_length: header_length,
+            minimum_instruction_length: minimum_instruction_length,
+            maximum_operations_per_instruction: maximum_operations_per_instruction,
+            default_is_stmt: default_is_stmt != 0,
+            line_base: line_base,
+            line_range: line_range,
+            opcode_base: opcode_base,
+            standard_opcode_lengths: standard_opcode_lengths,
+            include_directories: include_directories,
+            file_names: file_names,
+            format: format,
+            program_buf: program_buf,
+            address_size: address_size,
+            comp_dir: comp_dir,
+            comp_name: comp_name,
+        };
+        return Ok(header);
     }
 }
 
 /// A line number program that has not been run to completion.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IncompleteLineNumberProgram<'input, Endian>
-    where Endian: Endianity
-{
-    header: LineNumberProgramHeader<'input, Endian>,
+pub struct IncompleteLineNumberProgram<R: Reader> {
+    header: LineNumberProgramHeader<R>,
 }
 
-impl<'input, Endian> IncompleteLineNumberProgram<'input, Endian>
-    where Endian: Endianity
-{
+impl<R: Reader> IncompleteLineNumberProgram<R> {
     /// Retrieve the `LineNumberProgramHeader` for this program.
-    pub fn header(&self) -> &LineNumberProgramHeader<'input, Endian> {
+    pub fn header(&self) -> &LineNumberProgramHeader<R> {
         &self.header
     }
 
     /// Construct a new `StateMachine` for executing line programs and
     /// generating the line information matrix.
-    pub fn rows(self) -> OneShotStateMachine<'input, Endian> {
+    pub fn rows(self) -> OneShotStateMachine<R> {
         OneShotStateMachine::new(self)
     }
 
@@ -1265,9 +1227,9 @@ impl<'input, Endian> IncompleteLineNumberProgram<'input, Endian>
     ///
     /// ```
     /// # fn foo() {
-    /// use gimli::{IncompleteLineNumberProgram, NativeEndian};
+    /// use gimli::{IncompleteLineNumberProgram, EndianBuf, NativeEndian};
     ///
-    /// fn get_line_number_program<'a>() -> IncompleteLineNumberProgram<'a, NativeEndian> {
+    /// fn get_line_number_program<'a>() -> IncompleteLineNumberProgram<EndianBuf<'a, NativeEndian>> {
     ///     // Get a line number program from some offset in a
     ///     // `.debug_line` section...
     /// #   unimplemented!()
@@ -1278,9 +1240,9 @@ impl<'input, Endian> IncompleteLineNumberProgram<'input, Endian>
     /// println!("There are {} sequences in this line number program", sequences.len());
     /// # }
     /// ```
-    pub fn sequences(self)
-                     -> parser::Result<(CompleteLineNumberProgram<'input, Endian>,
-                                        Vec<LineNumberSequence<'input, Endian>>)> {
+    pub fn sequences
+        (self)
+         -> parser::Result<(CompleteLineNumberProgram<R>, Vec<LineNumberSequence<R>>)> {
         let mut sequences = Vec::new();
         let mut state_machine = self.rows();
         let mut opcodes = state_machine.opcodes.clone();
@@ -1307,7 +1269,7 @@ impl<'input, Endian> IncompleteLineNumberProgram<'input, Endian>
                                // in a row.
                                start: sequence_start_addr.unwrap_or(0),
                                end: sequence_end_addr,
-                               opcodes: opcodes.remove_trailing(&state_machine.opcodes),
+                               opcodes: opcodes.remove_trailing(&state_machine.opcodes)?,
                            });
             sequence_start_addr = None;
             opcodes = state_machine.opcodes.clone();
@@ -1320,17 +1282,13 @@ impl<'input, Endian> IncompleteLineNumberProgram<'input, Endian>
 
 /// A line number program that has previously been run to completion.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CompleteLineNumberProgram<'input, Endian>
-    where Endian: Endianity
-{
-    header: LineNumberProgramHeader<'input, Endian>,
+pub struct CompleteLineNumberProgram<R: Reader> {
+    header: LineNumberProgramHeader<R>,
 }
 
-impl<'input, Endian> CompleteLineNumberProgram<'input, Endian>
-    where Endian: Endianity
-{
+impl<R: Reader> CompleteLineNumberProgram<R> {
     /// Retrieve the `LineNumberProgramHeader` for this program.
-    pub fn header(&self) -> &LineNumberProgramHeader<'input, Endian> {
+    pub fn header(&self) -> &LineNumberProgramHeader<R> {
         &self.header
     }
 
@@ -1340,9 +1298,9 @@ impl<'input, Endian> CompleteLineNumberProgram<'input, Endian>
     ///
     /// ```
     /// # fn foo() {
-    /// use gimli::{IncompleteLineNumberProgram, NativeEndian};
+    /// use gimli::{IncompleteLineNumberProgram, EndianBuf, NativeEndian};
     ///
-    /// fn get_line_number_program<'a>() -> IncompleteLineNumberProgram<'a, NativeEndian> {
+    /// fn get_line_number_program<'a>() -> IncompleteLineNumberProgram<EndianBuf<'a, NativeEndian>> {
     ///     // Get a line number program from some offset in a
     ///     // `.debug_line` section...
     /// #   unimplemented!()
@@ -1356,31 +1314,26 @@ impl<'input, Endian> CompleteLineNumberProgram<'input, Endian>
     /// # }
     /// ```
     pub fn resume_from<'program>(&'program self,
-                                 sequence: &LineNumberSequence<'input, Endian>)
-                                 -> ResumedStateMachine<'program, 'input, Endian> {
+                                 sequence: &LineNumberSequence<R>)
+                                 -> ResumedStateMachine<'program, R> {
         ResumedStateMachine::resume(self, sequence)
     }
 }
 
 /// An entry in the `LineNumberProgramHeader`'s `file_names` set.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct FileEntry<'input, Endian>
-    where Endian: Endianity
-{
-    path_name: EndianBuf<'input, Endian>,
+pub struct FileEntry<R: Reader> {
+    path_name: R,
     directory_index: u64,
     last_modification: u64,
     length: u64,
 }
 
-impl<'input, Endian> FileEntry<'input, Endian>
-    where Endian: Endianity
-{
-    fn parse(input: &mut EndianBuf<'input, Endian>) -> parser::Result<FileEntry<'input, Endian>> {
-        let path_name = parser::parse_null_terminated_slice(input)?;
-        let directory_index = parser::parse_unsigned_leb(input)?;
-        let last_modification = parser::parse_unsigned_leb(input)?;
-        let length = parser::parse_unsigned_leb(input)?;
+impl<R: Reader> FileEntry<R> {
+    fn parse(input: &mut R, path_name: R) -> parser::Result<FileEntry<R>> {
+        let directory_index = input.read_uleb128()?;
+        let last_modification = input.read_uleb128()?;
+        let length = input.read_uleb128()?;
 
         let entry = FileEntry {
             path_name: path_name,
@@ -1397,8 +1350,8 @@ impl<'input, Endian> FileEntry<'input, Endian>
     /// > name, the file is located relative to either the compilation directory
     /// > (as specified by the DW_AT_comp_dir attribute given in the compilation
     /// > unit) or one of the directories in the include_directories section.
-    pub fn path_name(&self) -> EndianBuf<'input, Endian> {
-        self.path_name
+    pub fn path_name(&self) -> R {
+        self.path_name.clone()
     }
 
     /// > An unsigned LEB128 number representing the directory index of the
@@ -1419,9 +1372,7 @@ impl<'input, Endian> FileEntry<'input, Endian>
     /// Get this file's directory.
     ///
     /// A directory index of 0 corresponds to the compilation unit directory.
-    pub fn directory(&self,
-                     header: &LineNumberProgramHeader<'input, Endian>)
-                     -> Option<EndianBuf<'input, Endian>> {
+    pub fn directory(&self, header: &LineNumberProgramHeader<R>) -> Option<R> {
         header.directory(self.directory_index)
     }
 
@@ -1520,7 +1471,7 @@ mod tests {
         assert_eq!(header.file(0).unwrap().path_name, comp_name);
 
         let expected_lengths = [1, 2];
-        assert_eq!(header.standard_opcode_lengths(), &expected_lengths);
+        assert_eq!(header.standard_opcode_lengths().buf(), &expected_lengths);
 
         let expected_include_directories = [
             EndianBuf::new(b"/inc"),
@@ -1662,7 +1613,7 @@ mod tests {
         let input = &mut EndianBuf::<LittleEndian>::new(&buf);
 
         match LineNumberProgramHeader::parse(input, 4, None, None) {
-            Err(Error::UnitHeaderLengthTooShort) => return,
+            Err(Error::UnexpectedEof) => return,
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
     }
@@ -1670,7 +1621,8 @@ mod tests {
     const OPCODE_BASE: u8 = 13;
     const STANDARD_OPCODE_LENGTHS: &'static [u8] = &[0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1];
 
-    fn make_test_header(buf: EndianBuf<LittleEndian>) -> LineNumberProgramHeader<LittleEndian> {
+    fn make_test_header(buf: EndianBuf<LittleEndian>)
+                        -> LineNumberProgramHeader<EndianBuf<LittleEndian>> {
         LineNumberProgramHeader {
             opcode_base: OPCODE_BASE,
             address_size: 8,
@@ -1695,7 +1647,7 @@ mod tests {
             format: Format::Dwarf32,
             line_base: -3,
             unit_length: 1,
-            standard_opcode_lengths: STANDARD_OPCODE_LENGTHS,
+            standard_opcode_lengths: EndianBuf::new(STANDARD_OPCODE_LENGTHS),
             include_directories: vec![],
             line_range: 12,
             comp_dir: None,
@@ -1704,7 +1656,7 @@ mod tests {
     }
 
     fn make_test_program(buf: EndianBuf<LittleEndian>)
-                         -> IncompleteLineNumberProgram<LittleEndian> {
+                         -> IncompleteLineNumberProgram<EndianBuf<LittleEndian>> {
         IncompleteLineNumberProgram { header: make_test_header(buf) }
     }
 
@@ -1725,7 +1677,9 @@ mod tests {
 
     #[test]
     fn test_parse_standard_opcodes() {
-        fn test<Operands>(raw: constants::DwLns, operands: Operands, expected: Opcode<LittleEndian>)
+        fn test<Operands>(raw: constants::DwLns,
+                          operands: Operands,
+                          expected: Opcode<EndianBuf<LittleEndian>>)
             where Operands: AsRef<[u8]>
         {
             let mut input = Vec::new();
@@ -1770,10 +1724,10 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&input);
         let mut standard_opcode_lengths = Vec::new();
         let mut header = make_test_header(input);
-        standard_opcode_lengths.extend(header.standard_opcode_lengths);
+        standard_opcode_lengths.extend(header.standard_opcode_lengths.buf());
         standard_opcode_lengths.push(0);
         header.opcode_base += 1;
-        header.standard_opcode_lengths = &standard_opcode_lengths;
+        header.standard_opcode_lengths = EndianBuf::new(&standard_opcode_lengths);
 
         let mut rest = input;
         let opcode = Opcode::parse(&header, &mut rest).expect("Should parse the opcode OK");
@@ -1789,10 +1743,10 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&input);
         let mut standard_opcode_lengths = Vec::new();
         let mut header = make_test_header(input);
-        standard_opcode_lengths.extend(header.standard_opcode_lengths);
+        standard_opcode_lengths.extend(header.standard_opcode_lengths.buf());
         standard_opcode_lengths.push(1);
         header.opcode_base += 1;
-        header.standard_opcode_lengths = &standard_opcode_lengths;
+        header.standard_opcode_lengths = EndianBuf::new(&standard_opcode_lengths);
 
         let mut rest = input;
         let opcode = Opcode::parse(&header, &mut rest).expect("Should parse the opcode OK");
@@ -1808,10 +1762,10 @@ mod tests {
         let input = EndianBuf::<LittleEndian>::new(&input);
         let mut standard_opcode_lengths = Vec::new();
         let mut header = make_test_header(input);
-        standard_opcode_lengths.extend(header.standard_opcode_lengths);
+        standard_opcode_lengths.extend(header.standard_opcode_lengths.buf());
         standard_opcode_lengths.push(3);
         header.opcode_base += 1;
-        header.standard_opcode_lengths = &standard_opcode_lengths;
+        header.standard_opcode_lengths = EndianBuf::new(&standard_opcode_lengths);
 
         let mut rest = input;
         let opcode = Opcode::parse(&header, &mut rest).expect("Should parse the opcode OK");
@@ -1823,7 +1777,9 @@ mod tests {
 
     #[test]
     fn test_parse_extended_opcodes() {
-        fn test<Operands>(raw: constants::DwLne, operands: Operands, expected: Opcode<LittleEndian>)
+        fn test<Operands>(raw: constants::DwLne,
+                          operands: Operands,
+                          expected: Opcode<EndianBuf<LittleEndian>>)
             where Operands: AsRef<[u8]>
         {
             let mut input = Vec::new();
@@ -1914,9 +1870,10 @@ mod tests {
         regs
     }
 
-    fn assert_exec_opcode<'input>(header: LineNumberProgramHeader<'input, LittleEndian>,
+    fn assert_exec_opcode<'input>(header: LineNumberProgramHeader<EndianBuf<'input,
+                                                                            LittleEndian>>,
                                   initial_registers: StateMachineRegisters,
-                                  opcode: Opcode<'input, LittleEndian>,
+                                  opcode: Opcode<EndianBuf<'input, LittleEndian>>,
                                   expected_registers: StateMachineRegisters,
                                   expect_new_row: bool) {
         let mut sm = OneShotStateMachine::new(IncompleteLineNumberProgram { header: header });

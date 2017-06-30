@@ -152,7 +152,7 @@ const ADDRESS_SIZE: u8 = 8;
 #[bench]
 fn bench_parsing_line_number_program_opcodes(b: &mut test::Bencher) {
     let debug_line = read_section("debug_line");
-    let debug_line = DebugLine::<LittleEndian>::new(&debug_line);
+    let debug_line = DebugLine::<EndianBuf<LittleEndian>>::new(&debug_line);
 
     b.iter(|| {
         let program = debug_line
@@ -170,7 +170,7 @@ fn bench_parsing_line_number_program_opcodes(b: &mut test::Bencher) {
 #[bench]
 fn bench_executing_line_number_programs(b: &mut test::Bencher) {
     let debug_line = read_section("debug_line");
-    let debug_line = DebugLine::<LittleEndian>::new(&debug_line);
+    let debug_line = DebugLine::<EndianBuf<LittleEndian>>::new(&debug_line);
 
     b.iter(|| {
         let program = debug_line
