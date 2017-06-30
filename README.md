@@ -22,11 +22,7 @@ A lazy, zero-copy parser for the [DWARF debugging format](http://dwarfstd.org/).
 
 ## Install
 
-Either
-
-    $ cargo add gimli
-
-or add this to your `Cargo.toml`:
+Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]

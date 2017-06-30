@@ -2,7 +2,7 @@
 authors = ["Nick Fitzgerald <fitzgen@gmail.com>", "Philip Craig <philipjcraig@gmail.com>"]
 description = "A zero-copy DWARF debugging format parser."
 documentation = "https://docs.rs/gimli"
-keywords = ["DWARF", "debug", "elf"]
+keywords = ["DWARF", "debug", "ELF", "eh_frame"]
 license = "Apache-2.0/MIT"
 name = "gimli"
 readme = "./README.md"
