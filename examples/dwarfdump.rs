@@ -527,7 +527,7 @@ fn dump_exprloc<Endian>(data: gimli::EndianBuf<Endian>, unit: &Unit<Endian>)
     let mut space = false;
     while pc.len() != 0 {
         let dwop = gimli::DwOp(pc[0]);
-        match gimli::Operation::parse(&mut pc, data, unit.address_size, unit.format) {
+        match gimli::Operation::parse(&mut pc, &data, unit.address_size, unit.format) {
             Ok(op) => {
                 if space {
                     print!(" ");
@@ -548,7 +548,7 @@ fn dump_exprloc<Endian>(data: gimli::EndianBuf<Endian>, unit: &Unit<Endian>)
     }
 }
 
-fn dump_op<Endian>(dwop: gimli::DwOp, op: gimli::Operation<Endian>, newpc: &[u8])
+fn dump_op<Endian>(dwop: gimli::DwOp, op: gimli::Operation<gimli::EndianBuf<Endian>>, newpc: &[u8])
     where Endian: gimli::Endianity
 {
     print!("{}", dwop);
@@ -630,6 +630,7 @@ fn dump_op<Endian>(dwop: gimli::DwOp, op: gimli::Operation<Endian>, newpc: &[u8]
             print!(" 0x{:08x} offset 0x{:08x}", size_in_bits, bit_offset);
         }
         gimli::Operation::ImplicitValue { data } => {
+            let data = data.buf();
             print!(" 0x{:08x} contents 0x", data.len());
             for byte in data {
                 print!("{:02x}", byte);

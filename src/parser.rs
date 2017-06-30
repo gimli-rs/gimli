@@ -2,12 +2,10 @@
 
 use std::error;
 use std::fmt::{self, Debug};
-use std::io;
 use std::result;
 use cfi::BaseAddresses;
 use constants;
 use endianity::{Endianity, EndianBuf};
-use leb128;
 use reader::Reader;
 
 /// An error that occurred when parsing.
@@ -263,21 +261,6 @@ pub fn parse_u8<Endian>(input: &mut EndianBuf<Endian>) -> Result<u8>
     }
 }
 
-/// Parse a `i8` from the input.
-#[doc(hidden)]
-#[inline]
-pub fn parse_i8<Endian>(input: &mut EndianBuf<Endian>) -> Result<i8>
-    where Endian: Endianity
-{
-    if input.is_empty() {
-        Err(Error::UnexpectedEof)
-    } else {
-        let val = input[0] as i8;
-        *input = input.range_from(1..);
-        Ok(val)
-    }
-}
-
 /// Parse a `u16` from the input.
 #[doc(hidden)]
 #[inline]
@@ -288,21 +271,6 @@ pub fn parse_u16<Endian>(input: &mut EndianBuf<Endian>) -> Result<u16>
         Err(Error::UnexpectedEof)
     } else {
         let val = Endian::read_u16(&input);
-        *input = input.range_from(2..);
-        Ok(val)
-    }
-}
-
-/// Parse a `i16` from the input.
-#[doc(hidden)]
-#[inline]
-pub fn parse_i16<Endian>(input: &mut EndianBuf<Endian>) -> Result<i16>
-    where Endian: Endianity
-{
-    if input.len() < 2 {
-        Err(Error::UnexpectedEof)
-    } else {
-        let val = Endian::read_i16(&input);
         *input = input.range_from(2..);
         Ok(val)
     }
@@ -323,21 +291,6 @@ pub fn parse_u32<Endian>(input: &mut EndianBuf<Endian>) -> Result<u32>
     }
 }
 
-/// Parse a `i32` from the input.
-#[doc(hidden)]
-#[inline]
-pub fn parse_i32<Endian>(input: &mut EndianBuf<Endian>) -> Result<i32>
-    where Endian: Endianity
-{
-    if input.len() < 4 {
-        Err(Error::UnexpectedEof)
-    } else {
-        let val = Endian::read_i32(&input);
-        *input = input.range_from(4..);
-        Ok(val)
-    }
-}
-
 /// Parse a `u64` from the input.
 #[doc(hidden)]
 #[inline]
@@ -350,51 +303,6 @@ pub fn parse_u64<Endian>(input: &mut EndianBuf<Endian>) -> Result<u64>
         let val = Endian::read_u64(&input);
         *input = input.range_from(8..);
         Ok(val)
-    }
-}
-
-/// Parse a `i64` from the input.
-#[doc(hidden)]
-#[inline]
-pub fn parse_i64<Endian>(input: &mut EndianBuf<Endian>) -> Result<i64>
-    where Endian: Endianity
-{
-    if input.len() < 8 {
-        Err(Error::UnexpectedEof)
-    } else {
-        let val = Endian::read_i64(&input);
-        *input = input.range_from(8..);
-        Ok(val)
-    }
-}
-
-/// Parse an unsigned LEB128 encoded integer.
-#[doc(hidden)]
-#[inline]
-pub fn parse_unsigned_leb<Endian>(input: &mut EndianBuf<Endian>) -> Result<u64>
-    where Endian: Endianity
-{
-    match leb128::read::unsigned(input) {
-        Ok(val) => Ok(val),
-        Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
-            Err(Error::UnexpectedEof)
-        }
-        Err(_) => Err(Error::BadUnsignedLeb128),
-    }
-}
-
-/// Parse a signed LEB128 encoded integer.
-#[doc(hidden)]
-#[inline]
-pub fn parse_signed_leb<Endian>(input: &mut EndianBuf<Endian>) -> Result<i64>
-    where Endian: Endianity
-{
-    match leb128::read::signed(input) {
-        Ok(val) => Ok(val),
-        Err(leb128::read::Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
-            Err(Error::UnexpectedEof)
-        }
-        Err(_) => Err(Error::BadSignedLeb128),
     }
 }
 
@@ -441,15 +349,6 @@ pub fn parse_word<Endian>(input: &mut EndianBuf<Endian>, format: Format) -> Resu
         Format::Dwarf32 => parse_u32_as_u64(input),
         Format::Dwarf64 => parse_u64(input),
     }
-}
-
-/// Parse a word-sized integer according to the DWARF format, and return it as a `usize`.
-#[doc(hidden)]
-#[inline]
-pub fn parse_offset<Endian>(input: &mut EndianBuf<Endian>, format: Format) -> Result<usize>
-    where Endian: Endianity
-{
-    parse_word(input, format).and_then(u64_to_offset)
 }
 
 /// Parse an address-sized integer, and return it as a `u64`.
@@ -681,18 +580,6 @@ pub fn take<'input, Endian>(bytes: usize,
     }
 }
 
-/// Parse a length as an unsigned LEB128 from the input, then take
-/// that many bytes from the input.  These bytes are returned as the
-/// second element of the result tuple.
-#[doc(hidden)]
-pub fn parse_length_uleb_value<'input, Endian>(input: &mut EndianBuf<'input, Endian>)
-                                               -> Result<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
-    let len = parse_unsigned_leb(input)?;
-    take(len as usize, input)
-}
-
 #[cfg(test)]
 mod tests {
     extern crate test_assembler;
@@ -783,7 +670,7 @@ mod tests {
         let buf = section.get_contents().unwrap();
 
         let input = &mut EndianBuf::<LittleEndian>::new(&buf);
-        match parse_offset(input, Format::Dwarf32) {
+        match input.read_offset(Format::Dwarf32) {
             Ok(val) => {
                 assert_eq!(input.len(), 0);
                 assert_eq!(val, 0x01234567);
@@ -798,7 +685,7 @@ mod tests {
         let buf = section.get_contents().unwrap();
 
         let input = &mut EndianBuf::<LittleEndian>::new(&buf);
-        match parse_offset(input, Format::Dwarf64) {
+        match input.read_offset(Format::Dwarf64) {
             Ok(val) => {
                 assert_eq!(input.len(), 0);
                 assert_eq!(val, 0x01234567);
@@ -814,7 +701,7 @@ mod tests {
         let buf = section.get_contents().unwrap();
 
         let input = &mut EndianBuf::<LittleEndian>::new(&buf);
-        match parse_offset(input, Format::Dwarf64) {
+        match input.read_offset(Format::Dwarf64) {
             Ok(val) => {
                 assert_eq!(input.len(), 0);
                 assert_eq!(val, 0x0123456789abcdef);
@@ -829,7 +716,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little).L64(0x0123456789abcdef);
         let buf = section.get_contents().unwrap();
 
-        match parse_offset(EndianBuf::<LittleEndian>::new(&buf), Format::Dwarf64) {
+        match input.read_offset(Format::Dwarf64) {
             Err(Error::UnsupportedOffset) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
