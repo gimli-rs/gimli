@@ -4,7 +4,6 @@ use parser::{Format, Result};
 use unit::{DebugInfoOffset, UnitOffset, parse_debug_info_offset};
 use std::ffi;
 use std::marker::PhantomData;
-use std::rc::Rc;
 use Section;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -19,9 +18,9 @@ pub struct PubTypesHeader {
 /// A single parsed pubtype.
 #[derive(Debug, Clone)]
 pub struct PubTypesEntry<'input> {
-    offset: UnitOffset,
+    unit_header_offset: DebugInfoOffset,
+    die_offset: UnitOffset,
     name: &'input ffi::CStr,
-    header: Rc<PubTypesHeader>,
 }
 
 impl<'input> PubTypesEntry<'input> {
@@ -33,13 +32,13 @@ impl<'input> PubTypesEntry<'input> {
     /// Returns the offset into the .debug_info section for the header of the compilation unit
     /// which contains the type with this name.
     pub fn unit_header_offset(&self) -> DebugInfoOffset {
-        self.header.info_offset
+        self.unit_header_offset
     }
 
     /// Returns the offset into the compilation unit for the debugging information entry which
     /// the type with this name.
     pub fn die_offset(&self) -> UnitOffset {
-        self.offset
+        self.die_offset
     }
 }
 
@@ -62,24 +61,24 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for TypesSwitch<'input, 
                   version: u16,
                   offset: DebugInfoOffset,
                   length: u64)
-                  -> Rc<PubTypesHeader> {
-        Rc::new(PubTypesHeader {
-                    format: format,
-                    length: set_length,
-                    version: version,
-                    info_offset: offset,
-                    info_length: length,
-                })
+                  -> PubTypesHeader {
+        PubTypesHeader {
+            format: format,
+            length: set_length,
+            version: version,
+            info_offset: offset,
+            info_length: length,
+        }
     }
 
     fn new_entry(offset: u64,
                  name: &'input ffi::CStr,
-                 header: &Rc<PubTypesHeader>)
+                 header: &PubTypesHeader)
                  -> PubTypesEntry<'input> {
         PubTypesEntry {
-            offset: UnitOffset(offset as usize),
+            unit_header_offset: header.info_offset,
+            die_offset: UnitOffset(offset as usize),
             name: name,
-            header: header.clone(),
         }
     }
 

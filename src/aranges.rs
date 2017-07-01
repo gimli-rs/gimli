@@ -5,7 +5,6 @@ use parser::{parse_address_size, parse_initial_length, parse_u16, parse_address,
 use unit::{DebugInfoOffset, parse_debug_info_offset};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
-use std::rc::Rc;
 use Section;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -19,22 +18,18 @@ pub struct ArangeHeader {
 }
 
 /// A single parsed arange.
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArangeEntry {
-    segment: u64,
+    segment: Option<u64>,
     address: u64,
     length: u64,
-    header: Rc<ArangeHeader>,
+    unit_header_offset: DebugInfoOffset,
 }
 
 impl ArangeEntry {
     /// Return the segment selector of this arange.
     pub fn segment(&self) -> Option<u64> {
-        if self.header.segment_size != 0 {
-            Some(self.segment)
-        } else {
-            None
-        }
+        self.segment
     }
 
     /// Return the beginning address of this arange.
@@ -49,22 +44,7 @@ impl ArangeEntry {
 
     /// Return the offset into the .debug_info section for this arange.
     pub fn debug_info_offset(&self) -> DebugInfoOffset {
-        self.header.offset
-    }
-}
-
-impl PartialEq for ArangeEntry {
-    fn eq(&self, other: &ArangeEntry) -> bool {
-        // The expected comparison, but verify that header matches if everything else does.
-        match (self.segment == other.segment,
-               self.address == other.address,
-               self.length == other.length) {
-            (true, true, true) => {
-                debug_assert_eq!(self.header, other.header);
-                true
-            }
-            _ => false,
-        }
+        self.unit_header_offset
     }
 }
 
@@ -109,7 +89,7 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
     /// parsed for this set, and the newly created ArangeHeader struct.
     #[allow(type_complexity)]
     fn parse_header(input: &mut EndianBuf<'input, Endian>)
-                    -> Result<(EndianBuf<'input, Endian>, Rc<Self::Header>)> {
+                    -> Result<(EndianBuf<'input, Endian>, Self::Header)> {
         let (length, format) = parse_initial_length(input)?;
         let rest = &mut take(length as usize, input)?;
 
@@ -143,19 +123,19 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
         let rest = rest.range_from(padding..);
 
         Ok((rest,
-            Rc::new(ArangeHeader {
-                        format: format,
-                        length: length,
-                        version: version,
-                        offset: offset,
-                        address_size: address_size,
-                        segment_size: segment_size,
-                    })))
+            ArangeHeader {
+                format: format,
+                length: length,
+                version: version,
+                offset: offset,
+                address_size: address_size,
+                segment_size: segment_size,
+            }))
     }
 
     /// Parse a single arange. Return `None` for the null arange, `Some` for an actual arange.
     fn parse_entry(input: &mut EndianBuf<'input, Endian>,
-                   header: &Rc<Self::Header>)
+                   header: &Self::Header)
                    -> Result<Option<Self::Entry>> {
         let address_size = header.address_size;
         let segment_size = header.segment_size; // May be zero!
@@ -181,10 +161,14 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
             (0, 0, 0) => Self::parse_entry(input, header),
             _ => {
                 Ok(Some(ArangeEntry {
-                            segment: segment,
+                            segment: if segment_size != 0 {
+                                Some(segment)
+                            } else {
+                                None
+                            },
                             address: address,
                             length: length,
-                            header: header.clone(),
+                            unit_header_offset: header.offset,
                         }))
             }
         }
@@ -273,7 +257,6 @@ mod tests {
     use endianity::{EndianBuf, LittleEndian};
     use parser::Format;
     use unit::DebugInfoOffset;
-    use std::rc::Rc;
 
     #[test]
     #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -314,7 +297,7 @@ mod tests {
 
         assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 16..]));
         assert_eq!(tuples, EndianBuf::new(&buf[buf.len() - 32..buf.len() - 16]));
-        assert_eq!(*header,
+        assert_eq!(header,
                    ArangeHeader {
                        format: Format::Dwarf32,
                        length: 0x20,
@@ -327,38 +310,38 @@ mod tests {
 
     #[test]
     fn test_parse_entry_ok() {
-        let header = Rc::new(ArangeHeader {
-                                 format: Format::Dwarf32,
-                                 length: 0,
-                                 version: 2,
-                                 offset: DebugInfoOffset(0),
-                                 address_size: 4,
-                                 segment_size: 0,
-                             });
+        let header = ArangeHeader {
+            format: Format::Dwarf32,
+            length: 0,
+            version: 2,
+            offset: DebugInfoOffset(0),
+            address_size: 4,
+            segment_size: 0,
+        };
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
         let rest = &mut EndianBuf::<LittleEndian>::new(&buf);
         let entry = ArangeParser::parse_entry(rest, &header).expect("should parse entry ok");
         assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 1..]));
         assert_eq!(entry,
                    Some(ArangeEntry {
-                            segment: 0,
+                            segment: None,
                             address: 0x04030201,
                             length: 0x08070605,
-                            header: header.clone(),
+                            unit_header_offset: header.offset,
                         }));
     }
 
     #[test]
     #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_parse_entry_segment() {
-        let header = Rc::new(ArangeHeader {
+        let header = ArangeHeader {
             format: Format::Dwarf32,
             length: 0,
             version: 2,
             offset: DebugInfoOffset(0),
             address_size: 4,
             segment_size: 8,
-        });
+        };
         let buf = [
             // Segment.
             0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
@@ -375,24 +358,24 @@ mod tests {
         assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 1..]));
         assert_eq!(entry,
                    Some(ArangeEntry {
-                       segment: 0x1817161514131211,
+                       segment: Some(0x1817161514131211),
                        address: 0x04030201,
                        length: 0x08070605,
-                       header: header.clone(),
+                       unit_header_offset: header.offset,
                    }));
     }
 
     #[test]
     #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_parse_entry_zero() {
-        let header = Rc::new(ArangeHeader {
+        let header = ArangeHeader {
             format: Format::Dwarf32,
             length: 0,
             version: 2,
             offset: DebugInfoOffset(0),
             address_size: 4,
             segment_size: 0,
-        });
+        };
         let buf = [
             // Zero tuple.
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -409,10 +392,10 @@ mod tests {
         assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 1..]));
         assert_eq!(entry,
                    Some(ArangeEntry {
-                       segment: 0,
+                       segment: None,
                        address: 0x04030201,
                        length: 0x08070605,
-                       header: header.clone(),
+                       unit_header_offset: header.offset,
                    }));
     }
 }

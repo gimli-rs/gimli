@@ -4,7 +4,6 @@ use parser::{parse_null_terminated_string, parse_initial_length, parse_u16, pars
              Format, Result, Error};
 use std::ffi;
 use std::marker::PhantomData;
-use std::rc::Rc;
 
 // The various "Accelerated Access" sections (DWARF standard v4 Section 6.1) all have
 // similar structures. They consist of a header with metadata and an offset into the
@@ -28,12 +27,12 @@ pub trait LookupParser<'input, Endian>
     /// the header itself.
     #[allow(type_complexity)]
     fn parse_header(input: &mut EndianBuf<'input, Endian>)
-                    -> Result<(EndianBuf<'input, Endian>, Rc<Self::Header>)>;
+                    -> Result<(EndianBuf<'input, Endian>, Self::Header)>;
 
     /// Parse a single entry from `input`. Returns either a parsed representation of the entry
     /// or None if `input` is exhausted.
     fn parse_entry(input: &mut EndianBuf<'input, Endian>,
-                   header: &Rc<Self::Header>)
+                   header: &Self::Header)
                    -> Result<Option<Self::Entry>>;
 }
 
@@ -75,7 +74,7 @@ pub struct LookupEntryIter<'input, Endian, Parser>
     where Endian: Endianity,
           Parser: LookupParser<'input, Endian>
 {
-    current_header: Option<Rc<Parser::Header>>, // Only none at the very beginning and end.
+    current_header: Option<Parser::Header>, // Only none at the very beginning and end.
     current_set: EndianBuf<'input, Endian>,
     remaining_input: EndianBuf<'input, Endian>,
 }
@@ -141,9 +140,9 @@ pub trait NamesOrTypesSwitch<'input, Endian>
                   version: u16,
                   offset: Self::Offset,
                   length: u64)
-                  -> Rc<Self::Header>;
+                  -> Self::Header;
 
-    fn new_entry(offset: u64, name: &'input ffi::CStr, header: &Rc<Self::Header>) -> Self::Entry;
+    fn new_entry(offset: u64, name: &'input ffi::CStr, header: &Self::Header) -> Self::Entry;
 
     fn parse_offset(input: &mut EndianBuf<Endian>, format: Format) -> Result<Self::Offset>;
 
@@ -170,7 +169,7 @@ impl<'input, Endian, Switch> LookupParser<'input, Endian> for PubStuffParser<'in
     /// pubthings to be parsed for this set, and the newly created PubThingHeader struct.
     #[allow(type_complexity)]
     fn parse_header(input: &mut EndianBuf<'input, Endian>)
-                    -> Result<(EndianBuf<'input, Endian>, Rc<Self::Header>)> {
+                    -> Result<(EndianBuf<'input, Endian>, Self::Header)> {
         let (set_length, format) = parse_initial_length(input)?;
         let rest = &mut take(set_length as usize, input)?;
 
@@ -187,7 +186,7 @@ impl<'input, Endian, Switch> LookupParser<'input, Endian> for PubStuffParser<'in
 
     /// Parse a single pubthing. Return `None` for the null pubthing, `Some` for an actual pubthing.
     fn parse_entry(input: &mut EndianBuf<'input, Endian>,
-                   header: &Rc<Self::Header>)
+                   header: &Self::Header)
                    -> Result<Option<Self::Entry>> {
         let offset = parse_word(input, Switch::format_from(header))?;
 
