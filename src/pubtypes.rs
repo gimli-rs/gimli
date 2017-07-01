@@ -1,7 +1,7 @@
 use endianity::{Endianity, EndianBuf};
 use lookup::{PubStuffParser, LookupEntryIter, DebugLookup, NamesOrTypesSwitch};
 use parser::{Format, Result};
-use unit::{DebugTypesOffset, parse_debug_types_offset};
+use unit::{DebugInfoOffset, UnitOffset, parse_debug_info_offset};
 use std::ffi;
 use std::marker::PhantomData;
 use std::rc::Rc;
@@ -12,14 +12,14 @@ pub struct PubTypesHeader {
     format: Format,
     length: u64,
     version: u16,
-    types_offset: DebugTypesOffset,
-    types_length: u64,
+    info_offset: DebugInfoOffset,
+    info_length: u64,
 }
 
 /// A single parsed pubtype.
 #[derive(Debug, Clone)]
 pub struct PubTypesEntry<'input> {
-    offset: u64,
+    offset: UnitOffset,
     name: &'input ffi::CStr,
     header: Rc<PubTypesHeader>,
 }
@@ -30,9 +30,16 @@ impl<'input> PubTypesEntry<'input> {
         self.name
     }
 
-    /// Returns the offset into the .debug_types section for this type.
-    pub fn types_offset(&self) -> DebugTypesOffset {
-        self.header.types_offset
+    /// Returns the offset into the .debug_info section for the header of the compilation unit
+    /// which contains the type with this name.
+    pub fn unit_header_offset(&self) -> DebugInfoOffset {
+        self.header.info_offset
+    }
+
+    /// Returns the offset into the compilation unit for the debugging information entry which
+    /// the type with this name.
+    pub fn die_offset(&self) -> UnitOffset {
+        self.offset
     }
 }
 
@@ -48,20 +55,20 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for TypesSwitch<'input, 
 {
     type Header = PubTypesHeader;
     type Entry = PubTypesEntry<'input>;
-    type Offset = DebugTypesOffset;
+    type Offset = DebugInfoOffset;
 
     fn new_header(format: Format,
                   set_length: u64,
                   version: u16,
-                  offset: DebugTypesOffset,
+                  offset: DebugInfoOffset,
                   length: u64)
                   -> Rc<PubTypesHeader> {
         Rc::new(PubTypesHeader {
                     format: format,
                     length: set_length,
                     version: version,
-                    types_offset: offset,
-                    types_length: length,
+                    info_offset: offset,
+                    info_length: length,
                 })
     }
 
@@ -70,14 +77,14 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for TypesSwitch<'input, 
                  header: &Rc<PubTypesHeader>)
                  -> PubTypesEntry<'input> {
         PubTypesEntry {
-            offset: offset,
+            offset: UnitOffset(offset as usize),
             name: name,
             header: header.clone(),
         }
     }
 
     fn parse_offset(input: &mut EndianBuf<Endian>, format: Format) -> Result<Self::Offset> {
-        parse_debug_types_offset(input, format)
+        parse_debug_info_offset(input, format)
     }
 
     fn format_from(header: &PubTypesHeader) -> Format {
@@ -86,7 +93,7 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for TypesSwitch<'input, 
 }
 
 /// The `DebugPubTypes` struct represents the DWARF public types information
-/// found in the `.debug_types` section.
+/// found in the `.debug_info` section.
 ///
 /// Provides:
 ///

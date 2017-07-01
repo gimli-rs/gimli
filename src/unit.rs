@@ -439,15 +439,6 @@ pub fn parse_debug_info_offset<Endian>(input: &mut EndianBuf<Endian>,
     parse_offset(input, format).map(|offset| DebugInfoOffset(offset))
 }
 
-/// Parse the `debug_types_offset` in the pubtypes header.
-pub fn parse_debug_types_offset<Endian>(input: &mut EndianBuf<Endian>,
-                                        format: Format)
-                                        -> Result<DebugTypesOffset>
-    where Endian: Endianity
-{
-    parse_offset(input, format).map(|offset| DebugTypesOffset(offset))
-}
-
 /// The common fields for the headers of compilation units and
 /// type units.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2915,53 +2906,6 @@ mod tests {
         let buf = &mut EndianBuf::<LittleEndian>::new(&buf);
 
         match parse_debug_info_offset(buf, Format::Dwarf64) {
-            Err(Error::UnexpectedEof) => assert!(true),
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
-    }
-
-    #[test]
-    fn test_parse_debug_types_offset_32() {
-        let section = Section::with_endian(Endian::Little).L32(0x04030201);
-        let buf = section.get_contents().unwrap();
-        let buf = &mut EndianBuf::<LittleEndian>::new(&buf);
-
-        match parse_debug_types_offset(buf, Format::Dwarf32) {
-            Ok(val) => assert_eq!(val, DebugTypesOffset(0x04030201)),
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
-    }
-
-    #[test]
-    fn test_parse_debug_types_offset_32_incomplete() {
-        let buf = [0x01, 0x02];
-        let buf = &mut EndianBuf::<LittleEndian>::new(&buf);
-
-        match parse_debug_types_offset(buf, Format::Dwarf32) {
-            Err(Error::UnexpectedEof) => assert!(true),
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
-    }
-
-    #[test]
-    #[cfg(target_pointer_width = "64")]
-    fn test_parse_debug_types_offset_64() {
-        let section = Section::with_endian(Endian::Little).L64(0x0807060504030201);
-        let buf = section.get_contents().unwrap();
-        let buf = &mut EndianBuf::<LittleEndian>::new(&buf);
-
-        match parse_debug_types_offset(buf, Format::Dwarf64) {
-            Ok(val) => assert_eq!(val, DebugTypesOffset(0x0807060504030201)),
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
-    }
-
-    #[test]
-    fn test_parse_debug_types_offset_64_incomplete() {
-        let buf = [0x01, 0x02];
-        let buf = &mut EndianBuf::<LittleEndian>::new(&buf);
-
-        match parse_debug_types_offset(buf, Format::Dwarf64) {
             Err(Error::UnexpectedEof) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };

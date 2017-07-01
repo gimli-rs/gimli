@@ -3,6 +3,7 @@ extern crate gimli;
 use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLoc,
             DebugPubNames, DebugPubTypes, DebugRanges, DebugStr, LittleEndian};
 use std::env;
+use std::collections::hash_map::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
@@ -232,23 +233,67 @@ fn test_parse_self_debug_aranges() {
 
 #[test]
 fn test_parse_self_debug_pubnames() {
+    let debug_info = read_section("debug_info");
+    let debug_info = DebugInfo::<LittleEndian>::new(&debug_info);
+
+    let debug_abbrev = read_section("debug_abbrev");
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&debug_abbrev);
+
     let debug_pubnames = read_section("debug_pubnames");
     let debug_pubnames = DebugPubNames::<LittleEndian>::new(&debug_pubnames);
 
+    let mut units = HashMap::new();
+    let mut abbrevs = HashMap::new();
     let mut pubnames = debug_pubnames.items();
-    while let Some(_) = pubnames.next().expect("Should parse pubname OK") {
-        // Not really anything else we can check right now.
+    while let Some(entry) = pubnames.next().expect("Should parse pubname OK") {
+        let unit_offset = entry.unit_header_offset();
+        let unit = units.entry(unit_offset).or_insert_with(|| {
+            debug_info
+                .header_from_offset(unit_offset)
+                .expect("Should parse unit header OK")
+        });
+        let abbrev_offset = unit.debug_abbrev_offset();
+        let abbrevs = abbrevs.entry(abbrev_offset).or_insert_with(|| {
+            debug_abbrev
+                .abbreviations(abbrev_offset)
+                .expect("Should parse abbreviations OK")
+        });
+        let mut cursor = unit.entries_at_offset(abbrevs, entry.die_offset())
+            .expect("DIE offset should be valid");
+        assert!(cursor.next_dfs().expect("Should parse DIE").is_some());
     }
 }
 
 #[test]
 fn test_parse_self_debug_pubtypes() {
+    let debug_info = read_section("debug_info");
+    let debug_info = DebugInfo::<LittleEndian>::new(&debug_info);
+
+    let debug_abbrev = read_section("debug_abbrev");
+    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&debug_abbrev);
+
     let debug_pubtypes = read_section("debug_pubtypes");
     let debug_pubtypes = DebugPubTypes::<LittleEndian>::new(&debug_pubtypes);
 
+    let mut units = HashMap::new();
+    let mut abbrevs = HashMap::new();
     let mut pubtypes = debug_pubtypes.items();
-    while let Some(_) = pubtypes.next().expect("Should parse pubtype OK") {
-        // Not really anything else we can check right now.
+    while let Some(entry) = pubtypes.next().expect("Should parse pubtype OK") {
+        let unit_offset = entry.unit_header_offset();
+        let unit = units.entry(unit_offset).or_insert_with(|| {
+            debug_info
+                .header_from_offset(unit_offset)
+                .expect("Should parse unit header OK")
+        });
+        let abbrev_offset = unit.debug_abbrev_offset();
+        let abbrevs = abbrevs.entry(abbrev_offset).or_insert_with(|| {
+            debug_abbrev
+                .abbreviations(abbrev_offset)
+                .expect("Should parse abbreviations OK")
+        });
+        let mut cursor = unit.entries_at_offset(abbrevs, entry.die_offset())
+            .expect("DIE offset should be valid");
+        assert!(cursor.next_dfs().expect("Should parse DIE").is_some());
     }
 }
 

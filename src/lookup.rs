@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 // The various "Accelerated Access" sections (DWARF standard v4 Section 6.1) all have
 // similar structures. They consist of a header with metadata and an offset into the
-// .debug_info or .debug_types sections for the entire compilation unit, and a series
+// .debug_info section for the entire compilation unit, and a series
 // of following entries that list addresses (for .debug_aranges) or names
 // (for .debug_pubnames and .debug_pubtypes) that are covered.
 //
