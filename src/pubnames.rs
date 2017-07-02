@@ -1,6 +1,7 @@
 use endianity::{Endianity, EndianBuf};
 use lookup::{PubStuffParser, LookupEntryIter, DebugLookup, NamesOrTypesSwitch};
 use parser::{Format, Result};
+use reader::Reader;
 use unit::{DebugInfoOffset, UnitOffset, parse_debug_info_offset};
 use std::marker::PhantomData;
 use Section;
@@ -16,19 +17,15 @@ pub struct PubNamesHeader {
 
 /// A single parsed pubname.
 #[derive(Debug, Clone)]
-pub struct PubNamesEntry<'input, Endian>
-    where Endian: Endianity
-{
+pub struct PubNamesEntry<R: Reader> {
     unit_header_offset: DebugInfoOffset,
     die_offset: UnitOffset,
-    name: EndianBuf<'input, Endian>,
+    name: R,
 }
 
-impl<'input, Endian> PubNamesEntry<'input, Endian>
-    where Endian: Endianity
-{
+impl<R: Reader> PubNamesEntry<R> {
     /// Returns the name this entry refers to.
-    pub fn name(&self) -> &EndianBuf<'input, Endian> {
+    pub fn name(&self) -> &R {
         &self.name
     }
 
@@ -47,17 +44,13 @@ impl<'input, Endian> PubNamesEntry<'input, Endian>
 
 
 #[derive(Clone, Debug)]
-pub struct NamesSwitch<'input, Endian>
-    where Endian: 'input + Endianity
-{
-    phantom: PhantomData<&'input Endian>,
+pub struct NamesSwitch<R: Reader> {
+    phantom: PhantomData<R>,
 }
 
-impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for NamesSwitch<'input, Endian>
-    where Endian: Endianity
-{
+impl<R: Reader> NamesOrTypesSwitch<R> for NamesSwitch<R> {
     type Header = PubNamesHeader;
-    type Entry = PubNamesEntry<'input, Endian>;
+    type Entry = PubNamesEntry<R>;
     type Offset = DebugInfoOffset;
 
     fn new_header(format: Format,
@@ -75,10 +68,7 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for NamesSwitch<'input, 
         }
     }
 
-    fn new_entry(offset: u64,
-                 name: EndianBuf<'input, Endian>,
-                 header: &PubNamesHeader)
-                 -> PubNamesEntry<'input, Endian> {
+    fn new_entry(offset: u64, name: R, header: &PubNamesHeader) -> PubNamesEntry<R> {
         PubNamesEntry {
             unit_header_offset: header.info_offset,
             die_offset: UnitOffset(offset as usize),
@@ -86,7 +76,7 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for NamesSwitch<'input, 
         }
     }
 
-    fn parse_offset(input: &mut EndianBuf<Endian>, format: Format) -> Result<Self::Offset> {
+    fn parse_offset(input: &mut R, format: Format) -> Result<Self::Offset> {
         parse_debug_info_offset(input, format)
     }
 
@@ -100,7 +90,7 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for NamesSwitch<'input, 
 ///
 /// Provides:
 ///
-/// * `new(input: EndianBuf<'input, Endian>) -> DebugPubNames<'input, Endian>`
+/// * `new(input: EndianBuf<'input, Endian>) -> DebugPubNames<EndianBuf<'input, Endian>>`
 ///
 ///   Construct a new `DebugPubNames` instance from the data in the `.debug_pubnames`
 ///   section.
@@ -110,39 +100,40 @@ impl<'input, Endian> NamesOrTypesSwitch<'input, Endian> for NamesSwitch<'input, 
 ///   Linux, a Mach-O loader on OSX, etc.
 ///
 ///   ```
-///   use gimli::{DebugPubNames, LittleEndian};
+///   use gimli::{DebugPubNames, EndianBuf, LittleEndian};
 ///
 ///   # let buf = [];
 ///   # let read_debug_pubnames_section_somehow = || &buf;
 ///   let debug_pubnames =
-///       DebugPubNames::<LittleEndian>::new(read_debug_pubnames_section_somehow());
+///       DebugPubNames::<EndianBuf<LittleEndian>>::new(read_debug_pubnames_section_somehow());
 ///   ```
 ///
-/// * `items(&self) -> PubNamesEntryIter<'input, Endian>`
+/// * `from_reader(input: R) -> DebugPubNames<R>`
+///
+///   Construct a new `DebugPubNames` instance from the data in the `.debug_pubnames`
+///   section.
+///
+/// * `items(&self) -> PubNamesEntryIter<R>`
 ///
 ///   Iterate the pubnames in the `.debug_pubnames` section.
 ///
 ///   ```
-///   use gimli::{DebugPubNames, LittleEndian};
+///   use gimli::{DebugPubNames, EndianBuf, LittleEndian};
 ///
 ///   # let buf = [];
 ///   # let read_debug_pubnames_section_somehow = || &buf;
 ///   let debug_pubnames =
-///       DebugPubNames::<LittleEndian>::new(read_debug_pubnames_section_somehow());
+///       DebugPubNames::<EndianBuf<LittleEndian>>::new(read_debug_pubnames_section_somehow());
 ///
 ///   let mut iter = debug_pubnames.items();
 ///   while let Some(pubname) = iter.next().unwrap() {
 ///     println!("pubname {} found!", pubname.name().to_string_lossy());
 ///   }
 ///   ```
-pub type DebugPubNames<'input, Endian> = DebugLookup<'input,
-                                                     Endian,
-                                                     PubStuffParser<'input,
-                                                                    Endian,
-                                                                    NamesSwitch<'input, Endian>>>;
+pub type DebugPubNames<R> = DebugLookup<R, PubStuffParser<R, NamesSwitch<R>>>;
 
 
-impl<'input, Endian> Section<'input> for DebugPubNames<'input, Endian>
+impl<'input, Endian> Section<'input> for DebugPubNames<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     fn section_name() -> &'static str {
@@ -150,7 +141,7 @@ impl<'input, Endian> Section<'input> for DebugPubNames<'input, Endian>
     }
 }
 
-impl<'input, Endian> From<&'input [u8]> for DebugPubNames<'input, Endian>
+impl<'input, Endian> From<&'input [u8]> for DebugPubNames<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     fn from(v: &'input [u8]) -> Self {
@@ -173,9 +164,4 @@ impl<'input, Endian> From<&'input [u8]> for DebugPubNames<'input, Endian>
 ///
 ///   Can be [used with
 ///   `FallibleIterator`](./index.html#using-with-fallibleiterator).
-pub type PubNamesEntryIter<'input, Endian> = LookupEntryIter<'input,
-                                                             Endian,
-                                                             PubStuffParser<'input,
-                                                                            Endian,
-                                                                            NamesSwitch<'input,
-                                                                                        Endian>>>;
+pub type PubNamesEntryIter<R> = LookupEntryIter<R, PubStuffParser<R, NamesSwitch<R>>>;

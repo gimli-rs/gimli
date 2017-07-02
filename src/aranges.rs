@@ -1,7 +1,7 @@
 use endianity::{Endianity, EndianBuf};
 use lookup::{LookupParser, LookupEntryIter, DebugLookup};
-use parser::{parse_address_size, parse_initial_length, parse_u16, parse_address, take, Error,
-             Format, Result};
+use parser::{parse_initial_length, Error, Format, Result};
+use reader::Reader;
 use unit::{DebugInfoOffset, parse_debug_info_offset};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
@@ -72,35 +72,30 @@ impl Ord for ArangeEntry {
 }
 
 #[derive(Clone, Debug)]
-pub struct ArangeParser<'input, Endian>
-    where Endian: 'input + Endianity
-{
+pub struct ArangeParser<R: Reader> {
     // This struct is never instantiated.
-    phantom: PhantomData<&'input Endian>,
+    phantom: PhantomData<R>,
 }
 
-impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endian>
-    where Endian: 'input + Endianity
-{
+impl<R: Reader> LookupParser<R> for ArangeParser<R> {
     type Header = ArangeHeader;
     type Entry = ArangeEntry;
 
     /// Parse an arange set header. Returns a tuple of the remaining arange sets, the aranges to be
     /// parsed for this set, and the newly created ArangeHeader struct.
     #[allow(type_complexity)]
-    fn parse_header(input: &mut EndianBuf<'input, Endian>)
-                    -> Result<(EndianBuf<'input, Endian>, Self::Header)> {
+    fn parse_header(input: &mut R) -> Result<(R, Self::Header)> {
         let (length, format) = parse_initial_length(input)?;
-        let rest = &mut take(length as usize, input)?;
+        let mut rest = input.split(length as usize)?;
 
-        let version = parse_u16(rest)?;
+        let version = rest.read_u16()?;
         if version != 2 {
             return Err(Error::UnknownVersion);
         }
 
-        let offset = parse_debug_info_offset(rest, format)?;
-        let address_size = parse_address_size(rest)?;
-        let segment_size = parse_address_size(rest)?;
+        let offset = parse_debug_info_offset(&mut rest, format)?;
+        let address_size = rest.read_u8()?;
+        let segment_size = rest.read_u8()?;
 
         // unit_length + version + offset + address_size + segment_size
         let header_length = match format {
@@ -117,10 +112,7 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
         } else {
             tuple_length - header_length % tuple_length
         };
-        if padding > rest.len() {
-            return Err(Error::UnexpectedEof);
-        }
-        let rest = rest.range_from(padding..);
+        rest.skip(padding)?;
 
         Ok((rest,
             ArangeHeader {
@@ -134,25 +126,23 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
     }
 
     /// Parse a single arange. Return `None` for the null arange, `Some` for an actual arange.
-    fn parse_entry(input: &mut EndianBuf<'input, Endian>,
-                   header: &Self::Header)
-                   -> Result<Option<Self::Entry>> {
+    fn parse_entry(input: &mut R, header: &Self::Header) -> Result<Option<Self::Entry>> {
         let address_size = header.address_size;
         let segment_size = header.segment_size; // May be zero!
 
         let tuple_length = (2 * address_size + segment_size) as usize;
         if tuple_length > input.len() {
-            *input = EndianBuf::new(&[]);
+            input.empty();
             return Ok(None);
         }
 
         let segment = if segment_size != 0 {
-            parse_address(input, segment_size)?
+            input.read_address(segment_size)?
         } else {
             0
         };
-        let address = parse_address(input, address_size)?;
-        let length = parse_address(input, address_size)?;
+        let address = input.read_address(address_size)?;
+        let length = input.read_address(address_size)?;
 
         match (segment, address, length) {
             // There may be multiple sets of tuples, each terminated by a zero tuple.
@@ -180,7 +170,7 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
 ///
 /// Provides:
 ///
-/// * `new(input: EndianBuf<'input, Endian>) -> DebugAranges<'input, Endian>`
+/// * `new(input: EndianBuf<'input, Endian>) -> DebugAranges<EndianBuf<'input, Endian>>`
 ///
 ///   Construct a new `DebugAranges` instance from the data in the `.debug_aranges`
 ///   section.
@@ -190,32 +180,37 @@ impl<'input, Endian> LookupParser<'input, Endian> for ArangeParser<'input, Endia
 ///   Linux, a Mach-O loader on OSX, etc.
 ///
 ///   ```
-///   use gimli::{DebugAranges, LittleEndian};
+///   use gimli::{DebugAranges, EndianBuf, LittleEndian};
 ///
 ///   # let buf = [];
 ///   # let read_debug_aranges_section = || &buf;
-///   let debug_aranges = DebugAranges::<LittleEndian>::new(read_debug_aranges_section());
+///   let debug_aranges = DebugAranges::<EndianBuf<LittleEndian>>::new(read_debug_aranges_section());
 ///   ```
 ///
-/// * `items(&self) -> ArangeEntryIter<'input, Endian>`
+/// * `from_reader(input: R) -> DebugAranges<R>`
+///
+///   Construct a new `DebugAranges` instance from the data in the `.debug_aranges`
+///   section.
+///
+/// * `items(&self) -> ArangeEntryIter<R>`
 ///
 ///   Iterate the aranges in the `.debug_aranges` section.
 ///
 ///   ```
-///   use gimli::{DebugAranges, LittleEndian};
+///   use gimli::{DebugAranges, EndianBuf, LittleEndian};
 ///
 ///   # let buf = [];
 ///   # let read_debug_aranges_section = || &buf;
-///   let debug_aranges = DebugAranges::<LittleEndian>::new(read_debug_aranges_section());
+///   let debug_aranges = DebugAranges::<EndianBuf<LittleEndian>>::new(read_debug_aranges_section());
 ///
 ///   let mut iter = debug_aranges.items();
 ///   while let Some(arange) = iter.next().unwrap() {
 ///       println!("arange starts at {}, has length {}", arange.address(), arange.length());
 ///   }
 ///   ```
-pub type DebugAranges<'input, Endian> = DebugLookup<'input, Endian, ArangeParser<'input, Endian>>;
+pub type DebugAranges<R> = DebugLookup<R, ArangeParser<R>>;
 
-impl<'input, Endian> Section<'input> for DebugAranges<'input, Endian>
+impl<'input, Endian> Section<'input> for DebugAranges<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     fn section_name() -> &'static str {
@@ -223,7 +218,7 @@ impl<'input, Endian> Section<'input> for DebugAranges<'input, Endian>
     }
 }
 
-impl<'input, Endian> From<&'input [u8]> for DebugAranges<'input, Endian>
+impl<'input, Endian> From<&'input [u8]> for DebugAranges<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     fn from(v: &'input [u8]) -> Self {
@@ -246,9 +241,7 @@ impl<'input, Endian> From<&'input [u8]> for DebugAranges<'input, Endian>
 ///
 ///   Can be [used with
 ///   `FallibleIterator`](./index.html#using-with-fallibleiterator).
-pub type ArangeEntryIter<'input, Endian> = LookupEntryIter<'input,
-                                                           Endian,
-                                                           ArangeParser<'input, Endian>>;
+pub type ArangeEntryIter<R> = LookupEntryIter<R, ArangeParser<R>>;
 
 #[cfg(test)]
 mod tests {

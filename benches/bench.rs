@@ -107,7 +107,7 @@ fn parse_debug_info_tree(mut iter: EntriesTreeIter<EndianBuf<LittleEndian>>) {
 #[bench]
 fn bench_parsing_debug_aranges(b: &mut test::Bencher) {
     let debug_aranges = read_section("debug_aranges");
-    let debug_aranges = DebugAranges::<LittleEndian>::new(&debug_aranges);
+    let debug_aranges = DebugAranges::<EndianBuf<LittleEndian>>::new(&debug_aranges);
 
     b.iter(|| {
                let mut aranges = debug_aranges.items();
@@ -120,7 +120,7 @@ fn bench_parsing_debug_aranges(b: &mut test::Bencher) {
 #[bench]
 fn bench_parsing_debug_pubnames(b: &mut test::Bencher) {
     let debug_pubnames = read_section("debug_pubnames");
-    let debug_pubnames = DebugPubNames::<LittleEndian>::new(&debug_pubnames);
+    let debug_pubnames = DebugPubNames::<EndianBuf<LittleEndian>>::new(&debug_pubnames);
 
     b.iter(|| {
                let mut pubnames = debug_pubnames.items();
@@ -133,7 +133,7 @@ fn bench_parsing_debug_pubnames(b: &mut test::Bencher) {
 #[bench]
 fn bench_parsing_debug_pubtypes(b: &mut test::Bencher) {
     let debug_pubtypes = read_section("debug_pubtypes");
-    let debug_pubtypes = DebugPubTypes::<LittleEndian>::new(&debug_pubtypes);
+    let debug_pubtypes = DebugPubTypes::<EndianBuf<LittleEndian>>::new(&debug_pubtypes);
 
     b.iter(|| {
                let mut pubtypes = debug_pubtypes.items();

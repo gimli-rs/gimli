@@ -306,15 +306,6 @@ pub fn parse_u64<Endian>(input: &mut EndianBuf<Endian>) -> Result<u64>
     }
 }
 
-/// Parse a `u32` from the input and return it as a `u64`.
-#[doc(hidden)]
-#[inline]
-pub fn parse_u32_as_u64<Endian>(input: &mut EndianBuf<Endian>) -> Result<u64>
-    where Endian: Endianity
-{
-    parse_u32(input).map(|v| v as u64)
-}
-
 /// Convert a `u64` to a `usize` and return it.
 #[doc(hidden)]
 #[inline]
@@ -339,18 +330,6 @@ pub fn u64_to_u8(x: u64) -> Result<u8> {
     }
 }
 
-/// Parse a word-sized integer according to the DWARF format, and return it as a `u64`.
-#[doc(hidden)]
-#[inline]
-pub fn parse_word<Endian>(input: &mut EndianBuf<Endian>, format: Format) -> Result<u64>
-    where Endian: Endianity
-{
-    match format {
-        Format::Dwarf32 => parse_u32_as_u64(input),
-        Format::Dwarf64 => parse_u64(input),
-    }
-}
-
 /// Parse an address-sized integer, and return it as a `u64`.
 #[doc(hidden)]
 #[inline]
@@ -363,22 +342,6 @@ pub fn parse_address<Endian>(input: &mut EndianBuf<Endian>, address_size: u8) ->
         2 => parse_u16(input).map(|v| v as u64),
         1 => parse_u8(input).map(|v| v as u64),
         otherwise => return Err(Error::UnsupportedAddressSize(otherwise)),
-    }
-}
-
-/// Parse a null-terminated slice from the input, and return it (excluding the null).
-#[doc(hidden)]
-#[inline]
-pub fn parse_null_terminated_slice<'input, Endian>(input: &mut EndianBuf<'input, Endian>)
-                                                   -> Result<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
-    if let Some(idx) = input.find(0) {
-        let slice = take(idx, input)?;
-        take(1, input)?;
-        Ok(slice)
-    } else {
-        Err(Error::UnexpectedEof)
     }
 }
 
@@ -557,13 +520,6 @@ pub fn parse_initial_length<R: Reader>(input: &mut R) -> Result<(u64, Format)> {
     }
 }
 
-/// Parse the size of addresses (in bytes) on the target architecture.
-pub fn parse_address_size<Endian>(input: &mut EndianBuf<Endian>) -> Result<u8>
-    where Endian: Endianity
-{
-    parse_u8(input)
-}
-
 /// Take a slice of size `bytes` from the input.
 #[inline]
 pub fn take<'input, Endian>(bytes: usize,
@@ -718,16 +674,6 @@ mod tests {
 
         match input.read_offset(Format::Dwarf64) {
             Err(Error::UnsupportedOffset) => assert!(true),
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
-    }
-
-    #[test]
-    fn test_parse_address_size_ok() {
-        let buf = [0x04];
-
-        match parse_address_size(&mut EndianBuf::<LittleEndian>::new(&buf)) {
-            Ok(val) => assert_eq!(val, 4),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }

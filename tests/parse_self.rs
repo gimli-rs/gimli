@@ -223,7 +223,7 @@ fn test_parse_self_debug_ranges() {
 #[test]
 fn test_parse_self_debug_aranges() {
     let debug_aranges = read_section("debug_aranges");
-    let debug_aranges = DebugAranges::<LittleEndian>::new(&debug_aranges);
+    let debug_aranges = DebugAranges::<EndianBuf<LittleEndian>>::new(&debug_aranges);
 
     let mut aranges = debug_aranges.items();
     while let Some(_) = aranges.next().expect("Should parse arange OK") {
@@ -240,7 +240,7 @@ fn test_parse_self_debug_pubnames() {
     let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_pubnames = read_section("debug_pubnames");
-    let debug_pubnames = DebugPubNames::<LittleEndian>::new(&debug_pubnames);
+    let debug_pubnames = DebugPubNames::<EndianBuf<LittleEndian>>::new(&debug_pubnames);
 
     let mut units = HashMap::new();
     let mut abbrevs = HashMap::new();
@@ -273,7 +273,7 @@ fn test_parse_self_debug_pubtypes() {
     let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_pubtypes = read_section("debug_pubtypes");
-    let debug_pubtypes = DebugPubTypes::<LittleEndian>::new(&debug_pubtypes);
+    let debug_pubtypes = DebugPubTypes::<EndianBuf<LittleEndian>>::new(&debug_pubtypes);
 
     let mut units = HashMap::new();
     let mut abbrevs = HashMap::new();

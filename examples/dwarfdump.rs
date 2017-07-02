@@ -883,7 +883,7 @@ fn dump_pubnames<Endian>(file: &object::File)
     if let (Some(debug_pubnames), Some(debug_info)) = (debug_pubnames, debug_info) {
         println!("\n.debug_pubnames");
 
-        let debug_pubnames = gimli::DebugPubNames::<Endian>::new(debug_pubnames);
+        let debug_pubnames = gimli::DebugPubNames::<gimli::EndianBuf<Endian>>::new(debug_pubnames);
         let debug_info = gimli::DebugInfo::<gimli::EndianBuf<Endian>>::new(debug_info);
 
         let mut cu_offset;
@@ -920,7 +920,7 @@ fn dump_pubtypes<Endian>(file: &object::File)
     if let (Some(debug_pubtypes), Some(debug_info)) = (debug_pubtypes, debug_info) {
         println!("\n.debug_pubtypes");
 
-        let debug_pubtypes = gimli::DebugPubNames::<Endian>::new(debug_pubtypes);
+        let debug_pubtypes = gimli::DebugPubNames::<gimli::EndianBuf<Endian>>::new(debug_pubtypes);
         let debug_info = gimli::DebugInfo::<gimli::EndianBuf<Endian>>::new(debug_info);
 
         let mut cu_offset;
@@ -958,7 +958,7 @@ fn dump_aranges<Endian>(file: &object::File)
         println!(".debug_aranges");
         println!("");
 
-        let debug_aranges = gimli::DebugAranges::<Endian>::new(debug_aranges);
+        let debug_aranges = gimli::DebugAranges::<gimli::EndianBuf<Endian>>::new(debug_aranges);
         let debug_info = gimli::DebugInfo::<gimli::EndianBuf<Endian>>::new(debug_info);
 
         let mut cu_die_offset = gimli::DebugInfoOffset(0);
