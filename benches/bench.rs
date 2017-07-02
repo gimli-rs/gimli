@@ -195,7 +195,7 @@ fn bench_parsing_debug_loc(b: &mut test::Bencher) {
     let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_loc = read_section("debug_loc");
-    let debug_loc = DebugLoc::<LittleEndian>::new(&debug_loc);
+    let debug_loc = DebugLoc::<EndianBuf<LittleEndian>>::new(&debug_loc);
 
     let mut offsets = Vec::new();
 
@@ -249,7 +249,7 @@ fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
     let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_ranges = read_section("debug_ranges");
-    let debug_ranges = DebugRanges::<LittleEndian>::new(&debug_ranges);
+    let debug_ranges = DebugRanges::<EndianBuf<LittleEndian>>::new(&debug_ranges);
 
     let mut offsets = Vec::new();
 

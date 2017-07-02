@@ -5,7 +5,6 @@ use std::fmt::{self, Debug};
 use std::result;
 use cfi::BaseAddresses;
 use constants;
-use endianity::{Endianity, EndianBuf};
 use reader::Reader;
 
 /// An error that occurred when parsing.
@@ -246,66 +245,6 @@ impl error::Error for Error {
 /// The result of a parse.
 pub type Result<T> = result::Result<T, Error>;
 
-/// Parse a `u8` from the input.
-#[doc(hidden)]
-#[inline]
-pub fn parse_u8<Endian>(input: &mut EndianBuf<Endian>) -> Result<u8>
-    where Endian: Endianity
-{
-    if input.is_empty() {
-        Err(Error::UnexpectedEof)
-    } else {
-        let val = input[0];
-        *input = input.range_from(1..);
-        Ok(val)
-    }
-}
-
-/// Parse a `u16` from the input.
-#[doc(hidden)]
-#[inline]
-pub fn parse_u16<Endian>(input: &mut EndianBuf<Endian>) -> Result<u16>
-    where Endian: Endianity
-{
-    if input.len() < 2 {
-        Err(Error::UnexpectedEof)
-    } else {
-        let val = Endian::read_u16(&input);
-        *input = input.range_from(2..);
-        Ok(val)
-    }
-}
-
-/// Parse a `u32` from the input.
-#[doc(hidden)]
-#[inline]
-pub fn parse_u32<Endian>(input: &mut EndianBuf<Endian>) -> Result<u32>
-    where Endian: Endianity
-{
-    if input.len() < 4 {
-        Err(Error::UnexpectedEof)
-    } else {
-        let val = Endian::read_u32(&input);
-        *input = input.range_from(4..);
-        Ok(val)
-    }
-}
-
-/// Parse a `u64` from the input.
-#[doc(hidden)]
-#[inline]
-pub fn parse_u64<Endian>(input: &mut EndianBuf<Endian>) -> Result<u64>
-    where Endian: Endianity
-{
-    if input.len() < 8 {
-        Err(Error::UnexpectedEof)
-    } else {
-        let val = Endian::read_u64(&input);
-        *input = input.range_from(8..);
-        Ok(val)
-    }
-}
-
 /// Convert a `u64` to a `usize` and return it.
 #[doc(hidden)]
 #[inline]
@@ -327,21 +266,6 @@ pub fn u64_to_u8(x: u64) -> Result<u8> {
         Ok(y)
     } else {
         Err(Error::CannotFitInU8)
-    }
-}
-
-/// Parse an address-sized integer, and return it as a `u64`.
-#[doc(hidden)]
-#[inline]
-pub fn parse_address<Endian>(input: &mut EndianBuf<Endian>, address_size: u8) -> Result<u64>
-    where Endian: Endianity
-{
-    match address_size {
-        8 => parse_u64(input),
-        4 => parse_u32(input).map(|v| v as u64),
-        2 => parse_u16(input).map(|v| v as u64),
-        1 => parse_u8(input).map(|v| v as u64),
-        otherwise => return Err(Error::UnsupportedAddressSize(otherwise)),
     }
 }
 
@@ -517,22 +441,6 @@ pub fn parse_initial_length<R: Reader>(input: &mut R) -> Result<(u64, Format)> {
         Ok((val, Format::Dwarf64))
     } else {
         Err(Error::UnknownReservedLength)
-    }
-}
-
-/// Take a slice of size `bytes` from the input.
-#[inline]
-pub fn take<'input, Endian>(bytes: usize,
-                            input: &mut EndianBuf<'input, Endian>)
-                            -> Result<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
-    if input.len() < bytes {
-        Err(Error::UnexpectedEof)
-    } else {
-        let val = input.range_to(..bytes);
-        *input = input.range_from(bytes..);
-        Ok(val)
     }
 }
 

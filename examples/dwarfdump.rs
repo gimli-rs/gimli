@@ -112,9 +112,9 @@ fn dump_file<Endian>(file: &object::File, flags: &Flags)
     let debug_line = file.get_section(".debug_line").unwrap_or(&[]);
     let debug_line = gimli::DebugLine::<gimli::EndianBuf<Endian>>::new(debug_line);
     let debug_loc = file.get_section(".debug_loc").unwrap_or(&[]);
-    let debug_loc = gimli::DebugLoc::<Endian>::new(debug_loc);
+    let debug_loc = gimli::DebugLoc::<gimli::EndianBuf<Endian>>::new(debug_loc);
     let debug_ranges = file.get_section(".debug_ranges").unwrap_or(&[]);
-    let debug_ranges = gimli::DebugRanges::<Endian>::new(debug_ranges);
+    let debug_ranges = gimli::DebugRanges::<gimli::EndianBuf<Endian>>::new(debug_ranges);
     let debug_str = file.get_section(".debug_str").unwrap_or(&[]);
     let debug_str = gimli::DebugStr::<gimli::EndianBuf<Endian>>::new(debug_str);
 
@@ -152,8 +152,8 @@ fn dump_file<Endian>(file: &object::File, flags: &Flags)
 fn dump_info<Endian>(file: &object::File,
                      debug_abbrev: gimli::DebugAbbrev<gimli::EndianBuf<Endian>>,
                      debug_line: gimli::DebugLine<gimli::EndianBuf<Endian>>,
-                     debug_loc: gimli::DebugLoc<Endian>,
-                     debug_ranges: gimli::DebugRanges<Endian>,
+                     debug_loc: gimli::DebugLoc<gimli::EndianBuf<Endian>>,
+                     debug_ranges: gimli::DebugRanges<gimli::EndianBuf<Endian>>,
                      debug_str: gimli::DebugStr<gimli::EndianBuf<Endian>>,
                      flags: &Flags)
     where Endian: gimli::Endianity
@@ -184,8 +184,8 @@ fn dump_info<Endian>(file: &object::File,
 fn dump_types<Endian>(file: &object::File,
                       debug_abbrev: gimli::DebugAbbrev<gimli::EndianBuf<Endian>>,
                       debug_line: gimli::DebugLine<gimli::EndianBuf<Endian>>,
-                      debug_loc: gimli::DebugLoc<Endian>,
-                      debug_ranges: gimli::DebugRanges<Endian>,
+                      debug_loc: gimli::DebugLoc<gimli::EndianBuf<Endian>>,
+                      debug_ranges: gimli::DebugRanges<gimli::EndianBuf<Endian>>,
                       debug_str: gimli::DebugStr<gimli::EndianBuf<Endian>>,
                       flags: &Flags)
     where Endian: gimli::Endianity
@@ -239,8 +239,8 @@ fn dump_entries<Endian>(offset: usize,
                         address_size: u8,
                         format: gimli::Format,
                         debug_line: gimli::DebugLine<gimli::EndianBuf<Endian>>,
-                        debug_loc: gimli::DebugLoc<Endian>,
-                        debug_ranges: gimli::DebugRanges<Endian>,
+                        debug_loc: gimli::DebugLoc<gimli::EndianBuf<Endian>>,
+                        debug_ranges: gimli::DebugRanges<gimli::EndianBuf<Endian>>,
                         debug_str: gimli::DebugStr<gimli::EndianBuf<Endian>>,
                         flags: &Flags)
     where Endian: gimli::Endianity
@@ -315,8 +315,8 @@ fn dump_entries<Endian>(offset: usize,
 
 fn dump_attr_value<Endian>(attr: gimli::Attribute<gimli::EndianBuf<Endian>>,
                            unit: &Unit<Endian>,
-                           debug_loc: gimli::DebugLoc<Endian>,
-                           debug_ranges: gimli::DebugRanges<Endian>,
+                           debug_loc: gimli::DebugLoc<gimli::EndianBuf<Endian>>,
+                           debug_ranges: gimli::DebugRanges<gimli::EndianBuf<Endian>>,
                            debug_str: gimli::DebugStr<gimli::EndianBuf<Endian>>)
     where Endian: gimli::Endianity
 {
@@ -649,7 +649,7 @@ fn dump_op<Endian>(dwop: gimli::DwOp, op: gimli::Operation<gimli::EndianBuf<Endi
     }
 }
 
-fn dump_loc_list<Endian>(debug_loc: gimli::DebugLoc<Endian>,
+fn dump_loc_list<Endian>(debug_loc: gimli::DebugLoc<gimli::EndianBuf<Endian>>,
                          offset: gimli::DebugLocOffset,
                          unit: &Unit<Endian>)
     where Endian: gimli::Endianity
@@ -701,7 +701,7 @@ fn dump_loc_list<Endian>(debug_loc: gimli::DebugLoc<Endian>,
     }
 }
 
-fn dump_range_list<Endian>(debug_ranges: gimli::DebugRanges<Endian>,
+fn dump_range_list<Endian>(debug_ranges: gimli::DebugRanges<gimli::EndianBuf<Endian>>,
                            offset: gimli::DebugRangesOffset,
                            unit: &Unit<Endian>)
     where Endian: gimli::Endianity

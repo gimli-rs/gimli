@@ -133,7 +133,7 @@ fn test_parse_self_debug_loc() {
     let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_loc = read_section("debug_loc");
-    let debug_loc = DebugLoc::<LittleEndian>::new(&debug_loc);
+    let debug_loc = DebugLoc::<EndianBuf<LittleEndian>>::new(&debug_loc);
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
@@ -181,7 +181,7 @@ fn test_parse_self_debug_ranges() {
     let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_ranges = read_section("debug_ranges");
-    let debug_ranges = DebugRanges::<LittleEndian>::new(&debug_ranges);
+    let debug_ranges = DebugRanges::<EndianBuf<LittleEndian>>::new(&debug_ranges);
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
