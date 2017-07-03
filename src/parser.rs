@@ -1,7 +1,6 @@
 //! Functions for parsing DWARF debugging information.
 
 use std::error;
-use std::ffi;
 use std::fmt::{self, Debug};
 use std::io;
 use std::result;
@@ -9,6 +8,7 @@ use cfi::BaseAddresses;
 use constants;
 use endianity::{Endianity, EndianBuf};
 use leb128;
+use reader::Reader;
 
 /// An error that occurred when parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -447,24 +447,6 @@ pub fn u64_to_u8(x: u64) -> Result<u8> {
     }
 }
 
-/// Parse a `u64` from the input, and return it as a `usize`.
-#[doc(hidden)]
-#[inline]
-pub fn parse_u64_as_offset<Endian>(input: &mut EndianBuf<Endian>) -> Result<usize>
-    where Endian: Endianity
-{
-    parse_u64(input).and_then(u64_to_offset)
-}
-
-/// Parse an unsigned LEB128 encoded integer from the input, and return it as a `usize`.
-#[doc(hidden)]
-#[inline]
-pub fn parse_uleb_as_offset<Endian>(input: &mut EndianBuf<Endian>) -> Result<usize>
-    where Endian: Endianity
-{
-    parse_unsigned_leb(input).and_then(u64_to_offset)
-}
-
 /// Parse a word-sized integer according to the DWARF format, and return it as a `u64`.
 #[doc(hidden)]
 #[inline]
@@ -501,33 +483,17 @@ pub fn parse_address<Endian>(input: &mut EndianBuf<Endian>, address_size: u8) ->
     }
 }
 
-/// Parse an address-sized integer, and return it as a `usize`.
+/// Parse a null-terminated slice from the input, and return it (excluding the null).
 #[doc(hidden)]
 #[inline]
-pub fn parse_address_as_offset<Endian>(input: &mut EndianBuf<Endian>,
-                                       address_size: u8)
-                                       -> Result<usize>
-    where Endian: Endianity
-{
-    parse_address(input, address_size).and_then(u64_to_offset)
-}
-
-/// Parse a null-terminated slice from the input.
-#[doc(hidden)]
-#[inline]
-pub fn parse_null_terminated_string<'input, Endian>(input: &mut EndianBuf<'input, Endian>)
-                                                    -> Result<&'input ffi::CStr>
+pub fn parse_null_terminated_slice<'input, Endian>(input: &mut EndianBuf<'input, Endian>)
+                                                   -> Result<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     if let Some(idx) = input.find(0) {
-        let slice = &take(idx + 1, input)?;
-        let cstr = unsafe {
-            // It is safe to use the unchecked variant here because we know we
-            // grabbed the index of the first null byte in the input and
-            // therefore there can't be any interior null bytes in this slice.
-            ffi::CStr::from_bytes_with_nul_unchecked(slice.buf())
-        };
-        Ok(cstr)
+        let slice = take(idx, input)?;
+        take(1, input)?;
+        Ok(slice)
     } else {
         Err(Error::UnexpectedEof)
     }
@@ -702,14 +668,12 @@ const DWARF_64_INITIAL_UNIT_LENGTH: u64 = 0xffffffff;
 
 /// Parse the compilation unit header's length.
 #[doc(hidden)]
-pub fn parse_initial_length<Endian>(input: &mut EndianBuf<Endian>) -> Result<(u64, Format)>
-    where Endian: Endianity
-{
-    let val = parse_u32_as_u64(input)?;
+pub fn parse_initial_length<R: Reader>(input: &mut R) -> Result<(u64, Format)> {
+    let val = input.read_u32().map(|v| v as u64)?;
     if val < MAX_DWARF_32_UNIT_LENGTH {
         Ok((val, Format::Dwarf32))
     } else if val == DWARF_64_INITIAL_UNIT_LENGTH {
-        let val = parse_u64(input)?;
+        let val = input.read_u64()?;
         Ok((val, Format::Dwarf64))
     } else {
         Err(Error::UnknownReservedLength)

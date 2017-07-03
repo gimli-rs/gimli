@@ -1,7 +1,7 @@
 extern crate gimli;
 
 use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLoc,
-            DebugPubNames, DebugPubTypes, DebugRanges, DebugStr, LittleEndian};
+            DebugPubNames, DebugPubTypes, DebugRanges, DebugStr, LittleEndian, EndianBuf};
 use std::env;
 use std::collections::hash_map::HashMap;
 use std::fs::File;
@@ -28,10 +28,10 @@ fn read_section(section: &str) -> Vec<u8> {
 #[test]
 fn test_parse_self_debug_info() {
     let debug_info = read_section("debug_info");
-    let debug_info = DebugInfo::<LittleEndian>::new(&debug_info);
+    let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
 
     let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&debug_abbrev);
+    let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
@@ -52,16 +52,16 @@ fn test_parse_self_debug_info() {
 #[test]
 fn test_parse_self_debug_line() {
     let debug_info = read_section("debug_info");
-    let debug_info = DebugInfo::<LittleEndian>::new(&debug_info);
+    let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
 
     let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&debug_abbrev);
+    let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_line = read_section("debug_line");
     let debug_line = DebugLine::<LittleEndian>::new(&debug_line);
 
     let debug_str = read_section("debug_str");
-    let debug_str = DebugStr::<LittleEndian>::new(&debug_str);
+    let debug_str = DebugStr::<EndianBuf<LittleEndian>>::new(&debug_str);
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
@@ -127,10 +127,10 @@ fn test_parse_self_debug_line() {
 #[test]
 fn test_parse_self_debug_loc() {
     let debug_info = read_section("debug_info");
-    let debug_info = DebugInfo::<LittleEndian>::new(&debug_info);
+    let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
 
     let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&debug_abbrev);
+    let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_loc = read_section("debug_loc");
     let debug_loc = DebugLoc::<LittleEndian>::new(&debug_loc);
@@ -175,10 +175,10 @@ fn test_parse_self_debug_loc() {
 #[test]
 fn test_parse_self_debug_ranges() {
     let debug_info = read_section("debug_info");
-    let debug_info = DebugInfo::<LittleEndian>::new(&debug_info);
+    let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
 
     let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&debug_abbrev);
+    let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_ranges = read_section("debug_ranges");
     let debug_ranges = DebugRanges::<LittleEndian>::new(&debug_ranges);
@@ -234,10 +234,10 @@ fn test_parse_self_debug_aranges() {
 #[test]
 fn test_parse_self_debug_pubnames() {
     let debug_info = read_section("debug_info");
-    let debug_info = DebugInfo::<LittleEndian>::new(&debug_info);
+    let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
 
     let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&debug_abbrev);
+    let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_pubnames = read_section("debug_pubnames");
     let debug_pubnames = DebugPubNames::<LittleEndian>::new(&debug_pubnames);
@@ -267,10 +267,10 @@ fn test_parse_self_debug_pubnames() {
 #[test]
 fn test_parse_self_debug_pubtypes() {
     let debug_info = read_section("debug_info");
-    let debug_info = DebugInfo::<LittleEndian>::new(&debug_info);
+    let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
 
     let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&debug_abbrev);
+    let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_pubtypes = read_section("debug_pubtypes");
     let debug_pubtypes = DebugPubTypes::<LittleEndian>::new(&debug_pubtypes);

@@ -3,7 +3,7 @@
 use constants;
 use endianity::{Endianity, EndianBuf};
 use parser::{Error, Result, Format};
-use parser::{parse_unsigned_leb, parse_u8};
+use reader::Reader;
 use unit::UnitHeader;
 use std::collections::hash_map;
 use Section;
@@ -16,13 +16,11 @@ pub struct DebugAbbrevOffset(pub usize);
 /// `DebuggingInformationEntry`s' attribute names and forms found in the
 /// `.debug_abbrev` section.
 #[derive(Debug, Clone, Copy)]
-pub struct DebugAbbrev<'input, Endian>
-    where Endian: Endianity
-{
-    debug_abbrev_section: EndianBuf<'input, Endian>,
+pub struct DebugAbbrev<R: Reader> {
+    debug_abbrev_section: R,
 }
 
-impl<'input, Endian> DebugAbbrev<'input, Endian>
+impl<'input, Endian> DebugAbbrev<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     /// Construct a new `DebugAbbrev` instance from the data in the `.debug_abbrev`
@@ -33,14 +31,26 @@ impl<'input, Endian> DebugAbbrev<'input, Endian>
     /// Linux, a Mach-O loader on OSX, etc.
     ///
     /// ```
-    /// use gimli::{DebugAbbrev, LittleEndian};
+    /// use gimli::{DebugAbbrev, EndianBuf, LittleEndian};
     ///
     /// # let buf = [0x00, 0x01, 0x02, 0x03];
     /// # let read_debug_abbrev_section_somehow = || &buf;
-    /// let debug_abbrev = DebugAbbrev::<LittleEndian>::new(read_debug_abbrev_section_somehow());
+    /// let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(read_debug_abbrev_section_somehow());
     /// ```
-    pub fn new(debug_abbrev_section: &'input [u8]) -> DebugAbbrev<'input, Endian> {
-        DebugAbbrev { debug_abbrev_section: EndianBuf::new(debug_abbrev_section) }
+    pub fn new(debug_abbrev_section: &'input [u8]) -> Self {
+        Self::from_reader(EndianBuf::new(debug_abbrev_section))
+    }
+}
+
+impl<R: Reader> DebugAbbrev<R> {
+    /// Construct a new `DebugAbbrev` instance from the data in the `.debug_abbrev`
+    /// section.
+    ///
+    /// It is the caller's responsibility to read the `.debug_abbrev` section and
+    /// present it as a `&[u8]` slice. That means using some ELF loader on
+    /// Linux, a Mach-O loader on OSX, etc.
+    pub fn from_reader(debug_abbrev_section: R) -> Self {
+        DebugAbbrev { debug_abbrev_section }
     }
 
     /// Parse the abbreviations at the given `offset` within this
@@ -48,13 +58,13 @@ impl<'input, Endian> DebugAbbrev<'input, Endian>
     ///
     /// The `offset` should generally be retrieved from a unit header.
     pub fn abbreviations(&self, debug_abbrev_offset: DebugAbbrevOffset) -> Result<Abbreviations> {
-        let input = &mut self.debug_abbrev_section
-            .range_from(debug_abbrev_offset.0..);
+        let input = &mut self.debug_abbrev_section.clone();
+        input.skip(debug_abbrev_offset.0)?;
         Abbreviations::parse(input)
     }
 }
 
-impl<'input, Endian> Section<'input> for DebugAbbrev<'input, Endian>
+impl<'input, Endian> Section<'input> for DebugAbbrev<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     fn section_name() -> &'static str {
@@ -62,7 +72,7 @@ impl<'input, Endian> Section<'input> for DebugAbbrev<'input, Endian>
     }
 }
 
-impl<'input, Endian> From<&'input [u8]> for DebugAbbrev<'input, Endian>
+impl<'input, Endian> From<&'input [u8]> for DebugAbbrev<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     fn from(v: &'input [u8]) -> Self {
@@ -134,9 +144,7 @@ impl Abbreviations {
     }
 
     /// Parse a series of abbreviations, terminated by a null abbreviation.
-    fn parse<Endian>(input: &mut EndianBuf<Endian>) -> Result<Abbreviations>
-        where Endian: Endianity
-    {
+    fn parse<R: Reader>(input: &mut R) -> Result<Abbreviations> {
         let mut abbrevs = Abbreviations::empty();
 
         while let Some(abbrev) = Abbreviation::parse(input)? {
@@ -204,10 +212,8 @@ impl Abbreviation {
     }
 
     /// Parse an abbreviation's tag.
-    fn parse_tag<Endian>(input: &mut EndianBuf<Endian>) -> Result<constants::DwTag>
-        where Endian: Endianity
-    {
-        let val = parse_unsigned_leb(input)?;
+    fn parse_tag<R: Reader>(input: &mut R) -> Result<constants::DwTag> {
+        let val = input.read_uleb128()?;
         if val == 0 {
             Err(Error::AbbreviationTagZero)
         } else {
@@ -216,10 +222,8 @@ impl Abbreviation {
     }
 
     /// Parse an abbreviation's "does the type have children?" byte.
-    fn parse_has_children<Endian>(input: &mut EndianBuf<Endian>) -> Result<constants::DwChildren>
-        where Endian: Endianity
-    {
-        let val = parse_u8(input)?;
+    fn parse_has_children<R: Reader>(input: &mut R) -> Result<constants::DwChildren> {
+        let val = input.read_u8()?;
         let val = constants::DwChildren(val);
         if val == constants::DW_CHILDREN_no || val == constants::DW_CHILDREN_yes {
             Ok(val)
@@ -230,10 +234,7 @@ impl Abbreviation {
 
     /// Parse a series of attribute specifications, terminated by a null attribute
     /// specification.
-    fn parse_attributes<Endian>(input: &mut EndianBuf<Endian>)
-                                -> Result<Vec<AttributeSpecification>>
-        where Endian: Endianity
-    {
+    fn parse_attributes<R: Reader>(input: &mut R) -> Result<Vec<AttributeSpecification>> {
         let mut attrs = Vec::new();
 
         while let Some(attr) = AttributeSpecification::parse(input)? {
@@ -245,10 +246,8 @@ impl Abbreviation {
 
     /// Parse an abbreviation. Return `None` for the null abbreviation, `Some`
     /// for an actual abbreviation.
-    fn parse<Endian>(input: &mut EndianBuf<Endian>) -> Result<Option<Abbreviation>>
-        where Endian: Endianity
-    {
-        let code = parse_unsigned_leb(input)?;
+    fn parse<R: Reader>(input: &mut R) -> Result<Option<Abbreviation>> {
+        let code = input.read_uleb128()?;
         if code == 0 {
             return Ok(None);
         }
@@ -294,9 +293,7 @@ impl AttributeSpecification {
     ///
     /// Note that because some attributes are variably sized, the size cannot
     /// always be known without parsing, in which case we return `None`.
-    pub fn size<Endian>(&self, header: &UnitHeader<Endian>) -> Option<usize>
-        where Endian: Endianity
-    {
+    pub fn size<R: Reader>(&self, header: &UnitHeader<R>) -> Option<usize> {
         match self.form {
             constants::DW_FORM_addr => Some(header.address_size() as usize),
 
@@ -342,10 +339,8 @@ impl AttributeSpecification {
     }
 
     /// Parse an attribute's form.
-    fn parse_form<Endian>(input: &mut EndianBuf<Endian>) -> Result<constants::DwForm>
-        where Endian: Endianity
-    {
-        let val = parse_unsigned_leb(input)?;
+    fn parse_form<R: Reader>(input: &mut R) -> Result<constants::DwForm> {
+        let val = input.read_uleb128()?;
         if val == 0 {
             Err(Error::AttributeFormZero)
         } else {
@@ -355,13 +350,11 @@ impl AttributeSpecification {
 
     /// Parse an attribute specification. Returns `None` for the null attribute
     /// specification, `Some` for an actual attribute specification.
-    fn parse<Endian>(input: &mut EndianBuf<Endian>) -> Result<Option<AttributeSpecification>>
-        where Endian: Endianity
-    {
-        let name = parse_unsigned_leb(input)?;
+    fn parse<R: Reader>(input: &mut R) -> Result<Option<AttributeSpecification>> {
+        let name = input.read_uleb128()?;
         if name == 0 {
             // Parse the null attribute specification.
-            let form = parse_unsigned_leb(input)?;
+            let form = input.read_uleb128()?;
             return if form == 0 {
                 Ok(None)
             } else {
@@ -382,7 +375,7 @@ pub mod tests {
 
     use super::*;
     use constants;
-    use endianity::LittleEndian;
+    use endianity::{LittleEndian, EndianBuf};
     use parser::Error;
     use self::test_assembler::Section;
     use std::{u32, u64};
@@ -448,7 +441,7 @@ pub mod tests {
                                         vec![AttributeSpecification::new(constants::DW_AT_name,
                                                                constants::DW_FORM_string)]);
 
-        let debug_abbrev = DebugAbbrev::<LittleEndian>::new(&buf);
+        let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&buf);
         let debug_abbrev_offset = DebugAbbrevOffset(extra_start.len());
         let abbrevs = debug_abbrev
             .abbreviations(debug_abbrev_offset)

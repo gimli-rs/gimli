@@ -1,8 +1,7 @@
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
-use parser::{parse_null_terminated_string, parse_initial_length, parse_u16, parse_word, take,
+use parser::{parse_null_terminated_slice, parse_initial_length, parse_u16, parse_word, take,
              Format, Result, Error};
-use std::ffi;
 use std::marker::PhantomData;
 
 // The various "Accelerated Access" sections (DWARF standard v4 Section 6.1) all have
@@ -142,7 +141,10 @@ pub trait NamesOrTypesSwitch<'input, Endian>
                   length: u64)
                   -> Self::Header;
 
-    fn new_entry(offset: u64, name: &'input ffi::CStr, header: &Self::Header) -> Self::Entry;
+    fn new_entry(offset: u64,
+                 name: EndianBuf<'input, Endian>,
+                 header: &Self::Header)
+                 -> Self::Entry;
 
     fn parse_offset(input: &mut EndianBuf<Endian>, format: Format) -> Result<Self::Offset>;
 
@@ -194,7 +196,7 @@ impl<'input, Endian, Switch> LookupParser<'input, Endian> for PubStuffParser<'in
             *input = EndianBuf::new(&[]);
             Ok(None)
         } else {
-            let name = parse_null_terminated_string(input)?;
+            let name = parse_null_terminated_slice(input)?;
             Ok(Some(Switch::new_entry(offset, name, header)))
         }
     }
