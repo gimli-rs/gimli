@@ -9,6 +9,7 @@ use std::io::Read;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
+use std::str;
 use parser::{Error, Result};
 use reader::Reader;
 
@@ -351,6 +352,24 @@ impl<'input, Endian> Reader for EndianBuf<'input, Endian>
     fn split(&mut self, len: usize) -> Result<Self> {
         let slice = self.read_slice(len)?;
         Ok(EndianBuf::new(slice))
+    }
+
+    #[inline]
+    fn to_slice(&self) -> Cow<[u8]> {
+        Cow::from(self.buf)
+    }
+
+    #[inline]
+    fn to_string(&self) -> Result<Cow<str>> {
+        match str::from_utf8(self.buf) {
+            Ok(s) => Ok(Cow::from(s)),
+            _ => Err(Error::BadUtf8),
+        }
+    }
+
+    #[inline]
+    fn to_string_lossy(&self) -> Cow<str> {
+        String::from_utf8_lossy(self.buf)
     }
 
     #[inline]

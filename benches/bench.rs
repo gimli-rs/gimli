@@ -38,7 +38,7 @@ fn bench_parsing_debug_abbrev(b: &mut test::Bencher) {
 
     b.iter(|| {
                let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
-               test::black_box(unit.abbreviations(debug_abbrev)
+               test::black_box(unit.abbreviations(&debug_abbrev)
                                    .expect("Should parse abbreviations"));
            });
 }
@@ -55,7 +55,7 @@ fn bench_parsing_debug_info(b: &mut test::Bencher) {
 
         let mut iter = debug_info.units();
         while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-            let abbrevs = unit.abbreviations(debug_abbrev)
+            let abbrevs = unit.abbreviations(&debug_abbrev)
                 .expect("Should parse abbreviations");
 
             let mut cursor = unit.entries(&abbrevs);
@@ -81,7 +81,7 @@ fn bench_parsing_debug_info_tree(b: &mut test::Bencher) {
 
         let mut iter = debug_info.units();
         while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-            let abbrevs = unit.abbreviations(debug_abbrev)
+            let abbrevs = unit.abbreviations(&debug_abbrev)
                 .expect("Should parse abbreviations");
 
             let mut tree = unit.entries_tree(&abbrevs, None)
@@ -201,7 +201,7 @@ fn bench_parsing_debug_loc(b: &mut test::Bencher) {
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -255,7 +255,7 @@ fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::io;
 use std::io::Read;
@@ -46,6 +47,32 @@ pub trait Reader: Debug + Clone + Read {
     /// A new reader is returned that can be used to read the next
     /// `len` bytes, and `self` is advanced so that it reads the remainder.
     fn split(&mut self, len: usize) -> Result<Self>;
+
+    /// Return all remaining data as a clone-on-write slice.
+    ///
+    /// The slice will be borrowed where possible, but some readers may
+    /// always return an owned vector.
+    ///
+    /// Does not advance the reader.
+    fn to_slice(&self) -> Cow<[u8]>;
+
+    /// Convert all remaining data to a clone-on-write string.
+    ///
+    /// The string will be borrowed where possible, but some readers may
+    /// always return an owned string.
+    ///
+    /// Does not advance the reader.
+    ///
+    /// Returns an error if the data contains invalid characters.
+    fn to_string(&self) -> Result<Cow<str>>;
+
+    /// Convert all remaining data to a clone-on-write string, including invalid characters.
+    ///
+    /// The string will be borrowed where possible, but some readers may
+    /// always return an owned string.
+    ///
+    /// Does not advance the reader.
+    fn to_string_lossy(&self) -> Cow<str>;
 
     /// Read a u8 array.
     fn read_u8_array<A>(&mut self) -> Result<A> where A: Sized + Default + AsMut<[u8]>;
