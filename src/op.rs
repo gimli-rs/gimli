@@ -197,7 +197,7 @@ pub enum Operation<'input, Endian>
     TextRelativeOffset {
         /// The offfset to add.
         offset: u64,
-    }
+    },
 }
 
 #[derive(Debug)]
@@ -1546,7 +1546,9 @@ impl<'input, Endian> Evaluation<'input, Endian>
     {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingParameterRef { .. }) => {
+            EvaluationState::Waiting(OperationEvaluationResult::AwaitingParameterRef {
+                                         ..
+                                     }) => {
                 self.push(parameter_value);
             }
             _ => {
@@ -2033,7 +2035,9 @@ mod tests {
         let format = Format::Dwarf32;
 
         let inputs =
-            [(constants::DW_OP_addr, 0x12345678, Operation::TextRelativeOffset { offset: 0x12345678 }),
+            [(constants::DW_OP_addr,
+              0x12345678,
+              Operation::TextRelativeOffset { offset: 0x12345678 }),
              (constants::DW_OP_const4u, 0x12345678, Operation::Literal { value: 0x12345678 }),
              (constants::DW_OP_const4s,
               (-23i32) as u32,
@@ -2260,9 +2264,7 @@ mod tests {
     #[test]
     fn test_op_parse_gnu_parameter_ref() {
         check_op_parse(|s| s.D8(constants::DW_OP_GNU_parameter_ref.0).D32(0x12345678),
-                       &Operation::ParameterRef {
-                           offset: UnitOffset(0x12345678)
-                       },
+                       &Operation::ParameterRef { offset: UnitOffset(0x12345678) },
                        4,
                        Format::Dwarf32)
     }

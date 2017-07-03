@@ -19,6 +19,8 @@ use std::process;
 struct Flags {
     info: bool,
     line: bool,
+    pubnames: bool,
+    pubtypes: bool,
     aranges: bool,
     raw: bool,
 }
@@ -33,7 +35,9 @@ fn main() {
     let mut opts = getopts::Options::new();
     opts.optflag("i", "", "print .debug_info and .debug_types sections");
     opts.optflag("l", "", "print .debug_line section");
+    opts.optflag("p", "", "print .debug_pubnames section");
     opts.optflag("r", "", "print .debug_aranges section");
+    opts.optflag("y", "", "print .debug_pubtypes section");
     opts.optflag("", "raw", "print raw data values");
 
     let matches = match opts.parse(env::args().skip(1)) {
@@ -57,6 +61,14 @@ fn main() {
         flags.line = true;
         all = false;
     }
+    if matches.opt_present("p") {
+        flags.pubnames = true;
+        all = false;
+    }
+    if matches.opt_present("y") {
+        flags.pubtypes = true;
+        all = false;
+    }
     if matches.opt_present("r") {
         flags.aranges = true;
         all = false;
@@ -67,6 +79,8 @@ fn main() {
     if all {
         flags.info = true;
         flags.line = true;
+        flags.pubnames = true;
+        flags.pubtypes = true;
         flags.aranges = true;
     }
 
@@ -123,6 +137,12 @@ fn dump_file<Endian>(file: &object::File, flags: &Flags)
     }
     if flags.line {
         dump_line(file, debug_abbrev);
+    }
+    if flags.pubnames {
+        dump_pubnames::<Endian>(file);
+    }
+    if flags.pubtypes {
+        dump_pubtypes::<Endian>(file);
     }
     if flags.aranges {
         dump_aranges::<Endian>(file);
@@ -848,6 +868,80 @@ fn dump_line<Endian>(file: &object::File, debug_abbrev: gimli::DebugAbbrev<Endia
                     println!("");
                 }
             }
+        }
+    }
+}
+
+fn dump_pubnames<Endian>(file: &object::File)
+    where Endian: gimli::Endianity
+{
+    let debug_pubnames = file.get_section(".debug_pubnames");
+    let debug_info = file.get_section(".debug_info");
+
+    if let (Some(debug_pubnames), Some(debug_info)) = (debug_pubnames, debug_info) {
+        println!("\n.debug_pubnames");
+
+        let debug_pubnames = gimli::DebugPubNames::<Endian>::new(debug_pubnames);
+        let debug_info = gimli::DebugInfo::<Endian>::new(debug_info);
+
+        let mut cu_offset;
+        let mut cu_die_offset = gimli::DebugInfoOffset(0);
+        let mut prev_cu_offset = None;
+        let mut pubnames = debug_pubnames.items();
+        while let Some(pubname) = pubnames.next().expect("Should parse pubname OK") {
+            cu_offset = pubname.unit_header_offset();
+            if Some(cu_offset) != prev_cu_offset {
+                let cu = debug_info
+                    .header_from_offset(cu_offset)
+                    .expect("Should parse unit header OK");
+                cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size());
+                prev_cu_offset = Some(cu_offset);
+            }
+            let die_in_cu = pubname.die_offset();
+            let die_in_sect = cu_offset.0 + die_in_cu.0;
+            println!("global die-in-sect 0x{:08x}, cu-in-sect 0x{:08x}, die-in-cu 0x{:08x}, cu-header-in-sect 0x{:08x} '{}'",
+                     die_in_sect,
+                     cu_die_offset.0,
+                     die_in_cu.0,
+                     cu_offset.0,
+                     pubname.name().to_string_lossy())
+        }
+    }
+}
+
+fn dump_pubtypes<Endian>(file: &object::File)
+    where Endian: gimli::Endianity
+{
+    let debug_pubtypes = file.get_section(".debug_pubtypes");
+    let debug_info = file.get_section(".debug_info");
+
+    if let (Some(debug_pubtypes), Some(debug_info)) = (debug_pubtypes, debug_info) {
+        println!("\n.debug_pubtypes");
+
+        let debug_pubtypes = gimli::DebugPubNames::<Endian>::new(debug_pubtypes);
+        let debug_info = gimli::DebugInfo::<Endian>::new(debug_info);
+
+        let mut cu_offset;
+        let mut cu_die_offset = gimli::DebugInfoOffset(0);
+        let mut prev_cu_offset = None;
+        let mut pubtypes = debug_pubtypes.items();
+        while let Some(pubtype) = pubtypes.next().expect("Should parse pubtype OK") {
+            cu_offset = pubtype.unit_header_offset();
+            if Some(cu_offset) != prev_cu_offset {
+                let cu = debug_info
+                    .header_from_offset(cu_offset)
+                    .expect("Should parse unit header OK");
+                cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size());
+                prev_cu_offset = Some(cu_offset);
+            }
+            let die_in_cu = pubtype.die_offset();
+            let die_in_sect = cu_offset.0 + die_in_cu.0;
+            println!("pubtype die-in-sect 0x{:08x}, cu-in-sect 0x{:08x}, die-in-cu 0x{:08x}, cu-header-in-sect 0x{:08x} '{}'",
+                     die_in_sect,
+                     cu_die_offset.0,
+                     die_in_cu.0,
+                     cu_offset.0,
+                     pubtype.name().to_string_lossy())
         }
     }
 }

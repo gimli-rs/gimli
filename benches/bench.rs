@@ -130,7 +130,7 @@ fn bench_parsing_debug_pubnames(b: &mut test::Bencher) {
 }
 
 #[bench]
-fn bench_parsing_debug_types(b: &mut test::Bencher) {
+fn bench_parsing_debug_pubtypes(b: &mut test::Bencher) {
     let debug_pubtypes = read_section("debug_pubtypes");
     let debug_pubtypes = DebugPubTypes::<LittleEndian>::new(&debug_pubtypes);
 
