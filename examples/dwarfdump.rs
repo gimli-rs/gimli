@@ -109,24 +109,34 @@ fn dump_file<Endian>(file: &object::File, flags: &Flags)
 {
     let debug_abbrev = file.get_section(".debug_abbrev").unwrap_or(&[]);
     let debug_abbrev = gimli::DebugAbbrev::<gimli::EndianBuf<Endian>>::new(debug_abbrev);
+    let debug_aranges = file.get_section(".debug_aranges").unwrap_or(&[]);
+    let debug_aranges = gimli::DebugAranges::<gimli::EndianBuf<Endian>>::new(debug_aranges);
+    let debug_info = file.get_section(".debug_info").unwrap_or(&[]);
+    let debug_info = gimli::DebugInfo::<gimli::EndianBuf<Endian>>::new(debug_info);
     let debug_line = file.get_section(".debug_line").unwrap_or(&[]);
     let debug_line = gimli::DebugLine::<gimli::EndianBuf<Endian>>::new(debug_line);
     let debug_loc = file.get_section(".debug_loc").unwrap_or(&[]);
     let debug_loc = gimli::DebugLoc::<gimli::EndianBuf<Endian>>::new(debug_loc);
+    let debug_pubnames = file.get_section(".debug_pubnames").unwrap_or(&[]);
+    let debug_pubnames = gimli::DebugPubNames::<gimli::EndianBuf<Endian>>::new(debug_pubnames);
+    let debug_pubtypes = file.get_section(".debug_pubtypes").unwrap_or(&[]);
+    let debug_pubtypes = gimli::DebugPubTypes::<gimli::EndianBuf<Endian>>::new(debug_pubtypes);
     let debug_ranges = file.get_section(".debug_ranges").unwrap_or(&[]);
     let debug_ranges = gimli::DebugRanges::<gimli::EndianBuf<Endian>>::new(debug_ranges);
     let debug_str = file.get_section(".debug_str").unwrap_or(&[]);
     let debug_str = gimli::DebugStr::<gimli::EndianBuf<Endian>>::new(debug_str);
+    let debug_types = file.get_section(".debug_types").unwrap_or(&[]);
+    let debug_types = gimli::DebugTypes::<gimli::EndianBuf<Endian>>::new(debug_types);
 
     if flags.info {
-        dump_info(file,
+        dump_info(debug_info,
                   debug_abbrev,
                   debug_line,
                   debug_loc,
                   debug_ranges,
                   debug_str,
                   flags);
-        dump_types(file,
+        dump_types(debug_types,
                    debug_abbrev,
                    debug_line,
                    debug_loc,
@@ -136,20 +146,20 @@ fn dump_file<Endian>(file: &object::File, flags: &Flags)
         println!("");
     }
     if flags.line {
-        dump_line(file, debug_abbrev);
+        dump_line(debug_line, debug_info, debug_abbrev, debug_str);
     }
     if flags.pubnames {
-        dump_pubnames::<Endian>(file);
-    }
-    if flags.pubtypes {
-        dump_pubtypes::<Endian>(file);
+        dump_pubnames(debug_pubnames, debug_info);
     }
     if flags.aranges {
-        dump_aranges::<Endian>(file);
+        dump_aranges(debug_aranges, debug_info);
+    }
+    if flags.pubtypes {
+        dump_pubtypes(debug_pubtypes, debug_info);
     }
 }
 
-fn dump_info<Endian>(file: &object::File,
+fn dump_info<Endian>(debug_info: gimli::DebugInfo<gimli::EndianBuf<Endian>>,
                      debug_abbrev: gimli::DebugAbbrev<gimli::EndianBuf<Endian>>,
                      debug_line: gimli::DebugLine<gimli::EndianBuf<Endian>>,
                      debug_loc: gimli::DebugLoc<gimli::EndianBuf<Endian>>,
@@ -160,28 +170,24 @@ fn dump_info<Endian>(file: &object::File,
 {
     println!("\n.debug_info");
 
-    if let Some(debug_info) = file.get_section(".debug_info") {
-        let debug_info = gimli::DebugInfo::<gimli::EndianBuf<Endian>>::new(debug_info);
+    let mut iter = debug_info.units();
+    while let Some(unit) = iter.next().expect("Should parse compilation unit") {
+        let abbrevs = unit.abbreviations(debug_abbrev)
+            .expect("Error parsing abbreviations");
 
-        let mut iter = debug_info.units();
-        while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-            let abbrevs = unit.abbreviations(debug_abbrev)
-                .expect("Error parsing abbreviations");
-
-            dump_entries(unit.offset().0,
-                         unit.entries(&abbrevs),
-                         unit.address_size(),
-                         unit.format(),
-                         debug_line,
-                         debug_loc,
-                         debug_ranges,
-                         debug_str,
-                         flags);
-        }
+        dump_entries(unit.offset().0,
+                     unit.entries(&abbrevs),
+                     unit.address_size(),
+                     unit.format(),
+                     debug_line,
+                     debug_loc,
+                     debug_ranges,
+                     debug_str,
+                     flags);
     }
 }
 
-fn dump_types<Endian>(file: &object::File,
+fn dump_types<Endian>(debug_types: gimli::DebugTypes<gimli::EndianBuf<Endian>>,
                       debug_abbrev: gimli::DebugAbbrev<gimli::EndianBuf<Endian>>,
                       debug_line: gimli::DebugLine<gimli::EndianBuf<Endian>>,
                       debug_loc: gimli::DebugLoc<gimli::EndianBuf<Endian>>,
@@ -190,34 +196,30 @@ fn dump_types<Endian>(file: &object::File,
                       flags: &Flags)
     where Endian: gimli::Endianity
 {
-    if let Some(debug_types) = file.get_section(".debug_types") {
-        println!("\n.debug_types");
+    println!("\n.debug_types");
 
-        let debug_types = gimli::DebugTypes::<gimli::EndianBuf<Endian>>::new(debug_types);
+    let mut iter = debug_types.units();
+    while let Some(unit) = iter.next().expect("Should parse the unit OK") {
+        let abbrevs = unit.abbreviations(debug_abbrev)
+            .expect("Error parsing abbreviations");
 
-        let mut iter = debug_types.units();
-        while let Some(unit) = iter.next().expect("Should parse the unit OK") {
-            let abbrevs = unit.abbreviations(debug_abbrev)
-                .expect("Error parsing abbreviations");
+        println!("\nCU_HEADER:");
+        print!("  signature        = ");
+        dump_type_signature::<Endian>(unit.type_signature());
+        println!("");
+        println!("  typeoffset       = 0x{:08x} {}",
+                 unit.type_offset().0,
+                 unit.type_offset().0);
 
-            println!("\nCU_HEADER:");
-            print!("  signature        = ");
-            dump_type_signature::<Endian>(unit.type_signature());
-            println!("");
-            println!("  typeoffset       = 0x{:08x} {}",
-                     unit.type_offset().0,
-                     unit.type_offset().0);
-
-            dump_entries(unit.offset().0,
-                         unit.entries(&abbrevs),
-                         unit.address_size(),
-                         unit.format(),
-                         debug_line,
-                         debug_loc,
-                         debug_ranges,
-                         debug_str,
-                         flags);
-        }
+        dump_entries(unit.offset().0,
+                     unit.entries(&abbrevs),
+                     unit.address_size(),
+                     unit.format(),
+                     debug_line,
+                     debug_loc,
+                     debug_ranges,
+                     debug_str,
+                     flags);
     }
 }
 
@@ -728,261 +730,230 @@ fn dump_range_list<Endian>(debug_ranges: gimli::DebugRanges<gimli::EndianBuf<End
     }
 }
 
-fn dump_line<Endian>(file: &object::File,
-                     debug_abbrev: gimli::DebugAbbrev<gimli::EndianBuf<Endian>>)
+fn dump_line<Endian>(debug_line: gimli::DebugLine<gimli::EndianBuf<Endian>>,
+                     debug_info: gimli::DebugInfo<gimli::EndianBuf<Endian>>,
+                     debug_abbrev: gimli::DebugAbbrev<gimli::EndianBuf<Endian>>,
+                     debug_str: gimli::DebugStr<gimli::EndianBuf<Endian>>)
     where Endian: gimli::Endianity
 {
-    let debug_line = file.get_section(".debug_line");
-    let debug_info = file.get_section(".debug_info");
-    let debug_str = file.get_section(".debug_str").unwrap_or(&[]);
+    println!("\n.debug_line");
 
-    if let (Some(debug_line), Some(debug_info)) = (debug_line, debug_info) {
-        println!(".debug_line");
-        println!("");
+    let mut iter = debug_info.units();
+    while let Some(unit) = iter.next().expect("Should parse unit header OK") {
+        let abbrevs = unit.abbreviations(debug_abbrev)
+            .expect("Error parsing abbreviations");
 
-        let debug_line = gimli::DebugLine::<gimli::EndianBuf<Endian>>::new(debug_line);
-        let debug_info = gimli::DebugInfo::<gimli::EndianBuf<Endian>>::new(debug_info);
-        let debug_str = gimli::DebugStr::<gimli::EndianBuf<Endian>>::new(debug_str);
+        let mut cursor = unit.entries(&abbrevs);
+        cursor.next_dfs().expect("Should parse next dfs");
 
-        let mut iter = debug_info.units();
-        while let Some(unit) = iter.next().expect("Should parse unit header OK") {
-            let abbrevs = unit.abbreviations(debug_abbrev)
-                .expect("Error parsing abbreviations");
+        let root = cursor.current().expect("Should have a root DIE");
+        let offset = match root.attr_value(gimli::DW_AT_stmt_list)
+                  .expect("Should parse stmt_list") {
+            Some(gimli::AttributeValue::DebugLineRef(offset)) => offset,
+            _ => continue,
+        };
+        let comp_dir = root.attr(gimli::DW_AT_comp_dir)
+            .expect("Should parse comp_dir")
+            .and_then(|attr| attr.string_value(&debug_str));
+        let comp_name = root.attr(gimli::DW_AT_name)
+            .expect("Should parse name")
+            .and_then(|attr| attr.string_value(&debug_str));
 
-            let mut cursor = unit.entries(&abbrevs);
-            cursor.next_dfs().expect("Should parse next dfs");
+        let program = debug_line.program(offset, unit.address_size(), comp_dir, comp_name);
+        if let Ok(program) = program {
+            {
+                let header = program.header();
+                println!("");
+                println!("Offset:                             0x{:x}", offset.0);
+                println!("Length:                             {}",
+                         header.unit_length());
+                println!("DWARF version:                      {}", header.version());
+                println!("Prologue length:                    {}",
+                         header.header_length());
+                println!("Minimum instruction length:         {}",
+                         header.minimum_instruction_length());
+                println!("Maximum operations per instruction: {}",
+                         header.maximum_operations_per_instruction());
+                println!("Default is_stmt:                    {}",
+                         header.default_is_stmt());
+                println!("Line base:                          {}", header.line_base());
+                println!("Line range:                         {}",
+                         header.line_range());
+                println!("Opcode base:                        {}",
+                         header.opcode_base());
 
-            let root = cursor.current().expect("Should have a root DIE");
-            let offset = match root.attr_value(gimli::DW_AT_stmt_list)
-                      .expect("Should parse stmt_list") {
-                Some(gimli::AttributeValue::DebugLineRef(offset)) => offset,
-                _ => continue,
-            };
-            let comp_dir = root.attr(gimli::DW_AT_comp_dir)
-                .expect("Should parse comp_dir")
-                .and_then(|attr| attr.string_value(&debug_str));
-            let comp_name = root.attr(gimli::DW_AT_name)
-                .expect("Should parse name")
-                .and_then(|attr| attr.string_value(&debug_str));
-
-            let program = debug_line.program(offset, unit.address_size(), comp_dir, comp_name);
-            if let Ok(program) = program {
-                {
-                    let header = program.header();
-                    println!("");
-                    println!("Offset:                             0x{:x}", offset.0);
-                    println!("Length:                             {}",
-                             header.unit_length());
-                    println!("DWARF version:                      {}", header.version());
-                    println!("Prologue length:                    {}",
-                             header.header_length());
-                    println!("Minimum instruction length:         {}",
-                             header.minimum_instruction_length());
-                    println!("Maximum operations per instruction: {}",
-                             header.maximum_operations_per_instruction());
-                    println!("Default is_stmt:                    {}",
-                             header.default_is_stmt());
-                    println!("Line base:                          {}", header.line_base());
-                    println!("Line range:                         {}",
-                             header.line_range());
-                    println!("Opcode base:                        {}",
-                             header.opcode_base());
-
-                    println!("");
-                    println!("Opcodes:");
-                    for (i, length) in header.standard_opcode_lengths().iter().enumerate() {
-                        println!("  Opcode {} as {} args", i + 1, length);
-                    }
-
-                    println!("");
-                    println!("The Directory Table:");
-                    for (i, dir) in header.include_directories().iter().enumerate() {
-                        println!("  {} {}", i + 1, dir.to_string_lossy());
-                    }
-
-                    println!("");
-                    println!("The File Name Table");
-                    println!("  Entry\tDir\tTime\tSize\tName");
-                    for (i, file) in header.file_names().iter().enumerate() {
-                        println!("  {}\t{}\t{}\t{}\t{}",
-                                 i + 1,
-                                 file.directory_index(),
-                                 file.last_modification(),
-                                 file.length(),
-                                 file.path_name().to_string_lossy());
-                    }
-
-                    println!("");
-                    println!("Line Number Statements:");
-                    let mut opcodes = header.opcodes();
-                    while let Some(opcode) = opcodes
-                              .next_opcode(header)
-                              .expect("Should parse opcode OK") {
-                        println!("  {}", opcode);
-                    }
-
-                    println!("");
-                    println!("Line Number Rows:");
-                    println!("<pc>        [lno,col]");
+                println!("");
+                println!("Opcodes:");
+                for (i, length) in header.standard_opcode_lengths().iter().enumerate() {
+                    println!("  Opcode {} as {} args", i + 1, length);
                 }
-                let mut rows = program.rows();
-                let mut file_index = 0;
-                while let Some((header, row)) = rows.next_row().expect("Should parse row OK") {
-                    let line = row.line().unwrap_or(0);
-                    let column = match row.column() {
-                        gimli::ColumnType::Column(column) => column,
-                        gimli::ColumnType::LeftEdge => 0,
-                    };
-                    print!("0x{:08x}  [{:4},{:2}]", row.address(), line, column);
-                    if row.is_stmt() {
-                        print!(" NS");
-                    }
-                    if row.basic_block() {
-                        print!(" BB");
-                    }
-                    if row.end_sequence() {
-                        print!(" ET");
-                    }
-                    if row.prologue_end() {
-                        print!(" PE");
-                    }
-                    if row.epilogue_begin() {
-                        print!(" EB");
-                    }
-                    if row.isa() != 0 {
-                        print!(" IS={}", row.isa());
-                    }
-                    if row.discriminator() != 0 {
-                        print!(" DI={}", row.discriminator());
-                    }
-                    if file_index != row.file_index() {
-                        file_index = row.file_index();
-                        if let Some(file) = row.file(header) {
-                            if let Some(directory) = file.directory(header) {
-                                print!(" uri: \"{}/{}\"",
-                                       directory.to_string_lossy(),
-                                       file.path_name().to_string_lossy());
-                            } else {
-                                print!(" uri: \"{}\"", file.path_name().to_string_lossy());
-                            }
+
+                println!("");
+                println!("The Directory Table:");
+                for (i, dir) in header.include_directories().iter().enumerate() {
+                    println!("  {} {}", i + 1, dir.to_string_lossy());
+                }
+
+                println!("");
+                println!("The File Name Table");
+                println!("  Entry\tDir\tTime\tSize\tName");
+                for (i, file) in header.file_names().iter().enumerate() {
+                    println!("  {}\t{}\t{}\t{}\t{}",
+                             i + 1,
+                             file.directory_index(),
+                             file.last_modification(),
+                             file.length(),
+                             file.path_name().to_string_lossy());
+                }
+
+                println!("");
+                println!("Line Number Statements:");
+                let mut opcodes = header.opcodes();
+                while let Some(opcode) = opcodes
+                          .next_opcode(header)
+                          .expect("Should parse opcode OK") {
+                    println!("  {}", opcode);
+                }
+
+                println!("");
+                println!("Line Number Rows:");
+                println!("<pc>        [lno,col]");
+            }
+            let mut rows = program.rows();
+            let mut file_index = 0;
+            while let Some((header, row)) = rows.next_row().expect("Should parse row OK") {
+                let line = row.line().unwrap_or(0);
+                let column = match row.column() {
+                    gimli::ColumnType::Column(column) => column,
+                    gimli::ColumnType::LeftEdge => 0,
+                };
+                print!("0x{:08x}  [{:4},{:2}]", row.address(), line, column);
+                if row.is_stmt() {
+                    print!(" NS");
+                }
+                if row.basic_block() {
+                    print!(" BB");
+                }
+                if row.end_sequence() {
+                    print!(" ET");
+                }
+                if row.prologue_end() {
+                    print!(" PE");
+                }
+                if row.epilogue_begin() {
+                    print!(" EB");
+                }
+                if row.isa() != 0 {
+                    print!(" IS={}", row.isa());
+                }
+                if row.discriminator() != 0 {
+                    print!(" DI={}", row.discriminator());
+                }
+                if file_index != row.file_index() {
+                    file_index = row.file_index();
+                    if let Some(file) = row.file(header) {
+                        if let Some(directory) = file.directory(header) {
+                            print!(" uri: \"{}/{}\"",
+                                   directory.to_string_lossy(),
+                                   file.path_name().to_string_lossy());
+                        } else {
+                            print!(" uri: \"{}\"", file.path_name().to_string_lossy());
                         }
                     }
-                    println!("");
                 }
+                println!("");
             }
         }
     }
 }
 
-fn dump_pubnames<Endian>(file: &object::File)
+fn dump_pubnames<Endian>(debug_pubnames: gimli::DebugPubNames<gimli::EndianBuf<Endian>>,
+                         debug_info: gimli::DebugInfo<gimli::EndianBuf<Endian>>)
     where Endian: gimli::Endianity
 {
-    let debug_pubnames = file.get_section(".debug_pubnames");
-    let debug_info = file.get_section(".debug_info");
+    println!("\n.debug_pubnames");
 
-    if let (Some(debug_pubnames), Some(debug_info)) = (debug_pubnames, debug_info) {
-        println!("\n.debug_pubnames");
-
-        let debug_pubnames = gimli::DebugPubNames::<gimli::EndianBuf<Endian>>::new(debug_pubnames);
-        let debug_info = gimli::DebugInfo::<gimli::EndianBuf<Endian>>::new(debug_info);
-
-        let mut cu_offset;
-        let mut cu_die_offset = gimli::DebugInfoOffset(0);
-        let mut prev_cu_offset = None;
-        let mut pubnames = debug_pubnames.items();
-        while let Some(pubname) = pubnames.next().expect("Should parse pubname OK") {
-            cu_offset = pubname.unit_header_offset();
-            if Some(cu_offset) != prev_cu_offset {
-                let cu = debug_info
-                    .header_from_offset(cu_offset)
-                    .expect("Should parse unit header OK");
-                cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size());
-                prev_cu_offset = Some(cu_offset);
-            }
-            let die_in_cu = pubname.die_offset();
-            let die_in_sect = cu_offset.0 + die_in_cu.0;
-            println!("global die-in-sect 0x{:08x}, cu-in-sect 0x{:08x}, die-in-cu 0x{:08x}, cu-header-in-sect 0x{:08x} '{}'",
-                     die_in_sect,
-                     cu_die_offset.0,
-                     die_in_cu.0,
-                     cu_offset.0,
-                     pubname.name().to_string_lossy())
+    let mut cu_offset;
+    let mut cu_die_offset = gimli::DebugInfoOffset(0);
+    let mut prev_cu_offset = None;
+    let mut pubnames = debug_pubnames.items();
+    while let Some(pubname) = pubnames.next().expect("Should parse pubname OK") {
+        cu_offset = pubname.unit_header_offset();
+        if Some(cu_offset) != prev_cu_offset {
+            let cu = debug_info
+                .header_from_offset(cu_offset)
+                .expect("Should parse unit header OK");
+            cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size());
+            prev_cu_offset = Some(cu_offset);
         }
+        let die_in_cu = pubname.die_offset();
+        let die_in_sect = cu_offset.0 + die_in_cu.0;
+        println!("global die-in-sect 0x{:08x}, cu-in-sect 0x{:08x}, die-in-cu 0x{:08x}, cu-header-in-sect 0x{:08x} '{}'",
+                 die_in_sect,
+                 cu_die_offset.0,
+                 die_in_cu.0,
+                 cu_offset.0,
+                 pubname.name().to_string_lossy())
     }
 }
 
-fn dump_pubtypes<Endian>(file: &object::File)
+fn dump_pubtypes<Endian>(debug_pubtypes: gimli::DebugPubTypes<gimli::EndianBuf<Endian>>,
+                         debug_info: gimli::DebugInfo<gimli::EndianBuf<Endian>>)
     where Endian: gimli::Endianity
 {
-    let debug_pubtypes = file.get_section(".debug_pubtypes");
-    let debug_info = file.get_section(".debug_info");
+    println!("\n.debug_pubtypes");
 
-    if let (Some(debug_pubtypes), Some(debug_info)) = (debug_pubtypes, debug_info) {
-        println!("\n.debug_pubtypes");
-
-        let debug_pubtypes = gimli::DebugPubNames::<gimli::EndianBuf<Endian>>::new(debug_pubtypes);
-        let debug_info = gimli::DebugInfo::<gimli::EndianBuf<Endian>>::new(debug_info);
-
-        let mut cu_offset;
-        let mut cu_die_offset = gimli::DebugInfoOffset(0);
-        let mut prev_cu_offset = None;
-        let mut pubtypes = debug_pubtypes.items();
-        while let Some(pubtype) = pubtypes.next().expect("Should parse pubtype OK") {
-            cu_offset = pubtype.unit_header_offset();
-            if Some(cu_offset) != prev_cu_offset {
-                let cu = debug_info
-                    .header_from_offset(cu_offset)
-                    .expect("Should parse unit header OK");
-                cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size());
-                prev_cu_offset = Some(cu_offset);
-            }
-            let die_in_cu = pubtype.die_offset();
-            let die_in_sect = cu_offset.0 + die_in_cu.0;
-            println!("pubtype die-in-sect 0x{:08x}, cu-in-sect 0x{:08x}, die-in-cu 0x{:08x}, cu-header-in-sect 0x{:08x} '{}'",
-                     die_in_sect,
-                     cu_die_offset.0,
-                     die_in_cu.0,
-                     cu_offset.0,
-                     pubtype.name().to_string_lossy())
+    let mut cu_offset;
+    let mut cu_die_offset = gimli::DebugInfoOffset(0);
+    let mut prev_cu_offset = None;
+    let mut pubtypes = debug_pubtypes.items();
+    while let Some(pubtype) = pubtypes.next().expect("Should parse pubtype OK") {
+        cu_offset = pubtype.unit_header_offset();
+        if Some(cu_offset) != prev_cu_offset {
+            let cu = debug_info
+                .header_from_offset(cu_offset)
+                .expect("Should parse unit header OK");
+            cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size());
+            prev_cu_offset = Some(cu_offset);
         }
+        let die_in_cu = pubtype.die_offset();
+        let die_in_sect = cu_offset.0 + die_in_cu.0;
+        println!("pubtype die-in-sect 0x{:08x}, cu-in-sect 0x{:08x}, die-in-cu 0x{:08x}, cu-header-in-sect 0x{:08x} '{}'",
+                 die_in_sect,
+                 cu_die_offset.0,
+                 die_in_cu.0,
+                 cu_offset.0,
+                 pubtype.name().to_string_lossy())
     }
 }
 
-fn dump_aranges<Endian>(file: &object::File)
+fn dump_aranges<Endian>(debug_aranges: gimli::DebugAranges<gimli::EndianBuf<Endian>>,
+                        debug_info: gimli::DebugInfo<gimli::EndianBuf<Endian>>)
     where Endian: gimli::Endianity
 {
-    let debug_aranges = file.get_section(".debug_aranges");
-    let debug_info = file.get_section(".debug_info");
+    println!("\n.debug_aranges");
 
-    if let (Some(debug_aranges), Some(debug_info)) = (debug_aranges, debug_info) {
-        println!(".debug_aranges");
-        println!("");
-
-        let debug_aranges = gimli::DebugAranges::<gimli::EndianBuf<Endian>>::new(debug_aranges);
-        let debug_info = gimli::DebugInfo::<gimli::EndianBuf<Endian>>::new(debug_info);
-
-        let mut cu_die_offset = gimli::DebugInfoOffset(0);
-        let mut prev_cu_offset = None;
-        let mut aranges = debug_aranges.items();
-        while let Some(arange) = aranges.next().expect("Should parse arange OK") {
-            let cu_offset = arange.debug_info_offset();
-            if Some(cu_offset) != prev_cu_offset {
-                let cu = debug_info
-                    .header_from_offset(cu_offset)
-                    .expect("Should parse unit header OK");
-                cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size());
-                prev_cu_offset = Some(cu_offset);
-            }
-            if let Some(segment) = arange.segment() {
-                print!("arange starts at seg,off 0x{:08x},0x{:08x}, ",
-                       segment,
-                       arange.address());
-            } else {
-                print!("arange starts at 0x{:08x}, ", arange.address());
-            }
-            println!("length of 0x{:08x}, cu_die_offset = 0x{:08x}",
-                     arange.length(),
-                     cu_die_offset.0);
+    let mut cu_die_offset = gimli::DebugInfoOffset(0);
+    let mut prev_cu_offset = None;
+    let mut aranges = debug_aranges.items();
+    while let Some(arange) = aranges.next().expect("Should parse arange OK") {
+        let cu_offset = arange.debug_info_offset();
+        if Some(cu_offset) != prev_cu_offset {
+            let cu = debug_info
+                .header_from_offset(cu_offset)
+                .expect("Should parse unit header OK");
+            cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size());
+            prev_cu_offset = Some(cu_offset);
         }
+        if let Some(segment) = arange.segment() {
+            print!("arange starts at seg,off 0x{:08x},0x{:08x}, ",
+                   segment,
+                   arange.address());
+        } else {
+            print!("arange starts at 0x{:08x}, ", arange.address());
+        }
+        println!("length of 0x{:08x}, cu_die_offset = 0x{:08x}",
+                 arange.length(),
+                 cu_die_offset.0);
     }
 }
