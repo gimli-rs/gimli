@@ -401,18 +401,14 @@ fn parse_version<R: Reader>(input: &mut R) -> Result<u16> {
 fn parse_debug_abbrev_offset<R: Reader>(input: &mut R,
                                         format: Format)
                                         -> Result<DebugAbbrevOffset> {
-    input
-        .read_offset(format)
-        .map(|offset| DebugAbbrevOffset(offset))
+    input.read_offset(format).map(DebugAbbrevOffset)
 }
 
 /// Parse the `debug_info_offset` in the arange header.
 pub fn parse_debug_info_offset<R: Reader>(input: &mut R,
                                           format: Format)
                                           -> Result<DebugInfoOffset> {
-    input
-        .read_offset(format)
-        .map(|offset| DebugInfoOffset(offset))
+    input.read_offset(format).map(DebugInfoOffset)
 }
 
 /// The common fields for the headers of compilation units and
@@ -2292,14 +2288,12 @@ impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeIter<'abbrev, 'unit, 'tree, R>
 /// Parse a type unit header's unique type signature. Callers should handle
 /// unique-ness checking.
 fn parse_type_signature<R: Reader>(input: &mut R) -> Result<DebugTypeSignature> {
-    input
-        .read_u64()
-        .map(|signature| DebugTypeSignature(signature))
+    input.read_u64().map(DebugTypeSignature)
 }
 
 /// Parse a type unit header's type offset.
 fn parse_type_offset<R: Reader>(input: &mut R, format: Format) -> Result<UnitOffset> {
-    input.read_offset(format).map(|offset| UnitOffset(offset))
+    input.read_offset(format).map(UnitOffset)
 }
 
 /// The `DebugTypes` struct represents the DWARF type information

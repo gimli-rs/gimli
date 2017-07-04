@@ -758,12 +758,12 @@ impl Default for Augmentation {
 }
 
 impl Augmentation {
-    fn parse<'aug, 'bases, R, Section>(augmentation_str: &mut R,
-                                       bases: &'bases BaseAddresses,
-                                       address_size: u8,
-                                       section: Section,
-                                       input: &mut R)
-                                       -> Result<Augmentation>
+    fn parse<'bases, R, Section>(augmentation_str: &mut R,
+                                 bases: &'bases BaseAddresses,
+                                 address_size: u8,
+                                 section: Section,
+                                 input: &mut R)
+                                 -> Result<Augmentation>
         where R: Reader,
               Section: UnwindSection<R>
     {
@@ -931,12 +931,12 @@ impl<R, Section> CommonInformationEntry<R, Section>
         Ok(Some(entry))
     }
 
-    fn parse_rest<'bases>(length: u64,
-                          format: Format,
-                          bases: &'bases BaseAddresses,
-                          section: Section,
-                          mut rest: R)
-                          -> Result<CommonInformationEntry<R, Section>> {
+    fn parse_rest(length: u64,
+                  format: Format,
+                  bases: &BaseAddresses,
+                  section: Section,
+                  mut rest: R)
+                  -> Result<CommonInformationEntry<R, Section>> {
         let version = rest.read_u8()?;
         if !Section::compatible_version(version) {
             return Err(Error::UnknownVersion);
@@ -1169,7 +1169,7 @@ impl<R, Section> FrameDescriptionEntry<R, Section>
     }
 
     /// Get a reference to this FDE's CIE.
-    pub fn cie<'me>(&'me self) -> &'me CommonInformationEntry<R, Section> {
+    pub fn cie(&self) -> &CommonInformationEntry<R, Section> {
         &self.cie
     }
 
@@ -1299,6 +1299,15 @@ impl<R, Section> UninitializedUnwindContext<R, Section>
     /// Construct a new call frame unwinding context.
     pub fn new() -> UninitializedUnwindContext<R, Section> {
         UninitializedUnwindContext(Box::new(UnwindContext::new()))
+    }
+}
+
+impl<R, Section> Default for UninitializedUnwindContext<R, Section>
+    where R: Reader,
+          Section: UnwindSection<R>
+{
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1865,7 +1874,7 @@ impl<R: Reader> RegisterRuleMap<R> {
         self.rules.clear();
     }
 
-    fn iter<'me>(&'me self) -> RegisterRuleIter<'me, R> {
+    fn iter(&self) -> RegisterRuleIter<R> {
         RegisterRuleIter(self.rules.iter())
     }
 }
@@ -2042,7 +2051,7 @@ impl<R: Reader> UnwindTableRow<R> {
     /// }
     /// # }
     /// ```
-    pub fn registers<'me>(&'me self) -> RegisterRuleIter<'me, R> {
+    pub fn registers(&self) -> RegisterRuleIter<R> {
         self.registers.iter()
     }
 }

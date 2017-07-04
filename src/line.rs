@@ -107,13 +107,13 @@ impl<'input, Endian> From<&'input [u8]> for DebugLine<EndianBuf<'input, Endian>>
 /// never need to use or see this trait.
 pub trait LineNumberProgram<R: Reader> {
     /// Get a reference to the held `LineNumberProgramHeader`.
-    fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<R>;
+    fn header(&self) -> &LineNumberProgramHeader<R>;
     /// Add a file to the file table if necessary.
     fn add_file(&mut self, file: FileEntry<R>);
 }
 
 impl<R: Reader> LineNumberProgram<R> for IncompleteLineNumberProgram<R> {
-    fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<R> {
+    fn header(&self) -> &LineNumberProgramHeader<R> {
         &self.header
     }
     fn add_file(&mut self, file: FileEntry<R>) {
@@ -122,7 +122,7 @@ impl<R: Reader> LineNumberProgram<R> for IncompleteLineNumberProgram<R> {
 }
 
 impl<'program, R: Reader> LineNumberProgram<R> for &'program CompleteLineNumberProgram<R> {
-    fn header<'a>(&'a self) -> &'a LineNumberProgramHeader<R> {
+    fn header(&self) -> &LineNumberProgramHeader<R> {
         &self.header
     }
     fn add_file(&mut self, _: FileEntry<R>) {
@@ -721,7 +721,7 @@ impl<R: Reader> OpcodesIter<R> {
             return Ok(None);
         }
 
-        Opcode::parse(header, &mut self.input).map(|opcode| Some(opcode))
+        Opcode::parse(header, &mut self.input).map(Some)
     }
 }
 
@@ -1056,7 +1056,7 @@ impl<R: Reader> LineNumberProgramHeader<R> {
             self.comp_dir.clone()
         } else {
             let directory = directory as usize - 1;
-            self.include_directories.get(directory).map(|d| d.clone())
+            self.include_directories.get(directory).cloned()
         }
     }
 
@@ -1197,7 +1197,7 @@ impl<R: Reader> LineNumberProgramHeader<R> {
             comp_dir: comp_dir,
             comp_name: comp_name,
         };
-        return Ok(header);
+        Ok(header)
     }
 }
 
