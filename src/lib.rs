@@ -129,9 +129,9 @@
 //!
 //! // Use the `FallibleIterator` trait so its methods are in scope!
 //! use fallible_iterator::FallibleIterator;
-//! use gimli::{DebugAranges, LittleEndian};
+//! use gimli::{DebugAranges, EndianBuf, LittleEndian};
 //!
-//! fn find_sum_of_address_range_lengths(aranges: DebugAranges<LittleEndian>)
+//! fn find_sum_of_address_range_lengths(aranges: DebugAranges<EndianBuf<LittleEndian>>)
 //!     -> gimli::Result<u64>
 //! {
 //!     // `DebugAranges::items` returns a `FallibleIterator`!

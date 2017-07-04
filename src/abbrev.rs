@@ -46,9 +46,8 @@ impl<R: Reader> DebugAbbrev<R> {
     /// Construct a new `DebugAbbrev` instance from the data in the `.debug_abbrev`
     /// section.
     ///
-    /// It is the caller's responsibility to read the `.debug_abbrev` section and
-    /// present it as a `&[u8]` slice. That means using some ELF loader on
-    /// Linux, a Mach-O loader on OSX, etc.
+    /// It is the caller's responsibility to read the `.debug_abbrev` section.
+    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
     pub fn from_reader(debug_abbrev_section: R) -> Self {
         DebugAbbrev { debug_abbrev_section }
     }

@@ -110,11 +110,11 @@ fn dump_file<Endian>(file: &object::File, flags: &Flags)
     let debug_abbrev = file.get_section(".debug_abbrev").unwrap_or(&[]);
     let debug_abbrev = gimli::DebugAbbrev::<gimli::EndianBuf<Endian>>::new(debug_abbrev);
     let debug_line = file.get_section(".debug_line").unwrap_or(&[]);
-    let debug_line = gimli::DebugLine::<Endian>::new(debug_line);
+    let debug_line = gimli::DebugLine::<gimli::EndianBuf<Endian>>::new(debug_line);
     let debug_loc = file.get_section(".debug_loc").unwrap_or(&[]);
-    let debug_loc = gimli::DebugLoc::<Endian>::new(debug_loc);
+    let debug_loc = gimli::DebugLoc::<gimli::EndianBuf<Endian>>::new(debug_loc);
     let debug_ranges = file.get_section(".debug_ranges").unwrap_or(&[]);
-    let debug_ranges = gimli::DebugRanges::<Endian>::new(debug_ranges);
+    let debug_ranges = gimli::DebugRanges::<gimli::EndianBuf<Endian>>::new(debug_ranges);
     let debug_str = file.get_section(".debug_str").unwrap_or(&[]);
     let debug_str = gimli::DebugStr::<gimli::EndianBuf<Endian>>::new(debug_str);
 
@@ -151,9 +151,9 @@ fn dump_file<Endian>(file: &object::File, flags: &Flags)
 
 fn dump_info<Endian>(file: &object::File,
                      debug_abbrev: gimli::DebugAbbrev<gimli::EndianBuf<Endian>>,
-                     debug_line: gimli::DebugLine<Endian>,
-                     debug_loc: gimli::DebugLoc<Endian>,
-                     debug_ranges: gimli::DebugRanges<Endian>,
+                     debug_line: gimli::DebugLine<gimli::EndianBuf<Endian>>,
+                     debug_loc: gimli::DebugLoc<gimli::EndianBuf<Endian>>,
+                     debug_ranges: gimli::DebugRanges<gimli::EndianBuf<Endian>>,
                      debug_str: gimli::DebugStr<gimli::EndianBuf<Endian>>,
                      flags: &Flags)
     where Endian: gimli::Endianity
@@ -183,9 +183,9 @@ fn dump_info<Endian>(file: &object::File,
 
 fn dump_types<Endian>(file: &object::File,
                       debug_abbrev: gimli::DebugAbbrev<gimli::EndianBuf<Endian>>,
-                      debug_line: gimli::DebugLine<Endian>,
-                      debug_loc: gimli::DebugLoc<Endian>,
-                      debug_ranges: gimli::DebugRanges<Endian>,
+                      debug_line: gimli::DebugLine<gimli::EndianBuf<Endian>>,
+                      debug_loc: gimli::DebugLoc<gimli::EndianBuf<Endian>>,
+                      debug_ranges: gimli::DebugRanges<gimli::EndianBuf<Endian>>,
                       debug_str: gimli::DebugStr<gimli::EndianBuf<Endian>>,
                       flags: &Flags)
     where Endian: gimli::Endianity
@@ -228,7 +228,7 @@ struct Unit<'input, Endian>
     format: gimli::Format,
     address_size: u8,
     base_address: u64,
-    line_program: Option<gimli::IncompleteLineNumberProgram<'input, Endian>>,
+    line_program: Option<gimli::IncompleteLineNumberProgram<gimli::EndianBuf<'input, Endian>>>,
     comp_dir: Option<gimli::EndianBuf<'input, Endian>>,
     comp_name: Option<gimli::EndianBuf<'input, Endian>>,
 }
@@ -238,9 +238,9 @@ fn dump_entries<Endian>(offset: usize,
                         mut entries: gimli::EntriesCursor<gimli::EndianBuf<Endian>>,
                         address_size: u8,
                         format: gimli::Format,
-                        debug_line: gimli::DebugLine<Endian>,
-                        debug_loc: gimli::DebugLoc<Endian>,
-                        debug_ranges: gimli::DebugRanges<Endian>,
+                        debug_line: gimli::DebugLine<gimli::EndianBuf<Endian>>,
+                        debug_loc: gimli::DebugLoc<gimli::EndianBuf<Endian>>,
+                        debug_ranges: gimli::DebugRanges<gimli::EndianBuf<Endian>>,
                         debug_str: gimli::DebugStr<gimli::EndianBuf<Endian>>,
                         flags: &Flags)
     where Endian: gimli::Endianity
@@ -315,8 +315,8 @@ fn dump_entries<Endian>(offset: usize,
 
 fn dump_attr_value<Endian>(attr: gimli::Attribute<gimli::EndianBuf<Endian>>,
                            unit: &Unit<Endian>,
-                           debug_loc: gimli::DebugLoc<Endian>,
-                           debug_ranges: gimli::DebugRanges<Endian>,
+                           debug_loc: gimli::DebugLoc<gimli::EndianBuf<Endian>>,
+                           debug_ranges: gimli::DebugRanges<gimli::EndianBuf<Endian>>,
                            debug_str: gimli::DebugStr<gimli::EndianBuf<Endian>>)
     where Endian: gimli::Endianity
 {
@@ -527,7 +527,7 @@ fn dump_exprloc<Endian>(data: gimli::EndianBuf<Endian>, unit: &Unit<Endian>)
     let mut space = false;
     while pc.len() != 0 {
         let dwop = gimli::DwOp(pc[0]);
-        match gimli::Operation::parse(&mut pc, data, unit.address_size, unit.format) {
+        match gimli::Operation::parse(&mut pc, &data, unit.address_size, unit.format) {
             Ok(op) => {
                 if space {
                     print!(" ");
@@ -548,7 +548,7 @@ fn dump_exprloc<Endian>(data: gimli::EndianBuf<Endian>, unit: &Unit<Endian>)
     }
 }
 
-fn dump_op<Endian>(dwop: gimli::DwOp, op: gimli::Operation<Endian>, newpc: &[u8])
+fn dump_op<Endian>(dwop: gimli::DwOp, op: gimli::Operation<gimli::EndianBuf<Endian>>, newpc: &[u8])
     where Endian: gimli::Endianity
 {
     print!("{}", dwop);
@@ -630,6 +630,7 @@ fn dump_op<Endian>(dwop: gimli::DwOp, op: gimli::Operation<Endian>, newpc: &[u8]
             print!(" 0x{:08x} offset 0x{:08x}", size_in_bits, bit_offset);
         }
         gimli::Operation::ImplicitValue { data } => {
+            let data = data.buf();
             print!(" 0x{:08x} contents 0x", data.len());
             for byte in data {
                 print!("{:02x}", byte);
@@ -648,7 +649,7 @@ fn dump_op<Endian>(dwop: gimli::DwOp, op: gimli::Operation<Endian>, newpc: &[u8]
     }
 }
 
-fn dump_loc_list<Endian>(debug_loc: gimli::DebugLoc<Endian>,
+fn dump_loc_list<Endian>(debug_loc: gimli::DebugLoc<gimli::EndianBuf<Endian>>,
                          offset: gimli::DebugLocOffset,
                          unit: &Unit<Endian>)
     where Endian: gimli::Endianity
@@ -700,7 +701,7 @@ fn dump_loc_list<Endian>(debug_loc: gimli::DebugLoc<Endian>,
     }
 }
 
-fn dump_range_list<Endian>(debug_ranges: gimli::DebugRanges<Endian>,
+fn dump_range_list<Endian>(debug_ranges: gimli::DebugRanges<gimli::EndianBuf<Endian>>,
                            offset: gimli::DebugRangesOffset,
                            unit: &Unit<Endian>)
     where Endian: gimli::Endianity
@@ -739,7 +740,7 @@ fn dump_line<Endian>(file: &object::File,
         println!(".debug_line");
         println!("");
 
-        let debug_line = gimli::DebugLine::<Endian>::new(debug_line);
+        let debug_line = gimli::DebugLine::<gimli::EndianBuf<Endian>>::new(debug_line);
         let debug_info = gimli::DebugInfo::<gimli::EndianBuf<Endian>>::new(debug_info);
         let debug_str = gimli::DebugStr::<gimli::EndianBuf<Endian>>::new(debug_str);
 
@@ -882,7 +883,7 @@ fn dump_pubnames<Endian>(file: &object::File)
     if let (Some(debug_pubnames), Some(debug_info)) = (debug_pubnames, debug_info) {
         println!("\n.debug_pubnames");
 
-        let debug_pubnames = gimli::DebugPubNames::<Endian>::new(debug_pubnames);
+        let debug_pubnames = gimli::DebugPubNames::<gimli::EndianBuf<Endian>>::new(debug_pubnames);
         let debug_info = gimli::DebugInfo::<gimli::EndianBuf<Endian>>::new(debug_info);
 
         let mut cu_offset;
@@ -919,7 +920,7 @@ fn dump_pubtypes<Endian>(file: &object::File)
     if let (Some(debug_pubtypes), Some(debug_info)) = (debug_pubtypes, debug_info) {
         println!("\n.debug_pubtypes");
 
-        let debug_pubtypes = gimli::DebugPubNames::<Endian>::new(debug_pubtypes);
+        let debug_pubtypes = gimli::DebugPubNames::<gimli::EndianBuf<Endian>>::new(debug_pubtypes);
         let debug_info = gimli::DebugInfo::<gimli::EndianBuf<Endian>>::new(debug_info);
 
         let mut cu_offset;
@@ -957,7 +958,7 @@ fn dump_aranges<Endian>(file: &object::File)
         println!(".debug_aranges");
         println!("");
 
-        let debug_aranges = gimli::DebugAranges::<Endian>::new(debug_aranges);
+        let debug_aranges = gimli::DebugAranges::<gimli::EndianBuf<Endian>>::new(debug_aranges);
         let debug_info = gimli::DebugInfo::<gimli::EndianBuf<Endian>>::new(debug_info);
 
         let mut cu_die_offset = gimli::DebugInfoOffset(0);

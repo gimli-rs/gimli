@@ -58,7 +58,7 @@ fn test_parse_self_debug_line() {
     let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_line = read_section("debug_line");
-    let debug_line = DebugLine::<LittleEndian>::new(&debug_line);
+    let debug_line = DebugLine::<EndianBuf<LittleEndian>>::new(&debug_line);
 
     let debug_str = read_section("debug_str");
     let debug_str = DebugStr::<EndianBuf<LittleEndian>>::new(&debug_str);
@@ -133,7 +133,7 @@ fn test_parse_self_debug_loc() {
     let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_loc = read_section("debug_loc");
-    let debug_loc = DebugLoc::<LittleEndian>::new(&debug_loc);
+    let debug_loc = DebugLoc::<EndianBuf<LittleEndian>>::new(&debug_loc);
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
@@ -181,7 +181,7 @@ fn test_parse_self_debug_ranges() {
     let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_ranges = read_section("debug_ranges");
-    let debug_ranges = DebugRanges::<LittleEndian>::new(&debug_ranges);
+    let debug_ranges = DebugRanges::<EndianBuf<LittleEndian>>::new(&debug_ranges);
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
@@ -223,7 +223,7 @@ fn test_parse_self_debug_ranges() {
 #[test]
 fn test_parse_self_debug_aranges() {
     let debug_aranges = read_section("debug_aranges");
-    let debug_aranges = DebugAranges::<LittleEndian>::new(&debug_aranges);
+    let debug_aranges = DebugAranges::<EndianBuf<LittleEndian>>::new(&debug_aranges);
 
     let mut aranges = debug_aranges.items();
     while let Some(_) = aranges.next().expect("Should parse arange OK") {
@@ -240,7 +240,7 @@ fn test_parse_self_debug_pubnames() {
     let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_pubnames = read_section("debug_pubnames");
-    let debug_pubnames = DebugPubNames::<LittleEndian>::new(&debug_pubnames);
+    let debug_pubnames = DebugPubNames::<EndianBuf<LittleEndian>>::new(&debug_pubnames);
 
     let mut units = HashMap::new();
     let mut abbrevs = HashMap::new();
@@ -273,7 +273,7 @@ fn test_parse_self_debug_pubtypes() {
     let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
 
     let debug_pubtypes = read_section("debug_pubtypes");
-    let debug_pubtypes = DebugPubTypes::<LittleEndian>::new(&debug_pubtypes);
+    let debug_pubtypes = DebugPubTypes::<EndianBuf<LittleEndian>>::new(&debug_pubtypes);
 
     let mut units = HashMap::new();
     let mut abbrevs = HashMap::new();
@@ -306,7 +306,7 @@ fn test_parse_self_eh_frame() {
     use gimli::{BaseAddresses, CieOrFde, EhFrame, UnwindSection};
 
     let eh_frame = read_section("eh_frame");
-    let eh_frame = EhFrame::<LittleEndian>::new(&eh_frame);
+    let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
 
     let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
     let mut entries = eh_frame.entries(&bases);

@@ -1,6 +1,7 @@
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
-use parser::{Error, Result, parse_address};
+use parser::{Error, Result};
+use reader::Reader;
 use Section;
 
 /// An offset into the `.debug_ranges` section.
@@ -10,13 +11,11 @@ pub struct DebugRangesOffset(pub usize);
 /// The `DebugRanges` struct represents the DWARF strings
 /// found in the `.debug_ranges` section.
 #[derive(Debug, Clone, Copy)]
-pub struct DebugRanges<'input, Endian>
-    where Endian: Endianity
-{
-    debug_ranges_section: EndianBuf<'input, Endian>,
+pub struct DebugRanges<R: Reader> {
+    debug_ranges_section: R,
 }
 
-impl<'input, Endian> DebugRanges<'input, Endian>
+impl<'input, Endian> DebugRanges<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     /// Construct a new `DebugRanges` instance from the data in the `.debug_ranges`
@@ -27,14 +26,25 @@ impl<'input, Endian> DebugRanges<'input, Endian>
     /// Linux, a Mach-O loader on OSX, etc.
     ///
     /// ```
-    /// use gimli::{DebugRanges, LittleEndian};
+    /// use gimli::{DebugRanges, EndianBuf, LittleEndian};
     ///
     /// # let buf = [0x00, 0x01, 0x02, 0x03];
     /// # let read_debug_ranges_section_somehow = || &buf;
-    /// let debug_ranges = DebugRanges::<LittleEndian>::new(read_debug_ranges_section_somehow());
+    /// let debug_ranges = DebugRanges::<EndianBuf<LittleEndian>>::new(read_debug_ranges_section_somehow());
     /// ```
-    pub fn new(debug_ranges_section: &'input [u8]) -> DebugRanges<'input, Endian> {
-        DebugRanges { debug_ranges_section: EndianBuf::new(debug_ranges_section) }
+    pub fn new(debug_ranges_section: &'input [u8]) -> Self {
+        Self::from_reader(EndianBuf::new(debug_ranges_section))
+    }
+}
+
+impl<R: Reader> DebugRanges<R> {
+    /// Construct a new `DebugRanges` instance from the data in the `.debug_ranges`
+    /// section.
+    ///
+    /// It is the caller's responsibility to read the `.debug_ranges` section.
+    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
+    pub fn from_reader(debug_ranges_section: R) -> Self {
+        DebugRanges { debug_ranges_section }
     }
 
     /// Iterate over the `Range` list entries starting at the given offset.
@@ -49,12 +59,9 @@ impl<'input, Endian> DebugRanges<'input, Endian>
                   offset: DebugRangesOffset,
                   address_size: u8,
                   base_address: u64)
-                  -> Result<RangesIter<Endian>> {
-        if self.debug_ranges_section.len() < offset.0 {
-            return Err(Error::UnexpectedEof);
-        }
-
-        let input = self.debug_ranges_section.range_from(offset.0..);
+                  -> Result<RangesIter<R>> {
+        let mut input = self.debug_ranges_section.clone();
+        input.skip(offset.0)?;
         Ok(RangesIter::new(input, address_size, base_address))
     }
 
@@ -70,17 +77,14 @@ impl<'input, Endian> DebugRanges<'input, Endian>
     pub fn raw_ranges(&self,
                       offset: DebugRangesOffset,
                       address_size: u8)
-                      -> Result<RawRangesIter<Endian>> {
-        if self.debug_ranges_section.len() < offset.0 {
-            return Err(Error::UnexpectedEof);
-        }
-
-        let input = self.debug_ranges_section.range_from(offset.0..);
+                      -> Result<RawRangesIter<R>> {
+        let mut input = self.debug_ranges_section.clone();
+        input.skip(offset.0)?;
         Ok(RawRangesIter::new(input, address_size))
     }
 }
 
-impl<'input, Endian> Section<'input> for DebugRanges<'input, Endian>
+impl<'input, Endian> Section<'input> for DebugRanges<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     fn section_name() -> &'static str {
@@ -88,7 +92,7 @@ impl<'input, Endian> Section<'input> for DebugRanges<'input, Endian>
     }
 }
 
-impl<'input, Endian> From<&'input [u8]> for DebugRanges<'input, Endian>
+impl<'input, Endian> From<&'input [u8]> for DebugRanges<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     fn from(v: &'input [u8]) -> Self {
@@ -101,18 +105,14 @@ impl<'input, Endian> From<&'input [u8]> for DebugRanges<'input, Endian>
 /// This iterator does not perform any processing of the range entries,
 /// such as handling base addresses.
 #[derive(Debug)]
-pub struct RawRangesIter<'input, Endian>
-    where Endian: Endianity
-{
-    input: EndianBuf<'input, Endian>,
+pub struct RawRangesIter<R: Reader> {
+    input: R,
     address_size: u8,
 }
 
-impl<'input, Endian> RawRangesIter<'input, Endian>
-    where Endian: Endianity
-{
+impl<R: Reader> RawRangesIter<R> {
     /// Construct a `RawRangesIter`.
-    fn new(input: EndianBuf<'input, Endian>, address_size: u8) -> RawRangesIter<'input, Endian> {
+    fn new(input: R, address_size: u8) -> RawRangesIter<R> {
         RawRangesIter {
             input: input,
             address_size: address_size,
@@ -127,16 +127,14 @@ impl<'input, Endian> RawRangesIter<'input, Endian>
 
         let range = Range::parse(&mut self.input, self.address_size)?;
         if range.is_end() {
-            self.input = EndianBuf::new(&[]);
+            self.input.empty();
         }
 
         Ok(Some(range))
     }
 }
 
-impl<'input, Endian> FallibleIterator for RawRangesIter<'input, Endian>
-    where Endian: Endianity
-{
+impl<R: Reader> FallibleIterator for RawRangesIter<R> {
     type Item = Range;
     type Error = Error;
 
@@ -151,21 +149,14 @@ impl<'input, Endian> FallibleIterator for RawRangesIter<'input, Endian>
 /// and range end entries.  Thus, it only returns range entries that are valid
 /// and already adjusted for the base address.
 #[derive(Debug)]
-pub struct RangesIter<'input, Endian>
-    where Endian: Endianity
-{
-    raw: RawRangesIter<'input, Endian>,
+pub struct RangesIter<R: Reader> {
+    raw: RawRangesIter<R>,
     base_address: u64,
 }
 
-impl<'input, Endian> RangesIter<'input, Endian>
-    where Endian: Endianity
-{
+impl<R: Reader> RangesIter<R> {
     /// Construct a `RangesIter`.
-    fn new(input: EndianBuf<'input, Endian>,
-           address_size: u8,
-           base_address: u64)
-           -> RangesIter<'input, Endian> {
+    fn new(input: R, address_size: u8, base_address: u64) -> RangesIter<R> {
         RangesIter {
             raw: RawRangesIter::new(input, address_size),
             base_address: base_address,
@@ -196,7 +187,7 @@ impl<'input, Endian> RangesIter<'input, Endian>
 
             range.add_base_address(self.base_address, self.raw.address_size);
             if range.begin > range.end {
-                self.raw.input = EndianBuf::new(&[]);
+                self.raw.input.empty();
                 return Err(Error::InvalidAddressRange);
             }
 
@@ -205,9 +196,7 @@ impl<'input, Endian> RangesIter<'input, Endian>
     }
 }
 
-impl<'input, Endian> FallibleIterator for RangesIter<'input, Endian>
-    where Endian: Endianity
-{
+impl<R: Reader> FallibleIterator for RangesIter<R> {
     type Item = Range;
     type Error = Error;
 
@@ -256,11 +245,9 @@ impl Range {
     /// Parse an address range entry from `.debug_ranges` or `.debug_loc`.
     #[doc(hidden)]
     #[inline]
-    pub fn parse<Endian>(input: &mut EndianBuf<Endian>, address_size: u8) -> Result<Range>
-        where Endian: Endianity
-    {
-        let begin = parse_address(input, address_size)?;
-        let end = parse_address(input, address_size)?;
+    pub fn parse<R: Reader>(input: &mut R, address_size: u8) -> Result<Range> {
+        let begin = input.read_address(address_size)?;
+        let end = input.read_address(address_size)?;
         let range = Range {
             begin: begin,
             end: end,
@@ -338,7 +325,7 @@ mod tests {
             .L32(0);
 
         let buf = section.get_contents().unwrap();
-        let debug_ranges = DebugRanges::<LittleEndian>::new(&buf);
+        let debug_ranges = DebugRanges::<EndianBuf<LittleEndian>>::new(&buf);
         let offset = DebugRangesOffset((&first - &start) as usize);
         let mut ranges = debug_ranges.ranges(offset, 4, 0x01000000).unwrap();
 
@@ -415,7 +402,7 @@ mod tests {
             .L64(0);
 
         let buf = section.get_contents().unwrap();
-        let debug_ranges = DebugRanges::<LittleEndian>::new(&buf);
+        let debug_ranges = DebugRanges::<EndianBuf<LittleEndian>>::new(&buf);
         let offset = DebugRangesOffset((&first - &start) as usize);
         let mut ranges = debug_ranges.ranges(offset, 8, 0x01000000).unwrap();
 
@@ -473,7 +460,7 @@ mod tests {
             .L32(0x20000).L32(0xff010000);
 
         let buf = section.get_contents().unwrap();
-        let debug_ranges = DebugRanges::<LittleEndian>::new(&buf);
+        let debug_ranges = DebugRanges::<EndianBuf<LittleEndian>>::new(&buf);
 
         // An invalid range.
         let mut ranges = debug_ranges

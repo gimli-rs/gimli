@@ -1,7 +1,7 @@
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
-use parser::{parse_null_terminated_slice, parse_initial_length, parse_u16, parse_word, take,
-             Format, Result, Error};
+use parser::{parse_initial_length, Format, Result, Error};
+use reader::Reader;
 use std::marker::PhantomData;
 
 // The various "Accelerated Access" sections (DWARF standard v4 Section 6.1) all have
@@ -13,9 +13,7 @@ use std::marker::PhantomData;
 // Because these three tables all have similar structures, we abstract out some of
 // the parsing mechanics.
 
-pub trait LookupParser<'input, Endian>
-    where Endian: Endianity
-{
+pub trait LookupParser<R: Reader> {
     /// The type of the produced header.
     type Header;
     /// The type of the produced entry.
@@ -25,62 +23,71 @@ pub trait LookupParser<'input, Endian>
     /// corresponding to this header (without the header itself), and the parsed representation of
     /// the header itself.
     #[allow(type_complexity)]
-    fn parse_header(input: &mut EndianBuf<'input, Endian>)
-                    -> Result<(EndianBuf<'input, Endian>, Self::Header)>;
+    fn parse_header(input: &mut R) -> Result<(R, Self::Header)>;
 
     /// Parse a single entry from `input`. Returns either a parsed representation of the entry
     /// or None if `input` is exhausted.
-    fn parse_entry(input: &mut EndianBuf<'input, Endian>,
-                   header: &Self::Header)
-                   -> Result<Option<Self::Entry>>;
+    fn parse_entry(input: &mut R, header: &Self::Header) -> Result<Option<Self::Entry>>;
 }
 
 #[allow(missing_docs)]
 #[derive(Clone, Debug)]
-pub struct DebugLookup<'input, Endian, Parser>
-    where Endian: Endianity,
-          Parser: LookupParser<'input, Endian>
+pub struct DebugLookup<R, Parser>
+    where R: Reader,
+          Parser: LookupParser<R>
 {
-    input_buffer: EndianBuf<'input, Endian>,
+    input_buffer: R,
     phantom: PhantomData<Parser>,
 }
 
-impl<'input, Endian, Parser> DebugLookup<'input, Endian, Parser>
+impl<'input, Endian, Parser> DebugLookup<EndianBuf<'input, Endian>, Parser>
     where Endian: Endianity,
-          Parser: LookupParser<'input, Endian>
+          Parser: LookupParser<EndianBuf<'input, Endian>>
 {
     #[allow(missing_docs)]
-    pub fn new(input_buffer: &'input [u8]) -> DebugLookup<'input, Endian, Parser> {
+    pub fn new(input_buffer: &'input [u8]) -> Self {
+        Self::from_reader(EndianBuf::new(input_buffer))
+    }
+}
+
+impl<R, Parser> DebugLookup<R, Parser>
+    where R: Reader,
+          Parser: LookupParser<R>
+{
+    #[allow(missing_docs)]
+    pub fn from_reader(input_buffer: R) -> Self {
         DebugLookup {
-            input_buffer: EndianBuf::new(input_buffer),
+            input_buffer: input_buffer,
             phantom: PhantomData,
         }
     }
 
     #[allow(missing_docs)]
-    pub fn items(&self) -> LookupEntryIter<'input, Endian, Parser> {
+    pub fn items(&self) -> LookupEntryIter<R, Parser> {
+        let mut current_set = self.input_buffer.clone();
+        current_set.empty();
         LookupEntryIter {
             current_header: None,
-            current_set: EndianBuf::new(&[]),
-            remaining_input: self.input_buffer,
+            current_set: current_set,
+            remaining_input: self.input_buffer.clone(),
         }
     }
 }
 
 #[allow(missing_docs)]
 #[derive(Clone, Debug)]
-pub struct LookupEntryIter<'input, Endian, Parser>
-    where Endian: Endianity,
-          Parser: LookupParser<'input, Endian>
+pub struct LookupEntryIter<R, Parser>
+    where R: Reader,
+          Parser: LookupParser<R>
 {
     current_header: Option<Parser::Header>, // Only none at the very beginning and end.
-    current_set: EndianBuf<'input, Endian>,
-    remaining_input: EndianBuf<'input, Endian>,
+    current_set: R,
+    remaining_input: R,
 }
 
-impl<'input, Endian, Parser> LookupEntryIter<'input, Endian, Parser>
-    where Endian: Endianity,
-          Parser: LookupParser<'input, Endian>
+impl<R, Parser> LookupEntryIter<R, Parser>
+    where R: Reader,
+          Parser: LookupParser<R>
 {
     /// Advance the iterator and return the next entry.
     ///
@@ -114,9 +121,9 @@ impl<'input, Endian, Parser> LookupEntryIter<'input, Endian, Parser>
     }
 }
 
-impl<'input, Endian, Parser> FallibleIterator for LookupEntryIter<'input, Endian, Parser>
-    where Endian: Endianity,
-          Parser: LookupParser<'input, Endian>
+impl<R, Parser> FallibleIterator for LookupEntryIter<R, Parser>
+    where R: Reader,
+          Parser: LookupParser<R>
 {
     type Item = Parser::Entry;
     type Error = Error;
@@ -127,9 +134,7 @@ impl<'input, Endian, Parser> FallibleIterator for LookupEntryIter<'input, Endian
 }
 
 /// `.debug_pubnames` and `.debug_pubtypes` differ only in which section their offsets point into.
-pub trait NamesOrTypesSwitch<'input, Endian>
-    where Endian: Endianity
-{
+pub trait NamesOrTypesSwitch<R: Reader> {
     type Header;
     type Entry;
     type Offset;
@@ -141,28 +146,25 @@ pub trait NamesOrTypesSwitch<'input, Endian>
                   length: u64)
                   -> Self::Header;
 
-    fn new_entry(offset: u64,
-                 name: EndianBuf<'input, Endian>,
-                 header: &Self::Header)
-                 -> Self::Entry;
+    fn new_entry(offset: u64, name: R, header: &Self::Header) -> Self::Entry;
 
-    fn parse_offset(input: &mut EndianBuf<Endian>, format: Format) -> Result<Self::Offset>;
+    fn parse_offset(input: &mut R, format: Format) -> Result<Self::Offset>;
 
     fn format_from(header: &Self::Header) -> Format;
 }
 
 #[derive(Clone, Debug)]
-pub struct PubStuffParser<'input, Endian, Switch>
-    where Endian: 'input + Endianity,
-          Switch: 'input + NamesOrTypesSwitch<'input, Endian>
+pub struct PubStuffParser<R, Switch>
+    where R: Reader,
+          Switch: NamesOrTypesSwitch<R>
 {
     // This struct is never instantiated.
-    phantom: PhantomData<&'input (Endian, Switch)>,
+    phantom: PhantomData<(R, Switch)>,
 }
 
-impl<'input, Endian, Switch> LookupParser<'input, Endian> for PubStuffParser<'input, Endian, Switch>
-    where Endian: Endianity,
-          Switch: NamesOrTypesSwitch<'input, Endian>
+impl<R, Switch> LookupParser<R> for PubStuffParser<R, Switch>
+    where R: Reader,
+          Switch: NamesOrTypesSwitch<R>
 {
     type Header = Switch::Header;
     type Entry = Switch::Entry;
@@ -170,33 +172,30 @@ impl<'input, Endian, Switch> LookupParser<'input, Endian> for PubStuffParser<'in
     /// Parse an pubthings set header. Returns a tuple of the remaining pubthings sets, the
     /// pubthings to be parsed for this set, and the newly created PubThingHeader struct.
     #[allow(type_complexity)]
-    fn parse_header(input: &mut EndianBuf<'input, Endian>)
-                    -> Result<(EndianBuf<'input, Endian>, Self::Header)> {
+    fn parse_header(input: &mut R) -> Result<(R, Self::Header)> {
         let (set_length, format) = parse_initial_length(input)?;
-        let rest = &mut take(set_length as usize, input)?;
+        let mut rest = input.split(set_length as usize)?;
 
-        let version = parse_u16(rest)?;
+        let version = rest.read_u16()?;
         if version != 2 {
             return Err(Error::UnknownVersion);
         }
 
-        let info_offset = Switch::parse_offset(rest, format)?;
-        let info_length = parse_word(rest, format)?;
+        let info_offset = Switch::parse_offset(&mut rest, format)?;
+        let info_length = rest.read_word(format)?;
 
-        Ok((*rest, Switch::new_header(format, set_length, version, info_offset, info_length)))
+        Ok((rest, Switch::new_header(format, set_length, version, info_offset, info_length)))
     }
 
     /// Parse a single pubthing. Return `None` for the null pubthing, `Some` for an actual pubthing.
-    fn parse_entry(input: &mut EndianBuf<'input, Endian>,
-                   header: &Self::Header)
-                   -> Result<Option<Self::Entry>> {
-        let offset = parse_word(input, Switch::format_from(header))?;
+    fn parse_entry(input: &mut R, header: &Self::Header) -> Result<Option<Self::Entry>> {
+        let offset = input.read_word(Switch::format_from(header))?;
 
         if offset == 0 {
-            *input = EndianBuf::new(&[]);
+            input.empty();
             Ok(None)
         } else {
-            let name = parse_null_terminated_slice(input)?;
+            let name = input.read_null_terminated_slice()?;
             Ok(Some(Switch::new_entry(offset, name, header)))
         }
     }

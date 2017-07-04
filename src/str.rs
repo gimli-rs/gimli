@@ -40,9 +40,8 @@ impl<R: Reader> DebugStr<R> {
     /// Construct a new `DebugStr` instance from the data in the `.debug_str`
     /// section.
     ///
-    /// It is the caller's responsibility to read the `.debug_str` section and
-    /// present it as a `&[u8]` slice. That means using some ELF loader on
-    /// Linux, a Mach-O loader on OSX, etc.
+    /// It is the caller's responsibility to read the `.debug_str` section.
+    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
     pub fn from_reader(debug_str_section: R) -> Self {
         DebugStr { debug_str_section }
     }

@@ -1,12 +1,10 @@
 //! Functions for parsing and evaluating DWARF expressions.
 
 use constants;
-use parser::{Error, Format, parse_u8, parse_i8, parse_u16, parse_i16, parse_u32, parse_i32,
-             parse_u64, parse_i64, parse_unsigned_leb, parse_signed_leb, parse_offset,
-             parse_address, parse_length_uleb_value};
-use endianity::{Endianity, EndianBuf};
+use parser::{Error, Format};
+use reader::Reader;
 use unit::{UnitOffset, DebugInfoOffset};
-use std::marker::PhantomData;
+use std::mem;
 
 /// A reference to a DIE, either relative to the current CU or
 /// relative to the section.
@@ -30,9 +28,7 @@ pub enum DieReference {
 /// example, both `DW_OP_deref` and `DW_OP_xderef` are represented
 /// using `Operation::Deref`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Operation<'input, Endian>
-    where Endian: Endianity
-{
+pub enum Operation<R: Reader> {
     /// A dereference operation.
     Deref {
         /// The size of the data to dereference.
@@ -93,7 +89,7 @@ pub enum Operation<'input, Endian>
     /// Branch to the target location if the top of stack is nonzero.
     Bra {
         /// The target bytecode.
-        target: EndianBuf<'input, Endian>,
+        target: R,
     },
     /// Compare the top two stack values for equality.
     Eq,
@@ -110,7 +106,7 @@ pub enum Operation<'input, Endian>
     /// Unconditional branch to the target location.
     Skip {
         /// The target bytecode.
-        target: EndianBuf<'input, Endian>,
+        target: R,
     },
     /// Push a constant value on the stack.  This handles multiple
     /// DWARF opcodes.
@@ -165,7 +161,7 @@ pub enum Operation<'input, Endian>
     /// Represents `DW_OP_implicit_value`.
     ImplicitValue {
         /// The implicit value to use.
-        data: &'input [u8],
+        data: R,
     },
     /// Represents `DW_OP_stack_value`.
     StackValue,
@@ -182,7 +178,7 @@ pub enum Operation<'input, Endian>
     /// the current subprogram, and push it on the stack.
     EntryValue {
         /// The expression to be evaluated.
-        expression: EndianBuf<'input, Endian>,
+        expression: R,
     },
     /// Represents `DW_OP_GNU_parameter_ref`. This represents a parameter that was
     /// optimized out. The offset points to the definition of the parameter, and is
@@ -200,14 +196,12 @@ pub enum Operation<'input, Endian>
     },
 }
 
-#[derive(Debug)]
-enum OperationEvaluationResult<'input, Endian>
-    where Endian: Endianity
-{
+#[derive(Debug, Clone)]
+enum OperationEvaluationResult<R: Reader> {
     Complete {
         terminated: bool,
         piece_end: bool,
-        current_location: Location<'input>,
+        current_location: Location<R>,
     },
     AwaitingMemory {
         address: u64,
@@ -219,14 +213,14 @@ enum OperationEvaluationResult<'input, Endian>
     AwaitingTls { index: u64 },
     AwaitingCfa,
     AwaitingAtLocation { location: DieReference },
-    AwaitingEntryValue { expression: EndianBuf<'input, Endian>, },
+    AwaitingEntryValue { expression: R },
     AwaitingParameterRef { parameter: UnitOffset },
     AwaitingTextBase { offset: u64 },
 }
 
 /// A single location of a piece of the result of a DWARF expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Location<'input> {
+pub enum Location<R: Reader> {
     /// The piece is empty.  Ordinarily this means the piece has been
     /// optimized away.
     Empty,
@@ -248,7 +242,7 @@ pub enum Location<'input> {
     /// The piece is represented by some constant bytes.
     Bytes {
         /// The value.
-        value: &'input [u8],
+        value: R,
     },
     /// The piece is a pointer to a value which has no actual location.
     ImplicitPointer {
@@ -259,10 +253,20 @@ pub enum Location<'input> {
     },
 }
 
+impl<R: Reader> Location<R> {
+    /// Return true if the piece is empty.
+    pub fn is_empty(&self) -> bool {
+        match *self {
+            Location::Empty => true,
+            _ => false,
+        }
+    }
+}
+
 /// The description of a single piece of the result of a DWARF
 /// expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Piece<'input> {
+pub struct Piece<R: Reader> {
     /// If given, the size of the piece in bits.  If `None`, then the
     /// piece takes its size from the enclosed location.
     pub size_in_bits: Option<u64>,
@@ -270,29 +274,23 @@ pub struct Piece<'input> {
     /// piece starts at the next byte boundary.
     pub bit_offset: Option<u64>,
     /// Where this piece is to be found.
-    pub location: Location<'input>,
+    pub location: Location<R>,
 }
 
 // A helper function to handle branch offsets.
-fn compute_pc<'input, Endian>(pc: EndianBuf<'input, Endian>,
-                              bytecode: EndianBuf<'input, Endian>,
-                              offset: i16)
-                              -> Result<EndianBuf<'input, Endian>, Error>
-    where Endian: Endianity + 'input
-{
-    let this_len = pc.len();
-    let full_len = bytecode.len();
-    let new_pc = (full_len - this_len).wrapping_add(offset as usize);
-    if new_pc > full_len {
-        Err(Error::BadBranchTarget(new_pc))
+fn compute_pc<R: Reader>(pc: &R, bytecode: &R, offset: i16) -> Result<R, Error> {
+    let pc_offset = pc.offset_from(bytecode);
+    let new_pc_offset = pc_offset.wrapping_add(offset as usize);
+    if new_pc_offset > bytecode.len() {
+        Err(Error::BadBranchTarget(new_pc_offset))
     } else {
-        Ok(bytecode.range_from(new_pc..))
+        let mut new_pc = bytecode.clone();
+        new_pc.skip(new_pc_offset)?;
+        Ok(new_pc)
     }
 }
 
-impl<'input, Endian> Operation<'input, Endian>
-    where Endian: Endianity + 'input
-{
+impl<R: Reader> Operation<R> {
     /// Parse a single DWARF expression operation.
     ///
     /// This is useful when examining a DWARF expression for reasons other
@@ -301,18 +299,16 @@ impl<'input, Endian> Operation<'input, Endian>
     /// `bytes` points to a the operation to decode.  It should point into
     /// the same array as `bytecode`, which should be the entire
     /// expression.
-    pub fn parse(bytes: &mut EndianBuf<'input, Endian>,
-                 bytecode: EndianBuf<'input, Endian>,
+    pub fn parse(bytes: &mut R,
+                 bytecode: &R,
                  address_size: u8,
                  format: Format)
-                 -> Result<Operation<'input, Endian>, Error>
-        where Endian: Endianity
-    {
-        let opcode = parse_u8(bytes)?;
+                 -> Result<Operation<R>, Error> {
+        let opcode = bytes.read_u8()?;
         let name = constants::DwOp(opcode);
         match name {
             constants::DW_OP_addr => {
-                let offset = parse_address(bytes, address_size)?;
+                let offset = bytes.read_address(address_size)?;
                 Ok(Operation::TextRelativeOffset { offset: offset })
             }
             constants::DW_OP_deref => {
@@ -322,50 +318,50 @@ impl<'input, Endian> Operation<'input, Endian>
                    })
             }
             constants::DW_OP_const1u => {
-                let value = parse_u8(bytes)?;
+                let value = bytes.read_u8()?;
                 Ok(Operation::Literal { value: value as u64 })
             }
             constants::DW_OP_const1s => {
-                let value = parse_i8(bytes)?;
+                let value = bytes.read_i8()?;
                 Ok(Operation::Literal { value: value as u64 })
             }
             constants::DW_OP_const2u => {
-                let value = parse_u16(bytes)?;
+                let value = bytes.read_u16()?;
                 Ok(Operation::Literal { value: value as u64 })
             }
             constants::DW_OP_const2s => {
-                let value = parse_i16(bytes)?;
+                let value = bytes.read_i16()?;
                 Ok(Operation::Literal { value: value as u64 })
             }
             constants::DW_OP_const4u => {
-                let value = parse_u32(bytes)?;
+                let value = bytes.read_u32()?;
                 Ok(Operation::Literal { value: value as u64 })
             }
             constants::DW_OP_const4s => {
-                let value = parse_i32(bytes)?;
+                let value = bytes.read_i32()?;
                 Ok(Operation::Literal { value: value as u64 })
             }
             constants::DW_OP_const8u => {
-                let value = parse_u64(bytes)?;
+                let value = bytes.read_u64()?;
                 Ok(Operation::Literal { value: value })
             }
             constants::DW_OP_const8s => {
-                let value = parse_i64(bytes)?;
+                let value = bytes.read_i64()?;
                 Ok(Operation::Literal { value: value as u64 })
             }
             constants::DW_OP_constu => {
-                let value = parse_unsigned_leb(bytes)?;
+                let value = bytes.read_uleb128()?;
                 Ok(Operation::Literal { value: value })
             }
             constants::DW_OP_consts => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::Literal { value: value as u64 })
             }
             constants::DW_OP_dup => Ok(Operation::Pick { index: 0 }),
             constants::DW_OP_drop => Ok(Operation::Drop),
             constants::DW_OP_over => Ok(Operation::Pick { index: 1 }),
             constants::DW_OP_pick => {
-                let value = parse_u8(bytes)?;
+                let value = bytes.read_u8()?;
                 Ok(Operation::Pick { index: value })
             }
             constants::DW_OP_swap => Ok(Operation::Swap),
@@ -387,7 +383,7 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_or => Ok(Operation::Or),
             constants::DW_OP_plus => Ok(Operation::Plus),
             constants::DW_OP_plus_uconst => {
-                let value = parse_unsigned_leb(bytes)?;
+                let value = bytes.read_uleb128()?;
                 Ok(Operation::PlusConstant { value: value })
             }
             constants::DW_OP_shl => Ok(Operation::Shl),
@@ -395,8 +391,8 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_shra => Ok(Operation::Shra),
             constants::DW_OP_xor => Ok(Operation::Xor),
             constants::DW_OP_bra => {
-                let value = parse_i16(bytes)?;
-                Ok(Operation::Bra { target: compute_pc(*bytes, bytecode, value)? })
+                let value = bytes.read_i16()?;
+                Ok(Operation::Bra { target: compute_pc(bytes, bytecode, value)? })
             }
             constants::DW_OP_eq => Ok(Operation::Eq),
             constants::DW_OP_ge => Ok(Operation::Ge),
@@ -405,8 +401,8 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_lt => Ok(Operation::Lt),
             constants::DW_OP_ne => Ok(Operation::Ne),
             constants::DW_OP_skip => {
-                let value = parse_i16(bytes)?;
-                Ok(Operation::Skip { target: compute_pc(*bytes, bytecode, value)? })
+                let value = bytes.read_i16()?;
+                Ok(Operation::Skip { target: compute_pc(bytes, bytecode, value)? })
             }
             constants::DW_OP_lit0 => Ok(Operation::Literal { value: 0 }),
             constants::DW_OP_lit1 => Ok(Operation::Literal { value: 1 }),
@@ -473,261 +469,261 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_reg30 => Ok(Operation::Register { register: 30 }),
             constants::DW_OP_reg31 => Ok(Operation::Register { register: 31 }),
             constants::DW_OP_breg0 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 0,
                        offset: value,
                    })
             }
             constants::DW_OP_breg1 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 1,
                        offset: value,
                    })
             }
             constants::DW_OP_breg2 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 2,
                        offset: value,
                    })
             }
             constants::DW_OP_breg3 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 3,
                        offset: value,
                    })
             }
             constants::DW_OP_breg4 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 4,
                        offset: value,
                    })
             }
             constants::DW_OP_breg5 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 5,
                        offset: value,
                    })
             }
             constants::DW_OP_breg6 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 6,
                        offset: value,
                    })
             }
             constants::DW_OP_breg7 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 7,
                        offset: value,
                    })
             }
             constants::DW_OP_breg8 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 8,
                        offset: value,
                    })
             }
             constants::DW_OP_breg9 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 9,
                        offset: value,
                    })
             }
             constants::DW_OP_breg10 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 10,
                        offset: value,
                    })
             }
             constants::DW_OP_breg11 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 11,
                        offset: value,
                    })
             }
             constants::DW_OP_breg12 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 12,
                        offset: value,
                    })
             }
             constants::DW_OP_breg13 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 13,
                        offset: value,
                    })
             }
             constants::DW_OP_breg14 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 14,
                        offset: value,
                    })
             }
             constants::DW_OP_breg15 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 15,
                        offset: value,
                    })
             }
             constants::DW_OP_breg16 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 16,
                        offset: value,
                    })
             }
             constants::DW_OP_breg17 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 17,
                        offset: value,
                    })
             }
             constants::DW_OP_breg18 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 18,
                        offset: value,
                    })
             }
             constants::DW_OP_breg19 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 19,
                        offset: value,
                    })
             }
             constants::DW_OP_breg20 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 20,
                        offset: value,
                    })
             }
             constants::DW_OP_breg21 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 21,
                        offset: value,
                    })
             }
             constants::DW_OP_breg22 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 22,
                        offset: value,
                    })
             }
             constants::DW_OP_breg23 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 23,
                        offset: value,
                    })
             }
             constants::DW_OP_breg24 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 24,
                        offset: value,
                    })
             }
             constants::DW_OP_breg25 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 25,
                        offset: value,
                    })
             }
             constants::DW_OP_breg26 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 26,
                        offset: value,
                    })
             }
             constants::DW_OP_breg27 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 27,
                        offset: value,
                    })
             }
             constants::DW_OP_breg28 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 28,
                        offset: value,
                    })
             }
             constants::DW_OP_breg29 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 29,
                        offset: value,
                    })
             }
             constants::DW_OP_breg30 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 30,
                        offset: value,
                    })
             }
             constants::DW_OP_breg31 => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: 31,
                        offset: value,
                    })
             }
             constants::DW_OP_regx => {
-                let value = parse_unsigned_leb(bytes)?;
+                let value = bytes.read_uleb128()?;
                 Ok(Operation::Register { register: value })
             }
             constants::DW_OP_fbreg => {
-                let value = parse_signed_leb(bytes)?;
+                let value = bytes.read_sleb128()?;
                 Ok(Operation::FrameOffset { offset: value })
             }
             constants::DW_OP_bregx => {
-                let regno = parse_unsigned_leb(bytes)?;
-                let offset = parse_signed_leb(bytes)?;
+                let regno = bytes.read_uleb128()?;
+                let offset = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
                        register: regno,
                        offset: offset,
                    })
             }
             constants::DW_OP_piece => {
-                let size = parse_unsigned_leb(bytes)?;
+                let size = bytes.read_uleb128()?;
                 Ok(Operation::Piece {
                        size_in_bits: 8 * size,
                        bit_offset: None,
                    })
             }
             constants::DW_OP_deref_size => {
-                let size = parse_u8(bytes)?;
+                let size = bytes.read_u8()?;
                 Ok(Operation::Deref {
                        size: size,
                        space: false,
                    })
             }
             constants::DW_OP_xderef_size => {
-                let size = parse_u8(bytes)?;
+                let size = bytes.read_u8()?;
                 Ok(Operation::Deref {
                        size: size,
                        space: true,
@@ -736,37 +732,38 @@ impl<'input, Endian> Operation<'input, Endian>
             constants::DW_OP_nop => Ok(Operation::Nop),
             constants::DW_OP_push_object_address => Ok(Operation::PushObjectAddress),
             constants::DW_OP_call2 => {
-                let value = parse_u16(bytes)?;
+                let value = bytes.read_u16()?;
                 Ok(Operation::Call { offset: DieReference::UnitRef(UnitOffset(value as usize)) })
             }
             constants::DW_OP_call4 => {
-                let value = parse_u32(bytes)?;
+                let value = bytes.read_u32()?;
                 Ok(Operation::Call { offset: DieReference::UnitRef(UnitOffset(value as usize)) })
             }
             constants::DW_OP_call_ref => {
-                let value = parse_offset(bytes, format)?;
+                let value = bytes.read_offset(format)?;
                 Ok(Operation::Call { offset: DieReference::DebugInfoRef(DebugInfoOffset(value)) })
             }
             constants::DW_OP_form_tls_address |
             constants::DW_OP_GNU_push_tls_address => Ok(Operation::TLS),
             constants::DW_OP_call_frame_cfa => Ok(Operation::CallFrameCFA),
             constants::DW_OP_bit_piece => {
-                let size = parse_unsigned_leb(bytes)?;
-                let offset = parse_unsigned_leb(bytes)?;
+                let size = bytes.read_uleb128()?;
+                let offset = bytes.read_uleb128()?;
                 Ok(Operation::Piece {
                        size_in_bits: size,
                        bit_offset: Some(offset),
                    })
             }
             constants::DW_OP_implicit_value => {
-                let data = parse_length_uleb_value(bytes)?;
-                Ok(Operation::ImplicitValue { data: data.into() })
+                let len = bytes.read_uleb128()?;
+                let data = bytes.split(len as usize)?;
+                Ok(Operation::ImplicitValue { data: data })
             }
             constants::DW_OP_stack_value => Ok(Operation::StackValue),
             constants::DW_OP_implicit_pointer |
             constants::DW_OP_GNU_implicit_pointer => {
-                let value = parse_offset(bytes, format)?;
-                let byte_offset = parse_signed_leb(bytes)?;
+                let value = bytes.read_offset(format)?;
+                let byte_offset = bytes.read_sleb128()?;
                 Ok(Operation::ImplicitPointer {
                        value: DebugInfoOffset(value),
                        byte_offset: byte_offset,
@@ -774,11 +771,12 @@ impl<'input, Endian> Operation<'input, Endian>
             }
             constants::DW_OP_entry_value |
             constants::DW_OP_GNU_entry_value => {
-                let expression = parse_length_uleb_value(bytes)?;
+                let len = bytes.read_uleb128()?;
+                let expression = bytes.split(len as usize)?;
                 Ok(Operation::EntryValue { expression: expression })
             }
             constants::DW_OP_GNU_parameter_ref => {
-                let value = parse_u32(bytes)?;
+                let value = bytes.read_u32()?;
                 Ok(Operation::ParameterRef { offset: UnitOffset(value as usize) })
             }
 
@@ -788,23 +786,19 @@ impl<'input, Endian> Operation<'input, Endian>
 }
 
 #[derive(Debug)]
-enum EvaluationState<'input, Endian>
-    where Endian: Endianity
-{
+enum EvaluationState<R: Reader> {
     Start(Option<u64>),
     Ready,
     Error(Error),
     Complete,
-    Waiting(OperationEvaluationResult<'input, Endian>),
+    Waiting(OperationEvaluationResult<R>),
 }
 
 /// The state of an `Evaluation` after evaluating a DWARF expression.
 /// The evaluation is either `Complete`, or it requires more data
 /// to continue, as described by the variant.
 #[derive(Debug, PartialEq)]
-pub enum EvaluationResult<'input, Endian>
-    where Endian: Endianity
-{
+pub enum EvaluationResult<R: Reader> {
     /// The `Evaluation` is complete, and `Evaluation::result()` can be called.
     Complete,
     /// The `Evaluation` needs a value from memory to proceed further.  Once the
@@ -846,7 +840,7 @@ pub enum EvaluationResult<'input, Endian>
     /// expression at the entry point of the current subprogram.  Once the
     /// caller determines what value to provide it should resume the
     /// `Evaluation` by calling `Evaluation::resume_with_entry_value`.
-    RequiresEntryValue(EndianBuf<'input, Endian>),
+    RequiresEntryValue(R),
     /// The `Evaluation` needs the value of the parameter at the given location
     /// in the current function's caller.  Once the caller determines what value
     /// to provide it should resume the `Evaluation` by calling
@@ -886,7 +880,7 @@ pub enum EvaluationResult<'input, Endian>
 /// # let get_register_value = |_| 42;
 /// # let get_frame_base = || 0xdeadbeef;
 ///
-/// let mut eval = Evaluation::<LittleEndian>::new(bytecode, address_size, format);
+/// let mut eval = Evaluation::<EndianBuf<LittleEndian>>::new(bytecode, address_size, format);
 /// let mut result = eval.evaluate().unwrap();
 /// while result != EvaluationResult::Complete {
 ///   match result {
@@ -906,16 +900,14 @@ pub enum EvaluationResult<'input, Endian>
 /// println!("{:?}", result);
 /// ```
 #[derive(Debug)]
-pub struct Evaluation<'input, Endian>
-    where Endian: Endianity + 'input
-{
-    bytecode: EndianBuf<'input, Endian>,
+pub struct Evaluation<R: Reader> {
+    bytecode: R,
     address_size: u8,
     format: Format,
     object_address: Option<u64>,
     max_iterations: Option<u32>,
     iteration: u32,
-    state: EvaluationState<'input, Endian>,
+    state: EvaluationState<R>,
 
     // Stack operations are done on word-sized values.  We do all
     // operations on 64-bit values, and then mask the results
@@ -926,29 +918,23 @@ pub struct Evaluation<'input, Endian>
     stack: Vec<u64>,
 
     // The next operation to decode and evaluate.
-    pc: EndianBuf<'input, Endian>,
+    pc: R,
 
     // If we see a DW_OP_call* operation, the previous PC and bytecode
     // is stored here while evaluating the subroutine.
-    expression_stack: Vec<(EndianBuf<'input, Endian>, EndianBuf<'input, Endian>)>,
+    expression_stack: Vec<(R, R)>,
 
-    result: Vec<Piece<'input>>,
-
-    phantom: PhantomData<Endian>,
+    result: Vec<Piece<R>>,
 }
 
-impl<'input, Endian> Evaluation<'input, Endian>
-    where Endian: Endianity
-{
+impl<R: Reader> Evaluation<R> {
     /// Create a new DWARF expression evaluator.
     ///
     /// The new evaluator is created without an initial value, without
     /// an object address, and without a maximum number of iterations.
-    pub fn new(bytecode: EndianBuf<'input, Endian>,
-               address_size: u8,
-               format: Format)
-               -> Evaluation<'input, Endian> {
-        Evaluation::<'input, Endian> {
+    pub fn new(bytecode: R, address_size: u8, format: Format) -> Evaluation<R> {
+        let pc = bytecode.clone();
+        Evaluation {
             bytecode: bytecode,
             address_size: address_size,
             format: format,
@@ -963,9 +949,8 @@ impl<'input, Endian> Evaluation<'input, Endian>
             },
             stack: Vec::new(),
             expression_stack: Vec::new(),
-            pc: bytecode,
+            pc: pc,
             result: Vec::new(),
-            phantom: PhantomData,
         }
     }
 
@@ -1037,8 +1022,8 @@ impl<'input, Endian> Evaluation<'input, Endian>
     }
 
     fn evaluate_one_operation(&mut self,
-                              operation: &Operation<'input, Endian>)
-                              -> Result<OperationEvaluationResult<'input, Endian>, Error> {
+                              operation: &Operation<R>)
+                              -> Result<OperationEvaluationResult<R>, Error> {
         let mut terminated = false;
         let mut piece_end = false;
         let mut current_location = Location::Empty;
@@ -1181,10 +1166,10 @@ impl<'input, Endian> Evaluation<'input, Endian>
                 self.push(v2 ^ v1);
             }
 
-            Operation::Bra { target } => {
+            Operation::Bra { ref target } => {
                 let v = self.pop()?;
                 if v != 0 {
-                    self.pc = target;
+                    self.pc = target.clone();
                 }
             }
 
@@ -1219,8 +1204,8 @@ impl<'input, Endian> Evaluation<'input, Endian>
                 self.push(if v2 != v1 { 1 } else { 0 });
             }
 
-            Operation::Skip { target } => {
-                self.pc = target;
+            Operation::Skip { ref target } => {
+                self.pc = target.clone();
             }
 
             Operation::Literal { value } => {
@@ -1266,9 +1251,9 @@ impl<'input, Endian> Evaluation<'input, Endian>
                 current_location = Location::Register { register: register };
             }
 
-            Operation::ImplicitValue { data } => {
+            Operation::ImplicitValue { ref data } => {
                 terminated = true;
-                current_location = Location::Bytes { value: data };
+                current_location = Location::Bytes { value: data.clone() };
             }
 
             Operation::StackValue => {
@@ -1284,9 +1269,9 @@ impl<'input, Endian> Evaluation<'input, Endian>
                 };
             }
 
-            Operation::EntryValue { expression } => {
+            Operation::EntryValue { ref expression } => {
                 return Ok(OperationEvaluationResult::AwaitingEntryValue {
-                              expression: expression.into(),
+                              expression: expression.clone(),
                           });
             }
 
@@ -1314,7 +1299,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
     ///
     /// # Panics
     /// Panics if this `Evaluation` has not been driven to completion.
-    pub fn result(self) -> Vec<Piece<'input>> {
+    pub fn result(self) -> Vec<Piece<R>> {
         match self.state {
             EvaluationState::Complete => self.result,
             _ => {
@@ -1328,9 +1313,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
     /// `EvaluationResult::Complete`, the caller should provide the required
     /// value and resume the evaluation by calling the appropriate resume_with
     /// method on `Evaluation`.
-    pub fn evaluate(&mut self) -> Result<EvaluationResult<'input, Endian>, Error>
-        where Endian: Endianity
-    {
+    pub fn evaluate(&mut self) -> Result<EvaluationResult<R>, Error> {
         match self.state {
             EvaluationState::Start(initial_value) => {
                 if let Some(value) = initial_value {
@@ -1360,11 +1343,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresMemory`.
-    pub fn resume_with_memory(&mut self,
-                              value: u64)
-                              -> Result<EvaluationResult<'input, Endian>, Error>
-        where Endian: Endianity
-    {
+    pub fn resume_with_memory(&mut self, value: u64) -> Result<EvaluationResult<R>, Error> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingMemory { .. }) => {
@@ -1385,11 +1364,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresRegister`.
-    pub fn resume_with_register(&mut self,
-                                register: u64)
-                                -> Result<EvaluationResult<'input, Endian>, Error>
-        where Endian: Endianity
-    {
+    pub fn resume_with_register(&mut self, register: u64) -> Result<EvaluationResult<R>, Error> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingRegister {
@@ -1414,9 +1389,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresFrameBase`.
     pub fn resume_with_frame_base(&mut self,
                                   frame_base: u64)
-                                  -> Result<EvaluationResult<'input, Endian>, Error>
-        where Endian: Endianity
-    {
+                                  -> Result<EvaluationResult<R>, Error> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingFrameBase { offset }) => {
@@ -1437,9 +1410,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresTls`.
-    pub fn resume_with_tls(&mut self, value: u64) -> Result<EvaluationResult<'input, Endian>, Error>
-        where Endian: Endianity
-    {
+    pub fn resume_with_tls(&mut self, value: u64) -> Result<EvaluationResult<R>, Error> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingTls { .. }) => {
@@ -1460,11 +1431,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresCallFrameCfa`.
-    pub fn resume_with_call_frame_cfa(&mut self,
-                                      cfa: u64)
-                                      -> Result<EvaluationResult<'input, Endian>, Error>
-        where Endian: Endianity
-    {
+    pub fn resume_with_call_frame_cfa(&mut self, cfa: u64) -> Result<EvaluationResult<R>, Error> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingCfa) => {
@@ -1485,18 +1452,15 @@ impl<'input, Endian> Evaluation<'input, Endian>
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresAtLocation`.
-    pub fn resume_with_at_location(&mut self,
-                                   bytes: EndianBuf<'input, Endian>)
-                                   -> Result<EvaluationResult<'input, Endian>, Error>
-        where Endian: Endianity
-    {
+    pub fn resume_with_at_location(&mut self, mut bytes: R) -> Result<EvaluationResult<R>, Error> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingAtLocation { .. }) => {
                 if bytes.len() > 0 {
-                    self.expression_stack.push((self.pc, self.bytecode));
-                    self.pc = bytes;
-                    self.bytecode = bytes;
+                    let mut pc = bytes.clone();
+                    mem::swap(&mut pc, &mut self.pc);
+                    mem::swap(&mut bytes, &mut self.bytecode);
+                    self.expression_stack.push((pc, bytes));
                 }
             }
             _ => {
@@ -1516,9 +1480,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresEntryValue`.
     pub fn resume_with_entry_value(&mut self,
                                    entry_value: u64)
-                                   -> Result<EvaluationResult<'input, Endian>, Error>
-        where Endian: Endianity
-    {
+                                   -> Result<EvaluationResult<R>, Error> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingEntryValue { .. }) => {
@@ -1541,9 +1503,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresParameterRef`.
     pub fn resume_with_parameter_ref(&mut self,
                                      parameter_value: u64)
-                                     -> Result<EvaluationResult<'input, Endian>, Error>
-        where Endian: Endianity
-    {
+                                     -> Result<EvaluationResult<R>, Error> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingParameterRef {
@@ -1566,11 +1526,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresTextBase`.
-    pub fn resume_with_text_base(&mut self,
-                                 text_base: u64)
-                                 -> Result<EvaluationResult<'input, Endian>, Error>
-        where Endian: Endianity
-    {
+    pub fn resume_with_text_base(&mut self, text_base: u64) -> Result<EvaluationResult<R>, Error> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingTextBase { offset }) => {
@@ -1584,9 +1540,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
         self.evaluate_internal()
     }
 
-    fn evaluate_internal(&mut self) -> Result<EvaluationResult<'input, Endian>, Error>
-        where Endian: Endianity
-    {
+    fn evaluate_internal(&mut self) -> Result<EvaluationResult<R>, Error> {
         'eval: loop {
             while self.pc.len() == 0 {
                 match self.expression_stack.pop() {
@@ -1606,7 +1560,7 @@ impl<'input, Endian> Evaluation<'input, Endian>
             }
 
             let operation =
-                Operation::parse(&mut self.pc, self.bytecode, self.address_size, self.format)?;
+                Operation::parse(&mut self.pc, &self.bytecode, self.address_size, self.format)?;
 
             let op_result = self.evaluate_one_operation(&operation)?;
             match op_result {
@@ -1626,13 +1580,13 @@ impl<'input, Endian> Evaluation<'input, Endian>
                             // We saw a piece operation without something
                             // terminating the expression.  This means the
                             // result is the address on the stack.
-                            assert_eq!(current_location, Location::Empty);
+                            assert!(current_location.is_empty());
                             if !self.stack.is_empty() {
                                 current_location = Location::Address { address: self.pop()? };
                             }
                         } else if !eof {
                             pieceop = Operation::parse(&mut self.pc,
-                                                       self.bytecode,
+                                                       &self.bytecode,
                                                        self.address_size,
                                                        self.format)?;
                         }
@@ -1701,9 +1655,9 @@ impl<'input, Endian> Evaluation<'input, Endian>
                     self.state = EvaluationState::Waiting(op_result);
                     return Ok(EvaluationResult::RequiresAtLocation(location));
                 }
-                OperationEvaluationResult::AwaitingEntryValue { expression } => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresEntryValue(expression));
+                OperationEvaluationResult::AwaitingEntryValue { ref expression } => {
+                    self.state = EvaluationState::Waiting(op_result.clone());
+                    return Ok(EvaluationResult::RequiresEntryValue(expression.clone()));
                 }
                 OperationEvaluationResult::AwaitingParameterRef { parameter } => {
                     self.state = EvaluationState::Waiting(op_result);
@@ -1741,7 +1695,7 @@ mod tests {
     use constants;
     use endianity::{EndianBuf, LittleEndian};
     use leb128;
-    use parser::{Error, Format, Result, parse_u64};
+    use parser::{Error, Format, Result};
     use self::test_assembler::{Endian, Section};
     use unit::{DebugInfoOffset, UnitOffset};
     use test_util::GimliSectionMethods;
@@ -1751,25 +1705,25 @@ mod tests {
         // Contents don't matter for this test, just length.
         let bytes = [0, 1, 2, 3, 4];
         let bytecode = &bytes[..];
-        let ebuf = EndianBuf::<LittleEndian>::new(bytecode);
+        let ebuf = &EndianBuf::<LittleEndian>::new(bytecode);
 
-        assert_eq!(compute_pc(ebuf, ebuf, 0), Ok(ebuf));
+        assert_eq!(compute_pc(ebuf, ebuf, 0), Ok(*ebuf));
         assert_eq!(compute_pc(ebuf, ebuf, -1),
                    Err(Error::BadBranchTarget(-1isize as usize)));
         assert_eq!(compute_pc(ebuf, ebuf, 5), Ok(ebuf.range_from(5..)));
-        assert_eq!(compute_pc(ebuf.range_from(3..), ebuf, -2),
+        assert_eq!(compute_pc(&ebuf.range_from(3..), ebuf, -2),
                    Ok(ebuf.range_from(1..)));
-        assert_eq!(compute_pc(ebuf.range_from(2..), ebuf, 2),
+        assert_eq!(compute_pc(&ebuf.range_from(2..), ebuf, 2),
                    Ok(ebuf.range_from(4..)));
     }
 
     fn check_op_parse_simple(input: &[u8],
-                             expect: &Operation<LittleEndian>,
+                             expect: &Operation<EndianBuf<LittleEndian>>,
                              address_size: u8,
                              format: Format) {
         let buf = EndianBuf::<LittleEndian>::new(input);
         let mut pc = buf;
-        let value = Operation::parse(&mut pc, buf, address_size, format);
+        let value = Operation::parse(&mut pc, &buf, address_size, format);
         match value {
             Ok(val) => {
                 assert_eq!(val, *expect);
@@ -1782,7 +1736,7 @@ mod tests {
     fn check_op_parse_failure(input: &[u8], expect: Error, address_size: u8, format: Format) {
         let buf = EndianBuf::<LittleEndian>::new(input);
         let mut pc = buf;
-        match Operation::parse(&mut pc, buf, address_size, format) {
+        match Operation::parse(&mut pc, &buf, address_size, format) {
             Err(x) => {
                 assert_eq!(x, expect);
             }
@@ -1792,7 +1746,7 @@ mod tests {
     }
 
     fn check_op_parse<F>(input: F,
-                         expect: &Operation<LittleEndian>,
+                         expect: &Operation<EndianBuf<LittleEndian>>,
                          address_size: u8,
                          format: Format)
         where F: Fn(Section) -> Section
@@ -2222,7 +2176,7 @@ mod tests {
                                .uleb(data.len() as u64)
                                .append_bytes(&data[..])
                        },
-                       &Operation::ImplicitValue { data: &data[..] },
+                       &Operation::ImplicitValue { data: EndianBuf::new(&data[..]) },
                        address_size,
                        format);
     }
@@ -2344,21 +2298,21 @@ mod tests {
     }
 
     fn check_eval_with_args<F>(program: &[AssemblerEntry],
-                               expect: Result<&[Piece]>,
+                               expect: Result<&[Piece<EndianBuf<LittleEndian>>]>,
                                address_size: u8,
                                format: Format,
                                object_address: Option<u64>,
                                initial_value: Option<u64>,
                                max_iterations: Option<u32>,
                                f: F)
-        where for<'a> F: Fn(&mut Evaluation<'a, LittleEndian>,
-                            EvaluationResult<'a, LittleEndian>)
-                            -> Result<EvaluationResult<'a, LittleEndian>>
+        where for<'a> F: Fn(&mut Evaluation<EndianBuf<'a, LittleEndian>>,
+                            EvaluationResult<EndianBuf<'a, LittleEndian>>)
+                            -> Result<EvaluationResult<EndianBuf<'a, LittleEndian>>>
     {
         let bytes = assemble(program);
         let bytes = EndianBuf::<LittleEndian>::new(&bytes);
 
-        let mut eval = Evaluation::<LittleEndian>::new(bytes, address_size, format);
+        let mut eval = Evaluation::new(bytes, address_size, format);
 
         if let Some(val) = object_address {
             eval.set_object_address(val);
@@ -2391,7 +2345,7 @@ mod tests {
     }
 
     fn check_eval(program: &[AssemblerEntry],
-                  expect: Result<&[Piece]>,
+                  expect: Result<&[Piece<EndianBuf<LittleEndian>>]>,
                   address_size: u8,
                   format: Format) {
 
@@ -2988,7 +2942,7 @@ mod tests {
                              None, None, None, |eval, result| {
                                  let entry_value = match result {
                                      EvaluationResult::RequiresEntryValue(mut expression) => {
-                                         parse_u64(&mut expression)?
+                                         expression.read_u64()?
                                      },
                                      _ => panic!(),
                                  };
@@ -3200,7 +3154,7 @@ mod tests {
 
         let result = [
             Piece { size_in_bits: None, bit_offset: None,
-                    location: Location::Bytes { value: BYTES } },
+                    location: Location::Bytes { value: EndianBuf::new(BYTES) } },
         ];
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);

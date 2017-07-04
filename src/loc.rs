@@ -1,6 +1,7 @@
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
-use parser::{Error, Result, parse_u16, take};
+use parser::{Error, Result};
+use reader::Reader;
 use ranges::Range;
 use Section;
 
@@ -11,13 +12,11 @@ pub struct DebugLocOffset(pub usize);
 /// The `DebugLoc` struct represents the DWARF strings
 /// found in the `.debug_loc` section.
 #[derive(Debug, Clone, Copy)]
-pub struct DebugLoc<'input, Endian>
-    where Endian: Endianity
-{
-    debug_loc_section: EndianBuf<'input, Endian>,
+pub struct DebugLoc<R: Reader> {
+    debug_loc_section: R,
 }
 
-impl<'input, Endian> DebugLoc<'input, Endian>
+impl<'input, Endian> DebugLoc<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     /// Construct a new `DebugLoc` instance from the data in the `.debug_loc`
@@ -28,14 +27,25 @@ impl<'input, Endian> DebugLoc<'input, Endian>
     /// Linux, a Mach-O loader on OSX, etc.
     ///
     /// ```
-    /// use gimli::{DebugLoc, LittleEndian};
+    /// use gimli::{DebugLoc, EndianBuf, LittleEndian};
     ///
     /// # let buf = [0x00, 0x01, 0x02, 0x03];
     /// # let read_debug_loc_section_somehow = || &buf;
-    /// let debug_loc = DebugLoc::<LittleEndian>::new(read_debug_loc_section_somehow());
+    /// let debug_loc = DebugLoc::<EndianBuf<LittleEndian>>::new(read_debug_loc_section_somehow());
     /// ```
-    pub fn new(debug_loc_section: &'input [u8]) -> DebugLoc<'input, Endian> {
-        DebugLoc { debug_loc_section: EndianBuf::new(debug_loc_section) }
+    pub fn new(debug_loc_section: &'input [u8]) -> Self {
+        Self::from_reader(EndianBuf::new(debug_loc_section))
+    }
+}
+
+impl<R: Reader> DebugLoc<R> {
+    /// Construct a new `DebugLoc` instance from the data in the `.debug_loc`
+    /// section.
+    ///
+    /// It is the caller's responsibility to read the `.debug_loc` section.
+    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
+    pub fn from_reader(debug_loc_section: R) -> Self {
+        DebugLoc { debug_loc_section }
     }
 
     /// Iterate over the `LocationListEntry`s starting at the given offset.
@@ -51,12 +61,9 @@ impl<'input, Endian> DebugLoc<'input, Endian>
                      offset: DebugLocOffset,
                      address_size: u8,
                      base_address: u64)
-                     -> Result<LocationListIter<'input, Endian>> {
-        if self.debug_loc_section.len() < offset.0 {
-            return Err(Error::UnexpectedEof);
-        }
-
-        let input = self.debug_loc_section.range_from(offset.0..);
+                     -> Result<LocationListIter<R>> {
+        let mut input = self.debug_loc_section.clone();
+        input.skip(offset.0)?;
         Ok(LocationListIter::new(input, address_size, base_address))
     }
 
@@ -72,17 +79,14 @@ impl<'input, Endian> DebugLoc<'input, Endian>
     pub fn raw_locations(&self,
                          offset: DebugLocOffset,
                          address_size: u8)
-                         -> Result<RawLocationListIter<'input, Endian>> {
-        if self.debug_loc_section.len() < offset.0 {
-            return Err(Error::UnexpectedEof);
-        }
-
-        let input = self.debug_loc_section.range_from(offset.0..);
+                         -> Result<RawLocationListIter<R>> {
+        let mut input = self.debug_loc_section.clone();
+        input.skip(offset.0)?;
         Ok(RawLocationListIter::new(input, address_size))
     }
 }
 
-impl<'input, Endian> Section<'input> for DebugLoc<'input, Endian>
+impl<'input, Endian> Section<'input> for DebugLoc<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     fn section_name() -> &'static str {
@@ -90,7 +94,7 @@ impl<'input, Endian> Section<'input> for DebugLoc<'input, Endian>
     }
 }
 
-impl<'input, Endian> From<&'input [u8]> for DebugLoc<'input, Endian>
+impl<'input, Endian> From<&'input [u8]> for DebugLoc<EndianBuf<'input, Endian>>
     where Endian: Endianity
 {
     fn from(v: &'input [u8]) -> Self {
@@ -103,20 +107,14 @@ impl<'input, Endian> From<&'input [u8]> for DebugLoc<'input, Endian>
 /// This iterator does not perform any processing of the location entries,
 /// such as handling base addresses.
 #[derive(Debug)]
-pub struct RawLocationListIter<'input, Endian>
-    where Endian: Endianity
-{
-    input: EndianBuf<'input, Endian>,
+pub struct RawLocationListIter<R: Reader> {
+    input: R,
     address_size: u8,
 }
 
-impl<'input, Endian> RawLocationListIter<'input, Endian>
-    where Endian: Endianity
-{
+impl<R: Reader> RawLocationListIter<R> {
     /// Construct a `RawLocationListIter`.
-    pub fn new(input: EndianBuf<'input, Endian>,
-               address_size: u8)
-               -> RawLocationListIter<'input, Endian> {
+    pub fn new(input: R, address_size: u8) -> RawLocationListIter<R> {
         RawLocationListIter {
             input: input,
             address_size: address_size,
@@ -124,24 +122,22 @@ impl<'input, Endian> RawLocationListIter<'input, Endian>
     }
 
     /// Advance the iterator to the next location.
-    pub fn next(&mut self) -> Result<Option<LocationListEntry<'input, Endian>>> {
+    pub fn next(&mut self) -> Result<Option<LocationListEntry<R>>> {
         if self.input.is_empty() {
             return Ok(None);
         }
 
         let location = LocationListEntry::parse(&mut self.input, self.address_size)?;
         if location.range.is_end() {
-            self.input = EndianBuf::new(&[]);
+            self.input.empty();
         }
 
         Ok(Some(location))
     }
 }
 
-impl<'input, Endian> FallibleIterator for RawLocationListIter<'input, Endian>
-    where Endian: Endianity
-{
-    type Item = LocationListEntry<'input, Endian>;
+impl<R: Reader> FallibleIterator for RawLocationListIter<R> {
+    type Item = LocationListEntry<R>;
     type Error = Error;
 
     fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
@@ -155,21 +151,14 @@ impl<'input, Endian> FallibleIterator for RawLocationListIter<'input, Endian>
 /// and list end entries.  Thus, it only returns location entries that are valid
 /// and already adjusted for the base address.
 #[derive(Debug)]
-pub struct LocationListIter<'input, Endian>
-    where Endian: Endianity
-{
-    raw: RawLocationListIter<'input, Endian>,
+pub struct LocationListIter<R: Reader> {
+    raw: RawLocationListIter<R>,
     base_address: u64,
 }
 
-impl<'input, Endian> LocationListIter<'input, Endian>
-    where Endian: Endianity
-{
+impl<R: Reader> LocationListIter<R> {
     /// Construct a `LocationListIter`.
-    fn new(input: EndianBuf<'input, Endian>,
-           address_size: u8,
-           base_address: u64)
-           -> LocationListIter<'input, Endian> {
+    fn new(input: R, address_size: u8, base_address: u64) -> LocationListIter<R> {
         LocationListIter {
             raw: RawLocationListIter::new(input, address_size),
             base_address: base_address,
@@ -177,7 +166,7 @@ impl<'input, Endian> LocationListIter<'input, Endian>
     }
 
     /// Advance the iterator to the next location.
-    pub fn next(&mut self) -> Result<Option<LocationListEntry<'input, Endian>>> {
+    pub fn next(&mut self) -> Result<Option<LocationListEntry<R>>> {
         loop {
             let mut location = match self.raw.next()? {
                 Some(location) => location,
@@ -202,7 +191,7 @@ impl<'input, Endian> LocationListIter<'input, Endian>
                 .range
                 .add_base_address(self.base_address, self.raw.address_size);
             if location.range.begin > location.range.end {
-                self.raw.input = EndianBuf::new(&[]);
+                self.raw.input.empty();
                 return Err(Error::InvalidLocationAddressRange);
             }
 
@@ -211,10 +200,8 @@ impl<'input, Endian> LocationListIter<'input, Endian>
     }
 }
 
-impl<'input, Endian> FallibleIterator for LocationListIter<'input, Endian>
-    where Endian: Endianity
-{
-    type Item = LocationListEntry<'input, Endian>;
+impl<R: Reader> FallibleIterator for LocationListIter<R> {
+    type Item = LocationListEntry<R>;
     type Error = Error;
 
     fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
@@ -224,35 +211,29 @@ impl<'input, Endian> FallibleIterator for LocationListIter<'input, Endian>
 
 /// A location list entry from the `.debug_loc` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct LocationListEntry<'input, Endian>
-    where Endian: Endianity
-{
+pub struct LocationListEntry<R: Reader> {
     /// The address range that this location is valid for.
     pub range: Range,
 
     /// The data containing a single location description.
-    pub data: EndianBuf<'input, Endian>,
+    pub data: R,
 }
 
-impl<'input, Endian> LocationListEntry<'input, Endian>
-    where Endian: Endianity
-{
+impl<R: Reader> LocationListEntry<R> {
     /// Parse a location list entry from `.debug_loc`.
-    fn parse(input: &mut EndianBuf<'input, Endian>,
-             address_size: u8)
-             -> Result<LocationListEntry<'input, Endian>>
-        where Endian: Endianity
-    {
+    fn parse(input: &mut R, address_size: u8) -> Result<LocationListEntry<R>> {
         let range = Range::parse(input, address_size)?;
         if range.is_end() || range.is_base_address(address_size) {
+            let mut data = input.clone();
+            data.empty();
             let location = LocationListEntry {
                 range: range,
-                data: EndianBuf::new(&[]),
+                data: data,
             };
             Ok(location)
         } else {
-            let len = parse_u16(input)?;
-            let data = take(len as usize, input)?;
+            let len = input.read_u16()?;
+            let data = input.split(len as usize)?;
             let location = LocationListEntry {
                 range: range,
                 data: data,
@@ -300,7 +281,7 @@ mod tests {
             .L32(0);
 
         let buf = section.get_contents().unwrap();
-        let debug_loc = DebugLoc::<LittleEndian>::new(&buf);
+        let debug_loc = DebugLoc::<EndianBuf<LittleEndian>>::new(&buf);
         let offset = DebugLocOffset((&first - &start) as usize);
         let mut locations = debug_loc.locations(offset, 4, 0x01000000).unwrap();
 
@@ -392,7 +373,7 @@ mod tests {
             .L64(0);
 
         let buf = section.get_contents().unwrap();
-        let debug_loc = DebugLoc::<LittleEndian>::new(&buf);
+        let debug_loc = DebugLoc::<EndianBuf<LittleEndian>>::new(&buf);
         let offset = DebugLocOffset((&first - &start) as usize);
         let mut locations = debug_loc.locations(offset, 8, 0x01000000).unwrap();
 
@@ -465,7 +446,7 @@ mod tests {
             .L32(0x20000).L32(0xff010000).L16(4).L32(2);
 
         let buf = section.get_contents().unwrap();
-        let debug_loc = DebugLoc::<LittleEndian>::new(&buf);
+        let debug_loc = DebugLoc::<EndianBuf<LittleEndian>>::new(&buf);
 
         // An invalid location range.
         let mut locations = debug_loc
