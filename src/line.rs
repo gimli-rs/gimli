@@ -42,9 +42,8 @@ impl<R: Reader> DebugLine<R> {
     /// Construct a new `DebugLine` instance from the data in the `.debug_line`
     /// section.
     ///
-    /// It is the caller's responsibility to read the `.debug_line` section and
-    /// present it as a `&[u8]` slice. That means using some ELF loader on
-    /// Linux, a Mach-O loader on OSX, etc.
+    /// It is the caller's responsibility to read the `.debug_line` section.
+    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
     pub fn from_reader(debug_line_section: R) -> Self {
         DebugLine { debug_line_section }
     }

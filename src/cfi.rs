@@ -89,9 +89,8 @@ impl<R: Reader> DebugFrame<R> {
     /// Construct a new `DebugFrame` instance from the data in the
     /// `.debug_frame` section.
     ///
-    /// It is the caller's responsibility to read the section and present it as
-    /// a `&[u8]` slice. That means using some ELF loader on Linux, a Mach-O
-    /// loader on OSX, etc.
+    /// It is the caller's responsibility to read the section.
+    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
     pub fn from_reader(section: R) -> Self {
         DebugFrame(section)
     }
@@ -153,9 +152,8 @@ impl<R: Reader> EhFrame<R> {
     /// Construct a new `EhFrame` instance from the data in the
     /// `.debug_frame` section.
     ///
-    /// It is the caller's responsibility to read the section and present it as
-    /// a `&[u8]` slice. That means using some ELF loader on Linux, a Mach-O
-    /// loader on OSX, etc.
+    /// It is the caller's responsibility to read the section.
+    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
     pub fn from_reader(section: R) -> Self {
         EhFrame(section)
     }

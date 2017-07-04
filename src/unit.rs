@@ -113,10 +113,9 @@ impl<R: Reader> DebugInfo<R> {
     /// Construct a new `DebugInfo` instance from the data in the `.debug_info`
     /// section.
     ///
-    /// It is the caller's responsibility to read the `.debug_info` section and
-    /// present it as a `&[u8]` slice. That means using some ELF loader on
-    /// Linux, a Mach-O loader on OSX, etc.
-    pub fn from_reader(debug_info_section: R) -> DebugInfo<R> {
+    /// It is the caller's responsibility to read the `.debug_info` section.
+    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
+    pub fn from_reader(debug_info_section: R) -> Self {
         DebugInfo { debug_info_section }
     }
 
@@ -2336,10 +2335,9 @@ impl<R: Reader> DebugTypes<R> {
     /// Construct a new `DebugTypes` instance from the data in the `.debug_types`
     /// section.
     ///
-    /// It is the caller's responsibility to read the `.debug_types` section and
-    /// present it as a `&[u8]` slice. That means using some ELF loader on
-    /// Linux, a Mach-O loader on OSX, etc.
-    pub fn from_reader(debug_types_section: R) -> DebugTypes<R> {
+    /// It is the caller's responsibility to read the `.debug_types` section.
+    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
+    pub fn from_reader(debug_types_section: R) -> Self {
         DebugTypes { debug_types_section }
     }
 

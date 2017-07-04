@@ -42,9 +42,8 @@ impl<R: Reader> DebugLoc<R> {
     /// Construct a new `DebugLoc` instance from the data in the `.debug_loc`
     /// section.
     ///
-    /// It is the caller's responsibility to read the `.debug_loc` section and
-    /// present it as a `&[u8]` slice. That means using some ELF loader on
-    /// Linux, a Mach-O loader on OSX, etc.
+    /// It is the caller's responsibility to read the `.debug_loc` section.
+    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
     pub fn from_reader(debug_loc_section: R) -> Self {
         DebugLoc { debug_loc_section }
     }
