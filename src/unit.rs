@@ -368,9 +368,9 @@ impl<R: Reader> CompilationUnitHeader<R> {
     ///
     /// # let read_debug_abbrev_section_somehow = || &abbrev_buf;
     /// let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(read_debug_abbrev_section_somehow());
-    /// let abbrevs_for_unit = unit.abbreviations(debug_abbrev).unwrap();
+    /// let abbrevs_for_unit = unit.abbreviations(&debug_abbrev).unwrap();
     /// ```
-    pub fn abbreviations(&self, debug_abbrev: DebugAbbrev<R>) -> Result<Abbreviations> {
+    pub fn abbreviations(&self, debug_abbrev: &DebugAbbrev<R>) -> Result<Abbreviations> {
         self.header.abbreviations(debug_abbrev)
     }
 
@@ -401,18 +401,14 @@ fn parse_version<R: Reader>(input: &mut R) -> Result<u16> {
 fn parse_debug_abbrev_offset<R: Reader>(input: &mut R,
                                         format: Format)
                                         -> Result<DebugAbbrevOffset> {
-    input
-        .read_offset(format)
-        .map(|offset| DebugAbbrevOffset(offset))
+    input.read_offset(format).map(DebugAbbrevOffset)
 }
 
 /// Parse the `debug_info_offset` in the arange header.
 pub fn parse_debug_info_offset<R: Reader>(input: &mut R,
                                           format: Format)
                                           -> Result<DebugInfoOffset> {
-    input
-        .read_offset(format)
-        .map(|offset| DebugInfoOffset(offset))
+    input.read_offset(format).map(DebugInfoOffset)
 }
 
 /// The common fields for the headers of compilation units and
@@ -616,7 +612,7 @@ impl<R: Reader> UnitHeader<R> {
     }
 
     /// Parse this unit's abbreviations.
-    pub fn abbreviations(&self, debug_abbrev: DebugAbbrev<R>) -> Result<Abbreviations> {
+    pub fn abbreviations(&self, debug_abbrev: &DebugAbbrev<R>) -> Result<Abbreviations> {
         debug_abbrev.abbreviations(self.debug_abbrev_offset())
     }
 }
@@ -702,7 +698,7 @@ impl<'abbrev, 'unit, R: Reader> DebuggingInformationEntry<'abbrev, 'unit, R> {
     /// # ];
     /// # let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&abbrev_buf);
     /// # let unit = debug_info.units().next().unwrap().unwrap();
-    /// # let abbrevs = unit.abbreviations(debug_abbrev).unwrap();
+    /// # let abbrevs = unit.abbreviations(&debug_abbrev).unwrap();
     /// # let mut cursor = unit.entries(&abbrevs);
     /// # let (_, entry) = cursor.next_dfs().unwrap().unwrap();
     /// # let mut get_some_entry = || entry;
@@ -788,7 +784,7 @@ impl<'abbrev, 'unit, R: Reader> DebuggingInformationEntry<'abbrev, 'unit, R> {
     /// # ];
     /// # let read_debug_abbrev_section_somehow = || &abbrev_buf;
     /// let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(read_debug_abbrev_section_somehow());
-    /// let abbrevs = unit.abbreviations(debug_abbrev).unwrap();
+    /// let abbrevs = unit.abbreviations(&debug_abbrev).unwrap();
     ///
     /// // Get the first entry from that compilation unit.
     ///
@@ -1903,7 +1899,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// # let get_some_unit = || debug_info.units().next().unwrap().unwrap();
     ///
     /// let unit = get_some_unit();
-    /// # let get_abbrevs_for_unit = |_| unit.abbreviations(debug_abbrev).unwrap();
+    /// # let get_abbrevs_for_unit = |_| unit.abbreviations(&debug_abbrev).unwrap();
     /// let abbrevs = get_abbrevs_for_unit(&unit);
     ///
     /// let mut first_entry_with_no_children = None;
@@ -2028,7 +2024,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// # let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&abbrev_buf);
     /// #
     /// let unit = get_some_unit();
-    /// # let get_abbrevs_for_unit = |_| unit.abbreviations(debug_abbrev).unwrap();
+    /// # let get_abbrevs_for_unit = |_| unit.abbreviations(&debug_abbrev).unwrap();
     /// let abbrevs = get_abbrevs_for_unit(&unit);
     ///
     /// let mut cursor = unit.entries(&abbrevs);
@@ -2123,7 +2119,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
 /// # let get_some_unit = || debug_info.units().next().unwrap().unwrap();
 /// let unit = get_some_unit();
 /// # let debug_abbrev = gimli::DebugAbbrev::<gimli::EndianBuf<gimli::LittleEndian>>::new(&[]);
-/// # let get_abbrevs_for_unit = |_| unit.abbreviations(debug_abbrev).unwrap();
+/// # let get_abbrevs_for_unit = |_| unit.abbreviations(&debug_abbrev).unwrap();
 /// let abbrevs = get_abbrevs_for_unit(&unit);
 ///
 /// let mut tree = try!(unit.entries_tree(&abbrevs, None));
@@ -2292,14 +2288,12 @@ impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeIter<'abbrev, 'unit, 'tree, R>
 /// Parse a type unit header's unique type signature. Callers should handle
 /// unique-ness checking.
 fn parse_type_signature<R: Reader>(input: &mut R) -> Result<DebugTypeSignature> {
-    input
-        .read_u64()
-        .map(|signature| DebugTypeSignature(signature))
+    input.read_u64().map(DebugTypeSignature)
 }
 
 /// Parse a type unit header's type offset.
 fn parse_type_offset<R: Reader>(input: &mut R, format: Format) -> Result<UnitOffset> {
-    input.read_offset(format).map(|offset| UnitOffset(offset))
+    input.read_offset(format).map(UnitOffset)
 }
 
 /// The `DebugTypes` struct represents the DWARF type information
@@ -2600,9 +2594,9 @@ impl<R: Reader> TypeUnitHeader<R> {
     ///
     /// # let read_debug_abbrev_section_somehow = || &abbrev_buf;
     /// let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(read_debug_abbrev_section_somehow());
-    /// let abbrevs_for_unit = unit.abbreviations(debug_abbrev).unwrap();
+    /// let abbrevs_for_unit = unit.abbreviations(&debug_abbrev).unwrap();
     /// ```
-    pub fn abbreviations(&self, debug_abbrev: DebugAbbrev<R>) -> Result<Abbreviations> {
+    pub fn abbreviations(&self, debug_abbrev: &DebugAbbrev<R>) -> Result<Abbreviations> {
         self.header.abbreviations(debug_abbrev)
     }
 }
@@ -3811,7 +3805,7 @@ mod tests {
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
         let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(abbrevs_buf);
 
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -3845,7 +3839,7 @@ mod tests {
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
         let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(abbrevs_buf);
 
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -3888,7 +3882,7 @@ mod tests {
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
         let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(abbrevs_buf);
 
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -3921,7 +3915,7 @@ mod tests {
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
         let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(abbrevs_buf);
 
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -3958,7 +3952,7 @@ mod tests {
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
         let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(abbrevs_buf);
 
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -4121,7 +4115,7 @@ mod tests {
         let abbrev_buf = entries_cursor_sibling_abbrev_buf();
         let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&abbrev_buf);
 
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -4160,7 +4154,7 @@ mod tests {
         let abbrev_buf = entries_cursor_sibling_abbrev_buf();
         let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&abbrev_buf);
 
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -4181,7 +4175,7 @@ mod tests {
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
         let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(abbrevs_buf);
 
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries_at_offset(&abbrevs, UnitOffset(unit.header_size()))
@@ -4304,7 +4298,7 @@ mod tests {
             .next()
             .expect("Should parse unit")
             .expect("and it should be some");
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
         let mut tree = unit.entries_tree(&abbrevs, None)
             .expect("Should have entries tree");

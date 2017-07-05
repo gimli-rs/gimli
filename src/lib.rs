@@ -37,7 +37,7 @@
 //! let mut iter = debug_info.units();
 //! while let Some(unit) = try!(iter.next()) {
 //!     // Parse the abbreviations for this compilation unit.
-//!     let abbrevs = try!(unit.abbreviations(debug_abbrev));
+//!     let abbrevs = try!(unit.abbreviations(&debug_abbrev));
 //!
 //!     // Iterate over all of this compilation unit's entries.
 //!     let mut entries = unit.entries(&abbrevs);

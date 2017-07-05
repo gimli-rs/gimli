@@ -38,7 +38,7 @@ fn bench_parsing_debug_abbrev(b: &mut test::Bencher) {
 
     b.iter(|| {
                let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
-               test::black_box(unit.abbreviations(debug_abbrev)
+               test::black_box(unit.abbreviations(&debug_abbrev)
                                    .expect("Should parse abbreviations"));
            });
 }
@@ -55,7 +55,7 @@ fn bench_parsing_debug_info(b: &mut test::Bencher) {
 
         let mut iter = debug_info.units();
         while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-            let abbrevs = unit.abbreviations(debug_abbrev)
+            let abbrevs = unit.abbreviations(&debug_abbrev)
                 .expect("Should parse abbreviations");
 
             let mut cursor = unit.entries(&abbrevs);
@@ -81,7 +81,7 @@ fn bench_parsing_debug_info_tree(b: &mut test::Bencher) {
 
         let mut iter = debug_info.units();
         while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-            let abbrevs = unit.abbreviations(debug_abbrev)
+            let abbrevs = unit.abbreviations(&debug_abbrev)
                 .expect("Should parse abbreviations");
 
             let mut tree = unit.entries_tree(&abbrevs, None)
@@ -201,7 +201,7 @@ fn bench_parsing_debug_loc(b: &mut test::Bencher) {
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -255,7 +255,7 @@ fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -428,7 +428,7 @@ mod cfi {
             .expect("fold over instructions OK")
     }
 
-    fn get_fde_with_longest_cfi_instructions<R: Reader>(eh_frame: EhFrame<R>)
+    fn get_fde_with_longest_cfi_instructions<R: Reader>(eh_frame: &EhFrame<R>)
                                                         -> FrameDescriptionEntry<R, EhFrame<R>> {
         let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
 
@@ -464,7 +464,7 @@ mod cfi {
     fn parse_longest_fde_instructions(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
         let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
-        let fde = get_fde_with_longest_cfi_instructions(eh_frame);
+        let fde = get_fde_with_longest_cfi_instructions(&eh_frame);
 
         b.iter(|| {
                    let mut instrs = fde.instructions();
@@ -478,7 +478,7 @@ mod cfi {
     fn eval_longest_fde_instructions_new_ctx_everytime(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
         let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
-        let fde = get_fde_with_longest_cfi_instructions(eh_frame);
+        let fde = get_fde_with_longest_cfi_instructions(&eh_frame);
 
         b.iter(|| {
             let mut ctx = UninitializedUnwindContext::new()
@@ -496,7 +496,7 @@ mod cfi {
     fn eval_longest_fde_instructions_same_ctx(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
         let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
-        let fde = get_fde_with_longest_cfi_instructions(eh_frame);
+        let fde = get_fde_with_longest_cfi_instructions(&eh_frame);
 
         let mut ctx = Some(UninitializedUnwindContext::new());
 

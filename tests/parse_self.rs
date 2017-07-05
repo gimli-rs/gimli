@@ -35,7 +35,7 @@ fn test_parse_self_debug_info() {
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -65,7 +65,7 @@ fn test_parse_self_debug_line() {
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -137,7 +137,7 @@ fn test_parse_self_debug_loc() {
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -185,7 +185,7 @@ fn test_parse_self_debug_ranges() {
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);

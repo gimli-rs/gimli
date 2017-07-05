@@ -9,6 +9,7 @@ use std::io::Read;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
+use std::str;
 use parser::{Error, Result};
 use reader::Reader;
 
@@ -354,6 +355,24 @@ impl<'input, Endian> Reader for EndianBuf<'input, Endian>
     }
 
     #[inline]
+    fn to_slice(&self) -> Cow<[u8]> {
+        Cow::from(self.buf)
+    }
+
+    #[inline]
+    fn to_string(&self) -> Result<Cow<str>> {
+        match str::from_utf8(self.buf) {
+            Ok(s) => Ok(Cow::from(s)),
+            _ => Err(Error::BadUtf8),
+        }
+    }
+
+    #[inline]
+    fn to_string_lossy(&self) -> Cow<str> {
+        String::from_utf8_lossy(self.buf)
+    }
+
+    #[inline]
     fn read_u8_array<A>(&mut self) -> Result<A>
         where A: Sized + Default + AsMut<[u8]>
     {
@@ -379,37 +398,37 @@ impl<'input, Endian> Reader for EndianBuf<'input, Endian>
     #[inline]
     fn read_u16(&mut self) -> Result<u16> {
         let slice = self.read_slice(2)?;
-        Ok(Endian::read_u16(&slice))
+        Ok(Endian::read_u16(slice))
     }
 
     #[inline]
     fn read_i16(&mut self) -> Result<i16> {
         let slice = self.read_slice(2)?;
-        Ok(Endian::read_i16(&slice))
+        Ok(Endian::read_i16(slice))
     }
 
     #[inline]
     fn read_u32(&mut self) -> Result<u32> {
         let slice = self.read_slice(4)?;
-        Ok(Endian::read_u32(&slice))
+        Ok(Endian::read_u32(slice))
     }
 
     #[inline]
     fn read_i32(&mut self) -> Result<i32> {
         let slice = self.read_slice(4)?;
-        Ok(Endian::read_i32(&slice))
+        Ok(Endian::read_i32(slice))
     }
 
     #[inline]
     fn read_u64(&mut self) -> Result<u64> {
         let slice = self.read_slice(8)?;
-        Ok(Endian::read_u64(&slice))
+        Ok(Endian::read_u64(slice))
     }
 
     #[inline]
     fn read_i64(&mut self) -> Result<i64> {
         let slice = self.read_slice(8)?;
-        Ok(Endian::read_i64(&slice))
+        Ok(Endian::read_i64(slice))
     }
 }
 
