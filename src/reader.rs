@@ -1,7 +1,5 @@
 use std::borrow::Cow;
 use std::fmt::Debug;
-use std::io;
-use std::io::Read;
 
 use endianity::Endianity;
 use leb128;
@@ -12,7 +10,7 @@ use parser::{Error, Result, Format, u64_to_offset};
 /// All read operations advance the section offset of the reader
 /// unless specified otherwise.
 ///
-pub trait Reader: Debug + Clone + Read {
+pub trait Reader: Debug + Clone {
     /// The endianity of bytes that are read.
     type Endian: Endianity;
 
@@ -114,26 +112,12 @@ pub trait Reader: Debug + Clone + Read {
 
     /// Read an unsigned LEB128 encoded integer.
     fn read_uleb128(&mut self) -> Result<u64> {
-        match leb128::read::unsigned(self) {
-            Ok(val) => Ok(val),
-            Err(leb128::read::Error::IoError(ref e)) if e.kind() ==
-                                                        io::ErrorKind::UnexpectedEof => {
-                Err(Error::UnexpectedEof)
-            }
-            Err(_) => Err(Error::BadUnsignedLeb128),
-        }
+        leb128::read::unsigned(self)
     }
 
     /// Read a signed LEB128 encoded integer.
     fn read_sleb128(&mut self) -> Result<i64> {
-        match leb128::read::signed(self) {
-            Ok(val) => Ok(val),
-            Err(leb128::read::Error::IoError(ref e)) if e.kind() ==
-                                                        io::ErrorKind::UnexpectedEof => {
-                Err(Error::UnexpectedEof)
-            }
-            Err(_) => Err(Error::BadSignedLeb128),
-        }
+        leb128::read::signed(self)
     }
 
     /// Read an address-sized integer, and return it as a `u64`.
