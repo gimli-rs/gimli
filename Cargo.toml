@@ -13,7 +13,6 @@ version = "0.13.0"
 arrayvec = "0.3.20"
 byteorder = "0.5.3"
 fallible-iterator = "0.1.2"
-leb128 = "0.2.1"
 
 [dev-dependencies]
 getopts = "0.2"

@@ -2,10 +2,7 @@
 
 use byteorder;
 use std::borrow::Cow;
-use std::cmp;
 use std::fmt::Debug;
-use std::io;
-use std::io::Read;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
@@ -284,17 +281,6 @@ impl<'input, Endian> Into<&'input [u8]> for EndianBuf<'input, Endian>
 {
     fn into(self) -> &'input [u8] {
         self.buf
-    }
-}
-
-impl<'input, Endian> Read for EndianBuf<'input, Endian>
-    where Endian: Endianity
-{
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let len = cmp::min(buf.len(), self.buf.len());
-        buf[..len].copy_from_slice(&self.buf[..len]);
-        self.buf = &self.buf[len..];
-        Ok(len)
     }
 }
 
