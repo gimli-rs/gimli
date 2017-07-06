@@ -1,8 +1,8 @@
 #![allow(missing_docs)]
 
-extern crate leb128;
 extern crate test_assembler;
 
+use leb128;
 use self::test_assembler::{Endian, Section, ToLabelOrNum};
 
 pub trait GimliSectionMethods {

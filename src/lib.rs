@@ -160,7 +160,6 @@
 extern crate arrayvec;
 extern crate byteorder;
 extern crate fallible_iterator;
-extern crate leb128;
 
 mod cfi;
 pub use cfi::*;
@@ -170,6 +169,8 @@ pub use constants::*;
 
 mod endianity;
 pub use endianity::{Endianity, EndianBuf, LittleEndian, BigEndian, NativeEndian};
+
+pub mod leb128;
 
 mod parser;
 pub use parser::{Error, Result, Format};
