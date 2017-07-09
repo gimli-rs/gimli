@@ -107,26 +107,25 @@ fn main() {
 fn dump_file<Endian>(file: &object::File, flags: &Flags)
     where Endian: gimli::Endianity
 {
-    let debug_abbrev = file.get_section(".debug_abbrev").unwrap_or(&[]);
-    let debug_abbrev = &gimli::DebugAbbrev::<gimli::EndianBuf<Endian>>::new(debug_abbrev);
-    let debug_aranges = file.get_section(".debug_aranges").unwrap_or(&[]);
-    let debug_aranges = &gimli::DebugAranges::<gimli::EndianBuf<Endian>>::new(debug_aranges);
-    let debug_info = file.get_section(".debug_info").unwrap_or(&[]);
-    let debug_info = &gimli::DebugInfo::<gimli::EndianBuf<Endian>>::new(debug_info);
-    let debug_line = file.get_section(".debug_line").unwrap_or(&[]);
-    let debug_line = &gimli::DebugLine::<gimli::EndianBuf<Endian>>::new(debug_line);
-    let debug_loc = file.get_section(".debug_loc").unwrap_or(&[]);
-    let debug_loc = &gimli::DebugLoc::<gimli::EndianBuf<Endian>>::new(debug_loc);
-    let debug_pubnames = file.get_section(".debug_pubnames").unwrap_or(&[]);
-    let debug_pubnames = &gimli::DebugPubNames::<gimli::EndianBuf<Endian>>::new(debug_pubnames);
-    let debug_pubtypes = file.get_section(".debug_pubtypes").unwrap_or(&[]);
-    let debug_pubtypes = &gimli::DebugPubTypes::<gimli::EndianBuf<Endian>>::new(debug_pubtypes);
-    let debug_ranges = file.get_section(".debug_ranges").unwrap_or(&[]);
-    let debug_ranges = &gimli::DebugRanges::<gimli::EndianBuf<Endian>>::new(debug_ranges);
-    let debug_str = file.get_section(".debug_str").unwrap_or(&[]);
-    let debug_str = &gimli::DebugStr::<gimli::EndianBuf<Endian>>::new(debug_str);
-    let debug_types = file.get_section(".debug_types").unwrap_or(&[]);
-    let debug_types = &gimli::DebugTypes::<gimli::EndianBuf<Endian>>::new(debug_types);
+    fn load_section<'input, 'file, S, Endian>(file: &'file object::File<'input>) -> S
+        where S: gimli::Section<gimli::EndianBuf<'input, Endian>>,
+              Endian: gimli::Endianity,
+              'file: 'input
+    {
+        let data = file.get_section(S::section_name()).unwrap_or(&[]);
+        S::from(gimli::EndianBuf::new(data))
+    }
+
+    let debug_abbrev: &gimli::DebugAbbrev<_> = &load_section::<_, Endian>(file);
+    let debug_aranges: &gimli::DebugAranges<_> = &load_section(file);
+    let debug_info: &gimli::DebugInfo<_> = &load_section(file);
+    let debug_line: &gimli::DebugLine<_> = &load_section(file);
+    let debug_loc: &gimli::DebugLoc<_> = &load_section(file);
+    let debug_pubnames: &gimli::DebugPubNames<_> = &load_section(file);
+    let debug_pubtypes: &gimli::DebugPubTypes<_> = &load_section(file);
+    let debug_ranges: &gimli::DebugRanges<_> = &load_section(file);
+    let debug_str: &gimli::DebugStr<_> = &load_section(file);
+    let debug_types: &gimli::DebugTypes<_> = &load_section(file);
 
     if flags.info {
         dump_info(debug_info,
