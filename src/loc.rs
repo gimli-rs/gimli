@@ -34,20 +34,11 @@ impl<'input, Endian> DebugLoc<EndianBuf<'input, Endian>>
     /// let debug_loc = DebugLoc::<EndianBuf<LittleEndian>>::new(read_debug_loc_section_somehow());
     /// ```
     pub fn new(debug_loc_section: &'input [u8]) -> Self {
-        Self::from_reader(EndianBuf::new(debug_loc_section))
+        Self::from(EndianBuf::new(debug_loc_section))
     }
 }
 
 impl<R: Reader> DebugLoc<R> {
-    /// Construct a new `DebugLoc` instance from the data in the `.debug_loc`
-    /// section.
-    ///
-    /// It is the caller's responsibility to read the `.debug_loc` section.
-    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
-    pub fn from_reader(debug_loc_section: R) -> Self {
-        DebugLoc { debug_loc_section }
-    }
-
     /// Iterate over the `LocationListEntry`s starting at the given offset.
     ///
     /// The `address_size` must be match the compilation unit for this location list.
@@ -86,19 +77,15 @@ impl<R: Reader> DebugLoc<R> {
     }
 }
 
-impl<'input, Endian> Section<'input> for DebugLoc<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
+impl<R: Reader> Section<R> for DebugLoc<R> {
     fn section_name() -> &'static str {
         ".debug_loc"
     }
 }
 
-impl<'input, Endian> From<&'input [u8]> for DebugLoc<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
-    fn from(v: &'input [u8]) -> Self {
-        Self::new(v)
+impl<R: Reader> From<R> for DebugLoc<R> {
+    fn from(debug_loc_section: R) -> Self {
+        DebugLoc { debug_loc_section }
     }
 }
 

@@ -34,20 +34,11 @@ impl<'input, Endian> DebugLine<EndianBuf<'input, Endian>>
     /// let debug_line = DebugLine::<EndianBuf<LittleEndian>>::new(read_debug_line_section_somehow());
     /// ```
     pub fn new(debug_line_section: &'input [u8]) -> DebugLine<EndianBuf<'input, Endian>> {
-        Self::from_reader(EndianBuf::new(debug_line_section))
+        Self::from(EndianBuf::new(debug_line_section))
     }
 }
 
 impl<R: Reader> DebugLine<R> {
-    /// Construct a new `DebugLine` instance from the data in the `.debug_line`
-    /// section.
-    ///
-    /// It is the caller's responsibility to read the `.debug_line` section.
-    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
-    pub fn from_reader(debug_line_section: R) -> Self {
-        DebugLine { debug_line_section }
-    }
-
     /// Parse the line number program whose header is at the given `offset` in the
     /// `.debug_line` section.
     ///
@@ -86,19 +77,15 @@ impl<R: Reader> DebugLine<R> {
     }
 }
 
-impl<'input, Endian> Section<'input> for DebugLine<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
+impl<R: Reader> Section<R> for DebugLine<R> {
     fn section_name() -> &'static str {
         ".debug_line"
     }
 }
 
-impl<'input, Endian> From<&'input [u8]> for DebugLine<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
-    fn from(v: &'input [u8]) -> Self {
-        Self::new(v)
+impl<R: Reader> From<R> for DebugLine<R> {
+    fn from(debug_line_section: R) -> Self {
+        DebugLine { debug_line_section }
     }
 }
 

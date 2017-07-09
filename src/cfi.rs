@@ -81,34 +81,19 @@ impl<'input, Endian> DebugFrame<EndianBuf<'input, Endian>>
     /// let debug_frame = DebugFrame::<EndianBuf<NativeEndian>>::new(read_debug_frame_section_somehow());
     /// ```
     pub fn new(section: &'input [u8]) -> Self {
-        Self::from_reader(EndianBuf::new(section))
+        Self::from(EndianBuf::new(section))
     }
 }
 
-impl<R: Reader> DebugFrame<R> {
-    /// Construct a new `DebugFrame` instance from the data in the
-    /// `.debug_frame` section.
-    ///
-    /// It is the caller's responsibility to read the section.
-    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
-    pub fn from_reader(section: R) -> Self {
-        DebugFrame(section)
-    }
-}
-
-impl<'input, Endian> Section<'input> for DebugFrame<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
+impl<R: Reader> Section<R> for DebugFrame<R> {
     fn section_name() -> &'static str {
         ".debug_frame"
     }
 }
 
-impl<'input, Endian> From<&'input [u8]> for DebugFrame<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
-    fn from(v: &'input [u8]) -> Self {
-        Self::new(v)
+impl<R: Reader> From<R> for DebugFrame<R> {
+    fn from(section: R) -> Self {
+        DebugFrame(section)
     }
 }
 
@@ -144,34 +129,19 @@ impl<'input, Endian> EhFrame<EndianBuf<'input, Endian>>
     /// let debug_frame = EhFrame::<EndianBuf<NativeEndian>>::new(read_debug_frame_section_somehow());
     /// ```
     pub fn new(section: &'input [u8]) -> Self {
-        Self::from_reader(EndianBuf::new(section))
+        Self::from(EndianBuf::new(section))
     }
 }
 
-impl<R: Reader> EhFrame<R> {
-    /// Construct a new `EhFrame` instance from the data in the
-    /// `.debug_frame` section.
-    ///
-    /// It is the caller's responsibility to read the section.
-    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
-    pub fn from_reader(section: R) -> Self {
-        EhFrame(section)
-    }
-}
-
-impl<'input, Endian> Section<'input> for EhFrame<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
+impl<R: Reader> Section<R> for EhFrame<R> {
     fn section_name() -> &'static str {
         ".eh_frame"
     }
 }
 
-impl<'input, Endian> From<&'input [u8]> for EhFrame<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
-    fn from(v: &'input [u8]) -> Self {
-        Self::new(v)
+impl<R: Reader> From<R> for EhFrame<R> {
+    fn from(section: R) -> Self {
+        EhFrame(section)
     }
 }
 

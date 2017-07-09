@@ -33,20 +33,11 @@ impl<'input, Endian> DebugRanges<EndianBuf<'input, Endian>>
     /// let debug_ranges = DebugRanges::<EndianBuf<LittleEndian>>::new(read_debug_ranges_section_somehow());
     /// ```
     pub fn new(debug_ranges_section: &'input [u8]) -> Self {
-        Self::from_reader(EndianBuf::new(debug_ranges_section))
+        Self::from(EndianBuf::new(debug_ranges_section))
     }
 }
 
 impl<R: Reader> DebugRanges<R> {
-    /// Construct a new `DebugRanges` instance from the data in the `.debug_ranges`
-    /// section.
-    ///
-    /// It is the caller's responsibility to read the `.debug_ranges` section.
-    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
-    pub fn from_reader(debug_ranges_section: R) -> Self {
-        DebugRanges { debug_ranges_section }
-    }
-
     /// Iterate over the `Range` list entries starting at the given offset.
     ///
     /// The `address_size` must be match the compilation unit for this range list.
@@ -84,19 +75,15 @@ impl<R: Reader> DebugRanges<R> {
     }
 }
 
-impl<'input, Endian> Section<'input> for DebugRanges<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
+impl<R: Reader> Section<R> for DebugRanges<R> {
     fn section_name() -> &'static str {
         ".debug_ranges"
     }
 }
 
-impl<'input, Endian> From<&'input [u8]> for DebugRanges<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
-    fn from(v: &'input [u8]) -> Self {
-        Self::new(v)
+impl<R: Reader> From<R> for DebugRanges<R> {
+    fn from(debug_ranges_section: R) -> Self {
+        DebugRanges { debug_ranges_section }
     }
 }
 

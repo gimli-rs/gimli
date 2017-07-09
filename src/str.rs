@@ -32,20 +32,11 @@ impl<'input, Endian> DebugStr<EndianBuf<'input, Endian>>
     /// let debug_str = DebugStr::<EndianBuf<LittleEndian>>::new(read_debug_str_section_somehow());
     /// ```
     pub fn new(debug_str_section: &'input [u8]) -> Self {
-        Self::from_reader(EndianBuf::new(debug_str_section))
+        Self::from(EndianBuf::new(debug_str_section))
     }
 }
 
 impl<R: Reader> DebugStr<R> {
-    /// Construct a new `DebugStr` instance from the data in the `.debug_str`
-    /// section.
-    ///
-    /// It is the caller's responsibility to read the `.debug_str` section.
-    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
-    pub fn from_reader(debug_str_section: R) -> Self {
-        DebugStr { debug_str_section }
-    }
-
     /// Lookup a string from the `.debug_str` section by DebugStrOffset.
     ///
     /// ```
@@ -65,18 +56,14 @@ impl<R: Reader> DebugStr<R> {
     }
 }
 
-impl<'input, Endian> Section<'input> for DebugStr<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
+impl<R: Reader> Section<R> for DebugStr<R> {
     fn section_name() -> &'static str {
         ".debug_str"
     }
 }
 
-impl<'input, Endian> From<&'input [u8]> for DebugStr<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
-    fn from(v: &'input [u8]) -> Self {
-        Self::new(v)
+impl<R: Reader> From<R> for DebugStr<R> {
+    fn from(debug_str_section: R) -> Self {
+        DebugStr { debug_str_section }
     }
 }
