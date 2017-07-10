@@ -54,11 +54,8 @@ impl<R, Parser> DebugLookup<R, Parser>
           Parser: LookupParser<R>
 {
     pub fn items(&self) -> LookupEntryIter<R, Parser> {
-        let mut current_set = self.input_buffer.clone();
-        current_set.empty();
         LookupEntryIter {
-            current_header: None,
-            current_set: current_set,
+            current_set: None,
             remaining_input: self.input_buffer.clone(),
         }
     }
@@ -69,8 +66,7 @@ pub struct LookupEntryIter<R, Parser>
     where R: Reader,
           Parser: LookupParser<R>
 {
-    current_header: Option<Parser::Header>, // Only none at the very beginning and end.
-    current_set: R,
+    current_set: Option<(R, Parser::Header)>, // Only none at the very beginning and end.
     remaining_input: R,
 }
 
@@ -87,25 +83,19 @@ impl<R, Parser> LookupEntryIter<R, Parser>
     ///
     /// Can be [used with `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn next(&mut self) -> Result<Option<Parser::Entry>> {
-        if self.current_set.is_empty() {
+        loop {
+            if let Some((ref mut input, ref header)) = self.current_set {
+                if !input.is_empty() {
+                    if let Some(entry) = Parser::parse_entry(input, header)? {
+                        return Ok(Some(entry));
+                    }
+                }
+            }
             if self.remaining_input.is_empty() {
-                self.current_header = None;
-                Ok(None)
-            } else {
-                // Parse the next header.
-                let (set, header) = Parser::parse_header(&mut self.remaining_input)?;
-                self.current_set = set;
-                self.current_header = Some(header);
-                // Header is parsed, go parse the first entry.
-                self.next()
+                self.current_set = None;
+                return Ok(None);
             }
-        } else {
-            let entry = Parser::parse_entry(&mut self.current_set,
-                                            self.current_header.as_ref().unwrap())?;
-            match entry {
-                None => self.next(),
-                Some(entry) => Ok(Some(entry)),
-            }
+            self.current_set = Some(Parser::parse_header(&mut self.remaining_input)?);
         }
     }
 }
