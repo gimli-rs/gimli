@@ -76,10 +76,10 @@
 //!
 //!   * [`DebugLoc`](./struct.DebugLoc.html): The `.debug_loc` section.
 //!
-//!   * [`DebugPubNames`](./type.DebugPubNames.html): The `.debug_pubnames`
+//!   * [`DebugPubNames`](./struct.DebugPubNames.html): The `.debug_pubnames`
 //!   section.
 //!
-//!   * [`DebugPubTypes`](./type.DebugPubTypes.html): The `.debug_pubtypes`
+//!   * [`DebugPubTypes`](./struct.DebugPubTypes.html): The `.debug_pubtypes`
 //!   section.
 //!
 //!   * [`DebugRanges`](./struct.DebugRanges.html): The `.debug_ranges` section.

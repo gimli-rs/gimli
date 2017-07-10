@@ -1,5 +1,3 @@
-use endianity::{Endianity, EndianBuf};
-use fallible_iterator::FallibleIterator;
 use parser::{parse_initial_length, Format, Result, Error};
 use reader::Reader;
 use std::marker::PhantomData;
@@ -30,7 +28,6 @@ pub trait LookupParser<R: Reader> {
     fn parse_entry(input: &mut R, header: &Self::Header) -> Result<Option<Self::Entry>>;
 }
 
-#[allow(missing_docs)]
 #[derive(Clone, Debug)]
 pub struct DebugLookup<R, Parser>
     where R: Reader,
@@ -38,16 +35,6 @@ pub struct DebugLookup<R, Parser>
 {
     input_buffer: R,
     phantom: PhantomData<Parser>,
-}
-
-impl<'input, Endian, Parser> DebugLookup<EndianBuf<'input, Endian>, Parser>
-    where Endian: Endianity,
-          Parser: LookupParser<EndianBuf<'input, Endian>>
-{
-    #[allow(missing_docs)]
-    pub fn new(input_buffer: &'input [u8]) -> Self {
-        Self::from(EndianBuf::new(input_buffer))
-    }
 }
 
 impl<R, Parser> From<R> for DebugLookup<R, Parser>
@@ -66,7 +53,6 @@ impl<R, Parser> DebugLookup<R, Parser>
     where R: Reader,
           Parser: LookupParser<R>
 {
-    #[allow(missing_docs)]
     pub fn items(&self) -> LookupEntryIter<R, Parser> {
         let mut current_set = self.input_buffer.clone();
         current_set.empty();
@@ -78,7 +64,6 @@ impl<R, Parser> DebugLookup<R, Parser>
     }
 }
 
-#[allow(missing_docs)]
 #[derive(Clone, Debug)]
 pub struct LookupEntryIter<R, Parser>
     where R: Reader,
@@ -122,18 +107,6 @@ impl<R, Parser> LookupEntryIter<R, Parser>
                 Some(entry) => Ok(Some(entry)),
             }
         }
-    }
-}
-
-impl<R, Parser> FallibleIterator for LookupEntryIter<R, Parser>
-    where R: Reader,
-          Parser: LookupParser<R>
-{
-    type Item = Parser::Entry;
-    type Error = Error;
-
-    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
-        LookupEntryIter::next(self)
     }
 }
 
