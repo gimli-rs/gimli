@@ -46,7 +46,19 @@ impl<'input, Endian, Parser> DebugLookup<EndianBuf<'input, Endian>, Parser>
 {
     #[allow(missing_docs)]
     pub fn new(input_buffer: &'input [u8]) -> Self {
-        Self::from_reader(EndianBuf::new(input_buffer))
+        Self::from(EndianBuf::new(input_buffer))
+    }
+}
+
+impl<R, Parser> From<R> for DebugLookup<R, Parser>
+    where R: Reader,
+          Parser: LookupParser<R>
+{
+    fn from(input_buffer: R) -> Self {
+        DebugLookup {
+            input_buffer: input_buffer,
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -54,14 +66,6 @@ impl<R, Parser> DebugLookup<R, Parser>
     where R: Reader,
           Parser: LookupParser<R>
 {
-    #[allow(missing_docs)]
-    pub fn from_reader(input_buffer: R) -> Self {
-        DebugLookup {
-            input_buffer: input_buffer,
-            phantom: PhantomData,
-        }
-    }
-
     #[allow(missing_docs)]
     pub fn items(&self) -> LookupEntryIter<R, Parser> {
         let mut current_set = self.input_buffer.clone();

@@ -1,4 +1,3 @@
-use endianity::{Endianity, EndianBuf};
 use lookup::{PubStuffParser, LookupEntryIter, DebugLookup, NamesOrTypesSwitch};
 use parser::{Format, Result};
 use reader::Reader;
@@ -108,11 +107,6 @@ impl<R: Reader> NamesOrTypesSwitch<R> for NamesSwitch<R> {
 ///       DebugPubNames::<EndianBuf<LittleEndian>>::new(read_debug_pubnames_section_somehow());
 ///   ```
 ///
-/// * `from_reader(input: R) -> DebugPubNames<R>`
-///
-///   Construct a new `DebugPubNames` instance from the data in the `.debug_pubnames`
-///   section.
-///
 /// * `items(&self) -> PubNamesEntryIter<R>`
 ///
 ///   Iterate the pubnames in the `.debug_pubnames` section.
@@ -133,19 +127,9 @@ impl<R: Reader> NamesOrTypesSwitch<R> for NamesSwitch<R> {
 pub type DebugPubNames<R> = DebugLookup<R, PubStuffParser<R, NamesSwitch<R>>>;
 
 
-impl<'input, Endian> Section<'input> for DebugPubNames<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
+impl<R: Reader> Section<R> for DebugPubNames<R> {
     fn section_name() -> &'static str {
         ".debug_pubnames"
-    }
-}
-
-impl<'input, Endian> From<&'input [u8]> for DebugPubNames<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
-    fn from(v: &'input [u8]) -> Self {
-        Self::new(v)
     }
 }
 

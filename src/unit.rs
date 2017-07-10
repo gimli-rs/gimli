@@ -105,20 +105,11 @@ impl<'input, Endian> DebugInfo<EndianBuf<'input, Endian>>
     /// let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(read_debug_info_section_somehow());
     /// ```
     pub fn new(debug_info_section: &'input [u8]) -> Self {
-        Self::from_reader(EndianBuf::new(debug_info_section))
+        Self::from(EndianBuf::new(debug_info_section))
     }
 }
 
 impl<R: Reader> DebugInfo<R> {
-    /// Construct a new `DebugInfo` instance from the data in the `.debug_info`
-    /// section.
-    ///
-    /// It is the caller's responsibility to read the `.debug_info` section.
-    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
-    pub fn from_reader(debug_info_section: R) -> Self {
-        DebugInfo { debug_info_section }
-    }
-
     /// Iterate the compilation- and partial-units in this
     /// `.debug_info` section.
     ///
@@ -154,19 +145,15 @@ impl<R: Reader> DebugInfo<R> {
     }
 }
 
-impl<'input, Endian> Section<'input> for DebugInfo<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
+impl<R: Reader> Section<R> for DebugInfo<R> {
     fn section_name() -> &'static str {
         ".debug_info"
     }
 }
 
-impl<'input, Endian> From<&'input [u8]> for DebugInfo<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
-    fn from(v: &'input [u8]) -> Self {
-        Self::new(v)
+impl<R: Reader> From<R> for DebugInfo<R> {
+    fn from(debug_info_section: R) -> Self {
+        DebugInfo { debug_info_section }
     }
 }
 
@@ -2321,20 +2308,24 @@ impl<'input, Endian> DebugTypes<EndianBuf<'input, Endian>>
     /// let debug_types = DebugTypes::<EndianBuf<LittleEndian>>::new(read_debug_types_section_somehow());
     /// ```
     pub fn new(debug_types_section: &'input [u8]) -> Self {
-        Self::from_reader(EndianBuf::new(debug_types_section))
+        Self::from(EndianBuf::new(debug_types_section))
     }
 }
 
-impl<R: Reader> DebugTypes<R> {
-    /// Construct a new `DebugTypes` instance from the data in the `.debug_types`
-    /// section.
-    ///
-    /// It is the caller's responsibility to read the `.debug_types` section.
-    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
-    pub fn from_reader(debug_types_section: R) -> Self {
+impl<R: Reader> Section<R> for DebugTypes<R> {
+    fn section_name() -> &'static str {
+        ".debug_types"
+    }
+}
+
+impl<R: Reader> From<R> for DebugTypes<R> {
+    fn from(debug_types_section: R) -> Self {
         DebugTypes { debug_types_section }
     }
+}
 
+
+impl<R: Reader> DebugTypes<R> {
     /// Iterate the type-units in this `.debug_types` section.
     ///
     /// ```

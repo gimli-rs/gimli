@@ -38,20 +38,11 @@ impl<'input, Endian> DebugAbbrev<EndianBuf<'input, Endian>>
     /// let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(read_debug_abbrev_section_somehow());
     /// ```
     pub fn new(debug_abbrev_section: &'input [u8]) -> Self {
-        Self::from_reader(EndianBuf::new(debug_abbrev_section))
+        Self::from(EndianBuf::new(debug_abbrev_section))
     }
 }
 
 impl<R: Reader> DebugAbbrev<R> {
-    /// Construct a new `DebugAbbrev` instance from the data in the `.debug_abbrev`
-    /// section.
-    ///
-    /// It is the caller's responsibility to read the `.debug_abbrev` section.
-    /// That means using some ELF loader on Linux, a Mach-O loader on OSX, etc.
-    pub fn from_reader(debug_abbrev_section: R) -> Self {
-        DebugAbbrev { debug_abbrev_section }
-    }
-
     /// Parse the abbreviations at the given `offset` within this
     /// `.debug_abbrev` section.
     ///
@@ -63,19 +54,15 @@ impl<R: Reader> DebugAbbrev<R> {
     }
 }
 
-impl<'input, Endian> Section<'input> for DebugAbbrev<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
+impl<R: Reader> Section<R> for DebugAbbrev<R> {
     fn section_name() -> &'static str {
         ".debug_abbrev"
     }
 }
 
-impl<'input, Endian> From<&'input [u8]> for DebugAbbrev<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
-    fn from(v: &'input [u8]) -> Self {
-        Self::new(v)
+impl<R: Reader> From<R> for DebugAbbrev<R> {
+    fn from(debug_abbrev_section: R) -> Self {
+        DebugAbbrev { debug_abbrev_section }
     }
 }
 

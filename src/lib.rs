@@ -224,20 +224,21 @@ pub use unit::{AttrsIter, Attribute, AttributeValue};
 /// used like:
 ///
 /// ```
-/// use gimli::{DebugInfo, EndianBuf, LittleEndian, Section};
+/// use gimli::{DebugInfo, EndianBuf, LittleEndian, Reader, Section};
 ///
-/// fn load_section<'a, S, F>(loader: F) -> S
-///   where S: Section<'a>, F: FnOnce(&'static str) -> &'a [u8]
+/// fn load_section<R, S, F>(loader: F) -> S
+///   where R: Reader, S: Section<R>, F: FnOnce(&'static str) -> R
 /// {
 ///   let data = loader(S::section_name());
 ///   S::from(data)
 /// }
 ///
 /// let buf = [0x00, 0x01, 0x02, 0x03];
+/// let reader = EndianBuf::<LittleEndian>::new(&buf);
 ///
-/// let debug_info: DebugInfo<EndianBuf<LittleEndian>> = load_section(|_: &'static str| &buf);
+/// let debug_info: DebugInfo<_> = load_section(|_: &'static str| reader);
 /// ```
-pub trait Section<'input>: From<&'input [u8]> {
+pub trait Section<R: Reader>: From<R> {
     /// Returns the ELF section name for this type.
     fn section_name() -> &'static str;
 }

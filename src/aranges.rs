@@ -1,4 +1,3 @@
-use endianity::{Endianity, EndianBuf};
 use lookup::{LookupParser, LookupEntryIter, DebugLookup};
 use parser::{parse_initial_length, Error, Format, Result};
 use reader::Reader;
@@ -187,11 +186,6 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
 ///   let debug_aranges = DebugAranges::<EndianBuf<LittleEndian>>::new(read_debug_aranges_section());
 ///   ```
 ///
-/// * `from_reader(input: R) -> DebugAranges<R>`
-///
-///   Construct a new `DebugAranges` instance from the data in the `.debug_aranges`
-///   section.
-///
 /// * `items(&self) -> ArangeEntryIter<R>`
 ///
 ///   Iterate the aranges in the `.debug_aranges` section.
@@ -210,19 +204,9 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
 ///   ```
 pub type DebugAranges<R> = DebugLookup<R, ArangeParser<R>>;
 
-impl<'input, Endian> Section<'input> for DebugAranges<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
+impl<R: Reader> Section<R> for DebugAranges<R> {
     fn section_name() -> &'static str {
         ".debug_aranges"
-    }
-}
-
-impl<'input, Endian> From<&'input [u8]> for DebugAranges<EndianBuf<'input, Endian>>
-    where Endian: Endianity
-{
-    fn from(v: &'input [u8]) -> Self {
-        Self::new(v)
     }
 }
 
