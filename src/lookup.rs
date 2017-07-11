@@ -1,6 +1,7 @@
 use parser::{parse_initial_length, Format, Result, Error};
 use reader::Reader;
 use std::marker::PhantomData;
+use unit::{DebugInfoOffset, UnitOffset, parse_debug_info_offset};
 
 // The various "Accelerated Access" sections (DWARF standard v4 Section 6.1) all have
 // similar structures. They consist of a header with metadata and an offset into the
@@ -20,7 +21,6 @@ pub trait LookupParser<R: Reader> {
     /// Parse a header from `input`. Returns a tuple of `input` sliced to contain just the entries
     /// corresponding to this header (without the header itself), and the parsed representation of
     /// the header itself.
-    #[allow(type_complexity)]
     fn parse_header(input: &mut R) -> Result<(R, Self::Header)>;
 
     /// Parse a single entry from `input`. Returns either a parsed representation of the entry
@@ -100,70 +100,69 @@ impl<R, Parser> LookupEntryIter<R, Parser>
     }
 }
 
-/// `.debug_pubnames` and `.debug_pubtypes` differ only in which section their offsets point into.
-pub trait NamesOrTypesSwitch<R: Reader> {
-    type Header;
-    type Entry;
-    type Offset;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PubStuffHeader {
+    format: Format,
+    length: u64,
+    version: u16,
+    unit_offset: DebugInfoOffset,
+    unit_length: u64,
+}
 
-    fn new_header(format: Format,
-                  set_length: u64,
-                  version: u16,
-                  offset: Self::Offset,
-                  length: u64)
-                  -> Self::Header;
-
-    fn new_entry(offset: u64, name: R, header: &Self::Header) -> Self::Entry;
-
-    fn parse_offset(input: &mut R, format: Format) -> Result<Self::Offset>;
-
-    fn format_from(header: &Self::Header) -> Format;
+pub trait PubStuffEntry<R: Reader> {
+    fn new(die_offset: UnitOffset, name: R, unit_header_offset: DebugInfoOffset) -> Self;
 }
 
 #[derive(Clone, Debug)]
-pub struct PubStuffParser<R, Switch>
+pub struct PubStuffParser<R, Entry>
     where R: Reader,
-          Switch: NamesOrTypesSwitch<R>
+          Entry: PubStuffEntry<R>
 {
     // This struct is never instantiated.
-    phantom: PhantomData<(R, Switch)>,
+    phantom: PhantomData<(R, Entry)>,
 }
 
-impl<R, Switch> LookupParser<R> for PubStuffParser<R, Switch>
+impl<R, Entry> LookupParser<R> for PubStuffParser<R, Entry>
     where R: Reader,
-          Switch: NamesOrTypesSwitch<R>
+          Entry: PubStuffEntry<R>
 {
-    type Header = Switch::Header;
-    type Entry = Switch::Entry;
+    type Header = PubStuffHeader;
+    type Entry = Entry;
 
-    /// Parse an pubthings set header. Returns a tuple of the remaining pubthings sets, the
+    /// Parse an pubthings set header. Returns a tuple of the
     /// pubthings to be parsed for this set, and the newly created PubThingHeader struct.
-    #[allow(type_complexity)]
     fn parse_header(input: &mut R) -> Result<(R, Self::Header)> {
-        let (set_length, format) = parse_initial_length(input)?;
-        let mut rest = input.split(set_length as usize)?;
+        let (length, format) = parse_initial_length(input)?;
+        let mut rest = input.split(length as usize)?;
 
         let version = rest.read_u16()?;
         if version != 2 {
             return Err(Error::UnknownVersion);
         }
 
-        let info_offset = Switch::parse_offset(&mut rest, format)?;
-        let info_length = rest.read_word(format)?;
+        let unit_offset = parse_debug_info_offset(&mut rest, format)?;
+        let unit_length = rest.read_word(format)?;
 
-        Ok((rest, Switch::new_header(format, set_length, version, info_offset, info_length)))
+        let header = PubStuffHeader {
+            format,
+            length,
+            version,
+            unit_offset,
+            unit_length,
+        };
+        Ok((rest, header))
     }
 
     /// Parse a single pubthing. Return `None` for the null pubthing, `Some` for an actual pubthing.
     fn parse_entry(input: &mut R, header: &Self::Header) -> Result<Option<Self::Entry>> {
-        let offset = input.read_word(Switch::format_from(header))?;
+        let offset = input.read_word(header.format)?;
 
         if offset == 0 {
             input.empty();
             Ok(None)
         } else {
             let name = input.read_null_terminated_slice()?;
-            Ok(Some(Switch::new_entry(offset, name, header)))
+            Ok(Some(Self::Entry::new(UnitOffset(offset as usize), name, header.unit_offset)))
         }
     }
 }

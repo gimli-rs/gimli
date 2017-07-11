@@ -1,20 +1,10 @@
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
-use lookup::{PubStuffParser, LookupEntryIter, DebugLookup, NamesOrTypesSwitch};
-use parser::{Error, Format, Result};
+use lookup::{PubStuffEntry, PubStuffParser, LookupEntryIter, DebugLookup};
+use parser::{Error, Result};
 use reader::Reader;
-use unit::{DebugInfoOffset, UnitOffset, parse_debug_info_offset};
-use std::marker::PhantomData;
+use unit::{DebugInfoOffset, UnitOffset};
 use Section;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PubNamesHeader {
-    format: Format,
-    length: u64,
-    version: u16,
-    info_offset: DebugInfoOffset,
-    info_length: u64,
-}
 
 /// A single parsed pubname.
 #[derive(Debug, Clone)]
@@ -43,53 +33,20 @@ impl<R: Reader> PubNamesEntry<R> {
     }
 }
 
-
-#[derive(Clone, Debug)]
-struct NamesSwitch<R: Reader> {
-    phantom: PhantomData<R>,
-}
-
-impl<R: Reader> NamesOrTypesSwitch<R> for NamesSwitch<R> {
-    type Header = PubNamesHeader;
-    type Entry = PubNamesEntry<R>;
-    type Offset = DebugInfoOffset;
-
-    fn new_header(format: Format,
-                  set_length: u64,
-                  version: u16,
-                  offset: DebugInfoOffset,
-                  length: u64)
-                  -> PubNamesHeader {
-        PubNamesHeader {
-            format: format,
-            length: set_length,
-            version: version,
-            info_offset: offset,
-            info_length: length,
-        }
-    }
-
-    fn new_entry(offset: u64, name: R, header: &PubNamesHeader) -> PubNamesEntry<R> {
+impl<R: Reader> PubStuffEntry<R> for PubNamesEntry<R> {
+    fn new(die_offset: UnitOffset, name: R, unit_header_offset: DebugInfoOffset) -> Self {
         PubNamesEntry {
-            unit_header_offset: header.info_offset,
-            die_offset: UnitOffset(offset as usize),
-            name: name,
+            unit_header_offset,
+            die_offset,
+            name,
         }
-    }
-
-    fn parse_offset(input: &mut R, format: Format) -> Result<Self::Offset> {
-        parse_debug_info_offset(input, format)
-    }
-
-    fn format_from(header: &PubNamesHeader) -> Format {
-        header.format
     }
 }
 
 /// The `DebugPubNames` struct represents the DWARF public names information
 /// found in the `.debug_pubnames` section.
 #[derive(Debug, Clone)]
-pub struct DebugPubNames<R: Reader>(DebugLookup<R, PubStuffParser<R, NamesSwitch<R>>>);
+pub struct DebugPubNames<R: Reader>(DebugLookup<R, PubStuffParser<R, PubNamesEntry<R>>>);
 
 impl<'input, Endian> DebugPubNames<EndianBuf<'input, Endian>>
     where Endian: Endianity
@@ -152,7 +109,7 @@ impl<R: Reader> From<R> for DebugPubNames<R> {
 /// Can be [used with
 /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
 #[derive(Debug, Clone)]
-pub struct PubNamesEntryIter<R: Reader>(LookupEntryIter<R, PubStuffParser<R, NamesSwitch<R>>>);
+pub struct PubNamesEntryIter<R: Reader>(LookupEntryIter<R, PubStuffParser<R, PubNamesEntry<R>>>);
 
 impl<R: Reader> PubNamesEntryIter<R> {
     /// Advance the iterator and return the next pubname.

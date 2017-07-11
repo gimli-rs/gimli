@@ -82,9 +82,8 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
     type Header = ArangeHeader;
     type Entry = ArangeEntry;
 
-    /// Parse an arange set header. Returns a tuple of the remaining arange sets, the aranges to be
+    /// Parse an arange set header. Returns a tuple of the aranges to be
     /// parsed for this set, and the newly created ArangeHeader struct.
-    #[allow(type_complexity)]
     fn parse_header(input: &mut R) -> Result<(R, Self::Header)> {
         let (length, format) = parse_initial_length(input)?;
         let mut rest = input.split(length as usize)?;
