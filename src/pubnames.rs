@@ -1,18 +1,10 @@
-use lookup::{PubStuffParser, LookupEntryIter, DebugLookup, NamesOrTypesSwitch};
-use parser::{Format, Result};
+use endianity::{Endianity, EndianBuf};
+use fallible_iterator::FallibleIterator;
+use lookup::{PubStuffEntry, PubStuffParser, LookupEntryIter, DebugLookup};
+use parser::{Error, Result};
 use reader::Reader;
-use unit::{DebugInfoOffset, UnitOffset, parse_debug_info_offset};
-use std::marker::PhantomData;
+use unit::{DebugInfoOffset, UnitOffset};
 use Section;
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct PubNamesHeader {
-    format: Format,
-    length: u64,
-    version: u16,
-    info_offset: DebugInfoOffset,
-    info_length: u64,
-}
 
 /// A single parsed pubname.
 #[derive(Debug, Clone)]
@@ -41,91 +33,64 @@ impl<R: Reader> PubNamesEntry<R> {
     }
 }
 
-
-#[derive(Clone, Debug)]
-pub struct NamesSwitch<R: Reader> {
-    phantom: PhantomData<R>,
-}
-
-impl<R: Reader> NamesOrTypesSwitch<R> for NamesSwitch<R> {
-    type Header = PubNamesHeader;
-    type Entry = PubNamesEntry<R>;
-    type Offset = DebugInfoOffset;
-
-    fn new_header(format: Format,
-                  set_length: u64,
-                  version: u16,
-                  offset: DebugInfoOffset,
-                  length: u64)
-                  -> PubNamesHeader {
-        PubNamesHeader {
-            format: format,
-            length: set_length,
-            version: version,
-            info_offset: offset,
-            info_length: length,
-        }
-    }
-
-    fn new_entry(offset: u64, name: R, header: &PubNamesHeader) -> PubNamesEntry<R> {
+impl<R: Reader> PubStuffEntry<R> for PubNamesEntry<R> {
+    fn new(die_offset: UnitOffset, name: R, unit_header_offset: DebugInfoOffset) -> Self {
         PubNamesEntry {
-            unit_header_offset: header.info_offset,
-            die_offset: UnitOffset(offset as usize),
-            name: name,
+            unit_header_offset,
+            die_offset,
+            name,
         }
-    }
-
-    fn parse_offset(input: &mut R, format: Format) -> Result<Self::Offset> {
-        parse_debug_info_offset(input, format)
-    }
-
-    fn format_from(header: &PubNamesHeader) -> Format {
-        header.format
     }
 }
 
 /// The `DebugPubNames` struct represents the DWARF public names information
 /// found in the `.debug_pubnames` section.
-///
-/// Provides:
-///
-/// * `new(input: EndianBuf<'input, Endian>) -> DebugPubNames<EndianBuf<'input, Endian>>`
-///
-///   Construct a new `DebugPubNames` instance from the data in the `.debug_pubnames`
-///   section.
-///
-///   It is the caller's responsibility to read the `.debug_pubnames` section and
-///   present it as a `&[u8]` slice. That means using some ELF loader on
-///   Linux, a Mach-O loader on OSX, etc.
-///
-///   ```
-///   use gimli::{DebugPubNames, EndianBuf, LittleEndian};
-///
-///   # let buf = [];
-///   # let read_debug_pubnames_section_somehow = || &buf;
-///   let debug_pubnames =
-///       DebugPubNames::<EndianBuf<LittleEndian>>::new(read_debug_pubnames_section_somehow());
-///   ```
-///
-/// * `items(&self) -> PubNamesEntryIter<R>`
-///
-///   Iterate the pubnames in the `.debug_pubnames` section.
-///
-///   ```
-///   use gimli::{DebugPubNames, EndianBuf, LittleEndian};
-///
-///   # let buf = [];
-///   # let read_debug_pubnames_section_somehow = || &buf;
-///   let debug_pubnames =
-///       DebugPubNames::<EndianBuf<LittleEndian>>::new(read_debug_pubnames_section_somehow());
-///
-///   let mut iter = debug_pubnames.items();
-///   while let Some(pubname) = iter.next().unwrap() {
-///     println!("pubname {} found!", pubname.name().to_string_lossy());
-///   }
-///   ```
-pub type DebugPubNames<R> = DebugLookup<R, PubStuffParser<R, NamesSwitch<R>>>;
+#[derive(Debug, Clone)]
+pub struct DebugPubNames<R: Reader>(DebugLookup<R, PubStuffParser<R, PubNamesEntry<R>>>);
 
+impl<'input, Endian> DebugPubNames<EndianBuf<'input, Endian>>
+    where Endian: Endianity
+{
+    /// Construct a new `DebugPubNames` instance from the data in the `.debug_pubnames`
+    /// section.
+    ///
+    /// It is the caller's responsibility to read the `.debug_pubnames` section and
+    /// present it as a `&[u8]` slice. That means using some ELF loader on
+    /// Linux, a Mach-O loader on OSX, etc.
+    ///
+    /// ```
+    /// use gimli::{DebugPubNames, EndianBuf, LittleEndian};
+    ///
+    /// # let buf = [];
+    /// # let read_debug_pubnames_section_somehow = || &buf;
+    /// let debug_pubnames =
+    ///     DebugPubNames::<EndianBuf<LittleEndian>>::new(read_debug_pubnames_section_somehow());
+    /// ```
+    pub fn new(debug_pubnames_section: &'input [u8]) -> Self {
+        Self::from(EndianBuf::new(debug_pubnames_section))
+    }
+}
+
+impl<R: Reader> DebugPubNames<R> {
+    /// Iterate the pubnames in the `.debug_pubnames` section.
+    ///
+    /// ```
+    /// use gimli::{DebugPubNames, EndianBuf, LittleEndian};
+    ///
+    /// # let buf = [];
+    /// # let read_debug_pubnames_section_somehow = || &buf;
+    /// let debug_pubnames =
+    ///     DebugPubNames::<EndianBuf<LittleEndian>>::new(read_debug_pubnames_section_somehow());
+    ///
+    /// let mut iter = debug_pubnames.items();
+    /// while let Some(pubname) = iter.next().unwrap() {
+    ///   println!("pubname {} found!", pubname.name().to_string_lossy());
+    /// }
+    /// ```
+    pub fn items(&self) -> PubNamesEntryIter<R> {
+        PubNamesEntryIter(self.0.items())
+    }
+}
 
 impl<R: Reader> Section<R> for DebugPubNames<R> {
     fn section_name() -> &'static str {
@@ -133,19 +98,36 @@ impl<R: Reader> Section<R> for DebugPubNames<R> {
     }
 }
 
+impl<R: Reader> From<R> for DebugPubNames<R> {
+    fn from(debug_pubnames_section: R) -> Self {
+        DebugPubNames(DebugLookup::from(debug_pubnames_section))
+    }
+}
+
 /// An iterator over the pubnames from a `.debug_pubnames` section.
 ///
-/// Provides:
-///
-/// * `next(self: &mut) -> gimli::Result<Option<PubNamesEntry>>`
-///
-///   Advance the iterator and return the next pubname.
-///
-///   Returns the newly parsed pubname as `Ok(Some(pubname))`. Returns
-///   `Ok(None)` when iteration is complete and all pubnames have already been
-///   parsed and yielded. If an error occurs while parsing the next pubname,
-///   then this error is returned on all subsequent calls as `Err(e)`.
-///
-///   Can be [used with
-///   `FallibleIterator`](./index.html#using-with-fallibleiterator).
-pub type PubNamesEntryIter<R> = LookupEntryIter<R, PubStuffParser<R, NamesSwitch<R>>>;
+/// Can be [used with
+/// `FallibleIterator`](./index.html#using-with-fallibleiterator).
+#[derive(Debug, Clone)]
+pub struct PubNamesEntryIter<R: Reader>(LookupEntryIter<R, PubStuffParser<R, PubNamesEntry<R>>>);
+
+impl<R: Reader> PubNamesEntryIter<R> {
+    /// Advance the iterator and return the next pubname.
+    ///
+    /// Returns the newly parsed pubname as `Ok(Some(pubname))`. Returns
+    /// `Ok(None)` when iteration is complete and all pubnames have already been
+    /// parsed and yielded. If an error occurs while parsing the next pubname,
+    /// then this error is returned on all subsequent calls as `Err(e)`.
+    pub fn next(&mut self) -> Result<Option<PubNamesEntry<R>>> {
+        self.0.next()
+    }
+}
+
+impl<R: Reader> FallibleIterator for PubNamesEntryIter<R> {
+    type Item = PubNamesEntry<R>;
+    type Error = Error;
+
+    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
+        self.0.next()
+    }
+}

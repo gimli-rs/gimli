@@ -1,3 +1,5 @@
+use endianity::{Endianity, EndianBuf};
+use fallible_iterator::FallibleIterator;
 use lookup::{LookupParser, LookupEntryIter, DebugLookup};
 use parser::{parse_initial_length, Error, Format, Result};
 use reader::Reader;
@@ -6,8 +8,8 @@ use std::cmp::Ordering;
 use std::marker::PhantomData;
 use Section;
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct ArangeHeader {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ArangeHeader {
     format: Format,
     length: u64,
     version: u16,
@@ -71,7 +73,7 @@ impl Ord for ArangeEntry {
 }
 
 #[derive(Clone, Debug)]
-pub struct ArangeParser<R: Reader> {
+struct ArangeParser<R: Reader> {
     // This struct is never instantiated.
     phantom: PhantomData<R>,
 }
@@ -80,9 +82,8 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
     type Header = ArangeHeader;
     type Entry = ArangeEntry;
 
-    /// Parse an arange set header. Returns a tuple of the remaining arange sets, the aranges to be
+    /// Parse an arange set header. Returns a tuple of the aranges to be
     /// parsed for this set, and the newly created ArangeHeader struct.
-    #[allow(type_complexity)]
     fn parse_header(input: &mut R) -> Result<(R, Self::Header)> {
         let (length, format) = parse_initial_length(input)?;
         let mut rest = input.split(length as usize)?;
@@ -166,43 +167,52 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
 
 /// The `DebugAranges` struct represents the DWARF address range information
 /// found in the `.debug_aranges` section.
-///
-/// Provides:
-///
-/// * `new(input: EndianBuf<'input, Endian>) -> DebugAranges<EndianBuf<'input, Endian>>`
-///
-///   Construct a new `DebugAranges` instance from the data in the `.debug_aranges`
-///   section.
-///
-///   It is the caller's responsibility to read the `.debug_aranges` section and
-///   present it as a `&[u8]` slice. That means using some ELF loader on
-///   Linux, a Mach-O loader on OSX, etc.
-///
-///   ```
-///   use gimli::{DebugAranges, EndianBuf, LittleEndian};
-///
-///   # let buf = [];
-///   # let read_debug_aranges_section = || &buf;
-///   let debug_aranges = DebugAranges::<EndianBuf<LittleEndian>>::new(read_debug_aranges_section());
-///   ```
-///
-/// * `items(&self) -> ArangeEntryIter<R>`
-///
-///   Iterate the aranges in the `.debug_aranges` section.
-///
-///   ```
-///   use gimli::{DebugAranges, EndianBuf, LittleEndian};
-///
-///   # let buf = [];
-///   # let read_debug_aranges_section = || &buf;
-///   let debug_aranges = DebugAranges::<EndianBuf<LittleEndian>>::new(read_debug_aranges_section());
-///
-///   let mut iter = debug_aranges.items();
-///   while let Some(arange) = iter.next().unwrap() {
-///       println!("arange starts at {}, has length {}", arange.address(), arange.length());
-///   }
-///   ```
-pub type DebugAranges<R> = DebugLookup<R, ArangeParser<R>>;
+#[derive(Debug, Clone)]
+pub struct DebugAranges<R: Reader>(DebugLookup<R, ArangeParser<R>>);
+
+impl<'input, Endian> DebugAranges<EndianBuf<'input, Endian>>
+    where Endian: Endianity
+{
+    /// Construct a new `DebugAranges` instance from the data in the `.debug_aranges`
+    /// section.
+    ///
+    /// It is the caller's responsibility to read the `.debug_aranges` section and
+    /// present it as a `&[u8]` slice. That means using some ELF loader on
+    /// Linux, a Mach-O loader on OSX, etc.
+    ///
+    /// ```
+    /// use gimli::{DebugAranges, EndianBuf, LittleEndian};
+    ///
+    /// # let buf = [];
+    /// # let read_debug_aranges_section = || &buf;
+    /// let debug_aranges =
+    ///     DebugAranges::<EndianBuf<LittleEndian>>::new(read_debug_aranges_section());
+    /// ```
+    pub fn new(debug_aranges_section: &'input [u8]) -> Self {
+        Self::from(EndianBuf::new(debug_aranges_section))
+    }
+}
+
+impl<R: Reader> DebugAranges<R> {
+    /// Iterate the aranges in the `.debug_aranges` section.
+    ///
+    /// ```
+    /// use gimli::{DebugAranges, EndianBuf, LittleEndian};
+    ///
+    /// # let buf = [];
+    /// # let read_debug_aranges_section = || &buf;
+    /// let debug_aranges =
+    ///     DebugAranges::<EndianBuf<LittleEndian>>::new(read_debug_aranges_section());
+    ///
+    /// let mut iter = debug_aranges.items();
+    /// while let Some(arange) = iter.next().unwrap() {
+    ///     println!("arange starts at {}, has length {}", arange.address(), arange.length());
+    /// }
+    /// ```
+    pub fn items(&self) -> ArangeEntryIter<R> {
+        ArangeEntryIter(self.0.items())
+    }
+}
 
 impl<R: Reader> Section<R> for DebugAranges<R> {
     fn section_name() -> &'static str {
@@ -210,22 +220,39 @@ impl<R: Reader> Section<R> for DebugAranges<R> {
     }
 }
 
+impl<R: Reader> From<R> for DebugAranges<R> {
+    fn from(debug_aranges_section: R) -> Self {
+        DebugAranges(DebugLookup::from(debug_aranges_section))
+    }
+}
+
 /// An iterator over the aranges from a `.debug_aranges` section.
 ///
-/// Provides:
-///
-/// * `next(self: &mut) -> gimli::Result<Option<ArangeEntry>>`
-///
-///   Advance the iterator and return the next arange.
-///
-///   Returns the newly parsed arange as `Ok(Some(arange))`. Returns `Ok(None)`
-///   when iteration is complete and all aranges have already been parsed and
-///   yielded. If an error occurs while parsing the next arange, then this error
-///   is returned on all subsequent calls as `Err(e)`.
-///
-///   Can be [used with
-///   `FallibleIterator`](./index.html#using-with-fallibleiterator).
-pub type ArangeEntryIter<R> = LookupEntryIter<R, ArangeParser<R>>;
+/// Can be [used with
+/// `FallibleIterator`](./index.html#using-with-fallibleiterator).
+#[derive(Debug, Clone)]
+pub struct ArangeEntryIter<R: Reader>(LookupEntryIter<R, ArangeParser<R>>);
+
+impl<R: Reader> ArangeEntryIter<R> {
+    /// Advance the iterator and return the next arange.
+    ///
+    /// Returns the newly parsed arange as `Ok(Some(arange))`. Returns `Ok(None)`
+    /// when iteration is complete and all aranges have already been parsed and
+    /// yielded. If an error occurs while parsing the next arange, then this error
+    /// is returned on all subsequent calls as `Err(e)`.
+    pub fn next(&mut self) -> Result<Option<ArangeEntry>> {
+        self.0.next()
+    }
+}
+
+impl<R: Reader> FallibleIterator for ArangeEntryIter<R> {
+    type Item = ArangeEntry;
+    type Error = Error;
+
+    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
+        self.0.next()
+    }
+}
 
 #[cfg(test)]
 mod tests {
