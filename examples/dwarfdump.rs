@@ -96,11 +96,12 @@ fn main() {
         let file = object::File::parse(unsafe { file.as_slice() })
             .expect("Should parse object file");
 
-        if file.is_little_endian() {
-            dump_file(&file, gimli::LittleEndian, &flags);
+        let endian = if file.is_little_endian() {
+            gimli::RunTimeEndian::Little
         } else {
-            dump_file(&file, gimli::BigEndian, &flags);
-        }
+            gimli::RunTimeEndian::Big
+        };
+        dump_file(&file, endian, &flags);
     }
 }
 

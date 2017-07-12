@@ -104,6 +104,33 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
     }
 }
 
+/// Byte order that is selectable at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RunTimeEndian {
+    /// Little endian byte order.
+    Little,
+    /// Big endian byte order.
+    Big,
+}
+
+impl Default for RunTimeEndian {
+    #[cfg(target_endian = "little")]
+    fn default() -> RunTimeEndian {
+        RunTimeEndian::Little
+    }
+
+    #[cfg(target_endian = "big")]
+    fn default() -> RunTimeEndian {
+        RunTimeEndian::Big
+    }
+}
+
+impl Endianity for RunTimeEndian {
+    fn is_big_endian(self) -> bool {
+        self != RunTimeEndian::Little
+    }
+}
+
 /// Little endian byte order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LittleEndian;

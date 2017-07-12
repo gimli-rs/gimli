@@ -169,7 +169,7 @@ mod constants;
 pub use constants::*;
 
 mod endianity;
-pub use endianity::{Endianity, EndianBuf, LittleEndian, BigEndian, NativeEndian};
+pub use endianity::{Endianity, EndianBuf, RunTimeEndian, LittleEndian, BigEndian, NativeEndian};
 
 pub mod leb128;
 
