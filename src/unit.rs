@@ -2,7 +2,6 @@
 
 use constants;
 use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation, AttributeSpecification};
-use byteorder::ByteOrder;
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use line::DebugLineOffset;
@@ -1395,9 +1394,9 @@ impl<R: Reader> Attribute<R> {
     pub fn udata_value(&self) -> Option<u64> {
         Some(match self.value {
                  AttributeValue::Data1(ref data) => data[0] as u64,
-                 AttributeValue::Data2(ref data) => R::Endian::read_u16(data) as u64,
-                 AttributeValue::Data4(ref data) => R::Endian::read_u32(data) as u64,
-                 AttributeValue::Data8(ref data) => R::Endian::read_u64(data),
+                 AttributeValue::Data2(ref data) => R::Endian::default().read_u16(data) as u64,
+                 AttributeValue::Data4(ref data) => R::Endian::default().read_u32(data) as u64,
+                 AttributeValue::Data8(ref data) => R::Endian::default().read_u64(data),
                  AttributeValue::Udata(data) => data,
                  _ => return None,
              })
@@ -1407,9 +1406,9 @@ impl<R: Reader> Attribute<R> {
     pub fn sdata_value(&self) -> Option<i64> {
         Some(match self.value {
                  AttributeValue::Data1(ref data) => data[0] as i8 as i64,
-                 AttributeValue::Data2(ref data) => R::Endian::read_u16(data) as i16 as i64,
-                 AttributeValue::Data4(ref data) => R::Endian::read_u32(data) as i32 as i64,
-                 AttributeValue::Data8(ref data) => R::Endian::read_u64(data) as i64,
+                 AttributeValue::Data2(ref data) => R::Endian::default().read_u16(data) as i16 as i64,
+                 AttributeValue::Data4(ref data) => R::Endian::default().read_u32(data) as i32 as i64,
+                 AttributeValue::Data8(ref data) => R::Endian::default().read_u64(data) as i64,
                  AttributeValue::Sdata(data) => data,
                  _ => return None,
              })
@@ -1421,11 +1420,11 @@ impl<R: Reader> Attribute<R> {
     pub fn offset_value(&self) -> Option<usize> {
         match self.value {
             AttributeValue::Data4(ref data) => {
-                let offset = R::Endian::read_u32(data) as u64;
+                let offset = R::Endian::default().read_u32(data) as u64;
                 u64_to_offset(offset).ok()
             }
             AttributeValue::Data8(ref data) => {
-                let offset = R::Endian::read_u64(data);
+                let offset = R::Endian::default().read_u64(data);
                 u64_to_offset(offset).ok()
             }
             AttributeValue::SecOffset(offset) => Some(offset),

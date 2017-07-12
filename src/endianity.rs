@@ -1,6 +1,7 @@
 //! Types for compile-time endianity.
 
 use byteorder;
+use byteorder::ByteOrder;
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -11,103 +12,127 @@ use parser::{Error, Result};
 use reader::Reader;
 
 /// A trait describing the endianity of some buffer.
-///
-/// All interesting methods are from the `byteorder` crate's `ByteOrder`
-/// trait. All methods are static. You shouldn't instantiate concrete objects
-/// that implement this trait, it is just used as compile-time phantom data.
-pub trait Endianity
-    : byteorder::ByteOrder + Debug + Default + Clone + Copy + PartialEq + Eq {
+pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
     /// Return true for big endian byte order.
-    fn is_big_endian() -> bool;
+    fn is_big_endian(self) -> bool;
 
     /// Return true for little endian byte order.
-    fn is_little_endian() -> bool {
-        !Self::is_big_endian()
+    fn is_little_endian(self) -> bool {
+        !self.is_big_endian()
+    }
+
+    /// Reads an unsigned 16 bit integer from `buf`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `buf.len() < 2`.
+    #[inline]
+    fn read_u16(self, buf: &[u8]) -> u16 {
+        if self.is_big_endian() {
+            byteorder::BigEndian::read_u16(buf)
+        } else {
+            byteorder::LittleEndian::read_u16(buf)
+        }
+    }
+
+    /// Reads an unsigned 32 bit integer from `buf`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `buf.len() < 4`.
+    fn read_u32(self, buf: &[u8]) -> u32 {
+        if self.is_big_endian() {
+            byteorder::BigEndian::read_u32(buf)
+        } else {
+            byteorder::LittleEndian::read_u32(buf)
+        }
+    }
+
+    /// Reads an unsigned 64 bit integer from `buf`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `buf.len() < 8`.
+    fn read_u64(self, buf: &[u8]) -> u64 {
+        if self.is_big_endian() {
+            byteorder::BigEndian::read_u64(buf)
+        } else {
+            byteorder::LittleEndian::read_u64(buf)
+        }
+    }
+
+    /// Reads a signed 16 bit integer from `buf`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `buf.len() < 2`.
+    #[inline]
+    fn read_i16(self, buf: &[u8]) -> i16 {
+        self.read_u16(buf) as i16
+    }
+
+    /// Reads a signed 32 bit integer from `buf`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `buf.len() < 4`.
+    #[inline]
+    fn read_i32(self, buf: &[u8]) -> i32 {
+        self.read_u32(buf) as i32
+    }
+
+    /// Reads a signed 64 bit integer from `buf`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `buf.len() < 8`.
+    #[inline]
+    fn read_i64(self, buf: &[u8]) -> i64 {
+        self.read_u64(buf) as i64
+    }
+
+    /// Writes an unsigned 64 bit integer `n` to `buf`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `buf.len() < 8`.
+    fn write_u64(self, buf: &mut [u8], n: u64) {
+        if self.is_big_endian() {
+            byteorder::BigEndian::write_u64(buf, n)
+        } else {
+            byteorder::LittleEndian::write_u64(buf, n)
+        }
     }
 }
 
 /// Little endian byte order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LittleEndian {}
+pub struct LittleEndian;
 
 impl Default for LittleEndian {
     fn default() -> LittleEndian {
-        unreachable!()
-    }
-}
-
-impl byteorder::ByteOrder for LittleEndian {
-    fn read_u16(buf: &[u8]) -> u16 {
-        byteorder::LittleEndian::read_u16(buf)
-    }
-    fn read_u32(buf: &[u8]) -> u32 {
-        byteorder::LittleEndian::read_u32(buf)
-    }
-    fn read_u64(buf: &[u8]) -> u64 {
-        byteorder::LittleEndian::read_u64(buf)
-    }
-    fn read_uint(buf: &[u8], nbytes: usize) -> u64 {
-        byteorder::LittleEndian::read_uint(buf, nbytes)
-    }
-    fn write_u16(buf: &mut [u8], n: u16) {
-        byteorder::LittleEndian::write_u16(buf, n)
-    }
-    fn write_u32(buf: &mut [u8], n: u32) {
-        byteorder::LittleEndian::write_u32(buf, n)
-    }
-    fn write_u64(buf: &mut [u8], n: u64) {
-        byteorder::LittleEndian::write_u64(buf, n)
-    }
-    fn write_uint(buf: &mut [u8], n: u64, nbytes: usize) {
-        byteorder::LittleEndian::write_uint(buf, n, nbytes)
+        LittleEndian
     }
 }
 
 impl Endianity for LittleEndian {
-    fn is_big_endian() -> bool {
+    fn is_big_endian(self) -> bool {
         false
     }
 }
 
 /// Big endian byte order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BigEndian {}
+pub struct BigEndian;
 
 impl Default for BigEndian {
     fn default() -> BigEndian {
-        unreachable!()
-    }
-}
-
-impl byteorder::ByteOrder for BigEndian {
-    fn read_u16(buf: &[u8]) -> u16 {
-        byteorder::BigEndian::read_u16(buf)
-    }
-    fn read_u32(buf: &[u8]) -> u32 {
-        byteorder::BigEndian::read_u32(buf)
-    }
-    fn read_u64(buf: &[u8]) -> u64 {
-        byteorder::BigEndian::read_u64(buf)
-    }
-    fn read_uint(buf: &[u8], nbytes: usize) -> u64 {
-        byteorder::BigEndian::read_uint(buf, nbytes)
-    }
-    fn write_u16(buf: &mut [u8], n: u16) {
-        byteorder::BigEndian::write_u16(buf, n)
-    }
-    fn write_u32(buf: &mut [u8], n: u32) {
-        byteorder::BigEndian::write_u32(buf, n)
-    }
-    fn write_u64(buf: &mut [u8], n: u64) {
-        byteorder::BigEndian::write_u64(buf, n)
-    }
-    fn write_uint(buf: &mut [u8], n: u64, nbytes: usize) {
-        byteorder::BigEndian::write_uint(buf, n, nbytes)
+        BigEndian
     }
 }
 
 impl Endianity for BigEndian {
-    fn is_big_endian() -> bool {
+    fn is_big_endian(self) -> bool {
         true
     }
 }
@@ -384,37 +409,37 @@ impl<'input, Endian> Reader for EndianBuf<'input, Endian>
     #[inline]
     fn read_u16(&mut self) -> Result<u16> {
         let slice = self.read_slice(2)?;
-        Ok(Endian::read_u16(slice))
+        Ok(Endian::default().read_u16(slice))
     }
 
     #[inline]
     fn read_i16(&mut self) -> Result<i16> {
         let slice = self.read_slice(2)?;
-        Ok(Endian::read_i16(slice))
+        Ok(Endian::default().read_i16(slice))
     }
 
     #[inline]
     fn read_u32(&mut self) -> Result<u32> {
         let slice = self.read_slice(4)?;
-        Ok(Endian::read_u32(slice))
+        Ok(Endian::default().read_u32(slice))
     }
 
     #[inline]
     fn read_i32(&mut self) -> Result<i32> {
         let slice = self.read_slice(4)?;
-        Ok(Endian::read_i32(slice))
+        Ok(Endian::default().read_i32(slice))
     }
 
     #[inline]
     fn read_u64(&mut self) -> Result<u64> {
         let slice = self.read_slice(8)?;
-        Ok(Endian::read_u64(slice))
+        Ok(Endian::default().read_u64(slice))
     }
 
     #[inline]
     fn read_i64(&mut self) -> Result<i64> {
         let slice = self.read_slice(8)?;
-        Ok(Endian::read_i64(slice))
+        Ok(Endian::default().read_i64(slice))
     }
 }
 

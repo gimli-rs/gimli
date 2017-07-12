@@ -483,7 +483,7 @@ fn dump_type_signature<Endian>(signature: gimli::DebugTypeSignature)
 {
     // Convert back to bytes so we can match libdwarf-dwarfdump output.
     let mut buf = [0; 8];
-    Endian::write_u64(&mut buf, signature.0);
+    Endian::default().write_u64(&mut buf, signature.0);
     print!("0x");
     for byte in &buf {
         print!("{:02x}", byte);
