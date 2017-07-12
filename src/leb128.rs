@@ -18,7 +18,7 @@
 //! }
 //!
 //! // Read from anything that implements `gimli::Reader`.
-//! let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+//! let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
 //! let val = leb128::read::signed(&mut readable).expect("Should read number");
 //! assert_eq!(val, -12345);
 //! ```
@@ -35,7 +35,7 @@
 //!     leb128::write::unsigned(&mut writable, 98765).expect("Should write number");
 //! }
 //!
-//! let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+//! let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
 //! let val = leb128::read::unsigned(&mut readable).expect("Should read number");
 //! assert_eq!(val, 98765);
 //! ```
@@ -209,32 +209,32 @@ mod tests {
     #[test]
     fn test_read_unsigned() {
         let buf = [2u8];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(2,
                    read::unsigned(&mut readable).expect("Should read number"));
 
         let buf = [127u8];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(127,
                    read::unsigned(&mut readable).expect("Should read number"));
 
         let buf = [CONTINUATION_BIT, 1];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(128,
                    read::unsigned(&mut readable).expect("Should read number"));
 
         let buf = [1u8 | CONTINUATION_BIT, 1];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(129,
                    read::unsigned(&mut readable).expect("Should read number"));
 
         let buf = [2u8 | CONTINUATION_BIT, 1];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(130,
                    read::unsigned(&mut readable).expect("Should read number"));
 
         let buf = [57u8 | CONTINUATION_BIT, 100];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(12857,
                    read::unsigned(&mut readable).expect("Should read number"));
     }
@@ -243,40 +243,40 @@ mod tests {
     #[test]
     fn test_read_signed() {
         let buf = [2u8];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(2, read::signed(&mut readable).expect("Should read number"));
 
         let buf = [0x7eu8];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(-2, read::signed(&mut readable).expect("Should read number"));
 
         let buf = [127u8 | CONTINUATION_BIT, 0];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(127,
                    read::signed(&mut readable).expect("Should read number"));
 
         let buf = [1u8 | CONTINUATION_BIT, 0x7f];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(-127,
                    read::signed(&mut readable).expect("Should read number"));
 
         let buf = [CONTINUATION_BIT, 1];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(128,
                    read::signed(&mut readable).expect("Should read number"));
 
         let buf = [CONTINUATION_BIT, 0x7f];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(-128,
                    read::signed(&mut readable).expect("Should read number"));
 
         let buf = [1u8 | CONTINUATION_BIT, 1];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(129,
                    read::signed(&mut readable).expect("Should read number"));
 
         let buf = [0x7fu8 | CONTINUATION_BIT, 0x7e];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(-129,
                    read::signed(&mut readable).expect("Should read number"));
     }
@@ -292,7 +292,7 @@ mod tests {
                    CONTINUATION_BIT,
                    CONTINUATION_BIT,
                    0x40];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(-0x4000000000000000,
                    read::signed(&mut readable).expect("Should read number"));
     }
@@ -300,14 +300,14 @@ mod tests {
     #[test]
     fn test_read_unsigned_not_enough_data() {
         let buf = [CONTINUATION_BIT];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(read::unsigned(&mut readable), Err(Error::UnexpectedEof));
     }
 
     #[test]
     fn test_read_signed_not_enough_data() {
         let buf = [CONTINUATION_BIT];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(read::signed(&mut readable), Err(Error::UnexpectedEof));
     }
 
@@ -341,7 +341,7 @@ mod tests {
                 write::signed(&mut writable, i).expect("Should write signed number");
             }
 
-            let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+            let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
             let result = read::signed(&mut readable).expect("Should be able to read it back again");
             assert_eq!(i, result);
         }
@@ -361,7 +361,7 @@ mod tests {
                 write::unsigned(&mut writable, i).expect("Should write signed number");
             }
 
-            let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+            let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
             let result = read::unsigned(&mut readable)
                 .expect("Should be able to read it back again");
             assert_eq!(i, result);
@@ -401,7 +401,7 @@ mod tests {
                    2 | CONTINUATION_BIT,
                    2 | CONTINUATION_BIT,
                    1];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert!(read::unsigned(&mut readable).is_err());
     }
 
@@ -438,7 +438,7 @@ mod tests {
                    2 | CONTINUATION_BIT,
                    2 | CONTINUATION_BIT,
                    1];
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert!(read::signed(&mut readable).is_err());
     }
 
@@ -446,7 +446,7 @@ mod tests {
     fn test_read_multiple() {
         let buf = [2u8 | CONTINUATION_BIT, 1u8, 1u8];
 
-        let mut readable = EndianBuf::<NativeEndian>::new(&buf[..]);
+        let mut readable = EndianBuf::new(&buf[..], NativeEndian {});
         assert_eq!(read::unsigned(&mut readable).expect("Should read first number"),
                    130u64);
         assert_eq!(read::unsigned(&mut readable).expect("Should read first number"),

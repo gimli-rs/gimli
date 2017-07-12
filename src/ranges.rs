@@ -26,14 +26,14 @@ impl<'input, Endian> DebugRanges<EndianBuf<'input, Endian>>
     /// Linux, a Mach-O loader on OSX, etc.
     ///
     /// ```
-    /// use gimli::{DebugRanges, EndianBuf, LittleEndian};
+    /// use gimli::{DebugRanges, LittleEndian};
     ///
     /// # let buf = [0x00, 0x01, 0x02, 0x03];
     /// # let read_debug_ranges_section_somehow = || &buf;
-    /// let debug_ranges = DebugRanges::<EndianBuf<LittleEndian>>::new(read_debug_ranges_section_somehow());
+    /// let debug_ranges = DebugRanges::new(read_debug_ranges_section_somehow(), LittleEndian);
     /// ```
-    pub fn new(debug_ranges_section: &'input [u8]) -> Self {
-        Self::from(EndianBuf::new(debug_ranges_section))
+    pub fn new(debug_ranges_section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianBuf::new(debug_ranges_section, endian))
     }
 }
 
@@ -312,7 +312,7 @@ mod tests {
             .L32(0);
 
         let buf = section.get_contents().unwrap();
-        let debug_ranges = DebugRanges::<EndianBuf<LittleEndian>>::new(&buf);
+        let debug_ranges = DebugRanges::new(&buf, LittleEndian);
         let offset = DebugRangesOffset((&first - &start) as usize);
         let mut ranges = debug_ranges.ranges(offset, 4, 0x01000000).unwrap();
 
@@ -389,7 +389,7 @@ mod tests {
             .L64(0);
 
         let buf = section.get_contents().unwrap();
-        let debug_ranges = DebugRanges::<EndianBuf<LittleEndian>>::new(&buf);
+        let debug_ranges = DebugRanges::new(&buf, LittleEndian);
         let offset = DebugRangesOffset((&first - &start) as usize);
         let mut ranges = debug_ranges.ranges(offset, 8, 0x01000000).unwrap();
 
@@ -447,7 +447,7 @@ mod tests {
             .L32(0x20000).L32(0xff010000);
 
         let buf = section.get_contents().unwrap();
-        let debug_ranges = DebugRanges::<EndianBuf<LittleEndian>>::new(&buf);
+        let debug_ranges = DebugRanges::new(&buf, LittleEndian);
 
         // An invalid range.
         let mut ranges = debug_ranges

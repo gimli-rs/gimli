@@ -461,7 +461,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little).L32(0x78563412);
         let buf = section.get_contents().unwrap();
 
-        let input = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let input = &mut EndianBuf::new(&buf, LittleEndian);
         match parse_initial_length(input) {
             Ok((length, format)) => {
                 assert_eq!(input.len(), 0);
@@ -481,7 +481,7 @@ mod tests {
             .L64(0xffdebc9a78563412);
         let buf = section.get_contents().unwrap();
 
-        let input = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let input = &mut EndianBuf::new(&buf, LittleEndian);
         match parse_initial_length(input) {
             Ok((length, format)) => {
                 assert_eq!(input.len(), 0);
@@ -497,7 +497,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little).L32(0xfffffffe);
         let buf = section.get_contents().unwrap();
 
-        match parse_initial_length(&mut EndianBuf::<LittleEndian>::new(&buf)) {
+        match parse_initial_length(&mut EndianBuf::new(&buf, LittleEndian)) {
             Err(Error::UnknownReservedLength) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -507,7 +507,7 @@ mod tests {
     fn test_parse_initial_length_incomplete() {
         let buf = [0xff, 0xff, 0xff]; // Need at least 4 bytes.
 
-        match parse_initial_length(&mut EndianBuf::<LittleEndian>::new(&buf)) {
+        match parse_initial_length(&mut EndianBuf::new(&buf, LittleEndian)) {
             Err(Error::UnexpectedEof) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -522,7 +522,7 @@ mod tests {
             .L32(0x78563412);
         let buf = section.get_contents().unwrap();
 
-        match parse_initial_length(&mut EndianBuf::<LittleEndian>::new(&buf)) {
+        match parse_initial_length(&mut EndianBuf::new(&buf, LittleEndian)) {
             Err(Error::UnexpectedEof) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -533,7 +533,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little).L32(0x01234567);
         let buf = section.get_contents().unwrap();
 
-        let input = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let input = &mut EndianBuf::new(&buf, LittleEndian);
         match input.read_offset(Format::Dwarf32) {
             Ok(val) => {
                 assert_eq!(input.len(), 0);
@@ -548,7 +548,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little).L64(0x01234567);
         let buf = section.get_contents().unwrap();
 
-        let input = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let input = &mut EndianBuf::new(&buf, LittleEndian);
         match input.read_offset(Format::Dwarf64) {
             Ok(val) => {
                 assert_eq!(input.len(), 0);
@@ -564,7 +564,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little).L64(0x0123456789abcdef);
         let buf = section.get_contents().unwrap();
 
-        let input = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let input = &mut EndianBuf::new(&buf, LittleEndian);
         match input.read_offset(Format::Dwarf64) {
             Ok(val) => {
                 assert_eq!(input.len(), 0);
@@ -592,9 +592,9 @@ mod tests {
         let expected = constants::DwEhPe(constants::DW_EH_PE_uleb128.0 |
                                          constants::DW_EH_PE_pcrel.0);
         let input = [expected.0, 1, 2, 3, 4];
-        let input = &mut EndianBuf::<NativeEndian>::new(&input);
+        let input = &mut EndianBuf::new(&input, NativeEndian {});
         assert_eq!(parse_pointer_encoding(input), Ok(expected));
-        assert_eq!(*input, EndianBuf::new(&[1, 2, 3, 4]));
+        assert_eq!(*input, EndianBuf::new(&[1, 2, 3, 4], LittleEndian));
     }
 
     #[test]
@@ -603,7 +603,7 @@ mod tests {
         let expected = constants::DwEhPe((constants::DW_EH_PE_sdata8.0 + 1) |
                                          constants::DW_EH_PE_pcrel.0);
         let input = [expected.0, 1, 2, 3, 4];
-        let input = &mut EndianBuf::<NativeEndian>::new(&input);
+        let input = &mut EndianBuf::new(&input, NativeEndian {});
         assert_eq!(Err(Error::UnknownPointerEncoding),
                    parse_pointer_encoding(input));
     }
@@ -619,12 +619,12 @@ mod tests {
             .L32(0xf00df00d)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
                    Ok(Pointer::Direct(0xf00df00d)));
-        assert_eq!(rest, EndianBuf::new(&expected_rest));
+        assert_eq!(rest, EndianBuf::new(&expected_rest, LittleEndian));
     }
 
     #[test]
@@ -641,12 +641,12 @@ mod tests {
             .L32(0x1)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input.range_from(0x10..);
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
                    Ok(Pointer::Direct(0x111)));
-        assert_eq!(rest, EndianBuf::new(&expected_rest));
+        assert_eq!(rest, EndianBuf::new(&expected_rest, LittleEndian));
     }
 
     #[test]
@@ -657,7 +657,7 @@ mod tests {
 
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
@@ -677,12 +677,12 @@ mod tests {
             .L32(0x1)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
                    Ok(Pointer::Direct(0x11)));
-        assert_eq!(rest, EndianBuf::new(&expected_rest));
+        assert_eq!(rest, EndianBuf::new(&expected_rest, LittleEndian));
     }
 
     #[test]
@@ -693,7 +693,7 @@ mod tests {
 
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
@@ -713,12 +713,12 @@ mod tests {
             .L32(0x1)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
                    Ok(Pointer::Direct(0x11)));
-        assert_eq!(rest, EndianBuf::new(&expected_rest));
+        assert_eq!(rest, EndianBuf::new(&expected_rest, LittleEndian));
     }
 
     #[test]
@@ -729,7 +729,7 @@ mod tests {
 
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
@@ -750,12 +750,12 @@ mod tests {
             .L32(0x1)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
                    Ok(Pointer::Direct(0x11)));
-        assert_eq!(rest, EndianBuf::new(&expected_rest));
+        assert_eq!(rest, EndianBuf::new(&expected_rest, LittleEndian));
     }
 
     #[test]
@@ -766,7 +766,7 @@ mod tests {
 
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
@@ -785,12 +785,12 @@ mod tests {
             .uleb(0x123456)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
                    Ok(Pointer::Direct(0x123456)));
-        assert_eq!(rest, EndianBuf::new(&expected_rest));
+        assert_eq!(rest, EndianBuf::new(&expected_rest, LittleEndian));
     }
 
     #[test]
@@ -805,12 +805,12 @@ mod tests {
             .L16(0x1234)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
                    Ok(Pointer::Direct(0x1234)));
-        assert_eq!(rest, EndianBuf::new(&expected_rest));
+        assert_eq!(rest, EndianBuf::new(&expected_rest, LittleEndian));
     }
 
     #[test]
@@ -825,12 +825,12 @@ mod tests {
             .L32(0x12345678)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
                    Ok(Pointer::Direct(0x12345678)));
-        assert_eq!(rest, EndianBuf::new(&expected_rest));
+        assert_eq!(rest, EndianBuf::new(&expected_rest, LittleEndian));
     }
 
     #[test]
@@ -845,12 +845,12 @@ mod tests {
             .L64(0x1234567812345678)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
                    Ok(Pointer::Direct(0x1234567812345678)));
-        assert_eq!(rest, EndianBuf::new(&expected_rest));
+        assert_eq!(rest, EndianBuf::new(&expected_rest, LittleEndian));
     }
 
     #[test]
@@ -865,12 +865,12 @@ mod tests {
             .sleb(-0x1111)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
                    Ok(Pointer::Direct(0x11110000)));
-        assert_eq!(rest, EndianBuf::new(&expected_rest));
+        assert_eq!(rest, EndianBuf::new(&expected_rest, LittleEndian));
     }
 
     #[test]
@@ -886,12 +886,12 @@ mod tests {
             .L16(expected as u16)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
                    Ok(Pointer::Direct(expected as u64)));
-        assert_eq!(rest, EndianBuf::new(&expected_rest));
+        assert_eq!(rest, EndianBuf::new(&expected_rest, LittleEndian));
     }
 
     #[test]
@@ -907,12 +907,12 @@ mod tests {
             .L32(expected as u32)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
                    Ok(Pointer::Direct(expected as u64)));
-        assert_eq!(rest, EndianBuf::new(&expected_rest));
+        assert_eq!(rest, EndianBuf::new(&expected_rest, LittleEndian));
     }
 
     #[test]
@@ -928,12 +928,12 @@ mod tests {
             .L64(expected as u64)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
                    Ok(Pointer::Direct(expected as u64)));
-        assert_eq!(rest, EndianBuf::new(&expected_rest));
+        assert_eq!(rest, EndianBuf::new(&expected_rest, LittleEndian));
     }
 
     #[test]
@@ -944,7 +944,7 @@ mod tests {
 
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
@@ -960,7 +960,7 @@ mod tests {
 
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
@@ -977,7 +977,7 @@ mod tests {
 
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
@@ -996,11 +996,11 @@ mod tests {
             .L32(0x12345678)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
-        let input = EndianBuf::<LittleEndian>::new(&input);
+        let input = EndianBuf::new(&input, LittleEndian);
         let mut rest = input;
 
         assert_eq!(parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
                    Ok(Pointer::Indirect(0x12345678)));
-        assert_eq!(rest, EndianBuf::new(&expected_rest));
+        assert_eq!(rest, EndianBuf::new(&expected_rest, LittleEndian));
     }
 }

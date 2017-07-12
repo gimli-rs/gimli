@@ -4,8 +4,7 @@ extern crate gimli;
 extern crate test;
 
 use gimli::{DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset, DebugLoc,
-            DebugPubNames, DebugPubTypes, DebugRanges, Reader, EndianBuf, LittleEndian,
-            EntriesTreeIter};
+            DebugPubNames, DebugPubTypes, DebugRanges, Reader, LittleEndian, EntriesTreeIter};
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -27,7 +26,7 @@ pub fn read_section(section: &str) -> Vec<u8> {
 #[bench]
 fn bench_parsing_debug_abbrev(b: &mut test::Bencher) {
     let debug_info = read_section("debug_info");
-    let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
+    let debug_info = DebugInfo::new(&debug_info, LittleEndian);
     let unit = debug_info
         .units()
         .next()
@@ -37,7 +36,7 @@ fn bench_parsing_debug_abbrev(b: &mut test::Bencher) {
     let debug_abbrev = read_section("debug_abbrev");
 
     b.iter(|| {
-               let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
+               let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
                test::black_box(unit.abbreviations(&debug_abbrev)
                                    .expect("Should parse abbreviations"));
            });
@@ -46,12 +45,12 @@ fn bench_parsing_debug_abbrev(b: &mut test::Bencher) {
 #[bench]
 fn bench_parsing_debug_info(b: &mut test::Bencher) {
     let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
     let debug_info = read_section("debug_info");
 
     b.iter(|| {
-        let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
+        let debug_info = DebugInfo::new(&debug_info, LittleEndian);
 
         let mut iter = debug_info.units();
         while let Some(unit) = iter.next().expect("Should parse compilation unit") {
@@ -72,12 +71,12 @@ fn bench_parsing_debug_info(b: &mut test::Bencher) {
 #[bench]
 fn bench_parsing_debug_info_tree(b: &mut test::Bencher) {
     let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
     let debug_info = read_section("debug_info");
 
     b.iter(|| {
-        let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
+        let debug_info = DebugInfo::new(&debug_info, LittleEndian);
 
         let mut iter = debug_info.units();
         while let Some(unit) = iter.next().expect("Should parse compilation unit") {
@@ -91,7 +90,7 @@ fn bench_parsing_debug_info_tree(b: &mut test::Bencher) {
     });
 }
 
-fn parse_debug_info_tree(mut iter: EntriesTreeIter<EndianBuf<LittleEndian>>) {
+fn parse_debug_info_tree<R: Reader>(mut iter: EntriesTreeIter<R>) {
     {
         let entry = iter.entry().expect("Should have current entry");
         let mut attrs = entry.attrs();
@@ -107,7 +106,7 @@ fn parse_debug_info_tree(mut iter: EntriesTreeIter<EndianBuf<LittleEndian>>) {
 #[bench]
 fn bench_parsing_debug_aranges(b: &mut test::Bencher) {
     let debug_aranges = read_section("debug_aranges");
-    let debug_aranges = DebugAranges::<EndianBuf<LittleEndian>>::new(&debug_aranges);
+    let debug_aranges = DebugAranges::new(&debug_aranges, LittleEndian);
 
     b.iter(|| {
                let mut aranges = debug_aranges.items();
@@ -120,7 +119,7 @@ fn bench_parsing_debug_aranges(b: &mut test::Bencher) {
 #[bench]
 fn bench_parsing_debug_pubnames(b: &mut test::Bencher) {
     let debug_pubnames = read_section("debug_pubnames");
-    let debug_pubnames = DebugPubNames::<EndianBuf<LittleEndian>>::new(&debug_pubnames);
+    let debug_pubnames = DebugPubNames::new(&debug_pubnames, LittleEndian);
 
     b.iter(|| {
                let mut pubnames = debug_pubnames.items();
@@ -133,7 +132,7 @@ fn bench_parsing_debug_pubnames(b: &mut test::Bencher) {
 #[bench]
 fn bench_parsing_debug_pubtypes(b: &mut test::Bencher) {
     let debug_pubtypes = read_section("debug_pubtypes");
-    let debug_pubtypes = DebugPubTypes::<EndianBuf<LittleEndian>>::new(&debug_pubtypes);
+    let debug_pubtypes = DebugPubTypes::new(&debug_pubtypes, LittleEndian);
 
     b.iter(|| {
                let mut pubtypes = debug_pubtypes.items();
@@ -152,7 +151,7 @@ const ADDRESS_SIZE: u8 = 8;
 #[bench]
 fn bench_parsing_line_number_program_opcodes(b: &mut test::Bencher) {
     let debug_line = read_section("debug_line");
-    let debug_line = DebugLine::<EndianBuf<LittleEndian>>::new(&debug_line);
+    let debug_line = DebugLine::new(&debug_line, LittleEndian);
 
     b.iter(|| {
         let program = debug_line
@@ -170,7 +169,7 @@ fn bench_parsing_line_number_program_opcodes(b: &mut test::Bencher) {
 #[bench]
 fn bench_executing_line_number_programs(b: &mut test::Bencher) {
     let debug_line = read_section("debug_line");
-    let debug_line = DebugLine::<EndianBuf<LittleEndian>>::new(&debug_line);
+    let debug_line = DebugLine::new(&debug_line, LittleEndian);
 
     b.iter(|| {
         let program = debug_line
@@ -189,13 +188,13 @@ fn bench_executing_line_number_programs(b: &mut test::Bencher) {
 #[bench]
 fn bench_parsing_debug_loc(b: &mut test::Bencher) {
     let debug_info = read_section("debug_info");
-    let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
+    let debug_info = DebugInfo::new(&debug_info, LittleEndian);
 
     let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
     let debug_loc = read_section("debug_loc");
-    let debug_loc = DebugLoc::<EndianBuf<LittleEndian>>::new(&debug_loc);
+    let debug_loc = DebugLoc::new(&debug_loc, LittleEndian);
 
     let mut offsets = Vec::new();
 
@@ -243,13 +242,13 @@ fn bench_parsing_debug_loc(b: &mut test::Bencher) {
 #[bench]
 fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
     let debug_info = read_section("debug_info");
-    let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
+    let debug_info = DebugInfo::new(&debug_info, LittleEndian);
 
     let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
     let debug_ranges = read_section("debug_ranges");
-    let debug_ranges = DebugRanges::<EndianBuf<LittleEndian>>::new(&debug_ranges);
+    let debug_ranges = DebugRanges::new(&debug_ranges, LittleEndian);
 
     let mut offsets = Vec::new();
 
@@ -310,7 +309,7 @@ mod cfi {
     #[bench]
     fn iterate_entries_and_do_not_parse_any_fde(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
+        let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
 
         let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
 
@@ -325,7 +324,7 @@ mod cfi {
     #[bench]
     fn iterate_entries_and_parse_every_fde(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
+        let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
 
         let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
 
@@ -350,7 +349,7 @@ mod cfi {
     #[bench]
     fn iterate_entries_and_parse_every_fde_and_instructions(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
+        let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
 
         let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
 
@@ -385,7 +384,7 @@ mod cfi {
     #[bench]
     fn iterate_entries_evaluate_every_fde(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
+        let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
 
         let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
 
@@ -463,7 +462,7 @@ mod cfi {
     #[bench]
     fn parse_longest_fde_instructions(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
+        let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
         let fde = get_fde_with_longest_cfi_instructions(&eh_frame);
 
         b.iter(|| {
@@ -477,7 +476,7 @@ mod cfi {
     #[bench]
     fn eval_longest_fde_instructions_new_ctx_everytime(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
+        let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
         let fde = get_fde_with_longest_cfi_instructions(&eh_frame);
 
         b.iter(|| {
@@ -495,7 +494,7 @@ mod cfi {
     #[bench]
     fn eval_longest_fde_instructions_same_ctx(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
+        let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
         let fde = get_fde_with_longest_cfi_instructions(&eh_frame);
 
         let mut ctx = Some(UninitializedUnwindContext::new());

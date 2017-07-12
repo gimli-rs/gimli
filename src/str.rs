@@ -25,14 +25,14 @@ impl<'input, Endian> DebugStr<EndianBuf<'input, Endian>>
     /// Linux, a Mach-O loader on OSX, etc.
     ///
     /// ```
-    /// use gimli::{DebugStr, EndianBuf, LittleEndian};
+    /// use gimli::{DebugStr, LittleEndian};
     ///
     /// # let buf = [0x00, 0x01, 0x02, 0x03];
     /// # let read_debug_str_section_somehow = || &buf;
-    /// let debug_str = DebugStr::<EndianBuf<LittleEndian>>::new(read_debug_str_section_somehow());
+    /// let debug_str = DebugStr::new(read_debug_str_section_somehow(), LittleEndian);
     /// ```
-    pub fn new(debug_str_section: &'input [u8]) -> Self {
-        Self::from(EndianBuf::new(debug_str_section))
+    pub fn new(debug_str_section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianBuf::new(debug_str_section, endian))
     }
 }
 
@@ -40,13 +40,13 @@ impl<R: Reader> DebugStr<R> {
     /// Lookup a string from the `.debug_str` section by DebugStrOffset.
     ///
     /// ```
-    /// use gimli::{DebugStr, DebugStrOffset, EndianBuf, LittleEndian};
+    /// use gimli::{DebugStr, DebugStrOffset, LittleEndian};
     ///
     /// # let buf = [0x01, 0x02, 0x00];
     /// # let offset = DebugStrOffset(0);
     /// # let read_debug_str_section_somehow = || &buf;
     /// # let debug_str_offset_somehow = || offset;
-    /// let debug_str = DebugStr::<EndianBuf<LittleEndian>>::new(read_debug_str_section_somehow());
+    /// let debug_str = DebugStr::new(read_debug_str_section_somehow(), LittleEndian);
     /// println!("Found string {:?}", debug_str.get_str(debug_str_offset_somehow()));
     /// ```
     pub fn get_str(&self, offset: DebugStrOffset) -> Result<R> {

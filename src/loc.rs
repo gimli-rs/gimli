@@ -27,14 +27,14 @@ impl<'input, Endian> DebugLoc<EndianBuf<'input, Endian>>
     /// Linux, a Mach-O loader on OSX, etc.
     ///
     /// ```
-    /// use gimli::{DebugLoc, EndianBuf, LittleEndian};
+    /// use gimli::{DebugLoc, LittleEndian};
     ///
     /// # let buf = [0x00, 0x01, 0x02, 0x03];
     /// # let read_debug_loc_section_somehow = || &buf;
-    /// let debug_loc = DebugLoc::<EndianBuf<LittleEndian>>::new(read_debug_loc_section_somehow());
+    /// let debug_loc = DebugLoc::new(read_debug_loc_section_somehow(), LittleEndian);
     /// ```
-    pub fn new(debug_loc_section: &'input [u8]) -> Self {
-        Self::from(EndianBuf::new(debug_loc_section))
+    pub fn new(debug_loc_section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianBuf::new(debug_loc_section, endian))
     }
 }
 
@@ -268,7 +268,7 @@ mod tests {
             .L32(0);
 
         let buf = section.get_contents().unwrap();
-        let debug_loc = DebugLoc::<EndianBuf<LittleEndian>>::new(&buf);
+        let debug_loc = DebugLoc::new(&buf, LittleEndian);
         let offset = DebugLocOffset((&first - &start) as usize);
         let mut locations = debug_loc.locations(offset, 4, 0x01000000).unwrap();
 
@@ -279,7 +279,7 @@ mod tests {
                                    begin: 0x01010200,
                                    end: 0x01010300,
                                },
-                               data: EndianBuf::new(&[2, 0, 0, 0]),
+                               data: EndianBuf::new(&[2, 0, 0, 0], LittleEndian),
                            })));
 
         // A base address selection followed by a normal location.
@@ -289,7 +289,7 @@ mod tests {
                                    begin: 0x02010400,
                                    end: 0x02010500,
                                },
-                               data: EndianBuf::new(&[3, 0, 0, 0]),
+                               data: EndianBuf::new(&[3, 0, 0, 0], LittleEndian),
                            })));
 
         // An empty location range followed by a normal location.
@@ -299,7 +299,7 @@ mod tests {
                                    begin: 0x02010800,
                                    end: 0x02010900,
                                },
-                               data: EndianBuf::new(&[5, 0, 0, 0]),
+                               data: EndianBuf::new(&[5, 0, 0, 0], LittleEndian),
                            })));
 
         // A location range that starts at 0.
@@ -309,7 +309,7 @@ mod tests {
                                    begin: 0x02000000,
                                    end: 0x02000001,
                                },
-                               data: EndianBuf::new(&[6, 0, 0, 0]),
+                               data: EndianBuf::new(&[6, 0, 0, 0], LittleEndian),
                            })));
 
         // A location range that ends at -1.
@@ -319,7 +319,7 @@ mod tests {
                                    begin: 0x00000000,
                                    end: 0xffffffff,
                                },
-                               data: EndianBuf::new(&[7, 0, 0, 0]),
+                               data: EndianBuf::new(&[7, 0, 0, 0], LittleEndian),
                            })));
 
         // A location list end.
@@ -360,7 +360,7 @@ mod tests {
             .L64(0);
 
         let buf = section.get_contents().unwrap();
-        let debug_loc = DebugLoc::<EndianBuf<LittleEndian>>::new(&buf);
+        let debug_loc = DebugLoc::new(&buf, LittleEndian);
         let offset = DebugLocOffset((&first - &start) as usize);
         let mut locations = debug_loc.locations(offset, 8, 0x01000000).unwrap();
 
@@ -371,7 +371,7 @@ mod tests {
                                    begin: 0x01010200,
                                    end: 0x01010300,
                                },
-                               data: EndianBuf::new(&[2, 0, 0, 0]),
+                               data: EndianBuf::new(&[2, 0, 0, 0], LittleEndian),
                            })));
 
         // A base address selection followed by a normal location.
@@ -381,7 +381,7 @@ mod tests {
                                    begin: 0x02010400,
                                    end: 0x02010500,
                                },
-                               data: EndianBuf::new(&[3, 0, 0, 0]),
+                               data: EndianBuf::new(&[3, 0, 0, 0], LittleEndian),
                            })));
 
         // An empty location range followed by a normal location.
@@ -391,7 +391,7 @@ mod tests {
                                    begin: 0x02010800,
                                    end: 0x02010900,
                                },
-                               data: EndianBuf::new(&[5, 0, 0, 0]),
+                               data: EndianBuf::new(&[5, 0, 0, 0], LittleEndian),
                            })));
 
         // A location range that starts at 0.
@@ -401,7 +401,7 @@ mod tests {
                                    begin: 0x02000000,
                                    end: 0x02000001,
                                },
-                               data: EndianBuf::new(&[6, 0, 0, 0]),
+                               data: EndianBuf::new(&[6, 0, 0, 0], LittleEndian),
                            })));
 
         // A location range that ends at -1.
@@ -411,7 +411,7 @@ mod tests {
                                    begin: 0x0,
                                    end: 0xffffffffffffffff,
                                },
-                               data: EndianBuf::new(&[7, 0, 0, 0]),
+                               data: EndianBuf::new(&[7, 0, 0, 0], LittleEndian),
                            })));
 
         // A location list end.
@@ -433,7 +433,7 @@ mod tests {
             .L32(0x20000).L32(0xff010000).L16(4).L32(2);
 
         let buf = section.get_contents().unwrap();
-        let debug_loc = DebugLoc::<EndianBuf<LittleEndian>>::new(&buf);
+        let debug_loc = DebugLoc::new(&buf, LittleEndian);
 
         // An invalid location range.
         let mut locations = debug_loc

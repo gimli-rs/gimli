@@ -181,15 +181,15 @@ impl<'input, Endian> DebugAranges<EndianBuf<'input, Endian>>
     /// Linux, a Mach-O loader on OSX, etc.
     ///
     /// ```
-    /// use gimli::{DebugAranges, EndianBuf, LittleEndian};
+    /// use gimli::{DebugAranges, LittleEndian};
     ///
     /// # let buf = [];
     /// # let read_debug_aranges_section = || &buf;
     /// let debug_aranges =
-    ///     DebugAranges::<EndianBuf<LittleEndian>>::new(read_debug_aranges_section());
+    ///     DebugAranges::new(read_debug_aranges_section(), LittleEndian);
     /// ```
-    pub fn new(debug_aranges_section: &'input [u8]) -> Self {
-        Self::from(EndianBuf::new(debug_aranges_section))
+    pub fn new(debug_aranges_section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianBuf::new(debug_aranges_section, endian))
     }
 }
 
@@ -201,8 +201,7 @@ impl<R: Reader> DebugAranges<R> {
     ///
     /// # let buf = [];
     /// # let read_debug_aranges_section = || &buf;
-    /// let debug_aranges =
-    ///     DebugAranges::<EndianBuf<LittleEndian>>::new(read_debug_aranges_section());
+    /// let debug_aranges = DebugAranges::new(read_debug_aranges_section(), LittleEndian);
     ///
     /// let mut iter = debug_aranges.items();
     /// while let Some(arange) = iter.next().unwrap() {
@@ -294,13 +293,13 @@ mod tests {
             0x00, 0x00, 0x00, 0x00,
         ];
 
-        let rest = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
         let (tuples, header) = ArangeParser::parse_header(rest)
             .expect("should parse header ok");
 
-        assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 16..]));
-        assert_eq!(tuples, EndianBuf::new(&buf[buf.len() - 32..buf.len() - 16]));
+        assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 16..], LittleEndian));
+        assert_eq!(tuples, EndianBuf::new(&buf[buf.len() - 32..buf.len() - 16], LittleEndian));
         assert_eq!(header,
                    ArangeHeader {
                        format: Format::Dwarf32,
@@ -323,9 +322,9 @@ mod tests {
             segment_size: 0,
         };
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
-        let rest = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
         let entry = ArangeParser::parse_entry(rest, &header).expect("should parse entry ok");
-        assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 1..]));
+        assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 1..], LittleEndian));
         assert_eq!(entry,
                    Some(ArangeEntry {
                             segment: None,
@@ -356,10 +355,10 @@ mod tests {
             // Next tuple.
             0x09
         ];
-        let rest = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
         let entry = ArangeParser::parse_entry(rest, &header)
             .expect("should parse entry ok");
-        assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 1..]));
+        assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 1..], LittleEndian));
         assert_eq!(entry,
                    Some(ArangeEntry {
                        segment: Some(0x1817161514131211),
@@ -390,10 +389,10 @@ mod tests {
             // Next tuple.
             0x09
         ];
-        let rest = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
         let entry = ArangeParser::parse_entry(rest, &header)
             .expect("should parse entry ok");
-        assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 1..]));
+        assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 1..], LittleEndian));
         assert_eq!(entry,
                    Some(ArangeEntry {
                        segment: None,

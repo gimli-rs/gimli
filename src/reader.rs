@@ -14,6 +14,9 @@ pub trait Reader: Debug + Clone {
     /// The endianity of bytes that are read.
     type Endian: Endianity;
 
+    /// Return the endianity of bytes that are read.
+    fn endian(&self) -> Self::Endian;
+
     /// Return the number of bytes remaining.
     fn len(&self) -> usize;
 

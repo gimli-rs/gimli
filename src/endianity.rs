@@ -4,7 +4,6 @@ use byteorder;
 use byteorder::ByteOrder;
 use std::borrow::Cow;
 use std::fmt::Debug;
-use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 use std::str;
@@ -149,18 +148,15 @@ pub struct EndianBuf<'input, Endian>
     where Endian: Endianity
 {
     buf: &'input [u8],
-    endian: PhantomData<Endian>,
+    endian: Endian,
 }
 
 impl<'input, Endian> EndianBuf<'input, Endian>
     where Endian: Endianity
 {
     /// Construct a new `EndianBuf` with the given buffer.
-    pub fn new(buf: &'input [u8]) -> EndianBuf<'input, Endian> {
-        EndianBuf {
-            buf,
-            endian: PhantomData,
-        }
+    pub fn new(buf: &'input [u8], endian: Endian) -> EndianBuf<'input, Endian> {
+        EndianBuf { buf, endian }
     }
 
     /// Return a reference to the raw buffer.
@@ -226,9 +222,9 @@ impl<'input, Endian> EndianBuf<'input, Endian>
     /// use gimli::{EndianBuf, LittleEndian};
     ///
     /// let buf = [0x01, 0x02, 0x03, 0x04];
-    /// let endian_buf = EndianBuf::<LittleEndian>::new(&buf);
+    /// let endian_buf = EndianBuf::new(&buf, LittleEndian);
     /// assert_eq!(endian_buf.range(1..3),
-    ///            EndianBuf::new(&buf[1..3]));
+    ///            EndianBuf::new(&buf[1..3], LittleEndian));
     /// ```
     pub fn range(&self, idx: Range<usize>) -> EndianBuf<'input, Endian> {
         EndianBuf {
@@ -244,9 +240,9 @@ impl<'input, Endian> EndianBuf<'input, Endian>
     /// use gimli::{EndianBuf, LittleEndian};
     ///
     /// let buf = [0x01, 0x02, 0x03, 0x04];
-    /// let endian_buf = EndianBuf::<LittleEndian>::new(&buf);
+    /// let endian_buf = EndianBuf::new(&buf, LittleEndian);
     /// assert_eq!(endian_buf.range_from(2..),
-    ///            EndianBuf::new(&buf[2..]));
+    ///            EndianBuf::new(&buf[2..], LittleEndian));
     /// ```
     pub fn range_from(&self, idx: RangeFrom<usize>) -> EndianBuf<'input, Endian> {
         EndianBuf {
@@ -262,9 +258,9 @@ impl<'input, Endian> EndianBuf<'input, Endian>
     /// use gimli::{EndianBuf, LittleEndian};
     ///
     /// let buf = [0x01, 0x02, 0x03, 0x04];
-    /// let endian_buf = EndianBuf::<LittleEndian>::new(&buf);
+    /// let endian_buf = EndianBuf::new(&buf, LittleEndian);
     /// assert_eq!(endian_buf.range_to(..3),
-    ///            EndianBuf::new(&buf[..3]));
+    ///            EndianBuf::new(&buf[..3], LittleEndian));
     /// ```
     pub fn range_to(&self, idx: RangeTo<usize>) -> EndianBuf<'input, Endian> {
         EndianBuf {
@@ -315,6 +311,11 @@ impl<'input, Endian> Reader for EndianBuf<'input, Endian>
     type Endian = Endian;
 
     #[inline]
+    fn endian(&self) -> Endian {
+        self.endian
+    }
+
+    #[inline]
     fn len(&self) -> usize {
         self.buf.len()
     }
@@ -362,7 +363,7 @@ impl<'input, Endian> Reader for EndianBuf<'input, Endian>
     #[inline]
     fn split(&mut self, len: usize) -> Result<Self> {
         let slice = self.read_slice(len)?;
-        Ok(EndianBuf::new(slice))
+        Ok(EndianBuf::new(slice, self.endian))
     }
 
     #[inline]
@@ -409,37 +410,37 @@ impl<'input, Endian> Reader for EndianBuf<'input, Endian>
     #[inline]
     fn read_u16(&mut self) -> Result<u16> {
         let slice = self.read_slice(2)?;
-        Ok(Endian::default().read_u16(slice))
+        Ok(self.endian.read_u16(slice))
     }
 
     #[inline]
     fn read_i16(&mut self) -> Result<i16> {
         let slice = self.read_slice(2)?;
-        Ok(Endian::default().read_i16(slice))
+        Ok(self.endian.read_i16(slice))
     }
 
     #[inline]
     fn read_u32(&mut self) -> Result<u32> {
         let slice = self.read_slice(4)?;
-        Ok(Endian::default().read_u32(slice))
+        Ok(self.endian.read_u32(slice))
     }
 
     #[inline]
     fn read_i32(&mut self) -> Result<i32> {
         let slice = self.read_slice(4)?;
-        Ok(Endian::default().read_i32(slice))
+        Ok(self.endian.read_i32(slice))
     }
 
     #[inline]
     fn read_u64(&mut self) -> Result<u64> {
         let slice = self.read_slice(8)?;
-        Ok(Endian::default().read_u64(slice))
+        Ok(self.endian.read_u64(slice))
     }
 
     #[inline]
     fn read_i64(&mut self) -> Result<i64> {
         let slice = self.read_slice(8)?;
-        Ok(Endian::default().read_i64(slice))
+        Ok(self.endian.read_i64(slice))
     }
 }
 
@@ -449,17 +450,18 @@ mod tests {
 
     #[test]
     fn test_endian_buf_split_at() {
+        let endian = NativeEndian {};
         let buf = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
-        let eb = EndianBuf::<NativeEndian>::new(&buf);
+        let eb = EndianBuf::new(&buf, endian);
         assert_eq!(eb.split_at(3),
-                   (EndianBuf::new(&buf[..3]), EndianBuf::new(&buf[3..])));
+                   (EndianBuf::new(&buf[..3], endian), EndianBuf::new(&buf[3..], endian)));
     }
 
     #[test]
     #[should_panic]
     fn test_endian_buf_split_at_out_of_bounds() {
         let buf = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
-        let eb = EndianBuf::<NativeEndian>::new(&buf);
+        let eb = EndianBuf::new(&buf, NativeEndian {});
         eb.split_at(30);
     }
 }
