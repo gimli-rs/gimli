@@ -2,7 +2,6 @@
 
 use constants;
 use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation, AttributeSpecification};
-use byteorder::ByteOrder;
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use line::DebugLineOffset;
@@ -98,14 +97,14 @@ impl<'input, Endian> DebugInfo<EndianBuf<'input, Endian>>
     /// Linux, a Mach-O loader on OSX, etc.
     ///
     /// ```
-    /// use gimli::{DebugInfo, EndianBuf, LittleEndian};
+    /// use gimli::{DebugInfo, LittleEndian};
     ///
     /// # let buf = [0x00, 0x01, 0x02, 0x03];
     /// # let read_debug_info_section_somehow = || &buf;
-    /// let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(read_debug_info_section_somehow());
+    /// let debug_info = DebugInfo::new(read_debug_info_section_somehow(), LittleEndian);
     /// ```
-    pub fn new(debug_info_section: &'input [u8]) -> Self {
-        Self::from(EndianBuf::new(debug_info_section))
+    pub fn new(debug_info_section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianBuf::new(debug_info_section, endian))
     }
 }
 
@@ -114,11 +113,11 @@ impl<R: Reader> DebugInfo<R> {
     /// `.debug_info` section.
     ///
     /// ```
-    /// use gimli::{DebugInfo, EndianBuf, LittleEndian};
+    /// use gimli::{DebugInfo, LittleEndian};
     ///
     /// # let buf = [];
     /// # let read_debug_info_section_somehow = || &buf;
-    /// let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(read_debug_info_section_somehow());
+    /// let debug_info = DebugInfo::new(read_debug_info_section_somehow(), LittleEndian);
     ///
     /// let mut iter = debug_info.units();
     /// while let Some(unit) = iter.next().unwrap() {
@@ -283,7 +282,7 @@ impl<R: Reader> CompilationUnitHeader<R> {
     ///
     /// ```
     /// use gimli::DebugAbbrev;
-    /// # use gimli::{DebugInfo, EndianBuf, LittleEndian};
+    /// # use gimli::{DebugInfo, LittleEndian};
     /// # let info_buf = [
     /// #     // Comilation unit header
     /// #
@@ -328,7 +327,7 @@ impl<R: Reader> CompilationUnitHeader<R> {
     /// #       // End of children
     /// #       0x00,
     /// # ];
-    /// # let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&info_buf);
+    /// # let debug_info = DebugInfo::new(&info_buf, LittleEndian);
     /// #
     /// # let abbrev_buf = [
     /// #     // Code
@@ -354,7 +353,7 @@ impl<R: Reader> CompilationUnitHeader<R> {
     /// let unit = get_some_unit();
     ///
     /// # let read_debug_abbrev_section_somehow = || &abbrev_buf;
-    /// let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(read_debug_abbrev_section_somehow());
+    /// let debug_abbrev = DebugAbbrev::new(read_debug_abbrev_section_somehow(), LittleEndian);
     /// let abbrevs_for_unit = unit.abbreviations(&debug_abbrev).unwrap();
     /// ```
     pub fn abbreviations(&self, debug_abbrev: &DebugAbbrev<R>) -> Result<Abbreviations> {
@@ -644,7 +643,7 @@ impl<'abbrev, 'unit, R: Reader> DebuggingInformationEntry<'abbrev, 'unit, R> {
     /// Get this entry's `DW_TAG_whatever` tag.
     ///
     /// ```
-    /// # use gimli::{DebugAbbrev, DebugInfo, EndianBuf, LittleEndian};
+    /// # use gimli::{DebugAbbrev, DebugInfo, LittleEndian};
     /// # let info_buf = [
     /// #     // Comilation unit header
     /// #
@@ -664,7 +663,7 @@ impl<'abbrev, 'unit, R: Reader> DebuggingInformationEntry<'abbrev, 'unit, R> {
     /// #     // Attribute of form DW_FORM_string = "foo\0"
     /// #     0x66, 0x6f, 0x6f, 0x00,
     /// # ];
-    /// # let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&info_buf);
+    /// # let debug_info = DebugInfo::new(&info_buf, LittleEndian);
     /// # let abbrev_buf = [
     /// #     // Code
     /// #     0x01,
@@ -683,7 +682,7 @@ impl<'abbrev, 'unit, R: Reader> DebuggingInformationEntry<'abbrev, 'unit, R> {
     /// #     // Null terminator
     /// #     0x00
     /// # ];
-    /// # let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&abbrev_buf);
+    /// # let debug_abbrev = DebugAbbrev::new(&abbrev_buf, LittleEndian);
     /// # let unit = debug_info.units().next().unwrap().unwrap();
     /// # let abbrevs = unit.abbreviations(&debug_abbrev).unwrap();
     /// # let mut cursor = unit.entries(&abbrevs);
@@ -716,7 +715,7 @@ impl<'abbrev, 'unit, R: Reader> DebuggingInformationEntry<'abbrev, 'unit, R> {
     /// Iterate over this entry's set of attributes.
     ///
     /// ```
-    /// use gimli::{DebugAbbrev, DebugInfo, EndianBuf, LittleEndian};
+    /// use gimli::{DebugAbbrev, DebugInfo, LittleEndian};
     ///
     /// // Read the `.debug_info` section.
     ///
@@ -740,7 +739,7 @@ impl<'abbrev, 'unit, R: Reader> DebuggingInformationEntry<'abbrev, 'unit, R> {
     /// #     0x66, 0x6f, 0x6f, 0x00,
     /// # ];
     /// # let read_debug_info_section_somehow = || &info_buf;
-    /// let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(read_debug_info_section_somehow());
+    /// let debug_info = DebugInfo::new(read_debug_info_section_somehow(), LittleEndian);
     ///
     /// // Get the data about the first compilation unit out of the `.debug_info`.
     ///
@@ -770,7 +769,7 @@ impl<'abbrev, 'unit, R: Reader> DebuggingInformationEntry<'abbrev, 'unit, R> {
     /// #     0x00
     /// # ];
     /// # let read_debug_abbrev_section_somehow = || &abbrev_buf;
-    /// let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(read_debug_abbrev_section_somehow());
+    /// let debug_abbrev = DebugAbbrev::new(read_debug_abbrev_section_somehow(), LittleEndian);
     /// let abbrevs = unit.abbreviations(&debug_abbrev).unwrap();
     ///
     /// // Get the first entry from that compilation unit.
@@ -851,21 +850,21 @@ pub enum AttributeValue<R: Reader> {
     /// From section 7 of the standard: "Depending on context, it may be a
     /// signed integer, an unsigned integer, a floating-point constant, or
     /// anything else."
-    Data2([u8; 2]),
+    Data2(([u8; 2], R::Endian)),
 
     /// A four byte constant data value. How to interpret the bytes depends on context.
     ///
     /// From section 7 of the standard: "Depending on context, it may be a
     /// signed integer, an unsigned integer, a floating-point constant, or
     /// anything else."
-    Data4([u8; 4]),
+    Data4(([u8; 4], R::Endian)),
 
     /// An eight byte constant data value. How to interpret the bytes depends on context.
     ///
     /// From section 7 of the standard: "Depending on context, it may be a
     /// signed integer, an unsigned integer, a floating-point constant, or
     /// anything else."
-    Data8([u8; 8]),
+    Data8(([u8; 8], R::Endian)),
 
     /// A signed integer constant.
     Sdata(i64),
@@ -1395,9 +1394,9 @@ impl<R: Reader> Attribute<R> {
     pub fn udata_value(&self) -> Option<u64> {
         Some(match self.value {
                  AttributeValue::Data1(ref data) => data[0] as u64,
-                 AttributeValue::Data2(ref data) => R::Endian::read_u16(data) as u64,
-                 AttributeValue::Data4(ref data) => R::Endian::read_u32(data) as u64,
-                 AttributeValue::Data8(ref data) => R::Endian::read_u64(data),
+                 AttributeValue::Data2((ref data, endian)) => endian.read_u16(data) as u64,
+                 AttributeValue::Data4((ref data, endian)) => endian.read_u32(data) as u64,
+                 AttributeValue::Data8((ref data, endian)) => endian.read_u64(data),
                  AttributeValue::Udata(data) => data,
                  _ => return None,
              })
@@ -1407,9 +1406,9 @@ impl<R: Reader> Attribute<R> {
     pub fn sdata_value(&self) -> Option<i64> {
         Some(match self.value {
                  AttributeValue::Data1(ref data) => data[0] as i8 as i64,
-                 AttributeValue::Data2(ref data) => R::Endian::read_u16(data) as i16 as i64,
-                 AttributeValue::Data4(ref data) => R::Endian::read_u32(data) as i32 as i64,
-                 AttributeValue::Data8(ref data) => R::Endian::read_u64(data) as i64,
+                 AttributeValue::Data2((ref data, endian)) => endian.read_u16(data) as i16 as i64,
+                 AttributeValue::Data4((ref data, endian)) => endian.read_u32(data) as i32 as i64,
+                 AttributeValue::Data8((ref data, endian)) => endian.read_u64(data) as i64,
                  AttributeValue::Sdata(data) => data,
                  _ => return None,
              })
@@ -1420,12 +1419,12 @@ impl<R: Reader> Attribute<R> {
     /// Offsets will be `Data` in DWARF version 2/3, and `SecOffset` otherwise.
     pub fn offset_value(&self) -> Option<usize> {
         match self.value {
-            AttributeValue::Data4(ref data) => {
-                let offset = R::Endian::read_u32(data) as u64;
+            AttributeValue::Data4((ref data, endian)) => {
+                let offset = endian.read_u32(data) as u64;
                 u64_to_offset(offset).ok()
             }
-            AttributeValue::Data8(ref data) => {
-                let offset = R::Endian::read_u64(data);
+            AttributeValue::Data8((ref data, endian)) => {
+                let offset = endian.read_u64(data);
                 u64_to_offset(offset).ok()
             }
             AttributeValue::SecOffset(offset) => Some(offset),
@@ -1519,7 +1518,7 @@ fn parse_attribute<'unit, R: Reader>(input: &mut R,
             }
             constants::DW_FORM_data2 => {
                 let data = input.read_u8_array()?;
-                AttributeValue::Data2(data)
+                AttributeValue::Data2((data, input.endian()))
             }
             constants::DW_FORM_data4 => {
                 // DWARF version 2/3 may use DW_FORM_data4/8 for section offsets.
@@ -1533,7 +1532,7 @@ fn parse_attribute<'unit, R: Reader>(input: &mut R,
                     AttributeValue::SecOffset(offset as usize)
                 } else {
                     let data = input.read_u8_array()?;
-                    AttributeValue::Data4(data)
+                    AttributeValue::Data4((data, input.endian()))
                 }
             }
             constants::DW_FORM_data8 => {
@@ -1548,7 +1547,7 @@ fn parse_attribute<'unit, R: Reader>(input: &mut R,
                     AttributeValue::SecOffset(offset as usize)
                 } else {
                     let data = input.read_u8_array()?;
-                    AttributeValue::Data8(data)
+                    AttributeValue::Data8((data, input.endian()))
                 }
             }
             constants::DW_FORM_udata => {
@@ -1816,7 +1815,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// does not have any children.
     ///
     /// ```
-    /// # use gimli::{DebugAbbrev, DebugInfo, EndianBuf, LittleEndian};
+    /// # use gimli::{DebugAbbrev, DebugInfo, LittleEndian};
     /// # let info_buf = [
     /// #     // Comilation unit header
     /// #
@@ -1861,7 +1860,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// #       // End of children
     /// #       0x00,
     /// # ];
-    /// # let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&info_buf);
+    /// # let debug_info = DebugInfo::new(&info_buf, LittleEndian);
     /// #
     /// # let abbrev_buf = [
     /// #     // Code
@@ -1881,7 +1880,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// #     // Null terminator
     /// #     0x00
     /// # ];
-    /// # let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&abbrev_buf);
+    /// # let debug_abbrev = DebugAbbrev::new(&abbrev_buf, LittleEndian);
     /// #
     /// # let get_some_unit = || debug_info.units().next().unwrap().unwrap();
     ///
@@ -1941,7 +1940,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// root entry:
     ///
     /// ```
-    /// # use gimli::{DebugAbbrev, DebugInfo, EndianBuf, LittleEndian};
+    /// # use gimli::{DebugAbbrev, DebugInfo, LittleEndian};
     /// # let info_buf = [
     /// #     // Comilation unit header
     /// #
@@ -1986,7 +1985,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// #       // End of children
     /// #       0x00,
     /// # ];
-    /// # let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&info_buf);
+    /// # let debug_info = DebugInfo::new(&info_buf, LittleEndian);
     /// #
     /// # let get_some_unit = || debug_info.units().next().unwrap().unwrap();
     ///
@@ -2008,7 +2007,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// #     // Null terminator
     /// #     0x00
     /// # ];
-    /// # let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&abbrev_buf);
+    /// # let debug_abbrev = DebugAbbrev::new(&abbrev_buf, LittleEndian);
     /// #
     /// let unit = get_some_unit();
     /// # let get_abbrevs_for_unit = |_| unit.abbreviations(&debug_abbrev).unwrap();
@@ -2102,10 +2101,10 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
 /// extern crate gimli;
 ///
 /// # fn example() -> Result<(), gimli::Error> {
-/// # let debug_info = gimli::DebugInfo::<gimli::EndianBuf<gimli::LittleEndian>>::new(&[]);
+/// # let debug_info = gimli::DebugInfo::new(&[], gimli::LittleEndian);
 /// # let get_some_unit = || debug_info.units().next().unwrap().unwrap();
 /// let unit = get_some_unit();
-/// # let debug_abbrev = gimli::DebugAbbrev::<gimli::EndianBuf<gimli::LittleEndian>>::new(&[]);
+/// # let debug_abbrev = gimli::DebugAbbrev::new(&[], gimli::LittleEndian);
 /// # let get_abbrevs_for_unit = |_| unit.abbreviations(&debug_abbrev).unwrap();
 /// let abbrevs = get_abbrevs_for_unit(&unit);
 ///
@@ -2301,14 +2300,14 @@ impl<'input, Endian> DebugTypes<EndianBuf<'input, Endian>>
     /// Linux, a Mach-O loader on OSX, etc.
     ///
     /// ```
-    /// use gimli::{DebugTypes, EndianBuf, LittleEndian};
+    /// use gimli::{DebugTypes, LittleEndian};
     ///
     /// # let buf = [0x00, 0x01, 0x02, 0x03];
     /// # let read_debug_types_section_somehow = || &buf;
-    /// let debug_types = DebugTypes::<EndianBuf<LittleEndian>>::new(read_debug_types_section_somehow());
+    /// let debug_types = DebugTypes::new(read_debug_types_section_somehow(), LittleEndian);
     /// ```
-    pub fn new(debug_types_section: &'input [u8]) -> Self {
-        Self::from(EndianBuf::new(debug_types_section))
+    pub fn new(debug_types_section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianBuf::new(debug_types_section, endian))
     }
 }
 
@@ -2329,11 +2328,11 @@ impl<R: Reader> DebugTypes<R> {
     /// Iterate the type-units in this `.debug_types` section.
     ///
     /// ```
-    /// use gimli::{DebugTypes, EndianBuf, LittleEndian};
+    /// use gimli::{DebugTypes, LittleEndian};
     ///
     /// # let buf = [];
     /// # let read_debug_types_section_somehow = || &buf;
-    /// let debug_types = DebugTypes::<EndianBuf<LittleEndian>>::new(read_debug_types_section_somehow());
+    /// let debug_types = DebugTypes::new(read_debug_types_section_somehow(), LittleEndian);
     ///
     /// let mut iter = debug_types.units();
     /// while let Some(unit) = iter.next().unwrap() {
@@ -2509,7 +2508,7 @@ impl<R: Reader> TypeUnitHeader<R> {
     ///
     /// ```
     /// use gimli::DebugAbbrev;
-    /// # use gimli::{DebugTypes, EndianBuf, LittleEndian};
+    /// # use gimli::{DebugTypes, LittleEndian};
     /// # let types_buf = [
     /// #     // Type unit header
     /// #
@@ -2558,7 +2557,7 @@ impl<R: Reader> TypeUnitHeader<R> {
     /// #       // End of children
     /// #       0x00,
     /// # ];
-    /// # let debug_types = DebugTypes::<EndianBuf<LittleEndian>>::new(&types_buf);
+    /// # let debug_types = DebugTypes::new(&types_buf, LittleEndian);
     /// #
     /// # let abbrev_buf = [
     /// #     // Code
@@ -2584,7 +2583,7 @@ impl<R: Reader> TypeUnitHeader<R> {
     /// let unit = get_some_type_unit();
     ///
     /// # let read_debug_abbrev_section_somehow = || &abbrev_buf;
-    /// let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(read_debug_abbrev_section_somehow());
+    /// let debug_abbrev = DebugAbbrev::new(read_debug_abbrev_section_somehow(), LittleEndian);
     /// let abbrevs_for_unit = unit.abbreviations(&debug_abbrev).unwrap();
     /// ```
     pub fn abbreviations(&self, debug_abbrev: &DebugAbbrev<R>) -> Result<Abbreviations> {
@@ -2727,7 +2726,7 @@ mod tests {
     fn test_parse_debug_abbrev_offset_32() {
         let section = Section::with_endian(Endian::Little).L32(0x04030201);
         let buf = section.get_contents().unwrap();
-        let buf = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let buf = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_debug_abbrev_offset(buf, Format::Dwarf32) {
             Ok(val) => assert_eq!(val, DebugAbbrevOffset(0x04030201)),
@@ -2738,7 +2737,7 @@ mod tests {
     #[test]
     fn test_parse_debug_abbrev_offset_32_incomplete() {
         let buf = [0x01, 0x02];
-        let buf = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let buf = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_debug_abbrev_offset(buf, Format::Dwarf32) {
             Err(Error::UnexpectedEof) => assert!(true),
@@ -2751,7 +2750,7 @@ mod tests {
     fn test_parse_debug_abbrev_offset_64() {
         let section = Section::with_endian(Endian::Little).L64(0x0807060504030201);
         let buf = section.get_contents().unwrap();
-        let buf = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let buf = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_debug_abbrev_offset(buf, Format::Dwarf64) {
             Ok(val) => assert_eq!(val, DebugAbbrevOffset(0x0807060504030201)),
@@ -2762,7 +2761,7 @@ mod tests {
     #[test]
     fn test_parse_debug_abbrev_offset_64_incomplete() {
         let buf = [0x01, 0x02];
-        let buf = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let buf = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_debug_abbrev_offset(buf, Format::Dwarf64) {
             Err(Error::UnexpectedEof) => assert!(true),
@@ -2774,7 +2773,7 @@ mod tests {
     fn test_parse_debug_info_offset_32() {
         let section = Section::with_endian(Endian::Little).L32(0x04030201);
         let buf = section.get_contents().unwrap();
-        let buf = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let buf = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_debug_info_offset(buf, Format::Dwarf32) {
             Ok(val) => assert_eq!(val, DebugInfoOffset(0x04030201)),
@@ -2785,7 +2784,7 @@ mod tests {
     #[test]
     fn test_parse_debug_info_offset_32_incomplete() {
         let buf = [0x01, 0x02];
-        let buf = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let buf = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_debug_info_offset(buf, Format::Dwarf32) {
             Err(Error::UnexpectedEof) => assert!(true),
@@ -2798,7 +2797,7 @@ mod tests {
     fn test_parse_debug_info_offset_64() {
         let section = Section::with_endian(Endian::Little).L64(0x0807060504030201);
         let buf = section.get_contents().unwrap();
-        let buf = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let buf = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_debug_info_offset(buf, Format::Dwarf64) {
             Ok(val) => assert_eq!(val, DebugInfoOffset(0x0807060504030201)),
@@ -2809,7 +2808,7 @@ mod tests {
     #[test]
     fn test_parse_debug_info_offset_64_incomplete() {
         let buf = [0x01, 0x02];
-        let buf = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let buf = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_debug_info_offset(buf, Format::Dwarf64) {
             Err(Error::UnexpectedEof) => assert!(true),
@@ -2828,7 +2827,7 @@ mod tests {
                 debug_abbrev_offset: DebugAbbrevOffset(0x0102030405060708),
                 address_size: 8,
                 format: Format::Dwarf64,
-                entries_buf: EndianBuf::new(expected_rest),
+                entries_buf: EndianBuf::new(expected_rest, LittleEndian),
             },
             offset: DebugInfoOffset(0),
         };
@@ -2839,7 +2838,7 @@ mod tests {
                 debug_abbrev_offset: DebugAbbrevOffset(0x08070605),
                 address_size: 4,
                 format: Format::Dwarf32,
-                entries_buf: EndianBuf::new(expected_rest),
+                entries_buf: EndianBuf::new(expected_rest, LittleEndian),
             },
             offset: DebugInfoOffset(0),
         };
@@ -2848,7 +2847,7 @@ mod tests {
             .comp_unit(&mut unit32);
         let buf = section.get_contents().unwrap();
 
-        let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&buf);
+        let debug_info = DebugInfo::new(&buf, LittleEndian);
         let mut units = debug_info.units();
 
         assert_eq!(units.next(), Ok(Some(unit64)));
@@ -2860,12 +2859,12 @@ mod tests {
     fn test_unit_version_ok() {
         // Version 4 and two extra bytes
         let buf = [0x04, 0x00, 0xff, 0xff];
-        let rest = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_version(rest) {
             Ok(val) => {
                 assert_eq!(val, 4);
-                assert_eq!(*rest, EndianBuf::new(&[0xff, 0xff]));
+                assert_eq!(*rest, EndianBuf::new(&[0xff, 0xff], LittleEndian));
             }
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -2874,7 +2873,7 @@ mod tests {
     #[test]
     fn test_unit_version_unknown_version() {
         let buf = [0xab, 0xcd];
-        let rest = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_version(rest) {
             Err(Error::UnknownVersion) => assert!(true),
@@ -2882,7 +2881,7 @@ mod tests {
         };
 
         let buf = [0x1, 0x0];
-        let rest = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_version(rest) {
             Err(Error::UnknownVersion) => assert!(true),
@@ -2893,7 +2892,7 @@ mod tests {
     #[test]
     fn test_unit_version_incomplete() {
         let buf = [0x04];
-        let rest = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_version(rest) {
             Err(Error::UnexpectedEof) => assert!(true),
@@ -2910,16 +2909,16 @@ mod tests {
             debug_abbrev_offset: DebugAbbrevOffset(0x08070605),
             address_size: 4,
             format: Format::Dwarf32,
-            entries_buf: EndianBuf::new(expected_rest),
+            entries_buf: EndianBuf::new(expected_rest, LittleEndian),
         };
         let section = Section::with_endian(Endian::Little)
             .unit(&mut expected_unit, &[])
             .append_bytes(expected_rest);
         let buf = section.get_contents().unwrap();
-        let rest = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
         assert_eq!(parse_unit_header(rest), Ok(expected_unit));
-        assert_eq!(*rest, EndianBuf::new(expected_rest));
+        assert_eq!(*rest, EndianBuf::new(expected_rest, LittleEndian));
     }
 
     #[test]
@@ -2932,22 +2931,22 @@ mod tests {
             debug_abbrev_offset: DebugAbbrevOffset(0x0102030405060708),
             address_size: 8,
             format: Format::Dwarf64,
-            entries_buf: EndianBuf::new(expected_rest),
+            entries_buf: EndianBuf::new(expected_rest, LittleEndian),
         };
         let section = Section::with_endian(Endian::Little)
             .unit(&mut expected_unit, &[])
             .append_bytes(expected_rest);
         let buf = section.get_contents().unwrap();
-        let rest = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
         assert_eq!(parse_unit_header(rest), Ok(expected_unit));
-        assert_eq!(*rest, EndianBuf::new(expected_rest));
+        assert_eq!(*rest, EndianBuf::new(expected_rest, LittleEndian));
     }
 
     #[test]
     fn test_parse_type_offset_32_ok() {
         let buf = [0x12, 0x34, 0x56, 0x78, 0x00];
-        let rest = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_type_offset(rest, Format::Dwarf32) {
             Ok(offset) => {
@@ -2962,7 +2961,7 @@ mod tests {
     #[cfg(target_pointer_width = "64")]
     fn test_parse_type_offset_64_ok() {
         let buf = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xff, 0x00];
-        let rest = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_type_offset(rest, Format::Dwarf64) {
             Ok(offset) => {
@@ -2977,7 +2976,7 @@ mod tests {
     fn test_parse_type_offset_incomplete() {
         // Need at least 4 bytes.
         let buf = [0xff, 0xff, 0xff];
-        let rest = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_type_offset(rest, Format::Dwarf32) {
             Err(Error::UnexpectedEof) => assert!(true),
@@ -2996,7 +2995,7 @@ mod tests {
                 debug_abbrev_offset: DebugAbbrevOffset(0x08070605),
                 address_size: 8,
                 format: Format::Dwarf64,
-                entries_buf: EndianBuf::new(expected_rest),
+                entries_buf: EndianBuf::new(expected_rest, LittleEndian),
             },
             offset: DebugTypesOffset(0),
             type_signature: DebugTypeSignature(0xdeadbeefdeadbeef),
@@ -3006,11 +3005,11 @@ mod tests {
             .type_unit(&mut expected_unit)
             .append_bytes(expected_rest);
         let buf = section.get_contents().unwrap();
-        let rest = &mut EndianBuf::<LittleEndian>::new(&buf);
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
         assert_eq!(parse_type_unit_header(rest, DebugTypesOffset(0)),
                    Ok(expected_unit));
-        assert_eq!(*rest, EndianBuf::new(expected_rest));
+        assert_eq!(*rest, EndianBuf::new(expected_rest, LittleEndian));
     }
 
     fn section_contents<F>(f: F) -> Vec<u8>
@@ -3025,23 +3024,24 @@ mod tests {
     #[cfg(target_pointer_width = "64")]
     fn test_attribute_value() {
         let mut unit = test_parse_attribute_unit_default();
+        let endian = unit.entries_buf.endian();
 
         let block_data = &[1, 2, 3, 4];
         let buf = section_contents(|s| s.uleb(block_data.len() as u64).append_bytes(block_data));
-        let block = EndianBuf::<LittleEndian>::new(&buf);
+        let block = EndianBuf::new(&buf, endian);
 
         let buf = section_contents(|s| s.L32(0x01020304));
-        let data4 = EndianBuf::<LittleEndian>::new(&buf);
+        let data4 = EndianBuf::new(&buf, endian);
 
         let buf = section_contents(|s| s.L64(0x0102030405060708));
-        let data8 = EndianBuf::<LittleEndian>::new(&buf);
+        let data8 = EndianBuf::new(&buf, endian);
 
         let tests = [(2,
                       constants::DW_AT_data_member_location,
                       constants::DW_FORM_block,
                       block,
-                      AttributeValue::Block(EndianBuf::new(block_data)),
-                      AttributeValue::Exprloc(EndianBuf::new(block_data))),
+                      AttributeValue::Block(EndianBuf::new(block_data, endian)),
+                      AttributeValue::Exprloc(EndianBuf::new(block_data, endian))),
                      (2,
                       constants::DW_AT_data_member_location,
                       constants::DW_FORM_data4,
@@ -3052,7 +3052,7 @@ mod tests {
                       constants::DW_AT_data_member_location,
                       constants::DW_FORM_data4,
                       data4,
-                      AttributeValue::Data4([4, 3, 2, 1]),
+                      AttributeValue::Data4(([4, 3, 2, 1], endian)),
                       AttributeValue::Udata(0x01020304)),
                      (2,
                       constants::DW_AT_data_member_location,
@@ -3064,7 +3064,7 @@ mod tests {
                       constants::DW_AT_data_member_location,
                       constants::DW_FORM_data8,
                       data8,
-                      AttributeValue::Data8([8, 7, 6, 5, 4, 3, 2, 1]),
+                      AttributeValue::Data8(([8, 7, 6, 5, 4, 3, 2, 1], endian)),
                       AttributeValue::Udata(0x0102030405060708))];
 
         for test in tests.iter() {
@@ -3080,15 +3080,16 @@ mod tests {
 
     #[test]
     fn test_attribute_udata_sdata_value() {
+        let endian = LittleEndian;
         let tests: &[(AttributeValue<EndianBuf<LittleEndian>>, _, _)] =
             &[(AttributeValue::Data1([1]), Some(1), Some(1)),
               (AttributeValue::Data1([255]), Some(std::u8::MAX as u64), Some(-1)),
-              (AttributeValue::Data2([1, 0]), Some(1), Some(1)),
-              (AttributeValue::Data2([255; 2]), Some(std::u16::MAX as u64), Some(-1)),
-              (AttributeValue::Data4([1, 0, 0, 0]), Some(1), Some(1)),
-              (AttributeValue::Data4([255; 4]), Some(std::u32::MAX as u64), Some(-1)),
-              (AttributeValue::Data8([1, 0, 0, 0, 0, 0, 0, 0]), Some(1), Some(1)),
-              (AttributeValue::Data8([255; 8]), Some(std::u64::MAX), Some(-1)),
+              (AttributeValue::Data2(([1, 0], endian)), Some(1), Some(1)),
+              (AttributeValue::Data2(([255; 2], endian)), Some(std::u16::MAX as u64), Some(-1)),
+              (AttributeValue::Data4(([1, 0, 0, 0], endian)), Some(1), Some(1)),
+              (AttributeValue::Data4(([255; 4], endian)), Some(std::u32::MAX as u64), Some(-1)),
+              (AttributeValue::Data8(([1, 0, 0, 0, 0, 0, 0, 0], endian)), Some(1), Some(1)),
+              (AttributeValue::Data8(([255; 8], endian)), Some(std::u64::MAX), Some(-1)),
               (AttributeValue::Sdata(1), None, Some(1)),
               (AttributeValue::Udata(1), Some(1), None)];
         for test in tests.iter() {
@@ -3103,27 +3104,28 @@ mod tests {
     }
 
     fn test_parse_attribute_unit<Endian>(address_size: u8,
-                                         format: Format)
+                                         format: Format,
+                                         endian: Endian)
                                          -> UnitHeader<EndianBuf<'static, Endian>>
         where Endian: Endianity
     {
-        UnitHeader::<EndianBuf<Endian>>::new(7,
-                                             4,
-                                             DebugAbbrevOffset(0x08070605),
-                                             address_size,
-                                             format,
-                                             EndianBuf::new(&[]))
+        UnitHeader::new(7,
+                        4,
+                        DebugAbbrevOffset(0x08070605),
+                        address_size,
+                        format,
+                        EndianBuf::new(&[], endian))
     }
 
     fn test_parse_attribute_unit_default() -> UnitHeader<EndianBuf<'static, LittleEndian>> {
-        test_parse_attribute_unit(4, Format::Dwarf32)
+        test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian)
     }
 
-    fn test_parse_attribute<Endian>(buf: &[u8],
-                                    len: usize,
-                                    unit: &UnitHeader<EndianBuf<Endian>>,
-                                    form: constants::DwForm,
-                                    value: AttributeValue<EndianBuf<Endian>>)
+    fn test_parse_attribute<'input, Endian>(buf: &'input [u8],
+                                            len: usize,
+                                            unit: &UnitHeader<EndianBuf<'input, Endian>>,
+                                            form: constants::DwForm,
+                                            value: AttributeValue<EndianBuf<'input, Endian>>)
         where Endian: Endianity
     {
         let spec = AttributeSpecification::new(constants::DW_AT_low_pc, form);
@@ -3133,11 +3135,11 @@ mod tests {
             value: value,
         };
 
-        let rest = &mut EndianBuf::new(buf);
+        let rest = &mut EndianBuf::new(buf, Endian::default());
         match parse_attribute(rest, unit, spec) {
             Ok(attr) => {
                 assert_eq!(attr, expect);
-                assert_eq!(*rest, EndianBuf::new(&buf[len..]));
+                assert_eq!(*rest, EndianBuf::new(&buf[len..], Endian::default()));
             }
             otherwise => {
                 println!("Unexpected parse result = {:#?}", otherwise);
@@ -3149,7 +3151,7 @@ mod tests {
     #[test]
     fn test_parse_attribute_addr() {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-        let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+        let unit = test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian);
         let form = constants::DW_FORM_addr;
         let value = AttributeValue::Addr(0x04030201);
         test_parse_attribute(&buf, 4, &unit, form, value);
@@ -3158,7 +3160,7 @@ mod tests {
     #[test]
     fn test_parse_attribute_addr8() {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-        let unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
+        let unit = test_parse_attribute_unit(8, Format::Dwarf32, LittleEndian);
         let form = constants::DW_FORM_addr;
         let value = AttributeValue::Addr(0x0807060504030201);
         test_parse_attribute(&buf, 8, &unit, form, value);
@@ -3170,7 +3172,7 @@ mod tests {
         let buf = [0x03, 0x09, 0x09, 0x09, 0x00, 0x00];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_block1;
-        let value = AttributeValue::Block(EndianBuf::new(&buf[1..4]));
+        let value = AttributeValue::Block(EndianBuf::new(&buf[1..4], LittleEndian));
         test_parse_attribute(&buf, 4, &unit, form, value);
     }
 
@@ -3180,7 +3182,7 @@ mod tests {
         let buf = [0x02, 0x00, 0x09, 0x09, 0x00, 0x00];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_block2;
-        let value = AttributeValue::Block(EndianBuf::new(&buf[2..4]));
+        let value = AttributeValue::Block(EndianBuf::new(&buf[2..4], LittleEndian));
         test_parse_attribute(&buf, 4, &unit, form, value);
     }
 
@@ -3190,7 +3192,7 @@ mod tests {
         let buf = [0x02, 0x00, 0x00, 0x00, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_block4;
-        let value = AttributeValue::Block(EndianBuf::new(&buf[4..]));
+        let value = AttributeValue::Block(EndianBuf::new(&buf[4..], LittleEndian));
         test_parse_attribute(&buf, 6, &unit, form, value);
     }
 
@@ -3200,7 +3202,7 @@ mod tests {
         let buf = [0x02, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_block;
-        let value = AttributeValue::Block(EndianBuf::new(&buf[1..]));
+        let value = AttributeValue::Block(EndianBuf::new(&buf[1..], LittleEndian));
         test_parse_attribute(&buf, 3, &unit, form, value);
     }
 
@@ -3218,7 +3220,7 @@ mod tests {
         let buf = [0x02, 0x01, 0x0];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_data2;
-        let value = AttributeValue::Data2([0x02, 0x01]);
+        let value = AttributeValue::Data2(([0x02, 0x01], LittleEndian));
         test_parse_attribute(&buf, 2, &unit, form, value);
     }
 
@@ -3227,7 +3229,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_data4;
-        let value = AttributeValue::Data4([0x01, 0x02, 0x03, 0x04]);
+        let value = AttributeValue::Data4(([0x01, 0x02, 0x03, 0x04], LittleEndian));
         test_parse_attribute(&buf, 4, &unit, form, value);
     }
 
@@ -3236,7 +3238,8 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_data8;
-        let value = AttributeValue::Data8([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
+        let value = AttributeValue::Data8(([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08],
+                                           LittleEndian));
         test_parse_attribute(&buf, 8, &unit, form, value);
     }
 
@@ -3276,7 +3279,7 @@ mod tests {
         let buf = [0x02, 0x99, 0x99, 0x11];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_exprloc;
-        let value = AttributeValue::Exprloc(EndianBuf::new(&buf[1..3]));
+        let value = AttributeValue::Exprloc(EndianBuf::new(&buf[1..3], LittleEndian));
         test_parse_attribute(&buf, 3, &unit, form, value);
     }
 
@@ -3311,7 +3314,7 @@ mod tests {
     #[test]
     fn test_parse_attribute_sec_offset_32() {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10];
-        let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+        let unit = test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian);
         let form = constants::DW_FORM_sec_offset;
         let value = AttributeValue::SecOffset(0x04030201);
         test_parse_attribute(&buf, 4, &unit, form, value);
@@ -3321,7 +3324,7 @@ mod tests {
     #[cfg(target_pointer_width = "64")]
     fn test_parse_attribute_sec_offset_64() {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10];
-        let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf64);
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
         let form = constants::DW_FORM_sec_offset;
         let value = AttributeValue::SecOffset(0x0807060504030201);
         test_parse_attribute(&buf, 8, &unit, form, value);
@@ -3382,7 +3385,7 @@ mod tests {
     #[test]
     fn test_parse_attribute_refaddr_32() {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-        let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+        let unit = test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian);
         let form = constants::DW_FORM_ref_addr;
         let value = AttributeValue::DebugInfoRef(DebugInfoOffset(67305985));
         test_parse_attribute(&buf, 4, &unit, form, value);
@@ -3392,7 +3395,7 @@ mod tests {
     #[cfg(target_pointer_width = "64")]
     fn test_parse_attribute_refaddr_64() {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-        let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf64);
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
         let form = constants::DW_FORM_ref_addr;
         let value = AttributeValue::DebugInfoRef(DebugInfoOffset(578437695752307201));
         test_parse_attribute(&buf, 8, &unit, form, value);
@@ -3401,7 +3404,7 @@ mod tests {
     #[test]
     fn test_parse_attribute_refaddr_version2() {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-        let mut unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+        let mut unit = test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian);
         unit.version = 2;
         let form = constants::DW_FORM_ref_addr;
         let value = AttributeValue::DebugInfoRef(DebugInfoOffset(0x04030201));
@@ -3412,7 +3415,7 @@ mod tests {
     #[cfg(target_pointer_width = "64")]
     fn test_parse_attribute_refaddr8_version2() {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-        let mut unit = test_parse_attribute_unit::<LittleEndian>(8, Format::Dwarf32);
+        let mut unit = test_parse_attribute_unit(8, Format::Dwarf32, LittleEndian);
         unit.version = 2;
         let form = constants::DW_FORM_ref_addr;
         let value = AttributeValue::DebugInfoRef(DebugInfoOffset(0x0807060504030201));
@@ -3433,14 +3436,14 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x0, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_string;
-        let value = AttributeValue::String(EndianBuf::new(&buf[..5]));
+        let value = AttributeValue::String(EndianBuf::new(&buf[..5], LittleEndian));
         test_parse_attribute(&buf, 6, &unit, form, value);
     }
 
     #[test]
     fn test_parse_attribute_strp_32() {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-        let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf32);
+        let unit = test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian);
         let form = constants::DW_FORM_strp;
         let value = AttributeValue::DebugStrRef(DebugStrOffset(67305985));
         test_parse_attribute(&buf, 4, &unit, form, value);
@@ -3450,7 +3453,7 @@ mod tests {
     #[cfg(target_pointer_width = "64")]
     fn test_parse_attribute_strp_64() {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
-        let unit = test_parse_attribute_unit::<LittleEndian>(4, Format::Dwarf64);
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
         let form = constants::DW_FORM_strp;
         let value = AttributeValue::DebugStrRef(DebugStrOffset(578437695752307201));
         test_parse_attribute(&buf, 8, &unit, form, value);
@@ -3475,12 +3478,12 @@ mod tests {
 
     #[test]
     fn test_attrs_iter() {
-        let unit = UnitHeader::<EndianBuf<LittleEndian>>::new(7,
-                                                              4,
-                                                              DebugAbbrevOffset(0x08070605),
-                                                              4,
-                                                              Format::Dwarf32,
-                                                              EndianBuf::new(&[]));
+        let unit = UnitHeader::new(7,
+                                   4,
+                                   DebugAbbrevOffset(0x08070605),
+                                   4,
+                                   Format::Dwarf32,
+                                   EndianBuf::new(&[], LittleEndian));
 
         let abbrev =
             Abbreviation::new(42,
@@ -3499,14 +3502,14 @@ mod tests {
 
         let entry = DebuggingInformationEntry {
             offset: UnitOffset(0),
-            attrs_slice: EndianBuf::new(&buf),
+            attrs_slice: EndianBuf::new(&buf, LittleEndian),
             attrs_len: Cell::new(None),
             abbrev: &abbrev,
             unit: &unit,
         };
 
         let mut attrs = AttrsIter {
-            input: EndianBuf::new(&buf),
+            input: EndianBuf::new(&buf, LittleEndian),
             attributes: abbrev.attributes(),
             entry: &entry,
         };
@@ -3516,7 +3519,7 @@ mod tests {
                 assert_eq!(attr,
                            Attribute {
                                name: constants::DW_AT_name,
-                               value: AttributeValue::String(EndianBuf::new(b"foo")),
+                               value: AttributeValue::String(EndianBuf::new(b"foo", LittleEndian)),
                            });
             }
             otherwise => {
@@ -3567,12 +3570,12 @@ mod tests {
 
     #[test]
     fn test_attrs_iter_incomplete() {
-        let unit = UnitHeader::<EndianBuf<LittleEndian>>::new(7,
-                                                              4,
-                                                              DebugAbbrevOffset(0x08070605),
-                                                              4,
-                                                              Format::Dwarf32,
-                                                              EndianBuf::new(&[]));
+        let unit = UnitHeader::new(7,
+                                   4,
+                                   DebugAbbrevOffset(0x08070605),
+                                   4,
+                                   Format::Dwarf32,
+                                   EndianBuf::new(&[], LittleEndian));
 
         let abbrev =
             Abbreviation::new(42,
@@ -3590,14 +3593,14 @@ mod tests {
 
         let entry = DebuggingInformationEntry {
             offset: UnitOffset(0),
-            attrs_slice: EndianBuf::new(&buf),
+            attrs_slice: EndianBuf::new(&buf, LittleEndian),
             attrs_len: Cell::new(None),
             abbrev: &abbrev,
             unit: &unit,
         };
 
         let mut attrs = AttrsIter {
-            input: EndianBuf::new(&buf),
+            input: EndianBuf::new(&buf, LittleEndian),
             attributes: abbrev.attributes(),
             entry: &entry,
         };
@@ -3607,7 +3610,7 @@ mod tests {
                 assert_eq!(attr,
                            Attribute {
                                name: constants::DW_AT_name,
-                               value: AttributeValue::String(EndianBuf::new(b"foo")),
+                               value: AttributeValue::String(EndianBuf::new(b"foo", LittleEndian)),
                            });
             }
             otherwise => {
@@ -3639,7 +3642,7 @@ mod tests {
             .expect("Should have found the name attribute");
 
         assert_eq!(value,
-                   AttributeValue::String(EndianBuf::new(name.as_bytes())));
+                   AttributeValue::String(EndianBuf::new(name.as_bytes(), Endian::default())));
     }
 
     fn assert_current_name<Endian>(cursor: &EntriesCursor<EndianBuf<Endian>>, name: &str)
@@ -3750,14 +3753,14 @@ mod tests {
                 .die_null();
         let entries_buf = section.get_contents().unwrap();
 
-        let mut unit = CompilationUnitHeader::<EndianBuf<LittleEndian>> {
+        let mut unit = CompilationUnitHeader {
             header: UnitHeader {
                 unit_length: 0,
                 version: 4,
                 debug_abbrev_offset: DebugAbbrevOffset(0),
                 address_size: 4,
                 format: Format::Dwarf32,
-                entries_buf: EndianBuf::new(&entries_buf),
+                entries_buf: EndianBuf::new(&entries_buf, LittleEndian),
             },
             offset: DebugInfoOffset(0),
         };
@@ -3774,27 +3777,27 @@ mod tests {
                     .die(1, |s| s);
         let entries_buf = section.get_contents().unwrap();
 
-        let mut unit = CompilationUnitHeader::<EndianBuf<LittleEndian>> {
+        let mut unit = CompilationUnitHeader {
             header: UnitHeader {
                 unit_length: 0,
                 version: 4,
                 debug_abbrev_offset: DebugAbbrevOffset(0),
                 address_size: 4,
                 format: Format::Dwarf32,
-                entries_buf: EndianBuf::new(&entries_buf),
+                entries_buf: EndianBuf::new(&entries_buf, LittleEndian),
             },
             offset: DebugInfoOffset(0),
         };
         let section = Section::with_endian(Endian::Little).comp_unit(&mut unit);
         let info_buf = &section.get_contents().unwrap();
-        let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(info_buf);
+        let debug_info = DebugInfo::new(info_buf, LittleEndian);
 
         let unit = debug_info.units().next()
             .expect("should have a unit result")
             .expect("and it should be ok");
 
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
-        let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(abbrevs_buf);
+        let debug_abbrev = DebugAbbrev::new(abbrevs_buf, LittleEndian);
 
         let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
@@ -3821,14 +3824,14 @@ mod tests {
     #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_cursor_next_entry() {
         let info_buf = &entries_cursor_tests_debug_info_buf();
-        let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(info_buf);
+        let debug_info = DebugInfo::new(info_buf, LittleEndian);
 
         let unit = debug_info.units().next()
             .expect("should have a unit result")
             .expect("and it should be ok");
 
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
-        let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(abbrevs_buf);
+        let debug_abbrev = DebugAbbrev::new(abbrevs_buf, LittleEndian);
 
         let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
@@ -3864,14 +3867,14 @@ mod tests {
     #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_cursor_next_dfs() {
         let info_buf = &entries_cursor_tests_debug_info_buf();
-        let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(info_buf);
+        let debug_info = DebugInfo::new(info_buf, LittleEndian);
 
         let unit = debug_info.units().next()
             .expect("should have a unit result")
             .expect("and it should be ok");
 
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
-        let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(abbrevs_buf);
+        let debug_abbrev = DebugAbbrev::new(abbrevs_buf, LittleEndian);
 
         let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
@@ -3897,14 +3900,14 @@ mod tests {
     #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_cursor_next_sibling_no_sibling_ptr() {
         let info_buf = &entries_cursor_tests_debug_info_buf();
-        let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(info_buf);
+        let debug_info = DebugInfo::new(info_buf, LittleEndian);
 
         let unit = debug_info.units().next()
             .expect("should have a unit result")
             .expect("and it should be ok");
 
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
-        let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(abbrevs_buf);
+        let debug_abbrev = DebugAbbrev::new(abbrevs_buf, LittleEndian);
 
         let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
@@ -3932,7 +3935,7 @@ mod tests {
     #[test]
     fn test_cursor_next_sibling_continuation() {
         let info_buf = &entries_cursor_tests_debug_info_buf();
-        let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(info_buf);
+        let debug_info = DebugInfo::new(info_buf, LittleEndian);
 
         let unit = debug_info
             .units()
@@ -3941,7 +3944,7 @@ mod tests {
             .expect("and it should be ok");
 
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
-        let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(abbrevs_buf);
+        let debug_abbrev = DebugAbbrev::new(abbrevs_buf, LittleEndian);
 
         let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
@@ -4082,20 +4085,20 @@ mod tests {
         let header_size = CompilationUnitHeader::<EndianBuf<LittleEndian>>::size_of_header(format);
         let entries_buf = entries_cursor_sibling_entries_buf(header_size);
 
-        let mut unit = CompilationUnitHeader::<EndianBuf<LittleEndian>> {
+        let mut unit = CompilationUnitHeader {
             header: UnitHeader {
                 unit_length: 0,
                 version: 4,
                 debug_abbrev_offset: DebugAbbrevOffset(0),
                 address_size: 4,
                 format: format,
-                entries_buf: EndianBuf::new(&entries_buf),
+                entries_buf: EndianBuf::new(&entries_buf, LittleEndian),
             },
             offset: DebugInfoOffset(0),
         };
         let section = Section::with_endian(Endian::Little).comp_unit(&mut unit);
         let info_buf = section.get_contents().unwrap();
-        let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&info_buf);
+        let debug_info = DebugInfo::new(&info_buf, LittleEndian);
 
         let unit = debug_info
             .units()
@@ -4104,7 +4107,7 @@ mod tests {
             .expect("and it should be ok");
 
         let abbrev_buf = entries_cursor_sibling_abbrev_buf();
-        let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&abbrev_buf);
+        let debug_abbrev = DebugAbbrev::new(&abbrev_buf, LittleEndian);
 
         let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
@@ -4119,14 +4122,14 @@ mod tests {
         let header_size = TypeUnitHeader::<EndianBuf<LittleEndian>>::size_of_header(format);
         let entries_buf = entries_cursor_sibling_entries_buf(header_size);
 
-        let mut unit = TypeUnitHeader::<EndianBuf<LittleEndian>> {
+        let mut unit = TypeUnitHeader {
             header: UnitHeader {
                 unit_length: 0,
                 version: 4,
                 debug_abbrev_offset: DebugAbbrevOffset(0),
                 address_size: 4,
                 format: format,
-                entries_buf: EndianBuf::new(&entries_buf),
+                entries_buf: EndianBuf::new(&entries_buf, LittleEndian),
             },
             type_signature: DebugTypeSignature(0),
             type_offset: UnitOffset(0),
@@ -4134,7 +4137,7 @@ mod tests {
         };
         let section = Section::with_endian(Endian::Little).type_unit(&mut unit);
         let info_buf = section.get_contents().unwrap();
-        let debug_types = DebugTypes::<EndianBuf<LittleEndian>>::new(&info_buf);
+        let debug_types = DebugTypes::new(&info_buf, LittleEndian);
 
         let unit = debug_types
             .units()
@@ -4143,7 +4146,7 @@ mod tests {
             .expect("and it should be ok");
 
         let abbrev_buf = entries_cursor_sibling_abbrev_buf();
-        let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&abbrev_buf);
+        let debug_abbrev = DebugAbbrev::new(&abbrev_buf, LittleEndian);
 
         let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
@@ -4155,7 +4158,7 @@ mod tests {
     #[test]
     fn test_entries_at_offset() {
         let info_buf = &entries_cursor_tests_debug_info_buf();
-        let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(info_buf);
+        let debug_info = DebugInfo::new(info_buf, LittleEndian);
 
         let unit = debug_info
             .units()
@@ -4164,7 +4167,7 @@ mod tests {
             .expect("and it should be ok");
 
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
-        let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(abbrevs_buf);
+        let debug_abbrev = DebugAbbrev::new(abbrevs_buf, LittleEndian);
 
         let abbrevs = unit.abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
@@ -4262,19 +4265,19 @@ mod tests {
         }
 
         let abbrevs_buf = entries_tree_tests_debug_abbrevs_buf();
-        let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&abbrevs_buf);
+        let debug_abbrev = DebugAbbrev::new(&abbrevs_buf, LittleEndian);
 
         let format = Format::Dwarf32;
         let header_size = CompilationUnitHeader::<EndianBuf<LittleEndian>>::size_of_header(format);
         let (entries_buf, entry2) = entries_tree_tests_debug_info_buf(header_size);
-        let mut unit = CompilationUnitHeader::<EndianBuf<LittleEndian>> {
+        let mut unit = CompilationUnitHeader {
             header: UnitHeader {
                 unit_length: 0,
                 version: 4,
                 debug_abbrev_offset: DebugAbbrevOffset(0),
                 address_size: 4,
                 format: format,
-                entries_buf: EndianBuf::new(&entries_buf),
+                entries_buf: EndianBuf::new(&entries_buf, LittleEndian),
             },
             offset: DebugInfoOffset(0),
         };
@@ -4282,7 +4285,7 @@ mod tests {
             .comp_unit(&mut unit)
             .get_contents()
             .unwrap();
-        let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&info_buf);
+        let debug_info = DebugInfo::new(&info_buf, LittleEndian);
 
         let unit = debug_info
             .units()
@@ -4363,14 +4366,14 @@ mod tests {
     fn test_debug_info_offset() {
         let padding = &[0; 10];
         let entries = &[0; 20];
-        let mut unit = CompilationUnitHeader::<EndianBuf<LittleEndian>> {
+        let mut unit = CompilationUnitHeader {
             header: UnitHeader {
                 unit_length: 0,
                 version: 4,
                 debug_abbrev_offset: DebugAbbrevOffset(0),
                 address_size: 4,
                 format: Format::Dwarf32,
-                entries_buf: EndianBuf::new(entries),
+                entries_buf: EndianBuf::new(entries, LittleEndian),
             },
             offset: DebugInfoOffset(0),
         };
@@ -4401,14 +4404,14 @@ mod tests {
     fn test_debug_types_offset() {
         let padding = &[0; 10];
         let entries = &[0; 20];
-        let mut unit = TypeUnitHeader::<EndianBuf<LittleEndian>> {
+        let mut unit = TypeUnitHeader {
             header: UnitHeader {
                 unit_length: 0,
                 version: 4,
                 debug_abbrev_offset: DebugAbbrevOffset(0),
                 address_size: 4,
                 format: Format::Dwarf32,
-                entries_buf: EndianBuf::new(entries),
+                entries_buf: EndianBuf::new(entries, LittleEndian),
             },
             type_signature: DebugTypeSignature(0),
             type_offset: UnitOffset(0),

@@ -59,15 +59,15 @@ impl<'input, Endian> DebugPubTypes<EndianBuf<'input, Endian>>
     /// Linux, a Mach-O loader on OSX, etc.
     ///
     /// ```
-    /// use gimli::{DebugPubTypes, EndianBuf, LittleEndian};
+    /// use gimli::{DebugPubTypes, LittleEndian};
     ///
     /// # let buf = [];
     /// # let read_debug_pubtypes_somehow = || &buf;
     /// let debug_pubtypes =
-    ///     DebugPubTypes::<EndianBuf<LittleEndian>>::new(read_debug_pubtypes_somehow());
+    ///     DebugPubTypes::new(read_debug_pubtypes_somehow(), LittleEndian);
     /// ```
-    pub fn new(debug_pubtypes_section: &'input [u8]) -> Self {
-        Self::from(EndianBuf::new(debug_pubtypes_section))
+    pub fn new(debug_pubtypes_section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianBuf::new(debug_pubtypes_section, endian))
     }
 }
 
@@ -80,7 +80,7 @@ impl<R: Reader> DebugPubTypes<R> {
     /// # let buf = [];
     /// # let read_debug_pubtypes_section_somehow = || &buf;
     /// let debug_pubtypes =
-    ///     DebugPubTypes::<EndianBuf<LittleEndian>>::new(read_debug_pubtypes_section_somehow());
+    ///     DebugPubTypes::new(read_debug_pubtypes_section_somehow(), LittleEndian);
     ///
     /// let mut iter = debug_pubtypes.items();
     /// while let Some(pubtype) = iter.next().unwrap() {

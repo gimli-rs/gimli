@@ -874,13 +874,13 @@ pub enum EvaluationResult<R: Reader> {
 /// # Examples
 /// ```rust,no_run
 /// use gimli::{EndianBuf, Evaluation, EvaluationResult, Format, LittleEndian};
-/// # let bytecode = EndianBuf::<LittleEndian>::new(&[]);
+/// # let bytecode = EndianBuf::new(&[], LittleEndian);
 /// # let address_size = 8;
 /// # let format = Format::Dwarf64;
 /// # let get_register_value = |_| 42;
 /// # let get_frame_base = || 0xdeadbeef;
 ///
-/// let mut eval = Evaluation::<EndianBuf<LittleEndian>>::new(bytecode, address_size, format);
+/// let mut eval = Evaluation::new(bytecode, address_size, format);
 /// let mut result = eval.evaluate().unwrap();
 /// while result != EvaluationResult::Complete {
 ///   match result {
@@ -1705,7 +1705,7 @@ mod tests {
         // Contents don't matter for this test, just length.
         let bytes = [0, 1, 2, 3, 4];
         let bytecode = &bytes[..];
-        let ebuf = &EndianBuf::<LittleEndian>::new(bytecode);
+        let ebuf = &EndianBuf::new(bytecode, LittleEndian);
 
         assert_eq!(compute_pc(ebuf, ebuf, 0), Ok(*ebuf));
         assert_eq!(compute_pc(ebuf, ebuf, -1),
@@ -1721,7 +1721,7 @@ mod tests {
                              expect: &Operation<EndianBuf<LittleEndian>>,
                              address_size: u8,
                              format: Format) {
-        let buf = EndianBuf::<LittleEndian>::new(input);
+        let buf = EndianBuf::new(input, LittleEndian);
         let mut pc = buf;
         let value = Operation::parse(&mut pc, &buf, address_size, format);
         match value {
@@ -1734,7 +1734,7 @@ mod tests {
     }
 
     fn check_op_parse_failure(input: &[u8], expect: Error, address_size: u8, format: Format) {
-        let buf = EndianBuf::<LittleEndian>::new(input);
+        let buf = EndianBuf::new(input, LittleEndian);
         let mut pc = buf;
         match Operation::parse(&mut pc, &buf, address_size, format) {
             Err(x) => {
@@ -1947,10 +1947,10 @@ mod tests {
             assert!(input.len() >= 3);
 
             let expect = if input[0] == constants::DW_OP_bra.0 {
-                Operation::Bra { target: EndianBuf::<LittleEndian>::new(target) }
+                Operation::Bra { target: EndianBuf::new(target, LittleEndian) }
             } else {
                 assert!(input[0] == constants::DW_OP_skip.0);
-                Operation::Skip { target: EndianBuf::<LittleEndian>::new(target) }
+                Operation::Skip { target: EndianBuf::new(target, LittleEndian) }
             };
 
             check_op_parse(|s| s.append_bytes(input), &expect, ADDRESS_SIZE, FORMAT);
@@ -2176,7 +2176,7 @@ mod tests {
                                .uleb(data.len() as u64)
                                .append_bytes(&data[..])
                        },
-                       &Operation::ImplicitValue { data: EndianBuf::new(&data[..]) },
+                       &Operation::ImplicitValue { data: EndianBuf::new(&data[..], LittleEndian) },
                        address_size,
                        format);
     }
@@ -2209,7 +2209,9 @@ mod tests {
                     constants::DW_OP_GNU_entry_value] {
             let data = b"hello";
             check_op_parse(|s| s.D8(op.0).uleb(data.len() as u64).append_bytes(&data[..]),
-                           &Operation::EntryValue { expression: EndianBuf::new(&data[..]) },
+                           &Operation::EntryValue {
+                               expression: EndianBuf::new(&data[..], LittleEndian),
+                           },
                            4,
                            Format::Dwarf32);
         }
@@ -2310,7 +2312,7 @@ mod tests {
                             -> Result<EvaluationResult<EndianBuf<'a, LittleEndian>>>
     {
         let bytes = assemble(program);
-        let bytes = EndianBuf::<LittleEndian>::new(&bytes);
+        let bytes = EndianBuf::new(&bytes, LittleEndian);
 
         let mut eval = Evaluation::new(bytes, address_size, format);
 
@@ -3028,7 +3030,7 @@ mod tests {
 
         check_eval_with_args(&program, Ok(&result), 4, Format::Dwarf32,
                              None, None, None, |eval, result| {
-                                 let buf = EndianBuf::<LittleEndian>::new(&[]);
+                                 let buf = EndianBuf::new(&[], LittleEndian);
                                  match result {
                                      EvaluationResult::RequiresAtLocation(_) => {},
                                      _ => panic!(),
@@ -3063,7 +3065,7 @@ mod tests {
 
         check_eval_with_args(&program, Ok(&result), 4, Format::Dwarf32,
                              None, None, None, |eval, result| {
-                                 let buf = EndianBuf::<LittleEndian>::new(SUBR);
+                                 let buf = EndianBuf::new(SUBR, LittleEndian);
                                  match result {
                                      EvaluationResult::RequiresAtLocation(_) => {},
                                      _ => panic!(),
@@ -3154,7 +3156,7 @@ mod tests {
 
         let result = [
             Piece { size_in_bits: None, bit_offset: None,
-                    location: Location::Bytes { value: EndianBuf::new(BYTES) } },
+                    location: Location::Bytes { value: EndianBuf::new(BYTES, LittleEndian) } },
         ];
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);

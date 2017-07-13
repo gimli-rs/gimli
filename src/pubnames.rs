@@ -59,15 +59,15 @@ impl<'input, Endian> DebugPubNames<EndianBuf<'input, Endian>>
     /// Linux, a Mach-O loader on OSX, etc.
     ///
     /// ```
-    /// use gimli::{DebugPubNames, EndianBuf, LittleEndian};
+    /// use gimli::{DebugPubNames, LittleEndian};
     ///
     /// # let buf = [];
     /// # let read_debug_pubnames_section_somehow = || &buf;
     /// let debug_pubnames =
-    ///     DebugPubNames::<EndianBuf<LittleEndian>>::new(read_debug_pubnames_section_somehow());
+    ///     DebugPubNames::new(read_debug_pubnames_section_somehow(), LittleEndian);
     /// ```
-    pub fn new(debug_pubnames_section: &'input [u8]) -> Self {
-        Self::from(EndianBuf::new(debug_pubnames_section))
+    pub fn new(debug_pubnames_section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianBuf::new(debug_pubnames_section, endian))
     }
 }
 
@@ -80,7 +80,7 @@ impl<R: Reader> DebugPubNames<R> {
     /// # let buf = [];
     /// # let read_debug_pubnames_section_somehow = || &buf;
     /// let debug_pubnames =
-    ///     DebugPubNames::<EndianBuf<LittleEndian>>::new(read_debug_pubnames_section_somehow());
+    ///     DebugPubNames::new(read_debug_pubnames_section_somehow(), LittleEndian);
     ///
     /// let mut iter = debug_pubnames.items();
     /// while let Some(pubname) = iter.next().unwrap() {

@@ -1,7 +1,7 @@
 extern crate gimli;
 
 use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLoc,
-            DebugPubNames, DebugPubTypes, DebugRanges, DebugStr, LittleEndian, EndianBuf};
+            DebugPubNames, DebugPubTypes, DebugRanges, DebugStr, LittleEndian};
 use std::env;
 use std::collections::hash_map::HashMap;
 use std::fs::File;
@@ -28,10 +28,10 @@ fn read_section(section: &str) -> Vec<u8> {
 #[test]
 fn test_parse_self_debug_info() {
     let debug_info = read_section("debug_info");
-    let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
+    let debug_info = DebugInfo::new(&debug_info, LittleEndian);
 
     let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
@@ -52,16 +52,16 @@ fn test_parse_self_debug_info() {
 #[test]
 fn test_parse_self_debug_line() {
     let debug_info = read_section("debug_info");
-    let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
+    let debug_info = DebugInfo::new(&debug_info, LittleEndian);
 
     let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
     let debug_line = read_section("debug_line");
-    let debug_line = DebugLine::<EndianBuf<LittleEndian>>::new(&debug_line);
+    let debug_line = DebugLine::new(&debug_line, LittleEndian);
 
     let debug_str = read_section("debug_str");
-    let debug_str = DebugStr::<EndianBuf<LittleEndian>>::new(&debug_str);
+    let debug_str = DebugStr::new(&debug_str, LittleEndian);
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
@@ -127,13 +127,13 @@ fn test_parse_self_debug_line() {
 #[test]
 fn test_parse_self_debug_loc() {
     let debug_info = read_section("debug_info");
-    let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
+    let debug_info = DebugInfo::new(&debug_info, LittleEndian);
 
     let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
     let debug_loc = read_section("debug_loc");
-    let debug_loc = DebugLoc::<EndianBuf<LittleEndian>>::new(&debug_loc);
+    let debug_loc = DebugLoc::new(&debug_loc, LittleEndian);
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
@@ -175,13 +175,13 @@ fn test_parse_self_debug_loc() {
 #[test]
 fn test_parse_self_debug_ranges() {
     let debug_info = read_section("debug_info");
-    let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
+    let debug_info = DebugInfo::new(&debug_info, LittleEndian);
 
     let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
     let debug_ranges = read_section("debug_ranges");
-    let debug_ranges = DebugRanges::<EndianBuf<LittleEndian>>::new(&debug_ranges);
+    let debug_ranges = DebugRanges::new(&debug_ranges, LittleEndian);
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
@@ -223,7 +223,7 @@ fn test_parse_self_debug_ranges() {
 #[test]
 fn test_parse_self_debug_aranges() {
     let debug_aranges = read_section("debug_aranges");
-    let debug_aranges = DebugAranges::<EndianBuf<LittleEndian>>::new(&debug_aranges);
+    let debug_aranges = DebugAranges::new(&debug_aranges, LittleEndian);
 
     let mut aranges = debug_aranges.items();
     while let Some(_) = aranges.next().expect("Should parse arange OK") {
@@ -234,13 +234,13 @@ fn test_parse_self_debug_aranges() {
 #[test]
 fn test_parse_self_debug_pubnames() {
     let debug_info = read_section("debug_info");
-    let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
+    let debug_info = DebugInfo::new(&debug_info, LittleEndian);
 
     let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
     let debug_pubnames = read_section("debug_pubnames");
-    let debug_pubnames = DebugPubNames::<EndianBuf<LittleEndian>>::new(&debug_pubnames);
+    let debug_pubnames = DebugPubNames::new(&debug_pubnames, LittleEndian);
 
     let mut units = HashMap::new();
     let mut abbrevs = HashMap::new();
@@ -267,13 +267,13 @@ fn test_parse_self_debug_pubnames() {
 #[test]
 fn test_parse_self_debug_pubtypes() {
     let debug_info = read_section("debug_info");
-    let debug_info = DebugInfo::<EndianBuf<LittleEndian>>::new(&debug_info);
+    let debug_info = DebugInfo::new(&debug_info, LittleEndian);
 
     let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::<EndianBuf<LittleEndian>>::new(&debug_abbrev);
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
     let debug_pubtypes = read_section("debug_pubtypes");
-    let debug_pubtypes = DebugPubTypes::<EndianBuf<LittleEndian>>::new(&debug_pubtypes);
+    let debug_pubtypes = DebugPubTypes::new(&debug_pubtypes, LittleEndian);
 
     let mut units = HashMap::new();
     let mut abbrevs = HashMap::new();
@@ -306,7 +306,7 @@ fn test_parse_self_eh_frame() {
     use gimli::{BaseAddresses, CieOrFde, EhFrame, UnwindSection};
 
     let eh_frame = read_section("eh_frame");
-    let eh_frame = EhFrame::<EndianBuf<LittleEndian>>::new(&eh_frame);
+    let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
 
     let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
     let mut entries = eh_frame.entries(&bases);

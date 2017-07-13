@@ -30,8 +30,9 @@
 //! # let read_debug_abbrev = || &debug_abbrev_buf;
 //! // Read the .debug_info and .debug_abbrev sections with whatever object
 //! // loader you're using.
-//! let debug_info = gimli::DebugInfo::<gimli::EndianBuf<gimli::LittleEndian>>::new(read_debug_info());
-//! let debug_abbrev = gimli::DebugAbbrev::<gimli::EndianBuf<gimli::LittleEndian>>::new(read_debug_abbrev());
+//! let endian = gimli::LittleEndian;
+//! let debug_info = gimli::DebugInfo::new(read_debug_info(), endian);
+//! let debug_abbrev = gimli::DebugAbbrev::new(read_debug_abbrev(), endian);
 //!
 //! // Iterate over all compilation units.
 //! let mut iter = debug_info.units();
@@ -168,7 +169,7 @@ mod constants;
 pub use constants::*;
 
 mod endianity;
-pub use endianity::{Endianity, EndianBuf, LittleEndian, BigEndian, NativeEndian};
+pub use endianity::{Endianity, EndianBuf, RunTimeEndian, LittleEndian, BigEndian, NativeEndian};
 
 pub mod leb128;
 
@@ -234,7 +235,7 @@ pub use unit::{AttrsIter, Attribute, AttributeValue};
 /// }
 ///
 /// let buf = [0x00, 0x01, 0x02, 0x03];
-/// let reader = EndianBuf::<LittleEndian>::new(&buf);
+/// let reader = EndianBuf::new(&buf, LittleEndian);
 ///
 /// let debug_info: DebugInfo<_> = load_section(|_: &'static str| reader);
 /// ```
