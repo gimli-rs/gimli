@@ -396,8 +396,8 @@ fn dump_attr_value<R: gimli::Reader>(attr: &gimli::Attribute<R>,
         }
         gimli::AttributeValue::Exprloc(ref data) => {
             if let gimli::AttributeValue::Exprloc(_) = attr.raw_value() {
-                print!("len 0x{:04x}: ", data.len());
-                for byte in data.to_slice().iter() {
+                print!("len 0x{:04x}: ", data.0.len());
+                for byte in data.0.to_slice().iter() {
                     print!("{:02x}", byte);
                 }
                 print!(": ");
@@ -526,13 +526,13 @@ fn dump_file_index<R: gimli::Reader>(file: u64, unit: &Unit<R>) {
     print!("{}", file.path_name().to_string_lossy());
 }
 
-fn dump_exprloc<R: gimli::Reader>(data: &R, unit: &Unit<R>) {
-    let mut pc = data.clone();
+fn dump_exprloc<R: gimli::Reader>(data: &gimli::Expression<R>, unit: &Unit<R>) {
+    let mut pc = data.0.clone();
     let mut space = false;
     while pc.len() != 0 {
         let mut op_pc = pc.clone();
         let dwop = gimli::DwOp(op_pc.read_u8().expect("Should read from non-empty reader"));
-        match gimli::Operation::parse(&mut pc, data, unit.address_size, unit.format) {
+        match gimli::Operation::parse(&mut pc, &data.0, unit.address_size, unit.format) {
             Ok(op) => {
                 if space {
                     print!(" ");

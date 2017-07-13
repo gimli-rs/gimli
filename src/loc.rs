@@ -1,6 +1,7 @@
 use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use parser::{Error, Result};
+use op::Expression;
 use reader::Reader;
 use ranges::Range;
 use Section;
@@ -203,7 +204,7 @@ pub struct LocationListEntry<R: Reader> {
     pub range: Range,
 
     /// The data containing a single location description.
-    pub data: R,
+    pub data: Expression<R>,
 }
 
 impl<R: Reader> LocationListEntry<R> {
@@ -215,7 +216,7 @@ impl<R: Reader> LocationListEntry<R> {
             data.empty();
             let location = LocationListEntry {
                 range: range,
-                data: data,
+                data: Expression(data),
             };
             Ok(location)
         } else {
@@ -223,7 +224,7 @@ impl<R: Reader> LocationListEntry<R> {
             let data = input.split(len as usize)?;
             let location = LocationListEntry {
                 range: range,
-                data: data,
+                data: Expression(data),
             };
             Ok(location)
         }
@@ -279,7 +280,7 @@ mod tests {
                                    begin: 0x01010200,
                                    end: 0x01010300,
                                },
-                               data: EndianBuf::new(&[2, 0, 0, 0], LittleEndian),
+                               data: Expression(EndianBuf::new(&[2, 0, 0, 0], LittleEndian)),
                            })));
 
         // A base address selection followed by a normal location.
@@ -289,7 +290,7 @@ mod tests {
                                    begin: 0x02010400,
                                    end: 0x02010500,
                                },
-                               data: EndianBuf::new(&[3, 0, 0, 0], LittleEndian),
+                               data: Expression(EndianBuf::new(&[3, 0, 0, 0], LittleEndian)),
                            })));
 
         // An empty location range followed by a normal location.
@@ -299,7 +300,7 @@ mod tests {
                                    begin: 0x02010800,
                                    end: 0x02010900,
                                },
-                               data: EndianBuf::new(&[5, 0, 0, 0], LittleEndian),
+                               data: Expression(EndianBuf::new(&[5, 0, 0, 0], LittleEndian)),
                            })));
 
         // A location range that starts at 0.
@@ -309,7 +310,7 @@ mod tests {
                                    begin: 0x02000000,
                                    end: 0x02000001,
                                },
-                               data: EndianBuf::new(&[6, 0, 0, 0], LittleEndian),
+                               data: Expression(EndianBuf::new(&[6, 0, 0, 0], LittleEndian)),
                            })));
 
         // A location range that ends at -1.
@@ -319,7 +320,7 @@ mod tests {
                                    begin: 0x00000000,
                                    end: 0xffffffff,
                                },
-                               data: EndianBuf::new(&[7, 0, 0, 0], LittleEndian),
+                               data: Expression(EndianBuf::new(&[7, 0, 0, 0], LittleEndian)),
                            })));
 
         // A location list end.
@@ -371,7 +372,7 @@ mod tests {
                                    begin: 0x01010200,
                                    end: 0x01010300,
                                },
-                               data: EndianBuf::new(&[2, 0, 0, 0], LittleEndian),
+                               data: Expression(EndianBuf::new(&[2, 0, 0, 0], LittleEndian)),
                            })));
 
         // A base address selection followed by a normal location.
@@ -381,7 +382,7 @@ mod tests {
                                    begin: 0x02010400,
                                    end: 0x02010500,
                                },
-                               data: EndianBuf::new(&[3, 0, 0, 0], LittleEndian),
+                               data: Expression(EndianBuf::new(&[3, 0, 0, 0], LittleEndian)),
                            })));
 
         // An empty location range followed by a normal location.
@@ -391,7 +392,7 @@ mod tests {
                                    begin: 0x02010800,
                                    end: 0x02010900,
                                },
-                               data: EndianBuf::new(&[5, 0, 0, 0], LittleEndian),
+                               data: Expression(EndianBuf::new(&[5, 0, 0, 0], LittleEndian)),
                            })));
 
         // A location range that starts at 0.
@@ -401,7 +402,7 @@ mod tests {
                                    begin: 0x02000000,
                                    end: 0x02000001,
                                },
-                               data: EndianBuf::new(&[6, 0, 0, 0], LittleEndian),
+                               data: Expression(EndianBuf::new(&[6, 0, 0, 0], LittleEndian)),
                            })));
 
         // A location range that ends at -1.
@@ -411,7 +412,7 @@ mod tests {
                                    begin: 0x0,
                                    end: 0xffffffffffffffff,
                                },
-                               data: EndianBuf::new(&[7, 0, 0, 0], LittleEndian),
+                               data: Expression(EndianBuf::new(&[7, 0, 0, 0], LittleEndian)),
                            })));
 
         // A location list end.

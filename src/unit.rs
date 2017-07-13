@@ -6,6 +6,7 @@ use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use line::DebugLineOffset;
 use loc::DebugLocOffset;
+use op::Expression;
 use parser::{Error, Result, Format, DebugMacinfoOffset, parse_initial_length, u64_to_offset};
 use ranges::DebugRangesOffset;
 use reader::Reader;
@@ -874,7 +875,7 @@ pub enum AttributeValue<R: Reader> {
 
     /// "The information bytes contain a DWARF expression (see Section 2.5) or
     /// location description (see Section 2.6)."
-    Exprloc(R),
+    Exprloc(Expression<R>),
 
     /// A boolean typically used to describe the presence or absence of another
     /// attribute.
@@ -1437,9 +1438,9 @@ impl<R: Reader> Attribute<R> {
     /// Expressions and locations may be `DW_FORM_block*` or `DW_FORM_exprloc`.
     /// The standard doesn't mention `DW_FORM_block*` as a possible form, but
     /// it is encountered in practice.
-    fn exprloc_value(&self) -> Option<R> {
+    fn exprloc_value(&self) -> Option<Expression<R>> {
         Some(match self.value {
-                 AttributeValue::Block(ref data) |
+                 AttributeValue::Block(ref data) => Expression(data.clone()),
                  AttributeValue::Exprloc(ref data) => data.clone(),
                  _ => return None,
              })
@@ -1560,7 +1561,7 @@ fn parse_attribute<'unit, R: Reader>(input: &mut R,
             }
             constants::DW_FORM_exprloc => {
                 let block = length_uleb128_value(input)?;
-                AttributeValue::Exprloc(block)
+                AttributeValue::Exprloc(Expression(block))
             }
             constants::DW_FORM_flag => {
                 let present = input.read_u8()?;
@@ -3041,7 +3042,7 @@ mod tests {
                       constants::DW_FORM_block,
                       block,
                       AttributeValue::Block(EndianBuf::new(block_data, endian)),
-                      AttributeValue::Exprloc(EndianBuf::new(block_data, endian))),
+                      AttributeValue::Exprloc(Expression(EndianBuf::new(block_data, endian)))),
                      (2,
                       constants::DW_AT_data_member_location,
                       constants::DW_FORM_data4,
@@ -3279,7 +3280,7 @@ mod tests {
         let buf = [0x02, 0x99, 0x99, 0x11];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_exprloc;
-        let value = AttributeValue::Exprloc(EndianBuf::new(&buf[1..3], LittleEndian));
+        let value = AttributeValue::Exprloc(Expression(EndianBuf::new(&buf[1..3], LittleEndian)));
         test_parse_attribute(&buf, 3, &unit, form, value);
     }
 

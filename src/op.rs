@@ -853,6 +853,35 @@ pub enum EvaluationResult<R: Reader> {
     RequiresTextBase,
 }
 
+/// The bytecode for a DWARF expression or location description.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Expression<R: Reader>(pub R);
+
+impl<R: Reader> Expression<R> {
+    /// Create an evaluation for this expression.
+    ///
+    /// The `address_size` and `format` are determined by the
+    /// [CompilationUnitHeader](struct.CompilationUnitHeader.html) or
+    /// [TypeUnitHeader](struct.TypeUnitHeader.html)
+    /// that this expression relates to.
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// use gimli::Expression;
+    /// # let endian = gimli::LittleEndian;
+    /// # let debug_info = gimli::DebugInfo::from(gimli::EndianBuf::new(&[], endian));
+    /// # let unit = debug_info.units().next().unwrap().unwrap();
+    /// # let bytecode = gimli::EndianBuf::new(&[], endian);
+    /// let expression = gimli::Expression(bytecode);
+    /// let mut eval = expression.evaluation(unit.address_size(), unit.format());
+    /// let mut result = eval.evaluate().unwrap();
+    /// ```
+    #[inline]
+    pub fn evaluation(self, address_size: u8, format: Format) -> Evaluation<R> {
+        Evaluation::new(self.0, address_size, format)
+    }
+}
+
 /// A DWARF expression evaluator.
 ///
 /// # Usage
