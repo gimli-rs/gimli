@@ -166,8 +166,20 @@ impl Endianity for BigEndian {
 /// The native endianity for the target platform.
 #[cfg(target_endian = "little")]
 pub type NativeEndian = LittleEndian;
+
+#[cfg(target_endian = "little")]
+#[allow(non_upper_case_globals)]
+#[doc(hidden)]
+pub const NativeEndian: LittleEndian = LittleEndian;
+
+/// The native endianity for the target platform.
 #[cfg(target_endian = "big")]
 pub type NativeEndian = BigEndian;
+
+#[cfg(target_endian = "big")]
+#[allow(non_upper_case_globals)]
+#[doc(hidden)]
+pub const NativeEndian: BigEndian = BigEndian;
 
 /// A `&[u8]` slice with compile-time endianity metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -477,7 +489,7 @@ mod tests {
 
     #[test]
     fn test_endian_buf_split_at() {
-        let endian = NativeEndian {};
+        let endian = NativeEndian;
         let buf = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
         let eb = EndianBuf::new(&buf, endian);
         assert_eq!(eb.split_at(3),
@@ -488,7 +500,7 @@ mod tests {
     #[should_panic]
     fn test_endian_buf_split_at_out_of_bounds() {
         let buf = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
-        let eb = EndianBuf::new(&buf, NativeEndian {});
+        let eb = EndianBuf::new(&buf, NativeEndian);
         eb.split_at(30);
     }
 }
