@@ -1,7 +1,8 @@
 extern crate gimli;
 
 use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLoc,
-            DebugPubNames, DebugPubTypes, DebugRanges, DebugStr, LittleEndian};
+            DebugPubNames, DebugPubTypes, DebugRanges, DebugStr, Expression, Format, LittleEndian,
+            Operation, Reader};
 use std::env;
 use std::collections::hash_map::HashMap;
 use std::fs::File;
@@ -25,6 +26,18 @@ fn read_section(section: &str) -> Vec<u8> {
     buf
 }
 
+fn parse_expression<R: Reader>(expr: Expression<R>, address_size: u8, format: Format) {
+    let mut pc = expr.0.clone();
+    while !pc.is_empty() {
+        Operation::parse(&mut pc, &expr.0, address_size, format).expect("Should parse operation");
+    }
+
+    // Also attempt to evaluate some of it.
+    let mut eval = expr.evaluation(address_size, format);
+    eval.set_initial_value(0);
+    eval.evaluate().expect("Should evaluate expression");
+}
+
 #[test]
 fn test_parse_self_debug_info() {
     let debug_info = read_section("debug_info");
@@ -44,7 +57,11 @@ fn test_parse_self_debug_info() {
             let entry = cursor.current().expect("Should have a current entry");
 
             let mut attrs = entry.attrs();
-            while let Some(_) = attrs.next().expect("Should parse entry's attribute") {}
+            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+                if let AttributeValue::Exprloc(expression) = attr.value() {
+                    parse_expression(expression, unit.address_size(), unit.format());
+                }
+            }
         }
     }
 }
@@ -165,6 +182,7 @@ fn test_parse_self_debug_loc() {
                         .expect("Should parse locations OK");
                     while let Some(loc) = locs.next().expect("Should parse next location") {
                         assert!(loc.range.begin <= loc.range.end);
+                        parse_expression(loc.data, unit.address_size(), unit.format());
                     }
                 }
             }
