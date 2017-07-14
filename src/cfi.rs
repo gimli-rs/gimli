@@ -78,7 +78,7 @@ impl<'input, Endian> DebugFrame<EndianBuf<'input, Endian>>
     /// // Use with `.debug_frame`
     /// # let buf = [0x00, 0x01, 0x02, 0x03];
     /// # let read_debug_frame_section_somehow = || &buf;
-    /// let debug_frame = DebugFrame::new(read_debug_frame_section_somehow(), NativeEndian {});
+    /// let debug_frame = DebugFrame::new(read_debug_frame_section_somehow(), NativeEndian);
     /// ```
     pub fn new(section: &'input [u8], endian: Endian) -> Self {
         Self::from(EndianBuf::new(section, endian))
@@ -126,7 +126,7 @@ impl<'input, Endian> EhFrame<EndianBuf<'input, Endian>>
     /// // Use with `.debug_frame`
     /// # let buf = [0x00, 0x01, 0x02, 0x03];
     /// # let read_debug_frame_section_somehow = || &buf;
-    /// let debug_frame = EhFrame::new(read_debug_frame_section_somehow(), NativeEndian {});
+    /// let debug_frame = EhFrame::new(read_debug_frame_section_somehow(), NativeEndian);
     /// ```
     pub fn new(section: &'input [u8], endian: Endian) -> Self {
         Self::from(EndianBuf::new(section, endian))
@@ -259,7 +259,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// # let read_eh_frame_section = || unimplemented!();
     /// // Get the `.eh_frame` section from the object file. Alternatively,
     /// // use `EhFrame` with the `.eh_frame` section of the object file.
-    /// let eh_frame = EhFrame::new(read_eh_frame_section(), NativeEndian {});
+    /// let eh_frame = EhFrame::new(read_eh_frame_section(), NativeEndian);
     ///
     /// # let get_frame_pc = || unimplemented!();
     /// // Get the address of the PC for a frame you'd like to unwind.
@@ -513,7 +513,7 @@ impl BaseAddresses {
 ///
 /// # fn foo() -> gimli::Result<()> {
 /// # let read_eh_frame_somehow = || unimplemented!();
-/// let eh_frame = EhFrame::new(read_eh_frame_somehow(), NativeEndian {});
+/// let eh_frame = EhFrame::new(read_eh_frame_somehow(), NativeEndian);
 ///
 /// # let address_of_cfi_section_in_memory = unimplemented!();
 /// # let address_of_text_section_in_memory = unimplemented!();
@@ -4597,7 +4597,7 @@ mod tests {
 
     #[test]
     fn test_unwind_info_for_address_not_found() {
-        let debug_frame = DebugFrame::new(&[], NativeEndian {});
+        let debug_frame = DebugFrame::new(&[], NativeEndian);
         let bases = Default::default();
         let ctx = UninitializedUnwindContext::new();
         let result = debug_frame.unwind_info_for_address(&bases, ctx, 0xbadbad99);
@@ -4729,11 +4729,11 @@ mod tests {
 
     #[test]
     fn test_augmentation_parse_not_z_augmentation() {
-        let augmentation = &mut EndianBuf::new(b"wtf", NativeEndian {});
+        let augmentation = &mut EndianBuf::new(b"wtf", NativeEndian);
         let bases = Default::default();
         let address_size = 8;
-        let section = EhFrame::new(&[], NativeEndian {});
-        let input = &mut EndianBuf::new(&[], NativeEndian {});
+        let section = EhFrame::new(&[], NativeEndian);
+        let input = &mut EndianBuf::new(&[], NativeEndian);
         assert_eq!(Augmentation::parse(augmentation, &bases, address_size, section, input),
                    Err(Error::UnknownAugmentation));
     }

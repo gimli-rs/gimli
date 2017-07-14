@@ -592,7 +592,7 @@ mod tests {
         let expected = constants::DwEhPe(constants::DW_EH_PE_uleb128.0 |
                                          constants::DW_EH_PE_pcrel.0);
         let input = [expected.0, 1, 2, 3, 4];
-        let input = &mut EndianBuf::new(&input, NativeEndian {});
+        let input = &mut EndianBuf::new(&input, NativeEndian);
         assert_eq!(parse_pointer_encoding(input), Ok(expected));
         assert_eq!(*input, EndianBuf::new(&[1, 2, 3, 4], LittleEndian));
     }
@@ -603,7 +603,7 @@ mod tests {
         let expected = constants::DwEhPe((constants::DW_EH_PE_sdata8.0 + 1) |
                                          constants::DW_EH_PE_pcrel.0);
         let input = [expected.0, 1, 2, 3, 4];
-        let input = &mut EndianBuf::new(&input, NativeEndian {});
+        let input = &mut EndianBuf::new(&input, NativeEndian);
         assert_eq!(Err(Error::UnknownPointerEncoding),
                    parse_pointer_encoding(input));
     }
