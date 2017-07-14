@@ -3,8 +3,9 @@
 extern crate gimli;
 extern crate test;
 
-use gimli::{DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset, DebugLoc,
-            DebugPubNames, DebugPubTypes, DebugRanges, Reader, LittleEndian, EntriesTreeIter};
+use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset,
+            DebugLoc, DebugPubNames, DebugPubTypes, DebugRanges, Expression, EntriesTreeIter,
+            Format, LittleEndian, Operation, Reader};
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -290,6 +291,155 @@ fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
                while let Some(range) = ranges.next().expect("Should parse next range") {
                    test::black_box(range);
                }
+           });
+}
+
+fn debug_info_expressions<R: Reader>(debug_info: &DebugInfo<R>,
+                                     debug_abbrev: &DebugAbbrev<R>)
+                                     -> Vec<(Expression<R>, u8, Format)> {
+    let mut expressions = Vec::new();
+
+    let mut iter = debug_info.units();
+    while let Some(unit) = iter.next().expect("Should parse compilation unit") {
+        let abbrevs = unit.abbreviations(debug_abbrev)
+            .expect("Should parse abbreviations");
+
+        let mut cursor = unit.entries(&abbrevs);
+        while let Some((_, entry)) = cursor.next_dfs().expect("Should parse next dfs") {
+            let mut attrs = entry.attrs();
+            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+                if let AttributeValue::Exprloc(expression) = attr.value() {
+                    expressions.push((expression, unit.address_size(), unit.format()));
+                }
+            }
+        }
+    }
+
+    expressions
+}
+
+#[bench]
+fn bench_parsing_debug_info_expressions(b: &mut test::Bencher) {
+    let debug_abbrev = read_section("debug_abbrev");
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
+
+    let debug_info = read_section("debug_info");
+    let debug_info = DebugInfo::new(&debug_info, LittleEndian);
+
+    let expressions = debug_info_expressions(&debug_info, &debug_abbrev);
+
+    b.iter(|| for &(expression, address_size, format) in &*expressions {
+               let mut pc = expression.0;
+               while !pc.is_empty() {
+                   Operation::parse(&mut pc, &expression.0, address_size, format)
+                       .expect("Should parse operation");
+               }
+           });
+}
+
+#[bench]
+fn bench_evaluating_debug_info_expressions(b: &mut test::Bencher) {
+    let debug_abbrev = read_section("debug_abbrev");
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
+
+    let debug_info = read_section("debug_info");
+    let debug_info = DebugInfo::new(&debug_info, LittleEndian);
+
+    let expressions = debug_info_expressions(&debug_info, &debug_abbrev);
+
+    b.iter(|| for &(expression, address_size, format) in &*expressions {
+               let mut eval = expression.evaluation(address_size, format);
+               eval.set_initial_value(0);
+               let result = eval.evaluate().expect("Should evaluate expression");
+               test::black_box(result);
+           });
+}
+
+fn debug_loc_expressions<R: Reader>(debug_info: &DebugInfo<R>,
+                                    debug_abbrev: &DebugAbbrev<R>,
+                                    debug_loc: &DebugLoc<R>)
+                                    -> Vec<(Expression<R>, u8, Format)> {
+    let mut expressions = Vec::new();
+
+    let mut iter = debug_info.units();
+    while let Some(unit) = iter.next().expect("Should parse compilation unit") {
+        let abbrevs = unit.abbreviations(debug_abbrev)
+            .expect("Should parse abbreviations");
+
+        let mut cursor = unit.entries(&abbrevs);
+        cursor.next_dfs().expect("Should parse next dfs");
+
+        let mut low_pc = 0;
+
+        {
+            let unit_entry = cursor.current().expect("Should have a root entry");
+            let low_pc_attr = unit_entry
+                .attr_value(gimli::DW_AT_low_pc)
+                .expect("Should parse low_pc");
+            if let Some(gimli::AttributeValue::Addr(address)) = low_pc_attr {
+                low_pc = address;
+            }
+        }
+
+        while cursor.next_dfs().expect("Should parse next dfs").is_some() {
+            let entry = cursor.current().expect("Should have a current entry");
+            let mut attrs = entry.attrs();
+            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+                if let gimli::AttributeValue::DebugLocRef(offset) = attr.value() {
+                    let mut locs = debug_loc
+                        .locations(offset, unit.address_size(), low_pc)
+                        .expect("Should parse locations OK");
+                    while let Some(loc) = locs.next().expect("Should parse next location") {
+                        expressions.push((loc.data, unit.address_size(), unit.format()));
+                    }
+                }
+            }
+        }
+    }
+
+    expressions
+}
+
+#[bench]
+fn bench_parsing_debug_loc_expressions(b: &mut test::Bencher) {
+    let debug_info = read_section("debug_info");
+    let debug_info = DebugInfo::new(&debug_info, LittleEndian);
+
+    let debug_abbrev = read_section("debug_abbrev");
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
+
+    let debug_loc = read_section("debug_loc");
+    let debug_loc = DebugLoc::new(&debug_loc, LittleEndian);
+
+    let expressions = debug_loc_expressions(&debug_info, &debug_abbrev, &debug_loc);
+
+    b.iter(|| for &(expression, address_size, format) in &*expressions {
+               let mut pc = expression.0;
+               while !pc.is_empty() {
+                   Operation::parse(&mut pc, &expression.0, address_size, format)
+                       .expect("Should parse operation");
+               }
+           });
+}
+
+#[bench]
+fn bench_evaluating_debug_loc_expressions(b: &mut test::Bencher) {
+    let debug_info = read_section("debug_info");
+    let debug_info = DebugInfo::new(&debug_info, LittleEndian);
+
+    let debug_abbrev = read_section("debug_abbrev");
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
+
+    let debug_loc = read_section("debug_loc");
+    let debug_loc = DebugLoc::new(&debug_loc, LittleEndian);
+
+    let expressions = debug_loc_expressions(&debug_info, &debug_abbrev, &debug_loc);
+
+    b.iter(|| for &(expression, address_size, format) in &*expressions {
+               let mut eval = expression.evaluation(address_size, format);
+               eval.set_initial_value(0);
+               let result = eval.evaluate().expect("Should evaluate expression");
+               test::black_box(result);
            });
 }
 
