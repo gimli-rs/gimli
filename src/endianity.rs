@@ -16,6 +16,7 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
     fn is_big_endian(self) -> bool;
 
     /// Return true for little endian byte order.
+    #[inline]
     fn is_little_endian(self) -> bool {
         !self.is_big_endian()
     }
@@ -39,6 +40,7 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
     /// # Panics
     ///
     /// Panics when `buf.len() < 4`.
+    #[inline]
     fn read_u32(self, buf: &[u8]) -> u32 {
         if self.is_big_endian() {
             byteorder::BigEndian::read_u32(buf)
@@ -52,6 +54,7 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
     /// # Panics
     ///
     /// Panics when `buf.len() < 8`.
+    #[inline]
     fn read_u64(self, buf: &[u8]) -> u64 {
         if self.is_big_endian() {
             byteorder::BigEndian::read_u64(buf)
@@ -95,6 +98,7 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
     /// # Panics
     ///
     /// Panics when `buf.len() < 8`.
+    #[inline]
     fn write_u64(self, buf: &mut [u8], n: u64) {
         if self.is_big_endian() {
             byteorder::BigEndian::write_u64(buf, n)
@@ -115,17 +119,20 @@ pub enum RunTimeEndian {
 
 impl Default for RunTimeEndian {
     #[cfg(target_endian = "little")]
+    #[inline]
     fn default() -> RunTimeEndian {
         RunTimeEndian::Little
     }
 
     #[cfg(target_endian = "big")]
+    #[inline]
     fn default() -> RunTimeEndian {
         RunTimeEndian::Big
     }
 }
 
 impl Endianity for RunTimeEndian {
+    #[inline]
     fn is_big_endian(self) -> bool {
         self != RunTimeEndian::Little
     }
@@ -136,12 +143,14 @@ impl Endianity for RunTimeEndian {
 pub struct LittleEndian;
 
 impl Default for LittleEndian {
+    #[inline]
     fn default() -> LittleEndian {
         LittleEndian
     }
 }
 
 impl Endianity for LittleEndian {
+    #[inline]
     fn is_big_endian(self) -> bool {
         false
     }
@@ -152,12 +161,14 @@ impl Endianity for LittleEndian {
 pub struct BigEndian;
 
 impl Default for BigEndian {
+    #[inline]
     fn default() -> BigEndian {
         BigEndian
     }
 }
 
 impl Endianity for BigEndian {
+    #[inline]
     fn is_big_endian(self) -> bool {
         true
     }
@@ -194,11 +205,13 @@ impl<'input, Endian> EndianBuf<'input, Endian>
     where Endian: Endianity
 {
     /// Construct a new `EndianBuf` with the given buffer.
+    #[inline]
     pub fn new(buf: &'input [u8], endian: Endian) -> EndianBuf<'input, Endian> {
         EndianBuf { buf, endian }
     }
 
     /// Return a reference to the raw buffer.
+    #[inline]
     pub fn buf(&self) -> &'input [u8] {
         self.buf
     }
@@ -219,6 +232,7 @@ impl<'input, Endian> EndianBuf<'input, Endian>
 
     /// Return the offset of the start of the buffer relative to the start
     /// of the given buffer.
+    #[inline]
     pub fn offset_from(&self, base: EndianBuf<'input, Endian>) -> usize {
         let base_ptr = base.buf.as_ptr() as *const u8 as usize;
         let ptr = self.buf.as_ptr() as *const u8 as usize;
@@ -229,6 +243,7 @@ impl<'input, Endian> EndianBuf<'input, Endian>
 
     /// Converts the buffer to a string, including invalid characters,
     /// using `String::from_utf8_lossy`.
+    #[inline]
     pub fn to_string_lossy(&self) -> Cow<'input, str> {
         String::from_utf8_lossy(self.buf)
     }

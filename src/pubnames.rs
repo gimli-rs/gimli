@@ -117,7 +117,8 @@ impl<R: Reader> PubNamesEntryIter<R> {
     /// Returns the newly parsed pubname as `Ok(Some(pubname))`. Returns
     /// `Ok(None)` when iteration is complete and all pubnames have already been
     /// parsed and yielded. If an error occurs while parsing the next pubname,
-    /// then this error is returned on all subsequent calls as `Err(e)`.
+    /// then this error is returned as `Err(e)`, and all subsequent calls return
+    /// `Ok(None)`.
     pub fn next(&mut self) -> Result<Option<PubNamesEntry<R>>> {
         self.0.next()
     }

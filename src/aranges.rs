@@ -29,21 +29,25 @@ pub struct ArangeEntry {
 
 impl ArangeEntry {
     /// Return the segment selector of this arange.
+    #[inline]
     pub fn segment(&self) -> Option<u64> {
         self.segment
     }
 
     /// Return the beginning address of this arange.
+    #[inline]
     pub fn address(&self) -> u64 {
         self.address
     }
 
     /// Return the length of this arange.
+    #[inline]
     pub fn length(&self) -> u64 {
         self.length
     }
 
     /// Return the offset into the .debug_info section for this arange.
+    #[inline]
     pub fn debug_info_offset(&self) -> DebugInfoOffset {
         self.unit_header_offset
     }
@@ -238,7 +242,7 @@ impl<R: Reader> ArangeEntryIter<R> {
     /// Returns the newly parsed arange as `Ok(Some(arange))`. Returns `Ok(None)`
     /// when iteration is complete and all aranges have already been parsed and
     /// yielded. If an error occurs while parsing the next arange, then this error
-    /// is returned on all subsequent calls as `Err(e)`.
+    /// is returned as `Err(e)`, and all subsequent calls return `Ok(None)`.
     pub fn next(&mut self) -> Result<Option<ArangeEntry>> {
         self.0.next()
     }

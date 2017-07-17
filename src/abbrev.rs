@@ -256,6 +256,7 @@ pub struct AttributeSpecification {
 
 impl AttributeSpecification {
     /// Construct a new `AttributeSpecification` from the given name and form.
+    #[inline]
     pub fn new(name: constants::DwAt, form: constants::DwForm) -> AttributeSpecification {
         AttributeSpecification {
             name: name,

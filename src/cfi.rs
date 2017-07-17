@@ -18,12 +18,14 @@ use Section;
 pub struct DebugFrameOffset(pub usize);
 
 impl Into<usize> for DebugFrameOffset {
+    #[inline]
     fn into(self) -> usize {
         self.0
     }
 }
 
 impl From<usize> for DebugFrameOffset {
+    #[inline]
     fn from(o: usize) -> Self {
         DebugFrameOffset(o)
     }
@@ -34,12 +36,14 @@ impl From<usize> for DebugFrameOffset {
 pub struct EhFrameOffset(pub usize);
 
 impl Into<usize> for EhFrameOffset {
+    #[inline]
     fn into(self) -> usize {
         self.0
     }
 }
 
 impl From<usize> for EhFrameOffset {
+    #[inline]
     fn from(o: usize) -> Self {
         EhFrameOffset(o)
     }
@@ -479,18 +483,21 @@ pub struct BaseAddresses {
 
 impl BaseAddresses {
     /// Set the CFI section base address.
+    #[inline]
     pub fn set_cfi(mut self, addr: u64) -> Self {
         self.cfi = Some(addr);
         self
     }
 
     /// Set the `.text` section base address.
+    #[inline]
     pub fn set_text(mut self, addr: u64) -> Self {
         self.text = Some(addr);
         self
     }
 
     /// Set the `.data` section base address.
+    #[inline]
     pub fn set_data(mut self, addr: u64) -> Self {
         self.data = Some(addr);
         self
@@ -683,7 +690,7 @@ fn parse_cfi_entry<'bases, R, Section>(bases: &'bases BaseAddresses,
 /// We support the z-style augmentation [defined by `.eh_frame`][ehframe].
 ///
 /// [ehframe]: http://refspecs.linuxfoundation.org/LSB_3.0.0/LSB-Core-generic/LSB-Core-generic/ehframechpt.html
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Augmentation {
     /// > A 'L' may be present at any position after the first character of the
     /// > string. This character may only be present if 'z' is the first character
@@ -714,17 +721,6 @@ pub struct Augmentation {
 
     /// True if this CIE's FDEs are trampolines for signal handlers.
     is_signal_trampoline: bool,
-}
-
-impl Default for Augmentation {
-    fn default() -> Augmentation {
-        Augmentation {
-            lsda: None,
-            personality: None,
-            fde_address_encoding: None,
-            is_signal_trampoline: false,
-        }
-    }
 }
 
 impl Augmentation {

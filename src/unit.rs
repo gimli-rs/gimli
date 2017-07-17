@@ -1657,7 +1657,7 @@ impl<'abbrev, 'entry, 'unit, R: Reader> AttrsIter<'abbrev, 'entry, 'unit, R> {
     ///
     /// Returns `None` when iteration is finished. If an error
     /// occurs while parsing the next attribute, then this error
-    /// is returned on all subsequent calls.
+    /// is returned, and all subsequent calls return `None`.
     #[allow(inline_always)]
     #[inline(always)]
     pub fn next(&mut self) -> Result<Option<Attribute<R>>> {
@@ -1679,9 +1679,16 @@ impl<'abbrev, 'entry, 'unit, R: Reader> AttrsIter<'abbrev, 'entry, 'unit, R> {
 
         let attr = self.attributes[0];
         let rest_attr = &self.attributes[1..];
-        let attr = parse_attribute(&mut self.input, self.entry.unit, attr)?;
-        self.attributes = rest_attr;
-        Ok(Some(attr))
+        match parse_attribute(&mut self.input, self.entry.unit, attr) {
+            Ok(attr) => {
+                self.attributes = rest_attr;
+                Ok(Some(attr))
+            }
+            Err(e) => {
+                self.input.empty();
+                Err(e)
+            }
+        }
     }
 }
 
