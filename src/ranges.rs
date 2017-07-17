@@ -212,6 +212,7 @@ impl Range {
     /// Check if this is a range end entry.
     ///
     /// This will only occur for raw ranges.
+    #[inline]
     pub fn is_end(&self) -> bool {
         self.begin == 0 && self.end == 0
     }
@@ -220,6 +221,7 @@ impl Range {
     ///
     /// A base address selection entry changes the base address that subsequent
     /// range entries are relative to.  This will only occur for raw ranges.
+    #[inline]
     pub fn is_base_address(&self, address_size: u8) -> bool {
         self.begin == !0 >> (64 - address_size * 8)
     }
@@ -227,6 +229,7 @@ impl Range {
     /// Add a base address to this range.
     ///
     /// This should only be called for raw ranges.
+    #[inline]
     pub fn add_base_address(&mut self, base_address: u64, address_size: u8) {
         debug_assert!(!self.is_end());
         debug_assert!(!self.is_base_address(address_size));

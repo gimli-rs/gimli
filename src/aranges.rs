@@ -29,21 +29,25 @@ pub struct ArangeEntry {
 
 impl ArangeEntry {
     /// Return the segment selector of this arange.
+    #[inline]
     pub fn segment(&self) -> Option<u64> {
         self.segment
     }
 
     /// Return the beginning address of this arange.
+    #[inline]
     pub fn address(&self) -> u64 {
         self.address
     }
 
     /// Return the length of this arange.
+    #[inline]
     pub fn length(&self) -> u64 {
         self.length
     }
 
     /// Return the offset into the .debug_info section for this arange.
+    #[inline]
     pub fn debug_info_offset(&self) -> DebugInfoOffset {
         self.unit_header_offset
     }

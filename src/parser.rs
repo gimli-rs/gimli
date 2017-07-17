@@ -129,6 +129,7 @@ pub enum Error {
 }
 
 impl fmt::Display for Error {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
         Debug::fmt(self, f)
     }
@@ -299,12 +300,14 @@ pub enum Pointer {
 }
 
 impl Default for Pointer {
+    #[inline]
     fn default() -> Self {
         Pointer::Direct(0)
     }
 }
 
 impl Into<u64> for Pointer {
+    #[inline]
     fn into(self) -> u64 {
         match self {
             Pointer::Direct(p) |
@@ -314,6 +317,7 @@ impl Into<u64> for Pointer {
 }
 
 impl Pointer {
+    #[inline]
     fn new(encoding: constants::DwEhPe, address: u64) -> Pointer {
         if encoding.is_indirect() {
             Pointer::Indirect(address)
