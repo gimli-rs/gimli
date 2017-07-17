@@ -115,12 +115,18 @@ impl<R: Reader> RawLocationListIter<R> {
             return Ok(None);
         }
 
-        let location = LocationListEntry::parse(&mut self.input, self.address_size)?;
-        if location.range.is_end() {
-            self.input.empty();
+        match LocationListEntry::parse(&mut self.input, self.address_size) {
+            Ok(location) => {
+                if location.range.is_end() {
+                    self.input.empty();
+                }
+                Ok(Some(location))
+            }
+            Err(e) => {
+                self.input.empty();
+                Err(e)
+            }
         }
-
-        Ok(Some(location))
     }
 }
 

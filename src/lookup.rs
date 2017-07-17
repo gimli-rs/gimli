@@ -79,15 +79,22 @@ impl<R, Parser> LookupEntryIter<R, Parser>
     /// Returns the newly parsed entry as `Ok(Some(Parser::Entry))`. Returns
     /// `Ok(None)` when iteration is complete and all entries have already been
     /// parsed and yielded. If an error occurs while parsing the next entry,
-    /// then this error is returned on all subsequent calls as `Err(e)`.
+    /// then this error is returned as `Err(e)`, and all subsequent calls return
+    /// `Ok(None)`.
     ///
     /// Can be [used with `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn next(&mut self) -> Result<Option<Parser::Entry>> {
         loop {
             if let Some((ref mut input, ref header)) = self.current_set {
                 if !input.is_empty() {
-                    if let Some(entry) = Parser::parse_entry(input, header)? {
-                        return Ok(Some(entry));
+                    match Parser::parse_entry(input, header) {
+                        Ok(Some(entry)) => return Ok(Some(entry)),
+                        Ok(None) => {}
+                        Err(e) => {
+                            input.empty();
+                            self.remaining_input.empty();
+                            return Err(e);
+                        }
                     }
                 }
             }
@@ -95,7 +102,16 @@ impl<R, Parser> LookupEntryIter<R, Parser>
                 self.current_set = None;
                 return Ok(None);
             }
-            self.current_set = Some(Parser::parse_header(&mut self.remaining_input)?);
+            match Parser::parse_header(&mut self.remaining_input) {
+                Ok(set) => {
+                    self.current_set = Some(set);
+                }
+                Err(e) => {
+                    self.current_set = None;
+                    self.remaining_input.empty();
+                    return Err(e);
+                }
+            }
         }
     }
 }

@@ -117,7 +117,8 @@ impl<R: Reader> PubTypesEntryIter<R> {
     /// Returns the newly parsed pubtype as `Ok(Some(pubtype))`. Returns
     /// `Ok(None)` when iteration is complete and all pubtypes have already been
     /// parsed and yielded. If an error occurs while parsing the next pubtype,
-    /// then this error is returned on all subsequent calls as `Err(e)`.
+    /// then this error is returned as `Err(e)`, and all subsequent calls return
+    /// `Ok(None)`.
     pub fn next(&mut self) -> Result<Option<PubTypesEntry<R>>> {
         self.0.next()
     }

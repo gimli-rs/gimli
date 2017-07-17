@@ -112,12 +112,18 @@ impl<R: Reader> RawRangesIter<R> {
             return Ok(None);
         }
 
-        let range = Range::parse(&mut self.input, self.address_size)?;
-        if range.is_end() {
-            self.input.empty();
+        match Range::parse(&mut self.input, self.address_size) {
+            Ok(range) => {
+                if range.is_end() {
+                    self.input.empty();
+                }
+                Ok(Some(range))
+            }
+            Err(e) => {
+                self.input.empty();
+                Err(e)
+            }
         }
-
-        Ok(Some(range))
     }
 }
 

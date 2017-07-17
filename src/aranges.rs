@@ -238,7 +238,7 @@ impl<R: Reader> ArangeEntryIter<R> {
     /// Returns the newly parsed arange as `Ok(Some(arange))`. Returns `Ok(None)`
     /// when iteration is complete and all aranges have already been parsed and
     /// yielded. If an error occurs while parsing the next arange, then this error
-    /// is returned on all subsequent calls as `Err(e)`.
+    /// is returned as `Err(e)`, and all subsequent calls return `Ok(None)`.
     pub fn next(&mut self) -> Result<Option<ArangeEntry>> {
         self.0.next()
     }

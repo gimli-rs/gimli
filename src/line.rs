@@ -697,7 +697,8 @@ impl<R: Reader> OpcodesIter<R> {
     /// Returns the newly parsed opcode as `Ok(Some(opcode))`. Returns
     /// `Ok(None)` when iteration is complete and all opcodes have already been
     /// parsed and yielded. If an error occurs while parsing the next attribute,
-    /// then this error is returned on all subsequent calls as `Err(e)`.
+    /// then this error is returned as `Err(e)`, and all subsequent calls return
+    /// `Ok(None)`.
     ///
     /// Unfortunately, the `header` parameter means that this cannot be a
     /// `FallibleIterator`.
@@ -708,7 +709,13 @@ impl<R: Reader> OpcodesIter<R> {
             return Ok(None);
         }
 
-        Opcode::parse(header, &mut self.input).map(Some)
+        match Opcode::parse(header, &mut self.input) {
+            Ok(opcode) => Ok(Some(opcode)),
+            Err(e) => {
+                self.input.empty();
+                Err(e)
+            }
+        }
     }
 }
 
