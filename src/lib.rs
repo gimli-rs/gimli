@@ -218,7 +218,8 @@ pub use unit::{DebugInfo, DebugInfoOffset, CompilationUnitHeadersIter, Compilati
                UnitOffset};
 pub use unit::{DebugTypes, DebugTypesOffset, DebugTypeSignature, TypeUnitHeadersIter,
                TypeUnitHeader};
-pub use unit::{EntriesCursor, EntriesTree, EntriesTreeIter, DebuggingInformationEntry};
+pub use unit::{EntriesCursor, EntriesTree, EntriesTreeIter, EntriesTreeNode,
+               DebuggingInformationEntry};
 pub use unit::{AttrsIter, Attribute, AttributeValue};
 
 /// A convenience trait for loading DWARF sections from object files.  To be
