@@ -838,6 +838,20 @@ impl<'abbrev, 'unit, R: Reader> DebuggingInformationEntry<'abbrev, 'unit, R> {
         }
     }
 
+    /// Use the `DW_AT_sibling` attribute to find the input buffer for the
+    /// next sibling. Returns `None` if the attribute is missing or invalid.
+    fn sibling(&self) -> Option<R> {
+        let attr = self.attr_value(constants::DW_AT_sibling);
+        if let Ok(Some(AttributeValue::UnitRef(offset))) = attr {
+            if offset.0 > self.offset.0 {
+                if let Ok(input) = self.unit.range_from(offset..) {
+                    return Some(input);
+                }
+            }
+        }
+        None
+    }
+
     /// Parse an entry. Returns `Ok(None)` for null entries.
     fn parse(input: &mut R,
              unit: &'unit UnitHeader<R>,
@@ -2053,25 +2067,18 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
         // Loop until we find an entry at the current level.
         let mut depth = 0;
         loop {
-            if self.current()
-                   .map(|entry| entry.has_children())
-                   .unwrap_or(false) {
-                // This entry has children, so the next entry is
-                // down one level.
-                depth += 1;
-
-                let sibling_ptr = self.current()
-                    .unwrap()
-                    .attr_value(constants::DW_AT_sibling)?;
-                if let Some(AttributeValue::UnitRef(offset)) = sibling_ptr {
-                    if let Ok(sibling_input) = self.unit.range_from(offset..) {
-                        // Fast path: this entry has a DW_AT_sibling
-                        // attribute pointing to its sibling, so jump
-                        // to it (which takes us back up a level).
-                        self.input = sibling_input;
-                        self.cached_current = None;
-                        depth -= 1;
-                    }
+            // Use is_some() and unwrap() to keep borrow checker happy.
+            if self.current().is_some() && self.current().unwrap().has_children() {
+                if let Some(sibling_input) = self.current().unwrap().sibling() {
+                    // Fast path: this entry has a DW_AT_sibling
+                    // attribute pointing to its sibling, so jump
+                    // to it (which keeps us at the same depth).
+                    self.input = sibling_input;
+                    self.cached_current = None;
+                } else {
+                    // This entry has children, so the next entry is
+                    // down one level.
+                    depth += 1;
                 }
             }
 
