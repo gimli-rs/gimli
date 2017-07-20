@@ -825,6 +825,19 @@ impl<'abbrev, 'unit, R: Reader> DebuggingInformationEntry<'abbrev, 'unit, R> {
         self.attr(name).map(|attr| attr.map(|attr| attr.value()))
     }
 
+    /// Return the input buffer after the last attribute.
+    fn after_attrs(&self) -> Result<R> {
+        if let Some(attrs_len) = self.attrs_len.get() {
+            let mut input = self.attrs_slice.clone();
+            input.skip(attrs_len)?;
+            Ok(input)
+        } else {
+            let mut attrs = self.attrs();
+            while let Some(_) = attrs.next()? {}
+            Ok(attrs.input)
+        }
+    }
+
     /// Parse an entry. Returns `Ok(None)` for null entries.
     fn parse(input: &mut R,
              unit: &'unit UnitHeader<R>,
@@ -1755,33 +1768,15 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
         self.cached_current.as_ref()
     }
 
-    /// Return the input buffer after the current entry.
-    fn after_entry(&self) -> Result<R> {
-        if let Some(ref current) = self.cached_current {
-            let attrs_len = if let Some(attrs_len) = current.attrs_len.get() {
-                attrs_len
-            } else {
-                let mut attrs = current.attrs();
-                while let Some(_) = attrs.next()? {}
-                current
-                    .attrs_len
-                    .get()
-                    .expect("should have attrs_len after iterating attrs")
-            };
-            let mut input = current.attrs_slice.clone();
-            input.skip(attrs_len)?;
-            Ok(input)
-        } else {
-            Ok(self.input.clone())
-        }
-    }
-
     /// Move the cursor to the next DIE in the tree.
     ///
     /// Returns `Some` if there is a next entry, even if this entry is null.
     /// If there is no next entry, then `None` is returned.
     pub fn next_entry(&mut self) -> Result<Option<()>> {
-        self.input = self.after_entry()?;
+        if let Some(ref current) = self.cached_current {
+            self.input = current.after_attrs()?;
+        }
+
         if self.input.is_empty() {
             self.cached_current = None;
             self.delta_depth = 0;
