@@ -86,7 +86,8 @@ fn bench_parsing_debug_info_tree(b: &mut test::Bencher) {
 
             let mut tree = unit.entries_tree(&abbrevs, None)
                 .expect("Should have entries tree");
-            parse_debug_info_tree(tree.iter());
+            let root = tree.iter().expect("Should parse root entry");
+            parse_debug_info_tree(root);
         }
     });
 }
