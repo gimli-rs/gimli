@@ -585,17 +585,11 @@ impl<R: Reader> UnitHeader<R> {
                                       abbreviations: &'abbrev Abbreviations,
                                       offset: Option<UnitOffset>)
                                       -> Result<EntriesTree<'abbrev, 'me, R>> {
-        let mut cursor = match offset {
-            Some(offset) => self.entries_at_offset(abbreviations, offset)?,
-            None => self.entries(abbreviations),
+        let input = match offset {
+            Some(offset) => self.range_from(offset..)?,
+            None => self.entries_buf.clone(),
         };
-        if cursor.next_entry()?.is_none() {
-            return Err(Error::UnexpectedEof);
-        }
-        if cursor.current().is_none() {
-            return Err(Error::UnexpectedNull);
-        }
-        Ok(cursor.tree())
+        Ok(EntriesTree::new(input, self, abbreviations))
     }
 
     /// Parse this unit's abbreviations.
@@ -823,6 +817,57 @@ impl<'abbrev, 'unit, R: Reader> DebuggingInformationEntry<'abbrev, 'unit, R> {
     /// attribute is found.
     pub fn attr_value(&self, name: constants::DwAt) -> Result<Option<AttributeValue<R>>> {
         self.attr(name).map(|attr| attr.map(|attr| attr.value()))
+    }
+
+    /// Return the input buffer after the last attribute.
+    #[allow(inline_always)]
+    #[inline(always)]
+    fn after_attrs(&self) -> Result<R> {
+        if let Some(attrs_len) = self.attrs_len.get() {
+            let mut input = self.attrs_slice.clone();
+            input.skip(attrs_len)?;
+            Ok(input)
+        } else {
+            let mut attrs = self.attrs();
+            while let Some(_) = attrs.next()? {}
+            Ok(attrs.input)
+        }
+    }
+
+    /// Use the `DW_AT_sibling` attribute to find the input buffer for the
+    /// next sibling. Returns `None` if the attribute is missing or invalid.
+    fn sibling(&self) -> Option<R> {
+        let attr = self.attr_value(constants::DW_AT_sibling);
+        if let Ok(Some(AttributeValue::UnitRef(offset))) = attr {
+            if offset.0 > self.offset.0 {
+                if let Ok(input) = self.unit.range_from(offset..) {
+                    return Some(input);
+                }
+            }
+        }
+        None
+    }
+
+    /// Parse an entry. Returns `Ok(None)` for null entries.
+    #[allow(inline_always)]
+    #[inline(always)]
+    fn parse(input: &mut R,
+             unit: &'unit UnitHeader<R>,
+             abbreviations: &'abbrev Abbreviations)
+             -> Result<Option<Self>> {
+        let offset = unit.header_size() + input.offset_from(&unit.entries_buf);
+        let code = input.read_uleb128()?;
+        if code == 0 {
+            return Ok(None);
+        };
+        let abbrev = abbreviations.get(code).ok_or(Error::UnknownAbbreviation)?;
+        Ok(Some(DebuggingInformationEntry {
+                    offset: UnitOffset(offset),
+                    attrs_slice: input.clone(),
+                    attrs_len: Cell::new(None),
+                    abbrev: abbrev,
+                    unit: unit,
+                }))
     }
 }
 
@@ -1735,68 +1780,37 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
         self.cached_current.as_ref()
     }
 
-    /// Return the input buffer after the current entry.
-    fn after_entry(&self) -> Result<R> {
-        if let Some(ref current) = self.cached_current {
-            let attrs_len = if let Some(attrs_len) = current.attrs_len.get() {
-                attrs_len
-            } else {
-                let mut attrs = current.attrs();
-                while let Some(_) = attrs.next()? {}
-                current
-                    .attrs_len
-                    .get()
-                    .expect("should have attrs_len after iterating attrs")
-            };
-            let mut input = current.attrs_slice.clone();
-            input.skip(attrs_len)?;
-            Ok(input)
-        } else {
-            Ok(self.input.clone())
-        }
-    }
-
-    /// Return the offset in bytes of the given array from the start of the compilation unit
-    fn get_offset(&self, input: &R) -> UnitOffset {
-        UnitOffset(self.unit.header_size() + input.offset_from(&self.unit.entries_buf))
-    }
-
     /// Move the cursor to the next DIE in the tree.
     ///
     /// Returns `Some` if there is a next entry, even if this entry is null.
     /// If there is no next entry, then `None` is returned.
     pub fn next_entry(&mut self) -> Result<Option<()>> {
-        let mut input = self.after_entry()?;
-        if input.is_empty() {
-            self.input = input;
+        if let Some(ref current) = self.cached_current {
+            self.input = current.after_attrs()?;
+        }
+
+        if self.input.is_empty() {
             self.cached_current = None;
             self.delta_depth = 0;
             return Ok(None);
         }
 
-        let offset = self.get_offset(&input);
-        match input.read_uleb128()? {
-            0 => {
-                self.input = input;
-                self.cached_current = None;
-                self.delta_depth = -1;
+        match DebuggingInformationEntry::parse(&mut self.input, self.unit, self.abbreviations) {
+            Ok(Some(entry)) => {
+                self.delta_depth = entry.has_children() as isize;
+                self.cached_current = Some(entry);
                 Ok(Some(()))
             }
-            code => {
-                if let Some(abbrev) = self.abbreviations.get(code) {
-                    self.cached_current = Some(DebuggingInformationEntry {
-                                                   offset: offset,
-                                                   attrs_slice: input,
-                                                   attrs_len: Cell::new(None),
-                                                   abbrev: abbrev,
-                                                   unit: self.unit,
-                                               });
-                    self.delta_depth = abbrev.has_children() as isize;
-
-                    Ok(Some(()))
-                } else {
-                    Err(Error::UnknownAbbreviation)
-                }
+            Ok(None) => {
+                self.delta_depth = -1;
+                self.cached_current = None;
+                Ok(Some(()))
+            }
+            Err(e) => {
+                self.input.empty();
+                self.delta_depth = 0;
+                self.cached_current = None;
+                Err(e)
             }
         }
     }
@@ -2051,25 +2065,18 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
         // Loop until we find an entry at the current level.
         let mut depth = 0;
         loop {
-            if self.current()
-                   .map(|entry| entry.has_children())
-                   .unwrap_or(false) {
-                // This entry has children, so the next entry is
-                // down one level.
-                depth += 1;
-
-                let sibling_ptr = self.current()
-                    .unwrap()
-                    .attr_value(constants::DW_AT_sibling)?;
-                if let Some(AttributeValue::UnitRef(offset)) = sibling_ptr {
-                    if let Ok(sibling_input) = self.unit.range_from(offset..) {
-                        // Fast path: this entry has a DW_AT_sibling
-                        // attribute pointing to its sibling, so jump
-                        // to it (which takes us back up a level).
-                        self.input = sibling_input;
-                        self.cached_current = None;
-                        depth -= 1;
-                    }
+            // Use is_some() and unwrap() to keep borrow checker happy.
+            if self.current().is_some() && self.current().unwrap().has_children() {
+                if let Some(sibling_input) = self.current().unwrap().sibling() {
+                    // Fast path: this entry has a DW_AT_sibling
+                    // attribute pointing to its sibling, so jump
+                    // to it (which keeps us at the same depth).
+                    self.input = sibling_input;
+                    self.cached_current = None;
+                } else {
+                    // This entry has children, so the next entry is
+                    // down one level.
+                    depth += 1;
                 }
             }
 
@@ -2090,19 +2097,14 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
             }
         }
     }
-
-    /// Return a tree view of the entries that have the current entry as the root.
-    pub fn tree(self) -> EntriesTree<'abbrev, 'unit, R> {
-        EntriesTree::new(self)
-    }
 }
 
 /// The state information for a tree view of the Debugging Information Entries.
 ///
 /// The `EntriesTree` can be used to recursively iterate through the DIE
-/// tree, following the parent/child relationships. It maintains a single
-/// `EntriesCursor` that is used to parse the entries, allowing it to avoid
-/// any duplicate parsing of entries.
+/// tree, following the parent/child relationships. The `EntriesTree` contains
+/// shared state for all nodes in the tree, avoiding any duplicate parsing of
+/// entries during the traversal.
 ///
 /// ## Example Usage
 /// ```rust,no_run
@@ -2116,18 +2118,23 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
 /// # let get_abbrevs_for_unit = |_| unit.abbreviations(&debug_abbrev).unwrap();
 /// let abbrevs = get_abbrevs_for_unit(&unit);
 ///
-/// let mut tree = try!(unit.entries_tree(&abbrevs, None));
-/// try!(process_tree(tree.iter()));
+/// let mut tree = unit.entries_tree(&abbrevs, None)?;
+/// let root = tree.root()?;
+/// process_tree(root)?;
 /// # unreachable!()
 /// # }
 ///
-/// fn process_tree<E>(mut iter: gimli::EntriesTreeIter<gimli::EndianBuf<E>>) -> gimli::Result<()>
-///     where E: gimli::Endianity
+/// fn process_tree<R>(mut node: gimli::EntriesTreeNode<R>) -> gimli::Result<()>
+///     where R: gimli::Reader
 /// {
-///     if let Some(entry) = iter.entry() {
+///     {
 ///         // Examine the entry attributes.
+///         let mut attrs = node.entry().attrs();
+///         while let Some(attr) = attrs.next()? {
+///         }
 ///     }
-///     while let Some(child) = try!(iter.next()) {
+///     let mut children = node.children();
+///     while let Some(child) = children.next()? {
 ///         // Recursively process a child.
 ///         process_tree(child);
 ///     }
@@ -2138,27 +2145,37 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
 pub struct EntriesTree<'abbrev, 'unit, R>
     where R: Reader + 'unit
 {
-    start: EntriesCursor<'abbrev, 'unit, R>,
-    cursor: EntriesCursor<'abbrev, 'unit, R>,
-    // The depth of the entry that cursor::next_sibling() will return.
+    root: R,
+    unit: &'unit UnitHeader<R>,
+    abbreviations: &'abbrev Abbreviations,
+    input: R,
+    entry: Option<DebuggingInformationEntry<'abbrev, 'unit, R>>,
     depth: isize,
 }
 
 impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
-    fn new(cursor: EntriesCursor<'abbrev, 'unit, R>) -> Self {
-        let start = cursor.clone();
+    fn new(root: R, unit: &'unit UnitHeader<R>, abbreviations: &'abbrev Abbreviations) -> Self {
+        let input = root.clone();
         EntriesTree {
-            start: start,
-            cursor: cursor,
+            root,
+            unit,
+            abbreviations,
+            input,
+            entry: None,
             depth: 0,
         }
     }
 
-    /// Returns an iterator for the entries that are children of the current entry.
-    pub fn iter<'me>(&'me mut self) -> EntriesTreeIter<'abbrev, 'unit, 'me, R> {
-        self.cursor = self.start.clone();
+    /// Returns the root node of the tree.
+    pub fn root<'me>(&'me mut self) -> Result<EntriesTreeNode<'abbrev, 'unit, 'me, R>> {
+        self.input = self.root.clone();
+        self.entry =
+            DebuggingInformationEntry::parse(&mut self.input, self.unit, self.abbreviations)?;
+        if self.entry.is_none() {
+            return Err(Error::UnexpectedNull);
+        }
         self.depth = 0;
-        EntriesTreeIter::new(self, 1)
+        Ok(EntriesTreeNode::new(self, 1))
     }
 
     /// Move the cursor to the next entry at the specified depth.
@@ -2169,56 +2186,132 @@ impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
     fn next(&mut self, depth: isize) -> Result<bool> {
         if self.depth < depth {
             debug_assert_eq!(self.depth + 1, depth);
-            if !self.cursor
-                   .current()
-                   .map(|entry| entry.has_children())
-                   .unwrap_or(false) {
-                // Never any children.
+
+            match self.entry {
+                Some(ref entry) => {
+                    if !entry.has_children() {
+                        return Ok(false);
+                    }
+                    self.depth += 1;
+                    self.input = entry.after_attrs()?;
+                }
+                None => return Ok(false),
+            }
+
+            if self.input.is_empty() {
+                self.entry = None;
                 return Ok(false);
             }
-            // The next entry is the child.
-            self.cursor.next_entry()?;
-            if self.cursor.current().is_none() {
-                // No children, don't adjust depth.
-                return Ok(false);
-            } else {
-                // Got a child, next_sibling is now at the child depth.
-                self.depth += 1;
-                return Ok(true);
-            }
+
+            return match DebuggingInformationEntry::parse(&mut self.input,
+                                                          self.unit,
+                                                          self.abbreviations) {
+                Ok(entry) => {
+                    self.entry = entry;
+                    Ok(self.entry.is_some())
+                }
+                Err(e) => {
+                    self.input.empty();
+                    self.entry = None;
+                    Err(e)
+                }
+            };
         }
 
         loop {
-            if self.cursor.current().is_some() {
-                self.cursor.next_sibling()?;
-            } else {
-                self.cursor.next_entry()?;
-            }
-            if self.depth == depth {
-                if self.cursor.current().is_none() {
-                    // No more entries at the target depth.
+            match self.entry {
+                Some(ref entry) => {
+                    if entry.has_children() {
+                        if let Some(sibling_input) = entry.sibling() {
+                            // Fast path: this entry has a DW_AT_sibling
+                            // attribute pointing to its sibling, so jump
+                            // to it (which keeps us at the same depth).
+                            self.input = sibling_input;
+                        } else {
+                            // This entry has children, so the next entry is
+                            // down one level.
+                            self.depth += 1;
+                            self.input = entry.after_attrs()?;
+                        }
+                    } else {
+                        // This entry has no children, so next entry is at same depth.
+                        self.input = entry.after_attrs()?;
+                    }
+                }
+                None => {
+                    // This entry is a null, so next entry is up one level.
                     self.depth -= 1;
-                    return Ok(false);
-                } else {
-                    // Got a child at the target depth.
-                    return Ok(true);
                 }
             }
-            if self.cursor.current().is_none() {
-                self.depth -= 1;
+
+            if self.input.is_empty() {
+                self.entry = None;
+                return Ok(false);
+            }
+
+            match DebuggingInformationEntry::parse(&mut self.input, self.unit, self.abbreviations) {
+                Ok(entry) => {
+                    self.entry = entry;
+                    if self.depth == depth {
+                        return Ok(self.entry.is_some());
+                    }
+                }
+                Err(e) => {
+                    self.input.empty();
+                    self.entry = None;
+                    return Err(e);
+                }
             }
         }
     }
 }
 
-/// An iterator that allows recursive traversal of the Debugging
-/// Information Entry tree.
+/// A node in the Debugging Information Entry tree.
 ///
-/// An `EntriesTreeIter` for the root node of a tree can be obtained
-/// via [`EntriesTree::iter`](./struct.EntriesTree.html#method.iter).
+/// The root node of a tree can be obtained
+/// via [`EntriesTree::root`](./struct.EntriesTree.html#method.root).
+#[derive(Debug)]
+pub struct EntriesTreeNode<'abbrev, 'unit, 'tree, R>
+    where 'abbrev: 'tree,
+          'unit: 'tree,
+          R: Reader + 'unit
+{
+    tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
+    depth: isize,
+}
+
+impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeNode<'abbrev, 'unit, 'tree, R> {
+    fn new(tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
+           depth: isize)
+           -> EntriesTreeNode<'abbrev, 'unit, 'tree, R> {
+        debug_assert!(tree.entry.is_some());
+        EntriesTreeNode {
+            tree: tree,
+            depth: depth,
+        }
+    }
+
+    /// Returns the current entry in the tree.
+    pub fn entry(&self) -> &DebuggingInformationEntry<'abbrev, 'unit, R> {
+        // We never create a node without an entry.
+        self.tree.entry.as_ref().unwrap()
+    }
+
+    /// Create an iterator for the children of the current entry.
+    ///
+    /// The current entry can no longer be accessed after creating the
+    /// iterator.
+    pub fn children(self) -> EntriesTreeIter<'abbrev, 'unit, 'tree, R> {
+        EntriesTreeIter::new(self.tree, self.depth)
+    }
+}
+
+
+/// An iterator that allows traversal of the children of an
+/// `EntriesTreeNode`.
 ///
-/// The items returned by this iterator are also `EntriesTreeIter`s,
-/// which allow traversal of grandchildren, etc.
+/// The items returned by this iterator are also `EntriesTreeNode`s,
+/// which allow recursive traversal of grandchildren, etc.
 #[derive(Debug)]
 pub struct EntriesTreeIter<'abbrev, 'unit, 'tree, R>
     where 'abbrev: 'tree,
@@ -2227,14 +2320,7 @@ pub struct EntriesTreeIter<'abbrev, 'unit, 'tree, R>
 {
     tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
     depth: isize,
-    state: EntriesTreeIterState,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum EntriesTreeIterState {
-    Parent,
-    Child,
-    None,
+    empty: bool,
 }
 
 impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeIter<'abbrev, 'unit, 'tree, R> {
@@ -2244,36 +2330,20 @@ impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeIter<'abbrev, 'unit, 'tree, R>
         EntriesTreeIter {
             tree: tree,
             depth: depth,
-            state: EntriesTreeIterState::Parent,
+            empty: false,
         }
     }
 
-    /// Returns the current entry in the tree.
-    ///
-    /// This function should only be called when the `EntriesTreeIter`
-    /// is first created.  This will return the parent entry of the iterator.
-    /// Once `next` has been called, the result of this function is `None`.
-    pub fn entry(&self) -> Option<&DebuggingInformationEntry<'abbrev, 'unit, R>> {
-        match self.state {
-            EntriesTreeIterState::Parent => self.tree.cursor.current(),
-            _ => None,
-        }
-    }
-
-    /// Returns an iterator for the next child entry.
-    ///
-    /// The returned iterator can be used to both obtain the child entry, and recursively
-    /// iterate over the children of the child entry.
+    /// Returns an `EntriesTreeNode` for the next child entry.
     ///
     /// Returns `None` if there are no more children.
-    pub fn next<'me>(&'me mut self) -> Result<Option<EntriesTreeIter<'abbrev, 'unit, 'me, R>>> {
-        if self.state == EntriesTreeIterState::None {
+    pub fn next<'me>(&'me mut self) -> Result<Option<EntriesTreeNode<'abbrev, 'unit, 'me, R>>> {
+        if self.empty {
             Ok(None)
         } else if self.tree.next(self.depth)? {
-            self.state = EntriesTreeIterState::Child;
-            Ok(Some(EntriesTreeIter::new(self.tree, self.depth + 1)))
+            Ok(Some(EntriesTreeNode::new(self.tree, self.depth + 1)))
         } else {
-            self.state = EntriesTreeIterState::None;
+            self.empty = true;
             Ok(None)
         }
     }
@@ -4248,7 +4318,7 @@ mod tests {
     #[test]
     fn test_entries_tree() {
         fn assert_entry<'input, 'abbrev, 'unit, 'tree, Endian>
-            (iter: Result<Option<EntriesTreeIter<'abbrev,
+            (node: Result<Option<EntriesTreeNode<'abbrev,
                                                  'unit,
                                                  'tree,
                                                  EndianBuf<'input, Endian>>>>,
@@ -4256,14 +4326,14 @@ mod tests {
              -> EntriesTreeIter<'abbrev, 'unit, 'tree, EndianBuf<'input, Endian>>
             where Endian: Endianity
         {
-            let iter = iter.expect("Should parse entry")
+            let node = node.expect("Should parse entry")
                 .expect("Should have entry");
-            assert_entry_name(iter.entry().expect("Should have current entry"), name);
-            iter
+            assert_entry_name(node.entry(), name);
+            node.children()
         }
 
-        fn assert_null<E: Endianity>(iter: Result<Option<EntriesTreeIter<EndianBuf<E>>>>) {
-            match iter {
+        fn assert_null<E: Endianity>(node: Result<Option<EntriesTreeNode<EndianBuf<E>>>>) {
+            match node {
                 Ok(None) => {}
                 otherwise => {
                     println!("Unexpected parse result = {:#?}", otherwise);
@@ -4307,18 +4377,15 @@ mod tests {
 
         // Test we can restart iteration of the tree.
         {
-            let mut iter = tree.iter();
-            assert_entry_name(iter.entry().expect("Should have root entry"), "root");
+            let mut iter = assert_entry(tree.root().map(Some), "root");
             assert_entry(iter.next(), "1");
         }
         {
-            let mut iter = tree.iter();
-            assert_entry_name(iter.entry().expect("Should have root entry"), "root");
+            let mut iter = assert_entry(tree.root().map(Some), "root");
             assert_entry(iter.next(), "1");
         }
 
-        let mut iter = tree.iter();
-        assert_entry_name(iter.entry().expect("Should have root entry"), "root");
+        let mut iter = assert_entry(tree.root().map(Some), "root");
         {
             // Test iteration with children.
             let mut iter = assert_entry(iter.next(), "1");
@@ -4334,9 +4401,7 @@ mod tests {
                 assert_null(iter.next());
                 assert_null(iter.next());
             }
-            assert!(iter.entry().is_none());
             assert_null(iter.next());
-            assert!(iter.entry().is_none());
             assert_null(iter.next());
         }
         {
@@ -4363,8 +4428,7 @@ mod tests {
         // Test starting at an offset.
         let mut tree = unit.entries_tree(&abbrevs, Some(entry2))
             .expect("Should have entries tree");
-        let mut iter = tree.iter();
-        assert_entry_name(iter.entry().expect("Should have root entry"), "2");
+        let mut iter = assert_entry(tree.root().map(Some), "2");
         assert_entry(iter.next(), "2a");
         assert_entry(iter.next(), "2b");
         assert_null(iter.next());

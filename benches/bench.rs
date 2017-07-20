@@ -4,7 +4,7 @@ extern crate gimli;
 extern crate test;
 
 use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset,
-            DebugLoc, DebugPubNames, DebugPubTypes, DebugRanges, Expression, EntriesTreeIter,
+            DebugLoc, DebugPubNames, DebugPubTypes, DebugRanges, Expression, EntriesTreeNode,
             Format, LittleEndian, Operation, Reader};
 use std::env;
 use std::fs::File;
@@ -86,20 +86,21 @@ fn bench_parsing_debug_info_tree(b: &mut test::Bencher) {
 
             let mut tree = unit.entries_tree(&abbrevs, None)
                 .expect("Should have entries tree");
-            parse_debug_info_tree(tree.iter());
+            let root = tree.root().expect("Should parse root entry");
+            parse_debug_info_tree(root);
         }
     });
 }
 
-fn parse_debug_info_tree<R: Reader>(mut iter: EntriesTreeIter<R>) {
+fn parse_debug_info_tree<R: Reader>(node: EntriesTreeNode<R>) {
     {
-        let entry = iter.entry().expect("Should have current entry");
-        let mut attrs = entry.attrs();
+        let mut attrs = node.entry().attrs();
         while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
             test::black_box(&attr);
         }
     }
-    while let Some(child) = iter.next().expect("Should parse child entry") {
+    let mut children = node.children();
+    while let Some(child) = children.next().expect("Should parse child entry") {
         parse_debug_info_tree(child);
     }
 }
