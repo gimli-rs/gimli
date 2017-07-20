@@ -824,6 +824,26 @@ impl<'abbrev, 'unit, R: Reader> DebuggingInformationEntry<'abbrev, 'unit, R> {
     pub fn attr_value(&self, name: constants::DwAt) -> Result<Option<AttributeValue<R>>> {
         self.attr(name).map(|attr| attr.map(|attr| attr.value()))
     }
+
+    /// Parse an entry. Returns `Ok(None)` for null entries.
+    fn parse(input: &mut R,
+             unit: &'unit UnitHeader<R>,
+             abbreviations: &'abbrev Abbreviations)
+             -> Result<Option<Self>> {
+        let offset = unit.header_size() + input.offset_from(&unit.entries_buf);
+        let code = input.read_uleb128()?;
+        if code == 0 {
+            return Ok(None);
+        };
+        let abbrev = abbreviations.get(code).ok_or(Error::UnknownAbbreviation)?;
+        Ok(Some(DebuggingInformationEntry {
+                    offset: UnitOffset(offset),
+                    attrs_slice: input.clone(),
+                    attrs_len: Cell::new(None),
+                    abbrev: abbrev,
+                    unit: unit,
+                }))
+    }
 }
 
 /// The value of an attribute in a `DebuggingInformationEntry`.
@@ -1756,47 +1776,34 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
         }
     }
 
-    /// Return the offset in bytes of the given array from the start of the compilation unit
-    fn get_offset(&self, input: &R) -> UnitOffset {
-        UnitOffset(self.unit.header_size() + input.offset_from(&self.unit.entries_buf))
-    }
-
     /// Move the cursor to the next DIE in the tree.
     ///
     /// Returns `Some` if there is a next entry, even if this entry is null.
     /// If there is no next entry, then `None` is returned.
     pub fn next_entry(&mut self) -> Result<Option<()>> {
-        let mut input = self.after_entry()?;
-        if input.is_empty() {
-            self.input = input;
+        self.input = self.after_entry()?;
+        if self.input.is_empty() {
             self.cached_current = None;
             self.delta_depth = 0;
             return Ok(None);
         }
 
-        let offset = self.get_offset(&input);
-        match input.read_uleb128()? {
-            0 => {
-                self.input = input;
-                self.cached_current = None;
-                self.delta_depth = -1;
+        match DebuggingInformationEntry::parse(&mut self.input, self.unit, self.abbreviations) {
+            Ok(Some(entry)) => {
+                self.delta_depth = entry.has_children() as isize;
+                self.cached_current = Some(entry);
                 Ok(Some(()))
             }
-            code => {
-                if let Some(abbrev) = self.abbreviations.get(code) {
-                    self.cached_current = Some(DebuggingInformationEntry {
-                                                   offset: offset,
-                                                   attrs_slice: input,
-                                                   attrs_len: Cell::new(None),
-                                                   abbrev: abbrev,
-                                                   unit: self.unit,
-                                               });
-                    self.delta_depth = abbrev.has_children() as isize;
-
-                    Ok(Some(()))
-                } else {
-                    Err(Error::UnknownAbbreviation)
-                }
+            Ok(None) => {
+                self.delta_depth = -1;
+                self.cached_current = None;
+                Ok(Some(()))
+            }
+            Err(e) => {
+                self.input.empty();
+                self.delta_depth = 0;
+                self.cached_current = None;
+                Err(e)
             }
         }
     }
