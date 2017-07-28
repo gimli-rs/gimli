@@ -9,8 +9,8 @@ use Section;
 /// A single parsed pubtype.
 #[derive(Debug, Clone)]
 pub struct PubTypesEntry<R: Reader> {
-    unit_header_offset: DebugInfoOffset,
-    die_offset: UnitOffset,
+    unit_header_offset: DebugInfoOffset<R::Offset>,
+    die_offset: UnitOffset<R::Offset>,
     name: R,
 }
 
@@ -22,19 +22,22 @@ impl<R: Reader> PubTypesEntry<R> {
 
     /// Returns the offset into the .debug_info section for the header of the compilation unit
     /// which contains the type with this name.
-    pub fn unit_header_offset(&self) -> DebugInfoOffset {
+    pub fn unit_header_offset(&self) -> DebugInfoOffset<R::Offset> {
         self.unit_header_offset
     }
 
     /// Returns the offset into the compilation unit for the debugging information entry which
     /// the type with this name.
-    pub fn die_offset(&self) -> UnitOffset {
+    pub fn die_offset(&self) -> UnitOffset<R::Offset> {
         self.die_offset
     }
 }
 
 impl<R: Reader> PubStuffEntry<R> for PubTypesEntry<R> {
-    fn new(die_offset: UnitOffset, name: R, unit_header_offset: DebugInfoOffset) -> Self {
+    fn new(die_offset: UnitOffset<R::Offset>,
+           name: R,
+           unit_header_offset: DebugInfoOffset<R::Offset>)
+           -> Self {
         PubTypesEntry {
             unit_header_offset,
             die_offset,

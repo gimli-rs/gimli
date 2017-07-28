@@ -2,18 +2,18 @@
 
 use constants;
 use parser::{Error, Format};
-use reader::Reader;
+use reader::{Reader, ReaderOffset};
 use unit::{UnitOffset, DebugInfoOffset};
 use std::mem;
 
 /// A reference to a DIE, either relative to the current CU or
 /// relative to the section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DieReference {
+pub enum DieReference<T> {
     /// A CU-relative reference.
-    UnitRef(UnitOffset),
+    UnitRef(UnitOffset<T>),
     /// A section-relative reference.
-    DebugInfoRef(DebugInfoOffset),
+    DebugInfoRef(DebugInfoOffset<T>),
 }
 
 /// A single decoded DWARF expression operation.
@@ -28,7 +28,10 @@ pub enum DieReference {
 /// example, both `DW_OP_deref` and `DW_OP_xderef` are represented
 /// using `Operation::Deref`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Operation<R: Reader> {
+pub enum Operation<R, Offset>
+    where R: Reader<Offset = Offset>,
+          Offset: ReaderOffset
+{
     /// A dereference operation.
     Deref {
         /// The size of the data to dereference.
@@ -142,7 +145,7 @@ pub enum Operation<R: Reader> {
     /// DIE.
     Call {
         /// The DIE to use.
-        offset: DieReference,
+        offset: DieReference<Offset>,
     },
     /// Compute the address of a thread-local variable and push it on
     /// the stack.
@@ -170,7 +173,7 @@ pub enum Operation<R: Reader> {
     /// a stack value.
     ImplicitPointer {
         /// The `.debug_info` offset of the value that this is an implicit pointer into.
-        value: DebugInfoOffset,
+        value: DebugInfoOffset<Offset>,
         /// The byte offset into the value that the implicit pointer points to.
         byte_offset: i64,
     },
@@ -186,7 +189,7 @@ pub enum Operation<R: Reader> {
     /// points to the same definition of the parameter.
     ParameterRef {
         /// The DIE to use.
-        offset: UnitOffset,
+        offset: UnitOffset<Offset>,
     },
     /// An offset relative to the base of the .text section of the binary.
     /// e.g. for `DW_OP_addr`.
@@ -201,7 +204,7 @@ enum OperationEvaluationResult<R: Reader> {
     Complete {
         terminated: bool,
         piece_end: bool,
-        current_location: Location<R>,
+        current_location: Location<R, R::Offset>,
     },
     AwaitingMemory {
         address: u64,
@@ -212,15 +215,18 @@ enum OperationEvaluationResult<R: Reader> {
     AwaitingFrameBase { offset: u64 },
     AwaitingTls { index: u64 },
     AwaitingCfa,
-    AwaitingAtLocation { location: DieReference },
+    AwaitingAtLocation { location: DieReference<R::Offset> },
     AwaitingEntryValue { expression: R },
-    AwaitingParameterRef { parameter: UnitOffset },
+    AwaitingParameterRef { parameter: UnitOffset<R::Offset> },
     AwaitingTextBase { offset: u64 },
 }
 
 /// A single location of a piece of the result of a DWARF expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Location<R: Reader> {
+pub enum Location<R, Offset>
+    where R: Reader<Offset = Offset>,
+          Offset: ReaderOffset
+{
     /// The piece is empty.  Ordinarily this means the piece has been
     /// optimized away.
     Empty,
@@ -247,13 +253,16 @@ pub enum Location<R: Reader> {
     /// The piece is a pointer to a value which has no actual location.
     ImplicitPointer {
         /// The `.debug_info` offset of the value that this is an implicit pointer into.
-        value: DebugInfoOffset,
+        value: DebugInfoOffset<Offset>,
         /// The byte offset into the value that the implicit pointer points to.
         byte_offset: i64,
     },
 }
 
-impl<R: Reader> Location<R> {
+impl<R, Offset> Location<R, Offset>
+    where R: Reader<Offset = Offset>,
+          Offset: ReaderOffset
+{
     /// Return true if the piece is empty.
     pub fn is_empty(&self) -> bool {
         match *self {
@@ -266,7 +275,10 @@ impl<R: Reader> Location<R> {
 /// The description of a single piece of the result of a DWARF
 /// expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Piece<R: Reader> {
+pub struct Piece<R, Offset>
+    where R: Reader<Offset = Offset>,
+          Offset: ReaderOffset
+{
     /// If given, the size of the piece in bits.  If `None`, then the
     /// piece takes its size from the enclosed location.
     pub size_in_bits: Option<u64>,
@@ -274,15 +286,15 @@ pub struct Piece<R: Reader> {
     /// piece starts at the next byte boundary.
     pub bit_offset: Option<u64>,
     /// Where this piece is to be found.
-    pub location: Location<R>,
+    pub location: Location<R, Offset>,
 }
 
 // A helper function to handle branch offsets.
 fn compute_pc<R: Reader>(pc: &R, bytecode: &R, offset: i16) -> Result<R, Error> {
     let pc_offset = pc.offset_from(bytecode);
-    let new_pc_offset = pc_offset.wrapping_add(offset as usize);
+    let new_pc_offset = pc_offset.wrapping_add(R::Offset::from_i16(offset));
     if new_pc_offset > bytecode.len() {
-        Err(Error::BadBranchTarget(new_pc_offset))
+        Err(Error::BadBranchTarget(new_pc_offset.into_u64()))
     } else {
         let mut new_pc = bytecode.clone();
         new_pc.skip(new_pc_offset)?;
@@ -290,7 +302,10 @@ fn compute_pc<R: Reader>(pc: &R, bytecode: &R, offset: i16) -> Result<R, Error> 
     }
 }
 
-impl<R: Reader> Operation<R> {
+impl<R, Offset> Operation<R, Offset>
+    where R: Reader<Offset = Offset>,
+          Offset: ReaderOffset
+{
     /// Parse a single DWARF expression operation.
     ///
     /// This is useful when examining a DWARF expression for reasons other
@@ -303,7 +318,7 @@ impl<R: Reader> Operation<R> {
                  bytecode: &R,
                  address_size: u8,
                  format: Format)
-                 -> Result<Operation<R>, Error> {
+                 -> Result<Operation<R, Offset>, Error> {
         let opcode = bytes.read_u8()?;
         let name = constants::DwOp(opcode);
         match name {
@@ -732,12 +747,12 @@ impl<R: Reader> Operation<R> {
             constants::DW_OP_nop => Ok(Operation::Nop),
             constants::DW_OP_push_object_address => Ok(Operation::PushObjectAddress),
             constants::DW_OP_call2 => {
-                let value = bytes.read_u16()?;
-                Ok(Operation::Call { offset: DieReference::UnitRef(UnitOffset(value as usize)) })
+                let value = bytes.read_u16().map(R::Offset::from_u16)?;
+                Ok(Operation::Call { offset: DieReference::UnitRef(UnitOffset(value)) })
             }
             constants::DW_OP_call4 => {
-                let value = bytes.read_u32()?;
-                Ok(Operation::Call { offset: DieReference::UnitRef(UnitOffset(value as usize)) })
+                let value = bytes.read_u32().map(R::Offset::from_u32)?;
+                Ok(Operation::Call { offset: DieReference::UnitRef(UnitOffset(value)) })
             }
             constants::DW_OP_call_ref => {
                 let value = bytes.read_offset(format)?;
@@ -755,8 +770,8 @@ impl<R: Reader> Operation<R> {
                    })
             }
             constants::DW_OP_implicit_value => {
-                let len = bytes.read_uleb128()?;
-                let data = bytes.split(len as usize)?;
+                let len = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
+                let data = bytes.split(len)?;
                 Ok(Operation::ImplicitValue { data: data })
             }
             constants::DW_OP_stack_value => Ok(Operation::StackValue),
@@ -771,13 +786,13 @@ impl<R: Reader> Operation<R> {
             }
             constants::DW_OP_entry_value |
             constants::DW_OP_GNU_entry_value => {
-                let len = bytes.read_uleb128()?;
-                let expression = bytes.split(len as usize)?;
+                let len = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
+                let expression = bytes.split(len)?;
                 Ok(Operation::EntryValue { expression: expression })
             }
             constants::DW_OP_GNU_parameter_ref => {
-                let value = bytes.read_u32()?;
-                Ok(Operation::ParameterRef { offset: UnitOffset(value as usize) })
+                let value = bytes.read_u32().map(R::Offset::from_u32)?;
+                Ok(Operation::ParameterRef { offset: UnitOffset(value) })
             }
 
             _ => Err(Error::InvalidExpression(name)),
@@ -835,7 +850,7 @@ pub enum EvaluationResult<R: Reader> {
     /// proceed further.  Once the caller determines what value to provide it
     /// should resume the `Evaluation` by calling
     /// `Evaluation::resume_with_at_location`.
-    RequiresAtLocation(DieReference),
+    RequiresAtLocation(DieReference<R::Offset>),
     /// The `Evaluation` needs the value produced by evaluating a DWARF
     /// expression at the entry point of the current subprogram.  Once the
     /// caller determines what value to provide it should resume the
@@ -845,7 +860,7 @@ pub enum EvaluationResult<R: Reader> {
     /// in the current function's caller.  Once the caller determines what value
     /// to provide it should resume the `Evaluation` by calling
     /// `Evaluation::resume_with_parameter_ref`.
-    RequiresParameterRef(UnitOffset),
+    RequiresParameterRef(UnitOffset<R::Offset>),
     /// The `Evaluation` needs the base address of the .text section of the
     /// binary to proceed.  Once the caller determines what value to provide it
     /// should resume the `Evaluation` by calling
@@ -953,7 +968,7 @@ pub struct Evaluation<R: Reader> {
     // is stored here while evaluating the subroutine.
     expression_stack: Vec<(R, R)>,
 
-    result: Vec<Piece<R>>,
+    result: Vec<Piece<R, R::Offset>>,
 }
 
 impl<R: Reader> Evaluation<R> {
@@ -1051,7 +1066,7 @@ impl<R: Reader> Evaluation<R> {
     }
 
     fn evaluate_one_operation(&mut self,
-                              operation: &Operation<R>)
+                              operation: &Operation<R, R::Offset>)
                               -> Result<OperationEvaluationResult<R>, Error> {
         let mut terminated = false;
         let mut piece_end = false;
@@ -1328,7 +1343,7 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` has not been driven to completion.
-    pub fn result(self) -> Vec<Piece<R>> {
+    pub fn result(self) -> Vec<Piece<R, R::Offset>> {
         match self.state {
             EvaluationState::Complete => self.result,
             _ => {
@@ -1485,7 +1500,7 @@ impl<R: Reader> Evaluation<R> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingAtLocation { .. }) => {
-                if bytes.len() > 0 {
+                if !bytes.is_empty() {
                     let mut pc = bytes.clone();
                     mem::swap(&mut pc, &mut self.pc);
                     mem::swap(&mut bytes, &mut self.bytecode);
@@ -1571,7 +1586,7 @@ impl<R: Reader> Evaluation<R> {
 
     fn evaluate_internal(&mut self) -> Result<EvaluationResult<R>, Error> {
         'eval: loop {
-            while self.pc.len() == 0 {
+            while self.pc.is_empty() {
                 match self.expression_stack.pop() {
                     Some((newpc, newbytes)) => {
                         self.pc = newpc;
@@ -1603,7 +1618,7 @@ impl<R: Reader> Evaluation<R> {
                         // the operation we already decoded to see what to do.
                         // Otherwise, we saw something like Register, so we want
                         // to decode the next operation.
-                        let eof = !piece_end && self.pc.len() == 0;
+                        let eof = !piece_end && self.pc.is_empty();
                         let mut pieceop = operation;
                         if !terminated {
                             // We saw a piece operation without something
@@ -1646,7 +1661,8 @@ impl<R: Reader> Evaluation<R> {
                             }
 
                             _ => {
-                                let value = self.bytecode.len() - self.pc.len() - 1;
+                                let value =
+                                    self.bytecode.len().into_u64() - self.pc.len().into_u64() - 1;
                                 return Err(Error::InvalidExpressionTerminator(value).into());
                             }
                         }
@@ -1738,7 +1754,7 @@ mod tests {
 
         assert_eq!(compute_pc(ebuf, ebuf, 0), Ok(*ebuf));
         assert_eq!(compute_pc(ebuf, ebuf, -1),
-                   Err(Error::BadBranchTarget(-1isize as usize)));
+                   Err(Error::BadBranchTarget(-1i64 as u64)));
         assert_eq!(compute_pc(ebuf, ebuf, 5), Ok(ebuf.range_from(5..)));
         assert_eq!(compute_pc(&ebuf.range_from(3..), ebuf, -2),
                    Ok(ebuf.range_from(1..)));
@@ -1746,10 +1762,10 @@ mod tests {
                    Ok(ebuf.range_from(4..)));
     }
 
-    fn check_op_parse_simple(input: &[u8],
-                             expect: &Operation<EndianBuf<LittleEndian>>,
-                             address_size: u8,
-                             format: Format) {
+    fn check_op_parse_simple<'input>(input: &'input [u8],
+                                     expect: &Operation<EndianBuf<'input, LittleEndian>, usize>,
+                                     address_size: u8,
+                                     format: Format) {
         let buf = EndianBuf::new(input, LittleEndian);
         let mut pc = buf;
         let value = Operation::parse(&mut pc, &buf, address_size, format);
@@ -1775,7 +1791,7 @@ mod tests {
     }
 
     fn check_op_parse<F>(input: F,
-                         expect: &Operation<EndianBuf<LittleEndian>>,
+                         expect: &Operation<EndianBuf<LittleEndian>, usize>,
                          address_size: u8,
                          format: Format)
         where F: Fn(Section) -> Section
@@ -2005,7 +2021,7 @@ mod tests {
             check_op_parse_failure(&input[..], Error::BadBranchTarget(5), ADDRESS_SIZE, FORMAT);
             let input = [opcode.0, 0xfc, 0xff];
             check_op_parse_failure(&input[..],
-                                   Error::BadBranchTarget(!0usize),
+                                   Error::BadBranchTarget(!0u64),
                                    ADDRESS_SIZE,
                                    FORMAT);
         }
@@ -2329,7 +2345,7 @@ mod tests {
     }
 
     fn check_eval_with_args<F>(program: &[AssemblerEntry],
-                               expect: Result<&[Piece<EndianBuf<LittleEndian>>]>,
+                               expect: Result<&[Piece<EndianBuf<LittleEndian>, usize>]>,
                                address_size: u8,
                                format: Format,
                                object_address: Option<u64>,
@@ -2376,7 +2392,7 @@ mod tests {
     }
 
     fn check_eval(program: &[AssemblerEntry],
-                  expect: Result<&[Piece<EndianBuf<LittleEndian>>]>,
+                  expect: Result<&[Piece<EndianBuf<LittleEndian>, usize>]>,
                   address_size: u8,
                   format: Format) {
 

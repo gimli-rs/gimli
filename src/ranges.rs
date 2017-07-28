@@ -6,7 +6,7 @@ use Section;
 
 /// An offset into the `.debug_ranges` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugRangesOffset(pub usize);
+pub struct DebugRangesOffset<T>(pub T);
 
 /// The `DebugRanges` struct represents the DWARF strings
 /// found in the `.debug_ranges` section.
@@ -47,7 +47,7 @@ impl<R: Reader> DebugRanges<R> {
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn ranges(&self,
-                  offset: DebugRangesOffset,
+                  offset: DebugRangesOffset<R::Offset>,
                   address_size: u8,
                   base_address: u64)
                   -> Result<RangesIter<R>> {
@@ -66,7 +66,7 @@ impl<R: Reader> DebugRanges<R> {
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn raw_ranges(&self,
-                      offset: DebugRangesOffset,
+                      offset: DebugRangesOffset<R::Offset>,
                       address_size: u8)
                       -> Result<RawRangesIter<R>> {
         let mut input = self.debug_ranges_section.clone();

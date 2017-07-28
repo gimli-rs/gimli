@@ -1,13 +1,13 @@
 use constants;
 use endianity::{Endianity, EndianBuf};
 use parser;
-use reader::Reader;
+use reader::{Reader, ReaderOffset};
 use std::fmt;
 use Section;
 
 /// An offset into the `.debug_line` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugLineOffset(pub usize);
+pub struct DebugLineOffset<T>(pub T);
 
 /// The `DebugLine` struct contains the source location to instruction mapping
 /// found in the `.debug_line` section.
@@ -64,7 +64,7 @@ impl<R: Reader> DebugLine<R> {
     ///     .expect("should have found a header at that offset, and parsed it OK");
     /// ```
     pub fn program(&self,
-                   offset: DebugLineOffset,
+                   offset: DebugLineOffset<R::Offset>,
                    address_size: u8,
                    comp_dir: Option<R>,
                    comp_name: Option<R>)
@@ -533,8 +533,8 @@ impl<R: Reader> Opcode<R> {
     {
         let opcode = input.read_u8()?;
         if opcode == 0 {
-            let length = input.read_uleb128()?;
-            let mut instr_rest = input.split(length as usize)?;
+            let length = input.read_uleb128().and_then(R::Offset::from_u64)?;
+            let mut instr_rest = input.split(length)?;
             let opcode = instr_rest.read_u8()?;
 
             match constants::DwLne(opcode) {
@@ -606,7 +606,7 @@ impl<R: Reader> Opcode<R> {
 
                 otherwise => {
                     let mut opcode_lengths = header.standard_opcode_lengths().clone();
-                    opcode_lengths.skip((opcode - 1) as usize)?;
+                    opcode_lengths.skip(R::Offset::from_u8(opcode - 1))?;
                     let num_args = opcode_lengths.read_u8()? as usize;
                     match num_args {
                         0 => Ok(Opcode::UnknownStandard0(otherwise)),
@@ -615,7 +615,7 @@ impl<R: Reader> Opcode<R> {
                             Ok(Opcode::UnknownStandard1(otherwise, arg))
                         }
                         _ => {
-                            let mut args = Vec::with_capacity(num_args as usize);
+                            let mut args = Vec::with_capacity(num_args);
                             for _ in 0..num_args {
                                 args.push(input.read_uleb128()?);
                             }
@@ -919,13 +919,13 @@ pub struct LineNumberSequence<R: Reader> {
 /// in section 6.2.4 of the standard.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LineNumberProgramHeader<R: Reader> {
-    unit_length: u64,
+    unit_length: R::Offset,
 
     /// "A version number. This number is specific to the line number
     /// information and is independent of the DWARF version number."
     version: u16,
 
-    header_length: u64,
+    header_length: R::Offset,
 
     /// "The size in bytes of the smallest target machine instruction. Line
     /// number program opcodes that alter the address and `op_index` registers
@@ -994,7 +994,7 @@ pub struct LineNumberProgramHeader<R: Reader> {
 impl<R: Reader> LineNumberProgramHeader<R> {
     /// Return the length of the line number program and header, not including
     /// the length of the encoded length itself.
-    pub fn unit_length(&self) -> u64 {
+    pub fn unit_length(&self) -> R::Offset {
         self.unit_length
     }
 
@@ -1005,7 +1005,7 @@ impl<R: Reader> LineNumberProgramHeader<R> {
 
     /// Get the length of the encoded line number program header, not including
     /// the length of the encoded length itself.
-    pub fn header_length(&self) -> u64 {
+    pub fn header_length(&self) -> R::Offset {
         self.header_length
     }
 
@@ -1118,18 +1118,19 @@ impl<R: Reader> LineNumberProgramHeader<R> {
              comp_name: Option<R>)
              -> parser::Result<LineNumberProgramHeader<R>> {
         let (unit_length, format) = parser::parse_initial_length(input)?;
-        let rest = &mut input.split(unit_length as usize)?;
+        let unit_length = R::Offset::from_u64(unit_length)?;
+        let rest = &mut input.split(unit_length)?;
 
         let version = rest.read_u16()?;
         if version < 2 || version > 4 {
             return Err(parser::Error::UnknownVersion);
         }
 
-        let header_length = rest.read_word(format)?;
+        let header_length = rest.read_word(format).and_then(R::Offset::from_u64)?;
 
         let mut program_buf = rest.clone();
-        program_buf.skip(header_length as usize)?;
-        rest.truncate(header_length as usize)?;
+        program_buf.skip(header_length)?;
+        rest.truncate(header_length)?;
 
         let minimum_instruction_length = rest.read_u8()?;
         if minimum_instruction_length == 0 {
@@ -1155,7 +1156,7 @@ impl<R: Reader> LineNumberProgramHeader<R> {
             return Err(parser::Error::OpcodeBaseZero);
         }
 
-        let standard_opcode_count = opcode_base as usize - 1;
+        let standard_opcode_count = R::Offset::from_u8(opcode_base - 1);
         let standard_opcode_lengths = rest.split(standard_opcode_count)?;
 
         let mut include_directories = Vec::new();

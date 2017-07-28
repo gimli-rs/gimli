@@ -5,7 +5,7 @@ use Section;
 
 /// An offset into the `.debug_str` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugStrOffset(pub usize);
+pub struct DebugStrOffset<T>(pub T);
 
 /// The `DebugStr` struct represents the DWARF strings
 /// found in the `.debug_str` section.
@@ -49,7 +49,7 @@ impl<R: Reader> DebugStr<R> {
     /// let debug_str = DebugStr::new(read_debug_str_section_somehow(), LittleEndian);
     /// println!("Found string {:?}", debug_str.get_str(debug_str_offset_somehow()));
     /// ```
-    pub fn get_str(&self, offset: DebugStrOffset) -> Result<R> {
+    pub fn get_str(&self, offset: DebugStrOffset<R::Offset>) -> Result<R> {
         let input = &mut self.debug_str_section.clone();
         input.skip(offset.0)?;
         input.read_null_terminated_slice()

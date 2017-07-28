@@ -15,6 +15,10 @@ use std::io::Write;
 use std::fs;
 use std::process;
 
+trait Reader: gimli::Reader<Offset = usize> {}
+
+impl<'input, Endian> Reader for gimli::EndianBuf<'input, Endian> where Endian: gimli::Endianity {}
+
 #[derive(Default)]
 struct Flags {
     info: bool,
@@ -164,14 +168,14 @@ fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags)
 }
 
 #[allow(too_many_arguments)]
-fn dump_info<R: gimli::Reader>(debug_info: &gimli::DebugInfo<R>,
-                               debug_abbrev: &gimli::DebugAbbrev<R>,
-                               debug_line: &gimli::DebugLine<R>,
-                               debug_loc: &gimli::DebugLoc<R>,
-                               debug_ranges: &gimli::DebugRanges<R>,
-                               debug_str: &gimli::DebugStr<R>,
-                               endian: R::Endian,
-                               flags: &Flags) {
+fn dump_info<R: Reader>(debug_info: &gimli::DebugInfo<R>,
+                        debug_abbrev: &gimli::DebugAbbrev<R>,
+                        debug_line: &gimli::DebugLine<R>,
+                        debug_loc: &gimli::DebugLoc<R>,
+                        debug_ranges: &gimli::DebugRanges<R>,
+                        debug_str: &gimli::DebugStr<R>,
+                        endian: R::Endian,
+                        flags: &Flags) {
     println!("\n.debug_info");
 
     let mut iter = debug_info.units();
@@ -193,14 +197,14 @@ fn dump_info<R: gimli::Reader>(debug_info: &gimli::DebugInfo<R>,
 }
 
 #[allow(too_many_arguments)]
-fn dump_types<R: gimli::Reader>(debug_types: &gimli::DebugTypes<R>,
-                                debug_abbrev: &gimli::DebugAbbrev<R>,
-                                debug_line: &gimli::DebugLine<R>,
-                                debug_loc: &gimli::DebugLoc<R>,
-                                debug_ranges: &gimli::DebugRanges<R>,
-                                debug_str: &gimli::DebugStr<R>,
-                                endian: R::Endian,
-                                flags: &Flags) {
+fn dump_types<R: Reader>(debug_types: &gimli::DebugTypes<R>,
+                         debug_abbrev: &gimli::DebugAbbrev<R>,
+                         debug_line: &gimli::DebugLine<R>,
+                         debug_loc: &gimli::DebugLoc<R>,
+                         debug_ranges: &gimli::DebugRanges<R>,
+                         debug_str: &gimli::DebugStr<R>,
+                         endian: R::Endian,
+                         flags: &Flags) {
     println!("\n.debug_types");
 
     let mut iter = debug_types.units();
@@ -230,7 +234,7 @@ fn dump_types<R: gimli::Reader>(debug_types: &gimli::DebugTypes<R>,
 }
 
 // TODO: most of this should be moved to the main library.
-struct Unit<R: gimli::Reader> {
+struct Unit<R: Reader> {
     endian: R::Endian,
     format: gimli::Format,
     address_size: u8,
@@ -241,16 +245,16 @@ struct Unit<R: gimli::Reader> {
 }
 
 #[allow(too_many_arguments)]
-fn dump_entries<R: gimli::Reader>(offset: usize,
-                                  mut entries: gimli::EntriesCursor<R>,
-                                  address_size: u8,
-                                  format: gimli::Format,
-                                  debug_line: &gimli::DebugLine<R>,
-                                  debug_loc: &gimli::DebugLoc<R>,
-                                  debug_ranges: &gimli::DebugRanges<R>,
-                                  debug_str: &gimli::DebugStr<R>,
-                                  endian: R::Endian,
-                                  flags: &Flags) {
+fn dump_entries<R: Reader>(offset: usize,
+                           mut entries: gimli::EntriesCursor<R>,
+                           address_size: u8,
+                           format: gimli::Format,
+                           debug_line: &gimli::DebugLine<R>,
+                           debug_loc: &gimli::DebugLoc<R>,
+                           debug_ranges: &gimli::DebugRanges<R>,
+                           debug_str: &gimli::DebugStr<R>,
+                           endian: R::Endian,
+                           flags: &Flags) {
     let mut unit = Unit {
         endian: endian,
         format: format,
@@ -323,11 +327,11 @@ fn dump_entries<R: gimli::Reader>(offset: usize,
     }
 }
 
-fn dump_attr_value<R: gimli::Reader>(attr: &gimli::Attribute<R>,
-                                     unit: &Unit<R>,
-                                     debug_loc: &gimli::DebugLoc<R>,
-                                     debug_ranges: &gimli::DebugRanges<R>,
-                                     debug_str: &gimli::DebugStr<R>) {
+fn dump_attr_value<R: Reader>(attr: &gimli::Attribute<R>,
+                              unit: &Unit<R>,
+                              debug_loc: &gimli::DebugLoc<R>,
+                              debug_ranges: &gimli::DebugRanges<R>,
+                              debug_str: &gimli::DebugStr<R>) {
     let value = attr.value();
     match value {
         gimli::AttributeValue::Addr(address) => {
@@ -504,7 +508,7 @@ fn dump_type_signature<Endian>(signature: gimli::DebugTypeSignature, endian: End
     }
 }
 
-fn dump_file_index<R: gimli::Reader>(file: u64, unit: &Unit<R>) {
+fn dump_file_index<R: Reader>(file: u64, unit: &Unit<R>) {
     if file == 0 {
         return;
     }
@@ -526,7 +530,7 @@ fn dump_file_index<R: gimli::Reader>(file: u64, unit: &Unit<R>) {
     print!("{}", file.path_name().to_string_lossy());
 }
 
-fn dump_exprloc<R: gimli::Reader>(data: &gimli::Expression<R>, unit: &Unit<R>) {
+fn dump_exprloc<R: Reader>(data: &gimli::Expression<R>, unit: &Unit<R>) {
     let mut pc = data.0.clone();
     let mut space = false;
     while pc.len() != 0 {
@@ -553,7 +557,7 @@ fn dump_exprloc<R: gimli::Reader>(data: &gimli::Expression<R>, unit: &Unit<R>) {
     }
 }
 
-fn dump_op<R: gimli::Reader>(dwop: gimli::DwOp, op: gimli::Operation<R>, newpc: &R) {
+fn dump_op<R: Reader>(dwop: gimli::DwOp, op: gimli::Operation<R, R::Offset>, newpc: &R) {
     print!("{}", dwop);
     match op {
         gimli::Operation::Deref { size, .. } => {
@@ -652,9 +656,9 @@ fn dump_op<R: gimli::Reader>(dwop: gimli::DwOp, op: gimli::Operation<R>, newpc: 
     }
 }
 
-fn dump_loc_list<R: gimli::Reader>(debug_loc: &gimli::DebugLoc<R>,
-                                   offset: gimli::DebugLocOffset,
-                                   unit: &Unit<R>) {
+fn dump_loc_list<R: Reader>(debug_loc: &gimli::DebugLoc<R>,
+                            offset: gimli::DebugLocOffset<R::Offset>,
+                            unit: &Unit<R>) {
     let locations = debug_loc
         .raw_locations(offset, unit.address_size)
         .expect("Should have valid loc offset");
@@ -702,9 +706,9 @@ fn dump_loc_list<R: gimli::Reader>(debug_loc: &gimli::DebugLoc<R>,
     }
 }
 
-fn dump_range_list<R: gimli::Reader>(debug_ranges: &gimli::DebugRanges<R>,
-                                     offset: gimli::DebugRangesOffset,
-                                     unit: &Unit<R>) {
+fn dump_range_list<R: Reader>(debug_ranges: &gimli::DebugRanges<R>,
+                              offset: gimli::DebugRangesOffset<R::Offset>,
+                              unit: &Unit<R>) {
     let ranges = debug_ranges
         .raw_ranges(offset, unit.address_size)
         .expect("Should have valid range offset");
@@ -727,10 +731,10 @@ fn dump_range_list<R: gimli::Reader>(debug_ranges: &gimli::DebugRanges<R>,
     }
 }
 
-fn dump_line<R: gimli::Reader>(debug_line: &gimli::DebugLine<R>,
-                               debug_info: &gimli::DebugInfo<R>,
-                               debug_abbrev: &gimli::DebugAbbrev<R>,
-                               debug_str: &gimli::DebugStr<R>) {
+fn dump_line<R: Reader>(debug_line: &gimli::DebugLine<R>,
+                        debug_info: &gimli::DebugInfo<R>,
+                        debug_abbrev: &gimli::DebugAbbrev<R>,
+                        debug_str: &gimli::DebugStr<R>) {
     println!("\n.debug_line");
 
     let mut iter = debug_info.units();
@@ -866,8 +870,8 @@ fn dump_line<R: gimli::Reader>(debug_line: &gimli::DebugLine<R>,
     }
 }
 
-fn dump_pubnames<R: gimli::Reader>(debug_pubnames: &gimli::DebugPubNames<R>,
-                                   debug_info: &gimli::DebugInfo<R>) {
+fn dump_pubnames<R: Reader>(debug_pubnames: &gimli::DebugPubNames<R>,
+                            debug_info: &gimli::DebugInfo<R>) {
     println!("\n.debug_pubnames");
 
     let mut cu_offset;
@@ -894,8 +898,8 @@ fn dump_pubnames<R: gimli::Reader>(debug_pubnames: &gimli::DebugPubNames<R>,
     }
 }
 
-fn dump_pubtypes<R: gimli::Reader>(debug_pubtypes: &gimli::DebugPubTypes<R>,
-                                   debug_info: &gimli::DebugInfo<R>) {
+fn dump_pubtypes<R: Reader>(debug_pubtypes: &gimli::DebugPubTypes<R>,
+                            debug_info: &gimli::DebugInfo<R>) {
     println!("\n.debug_pubtypes");
 
     let mut cu_offset;
@@ -922,8 +926,8 @@ fn dump_pubtypes<R: gimli::Reader>(debug_pubtypes: &gimli::DebugPubTypes<R>,
     }
 }
 
-fn dump_aranges<R: gimli::Reader>(debug_aranges: &gimli::DebugAranges<R>,
-                                  debug_info: &gimli::DebugInfo<R>) {
+fn dump_aranges<R: Reader>(debug_aranges: &gimli::DebugAranges<R>,
+                           debug_info: &gimli::DebugInfo<R>) {
     println!("\n.debug_aranges");
 
     let mut cu_die_offset = gimli::DebugInfoOffset(0);
