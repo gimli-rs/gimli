@@ -1,4 +1,3 @@
-use std;
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Sub};
@@ -137,7 +136,6 @@ impl ReaderOffset for usize {
 
     #[inline]
     fn from_u16(offset: u16) -> Self {
-        debug_assert!(std::usize::MAX as u64 >= std::u16::MAX as u64);
         offset as usize
     }
 
@@ -148,7 +146,6 @@ impl ReaderOffset for usize {
 
     #[inline]
     fn from_u32(offset: u32) -> Self {
-        debug_assert!(std::usize::MAX as u64 >= std::u32::MAX as u64);
         offset as usize
     }
 

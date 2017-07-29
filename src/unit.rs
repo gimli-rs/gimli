@@ -447,7 +447,7 @@ impl<R, Offset> UnitHeader<R, Offset>
                address_size: u8,
                format: Format,
                entries_buf: R)
-               -> UnitHeader<R, R::Offset> {
+               -> Self {
         UnitHeader {
             unit_length: unit_length,
             version: version,
@@ -1963,6 +1963,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// println!("The first entry with no children is {:?}",
     ///          first_entry_with_no_children.unwrap());
     /// ```
+    #[allow(type_complexity)]
     pub fn next_dfs
         (&mut self)
          -> Result<Option<(isize, &DebuggingInformationEntry<'abbrev, 'unit, R, R::Offset>)>> {
@@ -2527,7 +2528,7 @@ impl<R, Offset> TypeUnitHeader<R, Offset>
            offset: DebugTypesOffset<R::Offset>,
            type_signature: DebugTypeSignature,
            type_offset: UnitOffset<R::Offset>)
-           -> TypeUnitHeader<R, R::Offset> {
+           -> Self {
         TypeUnitHeader {
             header: header,
             offset: offset,
