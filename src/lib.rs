@@ -178,7 +178,7 @@ pub use parser::{Error, Result, Format};
 pub use parser::DebugMacinfoOffset;
 
 mod reader;
-pub use reader::Reader;
+pub use reader::{Reader, ReaderOffset};
 
 mod abbrev;
 pub use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation,

@@ -1,5 +1,5 @@
 use parser::{parse_initial_length, Format, Result, Error};
-use reader::Reader;
+use reader::{Reader, ReaderOffset};
 use std::marker::PhantomData;
 use unit::{DebugInfoOffset, UnitOffset, parse_debug_info_offset};
 
@@ -117,16 +117,19 @@ impl<R, Parser> LookupEntryIter<R, Parser>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PubStuffHeader {
+pub struct PubStuffHeader<T> {
     format: Format,
-    length: u64,
+    length: T,
     version: u16,
-    unit_offset: DebugInfoOffset,
+    unit_offset: DebugInfoOffset<T>,
     unit_length: u64,
 }
 
 pub trait PubStuffEntry<R: Reader> {
-    fn new(die_offset: UnitOffset, name: R, unit_header_offset: DebugInfoOffset) -> Self;
+    fn new(die_offset: UnitOffset<R::Offset>,
+           name: R,
+           unit_header_offset: DebugInfoOffset<R::Offset>)
+           -> Self;
 }
 
 #[derive(Clone, Debug)]
@@ -142,14 +145,15 @@ impl<R, Entry> LookupParser<R> for PubStuffParser<R, Entry>
     where R: Reader,
           Entry: PubStuffEntry<R>
 {
-    type Header = PubStuffHeader;
+    type Header = PubStuffHeader<R::Offset>;
     type Entry = Entry;
 
     /// Parse an pubthings set header. Returns a tuple of the
     /// pubthings to be parsed for this set, and the newly created PubThingHeader struct.
     fn parse_header(input: &mut R) -> Result<(R, Self::Header)> {
         let (length, format) = parse_initial_length(input)?;
-        let mut rest = input.split(length as usize)?;
+        let length = R::Offset::from_u64(length)?;
+        let mut rest = input.split(length)?;
 
         let version = rest.read_u16()?;
         if version != 2 {
@@ -177,8 +181,9 @@ impl<R, Entry> LookupParser<R> for PubStuffParser<R, Entry>
             input.empty();
             Ok(None)
         } else {
+            let offset = R::Offset::from_u64(offset)?;
             let name = input.read_null_terminated_slice()?;
-            Ok(Some(Self::Entry::new(UnitOffset(offset as usize), name, header.unit_offset)))
+            Ok(Some(Self::Entry::new(UnitOffset(offset), name, header.unit_offset)))
         }
     }
 }

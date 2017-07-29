@@ -2,13 +2,13 @@ use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use parser::{Error, Result};
 use op::Expression;
-use reader::Reader;
+use reader::{Reader, ReaderOffset};
 use ranges::Range;
 use Section;
 
 /// An offset into the `.debug_loc` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugLocOffset(pub usize);
+pub struct DebugLocOffset<T>(pub T);
 
 /// The `DebugLoc` struct represents the DWARF strings
 /// found in the `.debug_loc` section.
@@ -50,7 +50,7 @@ impl<R: Reader> DebugLoc<R> {
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn locations(&self,
-                     offset: DebugLocOffset,
+                     offset: DebugLocOffset<R::Offset>,
                      address_size: u8,
                      base_address: u64)
                      -> Result<LocationListIter<R>> {
@@ -69,7 +69,7 @@ impl<R: Reader> DebugLoc<R> {
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn raw_locations(&self,
-                         offset: DebugLocOffset,
+                         offset: DebugLocOffset<R::Offset>,
                          address_size: u8)
                          -> Result<RawLocationListIter<R>> {
         let mut input = self.debug_loc_section.clone();
@@ -226,8 +226,8 @@ impl<R: Reader> LocationListEntry<R> {
             };
             Ok(location)
         } else {
-            let len = input.read_u16()?;
-            let data = input.split(len as usize)?;
+            let len = input.read_u16().map(R::Offset::from_u16)?;
+            let data = input.split(len)?;
             let location = LocationListEntry {
                 range: range,
                 data: Expression(data),

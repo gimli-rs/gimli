@@ -5,7 +5,7 @@ use std::fmt::{self, Debug};
 use std::result;
 use cfi::BaseAddresses;
 use constants;
-use reader::Reader;
+use reader::{Reader, ReaderOffset};
 
 /// An error that occurred when parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,7 +75,7 @@ pub enum Error {
     /// Expected to find a pointer to a CIE, but found the CIE ID instead.
     NotCiePointer,
     /// Invalid branch target for a DW_OP_bra or DW_OP_skip.
-    BadBranchTarget(usize),
+    BadBranchTarget(u64),
     /// DW_OP_push_object_address used but no address passed in.
     InvalidPushObjectAddress,
     /// Not enough items on the stack when evaluating an expression.
@@ -90,7 +90,7 @@ pub enum Error {
     InvalidPiece,
     /// An expression-terminating operation was followed by something
     /// other than the end of the expression or a piece operation.
-    InvalidExpressionTerminator(usize),
+    InvalidExpressionTerminator(u64),
     /// Division or modulus by zero when evaluating an expression.
     DivisionByZero,
     /// An unknown DW_CFA_* instruction.
@@ -246,18 +246,6 @@ impl error::Error for Error {
 /// The result of a parse.
 pub type Result<T> = result::Result<T, Error>;
 
-/// Convert a `u64` to a `usize` and return it.
-#[doc(hidden)]
-#[inline]
-pub fn u64_to_offset(offset64: u64) -> Result<usize> {
-    let offset = offset64 as usize;
-    if offset as u64 == offset64 {
-        Ok(offset)
-    } else {
-        Err(Error::UnsupportedOffset)
-    }
-}
-
 /// Convert a `u64` to a `u8` and return it.
 #[doc(hidden)]
 #[inline]
@@ -380,7 +368,7 @@ pub fn parse_encoded_pointer<'bases, R: Reader>(encoding: constants::DwEhPe,
             if let Some(cfi) = bases.cfi {
                 let offset_from_section = input.offset_from(section);
                 let offset = parse_data(encoding, address_size, input)?;
-                let p = cfi.wrapping_add(offset_from_section as u64)
+                let p = cfi.wrapping_add(offset_from_section.into_u64())
                     .wrapping_add(offset);
                 Ok(Pointer::new(encoding, p))
             } else {
@@ -419,7 +407,7 @@ pub fn parse_encoded_pointer<'bases, R: Reader>(encoding: constants::DwEhPe,
 
 /// An offset into the `.debug_macinfo` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugMacinfoOffset(pub usize);
+pub struct DebugMacinfoOffset<T>(pub T);
 
 /// Whether the format of a compilation unit is 32- or 64-bit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

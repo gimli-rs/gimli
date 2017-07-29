@@ -2,32 +2,32 @@ use endianity::{Endianity, EndianBuf};
 use fallible_iterator::FallibleIterator;
 use lookup::{LookupParser, LookupEntryIter, DebugLookup};
 use parser::{parse_initial_length, Error, Format, Result};
-use reader::Reader;
+use reader::{Reader, ReaderOffset};
 use unit::{DebugInfoOffset, parse_debug_info_offset};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 use Section;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ArangeHeader {
+struct ArangeHeader<T> {
     format: Format,
-    length: u64,
+    length: T,
     version: u16,
-    offset: DebugInfoOffset,
+    offset: DebugInfoOffset<T>,
     address_size: u8,
     segment_size: u8,
 }
 
 /// A single parsed arange.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ArangeEntry {
+pub struct ArangeEntry<T: Copy> {
     segment: Option<u64>,
     address: u64,
     length: u64,
-    unit_header_offset: DebugInfoOffset,
+    unit_header_offset: DebugInfoOffset<T>,
 }
 
-impl ArangeEntry {
+impl<T: Copy> ArangeEntry<T> {
     /// Return the segment selector of this arange.
     #[inline]
     pub fn segment(&self) -> Option<u64> {
@@ -48,19 +48,19 @@ impl ArangeEntry {
 
     /// Return the offset into the .debug_info section for this arange.
     #[inline]
-    pub fn debug_info_offset(&self) -> DebugInfoOffset {
+    pub fn debug_info_offset(&self) -> DebugInfoOffset<T> {
         self.unit_header_offset
     }
 }
 
-impl PartialOrd for ArangeEntry {
-    fn partial_cmp(&self, other: &ArangeEntry) -> Option<Ordering> {
+impl<T: Copy + Ord> PartialOrd for ArangeEntry<T> {
+    fn partial_cmp(&self, other: &ArangeEntry<T>) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for ArangeEntry {
-    fn cmp(&self, other: &ArangeEntry) -> Ordering {
+impl<T: Copy + Ord> Ord for ArangeEntry<T> {
+    fn cmp(&self, other: &ArangeEntry<T>) -> Ordering {
         // The expected comparison, but ignore header.
         match (self.segment.cmp(&other.segment),
                self.address.cmp(&other.address),
@@ -83,14 +83,15 @@ struct ArangeParser<R: Reader> {
 }
 
 impl<R: Reader> LookupParser<R> for ArangeParser<R> {
-    type Header = ArangeHeader;
-    type Entry = ArangeEntry;
+    type Header = ArangeHeader<R::Offset>;
+    type Entry = ArangeEntry<R::Offset>;
 
     /// Parse an arange set header. Returns a tuple of the aranges to be
     /// parsed for this set, and the newly created ArangeHeader struct.
     fn parse_header(input: &mut R) -> Result<(R, Self::Header)> {
         let (length, format) = parse_initial_length(input)?;
-        let mut rest = input.split(length as usize)?;
+        let length = R::Offset::from_u64(length)?;
+        let mut rest = input.split(length)?;
 
         let version = rest.read_u16()?;
         if version != 2 {
@@ -110,13 +111,13 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
         // The first tuple following the header in each set begins at an offset that is
         // a multiple of the size of a single tuple (that is, the size of a segment selector
         // plus twice the size of an address).
-        let tuple_length = (2 * address_size + segment_size) as usize;
+        let tuple_length = 2 * address_size + segment_size;
         let padding = if header_length % tuple_length == 0 {
             0
         } else {
             tuple_length - header_length % tuple_length
         };
-        rest.skip(padding)?;
+        rest.skip(R::Offset::from_u8(padding))?;
 
         Ok((rest,
             ArangeHeader {
@@ -134,7 +135,7 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
         let address_size = header.address_size;
         let segment_size = header.segment_size; // May be zero!
 
-        let tuple_length = (2 * address_size + segment_size) as usize;
+        let tuple_length = R::Offset::from_u8(2 * address_size + segment_size);
         if tuple_length > input.len() {
             input.empty();
             return Ok(None);
@@ -243,13 +244,13 @@ impl<R: Reader> ArangeEntryIter<R> {
     /// when iteration is complete and all aranges have already been parsed and
     /// yielded. If an error occurs while parsing the next arange, then this error
     /// is returned as `Err(e)`, and all subsequent calls return `Ok(None)`.
-    pub fn next(&mut self) -> Result<Option<ArangeEntry>> {
+    pub fn next(&mut self) -> Result<Option<ArangeEntry<R::Offset>>> {
         self.0.next()
     }
 }
 
 impl<R: Reader> FallibleIterator for ArangeEntryIter<R> {
-    type Item = ArangeEntry;
+    type Item = ArangeEntry<R::Offset>;
     type Error = Error;
 
     fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {

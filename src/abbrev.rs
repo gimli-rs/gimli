@@ -10,7 +10,7 @@ use Section;
 
 /// An offset into the `.debug_abbrev` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugAbbrevOffset(pub usize);
+pub struct DebugAbbrevOffset<T>(pub T);
 
 /// The `DebugAbbrev` struct represents the abbreviations describing
 /// `DebuggingInformationEntry`s' attribute names and forms found in the
@@ -47,7 +47,9 @@ impl<R: Reader> DebugAbbrev<R> {
     /// `.debug_abbrev` section.
     ///
     /// The `offset` should generally be retrieved from a unit header.
-    pub fn abbreviations(&self, debug_abbrev_offset: DebugAbbrevOffset) -> Result<Abbreviations> {
+    pub fn abbreviations(&self,
+                         debug_abbrev_offset: DebugAbbrevOffset<R::Offset>)
+                         -> Result<Abbreviations> {
         let input = &mut self.debug_abbrev_section.clone();
         input.skip(debug_abbrev_offset.0)?;
         Abbreviations::parse(input)
@@ -280,7 +282,7 @@ impl AttributeSpecification {
     ///
     /// Note that because some attributes are variably sized, the size cannot
     /// always be known without parsing, in which case we return `None`.
-    pub fn size<R: Reader>(&self, header: &UnitHeader<R>) -> Option<usize> {
+    pub fn size<R: Reader>(&self, header: &UnitHeader<R, R::Offset>) -> Option<usize> {
         match self.form {
             constants::DW_FORM_addr => Some(header.address_size() as usize),
 

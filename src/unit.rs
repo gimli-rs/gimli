@@ -7,9 +7,9 @@ use fallible_iterator::FallibleIterator;
 use line::DebugLineOffset;
 use loc::DebugLocOffset;
 use op::Expression;
-use parser::{Error, Result, Format, DebugMacinfoOffset, parse_initial_length, u64_to_offset};
+use parser::{Error, Result, Format, DebugMacinfoOffset, parse_initial_length};
 use ranges::DebugRangesOffset;
-use reader::Reader;
+use reader::{Reader, ReaderOffset};
 use std::cell::Cell;
 use std::ops::{Range, RangeFrom, RangeTo};
 use std::{u8, u16};
@@ -18,17 +18,19 @@ use Section;
 
 /// An offset into the `.debug_types` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugTypesOffset(pub usize);
+pub struct DebugTypesOffset<T>(pub T);
 
-impl DebugTypesOffset {
+impl<T: ReaderOffset> DebugTypesOffset<T> {
     /// Convert an offset to be relative to the start of the given unit,
     /// instead of relative to the start of the .debug_types section.
     /// Returns `None` if the offset is not within the unit entries.
-    pub fn to_unit_offset<R: Reader>(&self, unit: &TypeUnitHeader<R>) -> Option<UnitOffset> {
-        if self.0 < unit.offset.0 {
-            return None;
-        }
-        let offset = UnitOffset(self.0 - unit.offset.0);
+    pub fn to_unit_offset<R>(&self, unit: &TypeUnitHeader<R, R::Offset>) -> Option<UnitOffset<T>>
+        where R: Reader<Offset = T>
+    {
+        let offset = match self.0.checked_sub(unit.offset.0) {
+            Some(offset) => UnitOffset(offset),
+            None => return None,
+        };
         if !unit.header.is_valid_offset(offset) {
             return None;
         }
@@ -42,17 +44,21 @@ pub struct DebugTypeSignature(pub u64);
 
 /// An offset into the `.debug_info` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugInfoOffset(pub usize);
+pub struct DebugInfoOffset<T>(pub T);
 
-impl DebugInfoOffset {
+impl<T: ReaderOffset> DebugInfoOffset<T> {
     /// Convert an offset to be relative to the start of the given unit,
     /// instead of relative to the start of the .debug_info section.
     /// Returns `None` if the offset is not within this unit entries.
-    pub fn to_unit_offset<R: Reader>(&self, unit: &CompilationUnitHeader<R>) -> Option<UnitOffset> {
-        if self.0 < unit.offset.0 {
-            return None;
-        }
-        let offset = UnitOffset(self.0 - unit.offset.0);
+    pub fn to_unit_offset<R>(&self,
+                             unit: &CompilationUnitHeader<R, R::Offset>)
+                             -> Option<UnitOffset<T>>
+        where R: Reader<Offset = T>
+    {
+        let offset = match self.0.checked_sub(unit.offset.0) {
+            Some(offset) => UnitOffset(offset),
+            None => return None,
+        };
         if !unit.header.is_valid_offset(offset) {
             return None;
         }
@@ -62,20 +68,26 @@ impl DebugInfoOffset {
 
 /// An offset into the current compilation or type unit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub struct UnitOffset(pub usize);
+pub struct UnitOffset<T>(pub T);
 
-impl UnitOffset {
+impl<T: ReaderOffset> UnitOffset<T> {
     /// Convert an offset to be relative to the start of the .debug_info section,
     /// instead of relative to the start of the given compilation unit.
-    pub fn to_debug_info_offset<R: Reader>(&self,
-                                           unit: &CompilationUnitHeader<R>)
-                                           -> DebugInfoOffset {
+    pub fn to_debug_info_offset<R>(&self,
+                                   unit: &CompilationUnitHeader<R, R::Offset>)
+                                   -> DebugInfoOffset<T>
+        where R: Reader<Offset = T>
+    {
         DebugInfoOffset(unit.offset.0 + self.0)
     }
 
     /// Convert an offset to be relative to the start of the .debug_types section,
     /// instead of relative to the start of the given type unit.
-    pub fn to_debug_types_offset<R: Reader>(&self, unit: &TypeUnitHeader<R>) -> DebugTypesOffset {
+    pub fn to_debug_types_offset<R>(&self,
+                                    unit: &TypeUnitHeader<R, R::Offset>)
+                                    -> DebugTypesOffset<T>
+        where R: Reader<Offset = T>
+    {
         DebugTypesOffset(unit.offset.0 + self.0)
     }
 }
@@ -131,14 +143,16 @@ impl<R: Reader> DebugInfo<R> {
     pub fn units(&self) -> CompilationUnitHeadersIter<R> {
         CompilationUnitHeadersIter {
             input: self.debug_info_section.clone(),
-            offset: DebugInfoOffset(0),
+            offset: DebugInfoOffset(R::Offset::from_u8(0)),
         }
     }
 
     /// Get the CompilationUnitHeader located at offset from this .debug_info section.
     ///
     ///
-    pub fn header_from_offset(&self, offset: DebugInfoOffset) -> Result<CompilationUnitHeader<R>> {
+    pub fn header_from_offset(&self,
+                              offset: DebugInfoOffset<R::Offset>)
+                              -> Result<CompilationUnitHeader<R, R::Offset>> {
         let input = &mut self.debug_info_section.clone();
         input.skip(offset.0)?;
         CompilationUnitHeader::parse(input, offset)
@@ -164,12 +178,12 @@ impl<R: Reader> From<R> for DebugInfo<R> {
 #[derive(Clone, Debug)]
 pub struct CompilationUnitHeadersIter<R: Reader> {
     input: R,
-    offset: DebugInfoOffset,
+    offset: DebugInfoOffset<R::Offset>,
 }
 
 impl<R: Reader> CompilationUnitHeadersIter<R> {
     /// Advance the iterator to the next unit header.
-    pub fn next(&mut self) -> Result<Option<CompilationUnitHeader<R>>> {
+    pub fn next(&mut self) -> Result<Option<CompilationUnitHeader<R, R::Offset>>> {
         if self.input.is_empty() {
             Ok(None)
         } else {
@@ -189,7 +203,7 @@ impl<R: Reader> CompilationUnitHeadersIter<R> {
 }
 
 impl<R: Reader> FallibleIterator for CompilationUnitHeadersIter<R> {
-    type Item = CompilationUnitHeader<R>;
+    type Item = CompilationUnitHeader<R, R::Offset>;
     type Error = Error;
 
     fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
@@ -199,32 +213,38 @@ impl<R: Reader> FallibleIterator for CompilationUnitHeadersIter<R> {
 
 /// The header of a compilation unit's debugging information.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CompilationUnitHeader<R: Reader> {
-    header: UnitHeader<R>,
-    offset: DebugInfoOffset,
+pub struct CompilationUnitHeader<R, Offset>
+    where R: Reader<Offset = Offset>,
+          Offset: ReaderOffset
+{
+    header: UnitHeader<R, Offset>,
+    offset: DebugInfoOffset<Offset>,
 }
 
-impl<R: Reader> CompilationUnitHeader<R> {
+impl<R, Offset> CompilationUnitHeader<R, Offset>
+    where R: Reader<Offset = Offset>,
+          Offset: ReaderOffset
+{
     /// Return the serialized size of the compilation unit header for the given
     /// DWARF format.
     pub fn size_of_header(format: Format) -> usize {
-        UnitHeader::<R>::size_of_header(format)
+        UnitHeader::<R, _>::size_of_header(format)
     }
 
     /// Get the offset of this compilation unit within the .debug_info section.
-    pub fn offset(&self) -> DebugInfoOffset {
+    pub fn offset(&self) -> DebugInfoOffset<R::Offset> {
         self.offset
     }
 
     /// Get the length of the debugging info for this compilation unit, not
     /// including the byte length of the encoded length itself.
-    pub fn unit_length(&self) -> u64 {
+    pub fn unit_length(&self) -> R::Offset {
         self.header.unit_length
     }
 
     /// Get the length of the debugging info for this compilation unit,
     /// including the byte length of the encoded length itself.
-    pub fn length_including_self(&self) -> u64 {
+    pub fn length_including_self(&self) -> R::Offset {
         self.header.length_including_self()
     }
 
@@ -235,7 +255,7 @@ impl<R: Reader> CompilationUnitHeader<R> {
 
     /// The offset into the `.debug_abbrev` section for this compilation unit's
     /// debugging information entries' abbreviations.
-    pub fn debug_abbrev_offset(&self) -> DebugAbbrevOffset {
+    pub fn debug_abbrev_offset(&self) -> DebugAbbrevOffset<R::Offset> {
         self.header.debug_abbrev_offset
     }
 
@@ -250,7 +270,7 @@ impl<R: Reader> CompilationUnitHeader<R> {
     }
 
     /// The serialized size of the header for this compilation unit.
-    pub fn header_size(&self) -> usize {
+    pub fn header_size(&self) -> R::Offset {
         self.header.header_size()
     }
 
@@ -265,7 +285,7 @@ impl<R: Reader> CompilationUnitHeader<R> {
     /// starting at the given offset.
     pub fn entries_at_offset<'me, 'abbrev>(&'me self,
                                            abbreviations: &'abbrev Abbreviations,
-                                           offset: UnitOffset)
+                                           offset: UnitOffset<R::Offset>)
                                            -> Result<EntriesCursor<'abbrev, 'me, R>> {
         self.header.entries_at_offset(abbreviations, offset)
     }
@@ -274,7 +294,7 @@ impl<R: Reader> CompilationUnitHeader<R> {
     /// starting at the given offset.
     pub fn entries_tree<'me, 'abbrev>(&'me self,
                                       abbreviations: &'abbrev Abbreviations,
-                                      offset: Option<UnitOffset>)
+                                      offset: Option<UnitOffset<R::Offset>>)
                                       -> Result<EntriesTree<'abbrev, 'me, R>> {
         self.header.entries_tree(abbreviations, offset)
     }
@@ -362,7 +382,9 @@ impl<R: Reader> CompilationUnitHeader<R> {
     }
 
     /// Parse a compilation unit header.
-    fn parse(input: &mut R, offset: DebugInfoOffset) -> Result<CompilationUnitHeader<R>> {
+    fn parse(input: &mut R,
+             offset: DebugInfoOffset<R::Offset>)
+             -> Result<CompilationUnitHeader<R, R::Offset>> {
         let header = parse_unit_header(input)?;
         Ok(CompilationUnitHeader {
                header: header,
@@ -387,39 +409,45 @@ fn parse_version<R: Reader>(input: &mut R) -> Result<u16> {
 /// Parse the `debug_abbrev_offset` in the compilation unit header.
 fn parse_debug_abbrev_offset<R: Reader>(input: &mut R,
                                         format: Format)
-                                        -> Result<DebugAbbrevOffset> {
+                                        -> Result<DebugAbbrevOffset<R::Offset>> {
     input.read_offset(format).map(DebugAbbrevOffset)
 }
 
 /// Parse the `debug_info_offset` in the arange header.
 pub fn parse_debug_info_offset<R: Reader>(input: &mut R,
                                           format: Format)
-                                          -> Result<DebugInfoOffset> {
+                                          -> Result<DebugInfoOffset<R::Offset>> {
     input.read_offset(format).map(DebugInfoOffset)
 }
 
 /// The common fields for the headers of compilation units and
 /// type units.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UnitHeader<R: Reader> {
-    unit_length: u64,
+pub struct UnitHeader<R, Offset>
+    where R: Reader<Offset = Offset>,
+          Offset: ReaderOffset
+{
+    unit_length: Offset,
     version: u16,
-    debug_abbrev_offset: DebugAbbrevOffset,
+    debug_abbrev_offset: DebugAbbrevOffset<Offset>,
     address_size: u8,
     format: Format,
     entries_buf: R,
 }
 
 /// Static methods.
-impl<R: Reader> UnitHeader<R> {
+impl<R, Offset> UnitHeader<R, Offset>
+    where R: Reader<Offset = Offset>,
+          Offset: ReaderOffset
+{
     /// Construct a new `UnitHeader`.
-    pub fn new(unit_length: u64,
+    pub fn new(unit_length: R::Offset,
                version: u16,
-               debug_abbrev_offset: DebugAbbrevOffset,
+               debug_abbrev_offset: DebugAbbrevOffset<R::Offset>,
                address_size: u8,
                format: Format,
                entries_buf: R)
-               -> UnitHeader<R> {
+               -> UnitHeader<R, R::Offset> {
         UnitHeader {
             unit_length: unit_length,
             version: version,
@@ -455,22 +483,25 @@ impl<R: Reader> UnitHeader<R> {
 }
 
 /// Instance methods.
-impl<R: Reader> UnitHeader<R> {
+impl<R, Offset> UnitHeader<R, Offset>
+    where R: Reader<Offset = Offset>,
+          Offset: ReaderOffset
+{
     /// Get the length of the debugging info for this compilation unit, not
     /// including the byte length of the encoded length itself.
-    pub fn unit_length(&self) -> u64 {
+    pub fn unit_length(&self) -> R::Offset {
         self.unit_length
     }
 
     /// Get the length of the debugging info for this compilation unit,
     /// including the byte length of the encoded length itself.
-    pub fn length_including_self(&self) -> u64 {
+    pub fn length_including_self(&self) -> R::Offset {
         match self.format {
             // Length of the 32-bit header plus the unit length.
-            Format::Dwarf32 => 4 + self.unit_length,
+            Format::Dwarf32 => R::Offset::from_u8(4) + self.unit_length,
             // Length of the 4 byte 0xffffffff value to enable 64-bit mode plus
             // the actual 64-bit length.
-            Format::Dwarf64 => 4 + 8 + self.unit_length,
+            Format::Dwarf64 => R::Offset::from_u8(4 + 8) + self.unit_length,
         }
     }
 
@@ -481,7 +512,7 @@ impl<R: Reader> UnitHeader<R> {
 
     /// The offset into the `.debug_abbrev` section for this compilation unit's
     /// debugging information entries' abbreviations.
-    pub fn debug_abbrev_offset(&self) -> DebugAbbrevOffset {
+    pub fn debug_abbrev_offset(&self) -> DebugAbbrevOffset<R::Offset> {
         self.debug_abbrev_offset
     }
 
@@ -496,11 +527,11 @@ impl<R: Reader> UnitHeader<R> {
     }
 
     /// The serialized size of the header for this compilation unit.
-    pub fn header_size(&self) -> usize {
-        self.length_including_self() as usize - self.entries_buf.len()
+    pub fn header_size(&self) -> R::Offset {
+        self.length_including_self() - self.entries_buf.len()
     }
 
-    fn is_valid_offset(&self, offset: UnitOffset) -> bool {
+    fn is_valid_offset(&self, offset: UnitOffset<R::Offset>) -> bool {
         let size_of_header = self.header_size();
         if offset.0 < size_of_header {
             return false;
@@ -511,7 +542,7 @@ impl<R: Reader> UnitHeader<R> {
     }
 
     /// Get the underlying bytes for the supplied range.
-    pub fn range(&self, idx: Range<UnitOffset>) -> Result<R> {
+    pub fn range(&self, idx: Range<UnitOffset<R::Offset>>) -> Result<R> {
         if !self.is_valid_offset(idx.start) {
             return Err(Error::OffsetOutOfBounds);
         }
@@ -529,7 +560,7 @@ impl<R: Reader> UnitHeader<R> {
     }
 
     /// Get the underlying bytes for the supplied range.
-    pub fn range_from(&self, idx: RangeFrom<UnitOffset>) -> Result<R> {
+    pub fn range_from(&self, idx: RangeFrom<UnitOffset<R::Offset>>) -> Result<R> {
         if !self.is_valid_offset(idx.start) {
             return Err(Error::OffsetOutOfBounds);
         }
@@ -540,7 +571,7 @@ impl<R: Reader> UnitHeader<R> {
     }
 
     /// Get the underlying bytes for the supplied range.
-    pub fn range_to(&self, idx: RangeTo<UnitOffset>) -> Result<R> {
+    pub fn range_to(&self, idx: RangeTo<UnitOffset<R::Offset>>) -> Result<R> {
         if !self.is_valid_offset(idx.end) {
             return Err(Error::OffsetOutOfBounds);
         }
@@ -567,7 +598,7 @@ impl<R: Reader> UnitHeader<R> {
     /// starting at the given offset.
     pub fn entries_at_offset<'me, 'abbrev>(&'me self,
                                            abbreviations: &'abbrev Abbreviations,
-                                           offset: UnitOffset)
+                                           offset: UnitOffset<R::Offset>)
                                            -> Result<EntriesCursor<'abbrev, 'me, R>> {
         let input = self.range_from(offset..)?;
         Ok(EntriesCursor {
@@ -583,7 +614,7 @@ impl<R: Reader> UnitHeader<R> {
     /// starting at the given offset.
     pub fn entries_tree<'me, 'abbrev>(&'me self,
                                       abbreviations: &'abbrev Abbreviations,
-                                      offset: Option<UnitOffset>)
+                                      offset: Option<UnitOffset<R::Offset>>)
                                       -> Result<EntriesTree<'abbrev, 'me, R>> {
         let input = match offset {
             Some(offset) => self.range_from(offset..)?,
@@ -599,9 +630,10 @@ impl<R: Reader> UnitHeader<R> {
 }
 
 /// Parse a compilation unit header.
-fn parse_unit_header<R: Reader>(input: &mut R) -> Result<UnitHeader<R>> {
+fn parse_unit_header<R: Reader>(input: &mut R) -> Result<UnitHeader<R, R::Offset>> {
     let (unit_length, format) = parse_initial_length(input)?;
-    let mut rest = input.split(unit_length as usize)?;
+    let unit_length = R::Offset::from_u64(unit_length)?;
+    let mut rest = input.split(unit_length)?;
 
     let version = parse_version(&mut rest)?;
     let offset = parse_debug_abbrev_offset(&mut rest, format)?;
@@ -614,24 +646,28 @@ fn parse_unit_header<R: Reader>(input: &mut R) -> Result<UnitHeader<R>> {
 ///
 /// DIEs have a set of attributes and optionally have children DIEs as well.
 #[derive(Clone, Debug)]
-pub struct DebuggingInformationEntry<'abbrev, 'unit, R>
-    where R: Reader + 'unit
+pub struct DebuggingInformationEntry<'abbrev, 'unit, R, Offset>
+    where R: Reader<Offset = Offset> + 'unit,
+          Offset: ReaderOffset + 'unit
 {
-    offset: UnitOffset,
+    offset: UnitOffset<Offset>,
     attrs_slice: R,
-    attrs_len: Cell<Option<usize>>,
+    attrs_len: Cell<Option<Offset>>,
     abbrev: &'abbrev Abbreviation,
-    unit: &'unit UnitHeader<R>,
+    unit: &'unit UnitHeader<R, Offset>,
 }
 
-impl<'abbrev, 'unit, R: Reader> DebuggingInformationEntry<'abbrev, 'unit, R> {
+impl<'abbrev, 'unit, R, Offset> DebuggingInformationEntry<'abbrev, 'unit, R, Offset>
+    where R: Reader<Offset = Offset>,
+          Offset: ReaderOffset
+{
     /// Get this entry's code.
     pub fn code(&self) -> u64 {
         self.abbrev.code()
     }
 
     /// Get this entry's offset.
-    pub fn offset(&self) -> UnitOffset {
+    pub fn offset(&self) -> UnitOffset<R::Offset> {
         self.offset
     }
 
@@ -852,7 +888,7 @@ impl<'abbrev, 'unit, R: Reader> DebuggingInformationEntry<'abbrev, 'unit, R> {
     #[allow(inline_always)]
     #[inline(always)]
     fn parse(input: &mut R,
-             unit: &'unit UnitHeader<R>,
+             unit: &'unit UnitHeader<R, R::Offset>,
              abbreviations: &'abbrev Abbreviations)
              -> Result<Option<Self>> {
         let offset = unit.header_size() + input.offset_from(&unit.entries_buf);
@@ -928,32 +964,32 @@ pub enum AttributeValue<R: Reader> {
 
     /// An offset into another section. Which section this is an offset into
     /// depends on context.
-    SecOffset(usize),
+    SecOffset(R::Offset),
 
     /// An offset into the current compilation unit.
-    UnitRef(UnitOffset),
+    UnitRef(UnitOffset<R::Offset>),
 
     /// An offset into the current `.debug_info` section, but possibly a
     /// different compilation unit from the current one.
-    DebugInfoRef(DebugInfoOffset),
+    DebugInfoRef(DebugInfoOffset<R::Offset>),
 
     /// An offset into the `.debug_line` section.
-    DebugLineRef(DebugLineOffset),
+    DebugLineRef(DebugLineOffset<R::Offset>),
 
     /// An offset into the `.debug_loc` section.
-    DebugLocRef(DebugLocOffset),
+    DebugLocRef(DebugLocOffset<R::Offset>),
 
     /// An offset into the `.debug_macinfo` section.
-    DebugMacinfoRef(DebugMacinfoOffset),
+    DebugMacinfoRef(DebugMacinfoOffset<R::Offset>),
 
     /// An offset into the `.debug_ranges` section.
-    DebugRangesRef(DebugRangesOffset),
+    DebugRangesRef(DebugRangesOffset<R::Offset>),
 
     /// A type signature.
     DebugTypesRef(DebugTypeSignature),
 
     /// An offset into the `.debug_str` section.
-    DebugStrRef(DebugStrOffset),
+    DebugStrRef(DebugStrOffset<R::Offset>),
 
     /// A slice of bytes representing a string. Does not include a final null byte.
     /// Not guaranteed to be UTF-8 or anything like that.
@@ -1463,15 +1499,13 @@ impl<R: Reader> Attribute<R> {
     /// Try to convert this attribute's value to an offset.
     ///
     /// Offsets will be `Data` in DWARF version 2/3, and `SecOffset` otherwise.
-    pub fn offset_value(&self) -> Option<usize> {
+    pub fn offset_value(&self) -> Option<R::Offset> {
         match self.value {
             AttributeValue::Data4((ref data, endian)) => {
-                let offset = endian.read_u32(data) as u64;
-                u64_to_offset(offset).ok()
+                Some(R::Offset::from_u32(endian.read_u32(data)))
             }
             AttributeValue::Data8((ref data, endian)) => {
-                let offset = endian.read_u64(data);
-                u64_to_offset(offset).ok()
+                R::Offset::from_u64(endian.read_u64(data)).ok()
             }
             AttributeValue::SecOffset(offset) => Some(offset),
             _ => None,
@@ -1507,27 +1541,27 @@ impl<R: Reader> Attribute<R> {
 }
 
 fn length_u8_value<R: Reader>(input: &mut R) -> Result<R> {
-    let len = input.read_u8()?;
-    input.split(len as usize)
+    let len = input.read_u8().map(R::Offset::from_u8)?;
+    input.split(len)
 }
 
 fn length_u16_value<R: Reader>(input: &mut R) -> Result<R> {
-    let len = input.read_u16()?;
-    input.split(len as usize)
+    let len = input.read_u16().map(R::Offset::from_u16)?;
+    input.split(len)
 }
 
 fn length_u32_value<R: Reader>(input: &mut R) -> Result<R> {
-    let len = input.read_u32()?;
-    input.split(len as usize)
+    let len = input.read_u32().map(R::Offset::from_u32)?;
+    input.split(len)
 }
 
 fn length_uleb128_value<R: Reader>(input: &mut R) -> Result<R> {
-    let len = input.read_uleb128()?;
-    input.split(len as usize)
+    let len = input.read_uleb128().and_then(R::Offset::from_u64)?;
+    input.split(len)
 }
 
 fn parse_attribute<'unit, R: Reader>(input: &mut R,
-                                     unit: &'unit UnitHeader<R>,
+                                     unit: &'unit UnitHeader<R, R::Offset>,
                                      spec: AttributeSpecification)
                                      -> Result<Attribute<R>> {
     let mut form = spec.form();
@@ -1573,9 +1607,8 @@ fn parse_attribute<'unit, R: Reader>(input: &mut R,
                 // `DW_AT_data_member_location`.
                 if (unit.version() == 2 || unit.version() == 3) &&
                    spec.name() == constants::DW_AT_data_member_location {
-                    let offset = input.read_u32()?;
-                    let offset = u64_to_offset(offset as u64)?;
-                    AttributeValue::SecOffset(offset as usize)
+                    let offset = input.read_u32().map(R::Offset::from_u32)?;
+                    AttributeValue::SecOffset(offset)
                 } else {
                     let data = input.read_u8_array()?;
                     AttributeValue::Data4((data, input.endian()))
@@ -1588,9 +1621,8 @@ fn parse_attribute<'unit, R: Reader>(input: &mut R,
                 // `DW_AT_data_member_location`.
                 if (unit.version() == 2 || unit.version() == 3) &&
                    spec.name() == constants::DW_AT_data_member_location {
-                    let offset = input.read_u64()?;
-                    let offset = u64_to_offset(offset)?;
-                    AttributeValue::SecOffset(offset as usize)
+                    let offset = input.read_u64().and_then(R::Offset::from_u64)?;
+                    AttributeValue::SecOffset(offset)
                 } else {
                     let data = input.read_u8_array()?;
                     AttributeValue::Data8((data, input.endian()))
@@ -1622,23 +1654,23 @@ fn parse_attribute<'unit, R: Reader>(input: &mut R,
                 AttributeValue::SecOffset(offset)
             }
             constants::DW_FORM_ref1 => {
-                let reference = input.read_u8()?;
-                AttributeValue::UnitRef(UnitOffset(reference as usize))
+                let reference = input.read_u8().map(R::Offset::from_u8)?;
+                AttributeValue::UnitRef(UnitOffset(reference))
             }
             constants::DW_FORM_ref2 => {
-                let reference = input.read_u16()?;
-                AttributeValue::UnitRef(UnitOffset(reference as usize))
+                let reference = input.read_u16().map(R::Offset::from_u16)?;
+                AttributeValue::UnitRef(UnitOffset(reference))
             }
             constants::DW_FORM_ref4 => {
-                let reference = input.read_u32()?;
-                AttributeValue::UnitRef(UnitOffset(reference as usize))
+                let reference = input.read_u32().map(R::Offset::from_u32)?;
+                AttributeValue::UnitRef(UnitOffset(reference))
             }
             constants::DW_FORM_ref8 => {
-                let reference = input.read_u64().and_then(u64_to_offset)?;
+                let reference = input.read_u64().and_then(R::Offset::from_u64)?;
                 AttributeValue::UnitRef(UnitOffset(reference))
             }
             constants::DW_FORM_ref_udata => {
-                let reference = input.read_uleb128().and_then(u64_to_offset)?;
+                let reference = input.read_uleb128().and_then(R::Offset::from_u64)?;
                 AttributeValue::UnitRef(UnitOffset(reference))
             }
             constants::DW_FORM_ref_addr => {
@@ -1648,7 +1680,7 @@ fn parse_attribute<'unit, R: Reader>(input: &mut R,
                 let offset = if unit.version() == 2 {
                     input
                         .read_address(unit.address_size())
-                        .and_then(u64_to_offset)?
+                        .and_then(R::Offset::from_u64)?
                 } else {
                     input.read_offset(unit.format())?
                 };
@@ -1694,7 +1726,7 @@ pub struct AttrsIter<'abbrev, 'entry, 'unit, R>
 {
     input: R,
     attributes: &'abbrev [AttributeSpecification],
-    entry: &'entry DebuggingInformationEntry<'abbrev, 'unit, R>,
+    entry: &'entry DebuggingInformationEntry<'abbrev, 'unit, R, R::Offset>,
 }
 
 impl<'abbrev, 'entry, 'unit, R: Reader> AttrsIter<'abbrev, 'entry, 'unit, R> {
@@ -1764,9 +1796,9 @@ pub struct EntriesCursor<'abbrev, 'unit, R>
     where R: Reader + 'unit
 {
     input: R,
-    unit: &'unit UnitHeader<R>,
+    unit: &'unit UnitHeader<R, R::Offset>,
     abbreviations: &'abbrev Abbreviations,
-    cached_current: Option<DebuggingInformationEntry<'abbrev, 'unit, R>>,
+    cached_current: Option<DebuggingInformationEntry<'abbrev, 'unit, R, R::Offset>>,
     delta_depth: isize,
 }
 
@@ -1776,7 +1808,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// If the cursor is not pointing at an entry, or if the current entry is a
     /// null entry, then `None` is returned.
     #[inline]
-    pub fn current(&self) -> Option<&DebuggingInformationEntry<'abbrev, 'unit, R>> {
+    pub fn current(&self) -> Option<&DebuggingInformationEntry<'abbrev, 'unit, R, R::Offset>> {
         self.cached_current.as_ref()
     }
 
@@ -1931,8 +1963,9 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// println!("The first entry with no children is {:?}",
     ///          first_entry_with_no_children.unwrap());
     /// ```
-    pub fn next_dfs(&mut self)
-                    -> Result<Option<(isize, &DebuggingInformationEntry<'abbrev, 'unit, R>)>> {
+    pub fn next_dfs
+        (&mut self)
+         -> Result<Option<(isize, &DebuggingInformationEntry<'abbrev, 'unit, R, R::Offset>)>> {
         let mut delta_depth = self.delta_depth;
         loop {
             // The next entry should be the one we want.
@@ -2055,8 +2088,9 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     ///     }
     /// }
     /// ```
-    pub fn next_sibling(&mut self)
-                        -> Result<Option<(&DebuggingInformationEntry<'abbrev, 'unit, R>)>> {
+    pub fn next_sibling
+        (&mut self)
+         -> Result<Option<(&DebuggingInformationEntry<'abbrev, 'unit, R, R::Offset>)>> {
         if self.current().is_none() {
             // We're already at the null for the end of the sibling list.
             return Ok(None);
@@ -2146,15 +2180,18 @@ pub struct EntriesTree<'abbrev, 'unit, R>
     where R: Reader + 'unit
 {
     root: R,
-    unit: &'unit UnitHeader<R>,
+    unit: &'unit UnitHeader<R, R::Offset>,
     abbreviations: &'abbrev Abbreviations,
     input: R,
-    entry: Option<DebuggingInformationEntry<'abbrev, 'unit, R>>,
+    entry: Option<DebuggingInformationEntry<'abbrev, 'unit, R, R::Offset>>,
     depth: isize,
 }
 
 impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
-    fn new(root: R, unit: &'unit UnitHeader<R>, abbreviations: &'abbrev Abbreviations) -> Self {
+    fn new(root: R,
+           unit: &'unit UnitHeader<R, R::Offset>,
+           abbreviations: &'abbrev Abbreviations)
+           -> Self {
         let input = root.clone();
         EntriesTree {
             root,
@@ -2292,7 +2329,7 @@ impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeNode<'abbrev, 'unit, 'tree, R>
     }
 
     /// Returns the current entry in the tree.
-    pub fn entry(&self) -> &DebuggingInformationEntry<'abbrev, 'unit, R> {
+    pub fn entry(&self) -> &DebuggingInformationEntry<'abbrev, 'unit, R, R::Offset> {
         // We never create a node without an entry.
         self.tree.entry.as_ref().unwrap()
     }
@@ -2356,7 +2393,7 @@ fn parse_type_signature<R: Reader>(input: &mut R) -> Result<DebugTypeSignature> 
 }
 
 /// Parse a type unit header's type offset.
-fn parse_type_offset<R: Reader>(input: &mut R, format: Format) -> Result<UnitOffset> {
+fn parse_type_offset<R: Reader>(input: &mut R, format: Format) -> Result<UnitOffset<R::Offset>> {
     input.read_offset(format).map(UnitOffset)
 }
 
@@ -2423,7 +2460,7 @@ impl<R: Reader> DebugTypes<R> {
     pub fn units(&self) -> TypeUnitHeadersIter<R> {
         TypeUnitHeadersIter {
             input: self.debug_types_section.clone(),
-            offset: DebugTypesOffset(0),
+            offset: DebugTypesOffset(R::Offset::from_u8(0)),
         }
     }
 }
@@ -2436,12 +2473,12 @@ impl<R: Reader> DebugTypes<R> {
 #[derive(Clone, Debug)]
 pub struct TypeUnitHeadersIter<R: Reader> {
     input: R,
-    offset: DebugTypesOffset,
+    offset: DebugTypesOffset<R::Offset>,
 }
 
 impl<R: Reader> TypeUnitHeadersIter<R> {
     /// Advance the iterator to the next type unit header.
-    pub fn next(&mut self) -> Result<Option<TypeUnitHeader<R>>> {
+    pub fn next(&mut self) -> Result<Option<TypeUnitHeader<R, R::Offset>>> {
         if self.input.is_empty() {
             Ok(None)
         } else {
@@ -2461,7 +2498,7 @@ impl<R: Reader> TypeUnitHeadersIter<R> {
 }
 
 impl<R: Reader> FallibleIterator for TypeUnitHeadersIter<R> {
-    type Item = TypeUnitHeader<R>;
+    type Item = TypeUnitHeader<R, R::Offset>;
     type Error = Error;
 
     fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
@@ -2471,20 +2508,26 @@ impl<R: Reader> FallibleIterator for TypeUnitHeadersIter<R> {
 
 /// The header of a type unit's debugging information.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TypeUnitHeader<R: Reader> {
-    header: UnitHeader<R>,
-    offset: DebugTypesOffset,
+pub struct TypeUnitHeader<R, Offset>
+    where R: Reader<Offset = Offset>,
+          Offset: ReaderOffset
+{
+    header: UnitHeader<R, Offset>,
+    offset: DebugTypesOffset<Offset>,
     type_signature: DebugTypeSignature,
-    type_offset: UnitOffset,
+    type_offset: UnitOffset<Offset>,
 }
 
-impl<R: Reader> TypeUnitHeader<R> {
+impl<R, Offset> TypeUnitHeader<R, Offset>
+    where R: Reader<Offset = Offset>,
+          Offset: ReaderOffset
+{
     /// Construct a new `TypeUnitHeader`.
-    fn new(header: UnitHeader<R>,
-           offset: DebugTypesOffset,
+    fn new(header: UnitHeader<R, R::Offset>,
+           offset: DebugTypesOffset<R::Offset>,
            type_signature: DebugTypeSignature,
-           type_offset: UnitOffset)
-           -> TypeUnitHeader<R> {
+           type_offset: UnitOffset<R::Offset>)
+           -> TypeUnitHeader<R, R::Offset> {
         TypeUnitHeader {
             header: header,
             offset: offset,
@@ -2496,7 +2539,7 @@ impl<R: Reader> TypeUnitHeader<R> {
     /// Return the serialized size of the type-unit header for the given
     /// DWARF format.
     pub fn size_of_header(format: Format) -> usize {
-        let unit_header_size = UnitHeader::<R>::size_of_header(format);
+        let unit_header_size = UnitHeader::<R, _>::size_of_header(format);
         let type_signature_size = 8;
         let type_offset_size = match format {
             Format::Dwarf32 => 4,
@@ -2506,18 +2549,18 @@ impl<R: Reader> TypeUnitHeader<R> {
     }
 
     /// Get the offset of this compilation unit within the .debug_info section.
-    pub fn offset(&self) -> DebugTypesOffset {
+    pub fn offset(&self) -> DebugTypesOffset<R::Offset> {
         self.offset
     }
 
     /// Get the length of the debugging info for this type-unit.
-    pub fn unit_length(&self) -> u64 {
+    pub fn unit_length(&self) -> R::Offset {
         self.header.unit_length
     }
 
     /// Get the length of the debugging info for this type-unit,
     /// including the byte length of the encoded length itself.
-    pub fn length_including_self(&self) -> u64 {
+    pub fn length_including_self(&self) -> R::Offset {
         self.header.length_including_self()
     }
 
@@ -2528,7 +2571,7 @@ impl<R: Reader> TypeUnitHeader<R> {
 
     /// The offset into the `.debug_abbrev` section for this type-unit's
     /// debugging information entries.
-    pub fn debug_abbrev_offset(&self) -> DebugAbbrevOffset {
+    pub fn debug_abbrev_offset(&self) -> DebugAbbrevOffset<R::Offset> {
         self.header.debug_abbrev_offset
     }
 
@@ -2543,7 +2586,7 @@ impl<R: Reader> TypeUnitHeader<R> {
     }
 
     /// The serialized size of the header for this type-unit.
-    pub fn header_size(&self) -> usize {
+    pub fn header_size(&self) -> R::Offset {
         self.header.header_size()
     }
 
@@ -2553,7 +2596,7 @@ impl<R: Reader> TypeUnitHeader<R> {
     }
 
     /// Get the offset within this type unit where the type is defined.
-    pub fn type_offset(&self) -> UnitOffset {
+    pub fn type_offset(&self) -> UnitOffset<R::Offset> {
         self.type_offset
     }
 
@@ -2568,7 +2611,7 @@ impl<R: Reader> TypeUnitHeader<R> {
     /// starting at the given offset.
     pub fn entries_at_offset<'me, 'abbrev>(&'me self,
                                            abbreviations: &'abbrev Abbreviations,
-                                           offset: UnitOffset)
+                                           offset: UnitOffset<R::Offset>)
                                            -> Result<EntriesCursor<'abbrev, 'me, R>> {
         self.header.entries_at_offset(abbreviations, offset)
     }
@@ -2577,7 +2620,7 @@ impl<R: Reader> TypeUnitHeader<R> {
     /// starting at the given offset.
     pub fn entries_tree<'me, 'abbrev>(&'me self,
                                       abbreviations: &'abbrev Abbreviations,
-                                      offset: Option<UnitOffset>)
+                                      offset: Option<UnitOffset<R::Offset>>)
                                       -> Result<EntriesTree<'abbrev, 'me, R>> {
         self.header.entries_tree(abbreviations, offset)
     }
@@ -2671,8 +2714,8 @@ impl<R: Reader> TypeUnitHeader<R> {
 
 /// Parse a type unit header.
 fn parse_type_unit_header<R: Reader>(input: &mut R,
-                                     offset: DebugTypesOffset)
-                                     -> Result<TypeUnitHeader<R>> {
+                                     offset: DebugTypesOffset<R::Offset>)
+                                     -> Result<TypeUnitHeader<R, R::Offset>> {
     let mut header = parse_unit_header(input)?;
     let format = header.format();
     let signature = parse_type_signature(&mut header.entries_buf)?;
@@ -2705,13 +2748,15 @@ mod tests {
 
     trait UnitSectionMethods {
         fn comp_unit<'input, E>(self,
-                                unit: &mut CompilationUnitHeader<EndianBuf<'input, E>>)
+                                unit: &mut CompilationUnitHeader<EndianBuf<'input, E>, usize>)
                                 -> Self
             where E: Endianity;
-        fn type_unit<'input, E>(self, unit: &mut TypeUnitHeader<EndianBuf<'input, E>>) -> Self
+        fn type_unit<'input, E>(self,
+                                unit: &mut TypeUnitHeader<EndianBuf<'input, E>, usize>)
+                                -> Self
             where E: Endianity;
         fn unit<'input, E>(self,
-                           unit: &mut UnitHeader<EndianBuf<'input, E>>,
+                           unit: &mut UnitHeader<EndianBuf<'input, E>, usize>,
                            extra_header: &[u8])
                            -> Self
             where E: Endianity;
@@ -2724,7 +2769,7 @@ mod tests {
 
     impl UnitSectionMethods for Section {
         fn comp_unit<'input, E>(self,
-                                unit: &mut CompilationUnitHeader<EndianBuf<'input, E>>)
+                                unit: &mut CompilationUnitHeader<EndianBuf<'input, E>, usize>)
                                 -> Self
             where E: Endianity
         {
@@ -2732,7 +2777,9 @@ mod tests {
             self.unit(&mut unit.header, &[])
         }
 
-        fn type_unit<'input, E>(self, unit: &mut TypeUnitHeader<EndianBuf<'input, E>>) -> Self
+        fn type_unit<'input, E>(self,
+                                unit: &mut TypeUnitHeader<EndianBuf<'input, E>, usize>)
+                                -> Self
             where E: Endianity
         {
             unit.offset = DebugTypesOffset(self.size() as usize);
@@ -2744,7 +2791,7 @@ mod tests {
         }
 
         fn unit<'input, E>(self,
-                           unit: &mut UnitHeader<EndianBuf<'input, E>>,
+                           unit: &mut UnitHeader<EndianBuf<'input, E>, usize>,
                            extra_header: &[u8])
                            -> Self
             where E: Endianity
@@ -2767,8 +2814,8 @@ mod tests {
                 .append_bytes(unit.entries_buf.into())
                 .mark(&end);
 
-            unit.unit_length = (&end - &start) as u64;
-            length.set_const(unit.unit_length);
+            unit.unit_length = (&end - &start) as usize;
+            length.set_const(unit.unit_length as u64);
 
             section
         }
@@ -3184,7 +3231,7 @@ mod tests {
     fn test_parse_attribute_unit<Endian>(address_size: u8,
                                          format: Format,
                                          endian: Endian)
-                                         -> UnitHeader<EndianBuf<'static, Endian>>
+                                         -> UnitHeader<EndianBuf<'static, Endian>, usize>
         where Endian: Endianity
     {
         UnitHeader::new(7,
@@ -3195,13 +3242,13 @@ mod tests {
                         EndianBuf::new(&[], endian))
     }
 
-    fn test_parse_attribute_unit_default() -> UnitHeader<EndianBuf<'static, LittleEndian>> {
+    fn test_parse_attribute_unit_default() -> UnitHeader<EndianBuf<'static, LittleEndian>, usize> {
         test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian)
     }
 
     fn test_parse_attribute<'input, Endian>(buf: &'input [u8],
                                             len: usize,
-                                            unit: &UnitHeader<EndianBuf<'input, Endian>>,
+                                            unit: &UnitHeader<EndianBuf<'input, Endian>, usize>,
                                             form: constants::DwForm,
                                             value: AttributeValue<EndianBuf<'input, Endian>>)
         where Endian: Endianity
@@ -3711,7 +3758,8 @@ mod tests {
         assert!(entry.attrs_len.get().is_none());
     }
 
-    fn assert_entry_name<Endian>(entry: &DebuggingInformationEntry<EndianBuf<Endian>>, name: &str)
+    fn assert_entry_name<Endian>(entry: &DebuggingInformationEntry<EndianBuf<Endian>, usize>,
+                                 name: &str)
         where Endian: Endianity
     {
         let value = entry
@@ -4160,7 +4208,8 @@ mod tests {
     #[test]
     fn test_debug_info_next_sibling_with_ptr() {
         let format = Format::Dwarf32;
-        let header_size = CompilationUnitHeader::<EndianBuf<LittleEndian>>::size_of_header(format);
+        let header_size =
+            CompilationUnitHeader::<EndianBuf<LittleEndian>, _>::size_of_header(format);
         let entries_buf = entries_cursor_sibling_entries_buf(header_size);
 
         let mut unit = CompilationUnitHeader {
@@ -4197,7 +4246,7 @@ mod tests {
     #[test]
     fn test_debug_types_next_sibling_with_ptr() {
         let format = Format::Dwarf32;
-        let header_size = TypeUnitHeader::<EndianBuf<LittleEndian>>::size_of_header(format);
+        let header_size = TypeUnitHeader::<EndianBuf<LittleEndian>, _>::size_of_header(format);
         let entries_buf = entries_cursor_sibling_entries_buf(header_size);
 
         let mut unit = TypeUnitHeader {
@@ -4279,7 +4328,7 @@ mod tests {
     }
 
     #[cfg_attr(rustfmt, rustfmt_skip)]
-    fn entries_tree_tests_debug_info_buf(header_size: usize) -> (Vec<u8>, UnitOffset) {
+    fn entries_tree_tests_debug_info_buf(header_size: usize) -> (Vec<u8>, UnitOffset<usize>) {
         let start = Label::new();
         let entry2 = Label::new();
         let section = Section::with_endian(Endian::Little)
@@ -4346,7 +4395,8 @@ mod tests {
         let debug_abbrev = DebugAbbrev::new(&abbrevs_buf, LittleEndian);
 
         let format = Format::Dwarf32;
-        let header_size = CompilationUnitHeader::<EndianBuf<LittleEndian>>::size_of_header(format);
+        let header_size =
+            CompilationUnitHeader::<EndianBuf<LittleEndian>, _>::size_of_header(format);
         let (entries_buf, entry2) = entries_tree_tests_debug_info_buf(header_size);
         let mut unit = CompilationUnitHeader {
             header: UnitHeader {
@@ -4454,8 +4504,8 @@ mod tests {
             .comp_unit(&mut unit);
         let offset = padding.len();
         let header_length =
-            CompilationUnitHeader::<EndianBuf<LittleEndian>>::size_of_header(unit.format());
-        let length = unit.length_including_self() as usize;
+            CompilationUnitHeader::<EndianBuf<LittleEndian>, _>::size_of_header(unit.format());
+        let length = unit.length_including_self();
         assert_eq!(DebugInfoOffset(0).to_unit_offset(&unit), None);
         assert_eq!(DebugInfoOffset(offset - 1).to_unit_offset(&unit), None);
         assert_eq!(DebugInfoOffset(offset).to_unit_offset(&unit), None);
@@ -4494,8 +4544,8 @@ mod tests {
             .type_unit(&mut unit);
         let offset = padding.len();
         let header_length =
-            TypeUnitHeader::<EndianBuf<LittleEndian>>::size_of_header(unit.format());
-        let length = unit.length_including_self() as usize;
+            TypeUnitHeader::<EndianBuf<LittleEndian>, _>::size_of_header(unit.format());
+        let length = unit.length_including_self();
         assert_eq!(DebugTypesOffset(0).to_unit_offset(&unit), None);
         assert_eq!(DebugTypesOffset(offset - 1).to_unit_offset(&unit), None);
         assert_eq!(DebugTypesOffset(offset).to_unit_offset(&unit), None);

@@ -1,4 +1,4 @@
-//! Types for compile-time endianity.
+//! Types for compile-time and run-time endianity.
 
 use byteorder;
 use byteorder::ByteOrder;
@@ -192,7 +192,7 @@ pub type NativeEndian = BigEndian;
 #[doc(hidden)]
 pub const NativeEndian: BigEndian = BigEndian;
 
-/// A `&[u8]` slice with compile-time endianity metadata.
+/// A `&[u8]` slice with endianity metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EndianBuf<'input, Endian>
     where Endian: Endianity
@@ -363,6 +363,7 @@ impl<'input, Endian> Reader for EndianBuf<'input, Endian>
     where Endian: Endianity
 {
     type Endian = Endian;
+    type Offset = usize;
 
     #[inline]
     fn endian(&self) -> Endian {
