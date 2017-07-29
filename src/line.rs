@@ -7,7 +7,7 @@ use Section;
 
 /// An offset into the `.debug_line` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugLineOffset<T>(pub T);
+pub struct DebugLineOffset<T = usize>(pub T);
 
 /// The `DebugLine` struct contains the source location to instruction mapping
 /// found in the `.debug_line` section.

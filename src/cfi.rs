@@ -15,7 +15,7 @@ use Section;
 
 /// An offset into the `.debug_frame` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugFrameOffset<T>(pub T);
+pub struct DebugFrameOffset<T = usize>(pub T);
 
 impl<T> From<T> for DebugFrameOffset<T> {
     #[inline]
@@ -26,7 +26,7 @@ impl<T> From<T> for DebugFrameOffset<T> {
 
 /// An offset into the `.eh_frame` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct EhFrameOffset<T>(pub T);
+pub struct EhFrameOffset<T = usize>(pub T);
 
 impl<T> From<T> for EhFrameOffset<T> {
     #[inline]
@@ -157,7 +157,7 @@ pub enum ReturnAddressRegisterEncoding {
 /// An offset into an `UnwindSection`.
 //
 // Needed to avoid conflicting implementations of `Into<T>`.
-pub trait UnwindOffset<T>: Copy + Debug + Eq + From<T>
+pub trait UnwindOffset<T = usize>: Copy + Debug + Eq + From<T>
     where T: ReaderOffset
 {
     /// Convert an `UnwindOffset<T>` into a `T`.
@@ -233,7 +233,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     ///
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
-    fn entries<'bases>(&self, bases: &'bases BaseAddresses) -> CfiEntriesIter<'bases, R, Self> {
+    fn entries<'bases>(&self, bases: &'bases BaseAddresses) -> CfiEntriesIter<'bases, Self, R> {
         CfiEntriesIter {
             section: self.clone(),
             bases: bases,
@@ -246,7 +246,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     fn cie_from_offset<'bases>(&self,
                                bases: &'bases BaseAddresses,
                                offset: Self::Offset)
-                               -> Result<CommonInformationEntry<R, R::Offset, Self>> {
+                               -> Result<CommonInformationEntry<Self, R, R::Offset>> {
         let offset = UnwindOffset::into(offset);
         let input = &mut self.section().clone();
         input.skip(offset)?;
@@ -300,9 +300,9 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     fn unwind_info_for_address<'bases>
         (&self,
          bases: &'bases BaseAddresses,
-         ctx: UninitializedUnwindContext<R, Self>,
+         ctx: UninitializedUnwindContext<Self, R>,
          address: u64)
-         -> Result<(UnwindTableRow<R>, UninitializedUnwindContext<R, Self>)> {
+         -> Result<(UnwindTableRow<R>, UninitializedUnwindContext<Self, R>)> {
         let mut target_fde = None;
 
         let mut entries = self.entries(bases);
@@ -547,7 +547,7 @@ impl BaseAddresses {
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct CfiEntriesIter<'bases, R, Section>
+pub struct CfiEntriesIter<'bases, Section, R>
     where R: Reader,
           Section: UnwindSection<R>
 {
@@ -557,12 +557,12 @@ pub struct CfiEntriesIter<'bases, R, Section>
     phantom: PhantomData<Section>,
 }
 
-impl<'bases, R, Section> CfiEntriesIter<'bases, R, Section>
+impl<'bases, Section, R> CfiEntriesIter<'bases, Section, R>
     where R: Reader,
           Section: UnwindSection<R>
 {
     /// Advance the iterator to the next entry.
-    pub fn next(&mut self) -> Result<Option<CieOrFde<'bases, R, Section>>> {
+    pub fn next(&mut self) -> Result<Option<CieOrFde<'bases, Section, R>>> {
         if self.input.is_empty() {
             return Ok(None);
         }
@@ -585,11 +585,11 @@ impl<'bases, R, Section> CfiEntriesIter<'bases, R, Section>
     }
 }
 
-impl<'bases, R, Section> FallibleIterator for CfiEntriesIter<'bases, R, Section>
+impl<'bases, Section, R> FallibleIterator for CfiEntriesIter<'bases, Section, R>
     where R: Reader,
           Section: UnwindSection<R>
 {
-    type Item = CieOrFde<'bases, R, Section>;
+    type Item = CieOrFde<'bases, Section, R>;
     type Error = Error;
 
     fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
@@ -609,7 +609,7 @@ struct CfiEntryCommon<R: Reader> {
 /// end-of-entries sentinel, return `Ok(None)`. Otherwise, return
 /// `Ok(Some(tuple))`, where `tuple.0` is the start of the next entry and
 /// `tuple.1` is the parsed CFI entry data.
-fn parse_cfi_entry_common<R, Section>(input: &mut R) -> Result<Option<CfiEntryCommon<R>>>
+fn parse_cfi_entry_common<Section, R>(input: &mut R) -> Result<Option<CfiEntryCommon<R>>>
     where R: Reader,
           Section: UnwindSection<R>
 {
@@ -639,23 +639,23 @@ fn parse_cfi_entry_common<R, Section>(input: &mut R) -> Result<Option<CfiEntryCo
 
 /// Either a `CommonInformationEntry` (CIE) or a `FrameDescriptionEntry` (FDE).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CieOrFde<'bases, R, Section>
+pub enum CieOrFde<'bases, Section, R>
     where R: Reader,
           Section: UnwindSection<R>
 {
     /// This CFI entry is a `CommonInformationEntry`.
-    Cie(CommonInformationEntry<R, R::Offset, Section>),
+    Cie(CommonInformationEntry<Section, R, R::Offset>),
     /// This CFI entry is a `FrameDescriptionEntry`, however fully parsing it
     /// requires parsing its CIE first, so it is left in a partially parsed
     /// state.
-    Fde(PartialFrameDescriptionEntry<'bases, R, Section>),
+    Fde(PartialFrameDescriptionEntry<'bases, Section, R>),
 }
 
 #[allow(type_complexity)]
-fn parse_cfi_entry<'bases, R, Section>(bases: &'bases BaseAddresses,
+fn parse_cfi_entry<'bases, Section, R>(bases: &'bases BaseAddresses,
                                        section: Section,
                                        input: &mut R)
-                                       -> Result<Option<CieOrFde<'bases, R, Section>>>
+                                       -> Result<Option<CieOrFde<'bases, Section, R>>>
     where R: Reader,
           Section: UnwindSection<R>
 {
@@ -665,7 +665,7 @@ fn parse_cfi_entry<'bases, R, Section>(bases: &'bases BaseAddresses,
         cie_offset_input,
         cie_id_or_offset,
         rest,
-    } = match parse_cfi_entry_common::<R, Section>(input)? {
+    } = match parse_cfi_entry_common::<Section, R>(input)? {
         None => return Ok(None),
         Some(common) => common,
     };
@@ -730,7 +730,7 @@ pub struct Augmentation {
 }
 
 impl Augmentation {
-    fn parse<'bases, R, Section>(augmentation_str: &mut R,
+    fn parse<'bases, Section, R>(augmentation_str: &mut R,
                                  bases: &'bases BaseAddresses,
                                  address_size: u8,
                                  section: Section,
@@ -788,7 +788,7 @@ struct AugmentationData {
 }
 
 impl AugmentationData {
-    fn parse<R, Section>(augmentation: &Augmentation,
+    fn parse<Section, R>(augmentation: &Augmentation,
                          bases: &BaseAddresses,
                          address_size: u8,
                          section: &Section,
@@ -819,7 +819,7 @@ impl AugmentationData {
 /// > Frame Description Entries. There is at least one CIE in every non-empty
 /// > `.debug_frame` section.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CommonInformationEntry<R, Offset, Section>
+pub struct CommonInformationEntry<Section, R, Offset = usize>
     where R: Reader<Offset = Offset>,
           Offset: ReaderOffset,
           Section: UnwindSection<R>,
@@ -877,7 +877,7 @@ pub struct CommonInformationEntry<R, Offset, Section>
     phantom: PhantomData<Section>,
 }
 
-impl<R, Offset, Section> CommonInformationEntry<R, Offset, Section>
+impl<Section, R, Offset> CommonInformationEntry<Section, R, Offset>
     where R: Reader<Offset = Offset>,
           Offset: ReaderOffset,
           Section: UnwindSection<R>,
@@ -887,14 +887,14 @@ impl<R, Offset, Section> CommonInformationEntry<R, Offset, Section>
     fn parse<'bases>(bases: &'bases BaseAddresses,
                      section: Section,
                      input: &mut R)
-                     -> Result<Option<CommonInformationEntry<R, Offset, Section>>> {
+                     -> Result<Option<CommonInformationEntry<Section, R, Offset>>> {
         let CfiEntryCommon {
             length,
             format,
             cie_id_or_offset: cie_id,
             rest,
             ..
-        } = match parse_cfi_entry_common::<R, Section>(input)? {
+        } = match parse_cfi_entry_common::<Section, R>(input)? {
             None => return Ok(None),
             Some(common) => common,
         };
@@ -912,7 +912,7 @@ impl<R, Offset, Section> CommonInformationEntry<R, Offset, Section>
                   bases: &BaseAddresses,
                   section: Section,
                   mut rest: R)
-                  -> Result<CommonInformationEntry<R, Offset, Section>> {
+                  -> Result<CommonInformationEntry<Section, R, Offset>> {
         let version = rest.read_u8()?;
         if !Section::compatible_version(version) {
             return Err(Error::UnknownVersion);
@@ -969,7 +969,7 @@ impl<R, Offset, Section> CommonInformationEntry<R, Offset, Section>
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
-impl<R, Offset, Section> CommonInformationEntry<R, Offset, Section>
+impl<Section, R, Offset> CommonInformationEntry<Section, R, Offset>
     where R: Reader<Offset = Offset>,
           Offset: ReaderOffset,
           Section: UnwindSection<R>,
@@ -988,7 +988,7 @@ impl<R, Offset, Section> CommonInformationEntry<R, Offset, Section>
 ///
 /// Fully parsing this FDE requires first parsing its CIE.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PartialFrameDescriptionEntry<'bases, R, Section>
+pub struct PartialFrameDescriptionEntry<'bases, Section, R>
     where R: Reader,
           Section: UnwindSection<R>
 {
@@ -1000,7 +1000,7 @@ pub struct PartialFrameDescriptionEntry<'bases, R, Section>
     bases: &'bases BaseAddresses,
 }
 
-impl<'bases, R, Section> PartialFrameDescriptionEntry<'bases, R, Section>
+impl<'bases, Section, R> PartialFrameDescriptionEntry<'bases, Section, R>
     where R: Reader,
           Section: UnwindSection<R>
 {
@@ -1009,8 +1009,8 @@ impl<'bases, R, Section> PartialFrameDescriptionEntry<'bases, R, Section>
     /// You must provide a function get its associated CIE (either by parsing it
     /// on demand, or looking it up in some table mapping offsets to CIEs that
     /// you've already parsed, etc.)
-    pub fn parse<F>(&self, get_cie: F) -> Result<FrameDescriptionEntry<R, R::Offset, Section>>
-        where F: FnMut(Section::Offset) -> Result<CommonInformationEntry<R, R::Offset, Section>>
+    pub fn parse<F>(&self, get_cie: F) -> Result<FrameDescriptionEntry<Section, R, R::Offset>>
+        where F: FnMut(Section::Offset) -> Result<CommonInformationEntry<Section, R, R::Offset>>
     {
         FrameDescriptionEntry::parse_rest(self.length,
                                           self.format,
@@ -1024,7 +1024,7 @@ impl<'bases, R, Section> PartialFrameDescriptionEntry<'bases, R, Section>
 
 /// A `FrameDescriptionEntry` is a set of CFA instructions for an address range.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FrameDescriptionEntry<R, Offset, Section>
+pub struct FrameDescriptionEntry<Section, R, Offset = usize>
     where R: Reader<Offset = Offset>,
           Offset: ReaderOffset,
           Section: UnwindSection<R>,
@@ -1042,7 +1042,7 @@ pub struct FrameDescriptionEntry<R, Offset, Section>
     /// that is associated with this FDE."
     ///
     /// This is the CIE at that offset.
-    cie: CommonInformationEntry<R, Offset, Section>,
+    cie: CommonInformationEntry<Section, R, Offset>,
 
     /// > The address of the first location associated with this table entry. If
     /// > the segment_size field of this FDE's CIE is non-zero, the initial
@@ -1063,7 +1063,7 @@ pub struct FrameDescriptionEntry<R, Offset, Section>
     instructions: R,
 }
 
-impl<R, Offset, Section> FrameDescriptionEntry<R, Offset, Section>
+impl<Section, R, Offset> FrameDescriptionEntry<Section, R, Offset>
     where R: Reader<Offset = Offset>,
           Offset: ReaderOffset,
           Section: UnwindSection<R>,
@@ -1076,8 +1076,8 @@ impl<R, Offset, Section> FrameDescriptionEntry<R, Offset, Section>
                      section: &Section,
                      bases: &BaseAddresses,
                      mut get_cie: F)
-                     -> Result<FrameDescriptionEntry<R, Offset, Section>>
-        where F: FnMut(Section::Offset) -> Result<CommonInformationEntry<R, R::Offset, Section>>
+                     -> Result<FrameDescriptionEntry<Section, R, Offset>>
+        where F: FnMut(Section::Offset) -> Result<CommonInformationEntry<Section, R, R::Offset>>
     {
         {
             let mut func = bases.func.borrow_mut();
@@ -1121,7 +1121,7 @@ impl<R, Offset, Section> FrameDescriptionEntry<R, Offset, Section>
     }
 
     fn parse_addresses(input: &mut R,
-                       cie: &CommonInformationEntry<R, R::Offset, Section>,
+                       cie: &CommonInformationEntry<Section, R, R::Offset>,
                        bases: &BaseAddresses,
                        section: &Section)
                        -> Result<(u64, u64)> {
@@ -1151,7 +1151,7 @@ impl<R, Offset, Section> FrameDescriptionEntry<R, Offset, Section>
     }
 
     /// Get a reference to this FDE's CIE.
-    pub fn cie(&self) -> &CommonInformationEntry<R, R::Offset, Section> {
+    pub fn cie(&self) -> &CommonInformationEntry<Section, R, R::Offset> {
         &self.cie
     }
 
@@ -1209,7 +1209,7 @@ impl<R, Offset, Section> FrameDescriptionEntry<R, Offset, Section>
 /// ```
 /// use gimli::{UninitializedUnwindContext, UnwindTable};
 ///
-/// # fn foo<'a>(some_fde: gimli::FrameDescriptionEntry<gimli::EndianBuf<'a, gimli::LittleEndian>, usize, gimli::DebugFrame<gimli::EndianBuf<'a, gimli::LittleEndian>>>)
+/// # fn foo<'a>(some_fde: gimli::FrameDescriptionEntry<gimli::DebugFrame<gimli::EndianBuf<'a, gimli::LittleEndian>>, gimli::EndianBuf<'a, gimli::LittleEndian>>)
 /// #            -> gimli::Result<()> {
 /// // An uninitialized context.
 /// let ctx = UninitializedUnwindContext::new();
@@ -1270,21 +1270,21 @@ impl<R, Offset, Section> FrameDescriptionEntry<R, Offset, Section>
 ///          +-----+
 /// ```
 #[derive(Clone, Debug)]
-pub struct UninitializedUnwindContext<R, Section>(Box<UnwindContext<R, Section>>)
+pub struct UninitializedUnwindContext<Section, R>(Box<UnwindContext<Section, R>>)
     where R: Reader,
           Section: UnwindSection<R>;
 
-impl<R, Section> UninitializedUnwindContext<R, Section>
+impl<Section, R> UninitializedUnwindContext<Section, R>
     where R: Reader,
           Section: UnwindSection<R>
 {
     /// Construct a new call frame unwinding context.
-    pub fn new() -> UninitializedUnwindContext<R, Section> {
+    pub fn new() -> UninitializedUnwindContext<Section, R> {
         UninitializedUnwindContext(Box::new(UnwindContext::new()))
     }
 }
 
-impl<R, Section> Default for UninitializedUnwindContext<R, Section>
+impl<Section, R> Default for UninitializedUnwindContext<Section, R>
     where R: Reader,
           Section: UnwindSection<R>
 {
@@ -1297,15 +1297,15 @@ impl<R, Section> Default for UninitializedUnwindContext<R, Section>
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
-impl<R, Section> UninitializedUnwindContext<R, Section>
+impl<Section, R> UninitializedUnwindContext<Section, R>
     where R: Reader,
           Section: UnwindSection<R>
 {
     /// Run the CIE's initial instructions, creating an
     /// `InitializedUnwindContext`.
     pub fn initialize(mut self,
-                      cie: &CommonInformationEntry<R, R::Offset, Section>)
-                      -> Result<InitializedUnwindContext<R, Section>> {
+                      cie: &CommonInformationEntry<Section, R, R::Offset>)
+                      -> Result<InitializedUnwindContext<Section, R>> {
         self.0.assert_fully_uninitialized();
 
         {
@@ -1324,16 +1324,16 @@ impl<R, Section> UninitializedUnwindContext<R, Section>
 /// [`UninitializedUnwindContext`](./struct.UninitializedUnwindContext.html) for
 /// more details.
 #[derive(Clone, Debug)]
-pub struct InitializedUnwindContext<R, Section>(Box<UnwindContext<R, Section>>)
+pub struct InitializedUnwindContext<Section, R>(Box<UnwindContext<Section, R>>)
     where R: Reader,
           Section: UnwindSection<R>;
 
-impl<R, Section> InitializedUnwindContext<R, Section>
+impl<Section, R> InitializedUnwindContext<Section, R>
     where R: Reader,
           Section: UnwindSection<R>
 {
     /// Reset this context to the uninitialized state.
-    pub fn reset(mut self) -> UninitializedUnwindContext<R, Section> {
+    pub fn reset(mut self) -> UninitializedUnwindContext<Section, R> {
         self.0.reset();
         UninitializedUnwindContext(self.0)
     }
@@ -1343,7 +1343,7 @@ const MAX_UNWIND_STACK_DEPTH: usize = 4;
 type UnwindContextStack<R> = ArrayVec<[UnwindTableRow<R>; MAX_UNWIND_STACK_DEPTH]>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct UnwindContext<R, Section>
+struct UnwindContext<Section, R>
     where R: Reader,
           Section: UnwindSection<R>
 {
@@ -1368,11 +1368,11 @@ struct UnwindContext<R, Section>
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
-impl<R, Section> UnwindContext<R, Section>
+impl<Section, R> UnwindContext<Section, R>
     where R: Reader,
           Section: UnwindSection<R>
 {
-    fn new() -> UnwindContext<R, Section> {
+    fn new() -> UnwindContext<Section, R> {
         let mut ctx = UnwindContext {
             stack: Default::default(),
             is_initialized: false,
@@ -1523,33 +1523,33 @@ impl<R, Section> UnwindContext<R, Section>
 /// > recording just the differences starting at the beginning address of each
 /// > subroutine in the program.
 #[derive(Debug)]
-pub struct UnwindTable<'cie, 'fde, 'ctx, R, Section>
+pub struct UnwindTable<'cie, 'fde, 'ctx, Section, R>
     where R: 'cie + 'fde + 'ctx + Reader,
           Section: 'cie + 'fde + 'ctx + UnwindSection<R>
 {
-    cie: &'cie CommonInformationEntry<R, R::Offset, Section>,
+    cie: &'cie CommonInformationEntry<Section, R, R::Offset>,
     next_start_address: u64,
     returned_last_row: bool,
     instructions: CallFrameInstructionIter<R>,
-    ctx: &'ctx mut UnwindContext<R, Section>,
+    ctx: &'ctx mut UnwindContext<Section, R>,
     // If this is `None`, then we are executing a CIE's initial_instructions. If
     // this is `Some`, then we are executing an FDE's instructions.
-    fde: Option<&'fde FrameDescriptionEntry<R, R::Offset, Section>>,
+    fde: Option<&'fde FrameDescriptionEntry<Section, R, R::Offset>>,
 }
 
 /// # Signal Safe Methods
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
-impl<'fde, 'ctx, R, Section> UnwindTable<'fde, 'fde, 'ctx, R, Section>
+impl<'fde, 'ctx, Section, R> UnwindTable<'fde, 'fde, 'ctx, Section, R>
     where R: Reader,
           Section: UnwindSection<R>
 {
     /// Construct a new `UnwindTable` for the given
     /// `FrameDescriptionEntry`'s CFI unwinding program.
-    pub fn new(ctx: &'ctx mut InitializedUnwindContext<R, Section>,
-               fde: &'fde FrameDescriptionEntry<R, R::Offset, Section>)
-               -> UnwindTable<'fde, 'fde, 'ctx, R, Section> {
+    pub fn new(ctx: &'ctx mut InitializedUnwindContext<Section, R>,
+               fde: &'fde FrameDescriptionEntry<Section, R, R::Offset>)
+               -> UnwindTable<'fde, 'fde, 'ctx, Section, R> {
         assert!(ctx.0.is_initialized);
         Self::new_internal(&mut ctx.0, fde.cie(), Some(fde))
     }
@@ -1560,14 +1560,14 @@ impl<'fde, 'ctx, R, Section> UnwindTable<'fde, 'fde, 'ctx, R, Section>
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
-impl<'cie, 'fde, 'ctx, R, Section> UnwindTable<'cie, 'fde, 'ctx, R, Section>
+impl<'cie, 'fde, 'ctx, Section, R> UnwindTable<'cie, 'fde, 'ctx, Section, R>
     where R: Reader,
           Section: UnwindSection<R>
 {
-    fn new_internal(ctx: &'ctx mut UnwindContext<R, Section>,
-                    cie: &'cie CommonInformationEntry<R, R::Offset, Section>,
-                    fde: Option<&'fde FrameDescriptionEntry<R, R::Offset, Section>>)
-                    -> UnwindTable<'cie, 'fde, 'ctx, R, Section> {
+    fn new_internal(ctx: &'ctx mut UnwindContext<Section, R>,
+                    cie: &'cie CommonInformationEntry<Section, R, R::Offset>,
+                    fde: Option<&'fde FrameDescriptionEntry<Section, R, R::Offset>>)
+                    -> UnwindTable<'cie, 'fde, 'ctx, Section, R> {
         assert!(ctx.stack.len() >= 1);
         let next_start_address = fde.map_or(0, |fde| fde.initial_address);
         let instructions = fde.map_or_else(|| cie.instructions(), |fde| fde.instructions());
@@ -2627,18 +2627,18 @@ mod tests {
     use std::u64;
     use test_util::GimliSectionMethods;
 
-    type DebugFrameCie<R, O> = CommonInformationEntry<R, O, DebugFrame<R>>;
-    type DebugFrameFde<R, O> = FrameDescriptionEntry<R, O, DebugFrame<R>>;
-    type EhFrameFde<R, O> = FrameDescriptionEntry<R, O, EhFrame<R>>;
+    type DebugFrameCie<R, O = usize> = CommonInformationEntry<DebugFrame<R>, R, O>;
+    type DebugFrameFde<R, O = usize> = FrameDescriptionEntry<DebugFrame<R>, R, O>;
+    type EhFrameFde<R, O = usize> = FrameDescriptionEntry<EhFrame<R>, R, O>;
 
-    fn parse_fde<R, Section, O, F>(section: Section,
+    fn parse_fde<Section, O, F, R>(section: Section,
                                    input: &mut R,
                                    get_cie: F)
-                                   -> Result<FrameDescriptionEntry<R, R::Offset, Section>>
+                                   -> Result<FrameDescriptionEntry<Section, R, R::Offset>>
         where R: Reader,
               Section: UnwindSection<R, Offset = O>,
               O: UnwindOffset<R::Offset>,
-              F: FnMut(O) -> Result<CommonInformationEntry<R, R::Offset, Section>>
+              F: FnMut(O) -> Result<CommonInformationEntry<Section, R, R::Offset>>
     {
         let bases = Default::default();
         match parse_cfi_entry(&bases, section, input) {
@@ -2654,23 +2654,19 @@ mod tests {
         fn cie<'aug, 'input, E, T>(self,
                                    endian: Endian,
                                    augmentation: Option<&'aug str>,
-                                   cie: &mut CommonInformationEntry<EndianBuf<'input, E>,
-                                                                    usize,
-                                                                    T>)
+                                   cie: &mut CommonInformationEntry<T, EndianBuf<'input, E>>)
                                    -> Self
             where E: Endianity,
                   T: UnwindSection<EndianBuf<'input, E>>,
-                  T::Offset: UnwindOffset<usize>;
+                  T::Offset: UnwindOffset;
         fn fde<'a, 'input, E, T, L>(self,
                                     endian: Endian,
                                     cie_offset: L,
-                                    fde: &mut FrameDescriptionEntry<EndianBuf<'input, E>,
-                                                                    usize,
-                                                                    T>)
+                                    fde: &mut FrameDescriptionEntry<T, EndianBuf<'input, E>>)
                                     -> Self
             where E: Endianity,
                   T: UnwindSection<EndianBuf<'input, E>>,
-                  T::Offset: UnwindOffset<usize>,
+                  T::Offset: UnwindOffset,
                   L: ToLabelOrNum<'a, u64>;
     }
 
@@ -2678,11 +2674,11 @@ mod tests {
         fn cie<'aug, 'input, E, T>(self,
                                    endian: Endian,
                                    augmentation: Option<&'aug str>,
-                                   cie: &mut CommonInformationEntry<EndianBuf<'input, E>, usize, T>)
+                                   cie: &mut CommonInformationEntry<T, EndianBuf<'input, E>>)
                                    -> Self
             where E: Endianity,
                   T: UnwindSection<EndianBuf<'input, E>>,
-                  T::Offset: UnwindOffset<usize>
+                  T::Offset: UnwindOffset
         {
             let length = Label::new();
             let start = Label::new();
@@ -2734,11 +2730,11 @@ mod tests {
         fn fde<'a, 'input, E, T, L>(self,
                                     endian: Endian,
                                     cie_offset: L,
-                                    fde: &mut FrameDescriptionEntry<EndianBuf<'input, E>, usize, T>)
+                                    fde: &mut FrameDescriptionEntry<T, EndianBuf<'input, E>>)
                                     -> Self
             where E: Endianity,
                   T: UnwindSection<EndianBuf<'input, E>>,
-                  T::Offset: UnwindOffset<usize>,
+                  T::Offset: UnwindOffset,
                   L: ToLabelOrNum<'a, u64>
         {
             let length = Label::new();
@@ -2835,8 +2831,7 @@ mod tests {
 
     fn assert_parse_cie<'input, E>(section: Section,
                                    expected: Result<Option<(EndianBuf<'input, E>,
-                                                            DebugFrameCie<EndianBuf<'input, E>,
-                                                                          usize>)>>)
+                                                            DebugFrameCie<EndianBuf<'input, E>>)>>)
         where E: Endianity
     {
         let section = section.get_contents().unwrap();
@@ -3986,16 +3981,14 @@ mod tests {
         assert_eq!(iter.next(), Ok(None));
     }
 
-    fn assert_eval<'a, I, T>(mut initial_ctx: UnwindContext<EndianBuf<'a, LittleEndian>, T>,
-                             expected_ctx: UnwindContext<EndianBuf<'a, LittleEndian>, T>,
-                             cie: CommonInformationEntry<EndianBuf<'a, LittleEndian>, usize, T>,
-                             fde: Option<FrameDescriptionEntry<EndianBuf<'a, LittleEndian>,
-                                                               usize,
-                                                               T>>,
+    fn assert_eval<'a, I, T>(mut initial_ctx: UnwindContext<T, EndianBuf<'a, LittleEndian>>,
+                             expected_ctx: UnwindContext<T, EndianBuf<'a, LittleEndian>>,
+                             cie: CommonInformationEntry<T, EndianBuf<'a, LittleEndian>>,
+                             fde: Option<FrameDescriptionEntry<T, EndianBuf<'a, LittleEndian>>>,
                              instructions: I)
         where I: AsRef<[(Result<bool>, CallFrameInstruction<EndianBuf<'a, LittleEndian>>)]>,
               T: UnwindSection<EndianBuf<'a, LittleEndian>> + Eq,
-              T::Offset: UnwindOffset<usize>
+              T::Offset: UnwindOffset
     {
         {
             let mut table = UnwindTable::new_internal(&mut initial_ctx, &cie, fde.as_ref());
@@ -4007,11 +4000,9 @@ mod tests {
         assert_eq!(expected_ctx, initial_ctx);
     }
 
-    fn make_test_cie<'a, Section>
-        ()
-        -> CommonInformationEntry<EndianBuf<'a, LittleEndian>, usize, Section>
+    fn make_test_cie<'a, Section>() -> CommonInformationEntry<Section, EndianBuf<'a, LittleEndian>>
         where Section: UnwindSection<EndianBuf<'a, LittleEndian>>,
-              Section::Offset: UnwindOffset<usize>
+              Section::Offset: UnwindOffset
     {
         CommonInformationEntry {
             format: Format::Dwarf64,
@@ -5195,7 +5186,8 @@ mod tests {
     #[test]
     fn size_of_unwind_ctx() {
         use std::mem;
-        assert_eq!(mem::size_of::<UnwindContext<EndianBuf<NativeEndian>, EhFrame<EndianBuf<NativeEndian>>>>(),
+        assert_eq!(mem::size_of::<UnwindContext<EhFrame<EndianBuf<NativeEndian>>,
+                                                EndianBuf<NativeEndian>>>(),
                    5384);
     }
 

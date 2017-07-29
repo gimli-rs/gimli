@@ -407,7 +407,7 @@ pub fn parse_encoded_pointer<'bases, R: Reader>(encoding: constants::DwEhPe,
 
 /// An offset into the `.debug_macinfo` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugMacinfoOffset<T>(pub T);
+pub struct DebugMacinfoOffset<T = usize>(pub T);
 
 /// Whether the format of a compilation unit is 32- or 64-bit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

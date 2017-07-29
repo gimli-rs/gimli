@@ -117,7 +117,7 @@ impl<R, Parser> LookupEntryIter<R, Parser>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PubStuffHeader<T> {
+pub struct PubStuffHeader<T = usize> {
     format: Format,
     length: T,
     version: u16,

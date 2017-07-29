@@ -18,7 +18,7 @@ use Section;
 
 /// An offset into the `.debug_types` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugTypesOffset<T>(pub T);
+pub struct DebugTypesOffset<T = usize>(pub T);
 
 impl<T: ReaderOffset> DebugTypesOffset<T> {
     /// Convert an offset to be relative to the start of the given unit,
@@ -44,7 +44,7 @@ pub struct DebugTypeSignature(pub u64);
 
 /// An offset into the `.debug_info` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugInfoOffset<T>(pub T);
+pub struct DebugInfoOffset<T = usize>(pub T);
 
 impl<T: ReaderOffset> DebugInfoOffset<T> {
     /// Convert an offset to be relative to the start of the given unit,
@@ -68,7 +68,7 @@ impl<T: ReaderOffset> DebugInfoOffset<T> {
 
 /// An offset into the current compilation or type unit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub struct UnitOffset<T>(pub T);
+pub struct UnitOffset<T = usize>(pub T);
 
 impl<T: ReaderOffset> UnitOffset<T> {
     /// Convert an offset to be relative to the start of the .debug_info section,
@@ -213,7 +213,7 @@ impl<R: Reader> FallibleIterator for CompilationUnitHeadersIter<R> {
 
 /// The header of a compilation unit's debugging information.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CompilationUnitHeader<R, Offset>
+pub struct CompilationUnitHeader<R, Offset = usize>
     where R: Reader<Offset = Offset>,
           Offset: ReaderOffset
 {
@@ -423,7 +423,7 @@ pub fn parse_debug_info_offset<R: Reader>(input: &mut R,
 /// The common fields for the headers of compilation units and
 /// type units.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UnitHeader<R, Offset>
+pub struct UnitHeader<R, Offset = usize>
     where R: Reader<Offset = Offset>,
           Offset: ReaderOffset
 {
@@ -646,7 +646,7 @@ fn parse_unit_header<R: Reader>(input: &mut R) -> Result<UnitHeader<R, R::Offset
 ///
 /// DIEs have a set of attributes and optionally have children DIEs as well.
 #[derive(Clone, Debug)]
-pub struct DebuggingInformationEntry<'abbrev, 'unit, R, Offset>
+pub struct DebuggingInformationEntry<'abbrev, 'unit, R, Offset = usize>
     where R: Reader<Offset = Offset> + 'unit,
           Offset: ReaderOffset + 'unit
 {
@@ -2509,7 +2509,7 @@ impl<R: Reader> FallibleIterator for TypeUnitHeadersIter<R> {
 
 /// The header of a type unit's debugging information.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TypeUnitHeader<R, Offset>
+pub struct TypeUnitHeader<R, Offset = usize>
     where R: Reader<Offset = Offset>,
           Offset: ReaderOffset
 {
@@ -2749,15 +2749,13 @@ mod tests {
 
     trait UnitSectionMethods {
         fn comp_unit<'input, E>(self,
-                                unit: &mut CompilationUnitHeader<EndianBuf<'input, E>, usize>)
+                                unit: &mut CompilationUnitHeader<EndianBuf<'input, E>>)
                                 -> Self
             where E: Endianity;
-        fn type_unit<'input, E>(self,
-                                unit: &mut TypeUnitHeader<EndianBuf<'input, E>, usize>)
-                                -> Self
+        fn type_unit<'input, E>(self, unit: &mut TypeUnitHeader<EndianBuf<'input, E>>) -> Self
             where E: Endianity;
         fn unit<'input, E>(self,
-                           unit: &mut UnitHeader<EndianBuf<'input, E>, usize>,
+                           unit: &mut UnitHeader<EndianBuf<'input, E>>,
                            extra_header: &[u8])
                            -> Self
             where E: Endianity;
@@ -2770,7 +2768,7 @@ mod tests {
 
     impl UnitSectionMethods for Section {
         fn comp_unit<'input, E>(self,
-                                unit: &mut CompilationUnitHeader<EndianBuf<'input, E>, usize>)
+                                unit: &mut CompilationUnitHeader<EndianBuf<'input, E>>)
                                 -> Self
             where E: Endianity
         {
@@ -2778,9 +2776,7 @@ mod tests {
             self.unit(&mut unit.header, &[])
         }
 
-        fn type_unit<'input, E>(self,
-                                unit: &mut TypeUnitHeader<EndianBuf<'input, E>, usize>)
-                                -> Self
+        fn type_unit<'input, E>(self, unit: &mut TypeUnitHeader<EndianBuf<'input, E>>) -> Self
             where E: Endianity
         {
             unit.offset = DebugTypesOffset(self.size() as usize);
@@ -2792,7 +2788,7 @@ mod tests {
         }
 
         fn unit<'input, E>(self,
-                           unit: &mut UnitHeader<EndianBuf<'input, E>, usize>,
+                           unit: &mut UnitHeader<EndianBuf<'input, E>>,
                            extra_header: &[u8])
                            -> Self
             where E: Endianity
@@ -3232,7 +3228,7 @@ mod tests {
     fn test_parse_attribute_unit<Endian>(address_size: u8,
                                          format: Format,
                                          endian: Endian)
-                                         -> UnitHeader<EndianBuf<'static, Endian>, usize>
+                                         -> UnitHeader<EndianBuf<'static, Endian>>
         where Endian: Endianity
     {
         UnitHeader::new(7,
@@ -3243,13 +3239,13 @@ mod tests {
                         EndianBuf::new(&[], endian))
     }
 
-    fn test_parse_attribute_unit_default() -> UnitHeader<EndianBuf<'static, LittleEndian>, usize> {
+    fn test_parse_attribute_unit_default() -> UnitHeader<EndianBuf<'static, LittleEndian>> {
         test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian)
     }
 
     fn test_parse_attribute<'input, Endian>(buf: &'input [u8],
                                             len: usize,
-                                            unit: &UnitHeader<EndianBuf<'input, Endian>, usize>,
+                                            unit: &UnitHeader<EndianBuf<'input, Endian>>,
                                             form: constants::DwForm,
                                             value: AttributeValue<EndianBuf<'input, Endian>>)
         where Endian: Endianity
@@ -3759,8 +3755,7 @@ mod tests {
         assert!(entry.attrs_len.get().is_none());
     }
 
-    fn assert_entry_name<Endian>(entry: &DebuggingInformationEntry<EndianBuf<Endian>, usize>,
-                                 name: &str)
+    fn assert_entry_name<Endian>(entry: &DebuggingInformationEntry<EndianBuf<Endian>>, name: &str)
         where Endian: Endianity
     {
         let value = entry
@@ -4329,7 +4324,7 @@ mod tests {
     }
 
     #[cfg_attr(rustfmt, rustfmt_skip)]
-    fn entries_tree_tests_debug_info_buf(header_size: usize) -> (Vec<u8>, UnitOffset<usize>) {
+    fn entries_tree_tests_debug_info_buf(header_size: usize) -> (Vec<u8>, UnitOffset) {
         let start = Label::new();
         let entry2 = Label::new();
         let section = Section::with_endian(Endian::Little)

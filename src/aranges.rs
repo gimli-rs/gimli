@@ -9,7 +9,7 @@ use std::marker::PhantomData;
 use Section;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ArangeHeader<T> {
+struct ArangeHeader<T = usize> {
     format: Format,
     length: T,
     version: u16,
@@ -20,7 +20,7 @@ struct ArangeHeader<T> {
 
 /// A single parsed arange.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ArangeEntry<T: Copy> {
+pub struct ArangeEntry<T: Copy = usize> {
     segment: Option<u64>,
     address: u64,
     length: u64,

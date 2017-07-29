@@ -6,7 +6,7 @@ use Section;
 
 /// An offset into the `.debug_ranges` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugRangesOffset<T>(pub T);
+pub struct DebugRangesOffset<T = usize>(pub T);
 
 /// The `DebugRanges` struct represents the DWARF strings
 /// found in the `.debug_ranges` section.
