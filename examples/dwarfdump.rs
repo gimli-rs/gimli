@@ -8,7 +8,6 @@ extern crate memmap;
 extern crate object;
 
 use fallible_iterator::FallibleIterator;
-use object::Object;
 use std::env;
 use std::io;
 use std::io::Write;
