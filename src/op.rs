@@ -9,7 +9,7 @@ use std::mem;
 /// A reference to a DIE, either relative to the current CU or
 /// relative to the section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DieReference<T> {
+pub enum DieReference<T = usize> {
     /// A CU-relative reference.
     UnitRef(UnitOffset<T>),
     /// A section-relative reference.
@@ -28,7 +28,7 @@ pub enum DieReference<T> {
 /// example, both `DW_OP_deref` and `DW_OP_xderef` are represented
 /// using `Operation::Deref`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Operation<R, Offset>
+pub enum Operation<R, Offset = usize>
     where R: Reader<Offset = Offset>,
           Offset: ReaderOffset
 {
@@ -223,7 +223,7 @@ enum OperationEvaluationResult<R: Reader> {
 
 /// A single location of a piece of the result of a DWARF expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Location<R, Offset>
+pub enum Location<R, Offset = usize>
     where R: Reader<Offset = Offset>,
           Offset: ReaderOffset
 {
@@ -275,7 +275,7 @@ impl<R, Offset> Location<R, Offset>
 /// The description of a single piece of the result of a DWARF
 /// expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Piece<R, Offset>
+pub struct Piece<R, Offset = usize>
     where R: Reader<Offset = Offset>,
           Offset: ReaderOffset
 {
@@ -1763,7 +1763,7 @@ mod tests {
     }
 
     fn check_op_parse_simple<'input>(input: &'input [u8],
-                                     expect: &Operation<EndianBuf<'input, LittleEndian>, usize>,
+                                     expect: &Operation<EndianBuf<'input, LittleEndian>>,
                                      address_size: u8,
                                      format: Format) {
         let buf = EndianBuf::new(input, LittleEndian);
@@ -1791,7 +1791,7 @@ mod tests {
     }
 
     fn check_op_parse<F>(input: F,
-                         expect: &Operation<EndianBuf<LittleEndian>, usize>,
+                         expect: &Operation<EndianBuf<LittleEndian>>,
                          address_size: u8,
                          format: Format)
         where F: Fn(Section) -> Section
@@ -2345,7 +2345,7 @@ mod tests {
     }
 
     fn check_eval_with_args<F>(program: &[AssemblerEntry],
-                               expect: Result<&[Piece<EndianBuf<LittleEndian>, usize>]>,
+                               expect: Result<&[Piece<EndianBuf<LittleEndian>>]>,
                                address_size: u8,
                                format: Format,
                                object_address: Option<u64>,
@@ -2392,7 +2392,7 @@ mod tests {
     }
 
     fn check_eval(program: &[AssemblerEntry],
-                  expect: Result<&[Piece<EndianBuf<LittleEndian>, usize>]>,
+                  expect: Result<&[Piece<EndianBuf<LittleEndian>>]>,
                   address_size: u8,
                   format: Format) {
 

@@ -147,7 +147,7 @@ fn bench_parsing_debug_pubtypes(b: &mut test::Bencher) {
 // We happen to know that there is a line number program and header at
 // offset 0 and that address size is 8 bytes. No need to parse DIEs to grab
 // this info off of the compilation units.
-const OFFSET: DebugLineOffset<usize> = DebugLineOffset(0);
+const OFFSET: DebugLineOffset = DebugLineOffset(0);
 const ADDRESS_SIZE: u8 = 8;
 
 #[bench]
@@ -572,7 +572,7 @@ mod cfi {
         });
     }
 
-    fn instrs_len<R: Reader>(fde: &FrameDescriptionEntry<R, R::Offset, EhFrame<R>>) -> usize {
+    fn instrs_len<R: Reader>(fde: &FrameDescriptionEntry<EhFrame<R>, R, R::Offset>) -> usize {
         fde.instructions()
             .fold(0, |count, _| count + 1)
             .expect("fold over instructions OK")
@@ -580,7 +580,7 @@ mod cfi {
 
     fn get_fde_with_longest_cfi_instructions<R: Reader>
         (eh_frame: &EhFrame<R>)
-         -> FrameDescriptionEntry<R, R::Offset, EhFrame<R>> {
+         -> FrameDescriptionEntry<EhFrame<R>, R, R::Offset> {
         let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
 
         let mut longest: Option<(usize, FrameDescriptionEntry<_, _, _>)> = None;

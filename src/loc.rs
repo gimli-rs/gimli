@@ -8,7 +8,7 @@ use Section;
 
 /// An offset into the `.debug_loc` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugLocOffset<T>(pub T);
+pub struct DebugLocOffset<T = usize>(pub T);
 
 /// The `DebugLoc` struct represents the DWARF strings
 /// found in the `.debug_loc` section.

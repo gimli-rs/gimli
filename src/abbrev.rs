@@ -10,7 +10,7 @@ use Section;
 
 /// An offset into the `.debug_abbrev` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugAbbrevOffset<T>(pub T);
+pub struct DebugAbbrevOffset<T = usize>(pub T);
 
 /// The `DebugAbbrev` struct represents the abbreviations describing
 /// `DebuggingInformationEntry`s' attribute names and forms found in the
