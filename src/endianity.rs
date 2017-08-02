@@ -401,8 +401,8 @@ impl<'input, Endian> Reader for EndianBuf<'input, Endian>
     }
 
     #[inline]
-    fn find(&self, byte: u8) -> Option<usize> {
-        self.find(byte)
+    fn find(&self, byte: u8) -> Result<usize> {
+        self.find(byte).ok_or(Error::UnexpectedEof)
     }
 
     #[inline]
@@ -422,21 +422,21 @@ impl<'input, Endian> Reader for EndianBuf<'input, Endian>
     }
 
     #[inline]
-    fn to_slice(&self) -> Cow<[u8]> {
-        Cow::from(self.buf)
+    fn to_slice(&self) -> Result<Cow<[u8]>> {
+        Ok(self.buf.into())
     }
 
     #[inline]
     fn to_string(&self) -> Result<Cow<str>> {
         match str::from_utf8(self.buf) {
-            Ok(s) => Ok(Cow::from(s)),
+            Ok(s) => Ok(s.into()),
             _ => Err(Error::BadUtf8),
         }
     }
 
     #[inline]
-    fn to_string_lossy(&self) -> Cow<str> {
-        String::from_utf8_lossy(self.buf)
+    fn to_string_lossy(&self) -> Result<Cow<str>> {
+        Ok(String::from_utf8_lossy(self.buf))
     }
 
     #[inline]
