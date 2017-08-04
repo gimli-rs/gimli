@@ -244,7 +244,7 @@ struct Unit<R: Reader> {
 }
 
 #[allow(too_many_arguments)]
-fn dump_entries<R: Reader>(offset: usize,
+fn dump_entries<R: Reader>(offset: R::Offset,
                            mut entries: gimli::EntriesCursor<R>,
                            address_size: u8,
                            format: gimli::Format,
@@ -337,7 +337,7 @@ fn dump_attr_value<R: Reader>(attr: &gimli::Attribute<R>,
             println!("0x{:08x}", address);
         }
         gimli::AttributeValue::Block(data) => {
-            for byte in data.to_slice().iter() {
+            for byte in data.to_slice().unwrap().iter() {
                 print!("{:02x}", byte);
             }
             println!("");
@@ -400,7 +400,7 @@ fn dump_attr_value<R: Reader>(attr: &gimli::Attribute<R>,
         gimli::AttributeValue::Exprloc(ref data) => {
             if let gimli::AttributeValue::Exprloc(_) = attr.raw_value() {
                 print!("len 0x{:04x}: ", data.0.len());
-                for byte in data.0.to_slice().iter() {
+                for byte in data.0.to_slice().unwrap().iter() {
                     print!("{:02x}", byte);
                 }
                 print!(": ");
@@ -443,13 +443,13 @@ fn dump_attr_value<R: Reader>(attr: &gimli::Attribute<R>,
         }
         gimli::AttributeValue::DebugStrRef(offset) => {
             if let Ok(s) = debug_str.get_str(offset) {
-                println!("{}", s.to_string_lossy());
+                println!("{}", s.to_string_lossy().unwrap());
             } else {
                 println!("{:?}", value);
             }
         }
         gimli::AttributeValue::String(s) => {
-            println!("{}", s.to_string_lossy());
+            println!("{}", s.to_string_lossy().unwrap());
         }
         gimli::AttributeValue::Encoding(value) => {
             println!("{}", value);
@@ -518,15 +518,15 @@ fn dump_file_index<R: Reader>(file: u64, unit: &Unit<R>) {
     let file = header.file(file).expect("File index should be valid");
     print!(" ");
     if let Some(directory) = file.directory(header) {
-        let directory = directory.to_string_lossy();
+        let directory = directory.to_string_lossy().unwrap();
         if !directory.starts_with('/') {
             if let Some(ref comp_dir) = unit.comp_dir {
-                print!("{}/", comp_dir.to_string_lossy());
+                print!("{}/", comp_dir.to_string_lossy().unwrap());
             }
         }
         print!("{}/", directory);
     }
-    print!("{}", file.path_name().to_string_lossy());
+    print!("{}", file.path_name().to_string_lossy().unwrap());
 }
 
 fn dump_exprloc<R: Reader>(data: &gimli::Expression<R>, unit: &Unit<R>) {
@@ -636,7 +636,7 @@ fn dump_op<R: Reader>(dwop: gimli::DwOp, op: gimli::Operation<R, R::Offset>, new
             print!(" 0x{:08x} offset 0x{:08x}", size_in_bits, bit_offset);
         }
         gimli::Operation::ImplicitValue { data } => {
-            let data = data.to_slice();
+            let data = data.to_slice().unwrap();
             print!(" 0x{:08x} contents 0x", data.len());
             for byte in data.iter() {
                 print!("{:02x}", byte);
@@ -647,7 +647,7 @@ fn dump_op<R: Reader>(dwop: gimli::DwOp, op: gimli::Operation<R, R::Offset>, new
         }
         gimli::Operation::EntryValue { expression } => {
             print!(" 0x{:08x} contents 0x", expression.len());
-            for byte in expression.to_slice().iter() {
+            for byte in expression.to_slice().unwrap().iter() {
                 print!("{:02x}", byte);
             }
         }
@@ -785,6 +785,7 @@ fn dump_line<R: Reader>(debug_line: &gimli::DebugLine<R>,
                 for (i, length) in header
                         .standard_opcode_lengths()
                         .to_slice()
+                        .unwrap()
                         .iter()
                         .enumerate() {
                     println!("  Opcode {} as {} args", i + 1, length);
@@ -793,7 +794,7 @@ fn dump_line<R: Reader>(debug_line: &gimli::DebugLine<R>,
                 println!("");
                 println!("The Directory Table:");
                 for (i, dir) in header.include_directories().iter().enumerate() {
-                    println!("  {} {}", i + 1, dir.to_string_lossy());
+                    println!("  {} {}", i + 1, dir.to_string_lossy().unwrap());
                 }
 
                 println!("");
@@ -805,7 +806,7 @@ fn dump_line<R: Reader>(debug_line: &gimli::DebugLine<R>,
                              file.directory_index(),
                              file.last_modification(),
                              file.length(),
-                             file.path_name().to_string_lossy());
+                             file.path_name().to_string_lossy().unwrap());
                 }
 
                 println!("");
@@ -856,10 +857,10 @@ fn dump_line<R: Reader>(debug_line: &gimli::DebugLine<R>,
                     if let Some(file) = row.file(header) {
                         if let Some(directory) = file.directory(header) {
                             print!(" uri: \"{}/{}\"",
-                                   directory.to_string_lossy(),
-                                   file.path_name().to_string_lossy());
+                                   directory.to_string_lossy().unwrap(),
+                                   file.path_name().to_string_lossy().unwrap());
                         } else {
-                            print!(" uri: \"{}\"", file.path_name().to_string_lossy());
+                            print!(" uri: \"{}\"", file.path_name().to_string_lossy().unwrap());
                         }
                     }
                 }
@@ -893,7 +894,7 @@ fn dump_pubnames<R: Reader>(debug_pubnames: &gimli::DebugPubNames<R>,
                  cu_die_offset.0,
                  die_in_cu.0,
                  cu_offset.0,
-                 pubname.name().to_string_lossy())
+                 pubname.name().to_string_lossy().unwrap())
     }
 }
 
@@ -921,7 +922,7 @@ fn dump_pubtypes<R: Reader>(debug_pubtypes: &gimli::DebugPubTypes<R>,
                  cu_die_offset.0,
                  die_in_cu.0,
                  cu_offset.0,
-                 pubtype.name().to_string_lossy())
+                 pubtype.name().to_string_lossy().unwrap())
     }
 }
 

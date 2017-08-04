@@ -210,7 +210,7 @@ pub trait Reader: Debug + Clone {
 
     /// Find the index of the first occurence of the given byte.
     /// The offset of the reader is not changed.
-    fn find(&self, byte: u8) -> Option<Self::Offset>;
+    fn find(&self, byte: u8) -> Result<Self::Offset>;
 
     /// Discard the specified number of bytes.
     fn skip(&mut self, len: Self::Offset) -> Result<()>;
@@ -227,7 +227,7 @@ pub trait Reader: Debug + Clone {
     /// always return an owned vector.
     ///
     /// Does not advance the reader.
-    fn to_slice(&self) -> Cow<[u8]>;
+    fn to_slice(&self) -> Result<Cow<[u8]>>;
 
     /// Convert all remaining data to a clone-on-write string.
     ///
@@ -245,7 +245,7 @@ pub trait Reader: Debug + Clone {
     /// always return an owned string.
     ///
     /// Does not advance the reader.
-    fn to_string_lossy(&self) -> Cow<str>;
+    fn to_string_lossy(&self) -> Result<Cow<str>>;
 
     /// Read a u8 array.
     fn read_u8_array<A>(&mut self) -> Result<A> where A: Sized + Default + AsMut<[u8]>;
@@ -276,13 +276,10 @@ pub trait Reader: Debug + Clone {
 
     /// Read a null-terminated slice, and return it (excluding the null).
     fn read_null_terminated_slice(&mut self) -> Result<Self> {
-        if let Some(idx) = self.find(0) {
-            let val = self.split(idx)?;
-            self.skip(Self::Offset::from_u8(1))?;
-            Ok(val)
-        } else {
-            Err(Error::UnexpectedEof)
-        }
+        let idx = self.find(0)?;
+        let val = self.split(idx)?;
+        self.skip(Self::Offset::from_u8(1))?;
+        Ok(val)
     }
 
     /// Read an unsigned LEB128 encoded integer.

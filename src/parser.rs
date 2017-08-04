@@ -2,6 +2,7 @@
 
 use std::error;
 use std::fmt::{self, Debug};
+use std::io;
 use std::result;
 use cfi::BaseAddresses;
 use constants;
@@ -10,6 +11,8 @@ use reader::{Reader, ReaderOffset};
 /// An error that occurred when parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
+    /// An I/O error occurred while reading.
+    Io,
     /// Found a CFI relative pointer, but the CFI base is undefined.
     CfiRelativePointerButCfiBaseIsUndefined,
     /// Found a `.text` relative pointer, but the `.text` base is undefined.
@@ -138,6 +141,7 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn description(&self) -> &str {
         match *self {
+            Error::Io => "An I/O error occurred while reading.",
             Error::CfiRelativePointerButCfiBaseIsUndefined => {
                 "Found a CFI relative pointer, but the CFI base is undefined."
             }
@@ -240,6 +244,12 @@ impl error::Error for Error {
                 "Attempted to push onto the CFI stack, but it was already at full capacity."
             }
         }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(_: io::Error) -> Self {
+        Error::Io
     }
 }
 
