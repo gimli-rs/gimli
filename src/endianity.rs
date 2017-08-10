@@ -241,6 +241,14 @@ impl<'input, Endian> EndianBuf<'input, Endian>
         ptr - base_ptr
     }
 
+    /// Converts the buffer to a string using `str::from_utf8`.
+    ///
+    /// Returns an error if the buffer contains invalid characters.
+    #[inline]
+    pub fn to_string(&self) -> Result<&'input str> {
+        str::from_utf8(self.buf).map_err(|_| Error::BadUtf8)
+    }
+
     /// Converts the buffer to a string, including invalid characters,
     /// using `String::from_utf8_lossy`.
     #[inline]
