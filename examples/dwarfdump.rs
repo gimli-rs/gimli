@@ -729,7 +729,8 @@ fn dump_op<R: Reader>(dwop: gimli::DwOp, op: gimli::Operation<R, R::Offset>, new
             }
         }
         _ => {}
-    }
+    };
+    Ok(())
 }
 
 fn dump_loc_list<R: Reader>(debug_loc: &gimli::DebugLoc<R>,
