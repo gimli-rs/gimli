@@ -20,7 +20,6 @@ use std::fmt::{self, Debug};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     GimliError(gimli::Error),
-    MissingFileIndex,
     IoError,
     MissingDIE,
 }
@@ -36,7 +35,6 @@ impl error::Error for Error {
     fn description(&self) -> &str {
         match *self {
             Error::GimliError(ref err) => err.description(),
-            Error::MissingFileIndex => "Expected a file index but none was found",
             Error::IoError => "An I/O error occurred while reading.",
             Error::MissingDIE => "Expected a DIE but none was found",
         }
@@ -386,7 +384,10 @@ fn dump_entries<R: Reader>(offset: R::Offset,
             if flags.raw {
                 println!("{:?}", attr.raw_value());
             } else {
-                dump_attr_value(&attr, &unit, debug_loc, debug_ranges, debug_str)?;
+                match dump_attr_value(&attr, &unit, debug_loc, debug_ranges, debug_str) {
+                    Ok(_) => (),
+                    Err(ref err) => println!("Failed to dump attribute value: {}", error::Error::description(err)),
+                };
             }
         }
     }
@@ -584,7 +585,13 @@ fn dump_file_index<R: Reader>(file: u64, unit: &Unit<R>) -> Result<()> {
         Some(ref program) => program.header(),
         None => return Ok(()),
     };
-    let file = header.file(file).ok_or(Error::MissingFileIndex)?;
+    let file = match header.file(file) {
+        Some(header) => header,
+        None => {
+            println!("Unable to get header for file {}", file);
+            return Ok(())
+        },
+    };
     print!(" ");
     if let Some(directory) = file.directory(header) {
         let directory = directory.to_string_lossy()?;
