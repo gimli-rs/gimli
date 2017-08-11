@@ -21,6 +21,7 @@ use std::fmt::{self, Debug};
 pub enum Error {
     GimliError(gimli::Error),
     MissingFileIndex,
+    IoError,
     MissingDIE,
 }
 
@@ -36,6 +37,7 @@ impl error::Error for Error {
         match *self {
             Error::GimliError(ref err) => err.description(),
             Error::MissingFileIndex => "Expected a file index but none was found",
+            Error::IoError => "An I/O error occurred while reading.",
             Error::MissingDIE => "Expected a DIE but none was found",
         }
     }
@@ -51,6 +53,12 @@ impl error::Error for Error {
 impl From<gimli::Error> for Error {
     fn from(err: gimli::Error) -> Self {
         Error::GimliError(err)
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(_: io::Error) -> Self {
+        Error::IoError
     }
 }
 
@@ -396,7 +404,7 @@ fn dump_attr_value<R: Reader>(attr: &gimli::Attribute<R>,
             println!("0x{:08x}", address);
         }
         gimli::AttributeValue::Block(data) => {
-            for byte in data.to_slice().unwrap().iter() {
+            for byte in data.to_slice()?.iter() {
                 print!("{:02x}", byte);
             }
             println!("");
@@ -459,7 +467,7 @@ fn dump_attr_value<R: Reader>(attr: &gimli::Attribute<R>,
         gimli::AttributeValue::Exprloc(ref data) => {
             if let gimli::AttributeValue::Exprloc(_) = attr.raw_value() {
                 print!("len 0x{:04x}: ", data.0.len());
-                for byte in data.0.to_slice().unwrap().iter() {
+                for byte in data.0.to_slice()?.iter() {
                     print!("{:02x}", byte);
                 }
                 print!(": ");
@@ -502,13 +510,13 @@ fn dump_attr_value<R: Reader>(attr: &gimli::Attribute<R>,
         }
         gimli::AttributeValue::DebugStrRef(offset) => {
             if let Ok(s) = debug_str.get_str(offset) {
-                println!("{}", s.to_string_lossy().unwrap());
+                println!("{}", s.to_string_lossy()?);
             } else {
                 println!("{:?}", value);
             }
         }
         gimli::AttributeValue::String(s) => {
-            println!("{}", s.to_string_lossy().unwrap());
+            println!("{}", s.to_string_lossy()?);
         }
         gimli::AttributeValue::Encoding(value) => {
             println!("{}", value);
@@ -609,8 +617,7 @@ fn dump_exprloc<R: Reader>(data: &gimli::Expression<R>, unit: &Unit<R>) -> Resul
             Err(gimli::Error::InvalidExpression(op)) => {
                 writeln!(&mut std::io::stderr(),
                          "WARNING: unsupported operation 0x{:02x}",
-                         op.0)
-                    .unwrap();
+                         op.0)?;
                 return Ok(());
             }
             otherwise => panic!("Unexpected Operation::parse result: {:?}", otherwise),
@@ -843,8 +850,7 @@ fn dump_line<R: Reader>(debug_line: &gimli::DebugLine<R>,
                 println!("Opcodes:");
                 for (i, length) in header
                         .standard_opcode_lengths()
-                        .to_slice()
-                        .unwrap()
+                        .to_slice()?
                         .iter()
                         .enumerate() {
                     println!("  Opcode {} as {} args", i + 1, length);
@@ -853,7 +859,7 @@ fn dump_line<R: Reader>(debug_line: &gimli::DebugLine<R>,
                 println!("");
                 println!("The Directory Table:");
                 for (i, dir) in header.include_directories().iter().enumerate() {
-                    println!("  {} {}", i + 1, dir.to_string_lossy().unwrap());
+                    println!("  {} {}", i + 1, dir.to_string_lossy()?);
                 }
 
                 println!("");
@@ -865,7 +871,7 @@ fn dump_line<R: Reader>(debug_line: &gimli::DebugLine<R>,
                              file.directory_index(),
                              file.last_modification(),
                              file.length(),
-                             file.path_name().to_string_lossy().unwrap());
+                             file.path_name().to_string_lossy()?);
                 }
 
                 println!("");
@@ -915,10 +921,10 @@ fn dump_line<R: Reader>(debug_line: &gimli::DebugLine<R>,
                     if let Some(file) = row.file(header) {
                         if let Some(directory) = file.directory(header) {
                             print!(" uri: \"{}/{}\"",
-                                   directory.to_string_lossy().unwrap(),
-                                   file.path_name().to_string_lossy().unwrap());
+                                   directory.to_string_lossy()?,
+                                   file.path_name().to_string_lossy()?);
                         } else {
-                            print!(" uri: \"{}\"", file.path_name().to_string_lossy().unwrap());
+                            print!(" uri: \"{}\"", file.path_name().to_string_lossy()?);
                         }
                     }
                 }
@@ -952,7 +958,7 @@ fn dump_pubnames<R: Reader>(debug_pubnames: &gimli::DebugPubNames<R>,
                  cu_die_offset.0,
                  die_in_cu.0,
                  cu_offset.0,
-                 pubname.name().to_string_lossy().unwrap())
+                 pubname.name().to_string_lossy()?)
     }
     Ok(())
 }
@@ -980,7 +986,7 @@ fn dump_pubtypes<R: Reader>(debug_pubtypes: &gimli::DebugPubTypes<R>,
                  cu_die_offset.0,
                  die_in_cu.0,
                  cu_offset.0,
-                 pubtype.name().to_string_lossy().unwrap())
+                 pubtype.name().to_string_lossy()?)
     }
     Ok(())
 }
