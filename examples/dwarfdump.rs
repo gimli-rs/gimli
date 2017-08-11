@@ -619,7 +619,7 @@ fn dump_exprloc<R: Reader>(data: &gimli::Expression<R>, unit: &Unit<R>) -> Resul
                 } else {
                     space = true;
                 }
-                dump_op(dwop, op, &pc);
+                dump_op(dwop, op, &pc)?;
             }
             Err(gimli::Error::InvalidExpression(op)) => {
                 writeln!(&mut std::io::stderr(),
@@ -633,7 +633,7 @@ fn dump_exprloc<R: Reader>(data: &gimli::Expression<R>, unit: &Unit<R>) -> Resul
     Ok(())
 }
 
-fn dump_op<R: Reader>(dwop: gimli::DwOp, op: gimli::Operation<R, R::Offset>, newpc: &R) {
+fn dump_op<R: Reader>(dwop: gimli::DwOp, op: gimli::Operation<R, R::Offset>, newpc: &R) -> Result<()> {
     print!("{}", dwop);
     match op {
         gimli::Operation::Deref { size, .. } => {
@@ -713,7 +713,7 @@ fn dump_op<R: Reader>(dwop: gimli::DwOp, op: gimli::Operation<R, R::Offset>, new
             print!(" 0x{:08x} offset 0x{:08x}", size_in_bits, bit_offset);
         }
         gimli::Operation::ImplicitValue { data } => {
-            let data = data.to_slice().unwrap();
+            let data = data.to_slice()?;
             print!(" 0x{:08x} contents 0x", data.len());
             for byte in data.iter() {
                 print!("{:02x}", byte);
@@ -724,7 +724,7 @@ fn dump_op<R: Reader>(dwop: gimli::DwOp, op: gimli::Operation<R, R::Offset>, new
         }
         gimli::Operation::EntryValue { expression } => {
             print!(" 0x{:08x} contents 0x", expression.len());
-            for byte in expression.to_slice().unwrap().iter() {
+            for byte in expression.to_slice()?.iter() {
                 print!("{:02x}", byte);
             }
         }
