@@ -247,9 +247,15 @@ fn dump_info<R: Reader>(debug_info: &gimli::DebugInfo<R>,
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next()? {
-        let abbrevs = unit.abbreviations(debug_abbrev)?;
+        let abbrevs = match unit.abbreviations(debug_abbrev) {
+            Ok(abbrevs) => abbrevs,
+            Err(err) => {
+                println!("Failed to parse abbreviations: {}", error::Error::description(&err));
+                continue
+            }
+        };
 
-        dump_entries(unit.offset().0,
+        let entries_result = dump_entries(unit.offset().0,
                      unit.entries(&abbrevs),
                      unit.address_size(),
                      unit.format(),
@@ -258,7 +264,10 @@ fn dump_info<R: Reader>(debug_info: &gimli::DebugInfo<R>,
                      debug_ranges,
                      debug_str,
                      endian,
-                     flags)?;
+                     flags);
+        if let Err(err) = entries_result {
+            println!("Failed to dump entries: {}", error::Error::description(&err));
+        };
     }
     Ok(())
 }
@@ -276,7 +285,13 @@ fn dump_types<R: Reader>(debug_types: &gimli::DebugTypes<R>,
 
     let mut iter = debug_types.units();
     while let Some(unit) = iter.next()? {
-        let abbrevs = unit.abbreviations(debug_abbrev)?;
+        let abbrevs = match unit.abbreviations(debug_abbrev) {
+            Ok(abbrevs) => abbrevs,
+            Err(err) => {
+                println!("Failed to parse abbreviations: {}", error::Error::description(&err));
+                continue
+            }
+        };
 
         println!("\nCU_HEADER:");
         print!("  signature        = ");
@@ -286,7 +301,7 @@ fn dump_types<R: Reader>(debug_types: &gimli::DebugTypes<R>,
                  unit.type_offset().0,
                  unit.type_offset().0);
 
-        dump_entries(unit.offset().0,
+        let entries_result = dump_entries(unit.offset().0,
                      unit.entries(&abbrevs),
                      unit.address_size(),
                      unit.format(),
@@ -295,7 +310,10 @@ fn dump_types<R: Reader>(debug_types: &gimli::DebugTypes<R>,
                      debug_ranges,
                      debug_str,
                      endian,
-                     flags)?;
+                     flags);
+        if let Err(err) = entries_result {
+            println!("Failed to dump entries: {}", error::Error::description(&err))
+        }
     }
     Ok(())
 }
