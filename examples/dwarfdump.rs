@@ -13,6 +13,54 @@ use std::io;
 use std::io::Write;
 use std::fs;
 use std::process;
+use std::error;
+use std::result;
+use std::fmt::{self, Debug};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Error {
+    GimliError(gimli::Error),
+    IoError,
+    MissingDIE,
+}
+
+impl fmt::Display for Error {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
+        Debug::fmt(self, f)
+    }
+}
+
+impl error::Error for Error {
+    fn description(&self) -> &str {
+        match *self {
+            Error::GimliError(ref err) => err.description(),
+            Error::IoError => "An I/O error occurred while reading.",
+            Error::MissingDIE => "Expected a DIE but none was found",
+        }
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        match *self {
+            Error::GimliError(ref err) => Some(err),
+            _ => None
+        }
+    }
+}
+
+impl From<gimli::Error> for Error {
+    fn from(err: gimli::Error) -> Self {
+        Error::GimliError(err)
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(_: io::Error) -> Self {
+        Error::IoError
+    }
+}
+
+pub type Result<T> = result::Result<T, Error>;
 
 trait Reader: gimli::Reader<Offset = usize> {}
 
@@ -93,22 +141,41 @@ fn main() {
             println!("");
         }
 
-        let file = fs::File::open(&file_path).expect("Should open file");
-        let file = memmap::Mmap::open(&file, memmap::Protection::Read)
-            .expect("Should create a mmap for file");
-        let file = object::File::parse(unsafe { file.as_slice() })
-            .expect("Should parse object file");
+        let file = match fs::File::open(&file_path) {
+            Ok(file) => file,
+            Err(err) => {
+                println!("Failed to open file '{}': {}", file_path, error::Error::description(&err));
+                continue
+            }
+        };
+        let file = match memmap::Mmap::open(&file, memmap::Protection::Read) {
+            Ok(mmap) => mmap,
+            Err(err) => {
+                println!("Failed to map file '{}': {}", file_path, error::Error::description(&err));
+                continue
+            }
+        };
+        let file = match object::File::parse(unsafe { file.as_slice() }) {
+            Ok(file) => file,
+            Err(err) => {
+                println!("Failed to parse file '{}': {}", file_path, err);
+                continue
+            }
+        };
 
         let endian = if file.is_little_endian() {
             gimli::RunTimeEndian::Little
         } else {
             gimli::RunTimeEndian::Big
         };
-        dump_file(&file, endian, &flags);
+        match dump_file(&file, endian, &flags) {
+            Ok(_) => (),
+            Err(err) => println!("Failed to dump '{}': {}", file_path, error::Error::description(&err)),
+        }
     }
 }
 
-fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags)
+fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags) -> Result<()>
     where Endian: gimli::Endianity
 {
     fn load_section<'input, 'file, S, Endian>(file: &'file object::File<'input>,
@@ -141,7 +208,7 @@ fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags)
                   debug_ranges,
                   debug_str,
                   endian,
-                  flags);
+                  flags)?;
         dump_types(debug_types,
                    debug_abbrev,
                    debug_line,
@@ -149,21 +216,22 @@ fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags)
                    debug_ranges,
                    debug_str,
                    endian,
-                   flags);
+                   flags)?;
         println!("");
     }
     if flags.line {
-        dump_line(debug_line, debug_info, debug_abbrev, debug_str);
+        dump_line(debug_line, debug_info, debug_abbrev, debug_str)?;
     }
     if flags.pubnames {
-        dump_pubnames(debug_pubnames, debug_info);
+        dump_pubnames(debug_pubnames, debug_info)?;
     }
     if flags.aranges {
-        dump_aranges(debug_aranges, debug_info);
+        dump_aranges(debug_aranges, debug_info)?;
     }
     if flags.pubtypes {
-        dump_pubtypes(debug_pubtypes, debug_info);
+        dump_pubtypes(debug_pubtypes, debug_info)?;
     }
+    Ok(())
 }
 
 #[allow(too_many_arguments)]
@@ -174,15 +242,20 @@ fn dump_info<R: Reader>(debug_info: &gimli::DebugInfo<R>,
                         debug_ranges: &gimli::DebugRanges<R>,
                         debug_str: &gimli::DebugStr<R>,
                         endian: R::Endian,
-                        flags: &Flags) {
+                        flags: &Flags) -> Result<()> {
     println!("\n.debug_info");
 
     let mut iter = debug_info.units();
-    while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(debug_abbrev)
-            .expect("Error parsing abbreviations");
+    while let Some(unit) = iter.next()? {
+        let abbrevs = match unit.abbreviations(debug_abbrev) {
+            Ok(abbrevs) => abbrevs,
+            Err(err) => {
+                println!("Failed to parse abbreviations: {}", error::Error::description(&err));
+                continue
+            }
+        };
 
-        dump_entries(unit.offset().0,
+        let entries_result = dump_entries(unit.offset().0,
                      unit.entries(&abbrevs),
                      unit.address_size(),
                      unit.format(),
@@ -192,7 +265,11 @@ fn dump_info<R: Reader>(debug_info: &gimli::DebugInfo<R>,
                      debug_str,
                      endian,
                      flags);
+        if let Err(err) = entries_result {
+            println!("Failed to dump entries: {}", error::Error::description(&err));
+        };
     }
+    Ok(())
 }
 
 #[allow(too_many_arguments)]
@@ -203,13 +280,18 @@ fn dump_types<R: Reader>(debug_types: &gimli::DebugTypes<R>,
                          debug_ranges: &gimli::DebugRanges<R>,
                          debug_str: &gimli::DebugStr<R>,
                          endian: R::Endian,
-                         flags: &Flags) {
+                         flags: &Flags) -> Result<()> {
     println!("\n.debug_types");
 
     let mut iter = debug_types.units();
-    while let Some(unit) = iter.next().expect("Should parse the unit OK") {
-        let abbrevs = unit.abbreviations(debug_abbrev)
-            .expect("Error parsing abbreviations");
+    while let Some(unit) = iter.next()? {
+        let abbrevs = match unit.abbreviations(debug_abbrev) {
+            Ok(abbrevs) => abbrevs,
+            Err(err) => {
+                println!("Failed to parse abbreviations: {}", error::Error::description(&err));
+                continue
+            }
+        };
 
         println!("\nCU_HEADER:");
         print!("  signature        = ");
@@ -219,7 +301,7 @@ fn dump_types<R: Reader>(debug_types: &gimli::DebugTypes<R>,
                  unit.type_offset().0,
                  unit.type_offset().0);
 
-        dump_entries(unit.offset().0,
+        let entries_result = dump_entries(unit.offset().0,
                      unit.entries(&abbrevs),
                      unit.address_size(),
                      unit.format(),
@@ -229,7 +311,11 @@ fn dump_types<R: Reader>(debug_types: &gimli::DebugTypes<R>,
                      debug_str,
                      endian,
                      flags);
+        if let Err(err) = entries_result {
+            println!("Failed to dump entries: {}", error::Error::description(&err))
+        }
     }
+    Ok(())
 }
 
 // TODO: most of this should be moved to the main library.
@@ -253,7 +339,7 @@ fn dump_entries<R: Reader>(offset: R::Offset,
                            debug_ranges: &gimli::DebugRanges<R>,
                            debug_str: &gimli::DebugStr<R>,
                            endian: R::Endian,
-                           flags: &Flags) {
+                           flags: &Flags) -> Result<()> {
     let mut unit = Unit {
         endian: endian,
         format: format,
@@ -266,7 +352,7 @@ fn dump_entries<R: Reader>(offset: R::Offset,
 
     let mut print_local = true;
     let mut depth = 0;
-    while let Some((delta_depth, entry)) = entries.next_dfs().expect("Should parse next dfs") {
+    while let Some((delta_depth, entry)) = entries.next_dfs()? {
         depth += delta_depth;
         assert!(depth >= 0);
         let indent = depth as usize * 2 + 2;
@@ -286,22 +372,18 @@ fn dump_entries<R: Reader>(offset: R::Offset,
 
         if entry.tag() == gimli::DW_TAG_compile_unit || entry.tag() == gimli::DW_TAG_type_unit {
             unit.base_address = match entry
-                      .attr_value(gimli::DW_AT_low_pc)
-                      .expect("Should parse low_pc") {
+                      .attr_value(gimli::DW_AT_low_pc)? {
                 Some(gimli::AttributeValue::Addr(address)) => address,
                 _ => 0,
             };
             unit.comp_dir = entry
-                .attr(gimli::DW_AT_comp_dir)
-                .expect("Should parse comp_dir")
+                .attr(gimli::DW_AT_comp_dir)?
                 .and_then(|attr| attr.string_value(debug_str));
             unit.comp_name = entry
-                .attr(gimli::DW_AT_name)
-                .expect("Should parse name")
+                .attr(gimli::DW_AT_name)?
                 .and_then(|attr| attr.string_value(debug_str));
             unit.line_program = match entry
-                      .attr_value(gimli::DW_AT_stmt_list)
-                      .expect("Should parse stmt_list") {
+                      .attr_value(gimli::DW_AT_stmt_list)? {
                 Some(gimli::AttributeValue::DebugLineRef(offset)) => {
                     debug_line
                         .program(offset,
@@ -315,29 +397,33 @@ fn dump_entries<R: Reader>(offset: R::Offset,
         }
 
         let mut attrs = entry.attrs();
-        while let Some(attr) = attrs.next().expect("Should parse attribute OK") {
+        while let Some(attr) = attrs.next()? {
             print!("{:indent$}{:27} ", "", attr.name(), indent = indent + 18);
             if flags.raw {
                 println!("{:?}", attr.raw_value());
             } else {
-                dump_attr_value(&attr, &unit, debug_loc, debug_ranges, debug_str);
+                match dump_attr_value(&attr, &unit, debug_loc, debug_ranges, debug_str) {
+                    Ok(_) => (),
+                    Err(ref err) => println!("Failed to dump attribute value: {}", error::Error::description(err)),
+                };
             }
         }
     }
+    Ok(())
 }
 
 fn dump_attr_value<R: Reader>(attr: &gimli::Attribute<R>,
                               unit: &Unit<R>,
                               debug_loc: &gimli::DebugLoc<R>,
                               debug_ranges: &gimli::DebugRanges<R>,
-                              debug_str: &gimli::DebugStr<R>) {
+                              debug_str: &gimli::DebugStr<R>) -> Result<()> {
     let value = attr.value();
     match value {
         gimli::AttributeValue::Addr(address) => {
             println!("0x{:08x}", address);
         }
         gimli::AttributeValue::Block(data) => {
-            for byte in data.to_slice().unwrap().iter() {
+            for byte in data.to_slice()?.iter() {
                 print!("{:02x}", byte);
             }
             println!("");
@@ -400,12 +486,12 @@ fn dump_attr_value<R: Reader>(attr: &gimli::Attribute<R>,
         gimli::AttributeValue::Exprloc(ref data) => {
             if let gimli::AttributeValue::Exprloc(_) = attr.raw_value() {
                 print!("len 0x{:04x}: ", data.0.len());
-                for byte in data.0.to_slice().unwrap().iter() {
+                for byte in data.0.to_slice()?.iter() {
                     print!("{:02x}", byte);
                 }
                 print!(": ");
             }
-            dump_exprloc(data, unit);
+            dump_exprloc(data, unit)?;
             println!("");
         }
         gimli::AttributeValue::Flag(true) => {
@@ -428,14 +514,14 @@ fn dump_attr_value<R: Reader>(attr: &gimli::Attribute<R>,
             println!("0x{:08x}", offset);
         }
         gimli::AttributeValue::DebugLocRef(offset) => {
-            dump_loc_list(debug_loc, offset, unit);
+            dump_loc_list(debug_loc, offset, unit)?;
         }
         gimli::AttributeValue::DebugMacinfoRef(gimli::DebugMacinfoOffset(offset)) => {
             println!("{}", offset);
         }
         gimli::AttributeValue::DebugRangesRef(offset) => {
             println!("0x{:08x}", offset.0);
-            dump_range_list(debug_ranges, offset, unit);
+            dump_range_list(debug_ranges, offset, unit)?;
         }
         gimli::AttributeValue::DebugTypesRef(signature) => {
             dump_type_signature(signature, unit.endian);
@@ -443,13 +529,13 @@ fn dump_attr_value<R: Reader>(attr: &gimli::Attribute<R>,
         }
         gimli::AttributeValue::DebugStrRef(offset) => {
             if let Ok(s) = debug_str.get_str(offset) {
-                println!("{}", s.to_string_lossy().unwrap());
+                println!("{}", s.to_string_lossy()?);
             } else {
                 println!("{:?}", value);
             }
         }
         gimli::AttributeValue::String(s) => {
-            println!("{}", s.to_string_lossy().unwrap());
+            println!("{}", s.to_string_lossy()?);
         }
         gimli::AttributeValue::Encoding(value) => {
             println!("{}", value);
@@ -489,10 +575,12 @@ fn dump_attr_value<R: Reader>(attr: &gimli::Attribute<R>,
         }
         gimli::AttributeValue::FileIndex(value) => {
             print!("0x{:08x}", value);
-            dump_file_index(value, unit);
+            dump_file_index(value, unit)?;
             println!("");
         }
     }
+
+    Ok(())
 }
 
 fn dump_type_signature<Endian>(signature: gimli::DebugTypeSignature, endian: Endian)
@@ -507,34 +595,41 @@ fn dump_type_signature<Endian>(signature: gimli::DebugTypeSignature, endian: End
     }
 }
 
-fn dump_file_index<R: Reader>(file: u64, unit: &Unit<R>) {
+fn dump_file_index<R: Reader>(file: u64, unit: &Unit<R>) -> Result<()> {
     if file == 0 {
-        return;
+        return Ok(());
     }
     let header = match unit.line_program {
         Some(ref program) => program.header(),
-        None => return,
+        None => return Ok(()),
     };
-    let file = header.file(file).expect("File index should be valid");
+    let file = match header.file(file) {
+        Some(header) => header,
+        None => {
+            println!("Unable to get header for file {}", file);
+            return Ok(())
+        },
+    };
     print!(" ");
     if let Some(directory) = file.directory(header) {
-        let directory = directory.to_string_lossy().unwrap();
+        let directory = directory.to_string_lossy()?;
         if !directory.starts_with('/') {
             if let Some(ref comp_dir) = unit.comp_dir {
-                print!("{}/", comp_dir.to_string_lossy().unwrap());
+                print!("{}/", comp_dir.to_string_lossy()?);
             }
         }
         print!("{}/", directory);
     }
-    print!("{}", file.path_name().to_string_lossy().unwrap());
+    print!("{}", file.path_name().to_string_lossy()?);
+    Ok(())
 }
 
-fn dump_exprloc<R: Reader>(data: &gimli::Expression<R>, unit: &Unit<R>) {
+fn dump_exprloc<R: Reader>(data: &gimli::Expression<R>, unit: &Unit<R>) -> Result<()> {
     let mut pc = data.0.clone();
     let mut space = false;
     while pc.len() != 0 {
         let mut op_pc = pc.clone();
-        let dwop = gimli::DwOp(op_pc.read_u8().expect("Should read from non-empty reader"));
+        let dwop = gimli::DwOp(op_pc.read_u8()?);
         match gimli::Operation::parse(&mut pc, &data.0, unit.address_size, unit.format) {
             Ok(op) => {
                 if space {
@@ -542,21 +637,21 @@ fn dump_exprloc<R: Reader>(data: &gimli::Expression<R>, unit: &Unit<R>) {
                 } else {
                     space = true;
                 }
-                dump_op(dwop, op, &pc);
+                dump_op(dwop, op, &pc)?;
             }
             Err(gimli::Error::InvalidExpression(op)) => {
                 writeln!(&mut std::io::stderr(),
                          "WARNING: unsupported operation 0x{:02x}",
-                         op.0)
-                    .unwrap();
-                return;
+                         op.0)?;
+                return Ok(());
             }
             otherwise => panic!("Unexpected Operation::parse result: {:?}", otherwise),
         }
     }
+    Ok(())
 }
 
-fn dump_op<R: Reader>(dwop: gimli::DwOp, op: gimli::Operation<R, R::Offset>, newpc: &R) {
+fn dump_op<R: Reader>(dwop: gimli::DwOp, op: gimli::Operation<R, R::Offset>, newpc: &R) -> Result<()> {
     print!("{}", dwop);
     match op {
         gimli::Operation::Deref { size, .. } => {
@@ -636,7 +731,7 @@ fn dump_op<R: Reader>(dwop: gimli::DwOp, op: gimli::Operation<R, R::Offset>, new
             print!(" 0x{:08x} offset 0x{:08x}", size_in_bits, bit_offset);
         }
         gimli::Operation::ImplicitValue { data } => {
-            let data = data.to_slice().unwrap();
+            let data = data.to_slice()?;
             print!(" 0x{:08x} contents 0x", data.len());
             for byte in data.iter() {
                 print!("{:02x}", byte);
@@ -647,21 +742,21 @@ fn dump_op<R: Reader>(dwop: gimli::DwOp, op: gimli::Operation<R, R::Offset>, new
         }
         gimli::Operation::EntryValue { expression } => {
             print!(" 0x{:08x} contents 0x", expression.len());
-            for byte in expression.to_slice().unwrap().iter() {
+            for byte in expression.to_slice()?.iter() {
                 print!("{:02x}", byte);
             }
         }
         _ => {}
-    }
+    };
+    Ok(())
 }
 
 fn dump_loc_list<R: Reader>(debug_loc: &gimli::DebugLoc<R>,
                             offset: gimli::DebugLocOffset<R::Offset>,
-                            unit: &Unit<R>) {
+                            unit: &Unit<R>) -> Result<()> {
     let locations = debug_loc
-        .raw_locations(offset, unit.address_size)
-        .expect("Should have valid loc offset");
-    let mut locations: Vec<_> = locations.collect().expect("Should parse locations");
+        .raw_locations(offset, unit.address_size)?;
+    let mut locations: Vec<_> = locations.collect()?;
 
     // libdwarf-dwarfdump doesn't include the end entry.
     let has_end = if let Some(location) = locations.last() {
@@ -674,7 +769,7 @@ fn dump_loc_list<R: Reader>(debug_loc: &gimli::DebugLoc<R>,
     }
     if locations.is_empty() {
         println!("");
-        return;
+        return Ok(());
     }
 
     println!("<loclist at offset 0x{:08x} with {} entries follows>",
@@ -699,19 +794,19 @@ fn dump_loc_list<R: Reader>(debug_loc: &gimli::DebugLoc<R>,
                    range.begin,
                    location.range.end,
                    range.end);
-            dump_exprloc(&location.data, unit);
+            dump_exprloc(&location.data, unit)?;
             println!("");
         }
     }
+    Ok(())
 }
 
 fn dump_range_list<R: Reader>(debug_ranges: &gimli::DebugRanges<R>,
                               offset: gimli::DebugRangesOffset<R::Offset>,
-                              unit: &Unit<R>) {
+                              unit: &Unit<R>) -> Result<()> {
     let ranges = debug_ranges
-        .raw_ranges(offset, unit.address_size)
-        .expect("Should have valid range offset");
-    let ranges: Vec<_> = ranges.collect().expect("Should parse ranges");
+        .raw_ranges(offset, unit.address_size)?;
+    let ranges: Vec<_> = ranges.collect()?;
     println!("\t\tranges: {} at .debug_ranges offset {} (0x{:08x}) ({} bytes)",
              ranges.len(),
              offset.0,
@@ -728,33 +823,30 @@ fn dump_range_list<R: Reader>(debug_ranges: &gimli::DebugRanges<R>,
         }
         println!(" 0x{:08x} 0x{:08x}", range.begin, range.end);
     }
+    Ok(())
 }
 
 fn dump_line<R: Reader>(debug_line: &gimli::DebugLine<R>,
                         debug_info: &gimli::DebugInfo<R>,
                         debug_abbrev: &gimli::DebugAbbrev<R>,
-                        debug_str: &gimli::DebugStr<R>) {
+                        debug_str: &gimli::DebugStr<R>) -> Result<()> {
     println!("\n.debug_line");
 
     let mut iter = debug_info.units();
-    while let Some(unit) = iter.next().expect("Should parse unit header OK") {
-        let abbrevs = unit.abbreviations(debug_abbrev)
-            .expect("Error parsing abbreviations");
+    while let Some(unit) = iter.next()? {
+        let abbrevs = unit.abbreviations(debug_abbrev)?;
 
         let mut cursor = unit.entries(&abbrevs);
-        cursor.next_dfs().expect("Should parse next dfs");
+        cursor.next_dfs()?;
 
-        let root = cursor.current().expect("Should have a root DIE");
-        let offset = match root.attr_value(gimli::DW_AT_stmt_list)
-                  .expect("Should parse stmt_list") {
+        let root = cursor.current().ok_or(Error::MissingDIE)?;
+        let offset = match root.attr_value(gimli::DW_AT_stmt_list)? {
             Some(gimli::AttributeValue::DebugLineRef(offset)) => offset,
             _ => continue,
         };
-        let comp_dir = root.attr(gimli::DW_AT_comp_dir)
-            .expect("Should parse comp_dir")
+        let comp_dir = root.attr(gimli::DW_AT_comp_dir)?
             .and_then(|attr| attr.string_value(debug_str));
-        let comp_name = root.attr(gimli::DW_AT_name)
-            .expect("Should parse name")
+        let comp_name = root.attr(gimli::DW_AT_name)?
             .and_then(|attr| attr.string_value(debug_str));
 
         let program = debug_line.program(offset, unit.address_size(), comp_dir, comp_name);
@@ -784,8 +876,7 @@ fn dump_line<R: Reader>(debug_line: &gimli::DebugLine<R>,
                 println!("Opcodes:");
                 for (i, length) in header
                         .standard_opcode_lengths()
-                        .to_slice()
-                        .unwrap()
+                        .to_slice()?
                         .iter()
                         .enumerate() {
                     println!("  Opcode {} as {} args", i + 1, length);
@@ -794,7 +885,7 @@ fn dump_line<R: Reader>(debug_line: &gimli::DebugLine<R>,
                 println!("");
                 println!("The Directory Table:");
                 for (i, dir) in header.include_directories().iter().enumerate() {
-                    println!("  {} {}", i + 1, dir.to_string_lossy().unwrap());
+                    println!("  {} {}", i + 1, dir.to_string_lossy()?);
                 }
 
                 println!("");
@@ -806,15 +897,14 @@ fn dump_line<R: Reader>(debug_line: &gimli::DebugLine<R>,
                              file.directory_index(),
                              file.last_modification(),
                              file.length(),
-                             file.path_name().to_string_lossy().unwrap());
+                             file.path_name().to_string_lossy()?);
                 }
 
                 println!("");
                 println!("Line Number Statements:");
                 let mut opcodes = header.opcodes();
                 while let Some(opcode) = opcodes
-                          .next_opcode(header)
-                          .expect("Should parse opcode OK") {
+                          .next_opcode(header)? {
                     println!("  {}", opcode);
                 }
 
@@ -824,7 +914,7 @@ fn dump_line<R: Reader>(debug_line: &gimli::DebugLine<R>,
             }
             let mut rows = program.rows();
             let mut file_index = 0;
-            while let Some((header, row)) = rows.next_row().expect("Should parse row OK") {
+            while let Some((header, row)) = rows.next_row()? {
                 let line = row.line().unwrap_or(0);
                 let column = match row.column() {
                     gimli::ColumnType::Column(column) => column,
@@ -857,10 +947,10 @@ fn dump_line<R: Reader>(debug_line: &gimli::DebugLine<R>,
                     if let Some(file) = row.file(header) {
                         if let Some(directory) = file.directory(header) {
                             print!(" uri: \"{}/{}\"",
-                                   directory.to_string_lossy().unwrap(),
-                                   file.path_name().to_string_lossy().unwrap());
+                                   directory.to_string_lossy()?,
+                                   file.path_name().to_string_lossy()?);
                         } else {
-                            print!(" uri: \"{}\"", file.path_name().to_string_lossy().unwrap());
+                            print!(" uri: \"{}\"", file.path_name().to_string_lossy()?);
                         }
                     }
                 }
@@ -868,22 +958,22 @@ fn dump_line<R: Reader>(debug_line: &gimli::DebugLine<R>,
             }
         }
     }
+    Ok(())
 }
 
 fn dump_pubnames<R: Reader>(debug_pubnames: &gimli::DebugPubNames<R>,
-                            debug_info: &gimli::DebugInfo<R>) {
+                            debug_info: &gimli::DebugInfo<R>) -> Result<()> {
     println!("\n.debug_pubnames");
 
     let mut cu_offset;
     let mut cu_die_offset = gimli::DebugInfoOffset(0);
     let mut prev_cu_offset = None;
     let mut pubnames = debug_pubnames.items();
-    while let Some(pubname) = pubnames.next().expect("Should parse pubname OK") {
+    while let Some(pubname) = pubnames.next()? {
         cu_offset = pubname.unit_header_offset();
         if Some(cu_offset) != prev_cu_offset {
             let cu = debug_info
-                .header_from_offset(cu_offset)
-                .expect("Should parse unit header OK");
+                .header_from_offset(cu_offset)?;
             cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size());
             prev_cu_offset = Some(cu_offset);
         }
@@ -894,24 +984,24 @@ fn dump_pubnames<R: Reader>(debug_pubnames: &gimli::DebugPubNames<R>,
                  cu_die_offset.0,
                  die_in_cu.0,
                  cu_offset.0,
-                 pubname.name().to_string_lossy().unwrap())
+                 pubname.name().to_string_lossy()?)
     }
+    Ok(())
 }
 
 fn dump_pubtypes<R: Reader>(debug_pubtypes: &gimli::DebugPubTypes<R>,
-                            debug_info: &gimli::DebugInfo<R>) {
+                            debug_info: &gimli::DebugInfo<R>) -> Result<()> {
     println!("\n.debug_pubtypes");
 
     let mut cu_offset;
     let mut cu_die_offset = gimli::DebugInfoOffset(0);
     let mut prev_cu_offset = None;
     let mut pubtypes = debug_pubtypes.items();
-    while let Some(pubtype) = pubtypes.next().expect("Should parse pubtype OK") {
+    while let Some(pubtype) = pubtypes.next()? {
         cu_offset = pubtype.unit_header_offset();
         if Some(cu_offset) != prev_cu_offset {
             let cu = debug_info
-                .header_from_offset(cu_offset)
-                .expect("Should parse unit header OK");
+                .header_from_offset(cu_offset)?;
             cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size());
             prev_cu_offset = Some(cu_offset);
         }
@@ -922,23 +1012,23 @@ fn dump_pubtypes<R: Reader>(debug_pubtypes: &gimli::DebugPubTypes<R>,
                  cu_die_offset.0,
                  die_in_cu.0,
                  cu_offset.0,
-                 pubtype.name().to_string_lossy().unwrap())
+                 pubtype.name().to_string_lossy()?)
     }
+    Ok(())
 }
 
 fn dump_aranges<R: Reader>(debug_aranges: &gimli::DebugAranges<R>,
-                           debug_info: &gimli::DebugInfo<R>) {
+                           debug_info: &gimli::DebugInfo<R>) -> Result<()> {
     println!("\n.debug_aranges");
 
     let mut cu_die_offset = gimli::DebugInfoOffset(0);
     let mut prev_cu_offset = None;
     let mut aranges = debug_aranges.items();
-    while let Some(arange) = aranges.next().expect("Should parse arange OK") {
+    while let Some(arange) = aranges.next()? {
         let cu_offset = arange.debug_info_offset();
         if Some(cu_offset) != prev_cu_offset {
             let cu = debug_info
-                .header_from_offset(cu_offset)
-                .expect("Should parse unit header OK");
+                .header_from_offset(cu_offset)?;
             cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size());
             prev_cu_offset = Some(cu_offset);
         }
@@ -953,4 +1043,5 @@ fn dump_aranges<R: Reader>(debug_aranges: &gimli::DebugAranges<R>,
                  arange.length(),
                  cu_die_offset.0);
     }
+    Ok(())
 }
