@@ -4,7 +4,7 @@ extern crate gimli;
 extern crate test;
 
 use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset,
-            DebugLoc, DebugPubNames, DebugPubTypes, DebugRanges, Expression, EntriesTreeNode,
+            DebugLoc, DebugPubNames, DebugPubTypes, DebugRanges, EntriesTreeNode, Expression,
             Format, LittleEndian, Operation, Reader};
 use std::env;
 use std::fs::File;
@@ -12,7 +12,9 @@ use std::io::Read;
 use std::path::PathBuf;
 
 pub fn read_section(section: &str) -> Vec<u8> {
-    let mut path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into()));
+    let mut path = PathBuf::from(
+        env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into()),
+    );
     path.push("./fixtures/self/");
     path.push(section);
 
@@ -37,10 +39,12 @@ fn bench_parsing_debug_abbrev(b: &mut test::Bencher) {
     let debug_abbrev = read_section("debug_abbrev");
 
     b.iter(|| {
-               let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
-               test::black_box(unit.abbreviations(&debug_abbrev)
-                                   .expect("Should parse abbreviations"));
-           });
+        let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
+        test::black_box(
+            unit.abbreviations(&debug_abbrev)
+                .expect("Should parse abbreviations"),
+        );
+    });
 }
 
 #[bench]
@@ -111,11 +115,11 @@ fn bench_parsing_debug_aranges(b: &mut test::Bencher) {
     let debug_aranges = DebugAranges::new(&debug_aranges, LittleEndian);
 
     b.iter(|| {
-               let mut aranges = debug_aranges.items();
-               while let Some(arange) = aranges.next().expect("Should parse arange OK") {
-                   test::black_box(arange);
-               }
-           });
+        let mut aranges = debug_aranges.items();
+        while let Some(arange) = aranges.next().expect("Should parse arange OK") {
+            test::black_box(arange);
+        }
+    });
 }
 
 #[bench]
@@ -124,11 +128,11 @@ fn bench_parsing_debug_pubnames(b: &mut test::Bencher) {
     let debug_pubnames = DebugPubNames::new(&debug_pubnames, LittleEndian);
 
     b.iter(|| {
-               let mut pubnames = debug_pubnames.items();
-               while let Some(pubname) = pubnames.next().expect("Should parse pubname OK") {
-                   test::black_box(pubname);
-               }
-           });
+        let mut pubnames = debug_pubnames.items();
+        while let Some(pubname) = pubnames.next().expect("Should parse pubname OK") {
+            test::black_box(pubname);
+        }
+    });
 }
 
 #[bench]
@@ -137,11 +141,11 @@ fn bench_parsing_debug_pubtypes(b: &mut test::Bencher) {
     let debug_pubtypes = DebugPubTypes::new(&debug_pubtypes, LittleEndian);
 
     b.iter(|| {
-               let mut pubtypes = debug_pubtypes.items();
-               while let Some(pubtype) = pubtypes.next().expect("Should parse pubtype OK") {
-                   test::black_box(pubtype);
-               }
-           });
+        let mut pubtypes = debug_pubtypes.items();
+        while let Some(pubtype) = pubtypes.next().expect("Should parse pubtype OK") {
+            test::black_box(pubtype);
+        }
+    });
 }
 
 // We happen to know that there is a line number program and header at
@@ -179,9 +183,9 @@ fn bench_executing_line_number_programs(b: &mut test::Bencher) {
             .expect("Should parse line number program header");
 
         let mut rows = program.rows();
-        while let Some(row) =
-            rows.next_row()
-                .expect("Should parse and execute all rows in the line number program") {
+        while let Some(row) = rows.next_row().expect(
+            "Should parse and execute all rows in the line number program",
+        ) {
             test::black_box(row);
         }
     });
@@ -232,13 +236,13 @@ fn bench_parsing_debug_loc(b: &mut test::Bencher) {
     }
 
     b.iter(|| for &(offset, address_size, base_address) in &*offsets {
-               let mut locs = debug_loc
-                   .locations(offset, address_size, base_address)
-                   .expect("Should parse locations OK");
-               while let Some(loc) = locs.next().expect("Should parse next location") {
-                   test::black_box(loc);
-               }
-           });
+        let mut locs = debug_loc
+            .locations(offset, address_size, base_address)
+            .expect("Should parse locations OK");
+        while let Some(loc) = locs.next().expect("Should parse next location") {
+            test::black_box(loc);
+        }
+    });
 }
 
 #[bench]
@@ -286,18 +290,19 @@ fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
     }
 
     b.iter(|| for &(offset, address_size, base_address) in &*offsets {
-               let mut ranges = debug_ranges
-                   .ranges(offset, address_size, base_address)
-                   .expect("Should parse ranges OK");
-               while let Some(range) = ranges.next().expect("Should parse next range") {
-                   test::black_box(range);
-               }
-           });
+        let mut ranges = debug_ranges
+            .ranges(offset, address_size, base_address)
+            .expect("Should parse ranges OK");
+        while let Some(range) = ranges.next().expect("Should parse next range") {
+            test::black_box(range);
+        }
+    });
 }
 
-fn debug_info_expressions<R: Reader>(debug_info: &DebugInfo<R>,
-                                     debug_abbrev: &DebugAbbrev<R>)
-                                     -> Vec<(Expression<R>, u8, Format)> {
+fn debug_info_expressions<R: Reader>(
+    debug_info: &DebugInfo<R>,
+    debug_abbrev: &DebugAbbrev<R>,
+) -> Vec<(Expression<R>, u8, Format)> {
     let mut expressions = Vec::new();
 
     let mut iter = debug_info.units();
@@ -329,13 +334,15 @@ fn bench_parsing_debug_info_expressions(b: &mut test::Bencher) {
 
     let expressions = debug_info_expressions(&debug_info, &debug_abbrev);
 
-    b.iter(|| for &(expression, address_size, format) in &*expressions {
-               let mut pc = expression.0;
-               while !pc.is_empty() {
-                   Operation::parse(&mut pc, &expression.0, address_size, format)
-                       .expect("Should parse operation");
-               }
-           });
+    b.iter(|| {
+        for &(expression, address_size, format) in &*expressions {
+            let mut pc = expression.0;
+            while !pc.is_empty() {
+                Operation::parse(&mut pc, &expression.0, address_size, format)
+                    .expect("Should parse operation");
+            }
+        }
+    });
 }
 
 #[bench]
@@ -348,18 +355,21 @@ fn bench_evaluating_debug_info_expressions(b: &mut test::Bencher) {
 
     let expressions = debug_info_expressions(&debug_info, &debug_abbrev);
 
-    b.iter(|| for &(expression, address_size, format) in &*expressions {
-               let mut eval = expression.evaluation(address_size, format);
-               eval.set_initial_value(0);
-               let result = eval.evaluate().expect("Should evaluate expression");
-               test::black_box(result);
-           });
+    b.iter(|| {
+        for &(expression, address_size, format) in &*expressions {
+            let mut eval = expression.evaluation(address_size, format);
+            eval.set_initial_value(0);
+            let result = eval.evaluate().expect("Should evaluate expression");
+            test::black_box(result);
+        }
+    });
 }
 
-fn debug_loc_expressions<R: Reader>(debug_info: &DebugInfo<R>,
-                                    debug_abbrev: &DebugAbbrev<R>,
-                                    debug_loc: &DebugLoc<R>)
-                                    -> Vec<(Expression<R>, u8, Format)> {
+fn debug_loc_expressions<R: Reader>(
+    debug_info: &DebugInfo<R>,
+    debug_abbrev: &DebugAbbrev<R>,
+    debug_loc: &DebugLoc<R>,
+) -> Vec<(Expression<R>, u8, Format)> {
     let mut expressions = Vec::new();
 
     let mut iter = debug_info.units();
@@ -414,13 +424,15 @@ fn bench_parsing_debug_loc_expressions(b: &mut test::Bencher) {
 
     let expressions = debug_loc_expressions(&debug_info, &debug_abbrev, &debug_loc);
 
-    b.iter(|| for &(expression, address_size, format) in &*expressions {
-               let mut pc = expression.0;
-               while !pc.is_empty() {
-                   Operation::parse(&mut pc, &expression.0, address_size, format)
-                       .expect("Should parse operation");
-               }
-           });
+    b.iter(|| {
+        for &(expression, address_size, format) in &*expressions {
+            let mut pc = expression.0;
+            while !pc.is_empty() {
+                Operation::parse(&mut pc, &expression.0, address_size, format)
+                    .expect("Should parse operation");
+            }
+        }
+    });
 }
 
 #[bench]
@@ -436,12 +448,14 @@ fn bench_evaluating_debug_loc_expressions(b: &mut test::Bencher) {
 
     let expressions = debug_loc_expressions(&debug_info, &debug_abbrev, &debug_loc);
 
-    b.iter(|| for &(expression, address_size, format) in &*expressions {
-               let mut eval = expression.evaluation(address_size, format);
-               eval.set_initial_value(0);
-               let result = eval.evaluate().expect("Should evaluate expression");
-               test::black_box(result);
-           });
+    b.iter(|| {
+        for &(expression, address_size, format) in &*expressions {
+            let mut eval = expression.evaluation(address_size, format);
+            eval.set_initial_value(0);
+            let result = eval.evaluate().expect("Should evaluate expression");
+            test::black_box(result);
+        }
+    });
 }
 
 // See comment above `test_parse_self_eh_frame`.
@@ -465,11 +479,11 @@ mod cfi {
         let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
 
         b.iter(|| {
-                   let mut entries = eh_frame.entries(&bases);
-                   while let Some(entry) = entries.next().expect("Should parse CFI entry OK") {
-                       test::black_box(entry);
-                   }
-               });
+            let mut entries = eh_frame.entries(&bases);
+            while let Some(entry) = entries.next().expect("Should parse CFI entry OK") {
+                test::black_box(entry);
+            }
+        });
     }
 
     #[bench]
@@ -510,9 +524,9 @@ mod cfi {
                 match entry {
                     CieOrFde::Cie(cie) => {
                         let mut instrs = cie.instructions();
-                        while let Some(i) = instrs
-                                  .next()
-                                  .expect("Can parse next CFI instruction OK") {
+                        while let Some(i) =
+                            instrs.next().expect("Can parse next CFI instruction OK")
+                        {
                             test::black_box(i);
                         }
                     }
@@ -521,9 +535,9 @@ mod cfi {
                             .parse(|offset| eh_frame.cie_from_offset(&bases, offset))
                             .expect("Should be able to get CIE for FED");
                         let mut instrs = fde.instructions();
-                        while let Some(i) = instrs
-                                  .next()
-                                  .expect("Can parse next CFI instruction OK") {
+                        while let Some(i) =
+                            instrs.next().expect("Can parse next CFI instruction OK")
+                        {
                             test::black_box(i);
                         }
                     }
@@ -558,9 +572,9 @@ mod cfi {
 
                         {
                             let mut table = UnwindTable::new(&mut context, &fde);
-                            while let Some(row) = table
-                                      .next_row()
-                                      .expect("Should get next unwind table row") {
+                            while let Some(row) =
+                                table.next_row().expect("Should get next unwind table row")
+                            {
                                 test::black_box(row);
                             }
                         }
@@ -578,9 +592,9 @@ mod cfi {
             .expect("fold over instructions OK")
     }
 
-    fn get_fde_with_longest_cfi_instructions<R: Reader>
-        (eh_frame: &EhFrame<R>)
-         -> FrameDescriptionEntry<EhFrame<R>, R, R::Offset> {
+    fn get_fde_with_longest_cfi_instructions<R: Reader>(
+        eh_frame: &EhFrame<R>,
+    ) -> FrameDescriptionEntry<EhFrame<R>, R, R::Offset> {
         let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
 
         let mut longest: Option<(usize, FrameDescriptionEntry<_, _, _>)> = None;
@@ -618,11 +632,11 @@ mod cfi {
         let fde = get_fde_with_longest_cfi_instructions(&eh_frame);
 
         b.iter(|| {
-                   let mut instrs = fde.instructions();
-                   while let Some(i) = instrs.next().expect("Should parse instruction OK") {
-                       test::black_box(i);
-                   }
-               });
+            let mut instrs = fde.instructions();
+            while let Some(i) = instrs.next().expect("Should parse instruction OK") {
+                test::black_box(i);
+            }
+        });
     }
 
     #[bench]

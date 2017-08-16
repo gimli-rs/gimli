@@ -1,4 +1,4 @@
-use endianity::{Endianity, EndianBuf};
+use endianity::{EndianBuf, Endianity};
 use fallible_iterator::FallibleIterator;
 use parser::{Error, Result};
 use reader::Reader;
@@ -16,7 +16,8 @@ pub struct DebugRanges<R: Reader> {
 }
 
 impl<'input, Endian> DebugRanges<EndianBuf<'input, Endian>>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     /// Construct a new `DebugRanges` instance from the data in the `.debug_ranges`
     /// section.
@@ -46,11 +47,12 @@ impl<R: Reader> DebugRanges<R> {
     ///
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
-    pub fn ranges(&self,
-                  offset: DebugRangesOffset<R::Offset>,
-                  address_size: u8,
-                  base_address: u64)
-                  -> Result<RangesIter<R>> {
+    pub fn ranges(
+        &self,
+        offset: DebugRangesOffset<R::Offset>,
+        address_size: u8,
+        base_address: u64,
+    ) -> Result<RangesIter<R>> {
         let mut input = self.debug_ranges_section.clone();
         input.skip(offset.0)?;
         Ok(RangesIter::new(input, address_size, base_address))
@@ -65,10 +67,11 @@ impl<R: Reader> DebugRanges<R> {
     ///
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
-    pub fn raw_ranges(&self,
-                      offset: DebugRangesOffset<R::Offset>,
-                      address_size: u8)
-                      -> Result<RawRangesIter<R>> {
+    pub fn raw_ranges(
+        &self,
+        offset: DebugRangesOffset<R::Offset>,
+        address_size: u8,
+    ) -> Result<RawRangesIter<R>> {
         let mut input = self.debug_ranges_section.clone();
         input.skip(offset.0)?;
         Ok(RawRangesIter::new(input, address_size))
@@ -83,7 +86,9 @@ impl<R: Reader> Section<R> for DebugRanges<R> {
 
 impl<R: Reader> From<R> for DebugRanges<R> {
     fn from(debug_ranges_section: R) -> Self {
-        DebugRanges { debug_ranges_section }
+        DebugRanges {
+            debug_ranges_section,
+        }
     }
 }
 
@@ -326,39 +331,49 @@ mod tests {
         let mut ranges = debug_ranges.ranges(offset, 4, 0x01000000).unwrap();
 
         // A normal range.
-        assert_eq!(ranges.next(),
-                   Ok(Some(Range {
-                               begin: 0x01010200,
-                               end: 0x01010300,
-                           })));
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x01010200,
+                end: 0x01010300,
+            }))
+        );
 
         // A base address selection followed by a normal range.
-        assert_eq!(ranges.next(),
-                   Ok(Some(Range {
-                               begin: 0x02010400,
-                               end: 0x02010500,
-                           })));
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x02010400,
+                end: 0x02010500,
+            }))
+        );
 
         // An empty range followed by a normal range.
-        assert_eq!(ranges.next(),
-                   Ok(Some(Range {
-                               begin: 0x02010800,
-                               end: 0x02010900,
-                           })));
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x02010800,
+                end: 0x02010900,
+            }))
+        );
 
         // A range that starts at 0.
-        assert_eq!(ranges.next(),
-                   Ok(Some(Range {
-                               begin: 0x02000000,
-                               end: 0x02000001,
-                           })));
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x02000000,
+                end: 0x02000001,
+            }))
+        );
 
         // A range that ends at -1.
-        assert_eq!(ranges.next(),
-                   Ok(Some(Range {
-                               begin: 0x00000000,
-                               end: 0xffffffff,
-                           })));
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x00000000,
+                end: 0xffffffff,
+            }))
+        );
 
         // A range end.
         assert_eq!(ranges.next(), Ok(None));
@@ -403,39 +418,49 @@ mod tests {
         let mut ranges = debug_ranges.ranges(offset, 8, 0x01000000).unwrap();
 
         // A normal range.
-        assert_eq!(ranges.next(),
-                   Ok(Some(Range {
-                               begin: 0x01010200,
-                               end: 0x01010300,
-                           })));
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x01010200,
+                end: 0x01010300,
+            }))
+        );
 
         // A base address selection followed by a normal range.
-        assert_eq!(ranges.next(),
-                   Ok(Some(Range {
-                               begin: 0x02010400,
-                               end: 0x02010500,
-                           })));
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x02010400,
+                end: 0x02010500,
+            }))
+        );
 
         // An empty range followed by a normal range.
-        assert_eq!(ranges.next(),
-                   Ok(Some(Range {
-                               begin: 0x02010800,
-                               end: 0x02010900,
-                           })));
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x02010800,
+                end: 0x02010900,
+            }))
+        );
 
         // A range that starts at 0.
-        assert_eq!(ranges.next(),
-                   Ok(Some(Range {
-                               begin: 0x02000000,
-                               end: 0x02000001,
-                           })));
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x02000000,
+                end: 0x02000001,
+            }))
+        );
 
         // A range that ends at -1.
-        assert_eq!(ranges.next(),
-                   Ok(Some(Range {
-                               begin: 0x0,
-                               end: 0xffffffffffffffff,
-                           })));
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x0,
+                end: 0xffffffffffffffff,
+            }))
+        );
 
         // A range end.
         assert_eq!(ranges.next(), Ok(None));

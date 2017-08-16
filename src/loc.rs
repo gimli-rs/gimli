@@ -1,4 +1,4 @@
-use endianity::{Endianity, EndianBuf};
+use endianity::{EndianBuf, Endianity};
 use fallible_iterator::FallibleIterator;
 use parser::{Error, Result};
 use op::Expression;
@@ -18,7 +18,8 @@ pub struct DebugLoc<R: Reader> {
 }
 
 impl<'input, Endian> DebugLoc<EndianBuf<'input, Endian>>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     /// Construct a new `DebugLoc` instance from the data in the `.debug_loc`
     /// section.
@@ -49,11 +50,12 @@ impl<R: Reader> DebugLoc<R> {
     ///
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
-    pub fn locations(&self,
-                     offset: DebugLocOffset<R::Offset>,
-                     address_size: u8,
-                     base_address: u64)
-                     -> Result<LocationListIter<R>> {
+    pub fn locations(
+        &self,
+        offset: DebugLocOffset<R::Offset>,
+        address_size: u8,
+        base_address: u64,
+    ) -> Result<LocationListIter<R>> {
         let mut input = self.debug_loc_section.clone();
         input.skip(offset.0)?;
         Ok(LocationListIter::new(input, address_size, base_address))
@@ -68,10 +70,11 @@ impl<R: Reader> DebugLoc<R> {
     ///
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
-    pub fn raw_locations(&self,
-                         offset: DebugLocOffset<R::Offset>,
-                         address_size: u8)
-                         -> Result<RawLocationListIter<R>> {
+    pub fn raw_locations(
+        &self,
+        offset: DebugLocOffset<R::Offset>,
+        address_size: u8,
+    ) -> Result<RawLocationListIter<R>> {
         let mut input = self.debug_loc_section.clone();
         input.skip(offset.0)?;
         Ok(RawLocationListIter::new(input, address_size))
@@ -280,54 +283,64 @@ mod tests {
         let mut locations = debug_loc.locations(offset, 4, 0x01000000).unwrap();
 
         // A normal location.
-        assert_eq!(locations.next(),
-                   Ok(Some(LocationListEntry {
-                               range: Range {
-                                   begin: 0x01010200,
-                                   end: 0x01010300,
-                               },
-                               data: Expression(EndianBuf::new(&[2, 0, 0, 0], LittleEndian)),
-                           })));
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
+                    begin: 0x01010200,
+                    end: 0x01010300,
+                },
+                data: Expression(EndianBuf::new(&[2, 0, 0, 0], LittleEndian)),
+            }))
+        );
 
         // A base address selection followed by a normal location.
-        assert_eq!(locations.next(),
-                   Ok(Some(LocationListEntry {
-                               range: Range {
-                                   begin: 0x02010400,
-                                   end: 0x02010500,
-                               },
-                               data: Expression(EndianBuf::new(&[3, 0, 0, 0], LittleEndian)),
-                           })));
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
+                    begin: 0x02010400,
+                    end: 0x02010500,
+                },
+                data: Expression(EndianBuf::new(&[3, 0, 0, 0], LittleEndian)),
+            }))
+        );
 
         // An empty location range followed by a normal location.
-        assert_eq!(locations.next(),
-                   Ok(Some(LocationListEntry {
-                               range: Range {
-                                   begin: 0x02010800,
-                                   end: 0x02010900,
-                               },
-                               data: Expression(EndianBuf::new(&[5, 0, 0, 0], LittleEndian)),
-                           })));
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
+                    begin: 0x02010800,
+                    end: 0x02010900,
+                },
+                data: Expression(EndianBuf::new(&[5, 0, 0, 0], LittleEndian)),
+            }))
+        );
 
         // A location range that starts at 0.
-        assert_eq!(locations.next(),
-                   Ok(Some(LocationListEntry {
-                               range: Range {
-                                   begin: 0x02000000,
-                                   end: 0x02000001,
-                               },
-                               data: Expression(EndianBuf::new(&[6, 0, 0, 0], LittleEndian)),
-                           })));
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
+                    begin: 0x02000000,
+                    end: 0x02000001,
+                },
+                data: Expression(EndianBuf::new(&[6, 0, 0, 0], LittleEndian)),
+            }))
+        );
 
         // A location range that ends at -1.
-        assert_eq!(locations.next(),
-                   Ok(Some(LocationListEntry {
-                               range: Range {
-                                   begin: 0x00000000,
-                                   end: 0xffffffff,
-                               },
-                               data: Expression(EndianBuf::new(&[7, 0, 0, 0], LittleEndian)),
-                           })));
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
+                    begin: 0x00000000,
+                    end: 0xffffffff,
+                },
+                data: Expression(EndianBuf::new(&[7, 0, 0, 0], LittleEndian)),
+            }))
+        );
 
         // A location list end.
         assert_eq!(locations.next(), Ok(None));
@@ -372,54 +385,64 @@ mod tests {
         let mut locations = debug_loc.locations(offset, 8, 0x01000000).unwrap();
 
         // A normal location.
-        assert_eq!(locations.next(),
-                   Ok(Some(LocationListEntry {
-                               range: Range {
-                                   begin: 0x01010200,
-                                   end: 0x01010300,
-                               },
-                               data: Expression(EndianBuf::new(&[2, 0, 0, 0], LittleEndian)),
-                           })));
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
+                    begin: 0x01010200,
+                    end: 0x01010300,
+                },
+                data: Expression(EndianBuf::new(&[2, 0, 0, 0], LittleEndian)),
+            }))
+        );
 
         // A base address selection followed by a normal location.
-        assert_eq!(locations.next(),
-                   Ok(Some(LocationListEntry {
-                               range: Range {
-                                   begin: 0x02010400,
-                                   end: 0x02010500,
-                               },
-                               data: Expression(EndianBuf::new(&[3, 0, 0, 0], LittleEndian)),
-                           })));
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
+                    begin: 0x02010400,
+                    end: 0x02010500,
+                },
+                data: Expression(EndianBuf::new(&[3, 0, 0, 0], LittleEndian)),
+            }))
+        );
 
         // An empty location range followed by a normal location.
-        assert_eq!(locations.next(),
-                   Ok(Some(LocationListEntry {
-                               range: Range {
-                                   begin: 0x02010800,
-                                   end: 0x02010900,
-                               },
-                               data: Expression(EndianBuf::new(&[5, 0, 0, 0], LittleEndian)),
-                           })));
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
+                    begin: 0x02010800,
+                    end: 0x02010900,
+                },
+                data: Expression(EndianBuf::new(&[5, 0, 0, 0], LittleEndian)),
+            }))
+        );
 
         // A location range that starts at 0.
-        assert_eq!(locations.next(),
-                   Ok(Some(LocationListEntry {
-                               range: Range {
-                                   begin: 0x02000000,
-                                   end: 0x02000001,
-                               },
-                               data: Expression(EndianBuf::new(&[6, 0, 0, 0], LittleEndian)),
-                           })));
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
+                    begin: 0x02000000,
+                    end: 0x02000001,
+                },
+                data: Expression(EndianBuf::new(&[6, 0, 0, 0], LittleEndian)),
+            }))
+        );
 
         // A location range that ends at -1.
-        assert_eq!(locations.next(),
-                   Ok(Some(LocationListEntry {
-                               range: Range {
-                                   begin: 0x0,
-                                   end: 0xffffffffffffffff,
-                               },
-                               data: Expression(EndianBuf::new(&[7, 0, 0, 0], LittleEndian)),
-                           })));
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
+                    begin: 0x0,
+                    end: 0xffffffffffffffff,
+                },
+                data: Expression(EndianBuf::new(&[7, 0, 0, 0], LittleEndian)),
+            }))
+        );
 
         // A location list end.
         assert_eq!(locations.next(), Ok(None));

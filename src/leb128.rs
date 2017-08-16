@@ -59,7 +59,7 @@ fn low_bits_of_u64(val: u64) -> u8 {
 /// A module for reading signed and unsigned integers that have been LEB128
 /// encoded.
 pub mod read {
-    use super::{CONTINUATION_BIT, SIGN_BIT, low_bits_of_byte};
+    use super::{low_bits_of_byte, CONTINUATION_BIT, SIGN_BIT};
     use parser::{Error, Result};
     use reader::Reader;
 
@@ -120,14 +120,15 @@ pub mod read {
 
 /// A module for writing integers encoded as LEB128.
 pub mod write {
-    use super::{CONTINUATION_BIT, low_bits_of_u64};
+    use super::{low_bits_of_u64, CONTINUATION_BIT};
     use std::io;
 
     /// Write the given unsigned number using the LEB128 encoding to the given
     /// `std::io::Write`able. Returns the number of bytes written to `w`, or an
     /// error if writing failed.
     pub fn unsigned<W>(w: &mut W, mut val: u64) -> Result<usize, io::Error>
-        where W: io::Write
+    where
+        W: io::Write,
     {
         let mut bytes_written = 0;
         loop {
@@ -152,7 +153,8 @@ pub mod write {
     /// `std::io::Write`able. Returns the number of bytes written to `w`, or an
     /// error if writing failed.
     pub fn signed<W>(w: &mut W, mut val: i64) -> Result<usize, io::Error>
-        where W: io::Write
+    where
+        W: io::Write,
     {
         let mut bytes_written = 0;
         loop {
@@ -182,7 +184,7 @@ pub mod write {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONTINUATION_BIT, low_bits_of_byte, low_bits_of_u64, read, write};
+    use super::{low_bits_of_byte, read, write, low_bits_of_u64, CONTINUATION_BIT};
     use endianity::{EndianBuf, NativeEndian};
     use parser::Error;
     use std;
@@ -200,8 +202,10 @@ mod tests {
     fn test_low_bits_of_u64() {
         for i in 0u64..127 {
             assert_eq!(i as u8, low_bits_of_u64(1 << 16 | i));
-            assert_eq!(i as u8,
-                       low_bits_of_u64(i << 16 | i | (CONTINUATION_BIT as u64)));
+            assert_eq!(
+                i as u8,
+                low_bits_of_u64(i << 16 | i | (CONTINUATION_BIT as u64))
+            );
         }
     }
 
@@ -210,33 +214,45 @@ mod tests {
     fn test_read_unsigned() {
         let buf = [2u8];
         let mut readable = EndianBuf::new(&buf[..], NativeEndian);
-        assert_eq!(2,
-                   read::unsigned(&mut readable).expect("Should read number"));
+        assert_eq!(
+            2,
+            read::unsigned(&mut readable).expect("Should read number")
+        );
 
         let buf = [127u8];
         let mut readable = EndianBuf::new(&buf[..], NativeEndian);
-        assert_eq!(127,
-                   read::unsigned(&mut readable).expect("Should read number"));
+        assert_eq!(
+            127,
+            read::unsigned(&mut readable).expect("Should read number")
+        );
 
         let buf = [CONTINUATION_BIT, 1];
         let mut readable = EndianBuf::new(&buf[..], NativeEndian);
-        assert_eq!(128,
-                   read::unsigned(&mut readable).expect("Should read number"));
+        assert_eq!(
+            128,
+            read::unsigned(&mut readable).expect("Should read number")
+        );
 
         let buf = [1u8 | CONTINUATION_BIT, 1];
         let mut readable = EndianBuf::new(&buf[..], NativeEndian);
-        assert_eq!(129,
-                   read::unsigned(&mut readable).expect("Should read number"));
+        assert_eq!(
+            129,
+            read::unsigned(&mut readable).expect("Should read number")
+        );
 
         let buf = [2u8 | CONTINUATION_BIT, 1];
         let mut readable = EndianBuf::new(&buf[..], NativeEndian);
-        assert_eq!(130,
-                   read::unsigned(&mut readable).expect("Should read number"));
+        assert_eq!(
+            130,
+            read::unsigned(&mut readable).expect("Should read number")
+        );
 
         let buf = [57u8 | CONTINUATION_BIT, 100];
         let mut readable = EndianBuf::new(&buf[..], NativeEndian);
-        assert_eq!(12857,
-                   read::unsigned(&mut readable).expect("Should read number"));
+        assert_eq!(
+            12857,
+            read::unsigned(&mut readable).expect("Should read number")
+        );
     }
 
     // Examples from the DWARF 4 standard, section 7.6, figure 23.
@@ -252,49 +268,65 @@ mod tests {
 
         let buf = [127u8 | CONTINUATION_BIT, 0];
         let mut readable = EndianBuf::new(&buf[..], NativeEndian);
-        assert_eq!(127,
-                   read::signed(&mut readable).expect("Should read number"));
+        assert_eq!(
+            127,
+            read::signed(&mut readable).expect("Should read number")
+        );
 
         let buf = [1u8 | CONTINUATION_BIT, 0x7f];
         let mut readable = EndianBuf::new(&buf[..], NativeEndian);
-        assert_eq!(-127,
-                   read::signed(&mut readable).expect("Should read number"));
+        assert_eq!(
+            -127,
+            read::signed(&mut readable).expect("Should read number")
+        );
 
         let buf = [CONTINUATION_BIT, 1];
         let mut readable = EndianBuf::new(&buf[..], NativeEndian);
-        assert_eq!(128,
-                   read::signed(&mut readable).expect("Should read number"));
+        assert_eq!(
+            128,
+            read::signed(&mut readable).expect("Should read number")
+        );
 
         let buf = [CONTINUATION_BIT, 0x7f];
         let mut readable = EndianBuf::new(&buf[..], NativeEndian);
-        assert_eq!(-128,
-                   read::signed(&mut readable).expect("Should read number"));
+        assert_eq!(
+            -128,
+            read::signed(&mut readable).expect("Should read number")
+        );
 
         let buf = [1u8 | CONTINUATION_BIT, 1];
         let mut readable = EndianBuf::new(&buf[..], NativeEndian);
-        assert_eq!(129,
-                   read::signed(&mut readable).expect("Should read number"));
+        assert_eq!(
+            129,
+            read::signed(&mut readable).expect("Should read number")
+        );
 
         let buf = [0x7fu8 | CONTINUATION_BIT, 0x7e];
         let mut readable = EndianBuf::new(&buf[..], NativeEndian);
-        assert_eq!(-129,
-                   read::signed(&mut readable).expect("Should read number"));
+        assert_eq!(
+            -129,
+            read::signed(&mut readable).expect("Should read number")
+        );
     }
 
     #[test]
     fn test_read_signed_63_bits() {
-        let buf = [CONTINUATION_BIT,
-                   CONTINUATION_BIT,
-                   CONTINUATION_BIT,
-                   CONTINUATION_BIT,
-                   CONTINUATION_BIT,
-                   CONTINUATION_BIT,
-                   CONTINUATION_BIT,
-                   CONTINUATION_BIT,
-                   0x40];
+        let buf = [
+            CONTINUATION_BIT,
+            CONTINUATION_BIT,
+            CONTINUATION_BIT,
+            CONTINUATION_BIT,
+            CONTINUATION_BIT,
+            CONTINUATION_BIT,
+            CONTINUATION_BIT,
+            CONTINUATION_BIT,
+            0x40,
+        ];
         let mut readable = EndianBuf::new(&buf[..], NativeEndian);
-        assert_eq!(-0x4000000000000000,
-                   read::signed(&mut readable).expect("Should read number"));
+        assert_eq!(
+            -0x4000000000000000,
+            read::signed(&mut readable).expect("Should read number")
+        );
     }
 
     #[test]
@@ -362,82 +394,86 @@ mod tests {
             }
 
             let mut readable = EndianBuf::new(&buf[..], NativeEndian);
-            let result = read::unsigned(&mut readable)
-                .expect("Should be able to read it back again");
+            let result =
+                read::unsigned(&mut readable).expect("Should be able to read it back again");
             assert_eq!(i, result);
         }
     }
 
     #[test]
     fn test_read_unsigned_overflow() {
-        let buf = [2u8 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   1];
+        let buf = [
+            2u8 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            1,
+        ];
         let mut readable = EndianBuf::new(&buf[..], NativeEndian);
         assert!(read::unsigned(&mut readable).is_err());
     }
 
     #[test]
     fn test_read_signed_overflow() {
-        let buf = [2u8 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   2 | CONTINUATION_BIT,
-                   1];
+        let buf = [
+            2u8 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            2 | CONTINUATION_BIT,
+            1,
+        ];
         let mut readable = EndianBuf::new(&buf[..], NativeEndian);
         assert!(read::signed(&mut readable).is_err());
     }
@@ -447,9 +483,13 @@ mod tests {
         let buf = [2u8 | CONTINUATION_BIT, 1u8, 1u8];
 
         let mut readable = EndianBuf::new(&buf[..], NativeEndian);
-        assert_eq!(read::unsigned(&mut readable).expect("Should read first number"),
-                   130u64);
-        assert_eq!(read::unsigned(&mut readable).expect("Should read first number"),
-                   1u64);
+        assert_eq!(
+            read::unsigned(&mut readable).expect("Should read first number"),
+            130u64
+        );
+        assert_eq!(
+            read::unsigned(&mut readable).expect("Should read first number"),
+            1u64
+        );
     }
 }

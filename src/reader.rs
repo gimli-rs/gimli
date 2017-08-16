@@ -4,7 +4,7 @@ use std::ops::{Add, AddAssign, Sub};
 
 use endianity::Endianity;
 use leb128;
-use parser::{Error, Result, Format};
+use parser::{Error, Format, Result};
 
 /// A trait for offsets with a DWARF section.
 ///
@@ -248,7 +248,9 @@ pub trait Reader: Debug + Clone {
     fn to_string_lossy(&self) -> Result<Cow<str>>;
 
     /// Read a u8 array.
-    fn read_u8_array<A>(&mut self) -> Result<A> where A: Sized + Default + AsMut<[u8]>;
+    fn read_u8_array<A>(&mut self) -> Result<A>
+    where
+        A: Sized + Default + AsMut<[u8]>;
 
     /// Read a u8.
     fn read_u8(&mut self) -> Result<u8>;

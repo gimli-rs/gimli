@@ -145,10 +145,8 @@
 //!
 //! # fn main() {}
 //! ```
-
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
-
 // Allow clippy warnings when we aren't building with clippy.
 #![allow(unknown_lints)]
 // False positives with `fallible_iterator`.
@@ -169,29 +167,29 @@ mod constants;
 pub use constants::*;
 
 mod endianity;
-pub use endianity::{Endianity, EndianBuf, RunTimeEndian, LittleEndian, BigEndian, NativeEndian};
+pub use endianity::{BigEndian, EndianBuf, Endianity, LittleEndian, NativeEndian, RunTimeEndian};
 
 pub mod leb128;
 
 mod parser;
-pub use parser::{Error, Result, Format};
+pub use parser::{Error, Format, Result};
 pub use parser::DebugMacinfoOffset;
 
 mod reader;
 pub use reader::{Reader, ReaderOffset};
 
 mod abbrev;
-pub use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation,
-                 AttributeSpecification};
+pub use abbrev::{Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev,
+                 DebugAbbrevOffset};
 
 mod aranges;
-pub use aranges::{DebugAranges, ArangeEntryIter, ArangeEntry};
+pub use aranges::{ArangeEntry, ArangeEntryIter, DebugAranges};
 
 mod line;
 pub use line::*;
 
 mod loc;
-pub use loc::{DebugLoc, DebugLocOffset, LocationListIter, RawLocationListIter, LocationListEntry};
+pub use loc::{DebugLoc, DebugLocOffset, LocationListEntry, LocationListIter, RawLocationListIter};
 
 mod lookup;
 
@@ -199,13 +197,13 @@ mod op;
 pub use op::*;
 
 mod pubnames;
-pub use pubnames::{DebugPubNames, PubNamesEntryIter, PubNamesEntry};
+pub use pubnames::{DebugPubNames, PubNamesEntry, PubNamesEntryIter};
 
 mod pubtypes;
-pub use pubtypes::{DebugPubTypes, PubTypesEntryIter, PubTypesEntry};
+pub use pubtypes::{DebugPubTypes, PubTypesEntry, PubTypesEntryIter};
 
 mod ranges;
-pub use ranges::{DebugRanges, DebugRangesOffset, RangesIter, RawRangesIter, Range};
+pub use ranges::{DebugRanges, DebugRangesOffset, Range, RangesIter, RawRangesIter};
 
 mod str;
 pub use str::*;
@@ -214,13 +212,13 @@ pub use str::*;
 mod test_util;
 
 mod unit;
-pub use unit::{DebugInfo, DebugInfoOffset, CompilationUnitHeadersIter, CompilationUnitHeader,
+pub use unit::{CompilationUnitHeader, CompilationUnitHeadersIter, DebugInfo, DebugInfoOffset,
                UnitOffset};
-pub use unit::{DebugTypes, DebugTypesOffset, DebugTypeSignature, TypeUnitHeadersIter,
-               TypeUnitHeader};
-pub use unit::{EntriesCursor, EntriesTree, EntriesTreeIter, EntriesTreeNode,
-               DebuggingInformationEntry};
-pub use unit::{AttrsIter, Attribute, AttributeValue};
+pub use unit::{DebugTypeSignature, DebugTypes, DebugTypesOffset, TypeUnitHeader,
+               TypeUnitHeadersIter};
+pub use unit::{DebuggingInformationEntry, EntriesCursor, EntriesTree, EntriesTreeIter,
+               EntriesTreeNode};
+pub use unit::{Attribute, AttributeValue, AttrsIter};
 
 /// A convenience trait for loading DWARF sections from object files.  To be
 /// used like:

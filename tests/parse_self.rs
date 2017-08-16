@@ -99,19 +99,19 @@ fn test_parse_self_debug_line() {
             .expect("Should parse name attribute")
             .and_then(|attr| attr.string_value(&debug_str));
 
-        if let Some(AttributeValue::DebugLineRef(offset)) =
-            unit_entry
-                .attr_value(gimli::DW_AT_stmt_list)
-                .expect("Should parse stmt_list") {
+        if let Some(AttributeValue::DebugLineRef(offset)) = unit_entry
+            .attr_value(gimli::DW_AT_stmt_list)
+            .expect("Should parse stmt_list")
+        {
             let program = debug_line
                 .program(offset, unit.address_size(), comp_dir, comp_name)
                 .expect("should parse line number program header");
 
             let mut results = Vec::new();
             let mut rows = program.rows();
-            while let Some((_, row)) =
-                rows.next_row()
-                    .expect("Should parse and execute all rows in the line number program") {
+            while let Some((_, row)) = rows.next_row().expect(
+                "Should parse and execute all rows in the line number program",
+            ) {
                 results.push(*row);
             }
             results.reverse();
@@ -119,16 +119,15 @@ fn test_parse_self_debug_line() {
             let program = debug_line
                 .program(offset, unit.address_size(), comp_dir, comp_name)
                 .expect("should parse line number program header");
-            let (program, sequences) =
-                program
-                    .sequences()
-                    .expect("should parse and execute the entire line number program");
+            let (program, sequences) = program
+                .sequences()
+                .expect("should parse and execute the entire line number program");
             assert!(!sequences.is_empty()); // Should be at least one sequence.
             for sequence in sequences {
                 let mut rows = program.resume_from(&sequence);
-                while let Some((_, row)) =
-                    rows.next_row()
-                        .expect("Should parse and execute all rows after resuming") {
+                while let Some((_, row)) = rows.next_row()
+                    .expect("Should parse and execute all rows after resuming")
+                {
                     let other_row = results.pop().unwrap();
                     assert!(row.address() >= sequence.start);
                     assert!(row.address() <= sequence.end);
