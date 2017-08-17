@@ -1215,11 +1215,25 @@ where
         }
     }
 
+    /// The first address for which this entry has unwind information for.
+    pub fn initial_address(&self) -> u64 {
+        self.initial_address
+    }
+
+    /// The number of bytes of instructions that this entry has unwind
+    /// information for.
+    pub fn len(&self) -> u64 {
+        self.address_range
+    }
+
     /// Return `true` if the given address is within this FDE, `false`
     /// otherwise.
+    ///
+    /// This is equivalent to `entry.initial_address() <= address <
+    /// entry.initial_address() + entry.len()`.
     pub fn contains(&self, address: u64) -> bool {
-        let start = self.initial_address;
-        let end = start + self.address_range;
+        let start = self.initial_address();
+        let end = start + self.len();
         start <= address && address < end
     }
 
@@ -1632,7 +1646,7 @@ where
         fde: Option<&'fde FrameDescriptionEntry<Section, R, R::Offset>>,
     ) -> UnwindTable<'cie, 'fde, 'ctx, Section, R> {
         assert!(ctx.stack.len() >= 1);
-        let next_start_address = fde.map_or(0, |fde| fde.initial_address);
+        let next_start_address = fde.map_or(0, |fde| fde.initial_address());
         let instructions = fde.map_or_else(|| cie.instructions(), |fde| fde.instructions());
         UnwindTable {
             ctx: ctx,
@@ -1664,7 +1678,7 @@ where
 
                     let row = self.ctx.row_mut();
                     row.end_address = if let Some(fde) = self.fde {
-                        fde.initial_address + fde.address_range
+                        fde.initial_address() + fde.len()
                     } else {
                         0
                     };
@@ -2862,11 +2876,11 @@ mod tests {
 
             let section = match fde.cie.address_size {
                 4 => section
-                    .e32(endian, fde.initial_address as u32)
-                    .e32(endian, fde.address_range as u32),
+                    .e32(endian, fde.initial_address() as u32)
+                    .e32(endian, fde.len() as u32),
                 8 => section
-                    .e64(endian, fde.initial_address)
-                    .e64(endian, fde.address_range),
+                    .e64(endian, fde.initial_address())
+                    .e64(endian, fde.len()),
                 x => panic!("Unsupported address size: {}", x),
             };
 
@@ -4876,8 +4890,8 @@ mod tests {
         assert_eq!(
             unwind_info,
             UnwindTableRow {
-                start_address: fde1.initial_address + 100,
-                end_address: fde1.initial_address + fde1.address_range,
+                start_address: fde1.initial_address() + 100,
+                end_address: fde1.initial_address() + fde1.len(),
                 cfa: CfaRule::RegisterAndOffset {
                     register: 4,
                     offset: -12,
