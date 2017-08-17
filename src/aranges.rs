@@ -1,9 +1,9 @@
-use endianity::{Endianity, EndianBuf};
+use endianity::{EndianBuf, Endianity};
 use fallible_iterator::FallibleIterator;
-use lookup::{LookupParser, LookupEntryIter, DebugLookup};
+use lookup::{DebugLookup, LookupEntryIter, LookupParser};
 use parser::{parse_initial_length, Error, Format, Result};
 use reader::{Reader, ReaderOffset};
-use unit::{DebugInfoOffset, parse_debug_info_offset};
+use unit::{parse_debug_info_offset, DebugInfoOffset};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 use Section;
@@ -62,9 +62,11 @@ impl<T: Copy + Ord> PartialOrd for ArangeEntry<T> {
 impl<T: Copy + Ord> Ord for ArangeEntry<T> {
     fn cmp(&self, other: &ArangeEntry<T>) -> Ordering {
         // The expected comparison, but ignore header.
-        match (self.segment.cmp(&other.segment),
-               self.address.cmp(&other.address),
-               self.length.cmp(&other.length)) {
+        match (
+            self.segment.cmp(&other.segment),
+            self.address.cmp(&other.address),
+            self.length.cmp(&other.length),
+        ) {
             (Ordering::Equal, Ordering::Equal, Ordering::Equal) => Ordering::Equal,
             (Ordering::Less, _, _) |
             (Ordering::Equal, Ordering::Less, _) |
@@ -119,7 +121,8 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
         };
         rest.skip(R::Offset::from_u8(padding))?;
 
-        Ok((rest,
+        Ok((
+            rest,
             ArangeHeader {
                 format: format,
                 length: length,
@@ -127,7 +130,8 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
                 offset: offset,
                 address_size: address_size,
                 segment_size: segment_size,
-            }))
+            },
+        ))
     }
 
     /// Parse a single arange. Return `None` for the null arange, `Some` for an actual arange.
@@ -154,18 +158,16 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
             // It's not clear what purpose these zero tuples serve.  For now, we
             // simply skip them.
             (0, 0, 0) => Self::parse_entry(input, header),
-            _ => {
-                Ok(Some(ArangeEntry {
-                            segment: if segment_size != 0 {
-                                Some(segment)
-                            } else {
-                                None
-                            },
-                            address: address,
-                            length: length,
-                            unit_header_offset: header.offset,
-                        }))
-            }
+            _ => Ok(Some(ArangeEntry {
+                segment: if segment_size != 0 {
+                    Some(segment)
+                } else {
+                    None
+                },
+                address: address,
+                length: length,
+                unit_header_offset: header.offset,
+            })),
         }
     }
 }
@@ -176,7 +178,8 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
 pub struct DebugAranges<R: Reader>(DebugLookup<R, ArangeParser<R>>);
 
 impl<'input, Endian> DebugAranges<EndianBuf<'input, Endian>>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     /// Construct a new `DebugAranges` instance from the data in the `.debug_aranges`
     /// section.
@@ -330,13 +333,15 @@ mod tests {
         let rest = &mut EndianBuf::new(&buf, LittleEndian);
         let entry = ArangeParser::parse_entry(rest, &header).expect("should parse entry ok");
         assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 1..], LittleEndian));
-        assert_eq!(entry,
-                   Some(ArangeEntry {
-                            segment: None,
-                            address: 0x04030201,
-                            length: 0x08070605,
-                            unit_header_offset: header.offset,
-                        }));
+        assert_eq!(
+            entry,
+            Some(ArangeEntry {
+                segment: None,
+                address: 0x04030201,
+                length: 0x08070605,
+                unit_header_offset: header.offset,
+            })
+        );
     }
 
     #[test]

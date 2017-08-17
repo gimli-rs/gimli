@@ -1,8 +1,8 @@
 //! Functions for parsing DWARF debugging abbreviations.
 
 use constants;
-use endianity::{Endianity, EndianBuf};
-use parser::{Error, Result, Format};
+use endianity::{EndianBuf, Endianity};
+use parser::{Error, Format, Result};
 use reader::Reader;
 use unit::UnitHeader;
 use std::collections::hash_map;
@@ -21,7 +21,8 @@ pub struct DebugAbbrev<R: Reader> {
 }
 
 impl<'input, Endian> DebugAbbrev<EndianBuf<'input, Endian>>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     /// Construct a new `DebugAbbrev` instance from the data in the `.debug_abbrev`
     /// section.
@@ -47,9 +48,10 @@ impl<R: Reader> DebugAbbrev<R> {
     /// `.debug_abbrev` section.
     ///
     /// The `offset` should generally be retrieved from a unit header.
-    pub fn abbreviations(&self,
-                         debug_abbrev_offset: DebugAbbrevOffset<R::Offset>)
-                         -> Result<Abbreviations> {
+    pub fn abbreviations(
+        &self,
+        debug_abbrev_offset: DebugAbbrevOffset<R::Offset>,
+    ) -> Result<Abbreviations> {
         let input = &mut self.debug_abbrev_section.clone();
         input.skip(debug_abbrev_offset.0)?;
         Abbreviations::parse(input)
@@ -64,7 +66,9 @@ impl<R: Reader> Section<R> for DebugAbbrev<R> {
 
 impl<R: Reader> From<R> for DebugAbbrev<R> {
     fn from(debug_abbrev_section: R) -> Self {
-        DebugAbbrev { debug_abbrev_section }
+        DebugAbbrev {
+            debug_abbrev_section,
+        }
     }
 }
 
@@ -161,11 +165,12 @@ impl Abbreviation {
     /// ### Panics
     ///
     /// Panics if `code` is `0`.
-    pub fn new(code: u64,
-               tag: constants::DwTag,
-               has_children: constants::DwChildren,
-               attributes: Vec<AttributeSpecification>)
-               -> Abbreviation {
+    pub fn new(
+        code: u64,
+        tag: constants::DwTag,
+        has_children: constants::DwChildren,
+        attributes: Vec<AttributeSpecification>,
+    ) -> Abbreviation {
         assert_ne!(code, 0);
         Abbreviation {
             code: code,
@@ -364,7 +369,7 @@ pub mod tests {
 
     use super::*;
     use constants;
-    use endianity::{LittleEndian, EndianBuf};
+    use endianity::{EndianBuf, LittleEndian};
     use parser::Error;
     use self::test_assembler::Section;
     use std::{u32, u64};
@@ -404,9 +409,11 @@ pub mod tests {
             .abbrev(2, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
             .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)
             .abbrev_attr_null()
-            .abbrev(1,
-                    constants::DW_TAG_compile_unit,
-                    constants::DW_CHILDREN_yes)
+            .abbrev(
+                1,
+                constants::DW_TAG_compile_unit,
+                constants::DW_CHILDREN_yes,
+            )
             .abbrev_attr(constants::DW_AT_producer, constants::DW_FORM_strp)
             .abbrev_attr(constants::DW_AT_language, constants::DW_FORM_data2)
             .abbrev_attr_null()
@@ -415,20 +422,24 @@ pub mod tests {
             .get_contents()
             .unwrap();
 
-        let abbrev1 =
-            Abbreviation::new(1,
-                              constants::DW_TAG_compile_unit,
-                              constants::DW_CHILDREN_yes,
-                              vec![AttributeSpecification::new(constants::DW_AT_producer,
-                                                               constants::DW_FORM_strp),
-                                   AttributeSpecification::new(constants::DW_AT_language,
-                                                               constants::DW_FORM_data2)]);
+        let abbrev1 = Abbreviation::new(
+            1,
+            constants::DW_TAG_compile_unit,
+            constants::DW_CHILDREN_yes,
+            vec![
+                AttributeSpecification::new(constants::DW_AT_producer, constants::DW_FORM_strp),
+                AttributeSpecification::new(constants::DW_AT_language, constants::DW_FORM_data2),
+            ],
+        );
 
-        let abbrev2 = Abbreviation::new(2,
-                                        constants::DW_TAG_subprogram,
-                                        constants::DW_CHILDREN_no,
-                                        vec![AttributeSpecification::new(constants::DW_AT_name,
-                                                               constants::DW_FORM_string)]);
+        let abbrev2 = Abbreviation::new(
+            2,
+            constants::DW_TAG_subprogram,
+            constants::DW_CHILDREN_no,
+            vec![
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
+            ],
+        );
 
         let debug_abbrev = DebugAbbrev::new(&buf, LittleEndian);
         let debug_abbrev_offset = DebugAbbrevOffset(extra_start.len());
@@ -442,10 +453,12 @@ pub mod tests {
     #[test]
     fn test_abbreviations_insert() {
         fn abbrev(code: u64) -> Abbreviation {
-            Abbreviation::new(code,
-                              constants::DwTag(code),
-                              constants::DW_CHILDREN_no,
-                              vec![])
+            Abbreviation::new(
+                code,
+                constants::DwTag(code),
+                constants::DW_CHILDREN_no,
+                vec![],
+            )
         }
 
         fn assert_abbrev(abbrevs: &Abbreviations, code: u64) {
@@ -507,10 +520,12 @@ pub mod tests {
     #[cfg(target_pointer_width = "32")]
     fn test_abbreviations_insert_32() {
         fn abbrev(code: u64) -> Abbreviation {
-            Abbreviation::new(code,
-                              constants::DwTag(code),
-                              constants::DW_CHILDREN_no,
-                              vec![])
+            Abbreviation::new(
+                code,
+                constants::DwTag(code),
+                constants::DW_CHILDREN_no,
+                vec![],
+            )
         }
 
         fn assert_abbrev(abbrevs: &Abbreviations, code: u64) {
@@ -537,9 +552,11 @@ pub mod tests {
             .abbrev(2, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
             .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)
             .abbrev_attr_null()
-            .abbrev(1,
-                    constants::DW_TAG_compile_unit,
-                    constants::DW_CHILDREN_yes)
+            .abbrev(
+                1,
+                constants::DW_TAG_compile_unit,
+                constants::DW_CHILDREN_yes,
+            )
             .abbrev_attr(constants::DW_AT_producer, constants::DW_FORM_strp)
             .abbrev_attr(constants::DW_AT_language, constants::DW_FORM_data2)
             .abbrev_attr_null()
@@ -549,20 +566,24 @@ pub mod tests {
             .unwrap();
         let rest = &mut EndianBuf::new(&*buf, LittleEndian);
 
-        let abbrev1 =
-            Abbreviation::new(1,
-                              constants::DW_TAG_compile_unit,
-                              constants::DW_CHILDREN_yes,
-                              vec![AttributeSpecification::new(constants::DW_AT_producer,
-                                                               constants::DW_FORM_strp),
-                                   AttributeSpecification::new(constants::DW_AT_language,
-                                                               constants::DW_FORM_data2)]);
+        let abbrev1 = Abbreviation::new(
+            1,
+            constants::DW_TAG_compile_unit,
+            constants::DW_CHILDREN_yes,
+            vec![
+                AttributeSpecification::new(constants::DW_AT_producer, constants::DW_FORM_strp),
+                AttributeSpecification::new(constants::DW_AT_language, constants::DW_FORM_data2),
+            ],
+        );
 
-        let abbrev2 = Abbreviation::new(2,
-                                        constants::DW_TAG_subprogram,
-                                        constants::DW_CHILDREN_no,
-                                        vec![AttributeSpecification::new(constants::DW_AT_name,
-                                                               constants::DW_FORM_string)]);
+        let abbrev2 = Abbreviation::new(
+            2,
+            constants::DW_TAG_subprogram,
+            constants::DW_CHILDREN_no,
+            vec![
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
+            ],
+        );
 
         let abbrevs = Abbreviations::parse(rest).expect("Should parse abbreviations");
         assert_eq!(abbrevs.get(1), Some(&abbrev1));
@@ -577,9 +598,11 @@ pub mod tests {
             .abbrev(1, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
             .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)
             .abbrev_attr_null()
-            .abbrev(1,
-                    constants::DW_TAG_compile_unit,
-                    constants::DW_CHILDREN_yes)
+            .abbrev(
+                1,
+                constants::DW_TAG_compile_unit,
+                constants::DW_CHILDREN_yes,
+            )
             .abbrev_attr(constants::DW_AT_producer, constants::DW_FORM_strp)
             .abbrev_attr(constants::DW_AT_language, constants::DW_FORM_data2)
             .abbrev_attr_null()
@@ -640,11 +663,14 @@ pub mod tests {
             .unwrap();
         let rest = &mut EndianBuf::new(&*buf, LittleEndian);
 
-        let expect = Some(Abbreviation::new(1,
-                                            constants::DW_TAG_subprogram,
-                                            constants::DW_CHILDREN_no,
-                                            vec![AttributeSpecification::new(constants::DW_AT_name,
-                                                                    constants::DW_FORM_string)]));
+        let expect = Some(Abbreviation::new(
+            1,
+            constants::DW_TAG_subprogram,
+            constants::DW_CHILDREN_no,
+            vec![
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
+            ],
+        ));
 
         let abbrev = Abbreviation::parse(rest).expect("Should parse abbreviation");
         assert_eq!(abbrev, expect);
@@ -689,8 +715,8 @@ pub mod tests {
     fn test_parse_null_attribute_specification_ok() {
         let buf = [0x00, 0x00, 0x01];
         let rest = &mut EndianBuf::new(&buf, LittleEndian);
-        let attr = AttributeSpecification::parse(rest)
-            .expect("Should parse null attribute specification");
+        let attr =
+            AttributeSpecification::parse(rest).expect("Should parse null attribute specification");
         assert!(attr.is_none());
         assert_eq!(*rest, EndianBuf::new(&buf[2..], LittleEndian));
     }

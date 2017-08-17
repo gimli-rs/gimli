@@ -1252,15 +1252,25 @@ impl DwEhPe {
         }
 
         match self.format() {
-            DW_EH_PE_absptr | DW_EH_PE_uleb128 | DW_EH_PE_udata2 | DW_EH_PE_udata4 |
-            DW_EH_PE_udata8 | DW_EH_PE_sleb128 | DW_EH_PE_sdata2 | DW_EH_PE_sdata4 |
+            DW_EH_PE_absptr |
+            DW_EH_PE_uleb128 |
+            DW_EH_PE_udata2 |
+            DW_EH_PE_udata4 |
+            DW_EH_PE_udata8 |
+            DW_EH_PE_sleb128 |
+            DW_EH_PE_sdata2 |
+            DW_EH_PE_sdata4 |
             DW_EH_PE_sdata8 => {}
             _ => return false,
         }
 
         match self.application() {
-            DW_EH_PE_absptr | DW_EH_PE_pcrel | DW_EH_PE_textrel | DW_EH_PE_datarel |
-            DW_EH_PE_funcrel | DW_EH_PE_aligned => {}
+            DW_EH_PE_absptr |
+            DW_EH_PE_pcrel |
+            DW_EH_PE_textrel |
+            DW_EH_PE_datarel |
+            DW_EH_PE_funcrel |
+            DW_EH_PE_aligned => {}
             _ => return false,
         }
 

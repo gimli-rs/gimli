@@ -1,5 +1,5 @@
 use constants;
-use endianity::{Endianity, EndianBuf};
+use endianity::{EndianBuf, Endianity};
 use parser;
 use reader::{Reader, ReaderOffset};
 use std::fmt;
@@ -17,7 +17,8 @@ pub struct DebugLine<R: Reader> {
 }
 
 impl<'input, Endian> DebugLine<EndianBuf<'input, Endian>>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     /// Construct a new `DebugLine` instance from the data in the `.debug_line`
     /// section.
@@ -63,12 +64,13 @@ impl<R: Reader> DebugLine<R> {
     /// let program = debug_line.program(offset, address_size, None, None)
     ///     .expect("should have found a header at that offset, and parsed it OK");
     /// ```
-    pub fn program(&self,
-                   offset: DebugLineOffset<R::Offset>,
-                   address_size: u8,
-                   comp_dir: Option<R>,
-                   comp_name: Option<R>)
-                   -> parser::Result<IncompleteLineNumberProgram<R>> {
+    pub fn program(
+        &self,
+        offset: DebugLineOffset<R::Offset>,
+        address_size: u8,
+        comp_dir: Option<R>,
+        comp_name: Option<R>,
+    ) -> parser::Result<IncompleteLineNumberProgram<R>> {
         let input = &mut self.debug_line_section.clone();
         input.skip(offset.0)?;
         let header = LineNumberProgramHeader::parse(input, address_size, comp_dir, comp_name)?;
@@ -125,8 +127,9 @@ impl<'program, R: Reader> LineNumberProgram<R> for &'program CompleteLineNumberP
 /// information." -- Section 6.2.1
 #[derive(Debug, Clone)]
 pub struct StateMachine<R, Program>
-    where Program: LineNumberProgram<R>,
-          R: Reader
+where
+    Program: LineNumberProgram<R>,
+    R: Reader,
 {
     program: Program,
     row: LineNumberRow,
@@ -139,14 +142,17 @@ type OneShotStateMachine<R> = StateMachine<R, IncompleteLineNumberProgram<R>>;
 type ResumedStateMachine<'program, R> = StateMachine<R, &'program CompleteLineNumberProgram<R>>;
 
 impl<R, Program> StateMachine<R, Program>
-    where Program: LineNumberProgram<R>,
-          R: Reader
+where
+    Program: LineNumberProgram<R>,
+    R: Reader,
 {
     #[allow(new_ret_no_self)]
     fn new(program: IncompleteLineNumberProgram<R>) -> OneShotStateMachine<R> {
         let mut row = LineNumberRow::default();
         row.registers.reset(program.header().default_is_stmt());
-        let opcodes = OpcodesIter { input: program.header().program_buf.clone() };
+        let opcodes = OpcodesIter {
+            input: program.header().program_buf.clone(),
+        };
         StateMachine {
             program: program,
             row: row,
@@ -154,9 +160,10 @@ impl<R, Program> StateMachine<R, Program>
         }
     }
 
-    fn resume<'program>(program: &'program CompleteLineNumberProgram<R>,
-                        sequence: &LineNumberSequence<R>)
-                        -> ResumedStateMachine<'program, R> {
+    fn resume<'program>(
+        program: &'program CompleteLineNumberProgram<R>,
+        sequence: &LineNumberSequence<R>,
+    ) -> ResumedStateMachine<'program, R> {
         let mut row = LineNumberRow::default();
         row.registers.reset(program.header().default_is_stmt());
         let opcodes = sequence.opcodes.clone();
@@ -184,13 +191,13 @@ impl<R, Program> StateMachine<R, Program>
     /// Step 2 of section 6.2.5.1
     fn apply_operation_advance(&mut self, operation_advance: u64) {
         let minimum_instruction_length = self.header().minimum_instruction_length as u64;
-        let maximum_operations_per_instruction = self.header().maximum_operations_per_instruction as
-                                                 u64;
+        let maximum_operations_per_instruction =
+            self.header().maximum_operations_per_instruction as u64;
 
         let op_index_with_advance = self.row.registers.op_index + operation_advance;
 
         self.row.registers.address += minimum_instruction_length *
-                                      (op_index_with_advance / maximum_operations_per_instruction);
+            (op_index_with_advance / maximum_operations_per_instruction);
 
         self.row.registers.op_index = op_index_with_advance % maximum_operations_per_instruction;
     }
@@ -332,8 +339,9 @@ impl<R, Program> StateMachine<R, Program>
     ///
     /// Unfortunately, the references mean that this cannot be a
     /// `FallibleIterator`.
-    pub fn next_row(&mut self)
-                    -> parser::Result<Option<(&LineNumberProgramHeader<R>, &LineNumberRow)>> {
+    pub fn next_row(
+        &mut self,
+    ) -> parser::Result<Option<(&LineNumberProgramHeader<R>, &LineNumberRow)>> {
         // Perform any reset that was required after copying the previous row.
         if self.row.registers.end_sequence {
             // Previous opcode was EndSequence, so reset everything
@@ -372,10 +380,10 @@ impl<R, Program> StateMachine<R, Program>
 
     /// Parse and execute opcodes until we reach a row matching `addr`, the end of the program,
     /// or an error.
-    pub fn run_to_address
-        (&mut self,
-         addr: &u64)
-         -> parser::Result<Option<(&LineNumberProgramHeader<R>, &LineNumberRow)>> {
+    pub fn run_to_address(
+        &mut self,
+        addr: &u64,
+    ) -> parser::Result<Option<(&LineNumberProgramHeader<R>, &LineNumberRow)>> {
         loop {
             match self.next_row() {
                 Ok(Some((_, row))) => {
@@ -526,10 +534,12 @@ pub enum Opcode<R: Reader> {
 }
 
 impl<R: Reader> Opcode<R> {
-    fn parse<'header>(header: &'header LineNumberProgramHeader<R>,
-                      input: &mut R)
-                      -> parser::Result<Opcode<R>>
-        where R: 'header
+    fn parse<'header>(
+        header: &'header LineNumberProgramHeader<R>,
+        input: &mut R,
+    ) -> parser::Result<Opcode<R>>
+    where
+        R: 'header,
     {
         let opcode = input.read_u8()?;
         if opcode == 0 {
@@ -702,9 +712,10 @@ impl<R: Reader> OpcodesIter<R> {
     ///
     /// Unfortunately, the `header` parameter means that this cannot be a
     /// `FallibleIterator`.
-    pub fn next_opcode(&mut self,
-                       header: &LineNumberProgramHeader<R>)
-                       -> parser::Result<Option<Opcode<R>>> {
+    pub fn next_opcode(
+        &mut self,
+        header: &LineNumberProgramHeader<R>,
+    ) -> parser::Result<Option<Opcode<R>>> {
         if self.input.is_empty() {
             return Ok(None);
         }
@@ -754,9 +765,10 @@ impl LineNumberRow {
 
     /// The source file corresponding to the current machine instruction.
     #[inline]
-    pub fn file<'header, R: Reader>(&self,
-                                    header: &'header LineNumberProgramHeader<R>)
-                                    -> Option<&'header FileEntry<R>> {
+    pub fn file<'header, R: Reader>(
+        &self,
+        header: &'header LineNumberProgramHeader<R>,
+    ) -> Option<&'header FileEntry<R>> {
         header.file(self.registers.file)
     }
 
@@ -1109,14 +1121,17 @@ impl<R: Reader> LineNumberProgramHeader<R> {
     /// Iterate over the opcodes in this header's line number program, parsing
     /// them as we go.
     pub fn opcodes(&self) -> OpcodesIter<R> {
-        OpcodesIter { input: self.program_buf.clone() }
+        OpcodesIter {
+            input: self.program_buf.clone(),
+        }
     }
 
-    fn parse(input: &mut R,
-             address_size: u8,
-             comp_dir: Option<R>,
-             comp_name: Option<R>)
-             -> parser::Result<LineNumberProgramHeader<R>> {
+    fn parse(
+        input: &mut R,
+        address_size: u8,
+        comp_dir: Option<R>,
+        comp_name: Option<R>,
+    ) -> parser::Result<LineNumberProgramHeader<R>> {
         let (unit_length, format) = parser::parse_initial_length(input)?;
         let unit_length = R::Offset::from_u64(unit_length)?;
         let rest = &mut input.split(unit_length)?;
@@ -1178,13 +1193,13 @@ impl<R: Reader> LineNumberProgramHeader<R> {
         }
 
         let comp_name = comp_name.map(|name| {
-                                          FileEntry {
-                                              path_name: name,
-                                              directory_index: 0,
-                                              last_modification: 0,
-                                              length: 0,
-                                          }
-                                      });
+            FileEntry {
+                path_name: name,
+                directory_index: 0,
+                last_modification: 0,
+                length: 0,
+            }
+        });
 
         let header = LineNumberProgramHeader {
             unit_length: unit_length,
@@ -1247,9 +1262,9 @@ impl<R: Reader> IncompleteLineNumberProgram<R> {
     /// println!("There are {} sequences in this line number program", sequences.len());
     /// # }
     /// ```
-    pub fn sequences
-        (self)
-         -> parser::Result<(CompleteLineNumberProgram<R>, Vec<LineNumberSequence<R>>)> {
+    pub fn sequences(
+        self,
+    ) -> parser::Result<(CompleteLineNumberProgram<R>, Vec<LineNumberSequence<R>>)> {
         let mut sequences = Vec::new();
         let mut state_machine = self.rows();
         let mut opcodes = state_machine.opcodes.clone();
@@ -1272,17 +1287,19 @@ impl<R: Reader> IncompleteLineNumberProgram<R> {
 
             // We just finished a sequence.
             sequences.push(LineNumberSequence {
-                               // In theory one could have multiple DW_LNE_end_sequence opcodes
-                               // in a row.
-                               start: sequence_start_addr.unwrap_or(0),
-                               end: sequence_end_addr,
-                               opcodes: opcodes.remove_trailing(&state_machine.opcodes)?,
-                           });
+                // In theory one could have multiple DW_LNE_end_sequence opcodes
+                // in a row.
+                start: sequence_start_addr.unwrap_or(0),
+                end: sequence_end_addr,
+                opcodes: opcodes.remove_trailing(&state_machine.opcodes)?,
+            });
             sequence_start_addr = None;
             opcodes = state_machine.opcodes.clone();
         }
 
-        let program = CompleteLineNumberProgram { header: state_machine.program.header };
+        let program = CompleteLineNumberProgram {
+            header: state_machine.program.header,
+        };
         Ok((program, sequences))
     }
 }
@@ -1320,9 +1337,10 @@ impl<R: Reader> CompleteLineNumberProgram<R> {
     /// }
     /// # }
     /// ```
-    pub fn resume_from<'program>(&'program self,
-                                 sequence: &LineNumberSequence<R>)
-                                 -> ResumedStateMachine<'program, R> {
+    pub fn resume_from<'program>(
+        &'program self,
+        sequence: &LineNumberSequence<R>,
+    ) -> ResumedStateMachine<'program, R> {
         ResumedStateMachine::resume(self, sequence)
     }
 }
@@ -1628,8 +1646,9 @@ mod tests {
     const OPCODE_BASE: u8 = 13;
     const STANDARD_OPCODE_LENGTHS: &'static [u8] = &[0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1];
 
-    fn make_test_header(buf: EndianBuf<LittleEndian>)
-                        -> LineNumberProgramHeader<EndianBuf<LittleEndian>> {
+    fn make_test_header(
+        buf: EndianBuf<LittleEndian>,
+    ) -> LineNumberProgramHeader<EndianBuf<LittleEndian>> {
         LineNumberProgramHeader {
             opcode_base: OPCODE_BASE,
             address_size: 8,
@@ -1639,18 +1658,20 @@ mod tests {
             program_buf: buf,
             version: 4,
             header_length: 1,
-            file_names: vec![FileEntry {
-                                 path_name: EndianBuf::new(b"foo.c", LittleEndian),
-                                 directory_index: 0,
-                                 last_modification: 0,
-                                 length: 0,
-                             },
-                             FileEntry {
-                                 path_name: EndianBuf::new(b"bar.rs", LittleEndian),
-                                 directory_index: 0,
-                                 last_modification: 0,
-                                 length: 0,
-                             }],
+            file_names: vec![
+                FileEntry {
+                    path_name: EndianBuf::new(b"foo.c", LittleEndian),
+                    directory_index: 0,
+                    last_modification: 0,
+                    length: 0,
+                },
+                FileEntry {
+                    path_name: EndianBuf::new(b"bar.rs", LittleEndian),
+                    directory_index: 0,
+                    last_modification: 0,
+                    length: 0,
+                },
+            ],
             format: Format::Dwarf32,
             line_base: -3,
             unit_length: 1,
@@ -1662,9 +1683,12 @@ mod tests {
         }
     }
 
-    fn make_test_program(buf: EndianBuf<LittleEndian>)
-                         -> IncompleteLineNumberProgram<EndianBuf<LittleEndian>> {
-        IncompleteLineNumberProgram { header: make_test_header(buf) }
+    fn make_test_program(
+        buf: EndianBuf<LittleEndian>,
+    ) -> IncompleteLineNumberProgram<EndianBuf<LittleEndian>> {
+        IncompleteLineNumberProgram {
+            header: make_test_header(buf),
+        }
     }
 
     #[test]
@@ -1684,10 +1708,12 @@ mod tests {
 
     #[test]
     fn test_parse_standard_opcodes() {
-        fn test<Operands>(raw: constants::DwLns,
-                          operands: Operands,
-                          expected: Opcode<EndianBuf<LittleEndian>>)
-            where Operands: AsRef<[u8]>
+        fn test<Operands>(
+            raw: constants::DwLns,
+            operands: Operands,
+            expected: Opcode<EndianBuf<LittleEndian>>,
+        ) where
+            Operands: AsRef<[u8]>,
         {
             let mut input = Vec::new();
             input.push(raw.0);
@@ -1714,15 +1740,21 @@ mod tests {
         test(constants::DW_LNS_negate_stmt, [], Opcode::NegateStatement);
         test(constants::DW_LNS_set_basic_block, [], Opcode::SetBasicBlock);
         test(constants::DW_LNS_const_add_pc, [], Opcode::ConstAddPc);
-        test(constants::DW_LNS_fixed_advance_pc,
-             [42, 0],
-             Opcode::FixedAddPc(42));
-        test(constants::DW_LNS_set_prologue_end,
-             [],
-             Opcode::SetPrologueEnd);
-        test(constants::DW_LNS_set_isa,
-             [57 + 0x80, 100],
-             Opcode::SetIsa(12857));
+        test(
+            constants::DW_LNS_fixed_advance_pc,
+            [42, 0],
+            Opcode::FixedAddPc(42),
+        );
+        test(
+            constants::DW_LNS_set_prologue_end,
+            [],
+            Opcode::SetPrologueEnd,
+        );
+        test(
+            constants::DW_LNS_set_isa,
+            [57 + 0x80, 100],
+            Opcode::SetIsa(12857),
+        );
     }
 
     #[test]
@@ -1739,8 +1771,10 @@ mod tests {
         let mut rest = input;
         let opcode = Opcode::parse(&header, &mut rest).expect("Should parse the opcode OK");
 
-        assert_eq!(opcode,
-                   Opcode::UnknownStandard0(constants::DwLns(OPCODE_BASE)));
+        assert_eq!(
+            opcode,
+            Opcode::UnknownStandard0(constants::DwLns(OPCODE_BASE))
+        );
         assert_eq!(*rest, *input.range_from(1..));
     }
 
@@ -1758,8 +1792,10 @@ mod tests {
         let mut rest = input;
         let opcode = Opcode::parse(&header, &mut rest).expect("Should parse the opcode OK");
 
-        assert_eq!(opcode,
-                   Opcode::UnknownStandard1(constants::DwLns(OPCODE_BASE), 1));
+        assert_eq!(
+            opcode,
+            Opcode::UnknownStandard1(constants::DwLns(OPCODE_BASE), 1)
+        );
         assert_eq!(*rest, *input.range_from(2..));
     }
 
@@ -1777,17 +1813,21 @@ mod tests {
         let mut rest = input;
         let opcode = Opcode::parse(&header, &mut rest).expect("Should parse the opcode OK");
 
-        assert_eq!(opcode,
-                   Opcode::UnknownStandardN(constants::DwLns(OPCODE_BASE), vec![1, 2, 3]));
+        assert_eq!(
+            opcode,
+            Opcode::UnknownStandardN(constants::DwLns(OPCODE_BASE), vec![1, 2, 3])
+        );
         assert_eq!(*rest, []);
     }
 
     #[test]
     fn test_parse_extended_opcodes() {
-        fn test<Operands>(raw: constants::DwLne,
-                          operands: Operands,
-                          expected: Opcode<EndianBuf<LittleEndian>>)
-            where Operands: AsRef<[u8]>
+        fn test<Operands>(
+            raw: constants::DwLne,
+            operands: Operands,
+            expected: Opcode<EndianBuf<LittleEndian>>,
+        ) where
+            Operands: AsRef<[u8]>,
         {
             let mut input = Vec::new();
             input.push(0);
@@ -1812,12 +1852,16 @@ mod tests {
         }
 
         test(constants::DW_LNE_end_sequence, [], Opcode::EndSequence);
-        test(constants::DW_LNE_set_address,
-             [1, 2, 3, 4, 5, 6, 7, 8],
-             Opcode::SetAddress(578437695752307201));
-        test(constants::DW_LNE_set_discriminator,
-             [42],
-             Opcode::SetDiscriminator(42));
+        test(
+            constants::DW_LNE_set_address,
+            [1, 2, 3, 4, 5, 6, 7, 8],
+            Opcode::SetAddress(578437695752307201),
+        );
+        test(
+            constants::DW_LNE_set_discriminator,
+            [42],
+            Opcode::SetDiscriminator(42),
+        );
 
         let mut file = Vec::new();
         // "foo.c"
@@ -1830,21 +1874,25 @@ mod tests {
         // Size of file.
         file.push(2);
 
-        test(constants::DW_LNE_define_file,
-             file,
-             Opcode::DefineFile(FileEntry {
-                                    path_name: EndianBuf::new(b"foo.c", LittleEndian),
-                                    directory_index: 0,
-                                    last_modification: 1,
-                                    length: 2,
-                                }));
+        test(
+            constants::DW_LNE_define_file,
+            file,
+            Opcode::DefineFile(FileEntry {
+                path_name: EndianBuf::new(b"foo.c", LittleEndian),
+                directory_index: 0,
+                last_modification: 1,
+                length: 2,
+            }),
+        );
 
         // Unknown extended opcode.
         let operands = [1, 2, 3, 4, 5, 6];
         let opcode = constants::DwLne(99);
-        test(opcode,
-             operands,
-             Opcode::UnknownExtended(opcode, EndianBuf::new(&operands, LittleEndian)));
+        test(
+            opcode,
+            operands,
+            Opcode::UnknownExtended(opcode, EndianBuf::new(&operands, LittleEndian)),
+        );
     }
 
     #[test]
@@ -1877,12 +1925,13 @@ mod tests {
         regs
     }
 
-    fn assert_exec_opcode<'input>(header: LineNumberProgramHeader<EndianBuf<'input,
-                                                                            LittleEndian>>,
-                                  initial_registers: StateMachineRegisters,
-                                  opcode: Opcode<EndianBuf<'input, LittleEndian>>,
-                                  expected_registers: StateMachineRegisters,
-                                  expect_new_row: bool) {
+    fn assert_exec_opcode<'input>(
+        header: LineNumberProgramHeader<EndianBuf<'input, LittleEndian>>,
+        initial_registers: StateMachineRegisters,
+        opcode: Opcode<EndianBuf<'input, LittleEndian>>,
+        expected_registers: StateMachineRegisters,
+        expect_new_row: bool,
+    ) {
         let mut sm = OneShotStateMachine::new(IncompleteLineNumberProgram { header: header });
         sm.row.registers = initial_registers;
 
@@ -2276,8 +2325,8 @@ mod tests {
     fn test_exec_unknown_extended() {
         let header = make_test_header(EndianBuf::new(&[], LittleEndian));
         let initial_registers = new_registers();
-        let opcode = Opcode::UnknownExtended(constants::DwLne(74),
-                                             EndianBuf::new(&[], LittleEndian));
+        let opcode =
+            Opcode::UnknownExtended(constants::DwLne(74), EndianBuf::new(&[], LittleEndian));
         let expected_registers = initial_registers.clone();
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }

@@ -3,7 +3,7 @@
 use constants;
 use parser::{Error, Format};
 use reader::{Reader, ReaderOffset};
-use unit::{UnitOffset, DebugInfoOffset};
+use unit::{DebugInfoOffset, UnitOffset};
 use std::mem;
 
 /// A reference to a DIE, either relative to the current CU or
@@ -29,8 +29,9 @@ pub enum DieReference<T = usize> {
 /// using `Operation::Deref`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operation<R, Offset = usize>
-    where R: Reader<Offset = Offset>,
-          Offset: ReaderOffset
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     /// A dereference operation.
     Deref {
@@ -224,8 +225,9 @@ enum OperationEvaluationResult<R: Reader> {
 /// A single location of a piece of the result of a DWARF expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Location<R, Offset = usize>
-    where R: Reader<Offset = Offset>,
-          Offset: ReaderOffset
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     /// The piece is empty.  Ordinarily this means the piece has been
     /// optimized away.
@@ -260,8 +262,9 @@ pub enum Location<R, Offset = usize>
 }
 
 impl<R, Offset> Location<R, Offset>
-    where R: Reader<Offset = Offset>,
-          Offset: ReaderOffset
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     /// Return true if the piece is empty.
     pub fn is_empty(&self) -> bool {
@@ -276,8 +279,9 @@ impl<R, Offset> Location<R, Offset>
 /// expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Piece<R, Offset = usize>
-    where R: Reader<Offset = Offset>,
-          Offset: ReaderOffset
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     /// If given, the size of the piece in bits.  If `None`, then the
     /// piece takes its size from the enclosed location.
@@ -303,8 +307,9 @@ fn compute_pc<R: Reader>(pc: &R, bytecode: &R, offset: i16) -> Result<R, Error> 
 }
 
 impl<R, Offset> Operation<R, Offset>
-    where R: Reader<Offset = Offset>,
-          Offset: ReaderOffset
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     /// Parse a single DWARF expression operation.
     ///
@@ -314,11 +319,12 @@ impl<R, Offset> Operation<R, Offset>
     /// `bytes` points to a the operation to decode.  It should point into
     /// the same array as `bytecode`, which should be the entire
     /// expression.
-    pub fn parse(bytes: &mut R,
-                 bytecode: &R,
-                 address_size: u8,
-                 format: Format)
-                 -> Result<Operation<R, Offset>, Error> {
+    pub fn parse(
+        bytes: &mut R,
+        bytecode: &R,
+        address_size: u8,
+        format: Format,
+    ) -> Result<Operation<R, Offset>, Error> {
         let opcode = bytes.read_u8()?;
         let name = constants::DwOp(opcode);
         match name {
@@ -326,35 +332,45 @@ impl<R, Offset> Operation<R, Offset>
                 let offset = bytes.read_address(address_size)?;
                 Ok(Operation::TextRelativeOffset { offset: offset })
             }
-            constants::DW_OP_deref => {
-                Ok(Operation::Deref {
-                       size: address_size,
-                       space: false,
-                   })
-            }
+            constants::DW_OP_deref => Ok(Operation::Deref {
+                size: address_size,
+                space: false,
+            }),
             constants::DW_OP_const1u => {
                 let value = bytes.read_u8()?;
-                Ok(Operation::Literal { value: value as u64 })
+                Ok(Operation::Literal {
+                    value: value as u64,
+                })
             }
             constants::DW_OP_const1s => {
                 let value = bytes.read_i8()?;
-                Ok(Operation::Literal { value: value as u64 })
+                Ok(Operation::Literal {
+                    value: value as u64,
+                })
             }
             constants::DW_OP_const2u => {
                 let value = bytes.read_u16()?;
-                Ok(Operation::Literal { value: value as u64 })
+                Ok(Operation::Literal {
+                    value: value as u64,
+                })
             }
             constants::DW_OP_const2s => {
                 let value = bytes.read_i16()?;
-                Ok(Operation::Literal { value: value as u64 })
+                Ok(Operation::Literal {
+                    value: value as u64,
+                })
             }
             constants::DW_OP_const4u => {
                 let value = bytes.read_u32()?;
-                Ok(Operation::Literal { value: value as u64 })
+                Ok(Operation::Literal {
+                    value: value as u64,
+                })
             }
             constants::DW_OP_const4s => {
                 let value = bytes.read_i32()?;
-                Ok(Operation::Literal { value: value as u64 })
+                Ok(Operation::Literal {
+                    value: value as u64,
+                })
             }
             constants::DW_OP_const8u => {
                 let value = bytes.read_u64()?;
@@ -362,7 +378,9 @@ impl<R, Offset> Operation<R, Offset>
             }
             constants::DW_OP_const8s => {
                 let value = bytes.read_i64()?;
-                Ok(Operation::Literal { value: value as u64 })
+                Ok(Operation::Literal {
+                    value: value as u64,
+                })
             }
             constants::DW_OP_constu => {
                 let value = bytes.read_uleb128()?;
@@ -370,7 +388,9 @@ impl<R, Offset> Operation<R, Offset>
             }
             constants::DW_OP_consts => {
                 let value = bytes.read_sleb128()?;
-                Ok(Operation::Literal { value: value as u64 })
+                Ok(Operation::Literal {
+                    value: value as u64,
+                })
             }
             constants::DW_OP_dup => Ok(Operation::Pick { index: 0 }),
             constants::DW_OP_drop => Ok(Operation::Drop),
@@ -381,12 +401,10 @@ impl<R, Offset> Operation<R, Offset>
             }
             constants::DW_OP_swap => Ok(Operation::Swap),
             constants::DW_OP_rot => Ok(Operation::Rot),
-            constants::DW_OP_xderef => {
-                Ok(Operation::Deref {
-                       size: address_size,
-                       space: true,
-                   })
-            }
+            constants::DW_OP_xderef => Ok(Operation::Deref {
+                size: address_size,
+                space: true,
+            }),
             constants::DW_OP_abs => Ok(Operation::Abs),
             constants::DW_OP_and => Ok(Operation::And),
             constants::DW_OP_div => Ok(Operation::Div),
@@ -407,7 +425,9 @@ impl<R, Offset> Operation<R, Offset>
             constants::DW_OP_xor => Ok(Operation::Xor),
             constants::DW_OP_bra => {
                 let value = bytes.read_i16()?;
-                Ok(Operation::Bra { target: compute_pc(bytes, bytecode, value)? })
+                Ok(Operation::Bra {
+                    target: compute_pc(bytes, bytecode, value)?,
+                })
             }
             constants::DW_OP_eq => Ok(Operation::Eq),
             constants::DW_OP_ge => Ok(Operation::Ge),
@@ -417,7 +437,9 @@ impl<R, Offset> Operation<R, Offset>
             constants::DW_OP_ne => Ok(Operation::Ne),
             constants::DW_OP_skip => {
                 let value = bytes.read_i16()?;
-                Ok(Operation::Skip { target: compute_pc(bytes, bytecode, value)? })
+                Ok(Operation::Skip {
+                    target: compute_pc(bytes, bytecode, value)?,
+                })
             }
             constants::DW_OP_lit0 => Ok(Operation::Literal { value: 0 }),
             constants::DW_OP_lit1 => Ok(Operation::Literal { value: 1 }),
@@ -486,226 +508,226 @@ impl<R, Offset> Operation<R, Offset>
             constants::DW_OP_breg0 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 0,
-                       offset: value,
-                   })
+                    register: 0,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg1 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 1,
-                       offset: value,
-                   })
+                    register: 1,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg2 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 2,
-                       offset: value,
-                   })
+                    register: 2,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg3 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 3,
-                       offset: value,
-                   })
+                    register: 3,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg4 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 4,
-                       offset: value,
-                   })
+                    register: 4,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg5 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 5,
-                       offset: value,
-                   })
+                    register: 5,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg6 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 6,
-                       offset: value,
-                   })
+                    register: 6,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg7 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 7,
-                       offset: value,
-                   })
+                    register: 7,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg8 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 8,
-                       offset: value,
-                   })
+                    register: 8,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg9 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 9,
-                       offset: value,
-                   })
+                    register: 9,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg10 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 10,
-                       offset: value,
-                   })
+                    register: 10,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg11 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 11,
-                       offset: value,
-                   })
+                    register: 11,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg12 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 12,
-                       offset: value,
-                   })
+                    register: 12,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg13 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 13,
-                       offset: value,
-                   })
+                    register: 13,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg14 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 14,
-                       offset: value,
-                   })
+                    register: 14,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg15 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 15,
-                       offset: value,
-                   })
+                    register: 15,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg16 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 16,
-                       offset: value,
-                   })
+                    register: 16,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg17 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 17,
-                       offset: value,
-                   })
+                    register: 17,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg18 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 18,
-                       offset: value,
-                   })
+                    register: 18,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg19 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 19,
-                       offset: value,
-                   })
+                    register: 19,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg20 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 20,
-                       offset: value,
-                   })
+                    register: 20,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg21 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 21,
-                       offset: value,
-                   })
+                    register: 21,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg22 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 22,
-                       offset: value,
-                   })
+                    register: 22,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg23 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 23,
-                       offset: value,
-                   })
+                    register: 23,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg24 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 24,
-                       offset: value,
-                   })
+                    register: 24,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg25 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 25,
-                       offset: value,
-                   })
+                    register: 25,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg26 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 26,
-                       offset: value,
-                   })
+                    register: 26,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg27 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 27,
-                       offset: value,
-                   })
+                    register: 27,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg28 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 28,
-                       offset: value,
-                   })
+                    register: 28,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg29 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 29,
-                       offset: value,
-                   })
+                    register: 29,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg30 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 30,
-                       offset: value,
-                   })
+                    register: 30,
+                    offset: value,
+                })
             }
             constants::DW_OP_breg31 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: 31,
-                       offset: value,
-                   })
+                    register: 31,
+                    offset: value,
+                })
             }
             constants::DW_OP_regx => {
                 let value = bytes.read_uleb128()?;
@@ -719,55 +741,62 @@ impl<R, Offset> Operation<R, Offset>
                 let regno = bytes.read_uleb128()?;
                 let offset = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                       register: regno,
-                       offset: offset,
-                   })
+                    register: regno,
+                    offset: offset,
+                })
             }
             constants::DW_OP_piece => {
                 let size = bytes.read_uleb128()?;
                 Ok(Operation::Piece {
-                       size_in_bits: 8 * size,
-                       bit_offset: None,
-                   })
+                    size_in_bits: 8 * size,
+                    bit_offset: None,
+                })
             }
             constants::DW_OP_deref_size => {
                 let size = bytes.read_u8()?;
                 Ok(Operation::Deref {
-                       size: size,
-                       space: false,
-                   })
+                    size: size,
+                    space: false,
+                })
             }
             constants::DW_OP_xderef_size => {
                 let size = bytes.read_u8()?;
                 Ok(Operation::Deref {
-                       size: size,
-                       space: true,
-                   })
+                    size: size,
+                    space: true,
+                })
             }
             constants::DW_OP_nop => Ok(Operation::Nop),
             constants::DW_OP_push_object_address => Ok(Operation::PushObjectAddress),
             constants::DW_OP_call2 => {
                 let value = bytes.read_u16().map(R::Offset::from_u16)?;
-                Ok(Operation::Call { offset: DieReference::UnitRef(UnitOffset(value)) })
+                Ok(Operation::Call {
+                    offset: DieReference::UnitRef(UnitOffset(value)),
+                })
             }
             constants::DW_OP_call4 => {
                 let value = bytes.read_u32().map(R::Offset::from_u32)?;
-                Ok(Operation::Call { offset: DieReference::UnitRef(UnitOffset(value)) })
+                Ok(Operation::Call {
+                    offset: DieReference::UnitRef(UnitOffset(value)),
+                })
             }
             constants::DW_OP_call_ref => {
                 let value = bytes.read_offset(format)?;
-                Ok(Operation::Call { offset: DieReference::DebugInfoRef(DebugInfoOffset(value)) })
+                Ok(Operation::Call {
+                    offset: DieReference::DebugInfoRef(DebugInfoOffset(value)),
+                })
             }
-            constants::DW_OP_form_tls_address |
-            constants::DW_OP_GNU_push_tls_address => Ok(Operation::TLS),
+            constants::DW_OP_form_tls_address | constants::DW_OP_GNU_push_tls_address => {
+                Ok(Operation::TLS)
+            }
             constants::DW_OP_call_frame_cfa => Ok(Operation::CallFrameCFA),
             constants::DW_OP_bit_piece => {
                 let size = bytes.read_uleb128()?;
                 let offset = bytes.read_uleb128()?;
                 Ok(Operation::Piece {
-                       size_in_bits: size,
-                       bit_offset: Some(offset),
-                   })
+                    size_in_bits: size,
+                    bit_offset: Some(offset),
+                })
             }
             constants::DW_OP_implicit_value => {
                 let len = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
@@ -775,24 +804,26 @@ impl<R, Offset> Operation<R, Offset>
                 Ok(Operation::ImplicitValue { data: data })
             }
             constants::DW_OP_stack_value => Ok(Operation::StackValue),
-            constants::DW_OP_implicit_pointer |
-            constants::DW_OP_GNU_implicit_pointer => {
+            constants::DW_OP_implicit_pointer | constants::DW_OP_GNU_implicit_pointer => {
                 let value = bytes.read_offset(format)?;
                 let byte_offset = bytes.read_sleb128()?;
                 Ok(Operation::ImplicitPointer {
-                       value: DebugInfoOffset(value),
-                       byte_offset: byte_offset,
-                   })
+                    value: DebugInfoOffset(value),
+                    byte_offset: byte_offset,
+                })
             }
-            constants::DW_OP_entry_value |
-            constants::DW_OP_GNU_entry_value => {
+            constants::DW_OP_entry_value | constants::DW_OP_GNU_entry_value => {
                 let len = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
                 let expression = bytes.split(len)?;
-                Ok(Operation::EntryValue { expression: expression })
+                Ok(Operation::EntryValue {
+                    expression: expression,
+                })
             }
             constants::DW_OP_GNU_parameter_ref => {
                 let value = bytes.read_u32().map(R::Offset::from_u32)?;
-                Ok(Operation::ParameterRef { offset: UnitOffset(value) })
+                Ok(Operation::ParameterRef {
+                    offset: UnitOffset(value),
+                })
             }
 
             _ => Err(Error::InvalidExpression(name)),
@@ -1013,9 +1044,9 @@ impl<R: Reader> Evaluation<R> {
             EvaluationState::Start(None) => {
                 self.state = EvaluationState::Start(Some(value));
             }
-            _ => {
-                panic!("`Evaluation::set_initial_value` was called twice, or after evaluation began.")
-            }
+            _ => panic!(
+                "`Evaluation::set_initial_value` was called twice, or after evaluation began."
+            ),
         };
     }
 
@@ -1065,9 +1096,10 @@ impl<R: Reader> Evaluation<R> {
         self.stack.push(value);
     }
 
-    fn evaluate_one_operation(&mut self,
-                              operation: &Operation<R, R::Offset>)
-                              -> Result<OperationEvaluationResult<R>, Error> {
+    fn evaluate_one_operation(
+        &mut self,
+        operation: &Operation<R, R::Offset>,
+    ) -> Result<OperationEvaluationResult<R>, Error> {
         let mut terminated = false;
         let mut piece_end = false;
         let mut current_location = Location::Empty;
@@ -1077,10 +1109,10 @@ impl<R: Reader> Evaluation<R> {
                 let addr = self.pop()?;
                 let addr_space = if space { Some(self.pop()?) } else { None };
                 return Ok(OperationEvaluationResult::AwaitingMemory {
-                              address: addr,
-                              size: size,
-                              space: addr_space,
-                          });
+                    address: addr,
+                    size: size,
+                    space: addr_space,
+                });
             }
 
             Operation::Drop => {
@@ -1258,27 +1290,29 @@ impl<R: Reader> Evaluation<R> {
 
             Operation::RegisterOffset { register, offset } => {
                 return Ok(OperationEvaluationResult::AwaitingRegister {
-                              register: register,
-                              offset: offset as u64,
-                          });
+                    register: register,
+                    offset: offset as u64,
+                });
             }
 
             Operation::FrameOffset { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingFrameBase { offset: offset as u64 });
+                return Ok(OperationEvaluationResult::AwaitingFrameBase {
+                    offset: offset as u64,
+                });
             }
 
             Operation::Nop => {}
 
-            Operation::PushObjectAddress => {
-                if let Some(value) = self.object_address {
-                    self.push(value);
-                } else {
-                    return Err(Error::InvalidPushObjectAddress.into());
-                }
-            }
+            Operation::PushObjectAddress => if let Some(value) = self.object_address {
+                self.push(value);
+            } else {
+                return Err(Error::InvalidPushObjectAddress.into());
+            },
 
             Operation::Call { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingAtLocation { location: offset });
+                return Ok(OperationEvaluationResult::AwaitingAtLocation {
+                    location: offset,
+                });
             }
 
             Operation::TLS => {
@@ -1297,7 +1331,9 @@ impl<R: Reader> Evaluation<R> {
 
             Operation::ImplicitValue { ref data } => {
                 terminated = true;
-                current_location = Location::Bytes { value: data.clone() };
+                current_location = Location::Bytes {
+                    value: data.clone(),
+                };
             }
 
             Operation::StackValue => {
@@ -1315,16 +1351,20 @@ impl<R: Reader> Evaluation<R> {
 
             Operation::EntryValue { ref expression } => {
                 return Ok(OperationEvaluationResult::AwaitingEntryValue {
-                              expression: expression.clone(),
-                          });
+                    expression: expression.clone(),
+                });
             }
 
             Operation::ParameterRef { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingParameterRef { parameter: offset });
+                return Ok(OperationEvaluationResult::AwaitingParameterRef {
+                    parameter: offset,
+                });
             }
 
             Operation::TextRelativeOffset { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingTextBase { offset: offset });
+                return Ok(OperationEvaluationResult::AwaitingTextBase {
+                    offset: offset,
+                });
             }
 
             Operation::Piece { .. } => {
@@ -1333,10 +1373,10 @@ impl<R: Reader> Evaluation<R> {
         }
 
         Ok(OperationEvaluationResult::Complete {
-               terminated: terminated,
-               piece_end: piece_end,
-               current_location: current_location,
-           })
+            terminated: terminated,
+            piece_end: piece_end,
+            current_location: current_location,
+        })
     }
 
     /// Get the result of this `Evaluation`.
@@ -1393,9 +1433,9 @@ impl<R: Reader> Evaluation<R> {
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingMemory { .. }) => {
                 self.push(value);
             }
-            _ => {
-                panic!("Called `Evaluation::resume_with_memory` without a preceding `EvaluationResult::RequiresMemory`")
-            }
+            _ => panic!(
+                "Called `Evaluation::resume_with_memory` without a preceding `EvaluationResult::RequiresMemory`"
+            ),
         };
 
         self.evaluate_internal()
@@ -1411,14 +1451,14 @@ impl<R: Reader> Evaluation<R> {
     pub fn resume_with_register(&mut self, register: u64) -> Result<EvaluationResult<R>, Error> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingRegister {
-                                         offset, ..
-                                     }) => {
+            EvaluationState::Waiting(
+                OperationEvaluationResult::AwaitingRegister { offset, .. },
+            ) => {
                 self.push(register.wrapping_add(offset));
             }
-            _ => {
-                panic!("Called `Evaluation::resume_with_register` without a preceding `EvaluationResult::RequiresRegister`")
-            }
+            _ => panic!(
+                "Called `Evaluation::resume_with_register` without a preceding `EvaluationResult::RequiresRegister`"
+            ),
         };
 
         self.evaluate_internal()
@@ -1431,17 +1471,18 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresFrameBase`.
-    pub fn resume_with_frame_base(&mut self,
-                                  frame_base: u64)
-                                  -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_frame_base(
+        &mut self,
+        frame_base: u64,
+    ) -> Result<EvaluationResult<R>, Error> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingFrameBase { offset }) => {
                 self.push(frame_base.wrapping_add(offset));
             }
-            _ => {
-                panic!("Called `Evaluation::resume_with_frame_base` without a preceding `EvaluationResult::RequiresFrameBase`")
-            }
+            _ => panic!(
+                "Called `Evaluation::resume_with_frame_base` without a preceding `EvaluationResult::RequiresFrameBase`"
+            ),
         };
 
         self.evaluate_internal()
@@ -1460,9 +1501,9 @@ impl<R: Reader> Evaluation<R> {
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingTls { .. }) => {
                 self.push(value);
             }
-            _ => {
-                panic!("Called `Evaluation::resume_with_tls` without a preceding `EvaluationResult::RequiresTls`")
-            }
+            _ => panic!(
+                "Called `Evaluation::resume_with_tls` without a preceding `EvaluationResult::RequiresTls`"
+            ),
         };
 
         self.evaluate_internal()
@@ -1481,9 +1522,9 @@ impl<R: Reader> Evaluation<R> {
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingCfa) => {
                 self.push(cfa);
             }
-            _ => {
-                panic!("Called `Evaluation::resume_with_call_frame_cfa` without a preceding `EvaluationResult::RequiresCallFrameCfa`")
-            }
+            _ => panic!(
+                "Called `Evaluation::resume_with_call_frame_cfa` without a preceding `EvaluationResult::RequiresCallFrameCfa`"
+            ),
         };
 
         self.evaluate_internal()
@@ -1507,9 +1548,9 @@ impl<R: Reader> Evaluation<R> {
                     self.expression_stack.push((pc, bytes));
                 }
             }
-            _ => {
-                panic!("Called `Evaluation::resume_with_at_location` without a precedeing `EvaluationResult::RequiresAtLocation`")
-            }
+            _ => panic!(
+                "Called `Evaluation::resume_with_at_location` without a precedeing `EvaluationResult::RequiresAtLocation`"
+            ),
         };
 
         self.evaluate_internal()
@@ -1522,17 +1563,18 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresEntryValue`.
-    pub fn resume_with_entry_value(&mut self,
-                                   entry_value: u64)
-                                   -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_entry_value(
+        &mut self,
+        entry_value: u64,
+    ) -> Result<EvaluationResult<R>, Error> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingEntryValue { .. }) => {
                 self.push(entry_value);
             }
-            _ => {
-                panic!("Called `Evaluation::resume_with_entry_value` without a preceding `EvaluationResult::RequiresEntryValue`")
-            }
+            _ => panic!(
+                "Called `Evaluation::resume_with_entry_value` without a preceding `EvaluationResult::RequiresEntryValue`"
+            ),
         };
 
         self.evaluate_internal()
@@ -1545,19 +1587,18 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresParameterRef`.
-    pub fn resume_with_parameter_ref(&mut self,
-                                     parameter_value: u64)
-                                     -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_parameter_ref(
+        &mut self,
+        parameter_value: u64,
+    ) -> Result<EvaluationResult<R>, Error> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingParameterRef {
-                                         ..
-                                     }) => {
+            EvaluationState::Waiting(OperationEvaluationResult::AwaitingParameterRef { .. }) => {
                 self.push(parameter_value);
             }
-            _ => {
-                panic!("Called `Evaluation::resume_with_parameter_ref` without a preceding `EvaluationResult::RequiresParameterRef`")
-            }
+            _ => panic!(
+                "Called `Evaluation::resume_with_parameter_ref` without a preceding `EvaluationResult::RequiresParameterRef`"
+            ),
         };
 
         self.evaluate_internal()
@@ -1576,9 +1617,9 @@ impl<R: Reader> Evaluation<R> {
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingTextBase { offset }) => {
                 self.push(text_base.wrapping_add(offset));
             }
-            _ => {
-                panic!("Called `Evaluation::resume_with_text_base` without a preceding `EvaluationResult::RequiresTextBase`")
-            }
+            _ => panic!(
+                "Called `Evaluation::resume_with_text_base` without a preceding `EvaluationResult::RequiresTextBase`"
+            ),
         };
 
         self.evaluate_internal()
@@ -1626,13 +1667,17 @@ impl<R: Reader> Evaluation<R> {
                             // result is the address on the stack.
                             assert!(current_location.is_empty());
                             if !self.stack.is_empty() {
-                                current_location = Location::Address { address: self.pop()? };
+                                current_location = Location::Address {
+                                    address: self.pop()?,
+                                };
                             }
                         } else if !eof {
-                            pieceop = Operation::parse(&mut self.pc,
-                                                       &self.bytecode,
-                                                       self.address_size,
-                                                       self.format)?;
+                            pieceop = Operation::parse(
+                                &mut self.pc,
+                                &self.bytecode,
+                                self.address_size,
+                                self.format,
+                            )?;
                         }
                         match pieceop {
                             _ if eof => {
@@ -1643,10 +1688,10 @@ impl<R: Reader> Evaluation<R> {
                                     return Err(Error::InvalidPiece.into());
                                 }
                                 self.result.push(Piece {
-                                                     size_in_bits: None,
-                                                     bit_offset: None,
-                                                     location: current_location,
-                                                 });
+                                    size_in_bits: None,
+                                    bit_offset: None,
+                                    location: current_location,
+                                });
                             }
 
                             Operation::Piece {
@@ -1654,10 +1699,10 @@ impl<R: Reader> Evaluation<R> {
                                 bit_offset,
                             } => {
                                 self.result.push(Piece {
-                                                     size_in_bits: Some(size_in_bits),
-                                                     bit_offset: bit_offset,
-                                                     location: current_location,
-                                                 });
+                                    size_in_bits: Some(size_in_bits),
+                                    bit_offset: bit_offset,
+                                    location: current_location,
+                                });
                             }
 
                             _ => {
@@ -1675,10 +1720,10 @@ impl<R: Reader> Evaluation<R> {
                 } => {
                     self.state = EvaluationState::Waiting(op_result);
                     return Ok(EvaluationResult::RequiresMemory {
-                                  address: address,
-                                  size: size,
-                                  space: space,
-                              });
+                        address: address,
+                        size: size,
+                        space: space,
+                    });
                 }
                 OperationEvaluationResult::AwaitingRegister { register, .. } => {
                     self.state = EvaluationState::Waiting(op_result);
@@ -1720,10 +1765,10 @@ impl<R: Reader> Evaluation<R> {
         if self.result.is_empty() {
             let addr = self.pop()?;
             self.result.push(Piece {
-                                 size_in_bits: None,
-                                 bit_offset: None,
-                                 location: Location::Address { address: addr },
-                             });
+                size_in_bits: None,
+                bit_offset: None,
+                location: Location::Address { address: addr },
+            });
         }
 
         self.state = EvaluationState::Complete;
@@ -1753,19 +1798,27 @@ mod tests {
         let ebuf = &EndianBuf::new(bytecode, LittleEndian);
 
         assert_eq!(compute_pc(ebuf, ebuf, 0), Ok(*ebuf));
-        assert_eq!(compute_pc(ebuf, ebuf, -1),
-                   Err(Error::BadBranchTarget(-1i64 as u64)));
+        assert_eq!(
+            compute_pc(ebuf, ebuf, -1),
+            Err(Error::BadBranchTarget(-1i64 as u64))
+        );
         assert_eq!(compute_pc(ebuf, ebuf, 5), Ok(ebuf.range_from(5..)));
-        assert_eq!(compute_pc(&ebuf.range_from(3..), ebuf, -2),
-                   Ok(ebuf.range_from(1..)));
-        assert_eq!(compute_pc(&ebuf.range_from(2..), ebuf, 2),
-                   Ok(ebuf.range_from(4..)));
+        assert_eq!(
+            compute_pc(&ebuf.range_from(3..), ebuf, -2),
+            Ok(ebuf.range_from(1..))
+        );
+        assert_eq!(
+            compute_pc(&ebuf.range_from(2..), ebuf, 2),
+            Ok(ebuf.range_from(4..))
+        );
     }
 
-    fn check_op_parse_simple<'input>(input: &'input [u8],
-                                     expect: &Operation<EndianBuf<'input, LittleEndian>>,
-                                     address_size: u8,
-                                     format: Format) {
+    fn check_op_parse_simple<'input>(
+        input: &'input [u8],
+        expect: &Operation<EndianBuf<'input, LittleEndian>>,
+        address_size: u8,
+        format: Format,
+    ) {
         let buf = EndianBuf::new(input, LittleEndian);
         let mut pc = buf;
         let value = Operation::parse(&mut pc, &buf, address_size, format);
@@ -1790,11 +1843,13 @@ mod tests {
         }
     }
 
-    fn check_op_parse<F>(input: F,
-                         expect: &Operation<EndianBuf<LittleEndian>>,
-                         address_size: u8,
-                         format: Format)
-        where F: Fn(Section) -> Section
+    fn check_op_parse<F>(
+        input: F,
+        expect: &Operation<EndianBuf<LittleEndian>>,
+        address_size: u8,
+        format: Format,
+    ) where
+        F: Fn(Section) -> Section,
     {
         let input = input(Section::with_endian(Endian::Little))
             .get_contents()
@@ -1812,111 +1867,120 @@ mod tests {
         let format = Format::Dwarf32;
 
         // Test all single-byte opcodes.
-        let inputs = [(constants::DW_OP_deref,
-                       Operation::Deref {
-                           size: address_size,
-                           space: false,
-                       }),
-                      (constants::DW_OP_dup, Operation::Pick { index: 0 }),
-                      (constants::DW_OP_drop, Operation::Drop),
-                      (constants::DW_OP_over, Operation::Pick { index: 1 }),
-                      (constants::DW_OP_swap, Operation::Swap),
-                      (constants::DW_OP_rot, Operation::Rot),
-                      (constants::DW_OP_xderef,
-                       Operation::Deref {
-                           size: address_size,
-                           space: true,
-                       }),
-                      (constants::DW_OP_abs, Operation::Abs),
-                      (constants::DW_OP_and, Operation::And),
-                      (constants::DW_OP_div, Operation::Div),
-                      (constants::DW_OP_minus, Operation::Minus),
-                      (constants::DW_OP_mod, Operation::Mod),
-                      (constants::DW_OP_mul, Operation::Mul),
-                      (constants::DW_OP_neg, Operation::Neg),
-                      (constants::DW_OP_not, Operation::Not),
-                      (constants::DW_OP_or, Operation::Or),
-                      (constants::DW_OP_plus, Operation::Plus),
-                      (constants::DW_OP_shl, Operation::Shl),
-                      (constants::DW_OP_shr, Operation::Shr),
-                      (constants::DW_OP_shra, Operation::Shra),
-                      (constants::DW_OP_xor, Operation::Xor),
-                      (constants::DW_OP_eq, Operation::Eq),
-                      (constants::DW_OP_ge, Operation::Ge),
-                      (constants::DW_OP_gt, Operation::Gt),
-                      (constants::DW_OP_le, Operation::Le),
-                      (constants::DW_OP_lt, Operation::Lt),
-                      (constants::DW_OP_ne, Operation::Ne),
-                      (constants::DW_OP_lit0, Operation::Literal { value: 0 }),
-                      (constants::DW_OP_lit1, Operation::Literal { value: 1 }),
-                      (constants::DW_OP_lit2, Operation::Literal { value: 2 }),
-                      (constants::DW_OP_lit3, Operation::Literal { value: 3 }),
-                      (constants::DW_OP_lit4, Operation::Literal { value: 4 }),
-                      (constants::DW_OP_lit5, Operation::Literal { value: 5 }),
-                      (constants::DW_OP_lit6, Operation::Literal { value: 6 }),
-                      (constants::DW_OP_lit7, Operation::Literal { value: 7 }),
-                      (constants::DW_OP_lit8, Operation::Literal { value: 8 }),
-                      (constants::DW_OP_lit9, Operation::Literal { value: 9 }),
-                      (constants::DW_OP_lit10, Operation::Literal { value: 10 }),
-                      (constants::DW_OP_lit11, Operation::Literal { value: 11 }),
-                      (constants::DW_OP_lit12, Operation::Literal { value: 12 }),
-                      (constants::DW_OP_lit13, Operation::Literal { value: 13 }),
-                      (constants::DW_OP_lit14, Operation::Literal { value: 14 }),
-                      (constants::DW_OP_lit15, Operation::Literal { value: 15 }),
-                      (constants::DW_OP_lit16, Operation::Literal { value: 16 }),
-                      (constants::DW_OP_lit17, Operation::Literal { value: 17 }),
-                      (constants::DW_OP_lit18, Operation::Literal { value: 18 }),
-                      (constants::DW_OP_lit19, Operation::Literal { value: 19 }),
-                      (constants::DW_OP_lit20, Operation::Literal { value: 20 }),
-                      (constants::DW_OP_lit21, Operation::Literal { value: 21 }),
-                      (constants::DW_OP_lit22, Operation::Literal { value: 22 }),
-                      (constants::DW_OP_lit23, Operation::Literal { value: 23 }),
-                      (constants::DW_OP_lit24, Operation::Literal { value: 24 }),
-                      (constants::DW_OP_lit25, Operation::Literal { value: 25 }),
-                      (constants::DW_OP_lit26, Operation::Literal { value: 26 }),
-                      (constants::DW_OP_lit27, Operation::Literal { value: 27 }),
-                      (constants::DW_OP_lit28, Operation::Literal { value: 28 }),
-                      (constants::DW_OP_lit29, Operation::Literal { value: 29 }),
-                      (constants::DW_OP_lit30, Operation::Literal { value: 30 }),
-                      (constants::DW_OP_lit31, Operation::Literal { value: 31 }),
-                      (constants::DW_OP_reg0, Operation::Register { register: 0 }),
-                      (constants::DW_OP_reg1, Operation::Register { register: 1 }),
-                      (constants::DW_OP_reg2, Operation::Register { register: 2 }),
-                      (constants::DW_OP_reg3, Operation::Register { register: 3 }),
-                      (constants::DW_OP_reg4, Operation::Register { register: 4 }),
-                      (constants::DW_OP_reg5, Operation::Register { register: 5 }),
-                      (constants::DW_OP_reg6, Operation::Register { register: 6 }),
-                      (constants::DW_OP_reg7, Operation::Register { register: 7 }),
-                      (constants::DW_OP_reg8, Operation::Register { register: 8 }),
-                      (constants::DW_OP_reg9, Operation::Register { register: 9 }),
-                      (constants::DW_OP_reg10, Operation::Register { register: 10 }),
-                      (constants::DW_OP_reg11, Operation::Register { register: 11 }),
-                      (constants::DW_OP_reg12, Operation::Register { register: 12 }),
-                      (constants::DW_OP_reg13, Operation::Register { register: 13 }),
-                      (constants::DW_OP_reg14, Operation::Register { register: 14 }),
-                      (constants::DW_OP_reg15, Operation::Register { register: 15 }),
-                      (constants::DW_OP_reg16, Operation::Register { register: 16 }),
-                      (constants::DW_OP_reg17, Operation::Register { register: 17 }),
-                      (constants::DW_OP_reg18, Operation::Register { register: 18 }),
-                      (constants::DW_OP_reg19, Operation::Register { register: 19 }),
-                      (constants::DW_OP_reg20, Operation::Register { register: 20 }),
-                      (constants::DW_OP_reg21, Operation::Register { register: 21 }),
-                      (constants::DW_OP_reg22, Operation::Register { register: 22 }),
-                      (constants::DW_OP_reg23, Operation::Register { register: 23 }),
-                      (constants::DW_OP_reg24, Operation::Register { register: 24 }),
-                      (constants::DW_OP_reg25, Operation::Register { register: 25 }),
-                      (constants::DW_OP_reg26, Operation::Register { register: 26 }),
-                      (constants::DW_OP_reg27, Operation::Register { register: 27 }),
-                      (constants::DW_OP_reg28, Operation::Register { register: 28 }),
-                      (constants::DW_OP_reg29, Operation::Register { register: 29 }),
-                      (constants::DW_OP_reg30, Operation::Register { register: 30 }),
-                      (constants::DW_OP_reg31, Operation::Register { register: 31 }),
-                      (constants::DW_OP_nop, Operation::Nop),
-                      (constants::DW_OP_push_object_address, Operation::PushObjectAddress),
-                      (constants::DW_OP_form_tls_address, Operation::TLS),
-                      (constants::DW_OP_GNU_push_tls_address, Operation::TLS),
-                      (constants::DW_OP_call_frame_cfa, Operation::CallFrameCFA),
-                      (constants::DW_OP_stack_value, Operation::StackValue)];
+        let inputs = [
+            (
+                constants::DW_OP_deref,
+                Operation::Deref {
+                    size: address_size,
+                    space: false,
+                },
+            ),
+            (constants::DW_OP_dup, Operation::Pick { index: 0 }),
+            (constants::DW_OP_drop, Operation::Drop),
+            (constants::DW_OP_over, Operation::Pick { index: 1 }),
+            (constants::DW_OP_swap, Operation::Swap),
+            (constants::DW_OP_rot, Operation::Rot),
+            (
+                constants::DW_OP_xderef,
+                Operation::Deref {
+                    size: address_size,
+                    space: true,
+                },
+            ),
+            (constants::DW_OP_abs, Operation::Abs),
+            (constants::DW_OP_and, Operation::And),
+            (constants::DW_OP_div, Operation::Div),
+            (constants::DW_OP_minus, Operation::Minus),
+            (constants::DW_OP_mod, Operation::Mod),
+            (constants::DW_OP_mul, Operation::Mul),
+            (constants::DW_OP_neg, Operation::Neg),
+            (constants::DW_OP_not, Operation::Not),
+            (constants::DW_OP_or, Operation::Or),
+            (constants::DW_OP_plus, Operation::Plus),
+            (constants::DW_OP_shl, Operation::Shl),
+            (constants::DW_OP_shr, Operation::Shr),
+            (constants::DW_OP_shra, Operation::Shra),
+            (constants::DW_OP_xor, Operation::Xor),
+            (constants::DW_OP_eq, Operation::Eq),
+            (constants::DW_OP_ge, Operation::Ge),
+            (constants::DW_OP_gt, Operation::Gt),
+            (constants::DW_OP_le, Operation::Le),
+            (constants::DW_OP_lt, Operation::Lt),
+            (constants::DW_OP_ne, Operation::Ne),
+            (constants::DW_OP_lit0, Operation::Literal { value: 0 }),
+            (constants::DW_OP_lit1, Operation::Literal { value: 1 }),
+            (constants::DW_OP_lit2, Operation::Literal { value: 2 }),
+            (constants::DW_OP_lit3, Operation::Literal { value: 3 }),
+            (constants::DW_OP_lit4, Operation::Literal { value: 4 }),
+            (constants::DW_OP_lit5, Operation::Literal { value: 5 }),
+            (constants::DW_OP_lit6, Operation::Literal { value: 6 }),
+            (constants::DW_OP_lit7, Operation::Literal { value: 7 }),
+            (constants::DW_OP_lit8, Operation::Literal { value: 8 }),
+            (constants::DW_OP_lit9, Operation::Literal { value: 9 }),
+            (constants::DW_OP_lit10, Operation::Literal { value: 10 }),
+            (constants::DW_OP_lit11, Operation::Literal { value: 11 }),
+            (constants::DW_OP_lit12, Operation::Literal { value: 12 }),
+            (constants::DW_OP_lit13, Operation::Literal { value: 13 }),
+            (constants::DW_OP_lit14, Operation::Literal { value: 14 }),
+            (constants::DW_OP_lit15, Operation::Literal { value: 15 }),
+            (constants::DW_OP_lit16, Operation::Literal { value: 16 }),
+            (constants::DW_OP_lit17, Operation::Literal { value: 17 }),
+            (constants::DW_OP_lit18, Operation::Literal { value: 18 }),
+            (constants::DW_OP_lit19, Operation::Literal { value: 19 }),
+            (constants::DW_OP_lit20, Operation::Literal { value: 20 }),
+            (constants::DW_OP_lit21, Operation::Literal { value: 21 }),
+            (constants::DW_OP_lit22, Operation::Literal { value: 22 }),
+            (constants::DW_OP_lit23, Operation::Literal { value: 23 }),
+            (constants::DW_OP_lit24, Operation::Literal { value: 24 }),
+            (constants::DW_OP_lit25, Operation::Literal { value: 25 }),
+            (constants::DW_OP_lit26, Operation::Literal { value: 26 }),
+            (constants::DW_OP_lit27, Operation::Literal { value: 27 }),
+            (constants::DW_OP_lit28, Operation::Literal { value: 28 }),
+            (constants::DW_OP_lit29, Operation::Literal { value: 29 }),
+            (constants::DW_OP_lit30, Operation::Literal { value: 30 }),
+            (constants::DW_OP_lit31, Operation::Literal { value: 31 }),
+            (constants::DW_OP_reg0, Operation::Register { register: 0 }),
+            (constants::DW_OP_reg1, Operation::Register { register: 1 }),
+            (constants::DW_OP_reg2, Operation::Register { register: 2 }),
+            (constants::DW_OP_reg3, Operation::Register { register: 3 }),
+            (constants::DW_OP_reg4, Operation::Register { register: 4 }),
+            (constants::DW_OP_reg5, Operation::Register { register: 5 }),
+            (constants::DW_OP_reg6, Operation::Register { register: 6 }),
+            (constants::DW_OP_reg7, Operation::Register { register: 7 }),
+            (constants::DW_OP_reg8, Operation::Register { register: 8 }),
+            (constants::DW_OP_reg9, Operation::Register { register: 9 }),
+            (constants::DW_OP_reg10, Operation::Register { register: 10 }),
+            (constants::DW_OP_reg11, Operation::Register { register: 11 }),
+            (constants::DW_OP_reg12, Operation::Register { register: 12 }),
+            (constants::DW_OP_reg13, Operation::Register { register: 13 }),
+            (constants::DW_OP_reg14, Operation::Register { register: 14 }),
+            (constants::DW_OP_reg15, Operation::Register { register: 15 }),
+            (constants::DW_OP_reg16, Operation::Register { register: 16 }),
+            (constants::DW_OP_reg17, Operation::Register { register: 17 }),
+            (constants::DW_OP_reg18, Operation::Register { register: 18 }),
+            (constants::DW_OP_reg19, Operation::Register { register: 19 }),
+            (constants::DW_OP_reg20, Operation::Register { register: 20 }),
+            (constants::DW_OP_reg21, Operation::Register { register: 21 }),
+            (constants::DW_OP_reg22, Operation::Register { register: 22 }),
+            (constants::DW_OP_reg23, Operation::Register { register: 23 }),
+            (constants::DW_OP_reg24, Operation::Register { register: 24 }),
+            (constants::DW_OP_reg25, Operation::Register { register: 25 }),
+            (constants::DW_OP_reg26, Operation::Register { register: 26 }),
+            (constants::DW_OP_reg27, Operation::Register { register: 27 }),
+            (constants::DW_OP_reg28, Operation::Register { register: 28 }),
+            (constants::DW_OP_reg29, Operation::Register { register: 29 }),
+            (constants::DW_OP_reg30, Operation::Register { register: 30 }),
+            (constants::DW_OP_reg31, Operation::Register { register: 31 }),
+            (constants::DW_OP_nop, Operation::Nop),
+            (
+                constants::DW_OP_push_object_address,
+                Operation::PushObjectAddress,
+            ),
+            (constants::DW_OP_form_tls_address, Operation::TLS),
+            (constants::DW_OP_GNU_push_tls_address, Operation::TLS),
+            (constants::DW_OP_call_frame_cfa, Operation::CallFrameCFA),
+            (constants::DW_OP_stack_value, Operation::StackValue),
+        ];
 
         let input = [];
         check_op_parse_failure(&input[..], Error::UnexpectedEof, address_size, format);
@@ -1933,23 +1997,37 @@ mod tests {
         let address_size = 4;
         let format = Format::Dwarf32;
 
-        let inputs = [(constants::DW_OP_const1u, 23, Operation::Literal { value: 23 }),
-                      (constants::DW_OP_const1s,
-                       (-23i8) as u8,
-                       Operation::Literal { value: (-23i64) as u64 }),
-                      (constants::DW_OP_pick, 7, Operation::Pick { index: 7 }),
-                      (constants::DW_OP_deref_size,
-                       19,
-                       Operation::Deref {
-                           size: 19,
-                           space: false,
-                       }),
-                      (constants::DW_OP_xderef_size,
-                       19,
-                       Operation::Deref {
-                           size: 19,
-                           space: true,
-                       })];
+        let inputs = [
+            (
+                constants::DW_OP_const1u,
+                23,
+                Operation::Literal { value: 23 },
+            ),
+            (
+                constants::DW_OP_const1s,
+                (-23i8) as u8,
+                Operation::Literal {
+                    value: (-23i64) as u64,
+                },
+            ),
+            (constants::DW_OP_pick, 7, Operation::Pick { index: 7 }),
+            (
+                constants::DW_OP_deref_size,
+                19,
+                Operation::Deref {
+                    size: 19,
+                    space: false,
+                },
+            ),
+            (
+                constants::DW_OP_xderef_size,
+                19,
+                Operation::Deref {
+                    size: 19,
+                    space: true,
+                },
+            ),
+        ];
 
         for item in inputs.iter() {
             let (opcode, arg, ref result) = *item;
@@ -1965,13 +2043,27 @@ mod tests {
 
         // While bra and skip are 3-byte opcodes, they aren't tested here,
         // but rather specially in their own function.
-        let inputs = [(constants::DW_OP_const2u, 23, Operation::Literal { value: 23 }),
-                      (constants::DW_OP_const2s,
-                       (-23i16) as u16,
-                       Operation::Literal { value: (-23i64) as u64 }),
-                      (constants::DW_OP_call2,
-                       1138,
-                       Operation::Call { offset: DieReference::UnitRef(UnitOffset(1138)) })];
+        let inputs = [
+            (
+                constants::DW_OP_const2u,
+                23,
+                Operation::Literal { value: 23 },
+            ),
+            (
+                constants::DW_OP_const2s,
+                (-23i16) as u16,
+                Operation::Literal {
+                    value: (-23i64) as u64,
+                },
+            ),
+            (
+                constants::DW_OP_call2,
+                1138,
+                Operation::Call {
+                    offset: DieReference::UnitRef(UnitOffset(1138)),
+                },
+            ),
+        ];
 
         for item in inputs.iter() {
             let (opcode, arg, ref result) = *item;
@@ -1992,10 +2084,14 @@ mod tests {
             assert!(input.len() >= 3);
 
             let expect = if input[0] == constants::DW_OP_bra.0 {
-                Operation::Bra { target: EndianBuf::new(target, LittleEndian) }
+                Operation::Bra {
+                    target: EndianBuf::new(target, LittleEndian),
+                }
             } else {
                 assert!(input[0] == constants::DW_OP_skip.0);
-                Operation::Skip { target: EndianBuf::new(target, LittleEndian) }
+                Operation::Skip {
+                    target: EndianBuf::new(target, LittleEndian),
+                }
             };
 
             check_op_parse(|s| s.append_bytes(input), &expect, ADDRESS_SIZE, FORMAT);
@@ -2020,10 +2116,12 @@ mod tests {
             let input = [opcode.0, 2, 0];
             check_op_parse_failure(&input[..], Error::BadBranchTarget(5), ADDRESS_SIZE, FORMAT);
             let input = [opcode.0, 0xfc, 0xff];
-            check_op_parse_failure(&input[..],
-                                   Error::BadBranchTarget(!0u64),
-                                   ADDRESS_SIZE,
-                                   FORMAT);
+            check_op_parse_failure(
+                &input[..],
+                Error::BadBranchTarget(!0u64),
+                ADDRESS_SIZE,
+                FORMAT,
+            );
         }
     }
 
@@ -2033,20 +2131,39 @@ mod tests {
         let address_size = 4;
         let format = Format::Dwarf32;
 
-        let inputs =
-            [(constants::DW_OP_addr,
-              0x12345678,
-              Operation::TextRelativeOffset { offset: 0x12345678 }),
-             (constants::DW_OP_const4u, 0x12345678, Operation::Literal { value: 0x12345678 }),
-             (constants::DW_OP_const4s,
-              (-23i32) as u32,
-              Operation::Literal { value: (-23i32) as u64 }),
-             (constants::DW_OP_call4,
-              0x12345678,
-              Operation::Call { offset: DieReference::UnitRef(UnitOffset(0x12345678)) }),
-             (constants::DW_OP_call_ref,
-              0x12345678,
-              Operation::Call { offset: DieReference::DebugInfoRef(DebugInfoOffset(0x12345678)) })];
+        let inputs = [
+            (
+                constants::DW_OP_addr,
+                0x12345678,
+                Operation::TextRelativeOffset { offset: 0x12345678 },
+            ),
+            (
+                constants::DW_OP_const4u,
+                0x12345678,
+                Operation::Literal { value: 0x12345678 },
+            ),
+            (
+                constants::DW_OP_const4s,
+                (-23i32) as u32,
+                Operation::Literal {
+                    value: (-23i32) as u64,
+                },
+            ),
+            (
+                constants::DW_OP_call4,
+                0x12345678,
+                Operation::Call {
+                    offset: DieReference::UnitRef(UnitOffset(0x12345678)),
+                },
+            ),
+            (
+                constants::DW_OP_call_ref,
+                0x12345678,
+                Operation::Call {
+                    offset: DieReference::DebugInfoRef(DebugInfoOffset(0x12345678)),
+                },
+            ),
+        ];
 
         for item in inputs.iter() {
             let (op, arg, ref expect) = *item;
@@ -2061,20 +2178,36 @@ mod tests {
         let address_size = 8;
         let format = Format::Dwarf64;
 
-        let inputs = [(constants::DW_OP_addr,
-                       0x1234567812345678,
-                       Operation::TextRelativeOffset { offset: 0x1234567812345678 }),
-                      (constants::DW_OP_const8u,
-                       0x1234567812345678,
-                       Operation::Literal { value: 0x1234567812345678 }),
-                      (constants::DW_OP_const8s,
-                       (-23i32) as u64,
-                       Operation::Literal { value: (-23i32) as u64 }),
-                      (constants::DW_OP_call_ref,
-                       0x1234567812345678,
-                       Operation::Call {
-                           offset: DieReference::DebugInfoRef(DebugInfoOffset(0x1234567812345678)),
-                       })];
+        let inputs = [
+            (
+                constants::DW_OP_addr,
+                0x1234567812345678,
+                Operation::TextRelativeOffset {
+                    offset: 0x1234567812345678,
+                },
+            ),
+            (
+                constants::DW_OP_const8u,
+                0x1234567812345678,
+                Operation::Literal {
+                    value: 0x1234567812345678,
+                },
+            ),
+            (
+                constants::DW_OP_const8s,
+                (-23i32) as u64,
+                Operation::Literal {
+                    value: (-23i32) as u64,
+                },
+            ),
+            (
+                constants::DW_OP_call_ref,
+                0x1234567812345678,
+                Operation::Call {
+                    offset: DieReference::DebugInfoRef(DebugInfoOffset(0x1234567812345678)),
+                },
+            ),
+        ];
 
         for item in inputs.iter() {
             let (op, arg, ref expect) = *item;
@@ -2088,26 +2221,39 @@ mod tests {
         let address_size = 4;
         let format = Format::Dwarf32;
 
-        let values = [-1i64,
-                      0,
-                      1,
-                      0x100,
-                      0x1eeeeeee,
-                      0x7fffffffffffffff,
-                      -0x100,
-                      -0x1eeeeeee,
-                      -0x7fffffffffffffff];
+        let values = [
+            -1i64,
+            0,
+            1,
+            0x100,
+            0x1eeeeeee,
+            0x7fffffffffffffff,
+            -0x100,
+            -0x1eeeeeee,
+            -0x7fffffffffffffff,
+        ];
         for value in values.iter() {
-            let mut inputs =
-                vec![(constants::DW_OP_consts.0, Operation::Literal { value: *value as u64 }),
-                     (constants::DW_OP_fbreg.0, Operation::FrameOffset { offset: *value })];
+            let mut inputs = vec![
+                (
+                    constants::DW_OP_consts.0,
+                    Operation::Literal {
+                        value: *value as u64,
+                    },
+                ),
+                (
+                    constants::DW_OP_fbreg.0,
+                    Operation::FrameOffset { offset: *value },
+                ),
+            ];
 
             for i in 0..32 {
-                inputs.push((constants::DW_OP_breg0.0 + i,
-                             Operation::RegisterOffset {
-                                 register: i as u64,
-                                 offset: *value,
-                             }));
+                inputs.push((
+                    constants::DW_OP_breg0.0 + i,
+                    Operation::RegisterOffset {
+                        register: i as u64,
+                        offset: *value,
+                    },
+                ));
             }
 
             for item in inputs.iter() {
@@ -2125,18 +2271,30 @@ mod tests {
 
         let values = [0, 1, 0x100, 0x1eeeeeee, 0x7fffffffffffffff, !0u64];
         for value in values.iter() {
-            let mut inputs =
-                vec![(constants::DW_OP_constu, Operation::Literal { value: *value }),
-                     (constants::DW_OP_plus_uconst, Operation::PlusConstant { value: *value }),
-                     (constants::DW_OP_regx, Operation::Register { register: *value })];
+            let mut inputs = vec![
+                (
+                    constants::DW_OP_constu,
+                    Operation::Literal { value: *value },
+                ),
+                (
+                    constants::DW_OP_plus_uconst,
+                    Operation::PlusConstant { value: *value },
+                ),
+                (
+                    constants::DW_OP_regx,
+                    Operation::Register { register: *value },
+                ),
+            ];
 
             // FIXME
             if *value < !0u64 / 8 {
-                inputs.push((constants::DW_OP_piece,
-                             Operation::Piece {
-                                 size_in_bits: 8 * value,
-                                 bit_offset: None,
-                             }));
+                inputs.push((
+                    constants::DW_OP_piece,
+                    Operation::Piece {
+                        size_in_bits: 8 * value,
+                        bit_offset: None,
+                    },
+                ));
             }
 
             for item in inputs.iter() {
@@ -2158,25 +2316,29 @@ mod tests {
         let format = Format::Dwarf32;
 
         let uvalues = [0, 1, 0x100, 0x1eeeeeee, 0x7fffffffffffffff, !0u64];
-        let svalues = [-1i64,
-                       0,
-                       1,
-                       0x100,
-                       0x1eeeeeee,
-                       0x7fffffffffffffff,
-                       -0x100,
-                       -0x1eeeeeee,
-                       -0x7fffffffffffffff];
+        let svalues = [
+            -1i64,
+            0,
+            1,
+            0x100,
+            0x1eeeeeee,
+            0x7fffffffffffffff,
+            -0x100,
+            -0x1eeeeeee,
+            -0x7fffffffffffffff,
+        ];
 
         for v1 in uvalues.iter() {
             for v2 in svalues.iter() {
-                check_op_parse(|s| s.D8(constants::DW_OP_bregx.0).uleb(*v1).sleb(*v2),
-                               &Operation::RegisterOffset {
-                                   register: *v1,
-                                   offset: *v2,
-                               },
-                               address_size,
-                               format);
+                check_op_parse(
+                    |s| s.D8(constants::DW_OP_bregx.0).uleb(*v1).sleb(*v2),
+                    &Operation::RegisterOffset {
+                        register: *v1,
+                        offset: *v2,
+                    },
+                    address_size,
+                    format,
+                );
             }
         }
     }
@@ -2197,13 +2359,15 @@ mod tests {
                     .uleb(*v2)
                     .get_contents()
                     .unwrap();
-                check_op_parse_simple(&input,
-                                      &Operation::Piece {
-                                          size_in_bits: *v1,
-                                          bit_offset: Some(*v2),
-                                      },
-                                      address_size,
-                                      format);
+                check_op_parse_simple(
+                    &input,
+                    &Operation::Piece {
+                        size_in_bits: *v1,
+                        bit_offset: Some(*v2),
+                    },
+                    address_size,
+                    format,
+                );
             }
         }
     }
@@ -2216,58 +2380,76 @@ mod tests {
 
         let data = b"hello";
 
-        check_op_parse(|s| {
-                           s.D8(constants::DW_OP_implicit_value.0)
-                               .uleb(data.len() as u64)
-                               .append_bytes(&data[..])
-                       },
-                       &Operation::ImplicitValue { data: EndianBuf::new(&data[..], LittleEndian) },
-                       address_size,
-                       format);
+        check_op_parse(
+            |s| {
+                s.D8(constants::DW_OP_implicit_value.0)
+                    .uleb(data.len() as u64)
+                    .append_bytes(&data[..])
+            },
+            &Operation::ImplicitValue {
+                data: EndianBuf::new(&data[..], LittleEndian),
+            },
+            address_size,
+            format,
+        );
     }
 
     #[test]
     fn test_op_parse_implicit_pointer() {
-        for op in &[constants::DW_OP_implicit_pointer,
-                    constants::DW_OP_GNU_implicit_pointer] {
-            check_op_parse(|s| s.D8(op.0).D32(0x12345678).sleb(0x123),
-                           &Operation::ImplicitPointer {
-                               value: DebugInfoOffset(0x12345678),
-                               byte_offset: 0x123,
-                           },
-                           4,
-                           Format::Dwarf32);
+        for op in &[
+            constants::DW_OP_implicit_pointer,
+            constants::DW_OP_GNU_implicit_pointer,
+        ] {
+            check_op_parse(
+                |s| s.D8(op.0).D32(0x12345678).sleb(0x123),
+                &Operation::ImplicitPointer {
+                    value: DebugInfoOffset(0x12345678),
+                    byte_offset: 0x123,
+                },
+                4,
+                Format::Dwarf32,
+            );
 
-            check_op_parse(|s| s.D8(op.0).D64(0x12345678).sleb(0x123),
-                           &Operation::ImplicitPointer {
-                               value: DebugInfoOffset(0x12345678),
-                               byte_offset: 0x123,
-                           },
-                           8,
-                           Format::Dwarf64);
+            check_op_parse(
+                |s| s.D8(op.0).D64(0x12345678).sleb(0x123),
+                &Operation::ImplicitPointer {
+                    value: DebugInfoOffset(0x12345678),
+                    byte_offset: 0x123,
+                },
+                8,
+                Format::Dwarf64,
+            );
         }
     }
 
     #[test]
     fn test_op_parse_entry_value() {
-        for op in &[constants::DW_OP_entry_value,
-                    constants::DW_OP_GNU_entry_value] {
+        for op in &[
+            constants::DW_OP_entry_value,
+            constants::DW_OP_GNU_entry_value,
+        ] {
             let data = b"hello";
-            check_op_parse(|s| s.D8(op.0).uleb(data.len() as u64).append_bytes(&data[..]),
-                           &Operation::EntryValue {
-                               expression: EndianBuf::new(&data[..], LittleEndian),
-                           },
-                           4,
-                           Format::Dwarf32);
+            check_op_parse(
+                |s| s.D8(op.0).uleb(data.len() as u64).append_bytes(&data[..]),
+                &Operation::EntryValue {
+                    expression: EndianBuf::new(&data[..], LittleEndian),
+                },
+                4,
+                Format::Dwarf32,
+            );
         }
     }
 
     #[test]
     fn test_op_parse_gnu_parameter_ref() {
-        check_op_parse(|s| s.D8(constants::DW_OP_GNU_parameter_ref.0).D32(0x12345678),
-                       &Operation::ParameterRef { offset: UnitOffset(0x12345678) },
-                       4,
-                       Format::Dwarf32)
+        check_op_parse(
+            |s| s.D8(constants::DW_OP_GNU_parameter_ref.0).D32(0x12345678),
+            &Operation::ParameterRef {
+                offset: UnitOffset(0x12345678),
+            },
+            4,
+            Format::Dwarf32,
+        )
     }
 
     enum AssemblerEntry {
@@ -2344,17 +2526,21 @@ mod tests {
         result
     }
 
-    fn check_eval_with_args<F>(program: &[AssemblerEntry],
-                               expect: Result<&[Piece<EndianBuf<LittleEndian>>]>,
-                               address_size: u8,
-                               format: Format,
-                               object_address: Option<u64>,
-                               initial_value: Option<u64>,
-                               max_iterations: Option<u32>,
-                               f: F)
-        where for<'a> F: Fn(&mut Evaluation<EndianBuf<'a, LittleEndian>>,
-                            EvaluationResult<EndianBuf<'a, LittleEndian>>)
-                            -> Result<EvaluationResult<EndianBuf<'a, LittleEndian>>>
+    fn check_eval_with_args<F>(
+        program: &[AssemblerEntry],
+        expect: Result<&[Piece<EndianBuf<LittleEndian>>]>,
+        address_size: u8,
+        format: Format,
+        object_address: Option<u64>,
+        initial_value: Option<u64>,
+        max_iterations: Option<u32>,
+        f: F,
+    ) where
+        for<'a> F: Fn(
+                   &mut Evaluation<EndianBuf<'a, LittleEndian>>,
+                   EvaluationResult<EndianBuf<'a, LittleEndian>>,
+               )
+                   -> Result<EvaluationResult<EndianBuf<'a, LittleEndian>>>,
     {
         let bytes = assemble(program);
         let bytes = EndianBuf::new(&bytes, LittleEndian);
@@ -2391,19 +2577,23 @@ mod tests {
         }
     }
 
-    fn check_eval(program: &[AssemblerEntry],
-                  expect: Result<&[Piece<EndianBuf<LittleEndian>>]>,
-                  address_size: u8,
-                  format: Format) {
+    fn check_eval(
+        program: &[AssemblerEntry],
+        expect: Result<&[Piece<EndianBuf<LittleEndian>>]>,
+        address_size: u8,
+        format: Format,
+    ) {
 
-        check_eval_with_args(program,
-                             expect,
-                             address_size,
-                             format,
-                             None,
-                             None,
-                             None,
-                             |_, result| Ok(result));
+        check_eval_with_args(
+            program,
+            expect,
+            address_size,
+            format,
+            None,
+            None,
+            None,
+            |_, result| Ok(result),
+        );
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use endianity::{Endianity, EndianBuf};
+use endianity::{EndianBuf, Endianity};
 use parser::Result;
 use reader::Reader;
 use Section;
@@ -15,7 +15,8 @@ pub struct DebugStr<R: Reader> {
 }
 
 impl<'input, Endian> DebugStr<EndianBuf<'input, Endian>>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     /// Construct a new `DebugStr` instance from the data in the `.debug_str`
     /// section.
