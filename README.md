@@ -26,7 +26,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gimli = "0.14.0"
+gimli = "0.14.1"
 ```
 
 ## Documentation
