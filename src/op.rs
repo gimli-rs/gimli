@@ -177,6 +177,12 @@ pub enum Operation<R, Offset = usize>
         /// The byte offset into the value that the implicit pointer points to.
         byte_offset: i64,
     },
+    /// An offset relative to the base of the .debug_addr section of the binary.
+    /// e.g. for `DW_OP_addrx`
+    AddrRelativeOffset {
+        /// The offset to add.
+        offset: u64,
+    },
     /// Represents `DW_OP_entry_value`. Evaluate an expression at the entry to
     /// the current subprogram, and push it on the stack.
     EntryValue {
@@ -194,7 +200,7 @@ pub enum Operation<R, Offset = usize>
     /// An offset relative to the base of the .text section of the binary.
     /// e.g. for `DW_OP_addr`.
     TextRelativeOffset {
-        /// The offfset to add.
+        /// The offset to add.
         offset: u64,
     },
 }
@@ -219,6 +225,7 @@ enum OperationEvaluationResult<R: Reader> {
     AwaitingEntryValue { expression: R },
     AwaitingParameterRef { parameter: UnitOffset<R::Offset> },
     AwaitingTextBase { offset: u64 },
+    AwaitingAddrBase { offset: u64 },
 }
 
 /// A single location of a piece of the result of a DWARF expression.
@@ -784,6 +791,10 @@ impl<R, Offset> Operation<R, Offset>
                        byte_offset: byte_offset,
                    })
             }
+            constants::DW_OP_addrx => {
+                let offset = bytes.read_uleb128()?;
+                Ok(Operation::AddrRelativeOffset{ offset: offset })
+            }
             constants::DW_OP_entry_value |
             constants::DW_OP_GNU_entry_value => {
                 let len = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
@@ -866,6 +877,13 @@ pub enum EvaluationResult<R: Reader> {
     /// should resume the `Evaluation` by calling
     /// `Evaluation::resume_with_text_base`.
     RequiresTextBase,
+    /// The `Evaluation` needs the base addres of the .debug_addr section of 
+    /// the binary to proceed. The .debug_addr section is the address produced
+    /// by the location description in the `DW_AT_addr_base` attribute of the
+    /// current compilation unit. Once the caller determines what value to
+    /// provide it should resume the `Evaluation` by calling
+    /// `Evaluation::resume_with_addr_base`
+    RequiresAddrBase,
 }
 
 /// The bytecode for a DWARF expression or location description.
@@ -1313,6 +1331,10 @@ impl<R: Reader> Evaluation<R> {
                 };
             }
 
+            Operation::AddrRelativeOffset { offset } => {
+                return Ok(OperationEvaluationResult::AwaitingAddrBase { offset: offset });
+            }
+
             Operation::EntryValue { ref expression } => {
                 return Ok(OperationEvaluationResult::AwaitingEntryValue {
                               expression: expression.clone(),
@@ -1583,6 +1605,28 @@ impl<R: Reader> Evaluation<R> {
 
         self.evaluate_internal()
     }
+    /// 
+    /// Resume the `Evaluation` with the provided `addr_base`.  This will apply the
+    /// provided base address to the evaluation and continue evaluating
+    /// opcodes until the evaluation is completed, reaches an error, or needs
+    /// more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with
+    /// `EvaluationResult::RequiresAddrBase`.
+    pub fn resume_with_addr_base(&mut self, addr_base: u64) -> Result<EvaluationResult<R>, Error> {
+        match self.state {
+            EvaluationState::Error(err) => return Err(err),
+            EvaluationState::Waiting(OperationEvaluationResult::AwaitingAddrBase{ offset }) => {
+                self.push(addr_base.wrapping_add(offset));
+            }
+            _ => {
+                panic!("Called `Evaluation::resume_with_addr_base` without a preceding `EvaluationResult::RequiresAddrBase`")
+            }
+        };
+
+        self.evaluate_internal()
+    }
 
     fn evaluate_internal(&mut self) -> Result<EvaluationResult<R>, Error> {
         'eval: loop {
@@ -1711,6 +1755,10 @@ impl<R: Reader> Evaluation<R> {
                 OperationEvaluationResult::AwaitingTextBase { .. } => {
                     self.state = EvaluationState::Waiting(op_result);
                     return Ok(EvaluationResult::RequiresTextBase);
+                }
+                OperationEvaluationResult::AwaitingAddrBase { .. } => {
+                    self.state = EvaluationState::Waiting(op_result);
+                    return Ok(EvaluationResult::RequiresAddrBase);
                 }
             };
         }
@@ -2128,7 +2176,8 @@ mod tests {
             let mut inputs =
                 vec![(constants::DW_OP_constu, Operation::Literal { value: *value }),
                      (constants::DW_OP_plus_uconst, Operation::PlusConstant { value: *value }),
-                     (constants::DW_OP_regx, Operation::Register { register: *value })];
+                     (constants::DW_OP_regx, Operation::Register { register: *value }),
+                     (constants::DW_OP_addrx, Operation::AddrRelativeOffset { offset: *value }),];
 
             // FIXME
             if *value < !0u64 / 8 {
