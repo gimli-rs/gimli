@@ -296,7 +296,14 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     ///     .set_text(address_of_text_section_in_memory)
     ///     .set_data(address_of_data_section_in_memory);
     ///
-    /// let (unwind_info, ctx) = try!(eh_frame.unwind_info_for_address(&bases, ctx, address));
+    /// let (unwind_info, ctx) = eh_frame.unwind_info_for_address(&bases, ctx, address)
+    ///     .map_err(|(err, ctx)| {
+    ///         // Recover the uninitialized `ctx` to reuse it in future unwinding.
+    /// #       let recover = |_| ();
+    ///         recover(ctx);
+    ///         err
+    ///     })?;
+    ///
     /// # let do_stuff_with = |_| unimplemented!();
     /// do_stuff_with(unwind_info);
     /// # let _ = ctx;
@@ -308,43 +315,55 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
         bases: &'bases BaseAddresses,
         ctx: UninitializedUnwindContext<Self, R>,
         address: u64,
-    ) -> Result<(UnwindTableRow<R>, UninitializedUnwindContext<Self, R>)> {
-        let mut target_fde = None;
-
+    ) -> UnwindResult<
+        (UnwindTableRow<R>, UninitializedUnwindContext<Self, R>),
+        UninitializedUnwindContext<Self, R>,
+    > {
         let mut entries = self.entries(bases);
-        while let Some(entry) = entries.next()? {
-            match entry {
-                CieOrFde::Cie(_) => continue,
-                CieOrFde::Fde(partial) => {
-                    let fde = partial.parse(|offset| self.cie_from_offset(bases, offset))?;
-                    if fde.contains(address) {
-                        target_fde = Some(fde);
-                        break;
+        let fde_result = loop {
+            match entries.next() {
+                Err(e) => return Err((e, ctx)),
+                Ok(None) => break Ok(None),
+                Ok(Some(CieOrFde::Cie(_))) => continue,
+                Ok(Some(CieOrFde::Fde(partial))) => {
+                    match partial.parse(|offset| self.cie_from_offset(bases, offset)) {
+                        Err(e) => break Err(e),
+                        Ok(fde) => if fde.contains(address) {
+                            break Ok(Some(fde));
+                        } else {
+                            continue;
+                        },
                     }
                 }
             }
-        }
+        };
 
-        if let Some(fde) = target_fde {
-            let mut result_row = None;
-            let mut ctx = ctx.initialize(fde.cie())?;
+        let fde = match fde_result {
+            Ok(Some(fde)) => fde,
+            Ok(None) => return Err((Error::NoUnwindInfoForAddress, ctx)),
+            Err(e) => return Err((e, ctx)),
+        };
 
-            {
-                let mut table = UnwindTable::new(&mut ctx, &fde);
-                while let Some(row) = table.next_row()? {
-                    if row.contains(address) {
-                        result_row = Some(row.clone());
-                        break;
-                    }
+        let mut ctx = ctx.initialize(fde.cie())?;
+
+        let row_result = {
+            let mut table = UnwindTable::new(&mut ctx, &fde);
+            loop {
+                match table.next_row() {
+                    Ok(None) => break Ok(None),
+                    Ok(Some(row)) if row.contains(address) => break Ok(Some(row.clone())),
+                    Ok(Some(_)) => continue,
+                    Err(e) => break Err(e),
                 }
             }
+        };
 
-            if let Some(row) = result_row {
-                return Ok((row, ctx.reset()));
-            }
+        let ctx = ctx.reset();
+        match row_result {
+            Ok(Some(row)) => Ok((row, ctx)),
+            Ok(None) => Err((Error::NoUnwindInfoForAddress, ctx)),
+            Err(e) => Err((e, ctx)),
         }
-
-        Err(Error::NoUnwindInfoForAddress)
     }
 }
 
@@ -1258,6 +1277,92 @@ where
     }
 }
 
+/// Either a value of `Ok(T)`, or a pair of an error and uninitialized unwind
+/// context of `Err((gimli::Error, UnwindContext))`.
+///
+/// Creating an unwinding context is not signal safe, because it involves
+/// allocation which in turn involves locking. Using an existing unwinding
+/// context *is* signal safe, however. Therefore, it is critical that we can
+/// recover and reuse unwinding contexts even in the face of errors, because we
+/// might not even be able to create a new context otherwise. A secondary
+/// benefit is that this should be more performant than recreating contexts
+/// anyways.
+///
+/// For example, you might want to perform many different operations that
+/// involve evaluating unwinding information, and reuse the same context for all
+/// of them:
+///
+/// ```
+/// /// My type that does many unwinding things for me, reusing a single unwinding
+/// /// context for all of them.
+/// pub struct MyUnwinder<S, R>
+/// where
+///     S: gimli::UnwindSection<R>,
+///     R: gimli::Reader
+/// {
+///     ctx: Option<gimli::UninitializedUnwindContext<S, R>>,
+/// }
+///
+/// impl<S, R> MyUnwinder<S, R>
+/// where
+///     S: gimli::UnwindSection<R>,
+///     R: gimli::Reader
+/// {
+///     /// Call `f` on each row in the given FDE's unwind table.
+///     fn each_unwind_row<F>(
+///         &mut self,
+///         fde: &gimli::FrameDescriptionEntry<S, R, R::Offset>,
+///         mut f: F,
+///     ) -> gimli::Result<()>
+///     where
+///         F: FnMut(&gimli::UnwindTableRow<R>),
+///     {
+///         // Take the `UninitializedUnwindContext` out of `self` so we can turn it into
+///         // an `InitializedUnwindContext`. We must replace it again before returning.
+///         let ctx = self.ctx.take().expect("Invariant: always Some at start of function");
+///
+///         // Initialize the context with this FDE's CIE. This returns an `UnwindResult`,
+///         // which hands us the context back in case of failure.
+///         let mut ctx = match ctx.initialize(fde.cie()) {
+///             Ok(ctx) => ctx,
+///             Err((e, ctx)) => {
+///                 // There was an error! Before propagating the error, recover this `ctx`
+///                 // so we can reuse it.
+///                 self.ctx = Some(ctx);
+///                 return Err(e);
+///             }
+///         };
+///
+///         // Rather than using `?` to immediately propagate any errors returned
+///         // from `next_row`, we'll need to recover the context before returning.
+///         // Unfortunately, this also involves funky scopes to satisfy the borrow
+///         // checker, because `ctx` is borrowed by `table`.
+///         let result = {
+///             let mut table = gimli::UnwindTable::new(&mut ctx, fde);
+///
+///             loop {
+///                 match table.next_row() {
+///                     // Another row, so call `f`.
+///                     Ok(Some(row)) => f(row),
+///                     // We're all done iterating rows in this FDE.
+///                     Ok(None) => break Ok(()),
+///                     // Propagate the error up.
+///                     Err(e) => break Err(e),
+///                 }
+///             }
+///         };
+///
+///         // Reset the initialized context back to an uninitialized context and
+///         // move it back into `self`, so it can be used to unwind with more FDEs
+///         // in the future.
+///         self.ctx = Some(ctx.reset());
+///
+///         result
+///     }
+/// }
+/// ```
+pub type UnwindResult<T, UnwindContext> = ::std::result::Result<T, (Error, UnwindContext)>;
+
 /// Common context needed when evaluating the call frame unwinding information.
 ///
 /// To avoid re-allocating the context multiple times when evaluating multiple
@@ -1278,12 +1383,17 @@ where
 /// let ctx = UninitializedUnwindContext::new();
 ///
 /// // Initialize the context by evaluating the CIE's initial instruction program.
-/// let mut ctx = try!(ctx.initialize(some_fde.cie()));
+/// let mut ctx = ctx.initialize(some_fde.cie()).map_err(|(err, ctx)| {
+///     // Recover the uninitialized `ctx` to reuse it for future unwinding.
+/// #   let recover = |_| ();
+///     recover(ctx);
+///     err
+/// })?;
 ///
 /// {
 ///     // The initialized context can now be used to generate the unwind table.
 ///     let mut table = UnwindTable::new(&mut ctx, &some_fde);
-///     while let Some(row) = try!(table.next_row()) {
+///     while let Some(row) = table.next_row()? {
 ///         // Do stuff with each row...
 /// #       let _ = row;
 ///     }
@@ -1373,16 +1483,30 @@ where
     pub fn initialize(
         mut self,
         cie: &CommonInformationEntry<Section, R, R::Offset>,
-    ) -> Result<InitializedUnwindContext<Section, R>> {
+    ) -> UnwindResult<InitializedUnwindContext<Section, R>, Self> {
         self.0.assert_fully_uninitialized();
 
-        {
+        let result = {
             let mut table = UnwindTable::new_internal(&mut self.0, cie, None);
-            while let Some(_) = table.next_row()? {}
-        }
+            loop {
+                match table.next_row() {
+                    Ok(Some(_)) => continue,
+                    Ok(None) => break Ok(()),
+                    Err(e) => break Err(e),
+                }
+            }
+        };
 
-        self.0.save_initial_rules();
-        Ok(InitializedUnwindContext(self.0))
+        match result {
+            Ok(()) =>  {
+                self.0.save_initial_rules();
+                Ok(InitializedUnwindContext(self.0))
+            }
+            Err(e) => {
+                self.0.reset();
+                Err((e, self))
+            }
+        }
     }
 }
 
@@ -4912,7 +5036,7 @@ mod tests {
         let ctx = UninitializedUnwindContext::new();
         let result = debug_frame.unwind_info_for_address(&bases, ctx, 0xbadbad99);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), Error::NoUnwindInfoForAddress);
+        assert_eq!(result.unwrap_err().0, Error::NoUnwindInfoForAddress);
     }
 
     #[test]
