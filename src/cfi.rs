@@ -1397,6 +1397,10 @@ where
     R: Reader,
     Section: UnwindSection<R>;
 
+/// # Signal Safe Methods
+///
+/// These methods are guaranteed not to allocate, acquire locks, or perform any
+/// other signal-unsafe operations.
 impl<Section, R> InitializedUnwindContext<Section, R>
 where
     R: Reader,
