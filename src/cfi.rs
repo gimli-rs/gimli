@@ -2,6 +2,7 @@ use arrayvec::ArrayVec;
 use constants;
 use endianity::{EndianBuf, Endianity};
 use fallible_iterator::FallibleIterator;
+use op::Expression;
 use parser::{parse_encoded_pointer, parse_initial_length, parse_pointer_encoding, Error, Format,
              Pointer, Result, u64_to_u8};
 use reader::{Reader, ReaderOffset};
@@ -2266,7 +2267,7 @@ pub enum CfaRule<R: Reader> {
     },
     /// The CFA is obtained by evaluating this `Reader` as a DWARF expression
     /// program.
-    Expression(R),
+    Expression(Expression<R>),
 }
 
 impl<R: Reader> Default for CfaRule<R> {
@@ -2318,11 +2319,11 @@ pub enum RegisterRule<R: Reader> {
 
     /// "The previous value of this register is located at the address produced
     /// by executing the DWARF expression."
-    Expression(R),
+    Expression(Expression<R>),
 
     /// "The previous value of this register is the value produced by executing
     /// the DWARF expression."
-    ValExpression(R),
+    ValExpression(Expression<R>),
 
     /// "The rule is defined externally to this specification by the augmenter."
     Architectural,
@@ -2444,7 +2445,7 @@ pub enum CallFrameInstruction<R: Reader> {
     /// > means by which the current CFA is computed.
     DefCfaExpression {
         /// The DWARF expression.
-        expression: R,
+        expression: Expression<R>,
     },
 
     // 6.4.2.3 Register Rule Instructions
@@ -2555,7 +2556,7 @@ pub enum CallFrameInstruction<R: Reader> {
         /// The target register's number.
         register: u8,
         /// The DWARF expression.
-        expression: R,
+        expression: Expression<R>,
     },
 
     /// > 10. DW_CFA_val_expression
@@ -2572,7 +2573,7 @@ pub enum CallFrameInstruction<R: Reader> {
         /// The target register's number.
         register: u8,
         /// The DWARF expression.
-        expression: R,
+        expression: Expression<R>,
     },
 
     /// The `Restore` instruction represents both `DW_CFA_restore` and
@@ -2731,7 +2732,7 @@ impl<R: Reader> CallFrameInstruction<R> {
                 let len = input.read_uleb128().and_then(R::Offset::from_u64)?;
                 let expression = input.split(len)?;
                 Ok(CallFrameInstruction::DefCfaExpression {
-                    expression: expression,
+                    expression: Expression(expression),
                 })
             }
 
@@ -2741,7 +2742,7 @@ impl<R: Reader> CallFrameInstruction<R> {
                 let expression = input.split(len)?;
                 Ok(CallFrameInstruction::Expression {
                     register: register,
-                    expression: expression,
+                    expression: Expression(expression),
                 })
             }
 
@@ -2794,7 +2795,7 @@ impl<R: Reader> CallFrameInstruction<R> {
                 let expression = input.split(len)?;
                 Ok(CallFrameInstruction::ValExpression {
                     register: register,
-                    expression: expression,
+                    expression: Expression(expression),
                 })
             }
 
@@ -2846,6 +2847,7 @@ mod tests {
     use super::{parse_cfi_entry, AugmentationData, RegisterRuleMap, UnwindContext};
     use constants;
     use endianity::{BigEndian, EndianBuf, Endianity, LittleEndian, NativeEndian};
+    use op::Expression;
     use parser::{Error, Format, Pointer, Result};
     use self::test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};
     use std::marker::PhantomData;
@@ -4067,7 +4069,7 @@ mod tests {
         assert_eq!(
             CallFrameInstruction::parse(input),
             Ok(CallFrameInstruction::DefCfaExpression {
-                expression: EndianBuf::new(&expected_expr, LittleEndian),
+                expression: Expression(EndianBuf::new(&expected_expr, LittleEndian)),
             })
         );
         assert_eq!(*input, EndianBuf::new(&expected_rest, LittleEndian));
@@ -4100,7 +4102,7 @@ mod tests {
             CallFrameInstruction::parse(input),
             Ok(CallFrameInstruction::Expression {
                 register: expected_reg as u8,
-                expression: EndianBuf::new(&expected_expr, LittleEndian),
+                expression: Expression(EndianBuf::new(&expected_expr, LittleEndian)),
             })
         );
         assert_eq!(*input, EndianBuf::new(&expected_rest, LittleEndian));
@@ -4240,7 +4242,7 @@ mod tests {
             CallFrameInstruction::parse(input),
             Ok(CallFrameInstruction::ValExpression {
                 register: expected_reg as u8,
-                expression: EndianBuf::new(&expected_expr, LittleEndian),
+                expression: Expression(EndianBuf::new(&expected_expr, LittleEndian)),
             })
         );
         assert_eq!(*input, EndianBuf::new(&expected_rest, LittleEndian));
@@ -4290,7 +4292,7 @@ mod tests {
             iter.next(),
             Ok(Some(CallFrameInstruction::ValExpression {
                 register: expected_reg as u8,
-                expression: EndianBuf::new(&expected_expr, BigEndian),
+                expression: Expression(EndianBuf::new(&expected_expr, BigEndian)),
             }))
         );
 
@@ -4467,7 +4469,9 @@ mod tests {
     fn test_eval_def_cfa_register_invalid_context() {
         let cie: DebugFrameCie<_, _> = make_test_cie();
         let mut ctx = UnwindContext::new();
-        ctx.set_cfa(CfaRule::Expression(EndianBuf::new(&[], LittleEndian)));
+        ctx.set_cfa(CfaRule::Expression(
+            Expression(EndianBuf::new(&[], LittleEndian)),
+        ));
         let expected = ctx.clone();
         let instructions = [
             (
@@ -4501,7 +4505,9 @@ mod tests {
     fn test_eval_def_cfa_offset_invalid_context() {
         let cie: DebugFrameCie<_, _> = make_test_cie();
         let mut ctx = UnwindContext::new();
-        ctx.set_cfa(CfaRule::Expression(EndianBuf::new(&[], LittleEndian)));
+        ctx.set_cfa(CfaRule::Expression(
+            Expression(EndianBuf::new(&[], LittleEndian)),
+        ));
         let expected = ctx.clone();
         let instructions = [
             (
@@ -4518,12 +4524,14 @@ mod tests {
         let cie: DebugFrameCie<_, _> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_cfa(CfaRule::Expression(EndianBuf::new(&expr, LittleEndian)));
+        expected.set_cfa(CfaRule::Expression(
+            Expression(EndianBuf::new(&expr, LittleEndian)),
+        ));
         let instructions = [
             (
                 Ok(false),
                 CallFrameInstruction::DefCfaExpression {
-                    expression: EndianBuf::new(&expr, LittleEndian),
+                    expression: Expression(EndianBuf::new(&expr, LittleEndian)),
                 },
             ),
         ];
@@ -4643,7 +4651,7 @@ mod tests {
         expected
             .set_register_rule(
                 9,
-                RegisterRule::Expression(EndianBuf::new(&expr, LittleEndian)),
+                RegisterRule::Expression(Expression(EndianBuf::new(&expr, LittleEndian))),
             )
             .unwrap();
         let instructions = [
@@ -4651,7 +4659,7 @@ mod tests {
                 Ok(false),
                 CallFrameInstruction::Expression {
                     register: 9,
-                    expression: EndianBuf::new(&expr, LittleEndian),
+                    expression: Expression(EndianBuf::new(&expr, LittleEndian)),
                 },
             ),
         ];
@@ -4667,7 +4675,7 @@ mod tests {
         expected
             .set_register_rule(
                 9,
-                RegisterRule::ValExpression(EndianBuf::new(&expr, LittleEndian)),
+                RegisterRule::ValExpression(Expression(EndianBuf::new(&expr, LittleEndian))),
             )
             .unwrap();
         let instructions = [
@@ -4675,7 +4683,7 @@ mod tests {
                 Ok(false),
                 CallFrameInstruction::ValExpression {
                     register: 9,
-                    expression: EndianBuf::new(&expr, LittleEndian),
+                    expression: Expression(EndianBuf::new(&expr, LittleEndian)),
                 },
             ),
         ];
