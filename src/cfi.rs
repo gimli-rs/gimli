@@ -258,6 +258,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
         let input = &mut self.section().clone();
         input.skip(offset)?;
         if let Some(entry) = CommonInformationEntry::parse(bases, self.clone(), input)? {
+            debug_assert_eq!(entry.offset(), offset);
             Ok(entry)
         } else {
             Err(Error::NoEntryAtGivenOffset)
@@ -628,6 +629,7 @@ where
 }
 
 struct CfiEntryCommon<R: Reader> {
+    offset: R::Offset,
     length: R::Offset,
     format: Format,
     cie_offset_input: R,
@@ -639,11 +641,15 @@ struct CfiEntryCommon<R: Reader> {
 /// end-of-entries sentinel, return `Ok(None)`. Otherwise, return
 /// `Ok(Some(tuple))`, where `tuple.0` is the start of the next entry and
 /// `tuple.1` is the parsed CFI entry data.
-fn parse_cfi_entry_common<Section, R>(input: &mut R) -> Result<Option<CfiEntryCommon<R>>>
+fn parse_cfi_entry_common<Section, R>(
+    section: Section,
+    input: &mut R,
+) -> Result<Option<CfiEntryCommon<R>>>
 where
     R: Reader,
     Section: UnwindSection<R>,
 {
+    let offset = input.offset_from(section.section());
     let (length, format) = parse_initial_length(input)?;
 
     if Section::length_value_is_end_of_entries(length) {
@@ -660,6 +666,7 @@ where
     };
 
     Ok(Some(CfiEntryCommon {
+        offset: offset,
         length: length,
         format: format,
         cie_offset_input: cie_offset_input,
@@ -694,27 +701,29 @@ where
     Section: UnwindSection<R>,
 {
     let CfiEntryCommon {
+        offset,
         length,
         format,
         cie_offset_input,
         cie_id_or_offset,
         rest,
-    } = match parse_cfi_entry_common::<Section, R>(input)? {
+    } = match parse_cfi_entry_common::<Section, R>(section.clone(), input)? {
         None => return Ok(None),
         Some(common) => common,
     };
 
     if Section::is_cie(format, cie_id_or_offset) {
-        let cie = CommonInformationEntry::parse_rest(length, format, bases, section, rest)?;
+        let cie = CommonInformationEntry::parse_rest(offset, length, format, bases, section, rest)?;
         Ok(Some(CieOrFde::Cie(cie)))
     } else {
         let cie_offset = R::Offset::from_u64(cie_id_or_offset)?;
         let cie_offset = match section.resolve_cie_offset(cie_offset_input, cie_offset) {
             None => return Err(Error::OffsetOutOfBounds),
-            Some(offset) => offset,
+            Some(cie_offset) => cie_offset,
         };
 
         let fde = PartialFrameDescriptionEntry {
+            offset: offset,
             length: length,
             format: format,
             cie_offset: cie_offset.into(),
@@ -868,6 +877,9 @@ where
     Section: UnwindSection<R>,
     Section::Offset: UnwindOffset<R::Offset>,
 {
+    /// The offset of this entry from the start of its containing section.
+    offset: Offset,
+
     /// > A constant that gives the number of bytes of the CIE structure, not
     /// > including the length field itself (see Section 7.2.2). The size of the
     /// > length field plus the value of length must be an integral multiple of
@@ -934,12 +946,13 @@ where
         input: &mut R,
     ) -> Result<Option<CommonInformationEntry<Section, R, Offset>>> {
         let CfiEntryCommon {
+            offset,
             length,
             format,
             cie_id_or_offset: cie_id,
             rest,
             ..
-        } = match parse_cfi_entry_common::<Section, R>(input)? {
+        } = match parse_cfi_entry_common::<Section, R>(section.clone(), input)? {
             None => return Ok(None),
             Some(common) => common,
         };
@@ -948,11 +961,12 @@ where
             return Err(Error::NotCieId);
         }
 
-        let entry = Self::parse_rest(length, format, bases, section, rest)?;
+        let entry = Self::parse_rest(offset, length, format, bases, section, rest)?;
         Ok(Some(entry))
     }
 
     fn parse_rest(
+        offset: R::Offset,
         length: R::Offset,
         format: Format,
         bases: &BaseAddresses,
@@ -996,6 +1010,7 @@ where
         };
 
         let entry = CommonInformationEntry {
+            offset: offset,
             length: length,
             format: format,
             version: version,
@@ -1024,6 +1039,11 @@ where
     Section: UnwindSection<R>,
     Section::Offset: UnwindOffset<R::Offset>,
 {
+    /// Get the offset of this entry from the start of its containing section.
+    pub fn offset(&self) -> Offset {
+        self.offset
+    }
+
     /// Iterate over this CIE's initial instructions.
     ///
     /// Can be [used with
@@ -1044,6 +1064,7 @@ where
     R: Reader,
     Section: UnwindSection<R>,
 {
+    offset: R::Offset,
     length: R::Offset,
     format: Format,
     cie_offset: Section::Offset,
@@ -1068,6 +1089,7 @@ where
             -> Result<CommonInformationEntry<Section, R, R::Offset>>,
     {
         FrameDescriptionEntry::parse_rest(
+            self.offset,
             self.length,
             self.format,
             self.cie_offset,
@@ -1088,6 +1110,9 @@ where
     Section: UnwindSection<R>,
     Section::Offset: UnwindOffset<R::Offset>,
 {
+    /// The start of this entry within its containing section.
+    offset: Offset,
+
     /// > A constant that gives the number of bytes of the header and
     /// > instruction stream for this function, not including the length field
     /// > itself (see Section 7.2.2). The size of the length field plus the value
@@ -1129,6 +1154,7 @@ where
     Section::Offset: UnwindOffset<R::Offset>,
 {
     fn parse_rest<F>(
+        offset: R::Offset,
         length: R::Offset,
         format: Format,
         cie_pointer: Section::Offset,
@@ -1171,6 +1197,7 @@ where
         };
 
         let entry = FrameDescriptionEntry {
+            offset: offset,
             length: length,
             format: format,
             cie: cie,
@@ -1229,6 +1256,10 @@ where
     Section: UnwindSection<R>,
     Section::Offset: UnwindOffset<R::Offset>,
 {
+    /// Get the offset of this entry from the start of its containing section.
+    pub fn offset(&self) -> Offset {
+        self.offset
+    }
 
     /// Get a reference to this FDE's CIE.
     pub fn cie(&self) -> &CommonInformationEntry<Section, R, R::Offset> {
@@ -2930,6 +2961,7 @@ mod tests {
             T: UnwindSection<EndianBuf<'input, E>>,
             T::Offset: UnwindOffset,
         {
+            cie.offset = self.size() as _;
             let length = Label::new();
             let start = Label::new();
             let end = Label::new();
@@ -2987,6 +3019,7 @@ mod tests {
             T::Offset: UnwindOffset,
             L: ToLabelOrNum<'a, u64>,
         {
+            fde.offset = self.size() as _;
             let length = Label::new();
             let start = Label::new();
             let end = Label::new();
@@ -3124,6 +3157,7 @@ mod tests {
     #[test]
     fn test_parse_cie_32_bad_version() {
         let mut cie = DebugFrameCie {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             version: 99,
@@ -3184,6 +3218,7 @@ mod tests {
         let expected_instrs: Vec<_> = (0..4).map(|_| constants::DW_CFA_nop.0).collect();
 
         let mut cie = DebugFrameCie {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -3213,6 +3248,7 @@ mod tests {
         let expected_instrs: Vec<_> = (0..5).map(|_| constants::DW_CFA_nop.0).collect();
 
         let mut cie = DebugFrameCie {
+            offset: 0,
             length: 0,
             format: Format::Dwarf64,
             version: 4,
@@ -3241,6 +3277,7 @@ mod tests {
         let expected_instrs: Vec<_> = (0..13).map(|_| constants::DW_CFA_nop.0).collect();
 
         let mut cie = DebugFrameCie {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -3323,6 +3360,7 @@ mod tests {
         let expected_instrs: Vec<_> = (0..7).map(|_| constants::DW_CFA_nop.0).collect();
 
         let cie = DebugFrameCie {
+            offset: 0,
             length: 100,
             format: Format::Dwarf32,
             version: 4,
@@ -3338,6 +3376,7 @@ mod tests {
         };
 
         let mut fde = DebugFrameFde {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
@@ -3374,6 +3413,7 @@ mod tests {
         let expected_instrs: Vec<_> = (0..92).map(|_| constants::DW_CFA_nop.0).collect();
 
         let cie = DebugFrameCie {
+            offset: 0,
             length: 100,
             format: Format::Dwarf32,
             version: 4,
@@ -3388,6 +3428,7 @@ mod tests {
         };
 
         let mut fde = DebugFrameFde {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
@@ -3424,6 +3465,7 @@ mod tests {
         let expected_instrs: Vec<_> = (0..7).map(|_| constants::DW_CFA_nop.0).collect();
 
         let cie = DebugFrameCie {
+            offset: 0,
             length: 100,
             format: Format::Dwarf64,
             version: 4,
@@ -3438,6 +3480,7 @@ mod tests {
         };
 
         let mut fde = DebugFrameFde {
+            offset: 0,
             length: 0,
             format: Format::Dwarf64,
             cie: cie.clone(),
@@ -3473,6 +3516,7 @@ mod tests {
         let expected_instrs: Vec<_> = (0..4).map(|_| constants::DW_CFA_nop.0).collect();
 
         let mut cie = DebugFrameCie {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -3507,6 +3551,7 @@ mod tests {
         let expected_instrs: Vec<_> = (0..4).map(|_| constants::DW_CFA_nop.0).collect();
 
         let cie = DebugFrameCie {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -3521,6 +3566,7 @@ mod tests {
         };
 
         let mut fde = DebugFrameFde {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
@@ -3569,6 +3615,7 @@ mod tests {
         let expected_instrs4: Vec<_> = (0..16).map(|_| constants::DW_CFA_nop.0).collect();
 
         let mut cie1 = DebugFrameCie {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -3583,6 +3630,7 @@ mod tests {
         };
 
         let mut cie2 = DebugFrameCie {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -3609,6 +3657,7 @@ mod tests {
             .cie(Endian::Big, None, &mut cie2);
 
         let mut fde1 = DebugFrameFde {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             cie: cie1.clone(),
@@ -3620,6 +3669,7 @@ mod tests {
         };
 
         let mut fde2 = DebugFrameFde {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             cie: cie2.clone(),
@@ -3687,6 +3737,7 @@ mod tests {
         let instrs: Vec<_> = (0..5).map(|_| constants::DW_CFA_nop.0).collect();
 
         let mut cie = DebugFrameCie {
+            offset: 0,
             length: 0,
             format: Format::Dwarf64,
             version: 4,
@@ -4364,6 +4415,7 @@ mod tests {
         Section::Offset: UnwindOffset,
     {
         CommonInformationEntry {
+            offset: 0,
             format: Format::Dwarf64,
             length: 0,
             return_address_register: 0,
@@ -4707,6 +4759,7 @@ mod tests {
     fn test_eval_restore() {
         let cie: DebugFrameCie<_, _> = make_test_cie();
         let fde = DebugFrameFde {
+            offset: 0,
             format: Format::Dwarf64,
             length: 0,
             address_range: 0,
@@ -4800,6 +4853,7 @@ mod tests {
         let initial_instructions = initial_instructions.get_contents().unwrap();
 
         let cie = DebugFrameCie {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -4839,6 +4893,7 @@ mod tests {
         let instructions = instructions.get_contents().unwrap();
 
         let fde = DebugFrameFde {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
@@ -4960,6 +5015,7 @@ mod tests {
         let instrs4: Vec<_> = (0..16).map(|_| constants::DW_CFA_nop.0).collect();
 
         let mut cie1 = DebugFrameCie {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -4974,6 +5030,7 @@ mod tests {
         };
 
         let mut cie2 = DebugFrameCie {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             version: 4,
@@ -5000,6 +5057,7 @@ mod tests {
             .cie(Endian::Big, None, &mut cie2);
 
         let mut fde1 = DebugFrameFde {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             cie: cie1.clone(),
@@ -5011,6 +5069,7 @@ mod tests {
         };
 
         let mut fde2 = DebugFrameFde {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             cie: cie2.clone(),
@@ -5123,6 +5182,7 @@ mod tests {
             .mark(&end_of_cie);
 
         let mut fde = EhFrameFde {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
@@ -5163,6 +5223,7 @@ mod tests {
         let end_of_cie = Label::new();
 
         let mut fde = EhFrameFde {
+            offset: 0,
             length: 0,
             format: Format::Dwarf64,
             cie: cie.clone(),
@@ -5374,6 +5435,7 @@ mod tests {
         cie.version = 1;
 
         let mut fde = EhFrameFde {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
@@ -5410,6 +5472,7 @@ mod tests {
         cie.augmentation = Some(Augmentation::default());
 
         let mut fde = EhFrameFde {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
@@ -5447,6 +5510,7 @@ mod tests {
         cie.augmentation.as_mut().unwrap().lsda = Some(constants::DW_EH_PE_absptr);
 
         let mut fde = EhFrameFde {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
@@ -5488,6 +5552,7 @@ mod tests {
         ));
 
         let mut fde = EhFrameFde {
+            offset: 0,
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
