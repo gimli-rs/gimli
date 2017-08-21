@@ -1053,6 +1053,47 @@ where
             input: self.initial_instructions.clone(),
         }
     }
+
+    /// > A constant that gives the number of bytes of the CIE structure, not
+    /// > including the length field itself (see Section 7.2.2). The size of the
+    /// > length field plus the value of length must be an integral multiple of
+    /// > the address size.
+    pub fn entry_len(&self) -> Offset {
+        self.length
+    }
+
+    /// > A version number (see Section 7.23). This number is specific to the
+    /// > call frame information and is independent of the DWARF version number.
+    pub fn version(&self) -> u8 {
+        self.version
+    }
+
+    /// Get the augmentation data, if any exists.
+    ///
+    /// The only augmentation understood by `gimli` is that which is defined by
+    /// `.eh_frame`.
+    pub fn augmentation(&self) -> Option<&Augmentation> {
+        self.augmentation.as_ref()
+    }
+
+    /// > A constant that is factored out of all advance location instructions
+    /// > (see Section 6.4.2.1).
+    pub fn code_alignment_factor(&self) -> u64 {
+        self.code_alignment_factor
+    }
+
+    /// > A constant that is factored out of certain offset instructions (see
+    /// > below). The resulting value is (operand * data_alignment_factor).
+    pub fn data_alignment_factor(&self) -> i64 {
+        self.data_alignment_factor
+    }
+
+    /// > An unsigned ... constant that indicates which column in the rule
+    /// > table represents the return address of the function. Note that this
+    /// > column might not correspond to an actual machine register.
+    pub fn return_address_register(&self) -> u64 {
+        self.return_address_register
+    }
 }
 
 /// A partially parsed `FrameDescriptionEntry`.
@@ -1217,9 +1258,7 @@ where
         bases: &BaseAddresses,
         section: &Section,
     ) -> Result<(u64, u64)> {
-        let encoding = cie.augmentation
-            .as_ref()
-            .and_then(|a| a.fde_address_encoding);
+        let encoding = cie.augmentation().and_then(|a| a.fde_address_encoding);
         if let Some(encoding) = encoding {
             let initial_address =
                 parse_encoded_pointer(encoding, bases, cie.address_size, section.section(), input)?;
@@ -1264,6 +1303,14 @@ where
     /// Get a reference to this FDE's CIE.
     pub fn cie(&self) -> &CommonInformationEntry<Section, R, R::Offset> {
         &self.cie
+    }
+
+    /// > A constant that gives the number of bytes of the header and
+    /// > instruction stream for this function, not including the length field
+    /// > itself (see Section 7.2.2). The size of the length field plus the value
+    /// > of length must be an integral multiple of the address size.
+    pub fn entry_len(&self) -> Offset {
+        self.length
     }
 
     /// Iterate over this FDE's instructions.
@@ -1901,7 +1948,7 @@ where
                 register,
                 factored_offset,
             } => {
-                let data_align = self.cie.data_alignment_factor as i64;
+                let data_align = self.cie.data_alignment_factor();
                 self.ctx.set_cfa(CfaRule::RegisterAndOffset {
                     register: register,
                     offset: factored_offset * data_align,
@@ -1930,7 +1977,7 @@ where
                 ..
             } = *self.ctx.cfa_mut()
             {
-                let data_align = self.cie.data_alignment_factor as i64;
+                let data_align = self.cie.data_alignment_factor();
                 *off = factored_offset * data_align;
             } else {
                 return Err(Error::CfiInstructionInInvalidContext);
@@ -1960,7 +2007,7 @@ where
                 register,
                 factored_offset,
             } => {
-                let offset = factored_offset * self.cie.data_alignment_factor;
+                let offset = factored_offset * self.cie.data_alignment_factor();
                 self.ctx
                     .set_register_rule(register, RegisterRule::Offset(offset))?;
             }
@@ -1968,7 +2015,7 @@ where
                 register,
                 factored_offset,
             } => {
-                let offset = factored_offset as i64 * self.cie.data_alignment_factor;
+                let offset = factored_offset as i64 * self.cie.data_alignment_factor();
                 self.ctx
                     .set_register_rule(register, RegisterRule::ValOffset(offset))?;
             }
@@ -1976,7 +2023,7 @@ where
                 register,
                 factored_offset,
             } => {
-                let offset = factored_offset * self.cie.data_alignment_factor;
+                let offset = factored_offset * self.cie.data_alignment_factor();
                 self.ctx
                     .set_register_rule(register, RegisterRule::ValOffset(offset))?;
             }
