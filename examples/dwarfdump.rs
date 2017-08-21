@@ -728,9 +728,6 @@ fn dump_op<R: Reader>(
             print!(" {}", offset);
         }
         gimli::Operation::Literal { value } => match dwop {
-            gimli::DW_OP_addr => {
-                print!(" 0x{:08x}", value);
-            }
             gimli::DW_OP_const1s |
             gimli::DW_OP_const2s |
             gimli::DW_OP_const4s |
@@ -745,7 +742,9 @@ fn dump_op<R: Reader>(
             gimli::DW_OP_constu => {
                 print!(" {}", value);
             }
-            _ => {}
+            _ => {
+                // These have the value encoded in the operation, eg DW_OP_lit0.
+            }
         },
         gimli::Operation::Register { register } => if dwop == gimli::DW_OP_regx {
             print!(" {}", register);
@@ -792,7 +791,40 @@ fn dump_op<R: Reader>(
                 print!("{:02x}", byte);
             }
         }
-        _ => {}
+        gimli::Operation::ParameterRef { offset } => {
+            print!(" 0x{:08x}", offset.0);
+        }
+        gimli::Operation::TextRelativeOffset { offset } => {
+            print!(" 0x{:08x}", offset);
+        }
+        gimli::Operation::Drop |
+        gimli::Operation::Swap |
+        gimli::Operation::Rot |
+        gimli::Operation::Abs |
+        gimli::Operation::And |
+        gimli::Operation::Div |
+        gimli::Operation::Minus |
+        gimli::Operation::Mod |
+        gimli::Operation::Mul |
+        gimli::Operation::Neg |
+        gimli::Operation::Not |
+        gimli::Operation::Or |
+        gimli::Operation::Plus |
+        gimli::Operation::Shl |
+        gimli::Operation::Shr |
+        gimli::Operation::Shra |
+        gimli::Operation::Xor |
+        gimli::Operation::Eq |
+        gimli::Operation::Ge |
+        gimli::Operation::Gt |
+        gimli::Operation::Le |
+        gimli::Operation::Lt |
+        gimli::Operation::Ne |
+        gimli::Operation::Nop |
+        gimli::Operation::PushObjectAddress |
+        gimli::Operation::TLS |
+        gimli::Operation::CallFrameCFA |
+        gimli::Operation::StackValue => {}
     };
     Ok(())
 }
