@@ -1216,6 +1216,19 @@ where
             Ok((initial_address, address_range))
         }
     }
+}
+
+/// # Signal Safe Methods
+///
+/// These methods are guaranteed not to allocate, acquire locks, or perform any
+/// other signal-unsafe operations.
+impl<Section, R, Offset> FrameDescriptionEntry<Section, R, Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+    Section: UnwindSection<R>,
+    Section::Offset: UnwindOffset<R::Offset>,
+{
 
     /// Get a reference to this FDE's CIE.
     pub fn cie(&self) -> &CommonInformationEntry<Section, R, R::Offset> {
