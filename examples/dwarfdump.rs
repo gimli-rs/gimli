@@ -8,6 +8,8 @@ extern crate memmap;
 extern crate object;
 
 use fallible_iterator::FallibleIterator;
+use gimli::UnwindSection;
+use std::collections::HashMap;
 use std::env;
 use std::io;
 use std::io::Write;
@@ -72,6 +74,7 @@ where
 
 #[derive(Default)]
 struct Flags {
+    eh_frame: bool,
     info: bool,
     line: bool,
     pubnames: bool,
@@ -88,6 +91,11 @@ fn print_usage(opts: &getopts::Options) -> ! {
 
 fn main() {
     let mut opts = getopts::Options::new();
+    opts.optflag(
+        "",
+        "eh-frame",
+        "print .eh-frame exception handling frame information",
+    );
     opts.optflag("i", "", "print .debug_info and .debug_types sections");
     opts.optflag("l", "", "print .debug_line section");
     opts.optflag("p", "", "print .debug_pubnames section");
@@ -108,6 +116,10 @@ fn main() {
 
     let mut all = true;
     let mut flags = Flags::default();
+    if matches.opt_present("eh-frame") {
+        flags.eh_frame = true;
+        all = false;
+    }
     if matches.opt_present("i") {
         flags.info = true;
         all = false;
@@ -132,6 +144,7 @@ fn main() {
         flags.raw = true;
     }
     if all {
+        // .eh_frame is excluded even when printing all information.
         flags.info = true;
         flags.line = true;
         flags.pubnames = true;
@@ -208,6 +221,7 @@ where
         S::from(gimli::EndianBuf::new(data, endian))
     }
 
+    let eh_frame = &load_section(file, endian);
     let debug_abbrev = &load_section(file, endian);
     let debug_aranges = &load_section(file, endian);
     let debug_info = &load_section(file, endian);
@@ -219,6 +233,9 @@ where
     let debug_str = &load_section(file, endian);
     let debug_types = &load_section(file, endian);
 
+    if flags.eh_frame {
+        dump_eh_frame(eh_frame)?;
+    }
     if flags.info {
         dump_info(
             debug_info,
@@ -255,6 +272,218 @@ where
         dump_pubtypes(debug_pubtypes, debug_info)?;
     }
     Ok(())
+}
+
+fn dump_eh_frame<R: Reader>(eh_frame: &gimli::EhFrame<R>) -> Result<()> {
+    // TODO: Print "__eh_frame" here on macOS, and more generally use the
+    // section that we're actually looking at, which is what the canonical
+    // dwarfdump does.
+    println!("Exception handling frame information for section .eh_frame");
+
+    // TODO: when grabbing section contents in `dump_file`, we should also grab
+    // these addresses.
+    let bases = gimli::BaseAddresses::default()
+        .set_cfi(0)
+        .set_text(0)
+        .set_data(0);
+
+    let mut cies = HashMap::new();
+
+    let mut entries = eh_frame.entries(&bases);
+    loop {
+        match entries.next()? {
+            None => return Ok(()),
+            Some(gimli::CieOrFde::Cie(cie)) => {
+                println!();
+                println!("{:#010x}: CIE", cie.offset());
+                println!("        length: {:#010x}", cie.entry_len());
+                // TODO: CIE_id
+                println!("       version: {:#04x}", cie.version());
+                // TODO: augmentation
+                println!("    code_align: {}", cie.code_alignment_factor());
+                println!("    data_align: {}", cie.data_alignment_factor());
+                println!("   ra_register: {:#x}", cie.return_address_register());
+                // TODO: aug_arg
+                dump_cfi_instructions(cie.instructions(), true);
+                println!();
+            }
+            Some(gimli::CieOrFde::Fde(partial)) => {
+                let mut offset = None;
+                let fde = partial.parse(|o| {
+                    offset = Some(o);
+                    cies.entry(o)
+                        .or_insert_with(|| eh_frame.cie_from_offset(&bases, o))
+                        .clone()
+                })?;
+
+                println!();
+                println!("{:#010x}: FDE", fde.offset());
+                println!("        length: {:#010x}", fde.entry_len());
+                println!("   CIE_pointer: {:#010x}", offset.unwrap().0);
+                // TODO: symbolicate the start address like the canonical dwarfdump does.
+                println!("    start_addr: {:#018x}", fde.initial_address());
+                println!(
+                    "    range_size: {:#018x} (end_addr = {:#018x})",
+                    fde.len(),
+                    fde.initial_address() + fde.len()
+                );
+                dump_cfi_instructions(fde.instructions(), false);
+                println!();
+            }
+        }
+    }
+}
+
+fn dump_cfi_instructions<R: Reader>(
+    mut insns: gimli::CallFrameInstructionIter<R>,
+    is_initial: bool,
+) {
+    use gimli::CallFrameInstruction::*;
+
+    // TODO: we need to actually evaluate these instructions as we iterate them
+    // so we can print the initialized state for CIEs, and each unwind row's
+    // registers for FDEs.
+    //
+    // TODO: We should turn register numbers into register names (eg "7" ->
+    // "rsp" on x86_64).
+    //
+    // TODO: We should print DWARF expressions for the CFI instructions that
+    // embed DWARF expressions within themselves.
+
+    if !is_initial {
+        println!("  Instructions:");
+    }
+
+    loop {
+        match insns.next() {
+            Err(e) => {
+                println!("Failed to decode CFI instruction: {}", e);
+                return;
+            }
+            Ok(None) => {
+                if is_initial {
+                    println!("  Instructions: Init State:");
+                }
+                return;
+            }
+            Ok(Some(op)) => match op {
+                SetLoc { address } => {
+                    println!("                DW_CFA_set_loc ({:#x})", address);
+                }
+                AdvanceLoc { delta } => {
+                    println!("                DW_CFA_advance_loc ({})", delta);
+                }
+                DefCfa { register, offset } => {
+                    println!("                DW_CFA_def_cfa ({}, {})", register, offset);
+                }
+                DefCfaSf {
+                    register,
+                    factored_offset,
+                } => {
+                    println!(
+                        "                DW_CFA_def_cfa_sf ({}, {})",
+                        register,
+                        factored_offset
+                    );
+                }
+                DefCfaRegister { register } => {
+                    println!("                DW_CFA_def_cfa_register ({})", register);
+                }
+                DefCfaOffset { offset } => {
+                    println!("                DW_CFA_def_cfa_offset ({})", offset);
+                }
+                DefCfaOffsetSf { factored_offset } => {
+                    println!(
+                        "                DW_CFA_def_cfa_offset_sf ({})",
+                        factored_offset
+                    );
+                }
+                DefCfaExpression { expression: _ } => {
+                    println!("                DW_CFA_def_cfa_expression (...)");
+                }
+                Undefined { register } => {
+                    println!("                DW_CFA_undefined ({})", register);
+                }
+                SameValue { register } => {
+                    println!("                DW_CFA_same_value ({})", register);
+                }
+                Offset {
+                    register,
+                    factored_offset,
+                } => {
+                    println!(
+                        "                DW_CFA_offset ({}, {})",
+                        register,
+                        factored_offset
+                    );
+                }
+                OffsetExtendedSf {
+                    register,
+                    factored_offset,
+                } => {
+                    println!(
+                        "                DW_CFA_offset_extended_sf ({}, {})",
+                        register,
+                        factored_offset
+                    );
+                }
+                ValOffset {
+                    register,
+                    factored_offset,
+                } => {
+                    println!(
+                        "                DW_CFA_val_offset ({}, {})",
+                        register,
+                        factored_offset
+                    );
+                }
+                ValOffsetSf {
+                    register,
+                    factored_offset,
+                } => {
+                    println!(
+                        "                DW_CFA_val_offset_sf ({}, {})",
+                        register,
+                        factored_offset
+                    );
+                }
+                Register {
+                    dest_register,
+                    src_register,
+                } => {
+                    println!(
+                        "                DW_CFA_register ({}, {})",
+                        dest_register,
+                        src_register
+                    );
+                }
+                Expression {
+                    register,
+                    expression: _,
+                } => {
+                    println!("                DW_CFA_expression ({}, ...)", register);
+                }
+                ValExpression {
+                    register,
+                    expression: _,
+                } => {
+                    println!("                DW_CFA_val_expression ({}, ...)", register);
+                }
+                Restore { register } => {
+                    println!("                DW_CFA_restore ({})", register);
+                }
+                RememberState => {
+                    println!("                DW_CFA_remember_state");
+                }
+                RestoreState => {
+                    println!("                DW_CFA_restore_state");
+                }
+                Nop => {
+                    println!("                DW_CFA_nop");
+                }
+            },
+        }
+    }
 }
 
 #[allow(too_many_arguments)]
