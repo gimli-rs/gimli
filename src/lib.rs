@@ -222,6 +222,9 @@ pub use unit::{EntriesCursor, EntriesTree, EntriesTreeIter, EntriesTreeNode,
                DebuggingInformationEntry};
 pub use unit::{AttrsIter, Attribute, AttributeValue};
 
+mod addr;
+pub use addr::*;
+
 /// A convenience trait for loading DWARF sections from object files.  To be
 /// used like:
 ///

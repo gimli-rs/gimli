@@ -74,6 +74,7 @@ struct Flags {
     pubtypes: bool,
     aranges: bool,
     raw: bool,
+    addr: bool,
 }
 
 fn print_usage(opts: &getopts::Options) -> ! {
@@ -89,6 +90,7 @@ fn main() {
     opts.optflag("p", "", "print .debug_pubnames section");
     opts.optflag("r", "", "print .debug_aranges section");
     opts.optflag("y", "", "print .debug_pubtypes section");
+    opts.optflag("a", "", "print .debug_addr section");
     opts.optflag("", "raw", "print raw data values");
 
     let matches = match opts.parse(env::args().skip(1)) {
@@ -126,6 +128,10 @@ fn main() {
     }
     if matches.opt_present("raw") {
         flags.raw = true;
+    }
+    if matches.opt_present("a") {
+        flags.addr = true;
+        all = false;
     }
     if all {
         flags.info = true;
@@ -199,6 +205,7 @@ fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags) -> Resu
     let debug_ranges = &load_section(file, endian);
     let debug_str = &load_section(file, endian);
     let debug_types = &load_section(file, endian);
+    let debug_addr = &load_section(file, endian);
 
     if flags.info {
         dump_info(debug_info,
@@ -230,6 +237,9 @@ fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags) -> Resu
     }
     if flags.pubtypes {
         dump_pubtypes(debug_pubtypes, debug_info)?;
+    }
+    if flags.addr {
+        dump_addr(debug_addr)?;
     }
     Ok(())
 }
@@ -1043,5 +1053,10 @@ fn dump_aranges<R: Reader>(debug_aranges: &gimli::DebugAranges<R>,
                  arange.length(),
                  cu_die_offset.0);
     }
+    Ok(())
+}
+
+fn dump_addr<R: Reader> (debug_addr: &gimli::DebugAddr<R>) -> Result<()> {
+    println!("worked and size is {0}", debug_addr.len());
     Ok(())
 }
