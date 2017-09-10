@@ -1,7 +1,7 @@
 ///! Functions for parsing DWARF `.debug_info` and `.debug_types` sections.
 
 use endianity::{Endianity, EndianBuf};
-use parser::{Result};
+use parser::{Result, Format, parse_initial_length};
 /// gchampagne: readd use fallible_iterator::FallibleIterator;
 use reader::{Reader, ReaderOffset};
 use Section;
@@ -45,7 +45,7 @@ impl <R: Reader> DebugAddr<R> {
             offset: DebugAddrOffset(R::Offset::from_u8(0)),
         }
     }
-    
+
     /// cheezus
     pub fn len(&self) -> R::Offset {
         self.debug_addr_section.len()
@@ -74,7 +74,21 @@ pub struct AddressTableSetIter<R: Reader> {
 impl<R: Reader> AddressTableSetIter<R> {
     /// Advance the iterator to the next set on entries 
     pub fn next(&mut self) -> Result<Option<AddressTableEntryHeader<R, R::Offset>>> {
-        Ok(None)
+        if self.input.is_empty() {
+            Ok(None)
+        } else {
+            let len = self.input.len();
+            match AddressTableEntryHeader::parse(&mut self.input, self.offset) {
+                Ok(header) => {
+                    self.offset.0 += len - self.input.len();
+                    Ok(Some(header))
+                }
+                Err(e) => {
+                    self.input.empty();
+                    Err(e)
+                }
+            }
+        }
     }
 }
 
@@ -89,7 +103,49 @@ pub struct AddressTableEntryHeader<R, Offset = usize>
     version: u16,
     address_size: u8,
     segment_size: u8,
+    format: Format,
     offset: DebugAddrOffset<Offset>,
     entries_buf: R,
+}
+
+impl<R, Offset> AddressTableEntryHeader<R, Offset> 
+    where R: Reader<Offset = Offset>,
+          Offset: ReaderOffset
+    {
+
+    /// Creates a new `AddressTableEntryHeader` structure
+    pub fn new(unit_length: R::Offset,
+                version: u16,
+                address_size: u8,
+                segment_size: u8,
+                format: Format,
+                offset: DebugAddrOffset<R::Offset>,
+                entries_buf: R) -> Self {
+        AddressTableEntryHeader {
+            unit_length: unit_length,
+            version: version,
+            address_size: address_size,
+            segment_size: segment_size,
+            format: format,
+            offset: offset,
+            entries_buf: entries_buf,
+        }
+    }
+
+    fn parse(input: &mut R,
+                 offset: DebugAddrOffset<R::Offset>)
+                 -> Result<AddressTableEntryHeader<R, R::Offset>> {
+        let (unit_length, format) = parse_initial_length(input)?;
+        let unit_length = R::Offset::from_u64(unit_length)?;
+        let mut rest = input.split(unit_length)?;
+
+        // gchampagne: rework with generic functions
+        let version = rest.read_u16()?;
+        let address_size = rest.read_u8()?;
+        let segment_size = rest.read_u8()?;
+
+        Ok(AddressTableEntryHeader::new(unit_length, version, address_size, segment_size, 
+                                        format, offset, rest))
+    }
 }
 
