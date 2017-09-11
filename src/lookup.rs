@@ -1,7 +1,7 @@
-use parser::{parse_initial_length, Format, Result, Error};
+use parser::{parse_initial_length, Error, Format, Result};
 use reader::{Reader, ReaderOffset};
 use std::marker::PhantomData;
-use unit::{DebugInfoOffset, UnitOffset, parse_debug_info_offset};
+use unit::{parse_debug_info_offset, DebugInfoOffset, UnitOffset};
 
 // The various "Accelerated Access" sections (DWARF standard v4 Section 6.1) all have
 // similar structures. They consist of a header with metadata and an offset into the
@@ -30,16 +30,18 @@ pub trait LookupParser<R: Reader> {
 
 #[derive(Clone, Debug)]
 pub struct DebugLookup<R, Parser>
-    where R: Reader,
-          Parser: LookupParser<R>
+where
+    R: Reader,
+    Parser: LookupParser<R>,
 {
     input_buffer: R,
     phantom: PhantomData<Parser>,
 }
 
 impl<R, Parser> From<R> for DebugLookup<R, Parser>
-    where R: Reader,
-          Parser: LookupParser<R>
+where
+    R: Reader,
+    Parser: LookupParser<R>,
 {
     fn from(input_buffer: R) -> Self {
         DebugLookup {
@@ -50,8 +52,9 @@ impl<R, Parser> From<R> for DebugLookup<R, Parser>
 }
 
 impl<R, Parser> DebugLookup<R, Parser>
-    where R: Reader,
-          Parser: LookupParser<R>
+where
+    R: Reader,
+    Parser: LookupParser<R>,
 {
     pub fn items(&self) -> LookupEntryIter<R, Parser> {
         LookupEntryIter {
@@ -63,16 +66,18 @@ impl<R, Parser> DebugLookup<R, Parser>
 
 #[derive(Clone, Debug)]
 pub struct LookupEntryIter<R, Parser>
-    where R: Reader,
-          Parser: LookupParser<R>
+where
+    R: Reader,
+    Parser: LookupParser<R>,
 {
     current_set: Option<(R, Parser::Header)>, // Only none at the very beginning and end.
     remaining_input: R,
 }
 
 impl<R, Parser> LookupEntryIter<R, Parser>
-    where R: Reader,
-          Parser: LookupParser<R>
+where
+    R: Reader,
+    Parser: LookupParser<R>,
 {
     /// Advance the iterator and return the next entry.
     ///
@@ -126,24 +131,27 @@ pub struct PubStuffHeader<T = usize> {
 }
 
 pub trait PubStuffEntry<R: Reader> {
-    fn new(die_offset: UnitOffset<R::Offset>,
-           name: R,
-           unit_header_offset: DebugInfoOffset<R::Offset>)
-           -> Self;
+    fn new(
+        die_offset: UnitOffset<R::Offset>,
+        name: R,
+        unit_header_offset: DebugInfoOffset<R::Offset>,
+    ) -> Self;
 }
 
 #[derive(Clone, Debug)]
 pub struct PubStuffParser<R, Entry>
-    where R: Reader,
-          Entry: PubStuffEntry<R>
+where
+    R: Reader,
+    Entry: PubStuffEntry<R>,
 {
     // This struct is never instantiated.
     phantom: PhantomData<(R, Entry)>,
 }
 
 impl<R, Entry> LookupParser<R> for PubStuffParser<R, Entry>
-    where R: Reader,
-          Entry: PubStuffEntry<R>
+where
+    R: Reader,
+    Entry: PubStuffEntry<R>,
 {
     type Header = PubStuffHeader<R::Offset>;
     type Entry = Entry;
@@ -183,7 +191,11 @@ impl<R, Entry> LookupParser<R> for PubStuffParser<R, Entry>
         } else {
             let offset = R::Offset::from_u64(offset)?;
             let name = input.read_null_terminated_slice()?;
-            Ok(Some(Self::Entry::new(UnitOffset(offset), name, header.unit_offset)))
+            Ok(Some(Self::Entry::new(
+                UnitOffset(offset),
+                name,
+                header.unit_offset,
+            )))
         }
     }
 }

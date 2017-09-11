@@ -195,14 +195,16 @@ pub const NativeEndian: BigEndian = BigEndian;
 /// A `&[u8]` slice with endianity metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EndianBuf<'input, Endian>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     buf: &'input [u8],
     endian: Endian,
 }
 
 impl<'input, Endian> EndianBuf<'input, Endian>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     /// Construct a new `EndianBuf` with the given buffer.
     #[inline]
@@ -275,7 +277,8 @@ impl<'input, Endian> EndianBuf<'input, Endian>
 /// like to. Instead, we abandon fancy indexing operators and have these plain
 /// old methods.
 impl<'input, Endian> EndianBuf<'input, Endian>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     /// Take the given `start..end` range of the underlying buffer and return a
     /// new `EndianBuf`.
@@ -333,7 +336,8 @@ impl<'input, Endian> EndianBuf<'input, Endian>
 }
 
 impl<'input, Endian> Index<usize> for EndianBuf<'input, Endian>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     type Output = u8;
     fn index(&self, idx: usize) -> &Self::Output {
@@ -342,7 +346,8 @@ impl<'input, Endian> Index<usize> for EndianBuf<'input, Endian>
 }
 
 impl<'input, Endian> Index<RangeFrom<usize>> for EndianBuf<'input, Endian>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     type Output = [u8];
     fn index(&self, idx: RangeFrom<usize>) -> &Self::Output {
@@ -351,7 +356,8 @@ impl<'input, Endian> Index<RangeFrom<usize>> for EndianBuf<'input, Endian>
 }
 
 impl<'input, Endian> Deref for EndianBuf<'input, Endian>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     type Target = [u8];
     fn deref(&self) -> &Self::Target {
@@ -360,7 +366,8 @@ impl<'input, Endian> Deref for EndianBuf<'input, Endian>
 }
 
 impl<'input, Endian> Into<&'input [u8]> for EndianBuf<'input, Endian>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     fn into(self) -> &'input [u8] {
         self.buf
@@ -368,7 +375,8 @@ impl<'input, Endian> Into<&'input [u8]> for EndianBuf<'input, Endian>
 }
 
 impl<'input, Endian> Reader for EndianBuf<'input, Endian>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     type Endian = Endian;
     type Offset = usize;
@@ -449,7 +457,8 @@ impl<'input, Endian> Reader for EndianBuf<'input, Endian>
 
     #[inline]
     fn read_u8_array<A>(&mut self) -> Result<A>
-        where A: Sized + Default + AsMut<[u8]>
+    where
+        A: Sized + Default + AsMut<[u8]>,
     {
         let len = mem::size_of::<A>();
         let slice = self.read_slice(len)?;
@@ -516,8 +525,13 @@ mod tests {
         let endian = NativeEndian;
         let buf = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
         let eb = EndianBuf::new(&buf, endian);
-        assert_eq!(eb.split_at(3),
-                   (EndianBuf::new(&buf[..3], endian), EndianBuf::new(&buf[3..], endian)));
+        assert_eq!(
+            eb.split_at(3),
+            (
+                EndianBuf::new(&buf[..3], endian),
+                EndianBuf::new(&buf[3..], endian)
+            )
+        );
     }
 
     #[test]

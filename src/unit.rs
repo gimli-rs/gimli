@@ -1,18 +1,18 @@
 //! Functions for parsing DWARF `.debug_info` and `.debug_types` sections.
 
 use constants;
-use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviations, Abbreviation, AttributeSpecification};
-use endianity::{Endianity, EndianBuf};
+use abbrev::{Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, DebugAbbrevOffset};
+use endianity::{EndianBuf, Endianity};
 use fallible_iterator::FallibleIterator;
 use line::DebugLineOffset;
 use loc::DebugLocOffset;
 use op::Expression;
-use parser::{Error, Result, Format, DebugMacinfoOffset, parse_initial_length};
+use parser::{parse_initial_length, DebugMacinfoOffset, Error, Format, Result};
 use ranges::DebugRangesOffset;
 use reader::{Reader, ReaderOffset};
 use std::cell::Cell;
 use std::ops::{Range, RangeFrom, RangeTo};
-use std::{u8, u16};
+use std::{u16, u8};
 use str::{DebugStr, DebugStrOffset};
 use Section;
 
@@ -25,7 +25,8 @@ impl<T: ReaderOffset> DebugTypesOffset<T> {
     /// instead of relative to the start of the .debug_types section.
     /// Returns `None` if the offset is not within the unit entries.
     pub fn to_unit_offset<R>(&self, unit: &TypeUnitHeader<R, R::Offset>) -> Option<UnitOffset<T>>
-        where R: Reader<Offset = T>
+    where
+        R: Reader<Offset = T>,
     {
         let offset = match self.0.checked_sub(unit.offset.0) {
             Some(offset) => UnitOffset(offset),
@@ -50,10 +51,12 @@ impl<T: ReaderOffset> DebugInfoOffset<T> {
     /// Convert an offset to be relative to the start of the given unit,
     /// instead of relative to the start of the .debug_info section.
     /// Returns `None` if the offset is not within this unit entries.
-    pub fn to_unit_offset<R>(&self,
-                             unit: &CompilationUnitHeader<R, R::Offset>)
-                             -> Option<UnitOffset<T>>
-        where R: Reader<Offset = T>
+    pub fn to_unit_offset<R>(
+        &self,
+        unit: &CompilationUnitHeader<R, R::Offset>,
+    ) -> Option<UnitOffset<T>>
+    where
+        R: Reader<Offset = T>,
     {
         let offset = match self.0.checked_sub(unit.offset.0) {
             Some(offset) => UnitOffset(offset),
@@ -73,20 +76,24 @@ pub struct UnitOffset<T = usize>(pub T);
 impl<T: ReaderOffset> UnitOffset<T> {
     /// Convert an offset to be relative to the start of the .debug_info section,
     /// instead of relative to the start of the given compilation unit.
-    pub fn to_debug_info_offset<R>(&self,
-                                   unit: &CompilationUnitHeader<R, R::Offset>)
-                                   -> DebugInfoOffset<T>
-        where R: Reader<Offset = T>
+    pub fn to_debug_info_offset<R>(
+        &self,
+        unit: &CompilationUnitHeader<R, R::Offset>,
+    ) -> DebugInfoOffset<T>
+    where
+        R: Reader<Offset = T>,
     {
         DebugInfoOffset(unit.offset.0 + self.0)
     }
 
     /// Convert an offset to be relative to the start of the .debug_types section,
     /// instead of relative to the start of the given type unit.
-    pub fn to_debug_types_offset<R>(&self,
-                                    unit: &TypeUnitHeader<R, R::Offset>)
-                                    -> DebugTypesOffset<T>
-        where R: Reader<Offset = T>
+    pub fn to_debug_types_offset<R>(
+        &self,
+        unit: &TypeUnitHeader<R, R::Offset>,
+    ) -> DebugTypesOffset<T>
+    where
+        R: Reader<Offset = T>,
     {
         DebugTypesOffset(unit.offset.0 + self.0)
     }
@@ -100,7 +107,8 @@ pub struct DebugInfo<R: Reader> {
 }
 
 impl<'input, Endian> DebugInfo<EndianBuf<'input, Endian>>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     /// Construct a new `DebugInfo` instance from the data in the `.debug_info`
     /// section.
@@ -150,9 +158,10 @@ impl<R: Reader> DebugInfo<R> {
     /// Get the CompilationUnitHeader located at offset from this .debug_info section.
     ///
     ///
-    pub fn header_from_offset(&self,
-                              offset: DebugInfoOffset<R::Offset>)
-                              -> Result<CompilationUnitHeader<R, R::Offset>> {
+    pub fn header_from_offset(
+        &self,
+        offset: DebugInfoOffset<R::Offset>,
+    ) -> Result<CompilationUnitHeader<R, R::Offset>> {
         let input = &mut self.debug_info_section.clone();
         input.skip(offset.0)?;
         CompilationUnitHeader::parse(input, offset)
@@ -214,16 +223,18 @@ impl<R: Reader> FallibleIterator for CompilationUnitHeadersIter<R> {
 /// The header of a compilation unit's debugging information.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CompilationUnitHeader<R, Offset = usize>
-    where R: Reader<Offset = Offset>,
-          Offset: ReaderOffset
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     header: UnitHeader<R, Offset>,
     offset: DebugInfoOffset<Offset>,
 }
 
 impl<R, Offset> CompilationUnitHeader<R, Offset>
-    where R: Reader<Offset = Offset>,
-          Offset: ReaderOffset
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     /// Return the serialized size of the compilation unit header for the given
     /// DWARF format.
@@ -275,27 +286,30 @@ impl<R, Offset> CompilationUnitHeader<R, Offset>
     }
 
     /// Navigate this compilation unit's `DebuggingInformationEntry`s.
-    pub fn entries<'me, 'abbrev>(&'me self,
-                                 abbreviations: &'abbrev Abbreviations)
-                                 -> EntriesCursor<'abbrev, 'me, R> {
+    pub fn entries<'me, 'abbrev>(
+        &'me self,
+        abbreviations: &'abbrev Abbreviations,
+    ) -> EntriesCursor<'abbrev, 'me, R> {
         self.header.entries(abbreviations)
     }
 
     /// Navigate this compilation unit's `DebuggingInformationEntry`s
     /// starting at the given offset.
-    pub fn entries_at_offset<'me, 'abbrev>(&'me self,
-                                           abbreviations: &'abbrev Abbreviations,
-                                           offset: UnitOffset<R::Offset>)
-                                           -> Result<EntriesCursor<'abbrev, 'me, R>> {
+    pub fn entries_at_offset<'me, 'abbrev>(
+        &'me self,
+        abbreviations: &'abbrev Abbreviations,
+        offset: UnitOffset<R::Offset>,
+    ) -> Result<EntriesCursor<'abbrev, 'me, R>> {
         self.header.entries_at_offset(abbreviations, offset)
     }
 
     /// Navigate this compilation unit's `DebuggingInformationEntry`s as a tree
     /// starting at the given offset.
-    pub fn entries_tree<'me, 'abbrev>(&'me self,
-                                      abbreviations: &'abbrev Abbreviations,
-                                      offset: Option<UnitOffset<R::Offset>>)
-                                      -> Result<EntriesTree<'abbrev, 'me, R>> {
+    pub fn entries_tree<'me, 'abbrev>(
+        &'me self,
+        abbreviations: &'abbrev Abbreviations,
+        offset: Option<UnitOffset<R::Offset>>,
+    ) -> Result<EntriesTree<'abbrev, 'me, R>> {
         self.header.entries_tree(abbreviations, offset)
     }
 
@@ -382,14 +396,15 @@ impl<R, Offset> CompilationUnitHeader<R, Offset>
     }
 
     /// Parse a compilation unit header.
-    fn parse(input: &mut R,
-             offset: DebugInfoOffset<R::Offset>)
-             -> Result<CompilationUnitHeader<R, R::Offset>> {
+    fn parse(
+        input: &mut R,
+        offset: DebugInfoOffset<R::Offset>,
+    ) -> Result<CompilationUnitHeader<R, R::Offset>> {
         let header = parse_unit_header(input)?;
         Ok(CompilationUnitHeader {
-               header: header,
-               offset: offset,
-           })
+            header: header,
+            offset: offset,
+        })
     }
 }
 
@@ -407,16 +422,18 @@ fn parse_version<R: Reader>(input: &mut R) -> Result<u16> {
 }
 
 /// Parse the `debug_abbrev_offset` in the compilation unit header.
-fn parse_debug_abbrev_offset<R: Reader>(input: &mut R,
-                                        format: Format)
-                                        -> Result<DebugAbbrevOffset<R::Offset>> {
+fn parse_debug_abbrev_offset<R: Reader>(
+    input: &mut R,
+    format: Format,
+) -> Result<DebugAbbrevOffset<R::Offset>> {
     input.read_offset(format).map(DebugAbbrevOffset)
 }
 
 /// Parse the `debug_info_offset` in the arange header.
-pub fn parse_debug_info_offset<R: Reader>(input: &mut R,
-                                          format: Format)
-                                          -> Result<DebugInfoOffset<R::Offset>> {
+pub fn parse_debug_info_offset<R: Reader>(
+    input: &mut R,
+    format: Format,
+) -> Result<DebugInfoOffset<R::Offset>> {
     input.read_offset(format).map(DebugInfoOffset)
 }
 
@@ -424,8 +441,9 @@ pub fn parse_debug_info_offset<R: Reader>(input: &mut R,
 /// type units.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnitHeader<R, Offset = usize>
-    where R: Reader<Offset = Offset>,
-          Offset: ReaderOffset
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     unit_length: Offset,
     version: u16,
@@ -437,17 +455,19 @@ pub struct UnitHeader<R, Offset = usize>
 
 /// Static methods.
 impl<R, Offset> UnitHeader<R, Offset>
-    where R: Reader<Offset = Offset>,
-          Offset: ReaderOffset
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     /// Construct a new `UnitHeader`.
-    pub fn new(unit_length: R::Offset,
-               version: u16,
-               debug_abbrev_offset: DebugAbbrevOffset<R::Offset>,
-               address_size: u8,
-               format: Format,
-               entries_buf: R)
-               -> Self {
+    pub fn new(
+        unit_length: R::Offset,
+        version: u16,
+        debug_abbrev_offset: DebugAbbrevOffset<R::Offset>,
+        address_size: u8,
+        format: Format,
+        entries_buf: R,
+    ) -> Self {
         UnitHeader {
             unit_length: unit_length,
             version: version,
@@ -484,8 +504,9 @@ impl<R, Offset> UnitHeader<R, Offset>
 
 /// Instance methods.
 impl<R, Offset> UnitHeader<R, Offset>
-    where R: Reader<Offset = Offset>,
-          Offset: ReaderOffset
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     /// Get the length of the debugging info for this compilation unit, not
     /// including the byte length of the encoded length itself.
@@ -582,9 +603,10 @@ impl<R, Offset> UnitHeader<R, Offset>
     }
 
     /// Navigate this unit's `DebuggingInformationEntry`s.
-    pub fn entries<'me, 'abbrev>(&'me self,
-                                 abbreviations: &'abbrev Abbreviations)
-                                 -> EntriesCursor<'abbrev, 'me, R> {
+    pub fn entries<'me, 'abbrev>(
+        &'me self,
+        abbreviations: &'abbrev Abbreviations,
+    ) -> EntriesCursor<'abbrev, 'me, R> {
         EntriesCursor {
             unit: self,
             input: self.entries_buf.clone(),
@@ -596,26 +618,28 @@ impl<R, Offset> UnitHeader<R, Offset>
 
     /// Navigate this compilation unit's `DebuggingInformationEntry`s
     /// starting at the given offset.
-    pub fn entries_at_offset<'me, 'abbrev>(&'me self,
-                                           abbreviations: &'abbrev Abbreviations,
-                                           offset: UnitOffset<R::Offset>)
-                                           -> Result<EntriesCursor<'abbrev, 'me, R>> {
+    pub fn entries_at_offset<'me, 'abbrev>(
+        &'me self,
+        abbreviations: &'abbrev Abbreviations,
+        offset: UnitOffset<R::Offset>,
+    ) -> Result<EntriesCursor<'abbrev, 'me, R>> {
         let input = self.range_from(offset..)?;
         Ok(EntriesCursor {
-               unit: self,
-               input: input,
-               abbreviations: abbreviations,
-               cached_current: None,
-               delta_depth: 0,
-           })
+            unit: self,
+            input: input,
+            abbreviations: abbreviations,
+            cached_current: None,
+            delta_depth: 0,
+        })
     }
 
     /// Navigate this unit's `DebuggingInformationEntry`s as a tree
     /// starting at the given offset.
-    pub fn entries_tree<'me, 'abbrev>(&'me self,
-                                      abbreviations: &'abbrev Abbreviations,
-                                      offset: Option<UnitOffset<R::Offset>>)
-                                      -> Result<EntriesTree<'abbrev, 'me, R>> {
+    pub fn entries_tree<'me, 'abbrev>(
+        &'me self,
+        abbreviations: &'abbrev Abbreviations,
+        offset: Option<UnitOffset<R::Offset>>,
+    ) -> Result<EntriesTree<'abbrev, 'me, R>> {
         let input = match offset {
             Some(offset) => self.range_from(offset..)?,
             None => self.entries_buf.clone(),
@@ -639,7 +663,14 @@ fn parse_unit_header<R: Reader>(input: &mut R) -> Result<UnitHeader<R, R::Offset
     let offset = parse_debug_abbrev_offset(&mut rest, format)?;
     let address_size = rest.read_u8()?;
 
-    Ok(UnitHeader::new(unit_length, version, offset, address_size, format, rest))
+    Ok(UnitHeader::new(
+        unit_length,
+        version,
+        offset,
+        address_size,
+        format,
+        rest,
+    ))
 }
 
 /// A Debugging Information Entry (DIE).
@@ -647,8 +678,9 @@ fn parse_unit_header<R: Reader>(input: &mut R) -> Result<UnitHeader<R, R::Offset
 /// DIEs have a set of attributes and optionally have children DIEs as well.
 #[derive(Clone, Debug)]
 pub struct DebuggingInformationEntry<'abbrev, 'unit, R, Offset = usize>
-    where R: Reader<Offset = Offset> + 'unit,
-          Offset: ReaderOffset + 'unit
+where
+    R: Reader<Offset = Offset> + 'unit,
+    Offset: ReaderOffset + 'unit,
 {
     offset: UnitOffset<Offset>,
     attrs_slice: R,
@@ -658,8 +690,9 @@ pub struct DebuggingInformationEntry<'abbrev, 'unit, R, Offset = usize>
 }
 
 impl<'abbrev, 'unit, R, Offset> DebuggingInformationEntry<'abbrev, 'unit, R, Offset>
-    where R: Reader<Offset = Offset>,
-          Offset: ReaderOffset
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     /// Get this entry's code.
     pub fn code(&self) -> u64 {
@@ -887,10 +920,11 @@ impl<'abbrev, 'unit, R, Offset> DebuggingInformationEntry<'abbrev, 'unit, R, Off
     /// Parse an entry. Returns `Ok(None)` for null entries.
     #[allow(inline_always)]
     #[inline(always)]
-    fn parse(input: &mut R,
-             unit: &'unit UnitHeader<R, R::Offset>,
-             abbreviations: &'abbrev Abbreviations)
-             -> Result<Option<Self>> {
+    fn parse(
+        input: &mut R,
+        unit: &'unit UnitHeader<R, R::Offset>,
+        abbreviations: &'abbrev Abbreviations,
+    ) -> Result<Option<Self>> {
         let offset = unit.header_size() + input.offset_from(&unit.entries_buf);
         let code = input.read_uleb128()?;
         if code == 0 {
@@ -898,12 +932,12 @@ impl<'abbrev, 'unit, R, Offset> DebuggingInformationEntry<'abbrev, 'unit, R, Off
         };
         let abbrev = abbreviations.get(code).ok_or(Error::UnknownAbbreviation)?;
         Ok(Some(DebuggingInformationEntry {
-                    offset: UnitOffset(offset),
-                    attrs_slice: input.clone(),
-                    attrs_len: Cell::new(None),
-                    abbrev: abbrev,
-                    unit: unit,
-                }))
+            offset: UnitOffset(offset),
+            attrs_slice: input.clone(),
+            attrs_len: Cell::new(None),
+            abbrev: abbrev,
+            unit: unit,
+        }))
     }
 }
 
@@ -1152,9 +1186,7 @@ impl<R: Reader> Attribute<R> {
             constants::DW_AT_ordering => {
                 constant!(u8_value, Ordering, DwOrd);
             }
-            constants::DW_AT_byte_size |
-            constants::DW_AT_bit_offset |
-            constants::DW_AT_bit_size => {
+            constants::DW_AT_byte_size | constants::DW_AT_bit_offset | constants::DW_AT_bit_size => {
                 constant!(udata_value, Udata);
                 exprloc!();
                 reference!();
@@ -1475,25 +1507,25 @@ impl<R: Reader> Attribute<R> {
     /// Try to convert this attribute's value to an unsigned integer.
     pub fn udata_value(&self) -> Option<u64> {
         Some(match self.value {
-                 AttributeValue::Data1(ref data) => data[0] as u64,
-                 AttributeValue::Data2((ref data, endian)) => endian.read_u16(data) as u64,
-                 AttributeValue::Data4((ref data, endian)) => endian.read_u32(data) as u64,
-                 AttributeValue::Data8((ref data, endian)) => endian.read_u64(data),
-                 AttributeValue::Udata(data) => data,
-                 _ => return None,
-             })
+            AttributeValue::Data1(ref data) => data[0] as u64,
+            AttributeValue::Data2((ref data, endian)) => endian.read_u16(data) as u64,
+            AttributeValue::Data4((ref data, endian)) => endian.read_u32(data) as u64,
+            AttributeValue::Data8((ref data, endian)) => endian.read_u64(data),
+            AttributeValue::Udata(data) => data,
+            _ => return None,
+        })
     }
 
     /// Try to convert this attribute's value to a signed integer.
     pub fn sdata_value(&self) -> Option<i64> {
         Some(match self.value {
-                 AttributeValue::Data1(ref data) => data[0] as i8 as i64,
-                 AttributeValue::Data2((ref data, endian)) => endian.read_u16(data) as i16 as i64,
-                 AttributeValue::Data4((ref data, endian)) => endian.read_u32(data) as i32 as i64,
-                 AttributeValue::Data8((ref data, endian)) => endian.read_u64(data) as i64,
-                 AttributeValue::Sdata(data) => data,
-                 _ => return None,
-             })
+            AttributeValue::Data1(ref data) => data[0] as i8 as i64,
+            AttributeValue::Data2((ref data, endian)) => endian.read_u16(data) as i16 as i64,
+            AttributeValue::Data4((ref data, endian)) => endian.read_u32(data) as i32 as i64,
+            AttributeValue::Data8((ref data, endian)) => endian.read_u64(data) as i64,
+            AttributeValue::Sdata(data) => data,
+            _ => return None,
+        })
     }
 
     /// Try to convert this attribute's value to an offset.
@@ -1519,10 +1551,10 @@ impl<R: Reader> Attribute<R> {
     /// it is encountered in practice.
     fn exprloc_value(&self) -> Option<Expression<R>> {
         Some(match self.value {
-                 AttributeValue::Block(ref data) => Expression(data.clone()),
-                 AttributeValue::Exprloc(ref data) => data.clone(),
-                 _ => return None,
-             })
+            AttributeValue::Block(ref data) => Expression(data.clone()),
+            AttributeValue::Exprloc(ref data) => data.clone(),
+            _ => return None,
+        })
     }
 
     /// Try to return this attribute's value as a string slice.
@@ -1560,10 +1592,11 @@ fn length_uleb128_value<R: Reader>(input: &mut R) -> Result<R> {
     input.split(len)
 }
 
-fn parse_attribute<'unit, R: Reader>(input: &mut R,
-                                     unit: &'unit UnitHeader<R, R::Offset>,
-                                     spec: AttributeSpecification)
-                                     -> Result<Attribute<R>> {
+fn parse_attribute<'unit, R: Reader>(
+    input: &mut R,
+    unit: &'unit UnitHeader<R, R::Offset>,
+    spec: AttributeSpecification,
+) -> Result<Attribute<R>> {
     let mut form = spec.form();
     loop {
         let value = match form {
@@ -1606,7 +1639,8 @@ fn parse_attribute<'unit, R: Reader>(input: &mut R,
                 // `AttributeValue::value()`, but this is ambiguous for
                 // `DW_AT_data_member_location`.
                 if (unit.version() == 2 || unit.version() == 3) &&
-                   spec.name() == constants::DW_AT_data_member_location {
+                    spec.name() == constants::DW_AT_data_member_location
+                {
                     let offset = input.read_u32().map(R::Offset::from_u32)?;
                     AttributeValue::SecOffset(offset)
                 } else {
@@ -1620,7 +1654,8 @@ fn parse_attribute<'unit, R: Reader>(input: &mut R,
                 // `AttributeValue::value()`, but this is ambiguous for
                 // `DW_AT_data_member_location`.
                 if (unit.version() == 2 || unit.version() == 3) &&
-                   spec.name() == constants::DW_AT_data_member_location {
+                    spec.name() == constants::DW_AT_data_member_location
+                {
                     let offset = input.read_u64().and_then(R::Offset::from_u64)?;
                     AttributeValue::SecOffset(offset)
                 } else {
@@ -1720,9 +1755,10 @@ fn parse_attribute<'unit, R: Reader>(input: &mut R,
 /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
 #[derive(Clone, Copy, Debug)]
 pub struct AttrsIter<'abbrev, 'entry, 'unit, R>
-    where 'abbrev: 'entry,
-          'unit: 'entry,
-          R: Reader + 'entry + 'unit
+where
+    'abbrev: 'entry,
+    'unit: 'entry,
+    R: Reader + 'entry + 'unit,
 {
     input: R,
     attributes: &'abbrev [AttributeSpecification],
@@ -1793,7 +1829,8 @@ impl<'abbrev, 'entry, 'unit, R: Reader> FallibleIterator for AttrsIter<'abbrev, 
 /// end of the current tree depth.
 #[derive(Clone, Debug)]
 pub struct EntriesCursor<'abbrev, 'unit, R>
-    where R: Reader + 'unit
+where
+    R: Reader + 'unit,
 {
     input: R,
     unit: &'unit UnitHeader<R, R::Offset>,
@@ -1964,9 +2001,16 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     ///          first_entry_with_no_children.unwrap());
     /// ```
     #[allow(type_complexity)]
-    pub fn next_dfs
-        (&mut self)
-         -> Result<Option<(isize, &DebuggingInformationEntry<'abbrev, 'unit, R, R::Offset>)>> {
+    pub fn next_dfs(
+        &mut self,
+    ) -> Result<
+        Option<
+            (
+                isize,
+                &DebuggingInformationEntry<'abbrev, 'unit, R, R::Offset>,
+            ),
+        >,
+    > {
         let mut delta_depth = self.delta_depth;
         loop {
             // The next entry should be the one we want.
@@ -2089,9 +2133,9 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     ///     }
     /// }
     /// ```
-    pub fn next_sibling
-        (&mut self)
-         -> Result<Option<(&DebuggingInformationEntry<'abbrev, 'unit, R, R::Offset>)>> {
+    pub fn next_sibling(
+        &mut self,
+    ) -> Result<Option<(&DebuggingInformationEntry<'abbrev, 'unit, R, R::Offset>)>> {
         if self.current().is_none() {
             // We're already at the null for the end of the sibling list.
             return Ok(None);
@@ -2178,7 +2222,8 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
 /// ```
 #[derive(Clone, Debug)]
 pub struct EntriesTree<'abbrev, 'unit, R>
-    where R: Reader + 'unit
+where
+    R: Reader + 'unit,
 {
     root: R,
     unit: &'unit UnitHeader<R, R::Offset>,
@@ -2189,10 +2234,11 @@ pub struct EntriesTree<'abbrev, 'unit, R>
 }
 
 impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
-    fn new(root: R,
-           unit: &'unit UnitHeader<R, R::Offset>,
-           abbreviations: &'abbrev Abbreviations)
-           -> Self {
+    fn new(
+        root: R,
+        unit: &'unit UnitHeader<R, R::Offset>,
+        abbreviations: &'abbrev Abbreviations,
+    ) -> Self {
         let input = root.clone();
         EntriesTree {
             root,
@@ -2241,9 +2287,11 @@ impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
                 return Ok(false);
             }
 
-            return match DebuggingInformationEntry::parse(&mut self.input,
-                                                          self.unit,
-                                                          self.abbreviations) {
+            return match DebuggingInformationEntry::parse(
+                &mut self.input,
+                self.unit,
+                self.abbreviations,
+            ) {
                 Ok(entry) => {
                     self.entry = entry;
                     Ok(self.entry.is_some())
@@ -2310,18 +2358,20 @@ impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
 /// via [`EntriesTree::root`](./struct.EntriesTree.html#method.root).
 #[derive(Debug)]
 pub struct EntriesTreeNode<'abbrev, 'unit, 'tree, R>
-    where 'abbrev: 'tree,
-          'unit: 'tree,
-          R: Reader + 'unit
+where
+    'abbrev: 'tree,
+    'unit: 'tree,
+    R: Reader + 'unit,
 {
     tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
     depth: isize,
 }
 
 impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeNode<'abbrev, 'unit, 'tree, R> {
-    fn new(tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
-           depth: isize)
-           -> EntriesTreeNode<'abbrev, 'unit, 'tree, R> {
+    fn new(
+        tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
+        depth: isize,
+    ) -> EntriesTreeNode<'abbrev, 'unit, 'tree, R> {
         debug_assert!(tree.entry.is_some());
         EntriesTreeNode {
             tree: tree,
@@ -2352,9 +2402,10 @@ impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeNode<'abbrev, 'unit, 'tree, R>
 /// which allow recursive traversal of grandchildren, etc.
 #[derive(Debug)]
 pub struct EntriesTreeIter<'abbrev, 'unit, 'tree, R>
-    where 'abbrev: 'tree,
-          'unit: 'tree,
-          R: Reader + 'unit
+where
+    'abbrev: 'tree,
+    'unit: 'tree,
+    R: Reader + 'unit,
 {
     tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
     depth: isize,
@@ -2362,9 +2413,10 @@ pub struct EntriesTreeIter<'abbrev, 'unit, 'tree, R>
 }
 
 impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeIter<'abbrev, 'unit, 'tree, R> {
-    fn new(tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
-           depth: isize)
-           -> EntriesTreeIter<'abbrev, 'unit, 'tree, R> {
+    fn new(
+        tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
+        depth: isize,
+    ) -> EntriesTreeIter<'abbrev, 'unit, 'tree, R> {
         EntriesTreeIter {
             tree: tree,
             depth: depth,
@@ -2406,7 +2458,8 @@ pub struct DebugTypes<R: Reader> {
 }
 
 impl<'input, Endian> DebugTypes<EndianBuf<'input, Endian>>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     /// Construct a new `DebugTypes` instance from the data in the `.debug_types`
     /// section.
@@ -2435,7 +2488,9 @@ impl<R: Reader> Section<R> for DebugTypes<R> {
 
 impl<R: Reader> From<R> for DebugTypes<R> {
     fn from(debug_types_section: R) -> Self {
-        DebugTypes { debug_types_section }
+        DebugTypes {
+            debug_types_section,
+        }
     }
 }
 
@@ -2510,8 +2565,9 @@ impl<R: Reader> FallibleIterator for TypeUnitHeadersIter<R> {
 /// The header of a type unit's debugging information.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TypeUnitHeader<R, Offset = usize>
-    where R: Reader<Offset = Offset>,
-          Offset: ReaderOffset
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     header: UnitHeader<R, Offset>,
     offset: DebugTypesOffset<Offset>,
@@ -2520,15 +2576,17 @@ pub struct TypeUnitHeader<R, Offset = usize>
 }
 
 impl<R, Offset> TypeUnitHeader<R, Offset>
-    where R: Reader<Offset = Offset>,
-          Offset: ReaderOffset
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     /// Construct a new `TypeUnitHeader`.
-    fn new(header: UnitHeader<R, R::Offset>,
-           offset: DebugTypesOffset<R::Offset>,
-           type_signature: DebugTypeSignature,
-           type_offset: UnitOffset<R::Offset>)
-           -> Self {
+    fn new(
+        header: UnitHeader<R, R::Offset>,
+        offset: DebugTypesOffset<R::Offset>,
+        type_signature: DebugTypeSignature,
+        type_offset: UnitOffset<R::Offset>,
+    ) -> Self {
         TypeUnitHeader {
             header: header,
             offset: offset,
@@ -2602,27 +2660,30 @@ impl<R, Offset> TypeUnitHeader<R, Offset>
     }
 
     /// Navigate this type unit's `DebuggingInformationEntry`s.
-    pub fn entries<'me, 'abbrev>(&'me self,
-                                 abbreviations: &'abbrev Abbreviations)
-                                 -> EntriesCursor<'abbrev, 'me, R> {
+    pub fn entries<'me, 'abbrev>(
+        &'me self,
+        abbreviations: &'abbrev Abbreviations,
+    ) -> EntriesCursor<'abbrev, 'me, R> {
         self.header.entries(abbreviations)
     }
 
     /// Navigate this type unit's `DebuggingInformationEntry`s
     /// starting at the given offset.
-    pub fn entries_at_offset<'me, 'abbrev>(&'me self,
-                                           abbreviations: &'abbrev Abbreviations,
-                                           offset: UnitOffset<R::Offset>)
-                                           -> Result<EntriesCursor<'abbrev, 'me, R>> {
+    pub fn entries_at_offset<'me, 'abbrev>(
+        &'me self,
+        abbreviations: &'abbrev Abbreviations,
+        offset: UnitOffset<R::Offset>,
+    ) -> Result<EntriesCursor<'abbrev, 'me, R>> {
         self.header.entries_at_offset(abbreviations, offset)
     }
 
     /// Navigate this type unit's `DebuggingInformationEntry`s as a tree
     /// starting at the given offset.
-    pub fn entries_tree<'me, 'abbrev>(&'me self,
-                                      abbreviations: &'abbrev Abbreviations,
-                                      offset: Option<UnitOffset<R::Offset>>)
-                                      -> Result<EntriesTree<'abbrev, 'me, R>> {
+    pub fn entries_tree<'me, 'abbrev>(
+        &'me self,
+        abbreviations: &'abbrev Abbreviations,
+        offset: Option<UnitOffset<R::Offset>>,
+    ) -> Result<EntriesTree<'abbrev, 'me, R>> {
         self.header.entries_tree(abbreviations, offset)
     }
 
@@ -2714,9 +2775,10 @@ impl<R, Offset> TypeUnitHeader<R, Offset>
 }
 
 /// Parse a type unit header.
-fn parse_type_unit_header<R: Reader>(input: &mut R,
-                                     offset: DebugTypesOffset<R::Offset>)
-                                     -> Result<TypeUnitHeader<R, R::Offset>> {
+fn parse_type_unit_header<R: Reader>(
+    input: &mut R,
+    offset: DebugTypesOffset<R::Offset>,
+) -> Result<TypeUnitHeader<R, R::Offset>> {
     let mut header = parse_unit_header(input)?;
     let format = header.format();
     let signature = parse_type_signature(&mut header.entries_buf)?;
@@ -2729,9 +2791,9 @@ mod tests {
     extern crate test_assembler;
 
     use super::*;
-    use super::{parse_version, parse_debug_abbrev_offset, parse_type_offset, parse_unit_header,
-                parse_type_unit_header, parse_attribute};
-    use abbrev::{DebugAbbrev, DebugAbbrevOffset, Abbreviation, AttributeSpecification};
+    use super::{parse_attribute, parse_debug_abbrev_offset, parse_type_offset,
+                parse_type_unit_header, parse_unit_header, parse_version};
+    use abbrev::{Abbreviation, AttributeSpecification, DebugAbbrev, DebugAbbrevOffset};
     use abbrev::tests::AbbrevSectionMethods;
     use constants;
     use constants::*;
@@ -2748,18 +2810,25 @@ mod tests {
     // Mixin methods for `Section` to help define binary test data.
 
     trait UnitSectionMethods {
-        fn comp_unit<'input, E>(self,
-                                unit: &mut CompilationUnitHeader<EndianBuf<'input, E>>)
-                                -> Self
-            where E: Endianity;
+        fn comp_unit<'input, E>(
+            self,
+            unit: &mut CompilationUnitHeader<EndianBuf<'input, E>>,
+        ) -> Self
+        where
+            E: Endianity;
         fn type_unit<'input, E>(self, unit: &mut TypeUnitHeader<EndianBuf<'input, E>>) -> Self
-            where E: Endianity;
-        fn unit<'input, E>(self,
-                           unit: &mut UnitHeader<EndianBuf<'input, E>>,
-                           extra_header: &[u8])
-                           -> Self
-            where E: Endianity;
-        fn die<F>(self, code: u64, attr: F) -> Self where F: Fn(Section) -> Section;
+        where
+            E: Endianity;
+        fn unit<'input, E>(
+            self,
+            unit: &mut UnitHeader<EndianBuf<'input, E>>,
+            extra_header: &[u8],
+        ) -> Self
+        where
+            E: Endianity;
+        fn die<F>(self, code: u64, attr: F) -> Self
+        where
+            F: Fn(Section) -> Section;
         fn die_null(self) -> Self;
         fn attr_string(self, s: &str) -> Self;
         fn attr_ref1(self, o: u8) -> Self;
@@ -2767,17 +2836,20 @@ mod tests {
     }
 
     impl UnitSectionMethods for Section {
-        fn comp_unit<'input, E>(self,
-                                unit: &mut CompilationUnitHeader<EndianBuf<'input, E>>)
-                                -> Self
-            where E: Endianity
+        fn comp_unit<'input, E>(
+            self,
+            unit: &mut CompilationUnitHeader<EndianBuf<'input, E>>,
+        ) -> Self
+        where
+            E: Endianity,
         {
             unit.offset = DebugInfoOffset(self.size() as usize);
             self.unit(&mut unit.header, &[])
         }
 
         fn type_unit<'input, E>(self, unit: &mut TypeUnitHeader<EndianBuf<'input, E>>) -> Self
-            where E: Endianity
+        where
+            E: Endianity,
         {
             unit.offset = DebugTypesOffset(self.size() as usize);
             let section = Section::with_endian(Endian::Little)
@@ -2787,11 +2859,13 @@ mod tests {
             self.unit(&mut unit.header, &extra_header)
         }
 
-        fn unit<'input, E>(self,
-                           unit: &mut UnitHeader<EndianBuf<'input, E>>,
-                           extra_header: &[u8])
-                           -> Self
-            where E: Endianity
+        fn unit<'input, E>(
+            self,
+            unit: &mut UnitHeader<EndianBuf<'input, E>>,
+            extra_header: &[u8],
+        ) -> Self
+        where
+            E: Endianity,
         {
             let length = Label::new();
             let start = Label::new();
@@ -2818,7 +2892,8 @@ mod tests {
         }
 
         fn die<F>(self, code: u64, attr: F) -> Self
-            where F: Fn(Section) -> Section
+        where
+            F: Fn(Section) -> Section,
         {
             let section = self.uleb(code);
             attr(section)
@@ -3129,13 +3204,16 @@ mod tests {
         let buf = section.get_contents().unwrap();
         let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
-        assert_eq!(parse_type_unit_header(rest, DebugTypesOffset(0)),
-                   Ok(expected_unit));
+        assert_eq!(
+            parse_type_unit_header(rest, DebugTypesOffset(0)),
+            Ok(expected_unit)
+        );
         assert_eq!(*rest, EndianBuf::new(expected_rest, LittleEndian));
     }
 
     fn section_contents<F>(f: F) -> Vec<u8>
-        where F: Fn(Section) -> Section
+    where
+        F: Fn(Section) -> Section,
     {
         f(Section::with_endian(Endian::Little))
             .get_contents()
@@ -3158,43 +3236,55 @@ mod tests {
         let buf = section_contents(|s| s.L64(0x0102030405060708));
         let data8 = EndianBuf::new(&buf, endian);
 
-        let tests = [(2,
-                      constants::DW_AT_data_member_location,
-                      constants::DW_FORM_block,
-                      block,
-                      AttributeValue::Block(EndianBuf::new(block_data, endian)),
-                      AttributeValue::Exprloc(Expression(EndianBuf::new(block_data, endian)))),
-                     (2,
-                      constants::DW_AT_data_member_location,
-                      constants::DW_FORM_data4,
-                      data4,
-                      AttributeValue::SecOffset(0x01020304),
-                      AttributeValue::DebugLocRef(DebugLocOffset(0x01020304))),
-                     (4,
-                      constants::DW_AT_data_member_location,
-                      constants::DW_FORM_data4,
-                      data4,
-                      AttributeValue::Data4(([4, 3, 2, 1], endian)),
-                      AttributeValue::Udata(0x01020304)),
-                     (2,
-                      constants::DW_AT_data_member_location,
-                      constants::DW_FORM_data8,
-                      data8,
-                      AttributeValue::SecOffset(0x0102030405060708),
-                      AttributeValue::DebugLocRef(DebugLocOffset(0x0102030405060708))),
-                     (4,
-                      constants::DW_AT_data_member_location,
-                      constants::DW_FORM_data8,
-                      data8,
-                      AttributeValue::Data8(([8, 7, 6, 5, 4, 3, 2, 1], endian)),
-                      AttributeValue::Udata(0x0102030405060708))];
+        let tests = [
+            (
+                2,
+                constants::DW_AT_data_member_location,
+                constants::DW_FORM_block,
+                block,
+                AttributeValue::Block(EndianBuf::new(block_data, endian)),
+                AttributeValue::Exprloc(Expression(EndianBuf::new(block_data, endian))),
+            ),
+            (
+                2,
+                constants::DW_AT_data_member_location,
+                constants::DW_FORM_data4,
+                data4,
+                AttributeValue::SecOffset(0x01020304),
+                AttributeValue::DebugLocRef(DebugLocOffset(0x01020304)),
+            ),
+            (
+                4,
+                constants::DW_AT_data_member_location,
+                constants::DW_FORM_data4,
+                data4,
+                AttributeValue::Data4(([4, 3, 2, 1], endian)),
+                AttributeValue::Udata(0x01020304),
+            ),
+            (
+                2,
+                constants::DW_AT_data_member_location,
+                constants::DW_FORM_data8,
+                data8,
+                AttributeValue::SecOffset(0x0102030405060708),
+                AttributeValue::DebugLocRef(DebugLocOffset(0x0102030405060708)),
+            ),
+            (
+                4,
+                constants::DW_AT_data_member_location,
+                constants::DW_FORM_data8,
+                data8,
+                AttributeValue::Data8(([8, 7, 6, 5, 4, 3, 2, 1], endian)),
+                AttributeValue::Udata(0x0102030405060708),
+            ),
+        ];
 
         for test in tests.iter() {
             let (version, name, form, mut input, expect_raw, expect_value) = *test;
             unit.version = version;
             let spec = AttributeSpecification::new(name, form);
-            let attribute = parse_attribute(&mut input, &unit, spec)
-                .expect("Should parse attribute");
+            let attribute =
+                parse_attribute(&mut input, &unit, spec).expect("Should parse attribute");
             assert_eq!(attribute.raw_value(), expect_raw);
             assert_eq!(attribute.value(), expect_value);
         }
@@ -3203,17 +3293,42 @@ mod tests {
     #[test]
     fn test_attribute_udata_sdata_value() {
         let endian = LittleEndian;
-        let tests: &[(AttributeValue<EndianBuf<LittleEndian>>, _, _)] =
-            &[(AttributeValue::Data1([1]), Some(1), Some(1)),
-              (AttributeValue::Data1([255]), Some(std::u8::MAX as u64), Some(-1)),
-              (AttributeValue::Data2(([1, 0], endian)), Some(1), Some(1)),
-              (AttributeValue::Data2(([255; 2], endian)), Some(std::u16::MAX as u64), Some(-1)),
-              (AttributeValue::Data4(([1, 0, 0, 0], endian)), Some(1), Some(1)),
-              (AttributeValue::Data4(([255; 4], endian)), Some(std::u32::MAX as u64), Some(-1)),
-              (AttributeValue::Data8(([1, 0, 0, 0, 0, 0, 0, 0], endian)), Some(1), Some(1)),
-              (AttributeValue::Data8(([255; 8], endian)), Some(std::u64::MAX), Some(-1)),
-              (AttributeValue::Sdata(1), None, Some(1)),
-              (AttributeValue::Udata(1), Some(1), None)];
+        let tests: &[(AttributeValue<EndianBuf<LittleEndian>>, _, _)] = &[
+            (AttributeValue::Data1([1]), Some(1), Some(1)),
+            (
+                AttributeValue::Data1([255]),
+                Some(std::u8::MAX as u64),
+                Some(-1),
+            ),
+            (AttributeValue::Data2(([1, 0], endian)), Some(1), Some(1)),
+            (
+                AttributeValue::Data2(([255; 2], endian)),
+                Some(std::u16::MAX as u64),
+                Some(-1),
+            ),
+            (
+                AttributeValue::Data4(([1, 0, 0, 0], endian)),
+                Some(1),
+                Some(1),
+            ),
+            (
+                AttributeValue::Data4(([255; 4], endian)),
+                Some(std::u32::MAX as u64),
+                Some(-1),
+            ),
+            (
+                AttributeValue::Data8(([1, 0, 0, 0, 0, 0, 0, 0], endian)),
+                Some(1),
+                Some(1),
+            ),
+            (
+                AttributeValue::Data8(([255; 8], endian)),
+                Some(std::u64::MAX),
+                Some(-1),
+            ),
+            (AttributeValue::Sdata(1), None, Some(1)),
+            (AttributeValue::Udata(1), Some(1), None),
+        ];
         for test in tests.iter() {
             let (value, expect_udata, expect_sdata) = *test;
             let attribute = Attribute {
@@ -3225,30 +3340,36 @@ mod tests {
         }
     }
 
-    fn test_parse_attribute_unit<Endian>(address_size: u8,
-                                         format: Format,
-                                         endian: Endian)
-                                         -> UnitHeader<EndianBuf<'static, Endian>>
-        where Endian: Endianity
+    fn test_parse_attribute_unit<Endian>(
+        address_size: u8,
+        format: Format,
+        endian: Endian,
+    ) -> UnitHeader<EndianBuf<'static, Endian>>
+    where
+        Endian: Endianity,
     {
-        UnitHeader::new(7,
-                        4,
-                        DebugAbbrevOffset(0x08070605),
-                        address_size,
-                        format,
-                        EndianBuf::new(&[], endian))
+        UnitHeader::new(
+            7,
+            4,
+            DebugAbbrevOffset(0x08070605),
+            address_size,
+            format,
+            EndianBuf::new(&[], endian),
+        )
     }
 
     fn test_parse_attribute_unit_default() -> UnitHeader<EndianBuf<'static, LittleEndian>> {
         test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian)
     }
 
-    fn test_parse_attribute<'input, Endian>(buf: &'input [u8],
-                                            len: usize,
-                                            unit: &UnitHeader<EndianBuf<'input, Endian>>,
-                                            form: constants::DwForm,
-                                            value: AttributeValue<EndianBuf<'input, Endian>>)
-        where Endian: Endianity
+    fn test_parse_attribute<'input, Endian>(
+        buf: &'input [u8],
+        len: usize,
+        unit: &UnitHeader<EndianBuf<'input, Endian>>,
+        form: constants::DwForm,
+        value: AttributeValue<EndianBuf<'input, Endian>>,
+    ) where
+        Endian: Endianity,
     {
         let spec = AttributeSpecification::new(constants::DW_AT_low_pc, form);
 
@@ -3360,8 +3481,10 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_data8;
-        let value = AttributeValue::Data8(([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08],
-                                           LittleEndian));
+        let value = AttributeValue::Data8((
+            [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08],
+            LittleEndian,
+        ));
         test_parse_attribute(&buf, 8, &unit, form, value);
     }
 
@@ -3589,7 +3712,7 @@ mod tests {
             let mut writable = &mut buf[..];
             leb128::write::unsigned(&mut writable, constants::DW_FORM_udata.0)
                 .expect("should write udata") +
-            leb128::write::unsigned(&mut writable, 9999999).expect("should write value")
+                leb128::write::unsigned(&mut writable, 9999999).expect("should write value")
         };
 
         let unit = test_parse_attribute_unit_default();
@@ -3600,27 +3723,45 @@ mod tests {
 
     #[test]
     fn test_attrs_iter() {
-        let unit = UnitHeader::new(7,
-                                   4,
-                                   DebugAbbrevOffset(0x08070605),
-                                   4,
-                                   Format::Dwarf32,
-                                   EndianBuf::new(&[], LittleEndian));
+        let unit = UnitHeader::new(
+            7,
+            4,
+            DebugAbbrevOffset(0x08070605),
+            4,
+            Format::Dwarf32,
+            EndianBuf::new(&[], LittleEndian),
+        );
 
-        let abbrev =
-            Abbreviation::new(42,
-                              constants::DW_TAG_subprogram,
-                              constants::DW_CHILDREN_yes,
-                              vec![AttributeSpecification::new(constants::DW_AT_name,
-                                                               constants::DW_FORM_string),
-                                   AttributeSpecification::new(constants::DW_AT_low_pc,
-                                                               constants::DW_FORM_addr),
-                                   AttributeSpecification::new(constants::DW_AT_high_pc,
-                                                               constants::DW_FORM_addr)]);
+        let abbrev = Abbreviation::new(
+            42,
+            constants::DW_TAG_subprogram,
+            constants::DW_CHILDREN_yes,
+            vec![
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
+                AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr),
+                AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr),
+            ],
+        );
 
         // "foo", 42, 1337, 4 dangling bytes of 0xaa where children would be
-        let buf = [0x66, 0x6f, 0x6f, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x39, 0x05, 0x00, 0x00, 0xaa,
-                   0xaa, 0xaa, 0xaa];
+        let buf = [
+            0x66,
+            0x6f,
+            0x6f,
+            0x00,
+            0x2a,
+            0x00,
+            0x00,
+            0x00,
+            0x39,
+            0x05,
+            0x00,
+            0x00,
+            0xaa,
+            0xaa,
+            0xaa,
+            0xaa,
+        ];
 
         let entry = DebuggingInformationEntry {
             offset: UnitOffset(0),
@@ -3638,11 +3779,13 @@ mod tests {
 
         match attrs.next() {
             Ok(Some(attr)) => {
-                assert_eq!(attr,
-                           Attribute {
-                               name: constants::DW_AT_name,
-                               value: AttributeValue::String(EndianBuf::new(b"foo", LittleEndian)),
-                           });
+                assert_eq!(
+                    attr,
+                    Attribute {
+                        name: constants::DW_AT_name,
+                        value: AttributeValue::String(EndianBuf::new(b"foo", LittleEndian)),
+                    }
+                );
             }
             otherwise => {
                 println!("Unexpected parse result = {:#?}", otherwise);
@@ -3654,11 +3797,13 @@ mod tests {
 
         match attrs.next() {
             Ok(Some(attr)) => {
-                assert_eq!(attr,
-                           Attribute {
-                               name: constants::DW_AT_low_pc,
-                               value: AttributeValue::Addr(0x2a),
-                           });
+                assert_eq!(
+                    attr,
+                    Attribute {
+                        name: constants::DW_AT_low_pc,
+                        value: AttributeValue::Addr(0x2a),
+                    }
+                );
             }
             otherwise => {
                 println!("Unexpected parse result = {:#?}", otherwise);
@@ -3670,11 +3815,13 @@ mod tests {
 
         match attrs.next() {
             Ok(Some(attr)) => {
-                assert_eq!(attr,
-                           Attribute {
-                               name: constants::DW_AT_high_pc,
-                               value: AttributeValue::Addr(0x539),
-                           });
+                assert_eq!(
+                    attr,
+                    Attribute {
+                        name: constants::DW_AT_high_pc,
+                        value: AttributeValue::Addr(0x539),
+                    }
+                );
             }
             otherwise => {
                 println!("Unexpected parse result = {:#?}", otherwise);
@@ -3686,29 +3833,33 @@ mod tests {
 
         assert!(attrs.next().expect("should parse next").is_none());
         assert!(entry.attrs_len.get().is_some());
-        assert_eq!(entry.attrs_len.get().expect("should have entry.attrs_len"),
-                   buf.len() - 4)
+        assert_eq!(
+            entry.attrs_len.get().expect("should have entry.attrs_len"),
+            buf.len() - 4
+        )
     }
 
     #[test]
     fn test_attrs_iter_incomplete() {
-        let unit = UnitHeader::new(7,
-                                   4,
-                                   DebugAbbrevOffset(0x08070605),
-                                   4,
-                                   Format::Dwarf32,
-                                   EndianBuf::new(&[], LittleEndian));
+        let unit = UnitHeader::new(
+            7,
+            4,
+            DebugAbbrevOffset(0x08070605),
+            4,
+            Format::Dwarf32,
+            EndianBuf::new(&[], LittleEndian),
+        );
 
-        let abbrev =
-            Abbreviation::new(42,
-                              constants::DW_TAG_subprogram,
-                              constants::DW_CHILDREN_yes,
-                              vec![AttributeSpecification::new(constants::DW_AT_name,
-                                                               constants::DW_FORM_string),
-                                   AttributeSpecification::new(constants::DW_AT_low_pc,
-                                                               constants::DW_FORM_addr),
-                                   AttributeSpecification::new(constants::DW_AT_high_pc,
-                                                               constants::DW_FORM_addr)]);
+        let abbrev = Abbreviation::new(
+            42,
+            constants::DW_TAG_subprogram,
+            constants::DW_CHILDREN_yes,
+            vec![
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
+                AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr),
+                AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr),
+            ],
+        );
 
         // "foo"
         let buf = [0x66, 0x6f, 0x6f, 0x00];
@@ -3729,11 +3880,13 @@ mod tests {
 
         match attrs.next() {
             Ok(Some(attr)) => {
-                assert_eq!(attr,
-                           Attribute {
-                               name: constants::DW_AT_name,
-                               value: AttributeValue::String(EndianBuf::new(b"foo", LittleEndian)),
-                           });
+                assert_eq!(
+                    attr,
+                    Attribute {
+                        name: constants::DW_AT_name,
+                        value: AttributeValue::String(EndianBuf::new(b"foo", LittleEndian)),
+                    }
+                );
             }
             otherwise => {
                 println!("Unexpected parse result = {:#?}", otherwise);
@@ -3756,26 +3909,31 @@ mod tests {
     }
 
     fn assert_entry_name<Endian>(entry: &DebuggingInformationEntry<EndianBuf<Endian>>, name: &str)
-        where Endian: Endianity
+    where
+        Endian: Endianity,
     {
         let value = entry
             .attr_value(constants::DW_AT_name)
             .expect("Should have parsed the name attribute")
             .expect("Should have found the name attribute");
 
-        assert_eq!(value,
-                   AttributeValue::String(EndianBuf::new(name.as_bytes(), Endian::default())));
+        assert_eq!(
+            value,
+            AttributeValue::String(EndianBuf::new(name.as_bytes(), Endian::default()))
+        );
     }
 
     fn assert_current_name<Endian>(cursor: &EntriesCursor<EndianBuf<Endian>>, name: &str)
-        where Endian: Endianity
+    where
+        Endian: Endianity,
     {
         let entry = cursor.current().expect("Should have an entry result");
         assert_entry_name(entry, name);
     }
 
     fn assert_next_entry<Endian>(cursor: &mut EntriesCursor<EndianBuf<Endian>>, name: &str)
-        where Endian: Endianity
+    where
+        Endian: Endianity,
     {
         cursor
             .next_entry()
@@ -3785,7 +3943,8 @@ mod tests {
     }
 
     fn assert_next_entry_null<Endian>(cursor: &mut EntriesCursor<EndianBuf<Endian>>)
-        where Endian: Endianity
+    where
+        Endian: Endianity,
     {
         cursor
             .next_entry()
@@ -3794,10 +3953,12 @@ mod tests {
         assert!(cursor.current().is_none());
     }
 
-    fn assert_next_dfs<Endian>(cursor: &mut EntriesCursor<EndianBuf<Endian>>,
-                               name: &str,
-                               depth: isize)
-        where Endian: Endianity
+    fn assert_next_dfs<Endian>(
+        cursor: &mut EntriesCursor<EndianBuf<Endian>>,
+        name: &str,
+        depth: isize,
+    ) where
+        Endian: Endianity,
     {
         {
             let (val, entry) = cursor
@@ -3811,7 +3972,8 @@ mod tests {
     }
 
     fn assert_next_sibling<Endian>(cursor: &mut EntriesCursor<EndianBuf<Endian>>, name: &str)
-        where Endian: Endianity
+    where
+        Endian: Endianity,
     {
         {
             let entry = cursor
@@ -3824,7 +3986,8 @@ mod tests {
     }
 
     fn assert_valid_sibling_ptr<Endian>(cursor: &EntriesCursor<EndianBuf<Endian>>)
-        where Endian: Endianity
+    where
+        Endian: Endianity,
     {
         let sibling_ptr = cursor
             .current()
@@ -4084,22 +4247,30 @@ mod tests {
         assert_next_sibling(&mut cursor, "004");
         assert_next_dfs(&mut cursor, "005", 1);
         assert_next_sibling(&mut cursor, "006");
-        assert!(cursor
-                    .next_sibling()
-                    .expect("Should parse next sibling")
-                    .is_none());
-        assert!(cursor
-                    .next_sibling()
-                    .expect("Should parse next sibling")
-                    .is_none());
-        assert!(cursor
-                    .next_sibling()
-                    .expect("Should parse next sibling")
-                    .is_none());
-        assert!(cursor
-                    .next_sibling()
-                    .expect("Should parse next sibling")
-                    .is_none());
+        assert!(
+            cursor
+                .next_sibling()
+                .expect("Should parse next sibling")
+                .is_none()
+        );
+        assert!(
+            cursor
+                .next_sibling()
+                .expect("Should parse next sibling")
+                .is_none()
+        );
+        assert!(
+            cursor
+                .next_sibling()
+                .expect("Should parse next sibling")
+                .is_none()
+        );
+        assert!(
+            cursor
+                .next_sibling()
+                .expect("Should parse next sibling")
+                .is_none()
+        );
 
         // And we should be able to continue with the children of the root entry.
 
@@ -4108,10 +4279,12 @@ mod tests {
 
         // There should be no more siblings.
 
-        assert!(cursor
-                    .next_sibling()
-                    .expect("Should parse next sibling")
-                    .is_none());
+        assert!(
+            cursor
+                .next_sibling()
+                .expect("Should parse next sibling")
+                .is_none()
+        );
         assert!(cursor.current().is_none());
     }
 
@@ -4194,10 +4367,12 @@ mod tests {
 
         // There should be no more siblings.
 
-        assert!(cursor
-                    .next_sibling()
-                    .expect("Should parse next sibling")
-                    .is_none());
+        assert!(
+            cursor
+                .next_sibling()
+                .expect("Should parse next sibling")
+                .is_none()
+        );
         assert!(cursor.current().is_none());
     }
 
@@ -4362,14 +4537,12 @@ mod tests {
 
     #[test]
     fn test_entries_tree() {
-        fn assert_entry<'input, 'abbrev, 'unit, 'tree, Endian>
-            (node: Result<Option<EntriesTreeNode<'abbrev,
-                                                 'unit,
-                                                 'tree,
-                                                 EndianBuf<'input, Endian>>>>,
-             name: &str)
-             -> EntriesTreeIter<'abbrev, 'unit, 'tree, EndianBuf<'input, Endian>>
-            where Endian: Endianity
+        fn assert_entry<'input, 'abbrev, 'unit, 'tree, Endian>(
+            node: Result<Option<EntriesTreeNode<'abbrev, 'unit, 'tree, EndianBuf<'input, Endian>>>>,
+            name: &str,
+        ) -> EntriesTreeIter<'abbrev, 'unit, 'tree, EndianBuf<'input, Endian>>
+        where
+            Endian: Endianity,
         {
             let node = node.expect("Should parse entry")
                 .expect("Should have entry");
@@ -4505,17 +4678,27 @@ mod tests {
         assert_eq!(DebugInfoOffset(0).to_unit_offset(&unit), None);
         assert_eq!(DebugInfoOffset(offset - 1).to_unit_offset(&unit), None);
         assert_eq!(DebugInfoOffset(offset).to_unit_offset(&unit), None);
-        assert_eq!(DebugInfoOffset(offset + header_length - 1).to_unit_offset(&unit),
-                   None);
-        assert_eq!(DebugInfoOffset(offset + header_length).to_unit_offset(&unit),
-                   Some(UnitOffset(header_length)));
-        assert_eq!(DebugInfoOffset(offset + length - 1).to_unit_offset(&unit),
-                   Some(UnitOffset(length - 1)));
+        assert_eq!(
+            DebugInfoOffset(offset + header_length - 1).to_unit_offset(&unit),
+            None
+        );
+        assert_eq!(
+            DebugInfoOffset(offset + header_length).to_unit_offset(&unit),
+            Some(UnitOffset(header_length))
+        );
+        assert_eq!(
+            DebugInfoOffset(offset + length - 1).to_unit_offset(&unit),
+            Some(UnitOffset(length - 1))
+        );
         assert_eq!(DebugInfoOffset(offset + length).to_unit_offset(&unit), None);
-        assert_eq!(UnitOffset(header_length).to_debug_info_offset(&unit),
-                   DebugInfoOffset(offset + header_length));
-        assert_eq!(UnitOffset(length - 1).to_debug_info_offset(&unit),
-                   DebugInfoOffset(offset + length - 1));
+        assert_eq!(
+            UnitOffset(header_length).to_debug_info_offset(&unit),
+            DebugInfoOffset(offset + header_length)
+        );
+        assert_eq!(
+            UnitOffset(length - 1).to_debug_info_offset(&unit),
+            DebugInfoOffset(offset + length - 1)
+        );
     }
 
     #[test]
@@ -4545,17 +4728,29 @@ mod tests {
         assert_eq!(DebugTypesOffset(0).to_unit_offset(&unit), None);
         assert_eq!(DebugTypesOffset(offset - 1).to_unit_offset(&unit), None);
         assert_eq!(DebugTypesOffset(offset).to_unit_offset(&unit), None);
-        assert_eq!(DebugTypesOffset(offset + header_length - 1).to_unit_offset(&unit),
-                   None);
-        assert_eq!(DebugTypesOffset(offset + header_length).to_unit_offset(&unit),
-                   Some(UnitOffset(header_length)));
-        assert_eq!(DebugTypesOffset(offset + length - 1).to_unit_offset(&unit),
-                   Some(UnitOffset(length - 1)));
-        assert_eq!(DebugTypesOffset(offset + length).to_unit_offset(&unit),
-                   None);
-        assert_eq!(UnitOffset(header_length).to_debug_types_offset(&unit),
-                   DebugTypesOffset(offset + header_length));
-        assert_eq!(UnitOffset(length - 1).to_debug_types_offset(&unit),
-                   DebugTypesOffset(offset + length - 1));
+        assert_eq!(
+            DebugTypesOffset(offset + header_length - 1).to_unit_offset(&unit),
+            None
+        );
+        assert_eq!(
+            DebugTypesOffset(offset + header_length).to_unit_offset(&unit),
+            Some(UnitOffset(header_length))
+        );
+        assert_eq!(
+            DebugTypesOffset(offset + length - 1).to_unit_offset(&unit),
+            Some(UnitOffset(length - 1))
+        );
+        assert_eq!(
+            DebugTypesOffset(offset + length).to_unit_offset(&unit),
+            None
+        );
+        assert_eq!(
+            UnitOffset(header_length).to_debug_types_offset(&unit),
+            DebugTypesOffset(offset + header_length)
+        );
+        assert_eq!(
+            UnitOffset(length - 1).to_debug_types_offset(&unit),
+            DebugTypesOffset(offset + length - 1)
+        );
     }
 }

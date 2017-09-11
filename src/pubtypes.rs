@@ -1,6 +1,6 @@
-use endianity::{Endianity, EndianBuf};
+use endianity::{EndianBuf, Endianity};
 use fallible_iterator::FallibleIterator;
-use lookup::{PubStuffEntry, PubStuffParser, LookupEntryIter, DebugLookup};
+use lookup::{DebugLookup, LookupEntryIter, PubStuffEntry, PubStuffParser};
 use parser::{Error, Result};
 use reader::Reader;
 use unit::{DebugInfoOffset, UnitOffset};
@@ -34,10 +34,11 @@ impl<R: Reader> PubTypesEntry<R> {
 }
 
 impl<R: Reader> PubStuffEntry<R> for PubTypesEntry<R> {
-    fn new(die_offset: UnitOffset<R::Offset>,
-           name: R,
-           unit_header_offset: DebugInfoOffset<R::Offset>)
-           -> Self {
+    fn new(
+        die_offset: UnitOffset<R::Offset>,
+        name: R,
+        unit_header_offset: DebugInfoOffset<R::Offset>,
+    ) -> Self {
         PubTypesEntry {
             unit_header_offset,
             die_offset,
@@ -52,7 +53,8 @@ impl<R: Reader> PubStuffEntry<R> for PubTypesEntry<R> {
 pub struct DebugPubTypes<R: Reader>(DebugLookup<R, PubStuffParser<R, PubTypesEntry<R>>>);
 
 impl<'input, Endian> DebugPubTypes<EndianBuf<'input, Endian>>
-    where Endian: Endianity
+where
+    Endian: Endianity,
 {
     /// Construct a new `DebugPubTypes` instance from the data in the `.debug_pubtypes`
     /// section.
