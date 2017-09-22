@@ -165,7 +165,7 @@ where
 
         let version = rest.read_u16()?;
         if version != 2 {
-            return Err(Error::UnknownVersion);
+            return Err(Error::UnknownVersion(version as u64));
         }
 
         let unit_offset = parse_debug_info_offset(&mut rest, format)?;

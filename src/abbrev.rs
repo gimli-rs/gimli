@@ -372,7 +372,7 @@ pub mod tests {
     use endianity::{EndianBuf, LittleEndian};
     use parser::Error;
     use self::test_assembler::Section;
-    use std::{u32, u64};
+    use std::u64;
     use test_util::GimliSectionMethods;
 
     pub trait AbbrevSectionMethods {
