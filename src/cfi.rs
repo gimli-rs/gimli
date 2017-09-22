@@ -975,7 +975,7 @@ where
     ) -> Result<CommonInformationEntry<Section, R, Offset>> {
         let version = rest.read_u8()?;
         if !Section::compatible_version(version) {
-            return Err(Error::UnknownVersion);
+            return Err(Error::UnknownVersion(version as u64));
         }
 
         let mut augmentation_string = rest.read_null_terminated_slice()?;
@@ -3219,7 +3219,7 @@ mod tests {
         };
 
         let section = Section::with_endian(Endian::Little).cie(Endian::Little, None, &mut cie);
-        assert_parse_cie::<LittleEndian>(section, Err(Error::UnknownVersion));
+        assert_parse_cie::<LittleEndian>(section, Err(Error::UnknownVersion(99)));
     }
 
     #[test]

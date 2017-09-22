@@ -417,7 +417,7 @@ fn parse_version<R: Reader>(input: &mut R) -> Result<u16> {
     if 2 <= val && val <= 4 {
         Ok(val)
     } else {
-        Err(Error::UnknownVersion)
+        Err(Error::UnknownVersion(val as u64))
     }
 }
 
@@ -3073,7 +3073,7 @@ mod tests {
         let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_version(rest) {
-            Err(Error::UnknownVersion) => assert!(true),
+            Err(Error::UnknownVersion(0xcdab)) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
 
@@ -3081,7 +3081,7 @@ mod tests {
         let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
         match parse_version(rest) {
-            Err(Error::UnknownVersion) => assert!(true),
+            Err(Error::UnknownVersion(1)) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }

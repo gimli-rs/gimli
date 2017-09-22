@@ -1138,7 +1138,7 @@ impl<R: Reader> LineNumberProgramHeader<R> {
 
         let version = rest.read_u16()?;
         if version < 2 || version > 4 {
-            return Err(parser::Error::UnknownVersion);
+            return Err(parser::Error::UnknownVersion(version as u64));
         }
 
         let header_length = rest.read_word(format).and_then(R::Offset::from_u64)?;
