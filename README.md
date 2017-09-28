@@ -39,6 +39,13 @@ gimli = "0.14.0"
 
   * [An `addr2line` clone](https://github.com/gimli-rs/addr2line)
 
+  * [`ddbug`](https://github.com/philipc/ddbug), a utility giving insight into
+    code generation by making debugging information readable
+
+  * [`dwprod`](https://github.com/fitzgen/dwprod), a tiny utility to list the
+    compilers used to create each compilation unit within a shared library or
+    executable (via `DW_AT_producer`)
+
 ## License
 
 Licensed under either of
