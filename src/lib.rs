@@ -175,7 +175,7 @@ pub mod leb128;
 
 mod parser;
 pub use parser::{Error, Format, Result};
-pub use parser::DebugMacinfoOffset;
+pub use parser::{DebugMacinfoOffset, Pointer};
 
 mod reader;
 pub use reader::{Reader, ReaderOffset};
