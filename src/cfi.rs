@@ -125,7 +125,7 @@ impl<R: Reader> EhFrameHdr<R> {
         let mut reader = self.0.clone();
         let version = reader.read_u8()?;
         if version != 1 {
-            return Err(Error::UnknownVersion(version));
+            return Err(Error::UnknownVersion(version as u64));
         }
 
         let eh_frame_ptr_enc = DwEhPe(reader.read_u8()?);
@@ -170,7 +170,16 @@ impl<R: Reader> ParsedEhFrameHdr<R> {
 
     /// Retrieves the CFI binary search table, if there is one.
     pub fn table(&self) -> Option<EhHdrTable<R>> {
-        if self.table_enc == constants::DW_EH_PE_omit {
+        // There are two big edge cases here:
+        // * You search the table for an invalid address. As this is just a binary
+        //   search table, we always have to return a valid result for that (unless
+        //   you specify an address that is lower than the first address in the
+        //   table). Since this means that you have to recheck that the FDE contains
+        //   your address anyways, we just return the first FDE even when the address
+        //   is too low. After all, we're just doing a normal binary search.
+        // * This falls apart when the table is empty - there is no entry we could
+        //   return. We conclude that an empty table is not really a table at all.
+        if (self.fde_count == 0) || (self.table_enc == constants::DW_EH_PE_omit) {
             None
         } else {
             Some(EhHdrTable { hdr: self })
@@ -185,9 +194,12 @@ pub struct EhHdrTable<'a, R: Reader + 'a> {
 }
 
 impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
-    /// Returns a pointer to the FDE for the given address.
+    /// *Probably* returns a pointer to the FDE for the given address.
     ///
-    /// This performs a binary search.
+    /// This performs a binary search, so if there is no FDE for the given address,
+    /// this function **will** return a pointer to any other FDE that's close by.
+    ///
+    /// To be sure, you **must** call `contains` on the FDE.
     pub fn lookup(&self, address: u64, bases: &BaseAddresses) -> Result<Pointer> {
         let size = match self.hdr.table_enc.format() {
             constants::DW_EH_PE_uleb128 | constants::DW_EH_PE_sleb128
