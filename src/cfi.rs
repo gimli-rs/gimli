@@ -124,7 +124,9 @@ impl<R: Reader> EhFrameHdr<R> {
     pub fn parse(&self, bases: &BaseAddresses, addr_size: u8) -> Result<ParsedEhFrameHdr<R>> {
         let mut reader = self.0.clone();
         let version = reader.read_u8()?;
-        assert_eq!(version, 1); // FIXME return error
+        if version != 1 {
+            return Err(Error::UnknownVersion(version));
+        }
 
         let eh_frame_ptr_enc = DwEhPe(reader.read_u8()?);
         let fde_count_enc = DwEhPe(reader.read_u8()?);
@@ -133,7 +135,7 @@ impl<R: Reader> EhFrameHdr<R> {
         let fde_count = parse_encoded_pointer(fde_count_enc, bases, addr_size, &self.0, &mut reader)?;
         let fde_count = match fde_count {
             Pointer::Direct(c) => c,
-            Pointer::Indirect(_) => unreachable!(),
+            Pointer::Indirect(_) => return Err(Error::UnsupportedPointerEncoding),
         };
 
         Ok(ParsedEhFrameHdr {
