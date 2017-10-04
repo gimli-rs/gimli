@@ -1,5 +1,5 @@
 use arrayvec::ArrayVec;
-use constants;
+use constants::{self, DwEhPe};
 use endianity::{EndianBuf, Endianity};
 use fallible_iterator::FallibleIterator;
 use op::Expression;
@@ -10,6 +10,7 @@ use std::cell::RefCell;
 use std::fmt::Debug;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
+use std::cmp::{Ord, Ordering};
 use std::mem;
 use std::str;
 use Section;
@@ -86,6 +87,149 @@ impl<R: Reader> Section<R> for DebugFrame<R> {
 impl<R: Reader> From<R> for DebugFrame<R> {
     fn from(section: R) -> Self {
         DebugFrame(section)
+    }
+}
+
+/// `EhFrameHdr` contains the information about the `.eh_frame` section.
+///
+/// A pointer to the start of the `.eh_frame` data, and optionally, a binary
+/// search table of pointers to the `.eh_frame` records are found in this section.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EhFrameHdr<R: Reader>(R);
+
+/// `ParsedEhFrameHdr` contains the parsed information fron the `.eh_frame` section.
+#[derive(Clone, Debug)]
+pub struct ParsedEhFrameHdr<R: Reader> {
+    addr_size: u8,
+    section: R,
+
+    eh_frame_ptr: Pointer,
+    fde_count: u64,
+    table_enc: DwEhPe,
+    table: R,
+}
+
+impl<'input, Endian> EhFrameHdr<EndianBuf<'input, Endian>>
+where
+    Endian: Endianity,
+{
+    /// Constructs a new `EhFrameHdr` instance from the data in the `.eh_frame_hdr` section.
+    pub fn new(section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianBuf::new(section, endian))
+    }
+}
+
+impl<R: Reader> EhFrameHdr<R> {
+    /// Parses this `EhFrameHdr` to a `ParsedEhFrameHdr`.
+    pub fn parse(&self, bases: &BaseAddresses, addr_size: u8) -> Result<ParsedEhFrameHdr<R>> {
+        let mut reader = self.0.clone();
+        let version = reader.read_u8()?;
+        assert_eq!(version, 1); // FIXME return error
+
+        let eh_frame_ptr_enc = DwEhPe(reader.read_u8()?);
+        let fde_count_enc = DwEhPe(reader.read_u8()?);
+        let table_enc = DwEhPe(reader.read_u8()?);
+        let eh_frame_ptr = parse_encoded_pointer(eh_frame_ptr_enc, bases, addr_size, &self.0, &mut reader)?;
+        let fde_count = parse_encoded_pointer(fde_count_enc, bases, addr_size, &self.0, &mut reader)?;
+        let fde_count = match fde_count {
+            Pointer::Direct(c) => c,
+            Pointer::Indirect(_) => unreachable!(),
+        };
+
+        Ok(ParsedEhFrameHdr {
+            addr_size,
+            section: self.0.clone(),
+
+            eh_frame_ptr,
+            fde_count,
+            table_enc,
+            table: reader,
+        })
+    }
+}
+
+impl<R: Reader> Section<R> for EhFrameHdr<R> {
+    fn section_name() -> &'static str {
+        ".eh_frame_hdr"
+    }
+}
+
+impl<R: Reader> From<R> for EhFrameHdr<R> {
+    fn from(section: R) -> Self {
+        EhFrameHdr(section)
+    }
+}
+
+impl<R: Reader> ParsedEhFrameHdr<R> {
+    /// Returns the address of the binary's `.eh_frame` section.
+    pub fn eh_frame_ptr(&self) -> Pointer {
+        self.eh_frame_ptr
+    }
+
+    /// Retrieves the CFI binary search table, if there is one.
+    pub fn table(&self) -> Option<EhHdrTable<R>> {
+        if self.table_enc == constants::DW_EH_PE_omit {
+            None
+        } else {
+            Some(EhHdrTable { hdr: self })
+        }
+    }
+}
+
+/// The CFI binary search table that is an optional part of the `.eh_frame_hdr` section.
+#[derive(Debug, Clone)]
+pub struct EhHdrTable<'a, R: Reader + 'a> {
+    hdr: &'a ParsedEhFrameHdr<R>,
+}
+
+impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
+    /// Returns a pointer to the FDE for the given address.
+    ///
+    /// This performs a binary search.
+    pub fn lookup(&self, address: u64, bases: &BaseAddresses) -> Result<Pointer> {
+        let size = match self.hdr.table_enc.format() {
+            constants::DW_EH_PE_uleb128 | constants::DW_EH_PE_sleb128
+                => return Err(Error::VariableLengthSearchTable),
+            constants::DW_EH_PE_sdata2 | constants::DW_EH_PE_udata2 => 2,
+            constants::DW_EH_PE_sdata4 | constants::DW_EH_PE_udata4 => 4,
+            constants::DW_EH_PE_sdata8 | constants::DW_EH_PE_udata8 => 8,
+            _ => return Err(Error::UnknownPointerEncoding),
+        };
+
+        let row_size = size * 2;
+
+        let mut len = self.hdr.fde_count;
+
+        let mut reader = self.hdr.table.clone();
+
+        while len > 1 {
+            let head = reader.split(R::Offset::from_u64((len / 2) * row_size)?)?;
+            let tail = reader.clone();
+
+            let pivot = parse_encoded_pointer(self.hdr.table_enc, bases, self.hdr.addr_size,
+                                              &self.hdr.section, &mut reader)?;
+            let pivot = match pivot {
+                Pointer::Direct(x) => x,
+                Pointer::Indirect(_) => return Err(Error::UnsupportedPointerEncoding),
+            };
+
+            match pivot.cmp(&address) {
+                Ordering::Equal => break,
+                Ordering::Less => {
+                    reader = tail;
+                    len = len - (len / 2);
+                }
+                Ordering::Greater => {
+                    reader = head;
+                    len /= 2;
+                }
+            }
+        }
+
+        reader.skip(R::Offset::from_u64(size)?)?;
+
+        parse_encoded_pointer(self.hdr.table_enc, bases, self.hdr.addr_size,
+                              &self.hdr.section, &mut reader)
     }
 }
 
