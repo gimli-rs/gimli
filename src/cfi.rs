@@ -90,10 +90,10 @@ impl<R: Reader> From<R> for DebugFrame<R> {
     }
 }
 
-/// `EhFrameHdr` contains the information about the `.eh_frame` section.
+/// `EhFrameHdr` contains the information about the `.eh_frame_hdr` section.
 ///
 /// A pointer to the start of the `.eh_frame` data, and optionally, a binary
-/// search table of pointers to the `.eh_frame` records are found in this section.
+/// search table of pointers to the `.eh_frame` records that are found in this section.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EhFrameHdr<R: Reader>(R);
 

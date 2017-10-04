@@ -91,6 +91,8 @@
 //!
 //!   * [`EhFrame`](./struct.EhFrame.html): The `.eh_frame` section.
 //!
+//!   * [`EhFrameHdr`](./struct.EhFrameHdr.html): The `.eh_frame_hdr` section.
+//!
 //! * Each section type exposes methods for accessing the debugging data encoded
 //! in that section. For example, the [`DebugInfo`](./struct.DebugInfo.html)
 //! struct has the [`units`](./struct.DebugInfo.html#method.units) method for
