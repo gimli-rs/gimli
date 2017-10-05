@@ -5334,6 +5334,124 @@ mod tests {
     }
 
     #[test]
+    fn test_eh_frame_hdr_unknown_version() {
+        let bases = BaseAddresses::default();
+        let buf = &[42];
+        let result = EhFrameHdr::new(buf, NativeEndian).parse(&bases, 8);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), Error::UnknownVersion(42));
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_omit_ehptr() {
+        let section = Section::with_endian(Endian::Little)
+            .L8(1).L8(0xff).L8(0x03).L8(0x0b).L32(2)
+            .L32(10).L32(1)
+            .L32(20).L32(2).L32(0);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), Error::UnexpectedNull);
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_omit_count() {
+        let section = Section::with_endian(Endian::Little)
+            .L8(1).L8(0x0b).L8(0xff).L8(0x0b).L32(0x12345);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.eh_frame_ptr(), Pointer::Direct(0x12345));
+        assert!(result.table().is_none());
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_omit_table() {
+        let section = Section::with_endian(Endian::Little)
+            .L8(1).L8(0x0b).L8(0x03).L8(0xff).L32(0x12345).L32(2);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.eh_frame_ptr(), Pointer::Direct(0x12345));
+        assert!(result.table().is_none());
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_varlen_table() {
+        let section = Section::with_endian(Endian::Little)
+            .L8(1).L8(0x0b).L8(0x03).L8(0x01).L32(0x12345).L32(2);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.eh_frame_ptr(), Pointer::Direct(0x12345));
+        let table = result.table();
+        assert!(table.is_some());
+        let table = table.unwrap();
+        assert_eq!(table.lookup(0, &bases), Err(Error::VariableLengthSearchTable));
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_indirect_length() {
+        let section = Section::with_endian(Endian::Little)
+            .L8(1).L8(0x0b).L8(0x83).L8(0x0b).L32(0x12345).L32(2);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), Error::UnsupportedPointerEncoding);
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_indirect_ptrs() {
+        let section = Section::with_endian(Endian::Little)
+            .L8(1).L8(0x8b).L8(0x03).L8(0x8b).L32(0x12345).L32(2)
+            .L32(10).L32(1)
+            .L32(20).L32(2);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.eh_frame_ptr(), Pointer::Indirect(0x12345));
+        let table = result.table();
+        assert!(table.is_some());
+        let table = table.unwrap();
+        assert_eq!(table.lookup(0, &bases), Err(Error::UnsupportedPointerEncoding));
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_good() {
+        let section = Section::with_endian(Endian::Little)
+            .L8(1).L8(0x0b).L8(0x03).L8(0x0b).L32(0x12345).L32(2)
+            .L32(10).L32(1)
+            .L32(20).L32(2);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.eh_frame_ptr(), Pointer::Direct(0x12345));
+        let table = result.table();
+        assert!(table.is_some());
+        let table = table.unwrap();
+        assert_eq!(table.lookup(0, &bases), Ok(Pointer::Direct(1)));
+        assert_eq!(table.lookup(9, &bases), Ok(Pointer::Direct(1)));
+        assert_eq!(table.lookup(10, &bases), Ok(Pointer::Direct(1)));
+        assert_eq!(table.lookup(11, &bases), Ok(Pointer::Direct(1)));
+        assert_eq!(table.lookup(19, &bases), Ok(Pointer::Direct(1)));
+        assert_eq!(table.lookup(20, &bases), Ok(Pointer::Direct(2)));
+        assert_eq!(table.lookup(21, &bases), Ok(Pointer::Direct(2)));
+        assert_eq!(table.lookup(100000, &bases), Ok(Pointer::Direct(2)));
+    }
+
+    #[test]
     fn test_eh_frame_stops_at_zero_length() {
         let section = Section::with_endian(Endian::Little).L32(0);
         let section = section.get_contents().unwrap();
