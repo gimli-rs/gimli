@@ -131,6 +131,12 @@ impl<R: Reader> EhFrameHdr<R> {
         let eh_frame_ptr_enc = DwEhPe(reader.read_u8()?);
         let fde_count_enc = DwEhPe(reader.read_u8()?);
         let table_enc = DwEhPe(reader.read_u8()?);
+
+        // Omitting this pointer is not valid (defeats the purpose of .eh_frame_hdr entirely)
+        if eh_frame_ptr_enc == constants::DW_EH_PE_omit {
+            return Err(Error::UnexpectedNull);
+        }
+
         let eh_frame_ptr = parse_encoded_pointer(eh_frame_ptr_enc, bases, addr_size, &self.0, &mut reader)?;
         let fde_count = parse_encoded_pointer(fde_count_enc, bases, addr_size, &self.0, &mut reader)?;
         let fde_count = match fde_count {
@@ -228,7 +234,10 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
             };
 
             match pivot.cmp(&address) {
-                Ordering::Equal => break,
+                Ordering::Equal => {
+                    reader = tail;
+                    break;
+                }
                 Ordering::Less => {
                     reader = tail;
                     len = len - (len / 2);
