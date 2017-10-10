@@ -129,6 +129,9 @@ pub enum Error {
     /// Attempted to push onto the CFI stack, but it was already at full
     /// capacity.
     CfiStackFull,
+    /// The `.eh_frame_hdr` binary search table claims to be variable-length encoded,
+    /// which makes binary search impossible.
+    VariableLengthSearchTable,
 }
 
 impl fmt::Display for Error {
@@ -242,6 +245,10 @@ impl error::Error for Error {
             }
             Error::CfiStackFull => {
                 "Attempted to push onto the CFI stack, but it was already at full capacity."
+            }
+            Error::VariableLengthSearchTable => {
+                "The `.eh_frame_hdr` binary search table claims to be variable-length encoded, \
+                 which makes binary search impossible."
             }
         }
     }

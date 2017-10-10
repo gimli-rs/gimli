@@ -1,5 +1,5 @@
 use arrayvec::ArrayVec;
-use constants;
+use constants::{self, DwEhPe};
 use endianity::{EndianBuf, Endianity};
 use fallible_iterator::FallibleIterator;
 use op::Expression;
@@ -10,6 +10,7 @@ use std::cell::RefCell;
 use std::fmt::Debug;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
+use std::cmp::{Ord, Ordering};
 use std::mem;
 use std::str;
 use Section;
@@ -86,6 +87,172 @@ impl<R: Reader> Section<R> for DebugFrame<R> {
 impl<R: Reader> From<R> for DebugFrame<R> {
     fn from(section: R) -> Self {
         DebugFrame(section)
+    }
+}
+
+/// `EhFrameHdr` contains the information about the `.eh_frame_hdr` section.
+///
+/// A pointer to the start of the `.eh_frame` data, and optionally, a binary
+/// search table of pointers to the `.eh_frame` records that are found in this section.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EhFrameHdr<R: Reader>(R);
+
+/// `ParsedEhFrameHdr` contains the parsed information fron the `.eh_frame` section.
+#[derive(Clone, Debug)]
+pub struct ParsedEhFrameHdr<R: Reader> {
+    addr_size: u8,
+    section: R,
+
+    eh_frame_ptr: Pointer,
+    fde_count: u64,
+    table_enc: DwEhPe,
+    table: R,
+}
+
+impl<'input, Endian> EhFrameHdr<EndianBuf<'input, Endian>>
+where
+    Endian: Endianity,
+{
+    /// Constructs a new `EhFrameHdr` instance from the data in the `.eh_frame_hdr` section.
+    pub fn new(section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianBuf::new(section, endian))
+    }
+}
+
+impl<R: Reader> EhFrameHdr<R> {
+    /// Parses this `EhFrameHdr` to a `ParsedEhFrameHdr`.
+    pub fn parse(&self, bases: &BaseAddresses, addr_size: u8) -> Result<ParsedEhFrameHdr<R>> {
+        let mut reader = self.0.clone();
+        let version = reader.read_u8()?;
+        if version != 1 {
+            return Err(Error::UnknownVersion(version as u64));
+        }
+
+        let eh_frame_ptr_enc = DwEhPe(reader.read_u8()?);
+        let fde_count_enc = DwEhPe(reader.read_u8()?);
+        let table_enc = DwEhPe(reader.read_u8()?);
+
+        // Omitting this pointer is not valid (defeats the purpose of .eh_frame_hdr entirely)
+        if eh_frame_ptr_enc == constants::DW_EH_PE_omit {
+            return Err(Error::UnexpectedNull);
+        }
+
+        let eh_frame_ptr = parse_encoded_pointer(eh_frame_ptr_enc, bases, addr_size, &self.0, &mut reader)?;
+        let fde_count = parse_encoded_pointer(fde_count_enc, bases, addr_size, &self.0, &mut reader)?;
+        let fde_count = match fde_count {
+            Pointer::Direct(c) => c,
+            Pointer::Indirect(_) => return Err(Error::UnsupportedPointerEncoding),
+        };
+
+        Ok(ParsedEhFrameHdr {
+            addr_size,
+            section: self.0.clone(),
+
+            eh_frame_ptr,
+            fde_count,
+            table_enc,
+            table: reader,
+        })
+    }
+}
+
+impl<R: Reader> Section<R> for EhFrameHdr<R> {
+    fn section_name() -> &'static str {
+        ".eh_frame_hdr"
+    }
+}
+
+impl<R: Reader> From<R> for EhFrameHdr<R> {
+    fn from(section: R) -> Self {
+        EhFrameHdr(section)
+    }
+}
+
+impl<R: Reader> ParsedEhFrameHdr<R> {
+    /// Returns the address of the binary's `.eh_frame` section.
+    pub fn eh_frame_ptr(&self) -> Pointer {
+        self.eh_frame_ptr
+    }
+
+    /// Retrieves the CFI binary search table, if there is one.
+    pub fn table(&self) -> Option<EhHdrTable<R>> {
+        // There are two big edge cases here:
+        // * You search the table for an invalid address. As this is just a binary
+        //   search table, we always have to return a valid result for that (unless
+        //   you specify an address that is lower than the first address in the
+        //   table). Since this means that you have to recheck that the FDE contains
+        //   your address anyways, we just return the first FDE even when the address
+        //   is too low. After all, we're just doing a normal binary search.
+        // * This falls apart when the table is empty - there is no entry we could
+        //   return. We conclude that an empty table is not really a table at all.
+        if (self.fde_count == 0) || (self.table_enc == constants::DW_EH_PE_omit) {
+            None
+        } else {
+            Some(EhHdrTable { hdr: self })
+        }
+    }
+}
+
+/// The CFI binary search table that is an optional part of the `.eh_frame_hdr` section.
+#[derive(Debug, Clone)]
+pub struct EhHdrTable<'a, R: Reader + 'a> {
+    hdr: &'a ParsedEhFrameHdr<R>,
+}
+
+impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
+    /// *Probably* returns a pointer to the FDE for the given address.
+    ///
+    /// This performs a binary search, so if there is no FDE for the given address,
+    /// this function **will** return a pointer to any other FDE that's close by.
+    ///
+    /// To be sure, you **must** call `contains` on the FDE.
+    pub fn lookup(&self, address: u64, bases: &BaseAddresses) -> Result<Pointer> {
+        let size = match self.hdr.table_enc.format() {
+            constants::DW_EH_PE_uleb128 | constants::DW_EH_PE_sleb128
+                => return Err(Error::VariableLengthSearchTable),
+            constants::DW_EH_PE_sdata2 | constants::DW_EH_PE_udata2 => 2,
+            constants::DW_EH_PE_sdata4 | constants::DW_EH_PE_udata4 => 4,
+            constants::DW_EH_PE_sdata8 | constants::DW_EH_PE_udata8 => 8,
+            _ => return Err(Error::UnknownPointerEncoding),
+        };
+
+        let row_size = size * 2;
+
+        let mut len = self.hdr.fde_count;
+
+        let mut reader = self.hdr.table.clone();
+
+        while len > 1 {
+            let head = reader.split(R::Offset::from_u64((len / 2) * row_size)?)?;
+            let tail = reader.clone();
+
+            let pivot = parse_encoded_pointer(self.hdr.table_enc, bases, self.hdr.addr_size,
+                                              &self.hdr.section, &mut reader)?;
+            let pivot = match pivot {
+                Pointer::Direct(x) => x,
+                Pointer::Indirect(_) => return Err(Error::UnsupportedPointerEncoding),
+            };
+
+            match pivot.cmp(&address) {
+                Ordering::Equal => {
+                    reader = tail;
+                    break;
+                }
+                Ordering::Less => {
+                    reader = tail;
+                    len = len - (len / 2);
+                }
+                Ordering::Greater => {
+                    reader = head;
+                    len /= 2;
+                }
+            }
+        }
+
+        reader.skip(R::Offset::from_u64(size)?)?;
+
+        parse_encoded_pointer(self.hdr.table_enc, bases, self.hdr.addr_size,
+                              &self.hdr.section, &mut reader)
     }
 }
 
@@ -5164,6 +5331,124 @@ mod tests {
         let result = debug_frame.unwind_info_for_address(&bases, ctx, 0xbadbad99);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().0, Error::NoUnwindInfoForAddress);
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_unknown_version() {
+        let bases = BaseAddresses::default();
+        let buf = &[42];
+        let result = EhFrameHdr::new(buf, NativeEndian).parse(&bases, 8);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), Error::UnknownVersion(42));
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_omit_ehptr() {
+        let section = Section::with_endian(Endian::Little)
+            .L8(1).L8(0xff).L8(0x03).L8(0x0b).L32(2)
+            .L32(10).L32(1)
+            .L32(20).L32(2).L32(0);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), Error::UnexpectedNull);
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_omit_count() {
+        let section = Section::with_endian(Endian::Little)
+            .L8(1).L8(0x0b).L8(0xff).L8(0x0b).L32(0x12345);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.eh_frame_ptr(), Pointer::Direct(0x12345));
+        assert!(result.table().is_none());
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_omit_table() {
+        let section = Section::with_endian(Endian::Little)
+            .L8(1).L8(0x0b).L8(0x03).L8(0xff).L32(0x12345).L32(2);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.eh_frame_ptr(), Pointer::Direct(0x12345));
+        assert!(result.table().is_none());
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_varlen_table() {
+        let section = Section::with_endian(Endian::Little)
+            .L8(1).L8(0x0b).L8(0x03).L8(0x01).L32(0x12345).L32(2);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.eh_frame_ptr(), Pointer::Direct(0x12345));
+        let table = result.table();
+        assert!(table.is_some());
+        let table = table.unwrap();
+        assert_eq!(table.lookup(0, &bases), Err(Error::VariableLengthSearchTable));
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_indirect_length() {
+        let section = Section::with_endian(Endian::Little)
+            .L8(1).L8(0x0b).L8(0x83).L8(0x0b).L32(0x12345).L32(2);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), Error::UnsupportedPointerEncoding);
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_indirect_ptrs() {
+        let section = Section::with_endian(Endian::Little)
+            .L8(1).L8(0x8b).L8(0x03).L8(0x8b).L32(0x12345).L32(2)
+            .L32(10).L32(1)
+            .L32(20).L32(2);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.eh_frame_ptr(), Pointer::Indirect(0x12345));
+        let table = result.table();
+        assert!(table.is_some());
+        let table = table.unwrap();
+        assert_eq!(table.lookup(0, &bases), Err(Error::UnsupportedPointerEncoding));
+    }
+
+    #[test]
+    fn test_eh_frame_hdr_good() {
+        let section = Section::with_endian(Endian::Little)
+            .L8(1).L8(0x0b).L8(0x03).L8(0x0b).L32(0x12345).L32(2)
+            .L32(10).L32(1)
+            .L32(20).L32(2);
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.eh_frame_ptr(), Pointer::Direct(0x12345));
+        let table = result.table();
+        assert!(table.is_some());
+        let table = table.unwrap();
+        assert_eq!(table.lookup(0, &bases), Ok(Pointer::Direct(1)));
+        assert_eq!(table.lookup(9, &bases), Ok(Pointer::Direct(1)));
+        assert_eq!(table.lookup(10, &bases), Ok(Pointer::Direct(1)));
+        assert_eq!(table.lookup(11, &bases), Ok(Pointer::Direct(1)));
+        assert_eq!(table.lookup(19, &bases), Ok(Pointer::Direct(1)));
+        assert_eq!(table.lookup(20, &bases), Ok(Pointer::Direct(2)));
+        assert_eq!(table.lookup(21, &bases), Ok(Pointer::Direct(2)));
+        assert_eq!(table.lookup(100000, &bases), Ok(Pointer::Direct(2)));
     }
 
     #[test]
