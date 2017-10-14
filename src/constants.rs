@@ -55,7 +55,7 @@ use std::fmt;
 //         }
 //     }
 macro_rules! dw {
-    ($struct_name:ident($struct_type:ty) { $($name:ident = $val:expr),+ }) => {
+    ($struct_name:ident($struct_type:ty) { $($name:ident = $val:expr),+ $(,)* }) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub struct $struct_name(pub $struct_type);
 
@@ -75,10 +75,6 @@ macro_rules! dw {
                 }
             }
         }
-    };
-    // Handle trailing comma
-    ($struct_name:ident($struct_type:ty) { $($name:ident = $val:expr),+, }) => {
-        dw!($struct_name($struct_type) { $($name = $val),+ });
     };
 }
 
