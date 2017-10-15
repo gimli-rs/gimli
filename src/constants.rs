@@ -69,9 +69,9 @@ macro_rules! dw {
                     $(
                         $name => f.pad(stringify!($name)),
                     )+
-                    otherwise => f.pad(&format!("Unknown {}: {}",
-                                                stringify!($struct_name),
-                                                otherwise.0)),
+                    otherwise => write!(f, "Unknown {}: {}",
+                                        stringify!($struct_name),
+                                        otherwise.0),
                 }
             }
         }
