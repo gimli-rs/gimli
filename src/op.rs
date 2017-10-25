@@ -886,7 +886,7 @@ pub enum EvaluationResult<R: Reader> {
     /// expression at the entry point of the current subprogram.  Once the
     /// caller determines what value to provide it should resume the
     /// `Evaluation` by calling `Evaluation::resume_with_entry_value`.
-    RequiresEntryValue(R),
+    RequiresEntryValue(Expression<R>),
     /// The `Evaluation` needs the value of the parameter at the given location
     /// in the current function's caller.  Once the caller determines what value
     /// to provide it should resume the `Evaluation` by calling
@@ -1747,7 +1747,7 @@ impl<R: Reader> Evaluation<R> {
                 }
                 OperationEvaluationResult::AwaitingEntryValue { ref expression } => {
                     self.state = EvaluationState::Waiting(op_result.clone());
-                    return Ok(EvaluationResult::RequiresEntryValue(expression.clone()));
+                    return Ok(EvaluationResult::RequiresEntryValue(Expression(expression.clone())));
                 }
                 OperationEvaluationResult::AwaitingParameterRef { parameter } => {
                     self.state = EvaluationState::Waiting(op_result);
@@ -3179,7 +3179,7 @@ mod tests {
                              None, None, None, |eval, result| {
                                  let entry_value = match result {
                                      EvaluationResult::RequiresEntryValue(mut expression) => {
-                                         expression.read_u64()?
+                                         expression.0.read_u64()?
                                      },
                                      _ => panic!(),
                                  };
