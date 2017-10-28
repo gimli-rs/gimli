@@ -1600,11 +1600,13 @@ fn length_uleb128_value<R: Reader>(input: &mut R) -> Result<R> {
     input.split(len)
 }
 
-fn parse_attribute<'unit, R: Reader>(
+fn parse_attribute<'unit, 'abbrev, R: Reader>(
     input: &mut R,
     unit: &'unit UnitHeader<R, R::Offset>,
-    spec: AttributeSpecification,
-) -> Result<Attribute<R>> {
+    mut specs: &'abbrev [AttributeSpecification],
+) -> Result<(Attribute<R>, &'abbrev [AttributeSpecification])> {
+    let spec = specs[0];
+    specs = &specs[1..];
     let mut form = spec.form();
     loop {
         let value = match form {
@@ -1741,6 +1743,9 @@ fn parse_attribute<'unit, R: Reader>(
                 let offset = input.read_offset(unit.format())?;
                 AttributeValue::DebugStrRef(DebugStrOffset(offset))
             }
+            constants::DW_FORM_implicit_const => {
+                AttributeValue::Sdata(spec.implicit_const_value())
+            }
             _ => {
                 return Err(Error::UnknownForm);
             }
@@ -1749,7 +1754,7 @@ fn parse_attribute<'unit, R: Reader>(
             name: spec.name(),
             value: value,
         };
-        return Ok(attr);
+        return Ok((attr, specs));
     }
 }
 
@@ -1798,10 +1803,8 @@ impl<'abbrev, 'entry, 'unit, R: Reader> AttrsIter<'abbrev, 'entry, 'unit, R> {
             return Ok(None);
         }
 
-        let attr = self.attributes[0];
-        let rest_attr = &self.attributes[1..];
-        match parse_attribute(&mut self.input, self.entry.unit, attr) {
-            Ok(attr) => {
+        match parse_attribute(&mut self.input, self.entry.unit, &self.attributes[..]) {
+            Ok((attr, rest_attr)) => {
                 self.attributes = rest_attr;
                 Ok(Some(attr))
             }
@@ -3330,9 +3333,11 @@ mod tests {
         for test in tests.iter() {
             let (version, name, form, mut input, expect_raw, expect_value) = *test;
             unit.version = version;
-            let spec = AttributeSpecification::new(name, form);
+            let spec = vec![AttributeSpecification::new(name, form, None)];
             let attribute =
-                parse_attribute(&mut input, &unit, spec).expect("Should parse attribute");
+                parse_attribute(&mut input, &unit, &spec[..])
+                .expect("Should parse attribute")
+                .0;
             assert_eq!(attribute.raw_value(), expect_raw);
             assert_eq!(attribute.value(), expect_value);
         }
@@ -3419,7 +3424,7 @@ mod tests {
     ) where
         Endian: Endianity,
     {
-        let spec = AttributeSpecification::new(constants::DW_AT_low_pc, form);
+        let spec = vec![AttributeSpecification::new(constants::DW_AT_low_pc, form, None)];
 
         let expect = Attribute {
             name: constants::DW_AT_low_pc,
@@ -3427,8 +3432,8 @@ mod tests {
         };
 
         let rest = &mut EndianBuf::new(buf, Endian::default());
-        match parse_attribute(rest, unit, spec) {
-            Ok(attr) => {
+        match parse_attribute(rest, unit, &spec[..]) {
+            Ok((attr, _)) => {
                 assert_eq!(attr, expect);
                 assert_eq!(*rest, EndianBuf::new(&buf[len..], Endian::default()));
             }
@@ -3785,9 +3790,9 @@ mod tests {
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_yes,
             vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
-                AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr),
-                AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr),
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
+                AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr, None),
+                AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr, None),
             ],
         );
 
@@ -3903,9 +3908,9 @@ mod tests {
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_yes,
             vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
-                AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr),
-                AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr),
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
+                AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr, None),
+                AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr, None),
             ],
         );
 
