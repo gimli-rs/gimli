@@ -1844,8 +1844,8 @@ where
 
     fn reset(&mut self) {
         self.stack.clear();
-        let res = self.stack.push(UnwindTableRow::default());
-        debug_assert!(res.is_none());
+        let res = self.stack.try_push(UnwindTableRow::default());
+        debug_assert!(res.is_ok());
 
         self.initial_rules.clear();
         self.is_initialized = false;
@@ -1912,11 +1912,8 @@ where
 
     fn push_row(&mut self) -> Result<()> {
         let new_row = self.row().clone();
-        if self.stack.push(new_row).is_some() {
-            Err(Error::CfiStackFull)
-        } else {
-            Ok(())
-        }
+        self.stack.try_push(new_row)
+                  .map_err(|_| Error::CfiStackFull)
     }
 
     fn pop_row(&mut self) {
@@ -2312,11 +2309,8 @@ impl<R: Reader> RegisterRuleMap<R> {
             }
         }
 
-        if self.rules.push((register, rule)).is_some() {
-            Err(Error::TooManyRegisterRules)
-        } else {
-            Ok(())
-        }
+        self.rules.try_push((register, rule))
+                  .map_err(|_| Error::TooManyRegisterRules)
     }
 
     fn clear(&mut self) {
