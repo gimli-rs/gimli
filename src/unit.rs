@@ -408,17 +408,10 @@ where
     }
 }
 
-/// Parse the DWARF version from the compilation unit header.
-fn parse_version<R: Reader>(input: &mut R) -> Result<u16> {
-    let val = input.read_u16()?;
-
-    // DWARF 1 was very different, and is obsolete, so isn't supported by this
-    // reader.
-    if 2 <= val && val <= 4 {
-        Ok(val)
-    } else {
-        Err(Error::UnknownVersion(val as u64))
-    }
+/// Parse the unit type from the compilation unit header.
+fn parse_compilation_unit_type<R: Reader>(input: &mut R) -> Result<constants::DwUt> {
+    let val = input.read_u8()?;
+    Ok(constants::DwUt(val))
 }
 
 /// Parse the `debug_abbrev_offset` in the compilation unit header.
@@ -659,9 +652,24 @@ fn parse_unit_header<R: Reader>(input: &mut R) -> Result<UnitHeader<R, R::Offset
     let unit_length = R::Offset::from_u64(unit_length)?;
     let mut rest = input.split(unit_length)?;
 
-    let version = parse_version(&mut rest)?;
-    let offset = parse_debug_abbrev_offset(&mut rest, format)?;
-    let address_size = rest.read_u8()?;
+    let version = rest.read_u16()?;
+    let offset;
+    let address_size;
+    // DWARF 1 was very different, and is obsolete, so isn't supported by this
+    // reader.
+    if 2 <= version && version <= 4 {
+        offset = parse_debug_abbrev_offset(&mut rest, format)?;
+        address_size = rest.read_u8()?;
+    } else if version == 5 {
+        let unit_type = parse_compilation_unit_type(&mut rest)?;
+        if unit_type != constants::DW_UT_compile {
+            return Err(Error::UnsupportedUnitType.into());
+        }
+        address_size = rest.read_u8()?;
+        offset = parse_debug_abbrev_offset(&mut rest, format)?;
+    } else {
+        return Err(Error::UnknownVersion(version as u64));
+    }
 
     Ok(UnitHeader::new(
         unit_length,
@@ -1592,11 +1600,13 @@ fn length_uleb128_value<R: Reader>(input: &mut R) -> Result<R> {
     input.split(len)
 }
 
-fn parse_attribute<'unit, R: Reader>(
+fn parse_attribute<'unit, 'abbrev, R: Reader>(
     input: &mut R,
     unit: &'unit UnitHeader<R, R::Offset>,
-    spec: AttributeSpecification,
-) -> Result<Attribute<R>> {
+    mut specs: &'abbrev [AttributeSpecification],
+) -> Result<(Attribute<R>, &'abbrev [AttributeSpecification])> {
+    let spec = specs[0];
+    specs = &specs[1..];
     let mut form = spec.form();
     loop {
         let value = match form {
@@ -1733,6 +1743,9 @@ fn parse_attribute<'unit, R: Reader>(
                 let offset = input.read_offset(unit.format())?;
                 AttributeValue::DebugStrRef(DebugStrOffset(offset))
             }
+            constants::DW_FORM_implicit_const => {
+                AttributeValue::Sdata(spec.implicit_const_value())
+            }
             _ => {
                 return Err(Error::UnknownForm);
             }
@@ -1741,7 +1754,7 @@ fn parse_attribute<'unit, R: Reader>(
             name: spec.name(),
             value: value,
         };
-        return Ok(attr);
+        return Ok((attr, specs));
     }
 }
 
@@ -1790,10 +1803,8 @@ impl<'abbrev, 'entry, 'unit, R: Reader> AttrsIter<'abbrev, 'entry, 'unit, R> {
             return Ok(None);
         }
 
-        let attr = self.attributes[0];
-        let rest_attr = &self.attributes[1..];
-        match parse_attribute(&mut self.input, self.entry.unit, attr) {
-            Ok(attr) => {
+        match parse_attribute(&mut self.input, self.entry.unit, &self.attributes[..]) {
+            Ok((attr, rest_attr)) => {
                 self.attributes = rest_attr;
                 Ok(Some(attr))
             }
@@ -2792,7 +2803,7 @@ mod tests {
 
     use super::*;
     use super::{parse_attribute, parse_debug_abbrev_offset, parse_type_offset,
-                parse_type_unit_header, parse_unit_header, parse_version};
+                parse_type_unit_header, parse_unit_header};
     use abbrev::{Abbreviation, AttributeSpecification, DebugAbbrev, DebugAbbrevOffset};
     use abbrev::tests::AbbrevSectionMethods;
     use constants;
@@ -2876,14 +2887,26 @@ mod tests {
                 Format::Dwarf64 => self.L32(0xffffffff).L64(&length),
             };
 
-            let section = section
-                .mark(&start)
-                .L16(unit.version)
-                .offset(unit.debug_abbrev_offset.0, unit.format)
-                .D8(unit.address_size)
-                .append_bytes(extra_header)
-                .append_bytes(unit.entries_buf.into())
-                .mark(&end);
+            let section = match unit.version {
+                2 | 3 | 4 => section
+                    .mark(&start)
+                    .L16(unit.version)
+                    .offset(unit.debug_abbrev_offset.0, unit.format)
+                    .D8(unit.address_size)
+                    .append_bytes(extra_header)
+                    .append_bytes(unit.entries_buf.into())
+                    .mark(&end),
+                5 => section
+                    .mark(&start)
+                    .L16(unit.version)
+                    .D8(constants::DW_UT_compile.0)
+                    .D8(unit.address_size)
+                    .offset(unit.debug_abbrev_offset.0, unit.format)
+                    .append_bytes(extra_header)
+                    .append_bytes(unit.entries_buf.into())
+                    .mark(&end),
+                _ => unreachable!(),
+            };
 
             unit.unit_length = (&end - &start) as usize;
             length.set_const(unit.unit_length as u64);
@@ -3053,34 +3076,19 @@ mod tests {
     }
 
     #[test]
-    fn test_unit_version_ok() {
-        // Version 4 and two extra bytes
-        let buf = [0x04, 0x00, 0xff, 0xff];
-        let rest = &mut EndianBuf::new(&buf, LittleEndian);
-
-        match parse_version(rest) {
-            Ok(val) => {
-                assert_eq!(val, 4);
-                assert_eq!(*rest, EndianBuf::new(&[0xff, 0xff], LittleEndian));
-            }
-            otherwise => panic!("Unexpected result: {:?}", otherwise),
-        };
-    }
-
-    #[test]
     fn test_unit_version_unknown_version() {
-        let buf = [0xab, 0xcd];
+        let buf = [0x02, 0x00, 0x00, 0x00, 0xab, 0xcd];
         let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
-        match parse_version(rest) {
+        match parse_unit_header(rest) {
             Err(Error::UnknownVersion(0xcdab)) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
 
-        let buf = [0x1, 0x0];
+        let buf = [0x02, 0x00, 0x00, 0x00, 0x1, 0x0];
         let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
-        match parse_version(rest) {
+        match parse_unit_header(rest) {
             Err(Error::UnknownVersion(1)) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -3088,10 +3096,10 @@ mod tests {
 
     #[test]
     fn test_unit_version_incomplete() {
-        let buf = [0x04];
+        let buf = [0x01, 0x00, 0x00, 0x00, 0x04];
         let rest = &mut EndianBuf::new(&buf, LittleEndian);
 
-        match parse_version(rest) {
+        match parse_unit_header(rest) {
             Err(Error::UnexpectedEof) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -3125,6 +3133,49 @@ mod tests {
         let mut expected_unit = UnitHeader {
             unit_length: 0,
             version: 4,
+            debug_abbrev_offset: DebugAbbrevOffset(0x0102030405060708),
+            address_size: 8,
+            format: Format::Dwarf64,
+            entries_buf: EndianBuf::new(expected_rest, LittleEndian),
+        };
+        let section = Section::with_endian(Endian::Little)
+            .unit(&mut expected_unit, &[])
+            .append_bytes(expected_rest);
+        let buf = section.get_contents().unwrap();
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
+
+        assert_eq!(parse_unit_header(rest), Ok(expected_unit));
+        assert_eq!(*rest, EndianBuf::new(expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_v5_unit_header_32_ok() {
+        let expected_rest = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let mut expected_unit = UnitHeader {
+            unit_length: 0,
+            version: 5,
+            debug_abbrev_offset: DebugAbbrevOffset(0x08070605),
+            address_size: 4,
+            format: Format::Dwarf32,
+            entries_buf: EndianBuf::new(expected_rest, LittleEndian),
+        };
+        let section = Section::with_endian(Endian::Little)
+            .unit(&mut expected_unit, &[])
+            .append_bytes(expected_rest);
+        let buf = section.get_contents().unwrap();
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
+
+        assert_eq!(parse_unit_header(rest), Ok(expected_unit));
+        assert_eq!(*rest, EndianBuf::new(expected_rest, LittleEndian));
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_v5_unit_header_64_ok() {
+        let expected_rest = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let mut expected_unit = UnitHeader {
+            unit_length: 0,
+            version: 5,
             debug_abbrev_offset: DebugAbbrevOffset(0x0102030405060708),
             address_size: 8,
             format: Format::Dwarf64,
@@ -3282,9 +3333,11 @@ mod tests {
         for test in tests.iter() {
             let (version, name, form, mut input, expect_raw, expect_value) = *test;
             unit.version = version;
-            let spec = AttributeSpecification::new(name, form);
+            let spec = vec![AttributeSpecification::new(name, form, None)];
             let attribute =
-                parse_attribute(&mut input, &unit, spec).expect("Should parse attribute");
+                parse_attribute(&mut input, &unit, &spec[..])
+                .expect("Should parse attribute")
+                .0;
             assert_eq!(attribute.raw_value(), expect_raw);
             assert_eq!(attribute.value(), expect_value);
         }
@@ -3371,7 +3424,7 @@ mod tests {
     ) where
         Endian: Endianity,
     {
-        let spec = AttributeSpecification::new(constants::DW_AT_low_pc, form);
+        let spec = vec![AttributeSpecification::new(constants::DW_AT_low_pc, form, None)];
 
         let expect = Attribute {
             name: constants::DW_AT_low_pc,
@@ -3379,8 +3432,8 @@ mod tests {
         };
 
         let rest = &mut EndianBuf::new(buf, Endian::default());
-        match parse_attribute(rest, unit, spec) {
-            Ok(attr) => {
+        match parse_attribute(rest, unit, &spec[..]) {
+            Ok((attr, _)) => {
                 assert_eq!(attr, expect);
                 assert_eq!(*rest, EndianBuf::new(&buf[len..], Endian::default()));
             }
@@ -3737,9 +3790,9 @@ mod tests {
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_yes,
             vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
-                AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr),
-                AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr),
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
+                AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr, None),
+                AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr, None),
             ],
         );
 
@@ -3855,9 +3908,9 @@ mod tests {
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_yes,
             vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
-                AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr),
-                AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr),
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
+                AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr, None),
+                AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr, None),
             ],
         );
 

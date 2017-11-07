@@ -132,6 +132,8 @@ pub enum Error {
     /// The `.eh_frame_hdr` binary search table claims to be variable-length encoded,
     /// which makes binary search impossible.
     VariableLengthSearchTable,
+    /// The `DW_UT_*` value for this unit is not supported yet.
+    UnsupportedUnitType,
 }
 
 impl fmt::Display for Error {
@@ -249,6 +251,9 @@ impl error::Error for Error {
             Error::VariableLengthSearchTable => {
                 "The `.eh_frame_hdr` binary search table claims to be variable-length encoded, \
                  which makes binary search impossible."
+            }
+            Error::UnsupportedUnitType => {
+                "The `DW_UT_*` value for this unit is not supported yet"
             }
         }
     }

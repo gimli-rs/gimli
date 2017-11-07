@@ -259,15 +259,21 @@ impl Abbreviation {
 pub struct AttributeSpecification {
     name: constants::DwAt,
     form: constants::DwForm,
+    implicit_const_value: i64,
 }
 
 impl AttributeSpecification {
-    /// Construct a new `AttributeSpecification` from the given name and form.
+    /// Construct a new `AttributeSpecification` from the given name and form
+    /// and implicit const value.
     #[inline]
-    pub fn new(name: constants::DwAt, form: constants::DwForm) -> AttributeSpecification {
+    pub fn new(name: constants::DwAt, form: constants::DwForm,
+               implicit_const_value: Option<i64>) -> AttributeSpecification {
+        debug_assert!((form == constants::DW_FORM_implicit_const && implicit_const_value.is_some()) ||
+                      (form != constants::DW_FORM_implicit_const && implicit_const_value.is_none()));
         AttributeSpecification {
             name: name,
             form: form,
+            implicit_const_value: implicit_const_value.unwrap_or(0),
         }
     }
 
@@ -283,6 +289,13 @@ impl AttributeSpecification {
         self.form
     }
 
+    /// Get the attribute's implicit const value.
+    #[inline]
+    pub fn implicit_const_value(&self) -> i64 {
+        assert!(self.form == constants::DW_FORM_implicit_const);
+        self.implicit_const_value
+    }
+
     /// Return the size of the attribute, in bytes.
     ///
     /// Note that because some attributes are variably sized, the size cannot
@@ -290,6 +303,8 @@ impl AttributeSpecification {
     pub fn size<R: Reader>(&self, header: &UnitHeader<R, R::Offset>) -> Option<usize> {
         match self.form {
             constants::DW_FORM_addr => Some(header.address_size() as usize),
+
+            constants::DW_FORM_implicit_const => Some(0),
 
             constants::DW_FORM_flag |
             constants::DW_FORM_flag_present |
@@ -358,7 +373,12 @@ impl AttributeSpecification {
 
         let name = constants::DwAt(name);
         let form = Self::parse_form(input)?;
-        let spec = AttributeSpecification::new(name, form);
+        let implicit_const_value = if form == constants::DW_FORM_implicit_const {
+            Some(input.read_sleb128()?)
+        } else {
+            None
+        };
+        let spec = AttributeSpecification::new(name, form, implicit_const_value);
         Ok(Some(spec))
     }
 }
@@ -379,6 +399,7 @@ pub mod tests {
         fn abbrev(self, code: u64, tag: constants::DwTag, children: constants::DwChildren) -> Self;
         fn abbrev_null(self) -> Self;
         fn abbrev_attr(self, name: constants::DwAt, form: constants::DwForm) -> Self;
+        fn abbrev_attr_implicit_const(self, name: constants::DwAt, value: i64) -> Self;
         fn abbrev_attr_null(self) -> Self;
     }
 
@@ -393,6 +414,10 @@ pub mod tests {
 
         fn abbrev_attr(self, name: constants::DwAt, form: constants::DwForm) -> Self {
             self.uleb(name.0).uleb(form.0)
+        }
+
+        fn abbrev_attr_implicit_const(self, name: constants::DwAt, value: i64) -> Self {
+            self.uleb(name.0).uleb(constants::DW_FORM_implicit_const.0).sleb(value)
         }
 
         fn abbrev_attr_null(self) -> Self {
@@ -427,8 +452,8 @@ pub mod tests {
             constants::DW_TAG_compile_unit,
             constants::DW_CHILDREN_yes,
             vec![
-                AttributeSpecification::new(constants::DW_AT_producer, constants::DW_FORM_strp),
-                AttributeSpecification::new(constants::DW_AT_language, constants::DW_FORM_data2),
+                AttributeSpecification::new(constants::DW_AT_producer, constants::DW_FORM_strp, None),
+                AttributeSpecification::new(constants::DW_AT_language, constants::DW_FORM_data2, None),
             ],
         );
 
@@ -437,7 +462,7 @@ pub mod tests {
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
             vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
             ],
         );
 
@@ -571,8 +596,8 @@ pub mod tests {
             constants::DW_TAG_compile_unit,
             constants::DW_CHILDREN_yes,
             vec![
-                AttributeSpecification::new(constants::DW_AT_producer, constants::DW_FORM_strp),
-                AttributeSpecification::new(constants::DW_AT_language, constants::DW_FORM_data2),
+                AttributeSpecification::new(constants::DW_AT_producer, constants::DW_FORM_strp, None),
+                AttributeSpecification::new(constants::DW_AT_language, constants::DW_FORM_data2, None),
             ],
         );
 
@@ -581,7 +606,7 @@ pub mod tests {
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
             vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
             ],
         );
 
@@ -668,13 +693,53 @@ pub mod tests {
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
             vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string),
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
             ],
         ));
 
         let abbrev = Abbreviation::parse(rest).expect("Should parse abbreviation");
         assert_eq!(abbrev, expect);
         assert_eq!(*rest, EndianBuf::new(&expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_abbreviation_implicit_const_ok() {
+        let expected_rest = [0x01, 0x02, 0x03, 0x04];
+        let buf = Section::new()
+            .abbrev(1, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
+            .abbrev_attr_implicit_const(constants::DW_AT_name, -42)
+            .abbrev_attr_null()
+            .append_bytes(&expected_rest)
+            .get_contents()
+            .unwrap();
+        let rest = &mut EndianBuf::new(&*buf, LittleEndian);
+
+        let expect = Some(Abbreviation::new(
+            1,
+            constants::DW_TAG_subprogram,
+            constants::DW_CHILDREN_no,
+            vec![
+                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_implicit_const, Some(-42)),
+            ],
+        ));
+
+        let abbrev = Abbreviation::parse(rest).expect("Should parse abbreviation");
+        assert_eq!(abbrev, expect);
+        assert_eq!(*rest, EndianBuf::new(&expected_rest, LittleEndian));
+    }
+    #[test]
+    fn test_parse_abbreviation_implicit_const_no_const() {
+        let buf = Section::new()
+            .abbrev(1, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
+            .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_implicit_const)
+            .get_contents()
+            .unwrap();
+        let buf = &mut EndianBuf::new(&*buf, LittleEndian);
+
+        match Abbreviation::parse(buf) {
+            Err(Error::UnexpectedEof) => {},
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        }
     }
 
     #[test]
