@@ -173,6 +173,9 @@ pub use constants::*;
 mod endianity;
 pub use endianity::{BigEndian, EndianBuf, Endianity, LittleEndian, NativeEndian, RunTimeEndian};
 
+mod gnu_debuglink;
+pub use gnu_debuglink::GnuDebuglink;
+
 pub mod leb128;
 
 mod parser;
