@@ -5,7 +5,8 @@
 [![Build Status](https://travis-ci.org/gimli-rs/gimli.svg?branch=master)](https://travis-ci.org/gimli-rs/gimli)
 [![Coverage Status](https://coveralls.io/repos/github/gimli-rs/gimli/badge.svg?branch=master)](https://coveralls.io/github/gimli-rs/gimli?branch=master)
 
-A lazy, zero-copy parser for the [DWARF debugging format](http://dwarfstd.org/).
+`gimli` is a blazing fast library for consuming the
+[DWARF debugging format](http://dwarfstd.org/).
 
 * **Zero copy:** everything is just a reference to the original input buffer. No
   copies of the input data get made.
@@ -29,7 +30,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gimli = "0.14.0"
+gimli = "0.15.0"
 ```
 
 ## Documentation
