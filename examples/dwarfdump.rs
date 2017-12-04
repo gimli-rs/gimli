@@ -9,6 +9,7 @@ extern crate object;
 
 use fallible_iterator::FallibleIterator;
 use gimli::UnwindSection;
+use object::Object;
 use std::collections::HashMap;
 use std::env;
 use std::io;
@@ -217,7 +218,7 @@ where
         Endian: gimli::Endianity,
         'file: 'input,
     {
-        let data = file.get_section(S::section_name()).unwrap_or(&[]);
+        let data = file.section_data_by_name(S::section_name()).unwrap_or(&[]);
         S::from(gimli::EndianBuf::new(data, endian))
     }
 
