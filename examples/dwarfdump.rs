@@ -222,6 +222,8 @@ where
         S::from(gimli::EndianBuf::new(data, endian))
     }
 
+    // Variables representing sections of the file. The type of each is inferred from its use in the
+    // dump_* functions below.
     let eh_frame = &load_section(file, endian);
     let debug_abbrev = &load_section(file, endian);
     let debug_aranges = &load_section(file, endian);
