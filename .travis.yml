@@ -27,7 +27,7 @@ before_install:
 - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install python || true; fi
 
 before_script:
-- pip install -v 'travis-cargo<0.2' --user
+- pip2 install -v 'travis-cargo<0.2' --user
 - if [[ -e ~/Library/Python/2.7/bin ]]; then export PATH=~/Library/Python/2.7/bin:$PATH; fi
 - if [[ -e ~/.local/bin ]]; then export PATH=~/.local/bin:$PATH; fi
 - echo PATH is $PATH
