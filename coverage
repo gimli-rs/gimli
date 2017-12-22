@@ -16,7 +16,7 @@
 export RUSTFLAGS="-C link-dead-code"
 TEST_FILES=$(cargo test 2>&1 >/dev/null | awk '/^     Running target\/debug\// { print $2 }')
 
-KCOV_OPTS="--verify --exclude-pattern=/.cargo"
+KCOV_OPTS="--verify --exclude-pattern=/.cargo --include-pattern=$PWD"
 OUT_DIR=target/kcov
 
 for f in $TEST_FILES; do
