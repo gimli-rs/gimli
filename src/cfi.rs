@@ -13,6 +13,7 @@ use std::marker::PhantomData;
 use std::cmp::{Ord, Ordering};
 use std::mem;
 use std::str;
+use boxed::Box;
 use Section;
 
 /// An offset into the `.debug_frame` section.
@@ -3105,6 +3106,7 @@ mod tests {
     use std::marker::PhantomData;
     use std::mem;
     use std::u64;
+    use vec::Vec;
     use test_util::GimliSectionMethods;
 
     type DebugFrameCie<R, O = usize> = CommonInformationEntry<DebugFrame<R>, R, O>;

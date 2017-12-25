@@ -160,9 +160,43 @@
 // False positives when block expressions are used inside an assertion.
 #![allow(panic_params)]
 
+#![no_std]
+#![cfg_attr(feature = "nightly", feature(alloc))]
+
+#[cfg(feature = "std")]
+#[macro_use]
+extern crate std;
+
+#[cfg(not(feature = "std"))]
+#[macro_use]
+extern crate core as std;
+#[cfg(not(feature = "std"))]
+#[macro_use]
+extern crate alloc;
+
 extern crate arrayvec;
 extern crate byteorder;
 extern crate fallible_iterator;
+
+#[cfg(feature = "std")]
+mod imports {
+    pub use std::boxed;
+    pub use std::vec;
+    pub use std::string;
+    pub use std::borrow;
+    pub use std::collections::btree_map;
+}
+
+#[cfg(not(feature = "std"))]
+mod imports {
+    pub use alloc::boxed;
+    pub use alloc::vec;
+    pub use alloc::string;
+    pub use alloc::borrow;
+    pub use alloc::btree_map;
+}
+
+use imports::*;
 
 mod cfi;
 pub use cfi::*;

@@ -1,6 +1,6 @@
-use std::borrow::Cow;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Sub};
+use borrow::Cow;
 
 use endianity::Endianity;
 use leb128;

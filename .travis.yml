@@ -47,6 +47,7 @@ script:
       with_debug_info=$(find ./target/debug -type f -perm -100 | grep gimli | head -n 1) &&
       travis-cargo run -- --example dwarfdump "$with_debug_info" > /dev/null
   )) &&
+  travis-cargo --only nightly build -- --no-default-features --features nightly &&
   travis-cargo --only stable doc
 
 after_success:

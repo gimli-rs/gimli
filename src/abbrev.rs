@@ -5,7 +5,8 @@ use endianity::{EndianBuf, Endianity};
 use parser::{Error, Format, Result};
 use reader::Reader;
 use unit::UnitHeader;
-use std::collections::btree_map;
+use vec::Vec;
+use btree_map;
 use Section;
 
 /// An offset into the `.debug_abbrev` section.
