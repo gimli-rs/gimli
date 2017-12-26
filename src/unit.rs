@@ -1517,6 +1517,13 @@ impl<R: Reader> Attribute<R> {
             AttributeValue::Data4((ref data, endian)) => endian.read_u32(data) as u64,
             AttributeValue::Data8((ref data, endian)) => endian.read_u64(data),
             AttributeValue::Udata(data) => data,
+            AttributeValue::Sdata(data) => {
+                if data < 0 {
+                    // Maybe we should emit a warning here
+                    return None;
+                }
+                data as u64
+            },
             _ => return None,
         })
     }
@@ -1529,6 +1536,13 @@ impl<R: Reader> Attribute<R> {
             AttributeValue::Data4((ref data, endian)) => endian.read_u32(data) as i32 as i64,
             AttributeValue::Data8((ref data, endian)) => endian.read_u64(data) as i64,
             AttributeValue::Sdata(data) => data,
+            AttributeValue::Udata(data) => {
+                if data > i64::max_value() as u64 {
+                    // Maybe we should emit a warning here
+                    return None;
+                }
+                data as i64
+            },
             _ => return None,
         })
     }
@@ -3343,7 +3357,7 @@ mod tests {
     #[test]
     fn test_attribute_udata_sdata_value() {
         let endian = LittleEndian;
-        let tests: &[(AttributeValue<EndianBuf<LittleEndian>>, _, _)] = &[
+        let tests: &[(AttributeValue<EndianBuf<LittleEndian>>, Option<u64>, Option<i64>)] = &[
             (AttributeValue::Data1([1]), Some(1), Some(1)),
             (
                 AttributeValue::Data1([255]),
@@ -3376,8 +3390,10 @@ mod tests {
                 Some(std::u64::MAX),
                 Some(-1),
             ),
-            (AttributeValue::Sdata(1), None, Some(1)),
-            (AttributeValue::Udata(1), Some(1), None),
+            (AttributeValue::Sdata(1), Some(1), Some(1)),
+            (AttributeValue::Sdata(-1), None, Some(-1)),
+            (AttributeValue::Udata(1), Some(1), Some(1)),
+            (AttributeValue::Udata(1u64 << 63), Some(1u64 << 63), None),
         ];
         for test in tests.iter() {
             let (value, expect_udata, expect_sdata) = *test;
