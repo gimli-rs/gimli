@@ -485,10 +485,7 @@ where
     pub fn size_of_header(format: Format) -> usize {
         let unit_length_size = Self::size_of_unit_length(format);
         let version_size = 2;
-        let debug_abbrev_offset_size = match format {
-            Format::Dwarf32 => 4,
-            Format::Dwarf64 => 8,
-        };
+        let debug_abbrev_offset_size = format.word_size() as usize;
         let address_size_size = 1;
 
         unit_length_size + version_size + debug_abbrev_offset_size + address_size_size

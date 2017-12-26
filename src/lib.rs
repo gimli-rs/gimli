@@ -209,6 +209,9 @@ pub use pubtypes::{DebugPubTypes, PubTypesEntry, PubTypesEntryIter};
 mod ranges;
 pub use ranges::{DebugRanges, DebugRangesOffset, Range, RangesIter, RawRangesIter};
 
+mod rnglists;
+pub use rnglists::{DebugRngLists, RngListIter};
+
 mod str;
 pub use str::*;
 
