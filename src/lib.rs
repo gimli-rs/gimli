@@ -195,6 +195,9 @@ pub use line::*;
 mod loc;
 pub use loc::{DebugLoc, DebugLocOffset, LocationListEntry, LocationListIter, RawLocationListIter};
 
+mod loclists;
+pub use loclists::{DebugLocLists, LocListIter, RawLocListIter};
+
 mod lookup;
 
 mod op;
