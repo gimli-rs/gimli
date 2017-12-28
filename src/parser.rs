@@ -1,9 +1,9 @@
 //! Functions for parsing DWARF debugging information.
 
-use std::error;
 use std::fmt::{self, Debug};
-use std::io;
 use std::result;
+#[cfg(feature = "std")]
+use std::{io, error};
 use cfi::BaseAddresses;
 use constants;
 use reader::{Reader, ReaderOffset};
@@ -143,8 +143,9 @@ impl fmt::Display for Error {
     }
 }
 
-impl error::Error for Error {
-    fn description(&self) -> &str {
+impl Error {
+    /// A short description of the error.
+    pub fn description(&self) -> &str {
         match *self {
             Error::Io => "An I/O error occurred while reading.",
             Error::CfiRelativePointerButCfiBaseIsUndefined => {
@@ -259,6 +260,14 @@ impl error::Error for Error {
     }
 }
 
+#[cfg(feature = "std")]
+impl error::Error for Error {
+    fn description(&self) -> &str {
+        Error::description(self)
+    }
+}
+
+#[cfg(feature = "std")]
 impl From<io::Error> for Error {
     fn from(_: io::Error) -> Self {
         Error::Io

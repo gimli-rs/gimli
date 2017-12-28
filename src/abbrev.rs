@@ -5,7 +5,8 @@ use endianity::{EndianBuf, Endianity};
 use parser::{Error, Format, Result};
 use reader::Reader;
 use unit::UnitHeader;
-use std::collections::hash_map;
+use vec::Vec;
+use btree_map;
 use Section;
 
 /// An offset into the `.debug_abbrev` section.
@@ -80,7 +81,7 @@ impl<R: Reader> From<R> for DebugAbbrev<R> {
 #[derive(Debug, Default, Clone)]
 pub struct Abbreviations {
     vec: Vec<Abbreviation>,
-    map: hash_map::HashMap<u64, Abbreviation>,
+    map: btree_map::BTreeMap<u64, Abbreviation>,
 }
 
 impl Abbreviations {
@@ -88,7 +89,7 @@ impl Abbreviations {
     fn empty() -> Abbreviations {
         Abbreviations {
             vec: Vec::new(),
-            map: hash_map::HashMap::new(),
+            map: btree_map::BTreeMap::new(),
         }
     }
 
@@ -116,8 +117,8 @@ impl Abbreviations {
             }
         }
         match self.map.entry(abbrev.code) {
-            hash_map::Entry::Occupied(_) => Err(()),
-            hash_map::Entry::Vacant(entry) => {
+            btree_map::Entry::Occupied(_) => Err(()),
+            btree_map::Entry::Vacant(entry) => {
                 entry.insert(abbrev);
                 Ok(())
             }

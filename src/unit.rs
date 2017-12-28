@@ -2816,6 +2816,7 @@ mod tests {
     use str::DebugStrOffset;
     use std;
     use std::cell::Cell;
+    use vec::Vec;
     use test_util::GimliSectionMethods;
 
     // Mixin methods for `Section` to help define binary test data.

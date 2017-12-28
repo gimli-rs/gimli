@@ -51,6 +51,7 @@ fn low_bits_of_byte(byte: u8) -> u8 {
 }
 
 #[inline]
+#[allow(dead_code)]
 fn low_bits_of_u64(val: u64) -> u8 {
     let byte = val & (std::u8::MAX as u64);
     low_bits_of_byte(byte as u8)
@@ -119,6 +120,7 @@ pub mod read {
 }
 
 /// A module for writing integers encoded as LEB128.
+#[cfg(feature = "std")]
 pub mod write {
     use super::{low_bits_of_u64, CONTINUATION_BIT};
     use std::io;

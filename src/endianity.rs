@@ -2,11 +2,12 @@
 
 use byteorder;
 use byteorder::ByteOrder;
-use std::borrow::Cow;
 use std::fmt::Debug;
 use std::mem;
 use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 use std::str;
+use string::String;
+use borrow::Cow;
 use parser::{Error, Result};
 use reader::Reader;
 

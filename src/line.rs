@@ -3,6 +3,7 @@ use endianity::{EndianBuf, Endianity};
 use parser;
 use reader::{Reader, ReaderOffset};
 use std::fmt;
+use vec::Vec;
 use Section;
 
 /// An offset into the `.debug_line` section.

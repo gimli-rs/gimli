@@ -5,6 +5,7 @@ use parser::{Error, Format};
 use reader::{Reader, ReaderOffset};
 use unit::{DebugInfoOffset, UnitOffset};
 use std::mem;
+use vec::Vec;
 
 /// A reference to a DIE, either relative to the current CU or
 /// relative to the section.
