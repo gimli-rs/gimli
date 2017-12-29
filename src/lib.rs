@@ -1,20 +1,10 @@
-//! A lazy, zero-copy parser for the DWARF debugging information format.
+//! `gimli` is a blazing fast library for consuming the
+//! [DWARF debugging format](http://dwarfstd.org/).
 //!
-//! * **Zero-copy:** everything is just a reference to the original input
-//!   buffer. No copies of the input data ever get made.
-//!
-//! * **Lazy:** only the compilation units' entries that you iterate over get
-//!   parsed, and only as deep as you ask. Skip over a compilation unit and its
-//!   entries don't get parsed.
-//!
-//! * **Cross-platform:** `gimli` isn't coupled to any platform or object file
-//!   format. Use your own ELF parser on Linux or a Mach-O parser on OSX.
-//!
-//!   * Unsure which object file parser to use? Try the cross-platform
-//!   [`object`](https://github.com/gimli-rs/object) crate.
-//!
-//! This library primarily targets the fourth edition of the standard (the most
-//! recent, at time of writing).
+//! * [Example Usage](#example-usage)
+//! * [API Structure](#api-structure)
+//! * [Using with `FallibleIterator`](#using-with-fallibleiterator)
+//! * [Cargo Features](#cargo-features)
 //!
 //! ## Example Usage
 //!
@@ -53,9 +43,18 @@
 //! # }
 //! ```
 //!
-//! See the [example
-//! programs](https://github.com/gimli-rs/gimli/blob/master/examples/) for
-//! complete examples.
+//! Full example programs:
+//!
+//!   * [A `dwarfdump` clone](./examples/dwarfdump.rs)
+//!
+//!   * [An `addr2line` clone](https://github.com/gimli-rs/addr2line)
+//!
+//!   * [`ddbug`](https://github.com/philipc/ddbug), a utility giving insight into
+//!     code generation by making debugging information readable
+//!
+//!   * [`dwprod`](https://github.com/fitzgen/dwprod), a tiny utility to list the
+//!     compilers used to create each compilation unit within a shared library or
+//!     executable (via `DW_AT_producer`)
 //!
 //! ## API Structure
 //!
@@ -149,6 +148,22 @@
 //!
 //! # fn main() {}
 //! ```
+//!
+//! ## Cargo Features
+//!
+//! Cargo features that can be enabled with `gimli`:
+//!
+//! * `std`: Enabled by default. Use the `std` library. Disabling this feature
+//! allows using `gimli` in embedded environments that do not have access to
+//! `std`. Note that even when `std` is disabled, `gimli` still requires an
+//! implementation of the `alloc` crate, and you must enable the `nightly`
+//! feature.
+//!
+//! * `nightly`: Enable usage of the following unstable, nightly-only Rust
+//! features:
+//!
+//!   * `#![feature(alloc)]`: allows us to use boxes and collection types in a
+//!   `#[no_std]` environment.
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
 // Allow clippy warnings when we aren't building with clippy.
