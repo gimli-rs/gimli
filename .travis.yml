@@ -47,7 +47,7 @@ script:
       with_debug_info=$(find ./target/debug -type f -perm -100 | grep gimli | head -n 1) &&
       travis-cargo run -- --example dwarfdump "$with_debug_info" > /dev/null
   )) &&
-  travis-cargo --only nightly build -- --no-default-features --features nightly &&
+  travis-cargo --only nightly build -- --no-default-features --features alloc &&
   travis-cargo --only stable doc
 
 after_success:
@@ -57,5 +57,4 @@ after_success:
 
 env:
   global:
-  - TRAVIS_CARGO_NIGHTLY_FEATURE=nightly
   - secure: sZn3hj3DSEymINts4V3qhJ3bO3Epl2TkK/UDGwM5qPU87fnJsLMo4pH1YoJJv42EGMo7UU5G8EkARto5Kjpqdncg8TXZj4VNq3mdEBW219FhgwA6bjuLl+QYj1F0gFVb7SccbjlgH8B6yrWKXfL7HBZJ3c6ymZQSKly66Kv6lWPN8ePW7QTMqK+WUZtgIhR0kBiQSngdfdmyYaAnqCNYoiATE2jSZ7roDmf7GcTiohH+Yt6a39njgqIP6qofVnAWXg37cokrU0pAix0HK2bgfgoSOFd9yYWqPkf3Rr2edJdEXTwOQKkOmPJevrsTowbzrS+VXwuSkGBAtMGw4+CFLT0X1As9+IrGa3jonBotzEkpglOnCiJHRLdPlOrsXuUGD9TGEPrRBqhxwgiMNi6E/G+NX3O9+evZssx93qVhgFAZ1FRzSKJezaOrpRQNF/r5QCcZlQo6ZoCR/Lgd/mHdsnCVyQlN1Ye4rWchws+73zei2Wmdy3gOj8c7O9R7G5wc9PBletAmFfkavS4TKqnbRn5s5AHpaWbnX1kfVfUpnyPTmopMxhwWtQeWuO+s2Q5pSfcXoQK9uBXP4+qfHcF18M6iDimlmZK8NNDqwix0prc7HEHipsSoxN0yoS6AoZmwC5rJ4e4E8FNF0EIHM9T9w0rTzR+Z7txUBg90jXGjkW8=

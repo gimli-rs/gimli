@@ -27,5 +27,5 @@ test-assembler = "0.1.3"
 
 [features]
 std = ["fallible-iterator/std"]
-nightly = ["fallible-iterator/alloc"]
+alloc = ["fallible-iterator/alloc"]
 default = ["std"]

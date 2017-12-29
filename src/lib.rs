@@ -159,11 +159,9 @@
 //! implementation of the `alloc` crate, and you must enable the `nightly`
 //! feature.
 //!
-//! * `nightly`: Enable usage of the following unstable, nightly-only Rust
-//! features:
-//!
-//!   * `#![feature(alloc)]`: allows us to use boxes and collection types in a
-//!   `#[no_std]` environment.
+//! * `alloc`: Nightly only. Enables usage of the unstable, nightly-only
+//! `#![feature(alloc)]` Rust feature that allows `gimli` to use boxes and
+//! collection types in a `#[no_std]` environment.
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
 // Allow clippy warnings when we aren't building with clippy.
@@ -176,7 +174,7 @@
 #![allow(panic_params)]
 
 #![no_std]
-#![cfg_attr(feature = "nightly", feature(alloc))]
+#![cfg_attr(feature = "alloc", feature(alloc))]
 
 #[cfg(feature = "std")]
 #[macro_use]
