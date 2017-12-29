@@ -2234,7 +2234,10 @@ where
                 if self.ctx.stack.len() == 1 {
                     return Err(Error::PopWithEmptyStack);
                 }
+                // Pop state while preserving current location.
+                let start_address = self.ctx.start_address();
                 self.ctx.pop_row();
+                self.ctx.set_start_address(start_address);
             }
 
             // No operation.
@@ -5019,10 +5022,15 @@ mod tests {
         let cie: DebugFrameCie<_, _> = make_test_cie();
 
         let mut ctx = UnwindContext::new();
+        ctx.set_start_address(1);
         ctx.set_register_rule(0, RegisterRule::SameValue).unwrap();
-        let expected = ctx.clone();
+        let mut expected = ctx.clone();
         ctx.push_row().unwrap();
+        ctx.set_start_address(2);
         ctx.set_register_rule(0, RegisterRule::Offset(16)).unwrap();
+
+        // Restore state should preserve current location.
+        expected.set_start_address(2);
 
         let instructions = [
             // First one pops just fine.
