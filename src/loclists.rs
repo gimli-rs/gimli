@@ -127,40 +127,67 @@ pub struct RawLocListIter<R: Reader> {
     address_size: u8,
 }
 
+/// A raw entry in .debug_loclists.
 #[derive(Clone, Debug)]
 pub enum RawLocListEntry<R: Reader> {
+    /// DW_LLE_base_address
     BaseAddress {
+        /// base address
         addr: u64,
     },
+    /// DW_LLE_base_addressx
     BaseAddressx {
+        /// base address
         addr: AddressIndex,
     },
+    /// DW_LLE_startx_endx
     StartxEndx {
+        /// start of range
         begin: AddressIndex,
+        /// end of range
         end: AddressIndex,
+        /// expression
         data: Expression<R>,
     },
+    /// DW_LLE_startx_length
     StartxLength {
+        /// start of range
         begin: AddressIndex,
+        /// length of range
         length: u64,
+        /// expression
         data: Expression<R>,
     },
+    /// DW_LLE_offset_pair
     OffsetPair {
+        /// start of range
         begin: u64,
+        /// end of range
         end: u64,
+        /// expression
         data: Expression<R>,
     },
+    /// DW_LLE_default_location
     DefaultLocation {
+        /// expression
         data: Expression<R>,
     },
+    /// DW_LLE_start_end
     StartEnd {
+        /// start of range
         begin: u64,
+        /// end of range
         end: u64,
+        /// expression
         data: Expression<R>,
     },
+    /// DW_LLE_start_length
     StartLength {
+        /// start of range
         begin: u64,
+        /// length of range
         length: u64,
+        /// expression
         data: Expression<R>,
     }
 }

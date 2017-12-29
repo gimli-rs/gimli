@@ -196,7 +196,7 @@ mod loc;
 pub use loc::{DebugLoc, DebugLocOffset, LocationListEntry, LocationListIter, RawLocationListIter};
 
 mod loclists;
-pub use loclists::{DebugLocLists, LocListIter, RawLocListIter};
+pub use loclists::{DebugLocLists, LocListIter, RawLocListEntry, RawLocListIter};
 
 mod lookup;
 
@@ -213,7 +213,7 @@ mod ranges;
 pub use ranges::{DebugRanges, DebugRangesOffset, Range, RangesIter, RawRangesIter};
 
 mod rnglists;
-pub use rnglists::{DebugRngLists, RngListIter};
+pub use rnglists::{DebugRngLists, RawRngListEntry, RngListIter};
 
 mod str;
 pub use str::*;

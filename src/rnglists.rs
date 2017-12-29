@@ -131,32 +131,52 @@ pub struct RawRngListIter<R: Reader> {
     address_size: u8,
 }
 
+/// A raw entry in .debug_rnglists
 #[derive(Clone, Debug)]
 pub enum RawRngListEntry {
+    /// DW_RLE_base_address
     BaseAddress {
+        /// base address
         addr: u64,
     },
+    /// DW_RLE_base_addressx
     BaseAddressx {
+        /// base address
         addr: AddressIndex,
     },
+    /// DW_RLE_startx_endx
     StartxEndx {
+        /// start of range
         begin: AddressIndex,
+        /// end of range
         end: AddressIndex,
     },
+    /// DW_RLE_startx_length
     StartxLength {
+        /// start of range
         begin: AddressIndex,
+        /// length of range
         length: u64,
     },
+    /// DW_RLE_offset_pair
     OffsetPair {
+        /// start of range
         begin: u64,
+        /// end of range
         end: u64,
     },
+    /// DW_RLE_start_end
     StartEnd {
+        /// start of range
         begin: u64,
+        /// end of range
         end: u64,
     },
+    /// DW_RLE_start_length
     StartLength {
+        /// start of range
         begin: u64,
+        /// length of range
         length: u64,
     }
 }
