@@ -713,6 +713,8 @@ impl<R: Reader> OpcodesIter<R> {
     ///
     /// Unfortunately, the `header` parameter means that this cannot be a
     /// `FallibleIterator`.
+    #[allow(inline_always)]
+    #[inline(always)]
     pub fn next_opcode(
         &mut self,
         header: &LineNumberProgramHeader<R>,
