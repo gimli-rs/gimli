@@ -195,12 +195,16 @@ where
         let maximum_operations_per_instruction =
             self.header().maximum_operations_per_instruction as u64;
 
-        let op_index_with_advance = self.row.registers.op_index + operation_advance;
-
-        self.row.registers.address += minimum_instruction_length *
-            (op_index_with_advance / maximum_operations_per_instruction);
-
-        self.row.registers.op_index = op_index_with_advance % maximum_operations_per_instruction;
+        if maximum_operations_per_instruction == 1 {
+            self.row.registers.address += minimum_instruction_length * operation_advance;
+            self.row.registers.op_index = 0;
+        } else {
+            let op_index_with_advance = self.row.registers.op_index + operation_advance;
+            self.row.registers.address += minimum_instruction_length
+                * (op_index_with_advance / maximum_operations_per_instruction);
+            self.row.registers.op_index =
+                op_index_with_advance % maximum_operations_per_instruction;
+        }
     }
 
     fn adjust_opcode(&self, opcode: u8) -> u8 {
