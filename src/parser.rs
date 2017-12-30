@@ -134,6 +134,10 @@ pub enum Error {
     VariableLengthSearchTable,
     /// The `DW_UT_*` value for this unit is not supported yet.
     UnsupportedUnitType,
+    /// Ranges using AddressIndex are not supported yet.
+    UnsupportedAddressIndex,
+    /// Nonzero segment selector sizes aren't supported yet.
+    UnsupportedSegmentSize,
 }
 
 impl fmt::Display for Error {
@@ -255,6 +259,12 @@ impl Error {
             }
             Error::UnsupportedUnitType => {
                 "The `DW_UT_*` value for this unit is not supported yet"
+            }
+            Error::UnsupportedAddressIndex => {
+                "Ranges involving AddressIndex are not supported yet"
+            }
+            Error::UnsupportedSegmentSize => {
+                "Nonzero segment size not supported yet"
             }
         }
     }
@@ -442,6 +452,16 @@ pub enum Format {
     Dwarf64,
     /// 32-bit DWARF
     Dwarf32,
+}
+
+impl Format {
+    /// Return the natural word size for the format
+    pub fn word_size(&self) -> u8 {
+        match self {
+            &Format::Dwarf32 => 4,
+            &Format::Dwarf64 => 8,
+        }
+    }
 }
 
 const MAX_DWARF_32_UNIT_LENGTH: u64 = 0xfffffff0;

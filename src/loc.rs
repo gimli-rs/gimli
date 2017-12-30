@@ -455,7 +455,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ranges_invalid() {
+    fn test_locations_invalid() {
         let section = Section::with_endian(Endian::Little)
             // An invalid location range.
             .L32(0x20000).L32(0x10000).L16(4).L32(1)

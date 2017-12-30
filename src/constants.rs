@@ -396,7 +396,7 @@ dw!(DwAt(u64) {
     DW_AT_rank = 0x71,
     DW_AT_str_offsets_base = 0x72,
     DW_AT_addr_base = 0x73,
-    DW_AT_ranges_base = 0x74,
+    DW_AT_rnglists_base = 0x74,
     DW_AT_dwo_name = 0x76,
     DW_AT_reference = 0x77,
     DW_AT_rvalue_reference = 0x78,
