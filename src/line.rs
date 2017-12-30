@@ -215,16 +215,15 @@ where
     fn exec_special_opcode(&mut self, opcode: u8) {
         let adjusted_opcode = self.adjust_opcode(opcode);
 
-        // Step 1
-
-        let line_base = self.header().line_base as i64;
         let line_range = self.header().line_range;
-        let line_increment = line_base + (adjusted_opcode % line_range) as i64;
-        self.apply_line_advance(line_increment);
+        let line_advance = adjusted_opcode % line_range;
+        let operation_advance = adjusted_opcode / line_range;
+
+        // Step 1
+        let line_base = self.header().line_base as i64;
+        self.apply_line_advance(line_base + line_advance as i64);
 
         // Step 2
-
-        let operation_advance = adjusted_opcode / self.header().line_range;
         self.apply_operation_advance(operation_advance as u64);
     }
 
