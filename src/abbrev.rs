@@ -2,7 +2,7 @@
 
 use constants;
 use endianity::{EndianBuf, Endianity};
-use parser::{Error, Format, Result};
+use parser::{Error, Result};
 use reader::Reader;
 use unit::UnitHeader;
 use vec::Vec;
@@ -324,12 +324,7 @@ impl AttributeSpecification {
             constants::DW_FORM_sec_offset |
             constants::DW_FORM_ref_addr |
             constants::DW_FORM_ref_sig8 |
-            constants::DW_FORM_strp => {
-                match header.format() {
-                    Format::Dwarf32 => Some(4),
-                    Format::Dwarf64 => Some(8),
-                }
-            }
+            constants::DW_FORM_strp => Some(header.format().word_size() as usize),
 
             // Variably sized forms.
             constants::DW_FORM_block |

@@ -471,19 +471,10 @@ where
         }
     }
 
-    /// Return the serialized size of the `unit_length` attribute for the given
-    /// DWARF format.
-    pub fn size_of_unit_length(format: Format) -> usize {
-        match format {
-            Format::Dwarf32 => 4,
-            Format::Dwarf64 => 12,
-        }
-    }
-
     /// Return the serialized size of the common unit header for the given
     /// DWARF format.
     pub fn size_of_header(format: Format) -> usize {
-        let unit_length_size = Self::size_of_unit_length(format);
+        let unit_length_size = format.initial_length_size() as usize;
         let version_size = 2;
         let debug_abbrev_offset_size = format.word_size() as usize;
         let address_size_size = 1;
@@ -507,13 +498,7 @@ where
     /// Get the length of the debugging info for this compilation unit,
     /// including the byte length of the encoded length itself.
     pub fn length_including_self(&self) -> R::Offset {
-        match self.format {
-            // Length of the 32-bit header plus the unit length.
-            Format::Dwarf32 => R::Offset::from_u8(4) + self.unit_length,
-            // Length of the 4 byte 0xffffffff value to enable 64-bit mode plus
-            // the actual 64-bit length.
-            Format::Dwarf64 => R::Offset::from_u8(4 + 8) + self.unit_length,
-        }
+        R::Offset::from_u8(self.format.word_size()) + self.unit_length
     }
 
     /// Get the DWARF version of the debugging info for this compilation unit.
@@ -2622,10 +2607,7 @@ where
     pub fn size_of_header(format: Format) -> usize {
         let unit_header_size = UnitHeader::<R, _>::size_of_header(format);
         let type_signature_size = 8;
-        let type_offset_size = match format {
-            Format::Dwarf32 => 4,
-            Format::Dwarf64 => 8,
-        };
+        let type_offset_size = format.word_size() as usize;
         unit_header_size + type_signature_size + type_offset_size
     }
 

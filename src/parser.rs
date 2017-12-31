@@ -455,11 +455,21 @@ pub enum Format {
 }
 
 impl Format {
-    /// Return the natural word size for the format
-    pub fn word_size(&self) -> u8 {
+    /// Return the serialized size of an initial length field for the format.
+    #[inline]
+    pub fn initial_length_size(self) -> u8 {
         match self {
-            &Format::Dwarf32 => 4,
-            &Format::Dwarf64 => 8,
+            Format::Dwarf32 => 4,
+            Format::Dwarf64 => 12,
+        }
+    }
+
+    /// Return the natural word size for the format
+    #[inline]
+    pub fn word_size(self) -> u8 {
+        match self {
+            Format::Dwarf32 => 4,
+            Format::Dwarf64 => 8,
         }
     }
 }
