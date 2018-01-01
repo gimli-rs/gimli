@@ -195,12 +195,16 @@ where
         let maximum_operations_per_instruction =
             self.header().maximum_operations_per_instruction as u64;
 
-        let op_index_with_advance = self.row.registers.op_index + operation_advance;
-
-        self.row.registers.address += minimum_instruction_length *
-            (op_index_with_advance / maximum_operations_per_instruction);
-
-        self.row.registers.op_index = op_index_with_advance % maximum_operations_per_instruction;
+        if maximum_operations_per_instruction == 1 {
+            self.row.registers.address += minimum_instruction_length * operation_advance;
+            self.row.registers.op_index = 0;
+        } else {
+            let op_index_with_advance = self.row.registers.op_index + operation_advance;
+            self.row.registers.address += minimum_instruction_length
+                * (op_index_with_advance / maximum_operations_per_instruction);
+            self.row.registers.op_index =
+                op_index_with_advance % maximum_operations_per_instruction;
+        }
     }
 
     fn adjust_opcode(&self, opcode: u8) -> u8 {
@@ -211,16 +215,15 @@ where
     fn exec_special_opcode(&mut self, opcode: u8) {
         let adjusted_opcode = self.adjust_opcode(opcode);
 
-        // Step 1
-
-        let line_base = self.header().line_base as i64;
         let line_range = self.header().line_range;
-        let line_increment = line_base + (adjusted_opcode % line_range) as i64;
-        self.apply_line_advance(line_increment);
+        let line_advance = adjusted_opcode % line_range;
+        let operation_advance = adjusted_opcode / line_range;
+
+        // Step 1
+        let line_base = self.header().line_base as i64;
+        self.apply_line_advance(line_base + line_advance as i64);
 
         // Step 2
-
-        let operation_advance = adjusted_opcode / self.header().line_range;
         self.apply_operation_advance(operation_advance as u64);
     }
 
@@ -500,7 +503,7 @@ pub enum Opcode<R: Reader> {
     UnknownStandard1(constants::DwLns, u64),
 
     /// An unknown standard opcode with multiple operands.
-    UnknownStandardN(constants::DwLns, Vec<u64>),
+    UnknownStandardN(constants::DwLns, R),
 
     /// > [`Opcode::EndSequence`] sets the end_sequence register of the state
     /// > machine to “true” and appends a row to the matrix using the current
@@ -626,10 +629,12 @@ impl<R: Reader> Opcode<R> {
                             Ok(Opcode::UnknownStandard1(otherwise, arg))
                         }
                         _ => {
-                            let mut args = Vec::with_capacity(num_args);
+                            let mut args = input.clone();
                             for _ in 0..num_args {
-                                args.push(input.read_uleb128()?);
+                                input.read_uleb128()?;
                             }
+                            let len = input.offset_from(&args);
+                            args.truncate(len)?;
                             Ok(Opcode::UnknownStandardN(otherwise, args))
                         }
                     }
@@ -713,6 +718,8 @@ impl<R: Reader> OpcodesIter<R> {
     ///
     /// Unfortunately, the `header` parameter means that this cannot be a
     /// `FallibleIterator`.
+    #[allow(inline_always)]
+    #[inline(always)]
     pub fn next_opcode(
         &mut self,
         header: &LineNumberProgramHeader<R>,
@@ -1804,6 +1811,7 @@ mod tests {
     fn test_parse_unknown_standard_opcode_many_args() {
         let input = [OPCODE_BASE, 1, 2, 3];
         let input = EndianBuf::new(&input, LittleEndian);
+        let args = EndianBuf::new(&input[1..], LittleEndian);
         let mut standard_opcode_lengths = Vec::new();
         let mut header = make_test_header(input);
         standard_opcode_lengths.extend(header.standard_opcode_lengths.buf());
@@ -1816,7 +1824,7 @@ mod tests {
 
         assert_eq!(
             opcode,
-            Opcode::UnknownStandardN(constants::DwLns(OPCODE_BASE), vec![1, 2, 3])
+            Opcode::UnknownStandardN(constants::DwLns(OPCODE_BASE), args)
         );
         assert_eq!(*rest, []);
     }
@@ -2262,7 +2270,10 @@ mod tests {
     fn test_exec_unknown_standard_n() {
         let header = make_test_header(EndianBuf::new(&[], LittleEndian));
         let initial_registers = new_registers();
-        let opcode = Opcode::UnknownStandardN(constants::DwLns(111), vec![2, 2, 2]);
+        let opcode = Opcode::UnknownStandardN(
+            constants::DwLns(111),
+            EndianBuf::new(&[2, 2, 2], LittleEndian),
+        );
         let expected_registers = initial_registers.clone();
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }
