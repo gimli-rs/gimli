@@ -23,39 +23,36 @@ addons:
     - binutils-dev
     - libiberty-dev # same
 
-before_install:
-- if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update; fi
-- if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install python || true; fi
-
 before_script:
-- pip2 install -v 'travis-cargo<0.2' --user
-- if [[ -e ~/Library/Python/2.7/bin ]]; then export PATH=~/Library/Python/2.7/bin:$PATH; fi
 - if [[ -e ~/.local/bin ]]; then export PATH=~/.local/bin:$PATH; fi
 - echo PATH is $PATH
 - export RUST_BACKTRACE=1
 
-script:
-- |
-  travis-cargo clean &&
-  travis-cargo build &&
-  travis-cargo test &&
-  travis-cargo bench &&
-  ([[ $TRAVIS_OS_NAME == "osx" ]] && (
-      with_debug_info=$(find ./target/debug -type f | grep DWARF | grep gimli | head -n 1) &&
-      travis-cargo run -- --example dwarfdump "$with_debug_info" > /dev/null
-  ) || (
-      with_debug_info=$(find ./target/debug -type f -perm -100 | grep gimli | head -n 1) &&
-      travis-cargo run -- --example dwarfdump "$with_debug_info" > /dev/null
-  )) &&
-  travis-cargo --only nightly build -- --no-default-features --features nightly &&
-  travis-cargo --only stable doc
-
-after_success:
-- if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then travis-cargo --only stable doc-upload; fi
-- if [[ "$TRAVIS_OS_NAME" == "linux" && "$TRAVIS_RUST_VERSION" == "nightly" ]]; then travis-cargo coveralls --no-sudo --verify; fi
-- if [[ "$TRAVIS_OS_NAME" == "linux" && "$TRAVIS_RUST_VERSION" == "nightly" ]]; then KCOV=./kcov/build/src/kcov ./coverage; fi
+script: . ./ci/script.sh
 
 env:
-  global:
-  - TRAVIS_CARGO_NIGHTLY_FEATURE=nightly
-  - secure: sZn3hj3DSEymINts4V3qhJ3bO3Epl2TkK/UDGwM5qPU87fnJsLMo4pH1YoJJv42EGMo7UU5G8EkARto5Kjpqdncg8TXZj4VNq3mdEBW219FhgwA6bjuLl+QYj1F0gFVb7SccbjlgH8B6yrWKXfL7HBZJ3c6ymZQSKly66Kv6lWPN8ePW7QTMqK+WUZtgIhR0kBiQSngdfdmyYaAnqCNYoiATE2jSZ7roDmf7GcTiohH+Yt6a39njgqIP6qofVnAWXg37cokrU0pAix0HK2bgfgoSOFd9yYWqPkf3Rr2edJdEXTwOQKkOmPJevrsTowbzrS+VXwuSkGBAtMGw4+CFLT0X1As9+IrGa3jonBotzEkpglOnCiJHRLdPlOrsXuUGD9TGEPrRBqhxwgiMNi6E/G+NX3O9+evZssx93qVhgFAZ1FRzSKJezaOrpRQNF/r5QCcZlQo6ZoCR/Lgd/mHdsnCVyQlN1Ye4rWchws+73zei2Wmdy3gOj8c7O9R7G5wc9PBletAmFfkavS4TKqnbRn5s5AHpaWbnX1kfVfUpnyPTmopMxhwWtQeWuO+s2Q5pSfcXoQK9uBXP4+qfHcF18M6iDimlmZK8NNDqwix0prc7HEHipsSoxN0yoS6AoZmwC5rJ4e4E8FNF0EIHM9T9w0rTzR+Z7txUBg90jXGjkW8=
+  matrix:
+    - GIMLI_JOB="test"              GIMLI_PROFILE=
+    - GIMLI_JOB="test"              GIMLI_PROFILE="--release"
+    - GIMLI_JOB="examples"          GIMLI_PROFILE=
+    - GIMLI_JOB="examples"          GIMLI_PROFILE="--release"
+
+matrix:
+  fast_finish: true
+  include:
+    # Coverage should only run on Linux and stable Rust.
+    - rust: stable
+      os: linux
+      env: GIMLI_JOB="coverage"     GIMLI_PROFILE=
+    # Building docs only needs to happen on one os and only on stable.
+    - rust: stable
+      os: linux
+      env: GIMLI_JOB="doc"          GIMLI_PROFILE=
+    # Benching should only happen on nightly with --release.
+    - rust: nightly
+      env: GIMLI_JOB="bench"        GIMLI_PROFILE="--release"
+    # The no-std/alloc build should only happen on nightly.
+    - rust: nightly
+      env: GIMLI_JOB="alloc"        GIMLI_PROFILE=
+    - rust: nightly
+      env: GIMLI_JOB="alloc"        GIMLI_PROFILE="--release"
