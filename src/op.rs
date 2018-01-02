@@ -1788,8 +1788,9 @@ mod tests {
     use leb128;
     use parser::{Error, Format, Result};
     use self::test_assembler::{Endian, Section};
-    use unit::{DebugInfoOffset, UnitOffset};
+    use std::usize;
     use test_util::GimliSectionMethods;
+    use unit::{DebugInfoOffset, UnitOffset};
 
     #[test]
     fn test_compute_pc() {
@@ -1801,7 +1802,7 @@ mod tests {
         assert_eq!(compute_pc(ebuf, ebuf, 0), Ok(*ebuf));
         assert_eq!(
             compute_pc(ebuf, ebuf, -1),
-            Err(Error::BadBranchTarget(-1i64 as u64))
+            Err(Error::BadBranchTarget(usize::MAX as u64))
         );
         assert_eq!(compute_pc(ebuf, ebuf, 5), Ok(ebuf.range_from(5..)));
         assert_eq!(
@@ -2119,7 +2120,7 @@ mod tests {
             let input = [opcode.0, 0xfc, 0xff];
             check_op_parse_failure(
                 &input[..],
-                Error::BadBranchTarget(!0u64),
+                Error::BadBranchTarget(usize::MAX as u64),
                 ADDRESS_SIZE,
                 FORMAT,
             );

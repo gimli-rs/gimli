@@ -6048,6 +6048,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_pointer_width = "64")]
     fn size_of_unwind_ctx() {
         use std::mem;
         assert_eq!(
@@ -6059,6 +6060,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_pointer_width = "64")]
     fn size_of_register_rule_map() {
         use std::mem;
         assert_eq!(
