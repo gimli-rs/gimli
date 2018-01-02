@@ -4,7 +4,6 @@ set -ex
 
 case "$GIMLI_JOB" in
     "test")
-        cargo clean
         cargo build $GIMLI_PROFILE
         cargo test $GIMLI_PROFILE
         ;;
@@ -31,7 +30,6 @@ case "$GIMLI_JOB" in
 
     "alloc")
         test "$TRAVIS_RUST_VERSION" == "nightly"
-        cargo clean
         cargo build --no-default-features --features alloc $GIMLI_PROFILE
         ;;
 
@@ -42,6 +40,12 @@ case "$GIMLI_JOB" in
     "coverage")
         bash <(curl "https://raw.githubusercontent.com/xd009642/tarpaulin/master/travis-install.sh");
         cargo tarpaulin --verbose --no-count --ciserver travis-ci --coveralls "$TRAVIS_JOB_ID";
+        ;;
+
+    "cross")
+        rustup target add $TARGET
+        cargo install cross --force
+        cross test --target $TARGET $GIMLI_PROFILE
         ;;
 
     *)
