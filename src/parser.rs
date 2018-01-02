@@ -633,7 +633,7 @@ mod tests {
         let input = [expected.0, 1, 2, 3, 4];
         let input = &mut EndianBuf::new(&input, NativeEndian);
         assert_eq!(parse_pointer_encoding(input), Ok(expected));
-        assert_eq!(*input, EndianBuf::new(&[1, 2, 3, 4], LittleEndian));
+        assert_eq!(*input, EndianBuf::new(&[1, 2, 3, 4], NativeEndian));
     }
 
     #[test]
