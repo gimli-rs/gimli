@@ -3245,6 +3245,35 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_type_unit_header_32_ok() {
+        let expected_rest = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let mut expected_unit = TypeUnitHeader {
+            header: UnitHeader {
+                unit_length: 0,
+                version: 4,
+                debug_abbrev_offset: DebugAbbrevOffset(0x08070605),
+                address_size: 8,
+                format: Format::Dwarf32,
+                entries_buf: EndianBuf::new(expected_rest, LittleEndian),
+            },
+            offset: DebugTypesOffset(0),
+            type_signature: DebugTypeSignature(0xdeadbeefdeadbeef),
+            type_offset: UnitOffset(0x78563412),
+        };
+        let section = Section::with_endian(Endian::Little)
+            .type_unit(&mut expected_unit)
+            .append_bytes(expected_rest);
+        let buf = section.get_contents().unwrap();
+        let rest = &mut EndianBuf::new(&buf, LittleEndian);
+
+        assert_eq!(
+            parse_type_unit_header(rest, DebugTypesOffset(0)),
+            Ok(expected_unit)
+        );
+        assert_eq!(*rest, EndianBuf::new(expected_rest, LittleEndian));
+    }
+
+    #[test]
     #[cfg(target_pointer_width = "64")]
     fn test_parse_type_unit_header_64_ok() {
         let expected_rest = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -3284,7 +3313,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_pointer_width = "64")]
     fn test_attribute_value() {
         let mut unit = test_parse_attribute_unit_default();
         let endian = unit.entries_buf.endian();
@@ -3324,6 +3352,7 @@ mod tests {
                 AttributeValue::Data4(([4, 3, 2, 1], endian)),
                 AttributeValue::Udata(0x01020304),
             ),
+            #[cfg(target_pointer_width = "64")]
             (
                 2,
                 constants::DW_AT_data_member_location,

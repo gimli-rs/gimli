@@ -28,7 +28,7 @@ before_script:
 - echo PATH is $PATH
 - export RUST_BACKTRACE=1
 
-script: . ./ci/script.sh
+script: ./ci/script.sh
 
 env:
   matrix:
@@ -56,3 +56,19 @@ matrix:
       env: GIMLI_JOB="alloc"        GIMLI_PROFILE=
     - rust: nightly
       env: GIMLI_JOB="alloc"        GIMLI_PROFILE="--release"
+    # Build a 32 bit target.
+    - rust: stable
+      sudo: required
+      services: docker
+      env:
+        - TARGET=i686-unknown-linux-gnu
+        - GIMLI_JOB=cross
+        - GIMLI_PROFILE=
+    # Build a big-endian target.
+    - rust: stable
+      sudo: required
+      services: docker
+      env:
+        - TARGET=powerpc64-unknown-linux-gnu
+        - GIMLI_JOB=cross
+        - GIMLI_PROFILE=

@@ -618,6 +618,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little).L64(0x0123456789abcdef);
         let buf = section.get_contents().unwrap();
 
+        let input = &mut EndianBuf::new(&buf, LittleEndian);
         match input.read_offset(Format::Dwarf64) {
             Err(Error::UnsupportedOffset) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
@@ -632,7 +633,7 @@ mod tests {
         let input = [expected.0, 1, 2, 3, 4];
         let input = &mut EndianBuf::new(&input, NativeEndian);
         assert_eq!(parse_pointer_encoding(input), Ok(expected));
-        assert_eq!(*input, EndianBuf::new(&[1, 2, 3, 4], LittleEndian));
+        assert_eq!(*input, EndianBuf::new(&[1, 2, 3, 4], NativeEndian));
     }
 
     #[test]
