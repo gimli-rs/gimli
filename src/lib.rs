@@ -239,11 +239,9 @@ pub use aranges::{ArangeEntry, ArangeEntryIter, DebugAranges};
 mod line;
 pub use line::*;
 
-mod loc;
-pub use loc::{DebugLoc, LocationListEntry, LocationListIter, RawLocationListIter};
-
 mod loclists;
-pub use loclists::{DebugLocLists, LocationLists, LocationListsOffset, LocListIter, RawLocListEntry, RawLocListIter};
+pub use loclists::{DebugLoc, DebugLocLists, LocationLists, LocationListsOffset,
+                   LocationListEntry, LocListIter, RawLocListEntry, RawLocListIter};
 
 mod lookup;
 
@@ -256,11 +254,9 @@ pub use pubnames::{DebugPubNames, PubNamesEntry, PubNamesEntryIter};
 mod pubtypes;
 pub use pubtypes::{DebugPubTypes, PubTypesEntry, PubTypesEntryIter};
 
-mod ranges;
-pub use ranges::{DebugRanges, Range, RangesIter, RawRangesIter};
-
 mod rnglists;
-pub use rnglists::{DebugRngLists, RangeLists, RangeListsOffset, RawRngListEntry, RngListIter};
+pub use rnglists::{DebugRanges, DebugRngLists, Range, RangeLists, RangeListsOffset,
+                   RawRngListEntry, RngListIter};
 
 mod str;
 pub use str::*;
