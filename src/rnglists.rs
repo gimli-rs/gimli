@@ -382,7 +382,9 @@ impl<R: Reader> RngListIter<R> {
                     continue;
                 },
                 RawRngListEntry::OffsetPair { begin, end } => {
-                    Range { begin: self.base_address + begin, end: self.base_address + end }
+                    let mut range = Range { begin, end };
+                    range.add_base_address(self.base_address, self.raw.address_size);
+                    range
                 },
                 RawRngListEntry::StartEnd { begin, end } => {
                     Range { begin: begin, end: end }

@@ -415,7 +415,9 @@ impl<R: Reader> LocListIter<R> {
                     (Range { begin: 0, end: u64::max_value() }, data)
                 }
                 RawLocListEntry::OffsetPair { begin, end, data } => {
-                    (Range { begin: self.base_address + begin, end: self.base_address + end }, data)
+                    let mut range = Range { begin, end };
+                    range.add_base_address(self.base_address, self.raw.address_size);
+                    (range, data)
                 },
                 RawLocListEntry::StartEnd { begin, end, data } => {
                     (Range { begin: begin, end: end }, data)
