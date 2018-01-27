@@ -12,7 +12,7 @@ pub struct DebugRangesOffset<T = usize>(pub T);
 /// found in the `.debug_ranges` section.
 #[derive(Debug, Clone, Copy)]
 pub struct DebugRanges<R: Reader> {
-    debug_ranges_section: R,
+    pub(crate) debug_ranges_section: R,
 }
 
 impl<'input, Endian> DebugRanges<EndianBuf<'input, Endian>>

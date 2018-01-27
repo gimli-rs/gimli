@@ -14,7 +14,7 @@ pub struct DebugLocOffset<T = usize>(pub T);
 /// found in the `.debug_loc` section.
 #[derive(Debug, Clone, Copy)]
 pub struct DebugLoc<R: Reader> {
-    debug_loc_section: R,
+    pub(crate) debug_loc_section: R,
 }
 
 impl<'input, Endian> DebugLoc<EndianBuf<'input, Endian>>

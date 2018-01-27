@@ -5,10 +5,10 @@ use abbrev::{Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, D
 use endianity::{EndianBuf, Endianity};
 use fallible_iterator::FallibleIterator;
 use line::DebugLineOffset;
-use loc::DebugLocOffset;
+use loclists::LocationListsOffset;
 use op::Expression;
 use parser::{parse_initial_length, DebugMacinfoOffset, Error, Format, Result};
-use ranges::DebugRangesOffset;
+use rnglists::RangeListsOffset;
 use reader::{Reader, ReaderOffset};
 use std::cell::Cell;
 use std::ops::{Range, RangeFrom, RangeTo};
@@ -1000,14 +1000,14 @@ pub enum AttributeValue<R: Reader> {
     /// An offset into the `.debug_line` section.
     DebugLineRef(DebugLineOffset<R::Offset>),
 
-    /// An offset into the `.debug_loc` section.
-    DebugLocRef(DebugLocOffset<R::Offset>),
+    /// An offset into either the `.debug_loc` section or the `.debug_loclists` section.
+    LocationListsRef(LocationListsOffset<R::Offset>),
 
     /// An offset into the `.debug_macinfo` section.
     DebugMacinfoRef(DebugMacinfoOffset<R::Offset>),
 
     /// An offset into the `.debug_ranges` section.
-    DebugRangesRef(DebugRangesOffset<R::Offset>),
+    RangeListsRef(RangeListsOffset<R::Offset>),
 
     /// A type signature.
     DebugTypesRef(DebugTypeSignature),
@@ -1133,7 +1133,7 @@ impl<R: Reader> Attribute<R> {
         macro_rules! loclistptr {
             () => (
                 if let Some(offset) = self.offset_value() {
-                    return AttributeValue::DebugLocRef(DebugLocOffset(offset));
+                    return AttributeValue::LocationListsRef(LocationListsOffset(offset));
                 });
         }
         macro_rules! lineptr {
@@ -1151,7 +1151,7 @@ impl<R: Reader> Attribute<R> {
         macro_rules! rangelistptr {
             () => (
                 if let Some(offset) = self.offset_value() {
-                    return AttributeValue::DebugRangesRef(DebugRangesOffset(offset));
+                    return AttributeValue::RangeListsRef(RangeListsOffset(offset));
                 });
         }
         macro_rules! reference {
@@ -2803,7 +2803,7 @@ mod tests {
     use constants::*;
     use endianity::{EndianBuf, Endianity, LittleEndian};
     use leb128;
-    use loc::DebugLocOffset;
+    use loclists::LocationListsOffset;
     use parser::{Error, Format, Result};
     use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use str::DebugStrOffset;
@@ -3324,7 +3324,7 @@ mod tests {
                 constants::DW_FORM_data4,
                 data4,
                 AttributeValue::SecOffset(0x01020304),
-                AttributeValue::DebugLocRef(DebugLocOffset(0x01020304)),
+                AttributeValue::LocationListsRef(LocationListsOffset(0x01020304)),
             ),
             (
                 4,
@@ -3341,7 +3341,7 @@ mod tests {
                 constants::DW_FORM_data8,
                 data8,
                 AttributeValue::SecOffset(0x0102030405060708),
-                AttributeValue::DebugLocRef(DebugLocOffset(0x0102030405060708)),
+                AttributeValue::LocationListsRef(LocationListsOffset(0x0102030405060708)),
             ),
             (
                 4,

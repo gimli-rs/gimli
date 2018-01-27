@@ -1,8 +1,8 @@
 extern crate gimli;
 
 use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLoc,
-            DebugPubNames, DebugPubTypes, DebugRanges, DebugStr, Expression, Format, LittleEndian,
-            Operation, Reader};
+            DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges, DebugRngLists, DebugStr,
+            Expression, Format, LittleEndian, LocationLists, Operation, RangeLists, Reader};
 use std::env;
 use std::collections::hash_map::HashMap;
 use std::fs::File;
@@ -150,6 +150,8 @@ fn test_parse_self_debug_loc() {
 
     let debug_loc = read_section("debug_loc");
     let debug_loc = DebugLoc::new(&debug_loc, LittleEndian);
+    let debug_loclists = DebugLocLists::new(&[], LittleEndian);
+    let loclists = LocationLists::new(debug_loc, debug_loclists).expect("Should parse loclists");
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
@@ -175,9 +177,9 @@ fn test_parse_self_debug_loc() {
             let entry = cursor.current().expect("Should have a current entry");
             let mut attrs = entry.attrs();
             while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
-                if let AttributeValue::DebugLocRef(offset) = attr.value() {
-                    let mut locs = debug_loc
-                        .locations(offset, unit.address_size(), low_pc)
+                if let AttributeValue::LocationListsRef(offset) = attr.value() {
+                    let mut locs = loclists
+                        .locations(offset, unit.version(), unit.address_size(), low_pc)
                         .expect("Should parse locations OK");
                     while let Some(loc) = locs.next().expect("Should parse next location") {
                         assert!(loc.range.begin <= loc.range.end);
@@ -199,6 +201,8 @@ fn test_parse_self_debug_ranges() {
 
     let debug_ranges = read_section("debug_ranges");
     let debug_ranges = DebugRanges::new(&debug_ranges, LittleEndian);
+    let debug_rnglists = DebugRngLists::new(&[], LittleEndian);
+    let rnglists = RangeLists::new(debug_ranges, debug_rnglists).expect("Should parse rnglists");
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
@@ -224,9 +228,9 @@ fn test_parse_self_debug_ranges() {
             let entry = cursor.current().expect("Should have a current entry");
             let mut attrs = entry.attrs();
             while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
-                if let AttributeValue::DebugRangesRef(offset) = attr.value() {
-                    let mut ranges = debug_ranges
-                        .ranges(offset, unit.address_size(), low_pc)
+                if let AttributeValue::RangeListsRef(offset) = attr.value() {
+                    let mut ranges = rnglists
+                        .ranges(offset, unit.version(), unit.address_size(), low_pc)
                         .expect("Should parse ranges OK");
                     while let Some(range) = ranges.next().expect("Should parse next range") {
                         assert!(range.begin <= range.end);
