@@ -43,6 +43,7 @@ matrix:
     # Coverage should only run on Linux and stable Rust.
     - rust: stable
       os: linux
+      sudo: required
       env: GIMLI_JOB="coverage"     GIMLI_PROFILE=
     # Building docs only needs to happen on one os and only on stable.
     - rust: stable
