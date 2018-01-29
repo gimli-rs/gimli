@@ -229,14 +229,18 @@ where
     let debug_aranges = &load_section(file, endian);
     let debug_info = &load_section(file, endian);
     let debug_line = &load_section(file, endian);
-    let debug_loc = &load_section(file, endian);
-    let debug_loclists = &load_section(file, endian);
     let debug_pubnames = &load_section(file, endian);
     let debug_pubtypes = &load_section(file, endian);
-    let debug_ranges = &load_section(file, endian);
-    let debug_rnglists = &load_section(file, endian);
     let debug_str = &load_section(file, endian);
     let debug_types = &load_section(file, endian);
+
+    let debug_loc = load_section(file, endian);
+    let debug_loclists = load_section(file, endian);
+    let loclists = &gimli::LocationLists::new(debug_loc, debug_loclists)?;
+
+    let debug_ranges = load_section(file, endian);
+    let debug_rnglists = load_section(file, endian);
+    let rnglists = &gimli::RangeLists::new(debug_ranges, debug_rnglists)?;
 
     if flags.eh_frame {
         dump_eh_frame(eh_frame)?;
@@ -246,11 +250,9 @@ where
             debug_info,
             debug_abbrev,
             debug_line,
-            debug_loc,
-            debug_loclists,
-            debug_ranges,
-            debug_rnglists,
             debug_str,
+            loclists,
+            rnglists,
             endian,
             flags,
         )?;
@@ -258,11 +260,9 @@ where
             debug_types,
             debug_abbrev,
             debug_line,
-            debug_loc,
-            debug_loclists,
-            debug_ranges,
-            debug_rnglists,
             debug_str,
+            loclists,
+            rnglists,
             endian,
             flags,
         )?;
@@ -500,11 +500,9 @@ fn dump_info<R: Reader>(
     debug_info: &gimli::DebugInfo<R>,
     debug_abbrev: &gimli::DebugAbbrev<R>,
     debug_line: &gimli::DebugLine<R>,
-    debug_loc: &gimli::DebugLoc<R>,
-    debug_loclists: &gimli::DebugLocLists<R>,
-    debug_ranges: &gimli::DebugRanges<R>,
-    debug_rnglists: &gimli::DebugRngLists<R>,
     debug_str: &gimli::DebugStr<R>,
+    loclists: &gimli::LocationLists<R>,
+    rnglists: &gimli::RangeLists<R>,
     endian: R::Endian,
     flags: &Flags,
 ) -> Result<()> {
@@ -530,11 +528,9 @@ fn dump_info<R: Reader>(
             unit.version(),
             unit.format(),
             debug_line,
-            debug_loc,
-            debug_loclists,
-            debug_ranges,
-            debug_rnglists,
             debug_str,
+            loclists,
+            rnglists,
             endian,
             flags,
         );
@@ -553,11 +549,9 @@ fn dump_types<R: Reader>(
     debug_types: &gimli::DebugTypes<R>,
     debug_abbrev: &gimli::DebugAbbrev<R>,
     debug_line: &gimli::DebugLine<R>,
-    debug_loc: &gimli::DebugLoc<R>,
-    debug_loclists: &gimli::DebugLocLists<R>,
-    debug_ranges: &gimli::DebugRanges<R>,
-    debug_rnglists: &gimli::DebugRngLists<R>,
     debug_str: &gimli::DebugStr<R>,
+    loclists: &gimli::LocationLists<R>,
+    rnglists: &gimli::RangeLists<R>,
     endian: R::Endian,
     flags: &Flags,
 ) -> Result<()> {
@@ -593,11 +587,9 @@ fn dump_types<R: Reader>(
             unit.version(),
             unit.format(),
             debug_line,
-            debug_loc,
-            debug_loclists,
-            debug_ranges,
-            debug_rnglists,
             debug_str,
+            loclists,
+            rnglists,
             endian,
             flags,
         );
@@ -631,11 +623,9 @@ fn dump_entries<R: Reader>(
     version: u16,
     format: gimli::Format,
     debug_line: &gimli::DebugLine<R>,
-    debug_loc: &gimli::DebugLoc<R>,
-    debug_loclists: &gimli::DebugLocLists<R>,
-    debug_ranges: &gimli::DebugRanges<R>,
-    debug_rnglists: &gimli::DebugRngLists<R>,
     debug_str: &gimli::DebugStr<R>,
+    loclists: &gimli::LocationLists<R>,
+    rnglists: &gimli::RangeLists<R>,
     endian: R::Endian,
     flags: &Flags,
 ) -> Result<()> {
@@ -702,7 +692,7 @@ fn dump_entries<R: Reader>(
             if flags.raw {
                 println!("{:?}", attr.raw_value());
             } else {
-                match dump_attr_value(&attr, &unit, debug_loc, debug_loclists, debug_ranges, debug_rnglists, debug_str) {
+                match dump_attr_value(&attr, &unit, debug_str, loclists, rnglists) {
                     Ok(_) => (),
                     Err(ref err) => println!(
                         "Failed to dump attribute value: {}",
@@ -718,11 +708,9 @@ fn dump_entries<R: Reader>(
 fn dump_attr_value<R: Reader>(
     attr: &gimli::Attribute<R>,
     unit: &Unit<R>,
-    debug_loc: &gimli::DebugLoc<R>,
-    debug_loclists: &gimli::DebugLocLists<R>,
-    debug_ranges: &gimli::DebugRanges<R>,
-    debug_rnglists: &gimli::DebugRngLists<R>,
     debug_str: &gimli::DebugStr<R>,
+    loclists: &gimli::LocationLists<R>,
+    rnglists: &gimli::RangeLists<R>,
 ) -> Result<()> {
     let value = attr.value();
     match value {
@@ -817,15 +805,15 @@ fn dump_attr_value<R: Reader>(
         gimli::AttributeValue::DebugLineRef(gimli::DebugLineOffset(offset)) => {
             println!("0x{:08x}", offset);
         }
-        gimli::AttributeValue::DebugLocRef(offset) => {
-            dump_loc_list(debug_loc, debug_loclists, offset, unit)?;
+        gimli::AttributeValue::LocationListsRef(offset) => {
+            dump_loc_list(loclists, offset, unit)?;
         }
         gimli::AttributeValue::DebugMacinfoRef(gimli::DebugMacinfoOffset(offset)) => {
             println!("{}", offset);
         }
-        gimli::AttributeValue::DebugRangesRef(offset) => {
+        gimli::AttributeValue::RangeListsRef(offset) => {
             println!("0x{:08x}", offset.0);
-            dump_range_list(debug_ranges, debug_rnglists, offset, unit)?;
+            dump_range_list(rnglists, offset, unit)?;
         }
         gimli::AttributeValue::DebugTypesRef(signature) => {
             dump_type_signature(signature, unit.endian);
@@ -1085,219 +1073,145 @@ fn dump_op<R: Reader>(
 }
 
 fn dump_loc_list<R: Reader>(
-    debug_loc: &gimli::DebugLoc<R>,
-    debug_loclists: &gimli::DebugLocLists<R>,
-    offset: gimli::DebugLocOffset<R::Offset>,
+    loclists: &gimli::LocationLists<R>,
+    offset: gimli::LocationListsOffset<R::Offset>,
     unit: &Unit<R>,
 ) -> Result<()> {
-    if unit.version < 5 {
-        let locations = debug_loc.raw_locations(offset, unit.address_size)?;
-        let mut locations: Vec<_> = locations.collect()?;
+    let raw_locations = loclists.raw_locations(offset, unit.version, unit.address_size)?;
+    let raw_locations: Vec<_> = raw_locations.collect()?;
+    let mut locations = loclists.locations(offset, unit.version, unit.address_size, unit.base_address)?;
 
-        // libdwarf-dwarfdump doesn't include the end entry.
-        let has_end = if let Some(location) = locations.last() {
-            location.range.is_end()
-        } else {
-            false
-        };
-        if has_end {
-            locations.pop();
-        }
-        if locations.is_empty() {
-            println!("");
-            return Ok(());
-        }
-
-        println!(
-            "<loclist at offset 0x{:08x} with {} entries follows>",
-            offset.0,
-            locations.len()
-        );
-        let mut base_address = unit.base_address;
-        for (i, location) in locations.iter().enumerate() {
-            print!("\t\t\t[{:2}]", i);
-            if location.range.is_end() {
-                println!("<end-of-list>");
-            } else if location.range.is_base_address(unit.address_size) {
-                println!("<new base address 0x{:08x}>", location.range.end);
-                base_address = location.range.end;
-            } else {
-                let mut range = location.range;
-                range.add_base_address(base_address, unit.address_size);
-                // This messed up formatting matches libdwarf-dwarfdump.
+    println!(
+        "<loclist at offset 0x{:08x} with {} entries follows>",
+        offset.0,
+        raw_locations.len()
+    );
+    for (i, raw) in raw_locations.iter().enumerate() {
+        print!("\t\t\t[{:2}]", i);
+        match raw {
+            &gimli::RawLocListEntry::BaseAddress { addr } => {
+                println!("<new base address 0x{:08x}>", addr);
+            },
+            &gimli::RawLocListEntry::OffsetPair { begin, end, ref data } => {
+                let location = locations.next()?.unwrap();
                 print!(
-                    "< offset pair \
-                     low-off : 0x{:08x} addr  0x{:08x} \
-                     high-off  0x{:08x} addr 0x{:08x}>",
+                    "<offset pair \
+                     low-off: 0x{:08x} addr 0x{:08x} \
+                     high-off: 0x{:08x} addr 0x{:08x}>",
+                    begin,
                     location.range.begin,
-                    range.begin,
-                    location.range.end,
-                    range.end
+                    end,
+                    location.range.end
                 );
-                dump_exprloc(&location.data, unit)?;
+                dump_exprloc(data, unit)?;
                 println!("");
-            }
-        }
-    } else {
-        let raw_locations = debug_loclists.raw_locations(offset)?;
-        let raw_locations: Vec<_> = raw_locations.collect()?;
-        let mut locations = debug_loclists.locations(offset, unit.base_address)?;
-
-        println!(
-            "<loclist at offset 0x{:08x} with {} entries follows>",
-            offset.0,
-            raw_locations.len()
-        );
-        for (i, raw) in raw_locations.iter().enumerate() {
-            print!("\t\t\t[{:2}]", i);
-            match raw {
-                &gimli::RawLocListEntry::BaseAddress { addr } => {
-                    println!("<new base address 0x{:08x}>", addr);
-                },
-                &gimli::RawLocListEntry::OffsetPair { begin, end, ref data } => {
-                    let location = locations.next()?.unwrap();
-                    // libdwarf-dwarfdump doesn't support .debug_loclists yet,
-                    // so stop the misformatting madness
-                    print!(
-                        "<offset pair \
-                         low-off: 0x{:08x} addr 0x{:08x} \
-                         high-off: 0x{:08x} addr 0x{:08x}>",
-                        begin,
-                        location.range.begin,
-                        end,
-                        location.range.end
-                    );
-                    dump_exprloc(data, unit)?;
-                    println!("");
-                },
-                &gimli::RawLocListEntry::DefaultLocation { ref data } => {
-                    print!("<default location>");
-                    dump_exprloc(data, unit)?;
-                    println!("");
-                },
-                &gimli::RawLocListEntry::StartEnd { begin, end, ref data } => {
-                    let location = locations.next()?.unwrap();
-                    print!(
-                        "<start-end \
-                         low-off: 0x{:08x} addr 0x{:08x} \
-                         high-off: 0x{:08x} addr 0x{:08x}>",
-                        begin,
-                        location.range.begin,
-                        end,
-                        location.range.end
-                    );
-                    dump_exprloc(data, unit)?;
-                    println!("");
-                },
-                &gimli::RawLocListEntry::StartLength { begin, length, ref data } => {
-                    let location = locations.next()?.unwrap();
-                    print!(
-                        "<start-length \
-                         low-off: 0x{:08x} addr 0x{:08x} \
-                         high-off: 0x{:08x} addr 0x{:08x}>",
-                        begin,
-                        location.range.begin,
-                        length,
-                        location.range.end
-                    );
-                    dump_exprloc(data, unit)?;
-                    println!("");
-                },
-                _ => {
-                    panic!("AddressIndex not handled, should already have errored out");
-                },
-            };
-        }
+            },
+            &gimli::RawLocListEntry::DefaultLocation { ref data } => {
+                print!("<default location>");
+                dump_exprloc(data, unit)?;
+                println!("");
+            },
+            &gimli::RawLocListEntry::StartEnd { begin, end, ref data } => {
+                let location = locations.next()?.unwrap();
+                print!(
+                    "<start-end \
+                     low-off: 0x{:08x} addr 0x{:08x} \
+                     high-off: 0x{:08x} addr 0x{:08x}>",
+                    begin,
+                    location.range.begin,
+                    end,
+                    location.range.end
+                );
+                dump_exprloc(data, unit)?;
+                println!("");
+            },
+            &gimli::RawLocListEntry::StartLength { begin, length, ref data } => {
+                let location = locations.next()?.unwrap();
+                print!(
+                    "<start-length \
+                     low-off: 0x{:08x} addr 0x{:08x} \
+                     high-off: 0x{:08x} addr 0x{:08x}>",
+                    begin,
+                    location.range.begin,
+                    length,
+                    location.range.end
+                );
+                dump_exprloc(data, unit)?;
+                println!("");
+            },
+            _ => {
+                panic!("AddressIndex not handled, should already have errored out");
+            },
+        };
     }
     Ok(())
 }
 
 fn dump_range_list<R: Reader>(
-    debug_ranges: &gimli::DebugRanges<R>,
-    debug_rnglists: &gimli::DebugRngLists<R>,
-    offset: gimli::DebugRangesOffset<R::Offset>,
+    rnglists: &gimli::RangeLists<R>,
+    offset: gimli::RangeListsOffset<R::Offset>,
     unit: &Unit<R>,
 ) -> Result<()> {
-    if unit.version < 5 {
-        let ranges = debug_ranges.raw_ranges(offset, unit.address_size)?;
-        let ranges: Vec<_> = ranges.collect()?;
-        println!(
-            "\t\tranges: {} at .debug_ranges offset {} (0x{:08x}) ({} bytes)",
-            ranges.len(),
-            offset.0,
-            offset.0,
-            ranges.len() * unit.address_size as usize * 2
-        );
-        for (i, range) in ranges.iter().enumerate() {
-            print!("\t\t\t[{:2}] ", i);
-            if range.is_end() {
-                print!("range end     ");
-            } else if range.is_base_address(unit.address_size) {
-                print!("addr selection");
-            } else {
-                print!("range entry   ");
-            }
-            println!(" 0x{:08x} 0x{:08x}", range.begin, range.end);
-        }
-    } else {
-        let raw_ranges = debug_rnglists.raw_ranges(offset)?;
-        let raw_ranges: Vec<_> = raw_ranges.collect()?;
-        let mut ranges = debug_rnglists.ranges(offset, unit.base_address)?;
-        println!(
-            "\t\tranges: {} at .debug_rnglists offset {} (0x{:08x})",
-            raw_ranges.len(),
-            offset.0,
-            offset.0
-        );
-        for (i, raw) in raw_ranges.iter().enumerate() {
-            print!("\t\t\t[{:2}] ", i);
-            match raw {
-                &gimli::RawRngListEntry::BaseAddress { addr } => {
-                    println!("<new base address 0x{:08x}>", addr);
-                },
-                &gimli::RawRngListEntry::OffsetPair { begin, end } => {
-                    let range = ranges.next()?.unwrap();
-                    // libdwarf-dwarfdump doesn't support .debug_loclists yet,
-                    // so stop the misformatting madness
-                    println!(
-                        "<offset pair \
-                         low-off: 0x{:08x} addr 0x{:08x} \
-                         high-off: 0x{:08x} addr 0x{:08x}>",
-                        begin,
-                        range.begin,
-                        end,
-                        range.end
-                    );
-                },
-                &gimli::RawRngListEntry::StartEnd { begin, end } => {
-                    let range = ranges.next()?.unwrap();
-                    println!(
-                        "<start-end \
-                         low-off: 0x{:08x} addr 0x{:08x} \
-                         high-off: 0x{:08x} addr 0x{:08x}>",
-                        begin,
-                        range.begin,
-                        end,
-                        range.end
-                    );
-                },
-                &gimli::RawRngListEntry::StartLength { begin, length } => {
-                    let range = ranges.next()?.unwrap();
-                    println!(
-                        "<start-length \
-                         low-off: 0x{:08x} addr 0x{:08x} \
-                         high-off: 0x{:08x} addr 0x{:08x}>",
-                        begin,
-                        range.begin,
-                        length,
-                        range.end
-                    );
-                },
-                _ => {
-                    panic!("AddressIndex not handled, should already have errored out");
-                },
-            };
-        }
+    let raw_ranges = rnglists.raw_ranges(offset, unit.version, unit.address_size)?;
+    let raw_ranges: Vec<_> = raw_ranges.collect()?;
+    let mut ranges = rnglists.ranges(offset, unit.version, unit.address_size, unit.base_address)?;
+    println!(
+        "\t\tranges: {} at {} offset {} (0x{:08x})",
+        raw_ranges.len(),
+        if unit.version < 5 { ".debug_ranges" } else { ".debug_rnglists" },
+        offset.0,
+        offset.0
+    );
+    for (i, raw) in raw_ranges.iter().enumerate() {
+        print!("\t\t\t[{:2}] ", i);
+        match raw {
+            &gimli::RawRngListEntry::BaseAddress { addr } => {
+                println!("<new base address 0x{:08x}>", addr);
+            },
+            &gimli::RawRngListEntry::OffsetPair { begin, end } => {
+                let range = ranges.next()?.unwrap();
+                println!(
+                    "<offset pair \
+                     low-off: 0x{:08x} addr 0x{:08x} \
+                     high-off: 0x{:08x} addr 0x{:08x}>",
+                    begin,
+                    range.begin,
+                    end,
+                    range.end
+                );
+            },
+            &gimli::RawRngListEntry::StartEnd { begin, end } => {
+                let range = if begin == end {
+                    gimli::Range { begin, end }
+                } else {
+                    ranges.next()?.unwrap()
+                };
+                println!(
+                    "<start-end \
+                     low-off: 0x{:08x} addr 0x{:08x} \
+                     high-off: 0x{:08x} addr 0x{:08x}>",
+                    begin,
+                    range.begin,
+                    end,
+                    range.end
+                );
+            },
+            &gimli::RawRngListEntry::StartLength { begin, length } => {
+                let range = ranges.next()?.unwrap();
+                println!(
+                    "<start-length \
+                     low-off: 0x{:08x} addr 0x{:08x} \
+                     high-off: 0x{:08x} addr 0x{:08x}>",
+                    begin,
+                    range.begin,
+                    length,
+                    range.end
+                );
+            },
+            _ => {
+                panic!("AddressIndex not handled, should already have errored out");
+            },
+        };
     }
     Ok(())
 }

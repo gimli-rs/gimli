@@ -105,10 +105,7 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
         let segment_size = rest.read_u8()?;
 
         // unit_length + version + offset + address_size + segment_size
-        let header_length = match format {
-            Format::Dwarf32 => 4 + 2 + 4 + 1 + 1,
-            Format::Dwarf64 => 12 + 2 + 8 + 1 + 1,
-        };
+        let header_length = format.initial_length_size() + 2 + format.word_size() + 1 + 1;
 
         // The first tuple following the header in each set begins at an offset that is
         // a multiple of the size of a single tuple (that is, the size of a segment selector

@@ -5,10 +5,10 @@ use abbrev::{Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, D
 use endianity::{EndianBuf, Endianity};
 use fallible_iterator::FallibleIterator;
 use line::DebugLineOffset;
-use loc::DebugLocOffset;
+use loclists::LocationListsOffset;
 use op::Expression;
 use parser::{parse_initial_length, DebugMacinfoOffset, Error, Format, Result};
-use ranges::DebugRangesOffset;
+use rnglists::RangeListsOffset;
 use reader::{Reader, ReaderOffset};
 use std::cell::Cell;
 use std::ops::{Range, RangeFrom, RangeTo};
@@ -471,19 +471,10 @@ where
         }
     }
 
-    /// Return the serialized size of the `unit_length` attribute for the given
-    /// DWARF format.
-    pub fn size_of_unit_length(format: Format) -> usize {
-        match format {
-            Format::Dwarf32 => 4,
-            Format::Dwarf64 => 12,
-        }
-    }
-
     /// Return the serialized size of the common unit header for the given
     /// DWARF format.
     pub fn size_of_header(format: Format) -> usize {
-        let unit_length_size = Self::size_of_unit_length(format);
+        let unit_length_size = format.initial_length_size() as usize;
         let version_size = 2;
         let debug_abbrev_offset_size = format.word_size() as usize;
         let address_size_size = 1;
@@ -507,13 +498,7 @@ where
     /// Get the length of the debugging info for this compilation unit,
     /// including the byte length of the encoded length itself.
     pub fn length_including_self(&self) -> R::Offset {
-        match self.format {
-            // Length of the 32-bit header plus the unit length.
-            Format::Dwarf32 => R::Offset::from_u8(4) + self.unit_length,
-            // Length of the 4 byte 0xffffffff value to enable 64-bit mode plus
-            // the actual 64-bit length.
-            Format::Dwarf64 => R::Offset::from_u8(4 + 8) + self.unit_length,
-        }
+        R::Offset::from_u8(self.format.word_size()) + self.unit_length
     }
 
     /// Get the DWARF version of the debugging info for this compilation unit.
@@ -1015,14 +1000,14 @@ pub enum AttributeValue<R: Reader> {
     /// An offset into the `.debug_line` section.
     DebugLineRef(DebugLineOffset<R::Offset>),
 
-    /// An offset into the `.debug_loc` section.
-    DebugLocRef(DebugLocOffset<R::Offset>),
+    /// An offset into either the `.debug_loc` section or the `.debug_loclists` section.
+    LocationListsRef(LocationListsOffset<R::Offset>),
 
     /// An offset into the `.debug_macinfo` section.
     DebugMacinfoRef(DebugMacinfoOffset<R::Offset>),
 
     /// An offset into the `.debug_ranges` section.
-    DebugRangesRef(DebugRangesOffset<R::Offset>),
+    RangeListsRef(RangeListsOffset<R::Offset>),
 
     /// A type signature.
     DebugTypesRef(DebugTypeSignature),
@@ -1148,7 +1133,7 @@ impl<R: Reader> Attribute<R> {
         macro_rules! loclistptr {
             () => (
                 if let Some(offset) = self.offset_value() {
-                    return AttributeValue::DebugLocRef(DebugLocOffset(offset));
+                    return AttributeValue::LocationListsRef(LocationListsOffset(offset));
                 });
         }
         macro_rules! lineptr {
@@ -1166,7 +1151,7 @@ impl<R: Reader> Attribute<R> {
         macro_rules! rangelistptr {
             () => (
                 if let Some(offset) = self.offset_value() {
-                    return AttributeValue::DebugRangesRef(DebugRangesOffset(offset));
+                    return AttributeValue::RangeListsRef(RangeListsOffset(offset));
                 });
         }
         macro_rules! reference {
@@ -2622,10 +2607,7 @@ where
     pub fn size_of_header(format: Format) -> usize {
         let unit_header_size = UnitHeader::<R, _>::size_of_header(format);
         let type_signature_size = 8;
-        let type_offset_size = match format {
-            Format::Dwarf32 => 4,
-            Format::Dwarf64 => 8,
-        };
+        let type_offset_size = format.word_size() as usize;
         unit_header_size + type_signature_size + type_offset_size
     }
 
@@ -2821,7 +2803,7 @@ mod tests {
     use constants::*;
     use endianity::{EndianBuf, Endianity, LittleEndian};
     use leb128;
-    use loc::DebugLocOffset;
+    use loclists::LocationListsOffset;
     use parser::{Error, Format, Result};
     use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use str::DebugStrOffset;
@@ -3342,7 +3324,7 @@ mod tests {
                 constants::DW_FORM_data4,
                 data4,
                 AttributeValue::SecOffset(0x01020304),
-                AttributeValue::DebugLocRef(DebugLocOffset(0x01020304)),
+                AttributeValue::LocationListsRef(LocationListsOffset(0x01020304)),
             ),
             (
                 4,
@@ -3359,7 +3341,7 @@ mod tests {
                 constants::DW_FORM_data8,
                 data8,
                 AttributeValue::SecOffset(0x0102030405060708),
-                AttributeValue::DebugLocRef(DebugLocOffset(0x0102030405060708)),
+                AttributeValue::LocationListsRef(LocationListsOffset(0x0102030405060708)),
             ),
             (
                 4,
