@@ -471,11 +471,6 @@ impl<R: Reader> LocListIter<R> {
                 }
             };
 
-            if range.begin == range.end {
-                // An empty location list entry, skip it.
-                continue;
-            }
-
             if range.begin > range.end {
                 self.raw.input.empty();
                 return Err(Error::InvalidLocationAddressRange);
@@ -593,6 +588,16 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
+                    begin: 0x02010600,
+                    end: 0x02010600,
+                },
+                data: Expression(EndianBuf::new(&[4, 0, 0, 0], LittleEndian)),
+            }))
+        );
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
                     begin: 0x02010800,
                     end: 0x02010900,
                 },
@@ -600,7 +605,7 @@ mod tests {
             }))
         );
 
-        // An empty location range followed by a normal location.
+        // A normal location.
         assert_eq!(
             locations.next(),
             Ok(Some(LocationListEntry {
@@ -612,7 +617,7 @@ mod tests {
             }))
         );
 
-        // An empty location range followed by a normal location.
+        // A normal location.
         assert_eq!(
             locations.next(),
             Ok(Some(LocationListEntry {
@@ -746,6 +751,16 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
+                    begin: 0x02010600,
+                    end: 0x02010600,
+                },
+                data: Expression(EndianBuf::new(&[4, 0, 0, 0], LittleEndian)),
+            }))
+        );
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
                     begin: 0x02010800,
                     end: 0x02010900,
                 },
@@ -753,7 +768,7 @@ mod tests {
             }))
         );
 
-        // An empty location range followed by a normal location.
+        // A normal location.
         assert_eq!(
             locations.next(),
             Ok(Some(LocationListEntry {
@@ -765,7 +780,7 @@ mod tests {
             }))
         );
 
-        // An empty location range followed by a normal location.
+        // A normal location.
         assert_eq!(
             locations.next(),
             Ok(Some(LocationListEntry {
@@ -887,6 +902,16 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
+                    begin: 0x02010600,
+                    end: 0x02010600,
+                },
+                data: Expression(EndianBuf::new(&[4, 0, 0, 0], LittleEndian)),
+            }))
+        );
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
                     begin: 0x02010800,
                     end: 0x02010900,
                 },
@@ -988,6 +1013,16 @@ mod tests {
         );
 
         // An empty location range followed by a normal location.
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
+                    begin: 0x02010600,
+                    end: 0x02010600,
+                },
+                data: Expression(EndianBuf::new(&[4, 0, 0, 0], LittleEndian)),
+            }))
+        );
         assert_eq!(
             locations.next(),
             Ok(Some(LocationListEntry {
