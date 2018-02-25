@@ -138,6 +138,8 @@ pub enum Error {
     UnsupportedAddressIndex,
     /// Nonzero segment selector sizes aren't supported yet.
     UnsupportedSegmentSize,
+    /// Typed stack values aren't supported yet
+    UnsupportedTypedStack,
 }
 
 impl fmt::Display for Error {
@@ -265,6 +267,9 @@ impl Error {
             }
             Error::UnsupportedSegmentSize => {
                 "Nonzero segment size not supported yet"
+            }
+            Error::UnsupportedTypedStack => {
+                "Typed stack values not supported yet"
             }
         }
     }

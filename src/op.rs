@@ -36,6 +36,8 @@ where
 {
     /// A dereference operation.
     Deref {
+        /// The DIE of the base type or 0 to indicate the generic type
+        base_type: UnitOffset<Offset>,
         /// The size of the data to dereference.
         size: u8,
         /// True if the dereference operation takes an address space
@@ -121,6 +123,8 @@ where
     },
     /// Indicate that this piece's location is in the given register.
     Register {
+        /// The DIE of the base type or 0 to indicate the generic type
+        base_type: UnitOffset<Offset>,
         /// The register number.
         register: u64,
     },
@@ -198,6 +202,23 @@ where
     TextRelativeOffset {
         /// The offfset to add.
         offset: u64,
+    },
+    /// Represents `DW_OP_const_type`.
+    TypedLiteral {
+        /// The DIE of the base type
+        base_type: UnitOffset<Offset>,
+        /// The value
+        value: R,
+    },
+    /// Represents `DW_OP_convert`
+    Convert {
+        /// The DIE of the base type
+        base_type: UnitOffset<Offset>,
+    },
+    /// Represents `DW_OP_reinterpret`
+    Reinterpret {
+        /// The DIE of the base type
+        base_type: UnitOffset<Offset>,
     },
 }
 
@@ -307,6 +328,17 @@ fn compute_pc<R: Reader>(pc: &R, bytecode: &R, offset: i16) -> Result<R, Error> 
     }
 }
 
+fn generic_type<O: ReaderOffset>() -> UnitOffset<O> {
+    UnitOffset(O::from_u64(0).unwrap())
+}
+
+fn generic_register<R: Reader>(reg: u64) -> Operation<R, R::Offset> {
+    Operation::Register {
+        base_type: generic_type(),
+        register: reg,
+   }
+}
+
 impl<R, Offset> Operation<R, Offset>
 where
     R: Reader<Offset = Offset>,
@@ -334,6 +366,7 @@ where
                 Ok(Operation::TextRelativeOffset { offset: offset })
             }
             constants::DW_OP_deref => Ok(Operation::Deref {
+                base_type: generic_type(),
                 size: address_size,
                 space: false,
             }),
@@ -403,6 +436,7 @@ where
             constants::DW_OP_swap => Ok(Operation::Swap),
             constants::DW_OP_rot => Ok(Operation::Rot),
             constants::DW_OP_xderef => Ok(Operation::Deref {
+                base_type: generic_type(),
                 size: address_size,
                 space: true,
             }),
@@ -474,38 +508,38 @@ where
             constants::DW_OP_lit29 => Ok(Operation::Literal { value: 29 }),
             constants::DW_OP_lit30 => Ok(Operation::Literal { value: 30 }),
             constants::DW_OP_lit31 => Ok(Operation::Literal { value: 31 }),
-            constants::DW_OP_reg0 => Ok(Operation::Register { register: 0 }),
-            constants::DW_OP_reg1 => Ok(Operation::Register { register: 1 }),
-            constants::DW_OP_reg2 => Ok(Operation::Register { register: 2 }),
-            constants::DW_OP_reg3 => Ok(Operation::Register { register: 3 }),
-            constants::DW_OP_reg4 => Ok(Operation::Register { register: 4 }),
-            constants::DW_OP_reg5 => Ok(Operation::Register { register: 5 }),
-            constants::DW_OP_reg6 => Ok(Operation::Register { register: 6 }),
-            constants::DW_OP_reg7 => Ok(Operation::Register { register: 7 }),
-            constants::DW_OP_reg8 => Ok(Operation::Register { register: 8 }),
-            constants::DW_OP_reg9 => Ok(Operation::Register { register: 9 }),
-            constants::DW_OP_reg10 => Ok(Operation::Register { register: 10 }),
-            constants::DW_OP_reg11 => Ok(Operation::Register { register: 11 }),
-            constants::DW_OP_reg12 => Ok(Operation::Register { register: 12 }),
-            constants::DW_OP_reg13 => Ok(Operation::Register { register: 13 }),
-            constants::DW_OP_reg14 => Ok(Operation::Register { register: 14 }),
-            constants::DW_OP_reg15 => Ok(Operation::Register { register: 15 }),
-            constants::DW_OP_reg16 => Ok(Operation::Register { register: 16 }),
-            constants::DW_OP_reg17 => Ok(Operation::Register { register: 17 }),
-            constants::DW_OP_reg18 => Ok(Operation::Register { register: 18 }),
-            constants::DW_OP_reg19 => Ok(Operation::Register { register: 19 }),
-            constants::DW_OP_reg20 => Ok(Operation::Register { register: 20 }),
-            constants::DW_OP_reg21 => Ok(Operation::Register { register: 21 }),
-            constants::DW_OP_reg22 => Ok(Operation::Register { register: 22 }),
-            constants::DW_OP_reg23 => Ok(Operation::Register { register: 23 }),
-            constants::DW_OP_reg24 => Ok(Operation::Register { register: 24 }),
-            constants::DW_OP_reg25 => Ok(Operation::Register { register: 25 }),
-            constants::DW_OP_reg26 => Ok(Operation::Register { register: 26 }),
-            constants::DW_OP_reg27 => Ok(Operation::Register { register: 27 }),
-            constants::DW_OP_reg28 => Ok(Operation::Register { register: 28 }),
-            constants::DW_OP_reg29 => Ok(Operation::Register { register: 29 }),
-            constants::DW_OP_reg30 => Ok(Operation::Register { register: 30 }),
-            constants::DW_OP_reg31 => Ok(Operation::Register { register: 31 }),
+            constants::DW_OP_reg0 => Ok(generic_register(0)),
+            constants::DW_OP_reg1 => Ok(generic_register(1)),
+            constants::DW_OP_reg2 => Ok(generic_register(2)),
+            constants::DW_OP_reg3 => Ok(generic_register(3)),
+            constants::DW_OP_reg4 => Ok(generic_register(4)),
+            constants::DW_OP_reg5 => Ok(generic_register(5)),
+            constants::DW_OP_reg6 => Ok(generic_register(6)),
+            constants::DW_OP_reg7 => Ok(generic_register(7)),
+            constants::DW_OP_reg8 => Ok(generic_register(8)),
+            constants::DW_OP_reg9 => Ok(generic_register(9)),
+            constants::DW_OP_reg10 => Ok(generic_register(10)),
+            constants::DW_OP_reg11 => Ok(generic_register(11)),
+            constants::DW_OP_reg12 => Ok(generic_register(12)),
+            constants::DW_OP_reg13 => Ok(generic_register(13)),
+            constants::DW_OP_reg14 => Ok(generic_register(14)),
+            constants::DW_OP_reg15 => Ok(generic_register(15)),
+            constants::DW_OP_reg16 => Ok(generic_register(16)),
+            constants::DW_OP_reg17 => Ok(generic_register(17)),
+            constants::DW_OP_reg18 => Ok(generic_register(18)),
+            constants::DW_OP_reg19 => Ok(generic_register(19)),
+            constants::DW_OP_reg20 => Ok(generic_register(20)),
+            constants::DW_OP_reg21 => Ok(generic_register(21)),
+            constants::DW_OP_reg22 => Ok(generic_register(22)),
+            constants::DW_OP_reg23 => Ok(generic_register(23)),
+            constants::DW_OP_reg24 => Ok(generic_register(24)),
+            constants::DW_OP_reg25 => Ok(generic_register(25)),
+            constants::DW_OP_reg26 => Ok(generic_register(26)),
+            constants::DW_OP_reg27 => Ok(generic_register(27)),
+            constants::DW_OP_reg28 => Ok(generic_register(28)),
+            constants::DW_OP_reg29 => Ok(generic_register(29)),
+            constants::DW_OP_reg30 => Ok(generic_register(30)),
+            constants::DW_OP_reg31 => Ok(generic_register(31)),
             constants::DW_OP_breg0 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
@@ -732,7 +766,7 @@ where
             }
             constants::DW_OP_regx => {
                 let value = bytes.read_uleb128()?;
-                Ok(Operation::Register { register: value })
+                Ok(generic_register(value))
             }
             constants::DW_OP_fbreg => {
                 let value = bytes.read_sleb128()?;
@@ -756,6 +790,7 @@ where
             constants::DW_OP_deref_size => {
                 let size = bytes.read_u8()?;
                 Ok(Operation::Deref {
+                    base_type: generic_type(),
                     size: size,
                     space: false,
                 })
@@ -763,6 +798,7 @@ where
             constants::DW_OP_xderef_size => {
                 let size = bytes.read_u8()?;
                 Ok(Operation::Deref {
+                    base_type: generic_type(),
                     size: size,
                     space: true,
                 })
@@ -824,6 +860,44 @@ where
                 let value = bytes.read_u32().map(R::Offset::from_u32)?;
                 Ok(Operation::ParameterRef {
                     offset: UnitOffset(value),
+                })
+            }
+            constants::DW_OP_const_type | constants::DW_OP_GNU_const_type => {
+                let base_type = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
+                let len = bytes.read_u8()?;
+                let value = bytes.split(R::Offset::from_u8(len))?;
+                Ok(Operation::TypedLiteral {
+                    base_type: UnitOffset(base_type),
+                    value: value,
+                })
+            }
+            constants::DW_OP_regval_type | constants::DW_OP_GNU_regval_type => {
+                let register = bytes.read_uleb128()?;
+                let base_type = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
+                Ok(Operation::Register {
+                    base_type: UnitOffset(base_type),
+                    register: register,
+                })
+            }
+            constants::DW_OP_deref_type | constants::DW_OP_GNU_deref_type => {
+                let size  = bytes.read_u8()?;
+                let base_type = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
+                Ok(Operation::Deref {
+                    base_type: UnitOffset(base_type),
+                    size: size,
+                    space: false,
+                })
+            }
+            constants::DW_OP_convert | constants::DW_OP_GNU_convert => {
+                let base_type = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
+                Ok(Operation::Convert {
+                    base_type: UnitOffset(base_type),
+                })
+            }
+            constants::DW_OP_reinterpret | constants::DW_OP_GNU_reinterpret => {
+                let base_type = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
+                Ok(Operation::Reinterpret {
+                    base_type: UnitOffset(base_type),
                 })
             }
 
@@ -1106,7 +1180,10 @@ impl<R: Reader> Evaluation<R> {
         let mut current_location = Location::Empty;
 
         match *operation {
-            Operation::Deref { size, space } => {
+            Operation::Deref { base_type, size, space } => {
+                if base_type != UnitOffset(R::Offset::from_u64(0).unwrap()) {
+                    return Err(Error::UnsupportedTypedStack);
+                }
                 let addr = self.pop()?;
                 let addr_space = if space { Some(self.pop()?) } else { None };
                 return Ok(OperationEvaluationResult::AwaitingMemory {
@@ -1325,7 +1402,10 @@ impl<R: Reader> Evaluation<R> {
                 return Ok(OperationEvaluationResult::AwaitingCfa);
             }
 
-            Operation::Register { register } => {
+            Operation::Register { base_type, register } => {
+                if base_type != UnitOffset(R::Offset::from_u64(0).unwrap()) {
+                    return Err(Error::UnsupportedTypedStack);
+                }
                 terminated = true;
                 current_location = Location::Register { register: register };
             }
@@ -1370,6 +1450,11 @@ impl<R: Reader> Evaluation<R> {
 
             Operation::Piece { .. } => {
                 piece_end = true;
+            }
+
+            Operation::TypedLiteral { .. } | Operation::Convert { .. } |
+            Operation::Reinterpret { .. } => {
+                return Err(Error::UnsupportedTypedStack);
             }
         }
 
@@ -1873,6 +1958,7 @@ mod tests {
             (
                 constants::DW_OP_deref,
                 Operation::Deref {
+                    base_type: generic_type(),
                     size: address_size,
                     space: false,
                 },
@@ -1885,6 +1971,7 @@ mod tests {
             (
                 constants::DW_OP_xderef,
                 Operation::Deref {
+                    base_type: generic_type(),
                     size: address_size,
                     space: true,
                 },
@@ -1941,38 +2028,38 @@ mod tests {
             (constants::DW_OP_lit29, Operation::Literal { value: 29 }),
             (constants::DW_OP_lit30, Operation::Literal { value: 30 }),
             (constants::DW_OP_lit31, Operation::Literal { value: 31 }),
-            (constants::DW_OP_reg0, Operation::Register { register: 0 }),
-            (constants::DW_OP_reg1, Operation::Register { register: 1 }),
-            (constants::DW_OP_reg2, Operation::Register { register: 2 }),
-            (constants::DW_OP_reg3, Operation::Register { register: 3 }),
-            (constants::DW_OP_reg4, Operation::Register { register: 4 }),
-            (constants::DW_OP_reg5, Operation::Register { register: 5 }),
-            (constants::DW_OP_reg6, Operation::Register { register: 6 }),
-            (constants::DW_OP_reg7, Operation::Register { register: 7 }),
-            (constants::DW_OP_reg8, Operation::Register { register: 8 }),
-            (constants::DW_OP_reg9, Operation::Register { register: 9 }),
-            (constants::DW_OP_reg10, Operation::Register { register: 10 }),
-            (constants::DW_OP_reg11, Operation::Register { register: 11 }),
-            (constants::DW_OP_reg12, Operation::Register { register: 12 }),
-            (constants::DW_OP_reg13, Operation::Register { register: 13 }),
-            (constants::DW_OP_reg14, Operation::Register { register: 14 }),
-            (constants::DW_OP_reg15, Operation::Register { register: 15 }),
-            (constants::DW_OP_reg16, Operation::Register { register: 16 }),
-            (constants::DW_OP_reg17, Operation::Register { register: 17 }),
-            (constants::DW_OP_reg18, Operation::Register { register: 18 }),
-            (constants::DW_OP_reg19, Operation::Register { register: 19 }),
-            (constants::DW_OP_reg20, Operation::Register { register: 20 }),
-            (constants::DW_OP_reg21, Operation::Register { register: 21 }),
-            (constants::DW_OP_reg22, Operation::Register { register: 22 }),
-            (constants::DW_OP_reg23, Operation::Register { register: 23 }),
-            (constants::DW_OP_reg24, Operation::Register { register: 24 }),
-            (constants::DW_OP_reg25, Operation::Register { register: 25 }),
-            (constants::DW_OP_reg26, Operation::Register { register: 26 }),
-            (constants::DW_OP_reg27, Operation::Register { register: 27 }),
-            (constants::DW_OP_reg28, Operation::Register { register: 28 }),
-            (constants::DW_OP_reg29, Operation::Register { register: 29 }),
-            (constants::DW_OP_reg30, Operation::Register { register: 30 }),
-            (constants::DW_OP_reg31, Operation::Register { register: 31 }),
+            (constants::DW_OP_reg0, generic_register(0)),
+            (constants::DW_OP_reg1, generic_register(1)),
+            (constants::DW_OP_reg2, generic_register(2)),
+            (constants::DW_OP_reg3, generic_register(3)),
+            (constants::DW_OP_reg4, generic_register(4)),
+            (constants::DW_OP_reg5, generic_register(5)),
+            (constants::DW_OP_reg6, generic_register(6)),
+            (constants::DW_OP_reg7, generic_register(7)),
+            (constants::DW_OP_reg8, generic_register(8)),
+            (constants::DW_OP_reg9, generic_register(9)),
+            (constants::DW_OP_reg10, generic_register(10)),
+            (constants::DW_OP_reg11, generic_register(11)),
+            (constants::DW_OP_reg12, generic_register(12)),
+            (constants::DW_OP_reg13, generic_register(13)),
+            (constants::DW_OP_reg14, generic_register(14)),
+            (constants::DW_OP_reg15, generic_register(15)),
+            (constants::DW_OP_reg16, generic_register(16)),
+            (constants::DW_OP_reg17, generic_register(17)),
+            (constants::DW_OP_reg18, generic_register(18)),
+            (constants::DW_OP_reg19, generic_register(19)),
+            (constants::DW_OP_reg20, generic_register(20)),
+            (constants::DW_OP_reg21, generic_register(21)),
+            (constants::DW_OP_reg22, generic_register(22)),
+            (constants::DW_OP_reg23, generic_register(23)),
+            (constants::DW_OP_reg24, generic_register(24)),
+            (constants::DW_OP_reg25, generic_register(25)),
+            (constants::DW_OP_reg26, generic_register(26)),
+            (constants::DW_OP_reg27, generic_register(27)),
+            (constants::DW_OP_reg28, generic_register(28)),
+            (constants::DW_OP_reg29, generic_register(29)),
+            (constants::DW_OP_reg30, generic_register(30)),
+            (constants::DW_OP_reg31, generic_register(31)),
             (constants::DW_OP_nop, Operation::Nop),
             (
                 constants::DW_OP_push_object_address,
@@ -2017,6 +2104,7 @@ mod tests {
                 constants::DW_OP_deref_size,
                 19,
                 Operation::Deref {
+                    base_type: generic_type(),
                     size: 19,
                     space: false,
                 },
@@ -2025,6 +2113,7 @@ mod tests {
                 constants::DW_OP_xderef_size,
                 19,
                 Operation::Deref {
+                    base_type: generic_type(),
                     size: 19,
                     space: true,
                 },
@@ -2284,7 +2373,7 @@ mod tests {
                 ),
                 (
                     constants::DW_OP_regx,
-                    Operation::Register { register: *value },
+                    Operation::Register { base_type: generic_type(), register: *value },
                 ),
             ];
 
@@ -2390,6 +2479,174 @@ mod tests {
             },
             &Operation::ImplicitValue {
                 data: EndianBuf::new(&data[..], LittleEndian),
+            },
+            address_size,
+            format,
+        );
+    }
+
+    #[test]
+    fn test_op_parse_const_type() {
+        // Doesn't matter for this test.
+        let address_size = 4;
+        let format = Format::Dwarf32;
+
+        let data = b"hello";
+
+        check_op_parse(
+            |s| {
+                s.D8(constants::DW_OP_const_type.0)
+                    .uleb(100)
+                    .D8(data.len() as u8)
+                    .append_bytes(&data[..])
+            },
+            &Operation::TypedLiteral {
+                base_type: UnitOffset(100),
+                value: EndianBuf::new(&data[..], LittleEndian),
+            },
+            address_size,
+            format,
+        );
+        check_op_parse(
+            |s| {
+                s.D8(constants::DW_OP_GNU_const_type.0)
+                    .uleb(100)
+                    .D8(data.len() as u8)
+                    .append_bytes(&data[..])
+            },
+            &Operation::TypedLiteral {
+                base_type: UnitOffset(100),
+                value: EndianBuf::new(&data[..], LittleEndian),
+            },
+            address_size,
+            format,
+        );
+    }
+
+    #[test]
+    fn test_op_parse_regval_type() {
+        // Doesn't matter for this test.
+        let address_size = 4;
+        let format = Format::Dwarf32;
+
+        check_op_parse(
+            |s| {
+                s.D8(constants::DW_OP_regval_type.0)
+                    .uleb(1)
+                    .uleb(100)
+            },
+            &Operation::Register {
+                base_type: UnitOffset(100),
+                register: 1,
+            },
+            address_size,
+            format,
+        );
+        check_op_parse(
+            |s| {
+                s.D8(constants::DW_OP_GNU_regval_type.0)
+                    .uleb(1)
+                    .uleb(100)
+            },
+            &Operation::Register {
+                base_type: UnitOffset(100),
+                register: 1,
+            },
+            address_size,
+            format,
+        );
+    }
+
+    #[test]
+    fn test_op_parse_deref_type() {
+        // Doesn't matter for this test.
+        let address_size = 4;
+        let format = Format::Dwarf32;
+
+        check_op_parse(
+            |s| {
+                s.D8(constants::DW_OP_deref_type.0)
+                    .D8(8)
+                    .uleb(100)
+            },
+            &Operation::Deref {
+                base_type: UnitOffset(100),
+                size: 8,
+                space: false,
+            },
+            address_size,
+            format,
+        );
+        check_op_parse(
+            |s| {
+                s.D8(constants::DW_OP_GNU_deref_type.0)
+                    .D8(8)
+                    .uleb(100)
+            },
+            &Operation::Deref {
+                base_type: UnitOffset(100),
+                size: 8,
+                space: false,
+            },
+            address_size,
+            format,
+        );
+    }
+
+    #[test]
+    fn test_op_convert() {
+        // Doesn't matter for this test.
+        let address_size = 4;
+        let format = Format::Dwarf32;
+
+        check_op_parse(
+            |s| {
+                s.D8(constants::DW_OP_convert.0)
+                    .uleb(100)
+            },
+            &Operation::Convert {
+                base_type: UnitOffset(100),
+            },
+            address_size,
+            format,
+        );
+        check_op_parse(
+            |s| {
+                s.D8(constants::DW_OP_GNU_convert.0)
+                    .uleb(100)
+            },
+            &Operation::Convert {
+                base_type: UnitOffset(100),
+            },
+            address_size,
+            format,
+        );
+    }
+
+    #[test]
+    fn test_op_reinterpret() {
+        // Doesn't matter for this test.
+        let address_size = 4;
+        let format = Format::Dwarf32;
+
+        check_op_parse(
+            |s| {
+                s.D8(constants::DW_OP_reinterpret.0)
+                    .uleb(100)
+            },
+            &Operation::Reinterpret {
+                base_type: UnitOffset(100),
+            },
+            address_size,
+            format,
+        );
+        check_op_parse(
+            |s| {
+                s.D8(constants::DW_OP_GNU_reinterpret.0)
+                    .uleb(100)
+            },
+            &Operation::Reinterpret {
+                base_type: UnitOffset(100),
             },
             address_size,
             format,
