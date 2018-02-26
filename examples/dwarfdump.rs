@@ -676,7 +676,8 @@ fn dump_entries<R: Reader, W: Write>(
             print_local = false;
         }
         writeln!(w,
-            "<{:2}><0x{:08x}>{}{}",
+            "<{}{}><0x{:08x}>{}{}",
+            if depth < 10 { " " } else { "" },
             depth,
             entry.offset().0,
             spaces(&mut spaces_buf, indent),
@@ -709,7 +710,13 @@ fn dump_entries<R: Reader, W: Write>(
 
         let mut attrs = entry.attrs();
         while let Some(attr) = attrs.next()? {
-            write!(w, "{}{:27} ", spaces(&mut spaces_buf, indent + 18), attr.name())?;
+            w.write_all(spaces(&mut spaces_buf, indent + 18).as_bytes())?;
+            if let Some(n) = attr.name().static_string() {
+                let right_padding = 27 - std::cmp::min(27, n.len());
+                write!(w, "{}{} ", n, spaces(&mut spaces_buf, right_padding))?;
+            } else {
+                write!(w, "{:27} ", attr.name())?;
+            }
             if flags.raw {
                 writeln!(w, "{:?}", attr.raw_value())?;
             } else {
