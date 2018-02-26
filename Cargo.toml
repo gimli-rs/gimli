@@ -20,8 +20,10 @@ byteorder = { version = "1.0", default-features = false }
 fallible-iterator = { version = "0.1.4", default-features = false }
 
 [dev-dependencies]
+crossbeam = "0.3.2"
 getopts = "0.2"
 memmap = "0.6"
+num_cpus = "1"
 object = "0.7"
 test-assembler = "0.1.3"
 
