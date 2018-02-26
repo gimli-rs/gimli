@@ -441,11 +441,6 @@ impl<R: Reader> RngListIter<R> {
                 }
             };
 
-            if range.begin == range.end {
-                // An empty range list entry, skip it.
-                continue;
-            }
-
             if range.begin > range.end {
                 self.raw.input.empty();
                 return Err(Error::InvalidAddressRange);
@@ -594,6 +589,13 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
+                begin: 0x02010600,
+                end: 0x02010600,
+            }))
+        );
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
                 begin: 0x02010800,
                 end: 0x02010900,
             }))
@@ -709,6 +711,13 @@ mod tests {
         );
 
         // An empty range followed by a normal range.
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x02010600,
+                end: 0x02010600,
+            }))
+        );
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
@@ -852,6 +861,13 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
+                begin: 0x02010600,
+                end: 0x02010600,
+            }))
+        );
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
                 begin: 0x02010800,
                 end: 0x02010900,
             }))
@@ -939,6 +955,13 @@ mod tests {
         );
 
         // An empty range followed by a normal range.
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x02010600,
+                end: 0x02010600,
+            }))
+        );
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
