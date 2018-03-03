@@ -1152,10 +1152,15 @@ dw!(DwOp(u8) {
     DW_OP_convert = 0xa8,
     DW_OP_reinterpret = 0xa9,
 
-// GNU extensions that are supported by our expression evaluator.
+// GNU extensions
     DW_OP_GNU_push_tls_address = 0xe0,
     DW_OP_GNU_implicit_pointer = 0xf2,
     DW_OP_GNU_entry_value = 0xf3,
+    DW_OP_GNU_const_type = 0xf4,
+    DW_OP_GNU_regval_type = 0xf5,
+    DW_OP_GNU_deref_type = 0xf6,
+    DW_OP_GNU_convert = 0xf7,
+    DW_OP_GNU_reinterpret = 0xf9,
     DW_OP_GNU_parameter_ref = 0xfa,
 });
 

@@ -8,7 +8,7 @@ extern crate memmap;
 extern crate object;
 
 use fallible_iterator::FallibleIterator;
-use gimli::UnwindSection;
+use gimli::{UnitOffset, UnwindSection};
 use object::Object;
 use std::collections::HashMap;
 use std::env;
@@ -975,9 +975,12 @@ fn dump_op<R: Reader, W: Write>(
 ) -> Result<()> {
     write!(w, "{}", dwop)?;
     match op {
-        gimli::Operation::Deref { size, .. } => {
+        gimli::Operation::Deref { base_type, size, .. } => {
             if dwop == gimli::DW_OP_deref_size || dwop == gimli::DW_OP_xderef_size {
                 write!(w, " {}", size)?;
+            }
+            if base_type != UnitOffset(0) {
+                write!(w, " type 0x{:08x}", base_type.0)?;
             }
         }
         gimli::Operation::Pick { index } => if dwop == gimli::DW_OP_pick {
@@ -1013,8 +1016,13 @@ fn dump_op<R: Reader, W: Write>(
                 // These have the value encoded in the operation, eg DW_OP_lit0.
             }
         },
-        gimli::Operation::Register { register } => if dwop == gimli::DW_OP_regx {
-            write!(w, " {}", register)?;
+        gimli::Operation::Register { base_type, register } => {
+            if dwop == gimli::DW_OP_regx {
+                write!(w, " {}", register)?;
+            }
+            if base_type != UnitOffset(0) {
+                write!(w, " type 0x{:08x}", base_type.0)?;
+            }
         },
         gimli::Operation::RegisterOffset { offset, .. } => {
             write!(w, "{:+}", offset)?;
@@ -1063,6 +1071,18 @@ fn dump_op<R: Reader, W: Write>(
         }
         gimli::Operation::TextRelativeOffset { offset } => {
             write!(w, " 0x{:08x}", offset)?;
+        }
+        gimli::Operation::TypedLiteral { base_type, value } => {
+            write!(w, " type 0x{:08x} contents 0x", base_type.0)?;
+            for byte in value.to_slice()?.iter() {
+                write!(w, "{:02x}", byte)?;
+            }
+        }
+        gimli::Operation::Convert { base_type } => {
+            write!(w, " type 0x{:08x}", base_type.0)?;
+        }
+        gimli::Operation::Reinterpret { base_type } => {
+            write!(w, " type 0x{:08x}", base_type.0)?;
         }
         gimli::Operation::Drop |
         gimli::Operation::Swap |
