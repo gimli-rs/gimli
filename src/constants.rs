@@ -63,15 +63,25 @@ macro_rules! dw {
             pub const $name: $struct_name = $struct_name($val);
         )+
 
+        impl $struct_name {
+            pub fn static_string(&self) -> Option<&'static str> {
+                Some(match *self {
+                    $(
+                        $name => stringify!($name),
+                    )+
+                    _ => return None,
+                })
+            }
+        }
+
         impl fmt::Display for $struct_name {
             fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-                match *self {
-                    $(
-                        $name => f.pad(stringify!($name)),
-                    )+
-                    otherwise => f.pad(&format!("Unknown {}: {}",
-                                                stringify!($struct_name),
-                                                otherwise.0)),
+                if let Some(s) = self.static_string() {
+                    f.pad(s)
+                } else {
+                    f.pad(&format!("Unknown {}: {}",
+                                   stringify!($struct_name),
+                                   self.0))
                 }
             }
         }

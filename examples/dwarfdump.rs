@@ -627,6 +627,13 @@ struct Unit<R: Reader> {
     comp_name: Option<R>,
 }
 
+fn spaces(buf: &mut String, len: usize) -> &str {
+    while buf.len() < len {
+        buf.push(' ');
+    }
+    &buf[..len]
+}
+
 #[allow(too_many_arguments)]
 fn dump_entries<R: Reader, W: Write>(
     w: &mut W,
@@ -653,6 +660,8 @@ fn dump_entries<R: Reader, W: Write>(
         comp_name: None,
     };
 
+    let mut spaces_buf = String::new();
+
     let mut print_local = true;
     let mut depth = 0;
     while let Some((delta_depth, entry)) = entries.next_dfs()? {
@@ -667,12 +676,12 @@ fn dump_entries<R: Reader, W: Write>(
             print_local = false;
         }
         writeln!(w,
-            "<{:2}><0x{:08x}>{:indent$}{}",
+            "<{}{}><0x{:08x}>{}{}",
+            if depth < 10 { " " } else { "" },
             depth,
             entry.offset().0,
-            "",
-            entry.tag(),
-            indent = indent
+            spaces(&mut spaces_buf, indent),
+            entry.tag()
         )?;
 
         if entry.tag() == gimli::DW_TAG_compile_unit || entry.tag() == gimli::DW_TAG_type_unit {
@@ -701,7 +710,13 @@ fn dump_entries<R: Reader, W: Write>(
 
         let mut attrs = entry.attrs();
         while let Some(attr) = attrs.next()? {
-            write!(w, "{:indent$}{:27} ", "", attr.name(), indent = indent + 18)?;
+            w.write_all(spaces(&mut spaces_buf, indent + 18).as_bytes())?;
+            if let Some(n) = attr.name().static_string() {
+                let right_padding = 27 - std::cmp::min(27, n.len());
+                write!(w, "{}{} ", n, spaces(&mut spaces_buf, right_padding))?;
+            } else {
+                write!(w, "{:27} ", attr.name())?;
+            }
             if flags.raw {
                 writeln!(w, "{:?}", attr.raw_value())?;
             } else {
