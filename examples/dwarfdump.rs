@@ -1,24 +1,30 @@
 // Allow clippy lints when building without clippy.
 #![allow(unknown_lints)]
 
+extern crate crossbeam;
 extern crate fallible_iterator;
 extern crate gimli;
 extern crate getopts;
 extern crate memmap;
+extern crate num_cpus;
 extern crate object;
 
 use fallible_iterator::FallibleIterator;
-use gimli::{UnitOffset, UnwindSection};
+use gimli::{UnitOffset, CompilationUnitHeader, UnwindSection};
 use object::Object;
+use std::cmp::min;
 use std::collections::HashMap;
 use std::env;
 use std::io;
 use std::io::{BufWriter, Write};
 use std::fs;
+use std::iter::Iterator;
 use std::process;
 use std::error;
+use std::mem;
 use std::result;
 use std::fmt::{self, Debug};
+use std::sync::{Mutex, Condvar};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
@@ -65,12 +71,77 @@ impl From<io::Error> for Error {
 
 pub type Result<T> = result::Result<T, Error>;
 
-trait Reader: gimli::Reader<Offset = usize> {}
+fn parallel_output<II, F>(max_workers: usize, iter: II, f: F) -> Result<()>
+    where F: Sync + Fn(II::Item, &mut Vec<u8>) -> Result<()>,
+          II: IntoIterator,
+          II::IntoIter: Send {
+    struct ParallelOutputState<I: Iterator> {
+        iterator: I,
+        current_worker: usize,
+        result: Result<()>,
+    }
+
+    let state = Mutex::new(ParallelOutputState {
+        iterator: iter.into_iter().fuse(),
+        current_worker: 0,
+        result: Ok(()),
+    });
+    let workers = min(max_workers, num_cpus::get());
+    let mut condvars = Vec::new();
+    for _ in 0..workers {
+        condvars.push(Condvar::new());
+    }
+    {
+        let state_ref = &state;
+        let f_ref = &f;
+        let condvars_ref = &condvars;
+        crossbeam::scope(|scope| {
+            for i in 0..workers {
+                scope.spawn(move || {
+                    let mut v = Vec::new();
+                    let mut lock = state_ref.lock().unwrap();
+                    while lock.current_worker != i {
+                        lock = condvars_ref[i].wait(lock).unwrap();
+                    }
+                    loop {
+                        let item = if lock.result.is_ok() { lock.iterator.next() } else { None };
+                        lock.current_worker = (i + 1) % workers;
+                        condvars_ref[lock.current_worker].notify_one();
+                        mem::drop(lock);
+
+                        let ret = if let Some(item) = item {
+                            v.clear();
+                            f_ref(item, &mut v)
+                        } else {
+                            return;
+                        };
+
+                        lock = state_ref.lock().unwrap();
+                        while lock.current_worker != i {
+                            lock = condvars_ref[i].wait(lock).unwrap();
+                        }
+                        if lock.result.is_ok() {
+                            let out = io::stdout();
+                            out.lock().write_all(&v).unwrap();
+                            lock.result = ret;
+                        }
+                    }
+                });
+            }
+        });
+    }
+    state.into_inner().unwrap().result
+}
+
+trait Reader: gimli::Reader<Offset = usize> + Send + Sync {
+    type SyncSendEndian: gimli::Endianity + Send + Sync;
+}
 
 impl<'input, Endian> Reader for gimli::EndianBuf<'input, Endian>
 where
-    Endian: gimli::Endianity,
+    Endian: gimli::Endianity + Send + Sync,
 {
+    type SyncSendEndian = Endian;
 }
 
 #[derive(Default)]
@@ -194,11 +265,7 @@ fn main() {
         } else {
             gimli::RunTimeEndian::Big
         };
-        let ret = {
-            let stdout = io::stdout();
-            let mut writer = BufWriter::new(stdout.lock());
-            dump_file(&mut writer, &file, endian, &flags)
-        };
+        let ret = dump_file(&file, endian, &flags);
         match ret {
             Ok(_) => (),
             Err(err) => println!(
@@ -210,9 +277,9 @@ fn main() {
     }
 }
 
-fn dump_file<Endian, W: Write>(w: &mut W, file: &object::File, endian: Endian, flags: &Flags) -> Result<()>
+fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags) -> Result<()>
 where
-    Endian: gimli::Endianity,
+    Endian: gimli::Endianity + Send + Sync,
 {
     fn load_section<'input, 'file, S, Endian>(
         file: &'file object::File<'input>,
@@ -220,7 +287,7 @@ where
     ) -> S
     where
         S: gimli::Section<gimli::EndianBuf<'input, Endian>>,
-        Endian: gimli::Endianity,
+        Endian: gimli::Endianity + Send + Sync,
         'file: 'input,
     {
         let data = file.section_data_by_name(S::section_name()).unwrap_or(&[]);
@@ -247,12 +314,12 @@ where
     let debug_rnglists = load_section(file, endian);
     let rnglists = &gimli::RangeLists::new(debug_ranges, debug_rnglists)?;
 
+    let out = io::stdout();
     if flags.eh_frame {
-        dump_eh_frame(w, eh_frame)?;
+        dump_eh_frame(&mut BufWriter::new(out.lock()), eh_frame)?;
     }
     if flags.info {
         dump_info(
-            w,
             debug_info,
             debug_abbrev,
             debug_line,
@@ -263,7 +330,7 @@ where
             flags,
         )?;
         dump_types(
-            w,
+            &mut BufWriter::new(out.lock()),
             debug_types,
             debug_abbrev,
             debug_line,
@@ -273,8 +340,9 @@ where
             endian,
             flags,
         )?;
-        writeln!(w)?;
+        writeln!(&mut out.lock())?;
     }
+    let w = &mut BufWriter::new(out.lock());
     if flags.line {
         dump_line(w, debug_line, debug_info, debug_abbrev, debug_str)?;
     }
@@ -504,34 +572,34 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
 }
 
 #[allow(too_many_arguments)]
-fn dump_info<R: Reader, W: Write>(
-    w: &mut W,
+fn dump_info<R: Reader>(
     debug_info: &gimli::DebugInfo<R>,
     debug_abbrev: &gimli::DebugAbbrev<R>,
     debug_line: &gimli::DebugLine<R>,
     debug_str: &gimli::DebugStr<R>,
     loclists: &gimli::LocationLists<R>,
     rnglists: &gimli::RangeLists<R>,
-    endian: R::Endian,
+    endian: R::SyncSendEndian,
     flags: &Flags,
 ) -> Result<()> {
-    writeln!(w, "\n.debug_info")?;
+    let out = io::stdout();
+    writeln!(&mut BufWriter::new(out.lock()), "\n.debug_info")?;
 
-    let mut iter = debug_info.units();
-    while let Some(unit) = iter.next()? {
+    let units = debug_info.units().collect::<Vec<_>>().unwrap();
+    let process_unit = |unit: CompilationUnitHeader<R, R::Offset>, buf: &mut Vec<u8>| -> Result<()> {
         let abbrevs = match unit.abbreviations(debug_abbrev) {
             Ok(abbrevs) => abbrevs,
             Err(err) => {
-                writeln!(w,
+                writeln!(buf,
                     "Failed to parse abbreviations: {}",
                     error::Error::description(&err)
                 )?;
-                continue;
+                return Ok(());
             }
         };
 
         let entries_result = dump_entries(
-            w,
+            buf,
             unit.offset().0,
             unit.entries(&abbrevs),
             unit.address_size(),
@@ -545,13 +613,16 @@ fn dump_info<R: Reader, W: Write>(
             flags,
         );
         if let Err(err) = entries_result {
-            writeln!(w,
+            writeln!(buf,
                 "Failed to dump entries: {}",
                 error::Error::description(&err)
             )?;
-        };
-    }
-    Ok(())
+        }
+        Ok(())
+    };
+    // Don't use more than 16 cores even if available. No point in soaking hundreds
+    // of cores if you happen to have them.
+    parallel_output(16, units, process_unit)
 }
 
 #[allow(too_many_arguments)]
@@ -563,7 +634,7 @@ fn dump_types<R: Reader, W: Write>(
     debug_str: &gimli::DebugStr<R>,
     loclists: &gimli::LocationLists<R>,
     rnglists: &gimli::RangeLists<R>,
-    endian: R::Endian,
+    endian: R::SyncSendEndian,
     flags: &Flags,
 ) -> Result<()> {
     writeln!(w, "\n.debug_types")?;
@@ -617,7 +688,7 @@ fn dump_types<R: Reader, W: Write>(
 
 // TODO: most of this should be moved to the main library.
 struct Unit<R: Reader> {
-    endian: R::Endian,
+    endian: R::SyncSendEndian,
     format: gimli::Format,
     address_size: u8,
     version: u16,
@@ -646,7 +717,7 @@ fn dump_entries<R: Reader, W: Write>(
     debug_str: &gimli::DebugStr<R>,
     loclists: &gimli::LocationLists<R>,
     rnglists: &gimli::RangeLists<R>,
-    endian: R::Endian,
+    endian: R::SyncSendEndian,
     flags: &Flags,
 ) -> Result<()> {
     let mut unit = Unit {
@@ -905,10 +976,10 @@ fn dump_attr_value<R: Reader, W: Write>(
 fn dump_type_signature<Endian, W: Write>(
     w: &mut W,
     signature: gimli::DebugTypeSignature,
-    endian: Endian
+    endian: Endian,
 ) -> Result<()>
 where
-    Endian: gimli::Endianity,
+    Endian: gimli::Endianity + Send + Sync,
 {
     // Convert back to bytes so we can match libdwarf-dwarfdump output.
     let mut buf = [0; 8];
