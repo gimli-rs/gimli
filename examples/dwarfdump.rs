@@ -8,10 +8,12 @@ extern crate getopts;
 extern crate memmap;
 extern crate num_cpus;
 extern crate object;
+extern crate regex;
 
 use fallible_iterator::FallibleIterator;
 use gimli::{UnitOffset, CompilationUnitHeader, UnwindSection};
 use object::Object;
+use regex::bytes::Regex;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::env;
@@ -153,6 +155,7 @@ struct Flags {
     pubtypes: bool,
     aranges: bool,
     raw: bool,
+    match_units: Option<Regex>,
 }
 
 fn print_usage(opts: &getopts::Options) -> ! {
@@ -174,6 +177,7 @@ fn main() {
     opts.optflag("r", "", "print .debug_aranges section");
     opts.optflag("y", "", "print .debug_pubtypes section");
     opts.optflag("", "raw", "print raw data values");
+    opts.optopt("u", "match-units", "print compilation units whose output matches a regex", "REGEX");
 
     let matches = match opts.parse(env::args().skip(1)) {
         Ok(m) => m,
@@ -223,6 +227,17 @@ fn main() {
         flags.pubtypes = true;
         flags.aranges = true;
     }
+    flags.match_units = if let Some(r) = matches.opt_str("u") {
+        match Regex::new(&r) {
+            Ok(r) => Some(r),
+            Err(e) => {
+                println!("Invalid regular expression {}: {}", r, e);
+                process::exit(1);
+            }
+        }
+    } else {
+        None
+    };
 
     for file_path in &matches.free {
         if matches.free.len() != 1 {
@@ -617,6 +632,9 @@ fn dump_info<R: Reader>(
                 "Failed to dump entries: {}",
                 error::Error::description(&err)
             )?;
+        }
+        if !flags.match_units.as_ref().map(|r| r.is_match(&buf)).unwrap_or(true) {
+            buf.clear();
         }
         Ok(())
     };
