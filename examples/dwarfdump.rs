@@ -920,6 +920,9 @@ fn dump_attr_value<R: Reader, W: Write>(
         gimli::AttributeValue::DebugInfoRef(gimli::DebugInfoOffset(offset)) => {
             writeln!(w, "<GOFF=0x{:08x}>", offset)?;
         }
+        gimli::AttributeValue::DebugInfoRefSup(gimli::DebugInfoOffset(offset)) => {
+            writeln!(w, "<SUP_GOFF=0x{:08x}>", offset)?;
+        }
         gimli::AttributeValue::DebugLineRef(gimli::DebugLineOffset(offset)) => {
             writeln!(w, "0x{:08x}", offset)?;
         }
@@ -940,7 +943,10 @@ fn dump_attr_value<R: Reader, W: Write>(
         gimli::AttributeValue::DebugStrRef(offset) => if let Ok(s) = debug_str.get_str(offset) {
             writeln!(w, "{}", s.to_string_lossy()?)?;
         } else {
-            writeln!(w, "{:?}", value)?;
+            writeln!(w, "<GOFF=0x{:08x}>", offset.0)?;
+        },
+        gimli::AttributeValue::DebugStrRefSup(offset) => {
+            writeln!(w, "<SUP_GOFF=0x{:08x}>", offset.0)?;
         },
         gimli::AttributeValue::String(s) => {
             writeln!(w, "{}", s.to_string_lossy()?)?;
