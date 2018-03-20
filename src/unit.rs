@@ -997,6 +997,9 @@ pub enum AttributeValue<R: Reader> {
     /// different compilation unit from the current one.
     DebugInfoRef(DebugInfoOffset<R::Offset>),
 
+    /// An offset into the `.debug_info` section of the supplementary object file.
+    DebugInfoRefSup(DebugInfoOffset<R::Offset>),
+
     /// An offset into the `.debug_line` section.
     DebugLineRef(DebugLineOffset<R::Offset>),
 
@@ -1014,6 +1017,9 @@ pub enum AttributeValue<R: Reader> {
 
     /// An offset into the `.debug_str` section.
     DebugStrRef(DebugStrOffset<R::Offset>),
+
+    /// An offset into the `.debug_str` section of the supplementary object file.
+    DebugStrRefSup(DebugStrOffset<R::Offset>),
 
     /// A slice of bytes representing a string. Does not include a final null byte.
     /// Not guaranteed to be UTF-8 or anything like that.
@@ -1574,6 +1580,24 @@ impl<R: Reader> Attribute<R> {
             _ => None,
         }
     }
+
+    /// Try to return this attribute's value as a string slice.
+    ///
+    /// If this attribute's value is either an inline `DW_FORM_string` string,
+    /// or a `DW_FORM_strp` reference to an offset into the `.debug_str`
+    /// section, or a `DW_FORM_strp_sup` reference to an offset into a supplementary
+    /// object file, return the attribute's string value as `Some`. Other attribute
+    /// value forms are returned as `None`.
+    pub fn string_value_sup(&self, debug_str: &DebugStr<R>, debug_str_sup: Option<&DebugStr<R>>) -> Option<R> {
+        match self.value {
+            AttributeValue::String(ref string) => Some(string.clone()),
+            AttributeValue::DebugStrRef(offset) => debug_str.get_str(offset).ok(),
+            AttributeValue::DebugStrRefSup(offset) => {
+                debug_str_sup.and_then(|s| s.get_str(offset).ok())
+            },
+            _ => None,
+        }
+    }
 }
 
 fn length_u8_value<R: Reader>(input: &mut R) -> Result<R> {
@@ -1731,6 +1755,18 @@ fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 let signature = input.read_u64()?;
                 AttributeValue::DebugTypesRef(DebugTypeSignature(signature))
             }
+            constants::DW_FORM_ref_sup4 => {
+                let offset = input.read_u32().map(R::Offset::from_u32)?;
+                AttributeValue::DebugInfoRefSup(DebugInfoOffset(offset))
+            }
+            constants::DW_FORM_ref_sup8 => {
+                let offset = input.read_u64().and_then(R::Offset::from_u64)?;
+                AttributeValue::DebugInfoRefSup(DebugInfoOffset(offset))
+            }
+            constants::DW_FORM_GNU_ref_alt => {
+                let offset = input.read_offset(unit.format())?;
+                AttributeValue::DebugInfoRefSup(DebugInfoOffset(offset))
+            }
             constants::DW_FORM_string => {
                 let string = input.read_null_terminated_slice()?;
                 AttributeValue::String(string)
@@ -1738,6 +1774,10 @@ fn parse_attribute<'unit, 'abbrev, R: Reader>(
             constants::DW_FORM_strp => {
                 let offset = input.read_offset(unit.format())?;
                 AttributeValue::DebugStrRef(DebugStrOffset(offset))
+            }
+            constants::DW_FORM_strp_sup | constants::DW_FORM_GNU_strp_alt => {
+                let offset = input.read_offset(unit.format())?;
+                AttributeValue::DebugStrRefSup(DebugStrOffset(offset))
             }
             constants::DW_FORM_implicit_const => {
                 AttributeValue::Sdata(spec.implicit_const_value())
@@ -3691,6 +3731,25 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_attribute_ref_sup4() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_ref_sup4;
+        let value = AttributeValue::DebugInfoRefSup(DebugInfoOffset(67305985));
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_attribute_ref_sup8() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_ref_sup8;
+        let value = AttributeValue::DebugInfoRefSup(DebugInfoOffset(578437695752307201));
+        test_parse_attribute(&buf, 8, &unit, form, value);
+    }
+
+    #[test]
     fn test_parse_attribute_refudata() {
         let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -3746,6 +3805,25 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_attribute_gnu_ref_alt_32() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian);
+        let form = constants::DW_FORM_GNU_ref_alt;
+        let value = AttributeValue::DebugInfoRefSup(DebugInfoOffset(67305985));
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_attribute_gnu_ref_alt_64() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_GNU_ref_alt;
+        let value = AttributeValue::DebugInfoRefSup(DebugInfoOffset(578437695752307201));
+        test_parse_attribute(&buf, 8, &unit, form, value);
+    }
+
+    #[test]
     fn test_parse_attribute_refsig8() {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
@@ -3779,6 +3857,44 @@ mod tests {
         let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
         let form = constants::DW_FORM_strp;
         let value = AttributeValue::DebugStrRef(DebugStrOffset(578437695752307201));
+        test_parse_attribute(&buf, 8, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_strp_sup_32() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian);
+        let form = constants::DW_FORM_strp_sup;
+        let value = AttributeValue::DebugStrRefSup(DebugStrOffset(67305985));
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_attribute_strp_sup_64() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_strp_sup;
+        let value = AttributeValue::DebugStrRefSup(DebugStrOffset(578437695752307201));
+        test_parse_attribute(&buf, 8, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_gnu_strp_alt_32() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian);
+        let form = constants::DW_FORM_GNU_strp_alt;
+        let value = AttributeValue::DebugStrRefSup(DebugStrOffset(67305985));
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_attribute_gnu_strp_alt_64() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_GNU_strp_alt;
+        let value = AttributeValue::DebugStrRefSup(DebugStrOffset(578437695752307201));
         test_parse_attribute(&buf, 8, &unit, form, value);
     }
 
