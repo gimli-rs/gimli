@@ -44,7 +44,7 @@ impl<T: ReaderOffset> DebugTypesOffset<T> {
 pub struct DebugTypeSignature(pub u64);
 
 /// An offset into the `.debug_info` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct DebugInfoOffset<T = usize>(pub T);
 
 impl<T: ReaderOffset> DebugInfoOffset<T> {
