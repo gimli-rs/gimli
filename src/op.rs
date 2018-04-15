@@ -491,291 +491,109 @@ where
                     target: compute_pc(bytes, bytecode, value)?,
                 })
             }
-            constants::DW_OP_lit0 => Ok(Operation::Literal { value: 0 }),
-            constants::DW_OP_lit1 => Ok(Operation::Literal { value: 1 }),
-            constants::DW_OP_lit2 => Ok(Operation::Literal { value: 2 }),
-            constants::DW_OP_lit3 => Ok(Operation::Literal { value: 3 }),
-            constants::DW_OP_lit4 => Ok(Operation::Literal { value: 4 }),
-            constants::DW_OP_lit5 => Ok(Operation::Literal { value: 5 }),
-            constants::DW_OP_lit6 => Ok(Operation::Literal { value: 6 }),
-            constants::DW_OP_lit7 => Ok(Operation::Literal { value: 7 }),
-            constants::DW_OP_lit8 => Ok(Operation::Literal { value: 8 }),
-            constants::DW_OP_lit9 => Ok(Operation::Literal { value: 9 }),
-            constants::DW_OP_lit10 => Ok(Operation::Literal { value: 10 }),
-            constants::DW_OP_lit11 => Ok(Operation::Literal { value: 11 }),
-            constants::DW_OP_lit12 => Ok(Operation::Literal { value: 12 }),
-            constants::DW_OP_lit13 => Ok(Operation::Literal { value: 13 }),
-            constants::DW_OP_lit14 => Ok(Operation::Literal { value: 14 }),
-            constants::DW_OP_lit15 => Ok(Operation::Literal { value: 15 }),
-            constants::DW_OP_lit16 => Ok(Operation::Literal { value: 16 }),
-            constants::DW_OP_lit17 => Ok(Operation::Literal { value: 17 }),
-            constants::DW_OP_lit18 => Ok(Operation::Literal { value: 18 }),
-            constants::DW_OP_lit19 => Ok(Operation::Literal { value: 19 }),
-            constants::DW_OP_lit20 => Ok(Operation::Literal { value: 20 }),
-            constants::DW_OP_lit21 => Ok(Operation::Literal { value: 21 }),
-            constants::DW_OP_lit22 => Ok(Operation::Literal { value: 22 }),
-            constants::DW_OP_lit23 => Ok(Operation::Literal { value: 23 }),
-            constants::DW_OP_lit24 => Ok(Operation::Literal { value: 24 }),
-            constants::DW_OP_lit25 => Ok(Operation::Literal { value: 25 }),
-            constants::DW_OP_lit26 => Ok(Operation::Literal { value: 26 }),
-            constants::DW_OP_lit27 => Ok(Operation::Literal { value: 27 }),
-            constants::DW_OP_lit28 => Ok(Operation::Literal { value: 28 }),
-            constants::DW_OP_lit29 => Ok(Operation::Literal { value: 29 }),
-            constants::DW_OP_lit30 => Ok(Operation::Literal { value: 30 }),
-            constants::DW_OP_lit31 => Ok(Operation::Literal { value: 31 }),
-            constants::DW_OP_reg0 => Ok(generic_register(0)),
-            constants::DW_OP_reg1 => Ok(generic_register(1)),
-            constants::DW_OP_reg2 => Ok(generic_register(2)),
-            constants::DW_OP_reg3 => Ok(generic_register(3)),
-            constants::DW_OP_reg4 => Ok(generic_register(4)),
-            constants::DW_OP_reg5 => Ok(generic_register(5)),
-            constants::DW_OP_reg6 => Ok(generic_register(6)),
-            constants::DW_OP_reg7 => Ok(generic_register(7)),
-            constants::DW_OP_reg8 => Ok(generic_register(8)),
-            constants::DW_OP_reg9 => Ok(generic_register(9)),
-            constants::DW_OP_reg10 => Ok(generic_register(10)),
-            constants::DW_OP_reg11 => Ok(generic_register(11)),
-            constants::DW_OP_reg12 => Ok(generic_register(12)),
-            constants::DW_OP_reg13 => Ok(generic_register(13)),
-            constants::DW_OP_reg14 => Ok(generic_register(14)),
-            constants::DW_OP_reg15 => Ok(generic_register(15)),
-            constants::DW_OP_reg16 => Ok(generic_register(16)),
-            constants::DW_OP_reg17 => Ok(generic_register(17)),
-            constants::DW_OP_reg18 => Ok(generic_register(18)),
-            constants::DW_OP_reg19 => Ok(generic_register(19)),
-            constants::DW_OP_reg20 => Ok(generic_register(20)),
-            constants::DW_OP_reg21 => Ok(generic_register(21)),
-            constants::DW_OP_reg22 => Ok(generic_register(22)),
-            constants::DW_OP_reg23 => Ok(generic_register(23)),
-            constants::DW_OP_reg24 => Ok(generic_register(24)),
-            constants::DW_OP_reg25 => Ok(generic_register(25)),
-            constants::DW_OP_reg26 => Ok(generic_register(26)),
-            constants::DW_OP_reg27 => Ok(generic_register(27)),
-            constants::DW_OP_reg28 => Ok(generic_register(28)),
-            constants::DW_OP_reg29 => Ok(generic_register(29)),
-            constants::DW_OP_reg30 => Ok(generic_register(30)),
-            constants::DW_OP_reg31 => Ok(generic_register(31)),
-            constants::DW_OP_breg0 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 0,
-                    offset: value,
-                })
+            constants::DW_OP_lit0
+            | constants::DW_OP_lit1
+            | constants::DW_OP_lit2
+            | constants::DW_OP_lit3
+            | constants::DW_OP_lit4
+            | constants::DW_OP_lit5
+            | constants::DW_OP_lit6
+            | constants::DW_OP_lit7
+            | constants::DW_OP_lit8
+            | constants::DW_OP_lit9
+            | constants::DW_OP_lit10
+            | constants::DW_OP_lit11
+            | constants::DW_OP_lit12
+            | constants::DW_OP_lit13
+            | constants::DW_OP_lit14
+            | constants::DW_OP_lit15
+            | constants::DW_OP_lit16
+            | constants::DW_OP_lit17
+            | constants::DW_OP_lit18
+            | constants::DW_OP_lit19
+            | constants::DW_OP_lit20
+            | constants::DW_OP_lit21
+            | constants::DW_OP_lit22
+            | constants::DW_OP_lit23
+            | constants::DW_OP_lit24
+            | constants::DW_OP_lit25
+            | constants::DW_OP_lit26
+            | constants::DW_OP_lit27
+            | constants::DW_OP_lit28
+            | constants::DW_OP_lit29
+            | constants::DW_OP_lit30
+            | constants::DW_OP_lit31 => Ok(Operation::Literal {
+                value: (opcode - constants::DW_OP_lit0.0).into(),
+            }),
+            constants::DW_OP_reg0
+            | constants::DW_OP_reg1
+            | constants::DW_OP_reg2
+            | constants::DW_OP_reg3
+            | constants::DW_OP_reg4
+            | constants::DW_OP_reg5
+            | constants::DW_OP_reg6
+            | constants::DW_OP_reg7
+            | constants::DW_OP_reg8
+            | constants::DW_OP_reg9
+            | constants::DW_OP_reg10
+            | constants::DW_OP_reg11
+            | constants::DW_OP_reg12
+            | constants::DW_OP_reg13
+            | constants::DW_OP_reg14
+            | constants::DW_OP_reg15
+            | constants::DW_OP_reg16
+            | constants::DW_OP_reg17
+            | constants::DW_OP_reg18
+            | constants::DW_OP_reg19
+            | constants::DW_OP_reg20
+            | constants::DW_OP_reg21
+            | constants::DW_OP_reg22
+            | constants::DW_OP_reg23
+            | constants::DW_OP_reg24
+            | constants::DW_OP_reg25
+            | constants::DW_OP_reg26
+            | constants::DW_OP_reg27
+            | constants::DW_OP_reg28
+            | constants::DW_OP_reg29
+            | constants::DW_OP_reg30
+            | constants::DW_OP_reg31 => {
+                Ok(generic_register((opcode - constants::DW_OP_reg0.0).into()))
             }
-            constants::DW_OP_breg1 => {
+            constants::DW_OP_breg0
+            | constants::DW_OP_breg1
+            | constants::DW_OP_breg2
+            | constants::DW_OP_breg3
+            | constants::DW_OP_breg4
+            | constants::DW_OP_breg5
+            | constants::DW_OP_breg6
+            | constants::DW_OP_breg7
+            | constants::DW_OP_breg8
+            | constants::DW_OP_breg9
+            | constants::DW_OP_breg10
+            | constants::DW_OP_breg11
+            | constants::DW_OP_breg12
+            | constants::DW_OP_breg13
+            | constants::DW_OP_breg14
+            | constants::DW_OP_breg15
+            | constants::DW_OP_breg16
+            | constants::DW_OP_breg17
+            | constants::DW_OP_breg18
+            | constants::DW_OP_breg19
+            | constants::DW_OP_breg20
+            | constants::DW_OP_breg21
+            | constants::DW_OP_breg22
+            | constants::DW_OP_breg23
+            | constants::DW_OP_breg24
+            | constants::DW_OP_breg25
+            | constants::DW_OP_breg26
+            | constants::DW_OP_breg27
+            | constants::DW_OP_breg28
+            | constants::DW_OP_breg29
+            | constants::DW_OP_breg30
+            | constants::DW_OP_breg31 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                    register: 1,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg2 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 2,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg3 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 3,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg4 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 4,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg5 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 5,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg6 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 6,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg7 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 7,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg8 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 8,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg9 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 9,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg10 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 10,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg11 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 11,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg12 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 12,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg13 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 13,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg14 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 14,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg15 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 15,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg16 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 16,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg17 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 17,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg18 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 18,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg19 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 19,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg20 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 20,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg21 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 21,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg22 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 22,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg23 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 23,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg24 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 24,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg25 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 25,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg26 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 26,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg27 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 27,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg28 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 28,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg29 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 29,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg30 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 30,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg31 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 31,
+                    register: (opcode - constants::DW_OP_breg0.0).into(),
                     offset: value,
                 })
             }
