@@ -1182,7 +1182,9 @@ impl<R: Reader> Attribute<R> {
             constants::DW_AT_ordering => {
                 constant!(u8_value, Ordering, DwOrd);
             }
-            constants::DW_AT_byte_size | constants::DW_AT_bit_offset | constants::DW_AT_bit_size => {
+            constants::DW_AT_byte_size
+            | constants::DW_AT_bit_offset
+            | constants::DW_AT_bit_size => {
                 constant!(udata_value, Udata);
                 exprloc!();
                 reference!();
@@ -1514,7 +1516,7 @@ impl<R: Reader> Attribute<R> {
                     return None;
                 }
                 data as u64
-            },
+            }
             _ => return None,
         })
     }
@@ -1533,7 +1535,7 @@ impl<R: Reader> Attribute<R> {
                     return None;
                 }
                 data as i64
-            },
+            }
             _ => return None,
         })
     }
@@ -1588,13 +1590,17 @@ impl<R: Reader> Attribute<R> {
     /// section, or a `DW_FORM_strp_sup` reference to an offset into a supplementary
     /// object file, return the attribute's string value as `Some`. Other attribute
     /// value forms are returned as `None`.
-    pub fn string_value_sup(&self, debug_str: &DebugStr<R>, debug_str_sup: Option<&DebugStr<R>>) -> Option<R> {
+    pub fn string_value_sup(
+        &self,
+        debug_str: &DebugStr<R>,
+        debug_str_sup: Option<&DebugStr<R>>,
+    ) -> Option<R> {
         match self.value {
             AttributeValue::String(ref string) => Some(string.clone()),
             AttributeValue::DebugStrRef(offset) => debug_str.get_str(offset).ok(),
             AttributeValue::DebugStrRefSup(offset) => {
                 debug_str_sup.and_then(|s| s.get_str(offset).ok())
-            },
+            }
             _ => None,
         }
     }
@@ -1668,8 +1674,8 @@ fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 // Generally we can defer interpretation of these until
                 // `AttributeValue::value()`, but this is ambiguous for
                 // `DW_AT_data_member_location`.
-                if (unit.version() == 2 || unit.version() == 3) &&
-                    spec.name() == constants::DW_AT_data_member_location
+                if (unit.version() == 2 || unit.version() == 3)
+                    && spec.name() == constants::DW_AT_data_member_location
                 {
                     let offset = input.read_u32().map(R::Offset::from_u32)?;
                     AttributeValue::SecOffset(offset)
@@ -1683,8 +1689,8 @@ fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 // Generally we can defer interpretation of these until
                 // `AttributeValue::value()`, but this is ambiguous for
                 // `DW_AT_data_member_location`.
-                if (unit.version() == 2 || unit.version() == 3) &&
-                    spec.name() == constants::DW_AT_data_member_location
+                if (unit.version() == 2 || unit.version() == 3)
+                    && spec.name() == constants::DW_AT_data_member_location
                 {
                     let offset = input.read_u64().and_then(R::Offset::from_u64)?;
                     AttributeValue::SecOffset(offset)
@@ -1779,9 +1785,7 @@ fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 let offset = input.read_offset(unit.format())?;
                 AttributeValue::DebugStrRefSup(DebugStrOffset(offset))
             }
-            constants::DW_FORM_implicit_const => {
-                AttributeValue::Sdata(spec.implicit_const_value())
-            }
+            constants::DW_FORM_implicit_const => AttributeValue::Sdata(spec.implicit_const_value()),
             _ => {
                 return Err(Error::UnknownForm);
             }
@@ -2441,7 +2445,6 @@ impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeNode<'abbrev, 'unit, 'tree, R>
     }
 }
 
-
 /// An iterator that allows traversal of the children of an
 /// `EntriesTreeNode`.
 ///
@@ -2540,7 +2543,6 @@ impl<R: Reader> From<R> for DebugTypes<R> {
         }
     }
 }
-
 
 impl<R: Reader> DebugTypes<R> {
     /// Iterate the type-units in this `.debug_types` section.
@@ -3397,8 +3399,7 @@ mod tests {
             let (version, name, form, mut input, expect_raw, expect_value) = *test;
             unit.version = version;
             let spec = vec![AttributeSpecification::new(name, form, None)];
-            let attribute =
-                parse_attribute(&mut input, &unit, &spec[..])
+            let attribute = parse_attribute(&mut input, &unit, &spec[..])
                 .expect("Should parse attribute")
                 .0;
             assert_eq!(attribute.raw_value(), expect_raw);
@@ -3409,7 +3410,11 @@ mod tests {
     #[test]
     fn test_attribute_udata_sdata_value() {
         let endian = LittleEndian;
-        let tests: &[(AttributeValue<EndianBuf<LittleEndian>>, Option<u64>, Option<i64>)] = &[
+        let tests: &[(
+            AttributeValue<EndianBuf<LittleEndian>>,
+            Option<u64>,
+            Option<i64>,
+        )] = &[
             (AttributeValue::Data1([1]), Some(1), Some(1)),
             (
                 AttributeValue::Data1([255]),
@@ -3489,7 +3494,9 @@ mod tests {
     ) where
         Endian: Endianity,
     {
-        let spec = vec![AttributeSpecification::new(constants::DW_AT_low_pc, form, None)];
+        let spec = vec![
+            AttributeSpecification::new(constants::DW_AT_low_pc, form, None),
+        ];
 
         let expect = Attribute {
             name: constants::DW_AT_low_pc,
@@ -3905,8 +3912,8 @@ mod tests {
         let bytes_written = {
             let mut writable = &mut buf[..];
             leb128::write::unsigned(&mut writable, constants::DW_FORM_udata.0)
-                .expect("should write udata") +
-                leb128::write::unsigned(&mut writable, 9999999).expect("should write value")
+                .expect("should write udata")
+                + leb128::write::unsigned(&mut writable, 9999999).expect("should write value")
         };
 
         let unit = test_parse_attribute_unit_default();
@@ -3933,28 +3940,18 @@ mod tests {
             vec![
                 AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
                 AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr, None),
-                AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr, None),
+                AttributeSpecification::new(
+                    constants::DW_AT_high_pc,
+                    constants::DW_FORM_addr,
+                    None,
+                ),
             ],
         );
 
         // "foo", 42, 1337, 4 dangling bytes of 0xaa where children would be
         let buf = [
-            0x66,
-            0x6f,
-            0x6f,
-            0x00,
-            0x2a,
-            0x00,
-            0x00,
-            0x00,
-            0x39,
-            0x05,
-            0x00,
-            0x00,
-            0xaa,
-            0xaa,
-            0xaa,
-            0xaa,
+            0x66, 0x6f, 0x6f, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x39, 0x05, 0x00, 0x00, 0xaa, 0xaa,
+            0xaa, 0xaa,
         ];
 
         let entry = DebuggingInformationEntry {
@@ -4051,7 +4048,11 @@ mod tests {
             vec![
                 AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
                 AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr, None),
-                AttributeSpecification::new(constants::DW_AT_high_pc, constants::DW_FORM_addr, None),
+                AttributeSpecification::new(
+                    constants::DW_AT_high_pc,
+                    constants::DW_FORM_addr,
+                    None,
+                ),
             ],
         );
 

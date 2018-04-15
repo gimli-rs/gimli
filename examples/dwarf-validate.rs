@@ -63,11 +63,7 @@ fn main() {
         let file = match unsafe { memmap::Mmap::map(&file) } {
             Ok(mmap) => mmap,
             Err(err) => {
-                eprintln!(
-                    "Failed to map file '{}': {}",
-                    path.display(),
-                    &err
-                );
+                eprintln!("Failed to map file '{}': {}", path.display(), &err);
                 errors += 1;
                 continue;
             }
@@ -75,9 +71,7 @@ fn main() {
         let file = match object::File::parse(&*file) {
             Ok(file) => file,
             Err(err) => {
-                eprintln!("Failed to parse file '{}': {}",
-                          path.display(),
-                          err);
+                eprintln!("Failed to parse file '{}': {}", path.display(), err);
                 errors += 1;
                 continue;
             }
@@ -103,7 +97,10 @@ fn main() {
 }
 
 fn validate_file<W, Endian>(w: &mut ErrorWriter<W>, file: &object::File, endian: Endian)
-    where W: Write + Send, Endian: gimli::Endianity + Send + Sync {
+where
+    W: Write + Send,
+    Endian: gimli::Endianity + Send + Sync,
+{
     fn load_section<'input, 'file, S, Endian>(
         file: &'file object::File<'input>,
         endian: Endian,
@@ -126,29 +123,34 @@ fn validate_file<W, Endian>(w: &mut ErrorWriter<W>, file: &object::File, endian:
 }
 
 struct UnitSummary {
-   // True if we successfully parsed all the DIEs and attributes in the compilation unit
-   internally_valid: bool,
-   offset: gimli::DebugInfoOffset,
-   die_offsets: Vec<gimli::UnitOffset>,
-   global_die_references: Vec<(gimli::UnitOffset, gimli::DebugInfoOffset)>,
+    // True if we successfully parsed all the DIEs and attributes in the compilation unit
+    internally_valid: bool,
+    offset: gimli::DebugInfoOffset,
+    die_offsets: Vec<gimli::UnitOffset>,
+    global_die_references: Vec<(gimli::UnitOffset, gimli::DebugInfoOffset)>,
 }
 
 fn validate_info<W, R>(
     w: &mut ErrorWriter<W>,
     debug_info: &gimli::DebugInfo<R>,
-    debug_abbrev: &gimli::DebugAbbrev<R>
-) where W: Write + Send, R: Reader {
+    debug_abbrev: &gimli::DebugAbbrev<R>,
+) where
+    W: Write + Send,
+    R: Reader,
+{
     let mut units = Vec::new();
     let mut units_iter = debug_info.units();
     let mut last_offset = 0;
     loop {
         let u = match units_iter.next() {
             Err(err) => {
-                w.error(format!("Can't read unit header at offset {:#x}, stopping reading units: {}",
-                                last_offset,
-                                error::Error::description(&err)));
+                w.error(format!(
+                    "Can't read unit header at offset {:#x}, stopping reading units: {}",
+                    last_offset,
+                    error::Error::description(&err)
+                ));
                 break;
-            },
+            }
             Ok(None) => break,
             Ok(Some(u)) => u,
         };
@@ -165,9 +167,11 @@ fn validate_info<W, R>(
         let abbrevs = match unit.abbreviations(debug_abbrev) {
             Ok(abbrevs) => abbrevs,
             Err(err) => {
-                w.error(format!("Invalid abbrevs for unit {:#x}: {}",
-                                unit.offset().0,
-                                error::Error::description(&err)));
+                w.error(format!(
+                    "Invalid abbrevs for unit {:#x}: {}",
+                    unit.offset().0,
+                    error::Error::description(&err)
+                ));
                 return ret;
             }
         };
@@ -176,11 +180,13 @@ fn validate_info<W, R>(
         loop {
             let (_, entry) = match entries.next_dfs() {
                 Err(err) => {
-                    w.error(format!("Invalid DIE for unit {:#x}: {}",
-                                    unit.offset().0,
-                                    error::Error::description(&err)));
+                    w.error(format!(
+                        "Invalid DIE for unit {:#x}: {}",
+                        unit.offset().0,
+                        error::Error::description(&err)
+                    ));
                     return ret;
-                },
+                }
                 Ok(None) => break,
                 Ok(Some(entry)) => entry,
             };
@@ -190,18 +196,21 @@ fn validate_info<W, R>(
             loop {
                 let attr = match attrs.next() {
                     Err(err) => {
-                        w.error(format!("Invalid attribute for unit {:#x} at DIE {:#x}: {}",
-                                        unit.offset().0, entry.offset().0,
-                                        error::Error::description(&err)));
+                        w.error(format!(
+                            "Invalid attribute for unit {:#x} at DIE {:#x}: {}",
+                            unit.offset().0,
+                            entry.offset().0,
+                            error::Error::description(&err)
+                        ));
                         return ret;
-                    },
+                    }
                     Ok(None) => break,
                     Ok(Some(attr)) => attr,
                 };
                 match attr.value() {
                     AttributeValue::UnitRef(offset) => {
                         unit_refs.push((entry.offset(), offset));
-                    },
+                    }
                     AttributeValue::DebugInfoRef(offset) => {
                         ret.global_die_references.push((entry.offset(), offset));
                     }
@@ -216,8 +225,12 @@ fn validate_info<W, R>(
         // Check intra-unit references
         for (from, to) in unit_refs {
             if let Err(_) = ret.die_offsets.binary_search(&to) {
-                w.error(format!("Invalid intra-unit reference in unit {:#x} from DIE {:#x} to {:#x}",
-                                unit.offset().0, from.0, to.0));
+                w.error(format!(
+                    "Invalid intra-unit reference in unit {:#x} from DIE {:#x} to {:#x}",
+                    unit.offset().0,
+                    from.0,
+                    to.0
+                ));
             }
         }
 
@@ -233,12 +246,12 @@ fn validate_info<W, R>(
             let u = match processed_units.binary_search_by_key(&to, |v| v.offset) {
                 Ok(i) => &processed_units[i],
                 Err(i) => if i > 0 {
-                        &processed_units[i - 1]
-                    } else {
-                        w.error(format!("Invalid cross-unit reference in unit {:#x} from DIE {:#x} to global DIE {:#x}: no unit found",
+                    &processed_units[i - 1]
+                } else {
+                    w.error(format!("Invalid cross-unit reference in unit {:#x} from DIE {:#x} to global DIE {:#x}: no unit found",
                                         summary.offset.0, from.0, to.0));
-                        continue;
-                    },
+                    continue;
+                },
             };
             if !u.internally_valid {
                 continue;

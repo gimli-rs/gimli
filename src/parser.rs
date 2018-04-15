@@ -3,7 +3,7 @@
 use std::fmt::{self, Debug};
 use std::result;
 #[cfg(feature = "std")]
-use std::{io, error};
+use std::{error, io};
 use cfi::BaseAddresses;
 use constants;
 use reader::{Reader, ReaderOffset};
@@ -259,18 +259,10 @@ impl Error {
                 "The `.eh_frame_hdr` binary search table claims to be variable-length encoded, \
                  which makes binary search impossible."
             }
-            Error::UnsupportedUnitType => {
-                "The `DW_UT_*` value for this unit is not supported yet"
-            }
-            Error::UnsupportedAddressIndex => {
-                "Ranges involving AddressIndex are not supported yet"
-            }
-            Error::UnsupportedSegmentSize => {
-                "Nonzero segment size not supported yet"
-            }
-            Error::UnsupportedTypedStack => {
-                "Typed stack values not supported yet"
-            }
+            Error::UnsupportedUnitType => "The `DW_UT_*` value for this unit is not supported yet",
+            Error::UnsupportedAddressIndex => "Ranges involving AddressIndex are not supported yet",
+            Error::UnsupportedSegmentSize => "Nonzero segment size not supported yet",
+            Error::UnsupportedTypedStack => "Typed stack values not supported yet",
         }
     }
 }
@@ -654,9 +646,8 @@ mod tests {
     #[test]
     fn test_parse_pointer_encoding_bad_encoding() {
         use endianity::NativeEndian;
-        let expected = constants::DwEhPe(
-            (constants::DW_EH_PE_sdata8.0 + 1) | constants::DW_EH_PE_pcrel.0,
-        );
+        let expected =
+            constants::DwEhPe((constants::DW_EH_PE_sdata8.0 + 1) | constants::DW_EH_PE_pcrel.0);
         let input = [expected.0, 1, 2, 3, 4];
         let input = &mut EndianBuf::new(&input, NativeEndian);
         assert_eq!(
@@ -938,9 +929,8 @@ mod tests {
 
     #[test]
     fn test_parse_encoded_pointer_sleb128() {
-        let encoding = constants::DwEhPe(
-            constants::DW_EH_PE_textrel.0 | constants::DW_EH_PE_sleb128.0,
-        );
+        let encoding =
+            constants::DwEhPe(constants::DW_EH_PE_textrel.0 | constants::DW_EH_PE_sleb128.0);
         let bases = BaseAddresses::default().set_text(0x11111111);
         let address_size = 4;
         let expected_rest = [1, 2, 3, 4];

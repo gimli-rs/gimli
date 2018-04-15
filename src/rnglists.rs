@@ -152,7 +152,10 @@ pub struct RangeLists<R: Reader> {
 impl<R: Reader> RangeLists<R> {
     /// Construct a new `RangeLists` instance from the data in the `.debug_ranges` and
     /// `.debug_rnglists` sections.
-    pub fn new(debug_ranges: DebugRanges<R>, debug_rnglists: DebugRngLists<R>) -> Result<RangeLists<R>> {
+    pub fn new(
+        debug_ranges: DebugRanges<R>,
+        debug_rnglists: DebugRngLists<R>,
+    ) -> Result<RangeLists<R>> {
         let mut input = debug_rnglists.debug_rnglists_section.clone();
         let header = if input.is_empty() {
             RngListsHeader {
@@ -187,7 +190,10 @@ impl<R: Reader> RangeLists<R> {
         address_size: u8,
         base_address: u64,
     ) -> Result<RngListIter<R>> {
-        Ok(RngListIter::new(self.raw_ranges(offset, unit_version, address_size)?, base_address))
+        Ok(RngListIter::new(
+            self.raw_ranges(offset, unit_version, address_size)?,
+            base_address,
+        ))
     }
 
     /// Iterate over the `RawRngListEntry`ies starting at the given offset.
@@ -216,7 +222,11 @@ impl<R: Reader> RangeLists<R> {
             }
             let mut input = self.debug_rnglists.debug_rnglists_section.clone();
             input.skip(offset.0)?;
-            Ok(RawRngListIter::new(input, unit_version, self.header.address_size))
+            Ok(RawRngListIter::new(
+                input,
+                unit_version,
+                self.header.address_size,
+            ))
         }
     }
 }
@@ -279,7 +289,7 @@ pub enum RawRngListEntry {
         begin: u64,
         /// length of range
         length: u64,
-    }
+    },
 }
 
 impl RawRngListEntry {
@@ -290,9 +300,7 @@ impl RawRngListEntry {
             return Ok(if range.is_end() {
                 None
             } else if range.is_base_address(address_size) {
-                Some(RawRngListEntry::BaseAddress {
-                    addr: range.end,
-                })
+                Some(RawRngListEntry::BaseAddress { addr: range.end })
             } else {
                 Some(RawRngListEntry::OffsetPair {
                     begin: range.begin,
@@ -301,49 +309,33 @@ impl RawRngListEntry {
             });
         }
         Ok(match constants::DwRle(input.read_u8()?) {
-            constants::DW_RLE_end_of_list => {
-                None
-            },
-            constants::DW_RLE_base_addressx => {
-                Some(RawRngListEntry::BaseAddressx {
-                    addr: AddressIndex(input.read_uleb128()?),
-                })
-            },
-            constants::DW_RLE_startx_endx => {
-                Some(RawRngListEntry::StartxEndx {
-                    begin: AddressIndex(input.read_uleb128()?),
-                    end: AddressIndex(input.read_uleb128()?),
-                })
-            },
-            constants::DW_RLE_startx_length => {
-                Some(RawRngListEntry::StartxLength {
-                    begin: AddressIndex(input.read_uleb128()?),
-                    length: input.read_uleb128()?,
-                })
-            },
-            constants::DW_RLE_offset_pair => {
-                Some(RawRngListEntry::OffsetPair {
-                    begin: input.read_uleb128()?,
-                    end: input.read_uleb128()?,
-                })
-            },
-            constants::DW_RLE_base_address => {
-                Some(RawRngListEntry::BaseAddress {
-                    addr: input.read_address(address_size)?,
-                })
-            },
-            constants::DW_RLE_start_end => {
-                Some(RawRngListEntry::StartEnd {
-                    begin: input.read_address(address_size)?,
-                    end: input.read_address(address_size)?,
-                })
-            },
-            constants::DW_RLE_start_length => {
-                Some(RawRngListEntry::StartLength {
-                    begin: input.read_address(address_size)?,
-                    length: input.read_uleb128()?,
-                })
-            },
+            constants::DW_RLE_end_of_list => None,
+            constants::DW_RLE_base_addressx => Some(RawRngListEntry::BaseAddressx {
+                addr: AddressIndex(input.read_uleb128()?),
+            }),
+            constants::DW_RLE_startx_endx => Some(RawRngListEntry::StartxEndx {
+                begin: AddressIndex(input.read_uleb128()?),
+                end: AddressIndex(input.read_uleb128()?),
+            }),
+            constants::DW_RLE_startx_length => Some(RawRngListEntry::StartxLength {
+                begin: AddressIndex(input.read_uleb128()?),
+                length: input.read_uleb128()?,
+            }),
+            constants::DW_RLE_offset_pair => Some(RawRngListEntry::OffsetPair {
+                begin: input.read_uleb128()?,
+                end: input.read_uleb128()?,
+            }),
+            constants::DW_RLE_base_address => Some(RawRngListEntry::BaseAddress {
+                addr: input.read_address(address_size)?,
+            }),
+            constants::DW_RLE_start_end => Some(RawRngListEntry::StartEnd {
+                begin: input.read_address(address_size)?,
+                end: input.read_address(address_size)?,
+            }),
+            constants::DW_RLE_start_length => Some(RawRngListEntry::StartLength {
+                begin: input.read_address(address_size)?,
+                length: input.read_uleb128()?,
+            }),
             _ => {
                 return Err(Error::InvalidAddressRange);
             }
@@ -423,17 +415,19 @@ impl<R: Reader> RngListIter<R> {
                 RawRngListEntry::BaseAddress { addr } => {
                     self.base_address = addr;
                     continue;
-                },
+                }
                 RawRngListEntry::OffsetPair { begin, end } => {
                     let mut range = Range { begin, end };
                     range.add_base_address(self.base_address, self.raw.address_size);
                     range
+                }
+                RawRngListEntry::StartEnd { begin, end } => Range {
+                    begin: begin,
+                    end: end,
                 },
-                RawRngListEntry::StartEnd { begin, end } => {
-                    Range { begin: begin, end: end }
-                },
-                RawRngListEntry::StartLength { begin, length } => {
-                    Range { begin: begin, end: begin + length }
+                RawRngListEntry::StartLength { begin, length } => Range {
+                    begin: begin,
+                    end: begin + length,
                 },
                 _ => {
                     // We don't support AddressIndex-based entries yet

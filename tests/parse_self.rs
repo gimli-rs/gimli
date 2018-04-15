@@ -109,9 +109,9 @@ fn test_parse_self_debug_line() {
 
             let mut results = Vec::new();
             let mut rows = program.rows();
-            while let Some((_, row)) = rows.next_row().expect(
-                "Should parse and execute all rows in the line number program",
-            ) {
+            while let Some((_, row)) = rows.next_row()
+                .expect("Should parse and execute all rows in the line number program")
+            {
                 results.push(*row);
             }
             results.reverse();

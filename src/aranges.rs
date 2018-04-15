@@ -68,12 +68,12 @@ impl<T: Copy + Ord> Ord for ArangeEntry<T> {
             self.length.cmp(&other.length),
         ) {
             (Ordering::Equal, Ordering::Equal, Ordering::Equal) => Ordering::Equal,
-            (Ordering::Less, _, _) |
-            (Ordering::Equal, Ordering::Less, _) |
-            (Ordering::Equal, Ordering::Equal, Ordering::Less) => Ordering::Less,
-            (Ordering::Greater, _, _) |
-            (Ordering::Equal, Ordering::Greater, _) |
-            (Ordering::Equal, Ordering::Equal, Ordering::Greater) => Ordering::Greater,
+            (Ordering::Less, _, _)
+            | (Ordering::Equal, Ordering::Less, _)
+            | (Ordering::Equal, Ordering::Equal, Ordering::Less) => Ordering::Less,
+            (Ordering::Greater, _, _)
+            | (Ordering::Equal, Ordering::Greater, _)
+            | (Ordering::Equal, Ordering::Equal, Ordering::Greater) => Ordering::Greater,
         }
     }
 }
