@@ -1,7 +1,7 @@
 //! Functions for parsing and evaluating DWARF expressions.
 
 use constants;
-use parser::{Error, Format};
+use parser::{Error, Format, Result};
 use reader::{Reader, ReaderOffset};
 use unit::{DebugInfoOffset, UnitOffset};
 use std::mem;
@@ -331,7 +331,7 @@ where
 }
 
 // A helper function to handle branch offsets.
-fn compute_pc<R: Reader>(pc: &R, bytecode: &R, offset: i16) -> Result<R, Error> {
+fn compute_pc<R: Reader>(pc: &R, bytecode: &R, offset: i16) -> Result<R> {
     let pc_offset = pc.offset_from(bytecode);
     let new_pc_offset = pc_offset.wrapping_add(R::Offset::from_i16(offset));
     if new_pc_offset > bytecode.len() {
@@ -372,7 +372,7 @@ where
         bytecode: &R,
         address_size: u8,
         format: Format,
-    ) -> Result<Operation<R, Offset>, Error> {
+    ) -> Result<Operation<R, Offset>> {
         let opcode = bytes.read_u8()?;
         let name = constants::DwOp(opcode);
         match name {
@@ -1161,14 +1161,14 @@ impl<R: Reader> Evaluation<R> {
         self.max_iterations = Some(value);
     }
 
-    fn pop(&mut self) -> Result<u64, Error> {
+    fn pop(&mut self) -> Result<u64> {
         match self.stack.pop() {
             Some(value) => Ok(value & self.addr_mask),
             None => Err(Error::NotEnoughStackItems),
         }
     }
 
-    fn pop_signed(&mut self) -> Result<i64, Error> {
+    fn pop_signed(&mut self) -> Result<i64> {
         match self.stack.pop() {
             Some(value) => {
                 let mut value = value & self.addr_mask;
@@ -1189,7 +1189,7 @@ impl<R: Reader> Evaluation<R> {
     fn evaluate_one_operation(
         &mut self,
         operation: &Operation<R, R::Offset>,
-    ) -> Result<OperationEvaluationResult<R>, Error> {
+    ) -> Result<OperationEvaluationResult<R>> {
         let mut terminated = false;
         let mut piece_end = false;
         let mut current_location = Location::Empty;
@@ -1500,7 +1500,7 @@ impl<R: Reader> Evaluation<R> {
     /// `EvaluationResult::Complete`, the caller should provide the required
     /// value and resume the evaluation by calling the appropriate resume_with
     /// method on `Evaluation`.
-    pub fn evaluate(&mut self) -> Result<EvaluationResult<R>, Error> {
+    pub fn evaluate(&mut self) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Start(initial_value) => {
                 if let Some(value) = initial_value {
@@ -1530,7 +1530,7 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresMemory`.
-    pub fn resume_with_memory(&mut self, value: u64) -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_memory(&mut self, value: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingMemory { .. }) => {
@@ -1551,7 +1551,7 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresRegister`.
-    pub fn resume_with_register(&mut self, register: u64) -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_register(&mut self, register: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(
@@ -1574,10 +1574,7 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresFrameBase`.
-    pub fn resume_with_frame_base(
-        &mut self,
-        frame_base: u64,
-    ) -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_frame_base(&mut self, frame_base: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingFrameBase { offset }) => {
@@ -1598,7 +1595,7 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresTls`.
-    pub fn resume_with_tls(&mut self, value: u64) -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_tls(&mut self, value: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingTls { .. }) => {
@@ -1619,7 +1616,7 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresCallFrameCfa`.
-    pub fn resume_with_call_frame_cfa(&mut self, cfa: u64) -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_call_frame_cfa(&mut self, cfa: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingCfa) => {
@@ -1640,7 +1637,7 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresAtLocation`.
-    pub fn resume_with_at_location(&mut self, mut bytes: R) -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_at_location(&mut self, mut bytes: R) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingAtLocation { .. }) => {
@@ -1666,10 +1663,7 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresEntryValue`.
-    pub fn resume_with_entry_value(
-        &mut self,
-        entry_value: u64,
-    ) -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_entry_value(&mut self, entry_value: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingEntryValue { .. }) => {
@@ -1693,7 +1687,7 @@ impl<R: Reader> Evaluation<R> {
     pub fn resume_with_parameter_ref(
         &mut self,
         parameter_value: u64,
-    ) -> Result<EvaluationResult<R>, Error> {
+    ) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingParameterRef { .. }) => {
@@ -1714,7 +1708,7 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresTextBase`.
-    pub fn resume_with_text_base(&mut self, text_base: u64) -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_text_base(&mut self, text_base: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(OperationEvaluationResult::AwaitingTextBase { offset }) => {
@@ -1728,7 +1722,7 @@ impl<R: Reader> Evaluation<R> {
         self.evaluate_internal()
     }
 
-    fn evaluate_internal(&mut self) -> Result<EvaluationResult<R>, Error> {
+    fn evaluate_internal(&mut self) -> Result<EvaluationResult<R>> {
         'eval: loop {
             while self.pc.is_empty() {
                 match self.expression_stack.pop() {
