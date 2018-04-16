@@ -13,9 +13,7 @@ use std::io::Read;
 use std::path::PathBuf;
 
 pub fn read_section(section: &str) -> Vec<u8> {
-    let mut path = PathBuf::from(
-        env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into()),
-    );
+    let mut path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into()));
     path.push("./fixtures/self/");
     path.push(section);
 
@@ -184,9 +182,9 @@ fn bench_executing_line_number_programs(b: &mut test::Bencher) {
             .expect("Should parse line number program header");
 
         let mut rows = program.rows();
-        while let Some(row) = rows.next_row().expect(
-            "Should parse and execute all rows in the line number program",
-        ) {
+        while let Some(row) = rows.next_row()
+            .expect("Should parse and execute all rows in the line number program")
+        {
             test::black_box(row);
         }
     });
@@ -238,12 +236,14 @@ fn bench_parsing_debug_loc(b: &mut test::Bencher) {
         }
     }
 
-    b.iter(|| for &(offset, version, address_size, base_address) in &*offsets {
-        let mut locs = loclists
-            .locations(offset, version, address_size, base_address)
-            .expect("Should parse locations OK");
-        while let Some(loc) = locs.next().expect("Should parse next location") {
-            test::black_box(loc);
+    b.iter(|| {
+        for &(offset, version, address_size, base_address) in &*offsets {
+            let mut locs = loclists
+                .locations(offset, version, address_size, base_address)
+                .expect("Should parse locations OK");
+            while let Some(loc) = locs.next().expect("Should parse next location") {
+                test::black_box(loc);
+            }
         }
     });
 }
@@ -294,12 +294,14 @@ fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
         }
     }
 
-    b.iter(|| for &(offset, version, address_size, base_address) in &*offsets {
-        let mut ranges = rnglists
-            .ranges(offset, version, address_size, base_address)
-            .expect("Should parse ranges OK");
-        while let Some(range) = ranges.next().expect("Should parse next range") {
-            test::black_box(range);
+    b.iter(|| {
+        for &(offset, version, address_size, base_address) in &*offsets {
+            let mut ranges = rnglists
+                .ranges(offset, version, address_size, base_address)
+                .expect("Should parse ranges OK");
+            while let Some(range) = ranges.next().expect("Should parse next range") {
+                test::black_box(range);
+            }
         }
     });
 }

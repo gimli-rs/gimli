@@ -234,14 +234,29 @@ enum OperationEvaluationResult<R: Reader> {
         size: u8,
         space: Option<u64>,
     },
-    AwaitingRegister { register: u64, offset: u64 },
-    AwaitingFrameBase { offset: u64 },
-    AwaitingTls { index: u64 },
+    AwaitingRegister {
+        register: u64,
+        offset: u64,
+    },
+    AwaitingFrameBase {
+        offset: u64,
+    },
+    AwaitingTls {
+        index: u64,
+    },
     AwaitingCfa,
-    AwaitingAtLocation { location: DieReference<R::Offset> },
-    AwaitingEntryValue { expression: R },
-    AwaitingParameterRef { parameter: UnitOffset<R::Offset> },
-    AwaitingTextBase { offset: u64 },
+    AwaitingAtLocation {
+        location: DieReference<R::Offset>,
+    },
+    AwaitingEntryValue {
+        expression: R,
+    },
+    AwaitingParameterRef {
+        parameter: UnitOffset<R::Offset>,
+    },
+    AwaitingTextBase {
+        offset: u64,
+    },
 }
 
 /// A single location of a piece of the result of a DWARF expression.
@@ -336,7 +351,7 @@ fn generic_register<R: Reader>(reg: u64) -> Operation<R, R::Offset> {
     Operation::Register {
         base_type: generic_type(),
         register: reg,
-   }
+    }
 }
 
 impl<R, Offset> Operation<R, Offset>
@@ -880,7 +895,7 @@ where
                 })
             }
             constants::DW_OP_deref_type | constants::DW_OP_GNU_deref_type => {
-                let size  = bytes.read_u8()?;
+                let size = bytes.read_u8()?;
                 let base_type = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
                 Ok(Operation::Deref {
                     base_type: UnitOffset(base_type),
@@ -1180,7 +1195,11 @@ impl<R: Reader> Evaluation<R> {
         let mut current_location = Location::Empty;
 
         match *operation {
-            Operation::Deref { base_type, size, space } => {
+            Operation::Deref {
+                base_type,
+                size,
+                space,
+            } => {
                 if base_type != UnitOffset(R::Offset::from_u64(0).unwrap()) {
                     return Err(Error::UnsupportedTypedStack);
                 }
@@ -1388,9 +1407,7 @@ impl<R: Reader> Evaluation<R> {
             },
 
             Operation::Call { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingAtLocation {
-                    location: offset,
-                });
+                return Ok(OperationEvaluationResult::AwaitingAtLocation { location: offset });
             }
 
             Operation::TLS => {
@@ -1402,7 +1419,10 @@ impl<R: Reader> Evaluation<R> {
                 return Ok(OperationEvaluationResult::AwaitingCfa);
             }
 
-            Operation::Register { base_type, register } => {
+            Operation::Register {
+                base_type,
+                register,
+            } => {
                 if base_type != UnitOffset(R::Offset::from_u64(0).unwrap()) {
                     return Err(Error::UnsupportedTypedStack);
                 }
@@ -1437,23 +1457,20 @@ impl<R: Reader> Evaluation<R> {
             }
 
             Operation::ParameterRef { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingParameterRef {
-                    parameter: offset,
-                });
+                return Ok(OperationEvaluationResult::AwaitingParameterRef { parameter: offset });
             }
 
             Operation::TextRelativeOffset { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingTextBase {
-                    offset: offset,
-                });
+                return Ok(OperationEvaluationResult::AwaitingTextBase { offset: offset });
             }
 
             Operation::Piece { .. } => {
                 piece_end = true;
             }
 
-            Operation::TypedLiteral { .. } | Operation::Convert { .. } |
-            Operation::Reinterpret { .. } => {
+            Operation::TypedLiteral { .. }
+            | Operation::Convert { .. }
+            | Operation::Reinterpret { .. } => {
                 return Err(Error::UnsupportedTypedStack);
             }
         }
@@ -1833,7 +1850,9 @@ impl<R: Reader> Evaluation<R> {
                 }
                 OperationEvaluationResult::AwaitingEntryValue { ref expression } => {
                     self.state = EvaluationState::Waiting(op_result.clone());
-                    return Ok(EvaluationResult::RequiresEntryValue(Expression(expression.clone())));
+                    return Ok(EvaluationResult::RequiresEntryValue(Expression(
+                        expression.clone(),
+                    )));
                 }
                 OperationEvaluationResult::AwaitingParameterRef { parameter } => {
                     self.state = EvaluationState::Waiting(op_result);
@@ -2373,7 +2392,10 @@ mod tests {
                 ),
                 (
                     constants::DW_OP_regx,
-                    Operation::Register { base_type: generic_type(), register: *value },
+                    Operation::Register {
+                        base_type: generic_type(),
+                        register: *value,
+                    },
                 ),
             ];
 
@@ -2530,11 +2552,7 @@ mod tests {
         let format = Format::Dwarf32;
 
         check_op_parse(
-            |s| {
-                s.D8(constants::DW_OP_regval_type.0)
-                    .uleb(1)
-                    .uleb(100)
-            },
+            |s| s.D8(constants::DW_OP_regval_type.0).uleb(1).uleb(100),
             &Operation::Register {
                 base_type: UnitOffset(100),
                 register: 1,
@@ -2543,11 +2561,7 @@ mod tests {
             format,
         );
         check_op_parse(
-            |s| {
-                s.D8(constants::DW_OP_GNU_regval_type.0)
-                    .uleb(1)
-                    .uleb(100)
-            },
+            |s| s.D8(constants::DW_OP_GNU_regval_type.0).uleb(1).uleb(100),
             &Operation::Register {
                 base_type: UnitOffset(100),
                 register: 1,
@@ -2564,11 +2578,7 @@ mod tests {
         let format = Format::Dwarf32;
 
         check_op_parse(
-            |s| {
-                s.D8(constants::DW_OP_deref_type.0)
-                    .D8(8)
-                    .uleb(100)
-            },
+            |s| s.D8(constants::DW_OP_deref_type.0).D8(8).uleb(100),
             &Operation::Deref {
                 base_type: UnitOffset(100),
                 size: 8,
@@ -2578,11 +2588,7 @@ mod tests {
             format,
         );
         check_op_parse(
-            |s| {
-                s.D8(constants::DW_OP_GNU_deref_type.0)
-                    .D8(8)
-                    .uleb(100)
-            },
+            |s| s.D8(constants::DW_OP_GNU_deref_type.0).D8(8).uleb(100),
             &Operation::Deref {
                 base_type: UnitOffset(100),
                 size: 8,
@@ -2600,10 +2606,7 @@ mod tests {
         let format = Format::Dwarf32;
 
         check_op_parse(
-            |s| {
-                s.D8(constants::DW_OP_convert.0)
-                    .uleb(100)
-            },
+            |s| s.D8(constants::DW_OP_convert.0).uleb(100),
             &Operation::Convert {
                 base_type: UnitOffset(100),
             },
@@ -2611,10 +2614,7 @@ mod tests {
             format,
         );
         check_op_parse(
-            |s| {
-                s.D8(constants::DW_OP_GNU_convert.0)
-                    .uleb(100)
-            },
+            |s| s.D8(constants::DW_OP_GNU_convert.0).uleb(100),
             &Operation::Convert {
                 base_type: UnitOffset(100),
             },
@@ -2630,10 +2630,7 @@ mod tests {
         let format = Format::Dwarf32;
 
         check_op_parse(
-            |s| {
-                s.D8(constants::DW_OP_reinterpret.0)
-                    .uleb(100)
-            },
+            |s| s.D8(constants::DW_OP_reinterpret.0).uleb(100),
             &Operation::Reinterpret {
                 base_type: UnitOffset(100),
             },
@@ -2641,10 +2638,7 @@ mod tests {
             format,
         );
         check_op_parse(
-            |s| {
-                s.D8(constants::DW_OP_GNU_reinterpret.0)
-                    .uleb(100)
-            },
+            |s| s.D8(constants::DW_OP_GNU_reinterpret.0).uleb(100),
             &Operation::Reinterpret {
                 base_type: UnitOffset(100),
             },
@@ -2796,10 +2790,9 @@ mod tests {
         f: F,
     ) where
         for<'a> F: Fn(
-                   &mut Evaluation<EndianBuf<'a, LittleEndian>>,
-                   EvaluationResult<EndianBuf<'a, LittleEndian>>,
-               )
-                   -> Result<EvaluationResult<EndianBuf<'a, LittleEndian>>>,
+            &mut Evaluation<EndianBuf<'a, LittleEndian>>,
+            EvaluationResult<EndianBuf<'a, LittleEndian>>,
+        ) -> Result<EvaluationResult<EndianBuf<'a, LittleEndian>>>,
     {
         let bytes = assemble(program);
         let bytes = EndianBuf::new(&bytes, LittleEndian);
@@ -2842,7 +2835,6 @@ mod tests {
         address_size: u8,
         format: Format,
     ) {
-
         check_eval_with_args(
             program,
             expect,

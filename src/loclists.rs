@@ -2,7 +2,7 @@ use constants;
 use endianity::{EndianBuf, Endianity};
 use fallible_iterator::FallibleIterator;
 use op::Expression;
-use parser::{self, Format, Error, Result};
+use parser::{self, Error, Format, Result};
 use reader::{Reader, ReaderOffset};
 use rnglists::{AddressIndex, Range};
 use Section;
@@ -87,7 +87,9 @@ impl<R: Reader> Section<R> for DebugLocLists<R> {
 
 impl<R: Reader> From<R> for DebugLocLists<R> {
     fn from(debug_loclists_section: R) -> Self {
-        DebugLocLists { debug_loclists_section }
+        DebugLocLists {
+            debug_loclists_section,
+        }
     }
 }
 
@@ -145,7 +147,10 @@ pub struct LocationLists<R: Reader> {
 impl<R: Reader> LocationLists<R> {
     /// Construct a new `LocationLists` instance from the data in the `.debug_loc` and
     /// `.debug_loclists` sections.
-    pub fn new(debug_loc: DebugLoc<R>, debug_loclists: DebugLocLists<R>) -> Result<LocationLists<R>> {
+    pub fn new(
+        debug_loc: DebugLoc<R>,
+        debug_loclists: DebugLocLists<R>,
+    ) -> Result<LocationLists<R>> {
         let mut input = debug_loclists.debug_loclists_section.clone();
         let header = if input.is_empty() {
             LocListsHeader {
@@ -181,7 +186,10 @@ impl<R: Reader> LocationLists<R> {
         address_size: u8,
         base_address: u64,
     ) -> Result<LocListIter<R>> {
-        Ok(LocListIter::new(self.raw_locations(offset, unit_version, address_size)?, base_address))
+        Ok(LocListIter::new(
+            self.raw_locations(offset, unit_version, address_size)?,
+            base_address,
+        ))
     }
 
     /// Iterate over the raw `LocationListEntry`s starting at the given offset.
@@ -210,7 +218,11 @@ impl<R: Reader> LocationLists<R> {
             }
             let mut input = self.debug_loclists.debug_loclists_section.clone();
             input.skip(offset.0)?;
-            Ok(RawLocListIter::new(input, unit_version, self.header.address_size))
+            Ok(RawLocListIter::new(
+                input,
+                unit_version,
+                self.header.address_size,
+            ))
         }
     }
 }
@@ -288,7 +300,7 @@ pub enum RawLocListEntry<R: Reader> {
         length: u64,
         /// expression
         data: Expression<R>,
-    }
+    },
 }
 
 fn parse_data<R: Reader>(input: &mut R) -> Result<Expression<R>> {
@@ -304,9 +316,7 @@ impl<R: Reader> RawLocListEntry<R> {
             return Ok(if range.is_end() {
                 None
             } else if range.is_base_address(address_size) {
-                Some(RawLocListEntry::BaseAddress {
-                    addr: range.end,
-                })
+                Some(RawLocListEntry::BaseAddress { addr: range.end })
             } else {
                 let len = R::Offset::from_u16(input.read_u16()?);
                 let data = Expression(input.split(len)?);
@@ -318,59 +328,41 @@ impl<R: Reader> RawLocListEntry<R> {
             });
         }
         Ok(match constants::DwLle(input.read_u8()?) {
-            constants::DW_LLE_end_of_list => {
-                None
-            },
-            constants::DW_LLE_base_addressx => {
-                Some(RawLocListEntry::BaseAddressx {
-                    addr: AddressIndex(input.read_uleb128()?),
-                })
-            },
-            constants::DW_LLE_startx_endx => {
-                Some(RawLocListEntry::StartxEndx {
-                    begin: AddressIndex(input.read_uleb128()?),
-                    end: AddressIndex(input.read_uleb128()?),
-                    data: parse_data(input)?,
-                })
-            },
-            constants::DW_LLE_startx_length => {
-                Some(RawLocListEntry::StartxLength {
-                    begin: AddressIndex(input.read_uleb128()?),
-                    length: input.read_uleb128()?,
-                    data: parse_data(input)?,
-                })
-            },
-            constants::DW_LLE_offset_pair => {
-                Some(RawLocListEntry::OffsetPair {
-                    begin: input.read_uleb128()?,
-                    end: input.read_uleb128()?,
-                    data: parse_data(input)?,
-                })
-            },
-            constants::DW_LLE_default_location => {
-                Some(RawLocListEntry::DefaultLocation {
-                    data: parse_data(input)?,
-                })
-            },
-            constants::DW_LLE_base_address => {
-                Some(RawLocListEntry::BaseAddress {
-                    addr: input.read_address(address_size)?,
-                })
-            },
-            constants::DW_LLE_start_end => {
-                Some(RawLocListEntry::StartEnd {
-                    begin: input.read_address(address_size)?,
-                    end: input.read_address(address_size)?,
-                    data: parse_data(input)?,
-                })
-            },
-            constants::DW_LLE_start_length => {
-                Some(RawLocListEntry::StartLength {
-                    begin: input.read_address(address_size)?,
-                    length: input.read_uleb128()?,
-                    data: parse_data(input)?,
-                })
-            },
+            constants::DW_LLE_end_of_list => None,
+            constants::DW_LLE_base_addressx => Some(RawLocListEntry::BaseAddressx {
+                addr: AddressIndex(input.read_uleb128()?),
+            }),
+            constants::DW_LLE_startx_endx => Some(RawLocListEntry::StartxEndx {
+                begin: AddressIndex(input.read_uleb128()?),
+                end: AddressIndex(input.read_uleb128()?),
+                data: parse_data(input)?,
+            }),
+            constants::DW_LLE_startx_length => Some(RawLocListEntry::StartxLength {
+                begin: AddressIndex(input.read_uleb128()?),
+                length: input.read_uleb128()?,
+                data: parse_data(input)?,
+            }),
+            constants::DW_LLE_offset_pair => Some(RawLocListEntry::OffsetPair {
+                begin: input.read_uleb128()?,
+                end: input.read_uleb128()?,
+                data: parse_data(input)?,
+            }),
+            constants::DW_LLE_default_location => Some(RawLocListEntry::DefaultLocation {
+                data: parse_data(input)?,
+            }),
+            constants::DW_LLE_base_address => Some(RawLocListEntry::BaseAddress {
+                addr: input.read_address(address_size)?,
+            }),
+            constants::DW_LLE_start_end => Some(RawLocListEntry::StartEnd {
+                begin: input.read_address(address_size)?,
+                end: input.read_address(address_size)?,
+                data: parse_data(input)?,
+            }),
+            constants::DW_LLE_start_length => Some(RawLocListEntry::StartLength {
+                begin: input.read_address(address_size)?,
+                length: input.read_uleb128()?,
+                data: parse_data(input)?,
+            }),
             _ => {
                 return Err(Error::InvalidAddressRange);
             }
@@ -450,21 +442,37 @@ impl<R: Reader> LocListIter<R> {
                 RawLocListEntry::BaseAddress { addr } => {
                     self.base_address = addr;
                     continue;
-                },
-                RawLocListEntry::DefaultLocation { data } => {
-                    (Range { begin: 0, end: u64::max_value() }, data)
                 }
+                RawLocListEntry::DefaultLocation { data } => (
+                    Range {
+                        begin: 0,
+                        end: u64::max_value(),
+                    },
+                    data,
+                ),
                 RawLocListEntry::OffsetPair { begin, end, data } => {
                     let mut range = Range { begin, end };
                     range.add_base_address(self.base_address, self.raw.address_size);
                     (range, data)
-                },
-                RawLocListEntry::StartEnd { begin, end, data } => {
-                    (Range { begin: begin, end: end }, data)
-                },
-                RawLocListEntry::StartLength { begin, length, data } => {
-                    (Range { begin: begin, end: begin + length }, data)
-                },
+                }
+                RawLocListEntry::StartEnd { begin, end, data } => (
+                    Range {
+                        begin: begin,
+                        end: end,
+                    },
+                    data,
+                ),
+                RawLocListEntry::StartLength {
+                    begin,
+                    length,
+                    data,
+                } => (
+                    Range {
+                        begin: begin,
+                        end: begin + length,
+                    },
+                    data,
+                ),
                 _ => {
                     // We don't support AddressIndex-based entries yet
                     return Err(Error::UnsupportedAddressIndex);

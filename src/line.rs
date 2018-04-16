@@ -137,7 +137,6 @@ where
     opcodes: OpcodesIter<R>,
 }
 
-
 type OneShotStateMachine<R> = StateMachine<R, IncompleteLineNumberProgram<R>>;
 
 type ResumedStateMachine<'program, R> = StateMachine<R, &'program CompleteLineNumberProgram<R>>;
@@ -320,10 +319,10 @@ where
             }
 
             // Compatibility with future opcodes.
-            Opcode::UnknownStandard0(_) |
-            Opcode::UnknownStandard1(_, _) |
-            Opcode::UnknownStandardN(_, _) |
-            Opcode::UnknownExtended(_, _) => false,
+            Opcode::UnknownStandard0(_)
+            | Opcode::UnknownStandard1(_, _)
+            | Opcode::UnknownStandardN(_, _)
+            | Opcode::UnknownExtended(_, _) => false,
         }
     }
 
@@ -1162,7 +1161,8 @@ impl<R: Reader> LineNumberProgramHeader<R> {
 
         // This field did not exist before DWARF 4, but is specified to be 1 for
         // non-VLIW architectures, which makes it a no-op.
-        let maximum_operations_per_instruction = if version >= 4 { rest.read_u8()? } else { 1 };
+        let maximum_operations_per_instruction =
+            if version >= 4 { rest.read_u8()? } else { 1 };
         if maximum_operations_per_instruction == 0 {
             return Err(parser::Error::MaximumOperationsPerInstructionZero);
         }
@@ -1200,13 +1200,11 @@ impl<R: Reader> LineNumberProgramHeader<R> {
             file_names.push(FileEntry::parse(rest, path_name)?);
         }
 
-        let comp_name = comp_name.map(|name| {
-            FileEntry {
-                path_name: name,
-                directory_index: 0,
-                last_modification: 0,
-                length: 0,
-            }
+        let comp_name = comp_name.map(|name| FileEntry {
+            path_name: name,
+            directory_index: 0,
+            last_modification: 0,
+            length: 0,
         });
 
         let header = LineNumberProgramHeader {
@@ -1926,7 +1924,6 @@ mod tests {
         file.directory_index = 0;
         assert_eq!(file.directory(&header), None);
     }
-
 
     fn new_registers() -> StateMachineRegisters {
         let mut regs = StateMachineRegisters::default();

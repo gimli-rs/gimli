@@ -172,7 +172,6 @@
 #![allow(never_loop)]
 // False positives when block expressions are used inside an assertion.
 #![allow(panic_params)]
-
 #![no_std]
 #![cfg_attr(feature = "alloc", feature(alloc))]
 
@@ -182,10 +181,10 @@ extern crate std;
 
 #[cfg(not(feature = "std"))]
 #[macro_use]
-extern crate core as std;
+extern crate alloc;
 #[cfg(not(feature = "std"))]
 #[macro_use]
-extern crate alloc;
+extern crate core as std;
 
 extern crate arrayvec;
 extern crate byteorder;
@@ -240,8 +239,8 @@ mod line;
 pub use line::*;
 
 mod loclists;
-pub use loclists::{DebugLoc, DebugLocLists, LocationLists, LocationListsOffset,
-                   LocationListEntry, LocListIter, RawLocListEntry, RawLocListIter};
+pub use loclists::{DebugLoc, DebugLocLists, LocListIter, LocationListEntry, LocationLists,
+                   LocationListsOffset, RawLocListEntry, RawLocListIter};
 
 mod lookup;
 

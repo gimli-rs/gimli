@@ -138,8 +138,10 @@ impl<R: Reader> EhFrameHdr<R> {
             return Err(Error::UnexpectedNull);
         }
 
-        let eh_frame_ptr = parse_encoded_pointer(eh_frame_ptr_enc, bases, addr_size, &self.0, &mut reader)?;
-        let fde_count = parse_encoded_pointer(fde_count_enc, bases, addr_size, &self.0, &mut reader)?;
+        let eh_frame_ptr =
+            parse_encoded_pointer(eh_frame_ptr_enc, bases, addr_size, &self.0, &mut reader)?;
+        let fde_count =
+            parse_encoded_pointer(fde_count_enc, bases, addr_size, &self.0, &mut reader)?;
         let fde_count = match fde_count {
             Pointer::Direct(c) => c,
             Pointer::Indirect(_) => return Err(Error::UnsupportedPointerEncoding),
@@ -209,8 +211,9 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     /// To be sure, you **must** call `contains` on the FDE.
     pub fn lookup(&self, address: u64, bases: &BaseAddresses) -> Result<Pointer> {
         let size = match self.hdr.table_enc.format() {
-            constants::DW_EH_PE_uleb128 | constants::DW_EH_PE_sleb128
-                => return Err(Error::VariableLengthSearchTable),
+            constants::DW_EH_PE_uleb128 | constants::DW_EH_PE_sleb128 => {
+                return Err(Error::VariableLengthSearchTable)
+            }
             constants::DW_EH_PE_sdata2 | constants::DW_EH_PE_udata2 => 2,
             constants::DW_EH_PE_sdata4 | constants::DW_EH_PE_udata4 => 4,
             constants::DW_EH_PE_sdata8 | constants::DW_EH_PE_udata8 => 8,
@@ -227,8 +230,13 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
             let head = reader.split(R::Offset::from_u64((len / 2) * row_size)?)?;
             let tail = reader.clone();
 
-            let pivot = parse_encoded_pointer(self.hdr.table_enc, bases, self.hdr.addr_size,
-                                              &self.hdr.section, &mut reader)?;
+            let pivot = parse_encoded_pointer(
+                self.hdr.table_enc,
+                bases,
+                self.hdr.addr_size,
+                &self.hdr.section,
+                &mut reader,
+            )?;
             let pivot = match pivot {
                 Pointer::Direct(x) => x,
                 Pointer::Indirect(_) => return Err(Error::UnsupportedPointerEncoding),
@@ -252,8 +260,13 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
 
         reader.skip(R::Offset::from_u64(size)?)?;
 
-        parse_encoded_pointer(self.hdr.table_enc, bases, self.hdr.addr_size,
-                              &self.hdr.section, &mut reader)
+        parse_encoded_pointer(
+            self.hdr.table_enc,
+            bases,
+            self.hdr.addr_size,
+            &self.hdr.section,
+            &mut reader,
+        )
     }
 }
 
@@ -1294,8 +1307,7 @@ where
     /// you've already parsed, etc.)
     pub fn parse<F>(&self, get_cie: F) -> Result<FrameDescriptionEntry<Section, R, R::Offset>>
     where
-        F: FnMut(Section::Offset)
-            -> Result<CommonInformationEntry<Section, R, R::Offset>>,
+        F: FnMut(Section::Offset) -> Result<CommonInformationEntry<Section, R, R::Offset>>,
     {
         FrameDescriptionEntry::parse_rest(
             self.offset,
@@ -1373,8 +1385,7 @@ where
         mut get_cie: F,
     ) -> Result<FrameDescriptionEntry<Section, R, Offset>>
     where
-        F: FnMut(Section::Offset)
-            -> Result<CommonInformationEntry<Section, R, R::Offset>>,
+        F: FnMut(Section::Offset) -> Result<CommonInformationEntry<Section, R, R::Offset>>,
     {
         {
             let mut func = bases.func.borrow_mut();
@@ -1758,7 +1769,7 @@ where
         };
 
         match result {
-            Ok(()) =>  {
+            Ok(()) => {
                 self.0.save_initial_rules();
                 Ok(InitializedUnwindContext(self.0))
             }
@@ -1913,8 +1924,9 @@ where
 
     fn push_row(&mut self) -> Result<()> {
         let new_row = self.row().clone();
-        self.stack.try_push(new_row)
-                  .map_err(|_| Error::CfiStackFull)
+        self.stack
+            .try_push(new_row)
+            .map_err(|_| Error::CfiStackFull)
     }
 
     fn pop_row(&mut self) {
@@ -2014,7 +2026,6 @@ where
         Self::new_internal(&mut ctx.0, fde.cie(), Some(fde))
     }
 }
-
 
 /// # Signal Safe Methods
 ///
@@ -2313,8 +2324,9 @@ impl<R: Reader> RegisterRuleMap<R> {
             }
         }
 
-        self.rules.try_push((register, rule))
-                  .map_err(|_| Error::TooManyRegisterRules)
+        self.rules
+            .try_push((register, rule))
+            .map_err(|_| Error::TooManyRegisterRules)
     }
 
     fn clear(&mut self) {
@@ -2412,8 +2424,8 @@ impl<R: Reader> Default for UnwindTableRow<R> {
 
 impl<R: Reader> UnwindTableRow<R> {
     fn is_default(&self) -> bool {
-        self.start_address == 0 && self.end_address == 0 && self.cfa.is_default() &&
-            self.registers.is_default()
+        self.start_address == 0 && self.end_address == 0 && self.cfa.is_default()
+            && self.registers.is_default()
     }
 
     /// Get the starting PC address that this row applies to.
@@ -3125,8 +3137,7 @@ mod tests {
         R: Reader,
         Section: UnwindSection<R, Offset = O>,
         O: UnwindOffset<R::Offset>,
-        F: FnMut(O)
-            -> Result<CommonInformationEntry<Section, R, R::Offset>>,
+        F: FnMut(O) -> Result<CommonInformationEntry<Section, R, R::Offset>>,
     {
         let bases = Default::default();
         match parse_cfi_entry(&bases, section, input) {
@@ -3893,9 +3904,11 @@ mod tests {
             instructions: EndianBuf::new(&expected_instrs4, BigEndian),
         };
 
-        let section = section
-            .fde(Endian::Big, &cie1_location, &mut fde1)
-            .fde(Endian::Big, &cie2_location, &mut fde2);
+        let section = section.fde(Endian::Big, &cie1_location, &mut fde1).fde(
+            Endian::Big,
+            &cie2_location,
+            &mut fde2,
+        );
 
         section.start().set_const(0);
 
@@ -4747,9 +4760,10 @@ mod tests {
     fn test_eval_def_cfa_register_invalid_context() {
         let cie: DebugFrameCie<_, _> = make_test_cie();
         let mut ctx = UnwindContext::new();
-        ctx.set_cfa(CfaRule::Expression(
-            Expression(EndianBuf::new(&[], LittleEndian)),
-        ));
+        ctx.set_cfa(CfaRule::Expression(Expression(EndianBuf::new(
+            &[],
+            LittleEndian,
+        ))));
         let expected = ctx.clone();
         let instructions = [
             (
@@ -4783,9 +4797,10 @@ mod tests {
     fn test_eval_def_cfa_offset_invalid_context() {
         let cie: DebugFrameCie<_, _> = make_test_cie();
         let mut ctx = UnwindContext::new();
-        ctx.set_cfa(CfaRule::Expression(
-            Expression(EndianBuf::new(&[], LittleEndian)),
-        ));
+        ctx.set_cfa(CfaRule::Expression(Expression(EndianBuf::new(
+            &[],
+            LittleEndian,
+        ))));
         let expected = ctx.clone();
         let instructions = [
             (
@@ -4802,9 +4817,10 @@ mod tests {
         let cie: DebugFrameCie<_, _> = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_cfa(CfaRule::Expression(
-            Expression(EndianBuf::new(&expr, LittleEndian)),
-        ));
+        expected.set_cfa(CfaRule::Expression(Expression(EndianBuf::new(
+            &expr,
+            LittleEndian,
+        ))));
         let instructions = [
             (
                 Ok(false),
@@ -5298,9 +5314,11 @@ mod tests {
             instructions: EndianBuf::new(&instrs4, BigEndian),
         };
 
-        let section = section
-            .fde(Endian::Big, &cie1_location, &mut fde1)
-            .fde(Endian::Big, &cie2_location, &mut fde2);
+        let section = section.fde(Endian::Big, &cie1_location, &mut fde1).fde(
+            Endian::Big,
+            &cie2_location,
+            &mut fde2,
+        );
         section.start().set_const(0);
 
         let contents = section.get_contents().unwrap();
@@ -5349,9 +5367,16 @@ mod tests {
     #[test]
     fn test_eh_frame_hdr_omit_ehptr() {
         let section = Section::with_endian(Endian::Little)
-            .L8(1).L8(0xff).L8(0x03).L8(0x0b).L32(2)
-            .L32(10).L32(1)
-            .L32(20).L32(2).L32(0);
+            .L8(1)
+            .L8(0xff)
+            .L8(0x03)
+            .L8(0x0b)
+            .L32(2)
+            .L32(10)
+            .L32(1)
+            .L32(20)
+            .L32(2)
+            .L32(0);
         let section = section.get_contents().unwrap();
         let bases = BaseAddresses::default();
         let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
@@ -5362,7 +5387,11 @@ mod tests {
     #[test]
     fn test_eh_frame_hdr_omit_count() {
         let section = Section::with_endian(Endian::Little)
-            .L8(1).L8(0x0b).L8(0xff).L8(0x0b).L32(0x12345);
+            .L8(1)
+            .L8(0x0b)
+            .L8(0xff)
+            .L8(0x0b)
+            .L32(0x12345);
         let section = section.get_contents().unwrap();
         let bases = BaseAddresses::default();
         let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
@@ -5375,7 +5404,12 @@ mod tests {
     #[test]
     fn test_eh_frame_hdr_omit_table() {
         let section = Section::with_endian(Endian::Little)
-            .L8(1).L8(0x0b).L8(0x03).L8(0xff).L32(0x12345).L32(2);
+            .L8(1)
+            .L8(0x0b)
+            .L8(0x03)
+            .L8(0xff)
+            .L32(0x12345)
+            .L32(2);
         let section = section.get_contents().unwrap();
         let bases = BaseAddresses::default();
         let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
@@ -5388,7 +5422,12 @@ mod tests {
     #[test]
     fn test_eh_frame_hdr_varlen_table() {
         let section = Section::with_endian(Endian::Little)
-            .L8(1).L8(0x0b).L8(0x03).L8(0x01).L32(0x12345).L32(2);
+            .L8(1)
+            .L8(0x0b)
+            .L8(0x03)
+            .L8(0x01)
+            .L32(0x12345)
+            .L32(2);
         let section = section.get_contents().unwrap();
         let bases = BaseAddresses::default();
         let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
@@ -5398,13 +5437,21 @@ mod tests {
         let table = result.table();
         assert!(table.is_some());
         let table = table.unwrap();
-        assert_eq!(table.lookup(0, &bases), Err(Error::VariableLengthSearchTable));
+        assert_eq!(
+            table.lookup(0, &bases),
+            Err(Error::VariableLengthSearchTable)
+        );
     }
 
     #[test]
     fn test_eh_frame_hdr_indirect_length() {
         let section = Section::with_endian(Endian::Little)
-            .L8(1).L8(0x0b).L8(0x83).L8(0x0b).L32(0x12345).L32(2);
+            .L8(1)
+            .L8(0x0b)
+            .L8(0x83)
+            .L8(0x0b)
+            .L32(0x12345)
+            .L32(2);
         let section = section.get_contents().unwrap();
         let bases = BaseAddresses::default();
         let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
@@ -5415,9 +5462,16 @@ mod tests {
     #[test]
     fn test_eh_frame_hdr_indirect_ptrs() {
         let section = Section::with_endian(Endian::Little)
-            .L8(1).L8(0x8b).L8(0x03).L8(0x8b).L32(0x12345).L32(2)
-            .L32(10).L32(1)
-            .L32(20).L32(2);
+            .L8(1)
+            .L8(0x8b)
+            .L8(0x03)
+            .L8(0x8b)
+            .L32(0x12345)
+            .L32(2)
+            .L32(10)
+            .L32(1)
+            .L32(20)
+            .L32(2);
         let section = section.get_contents().unwrap();
         let bases = BaseAddresses::default();
         let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
@@ -5427,15 +5481,25 @@ mod tests {
         let table = result.table();
         assert!(table.is_some());
         let table = table.unwrap();
-        assert_eq!(table.lookup(0, &bases), Err(Error::UnsupportedPointerEncoding));
+        assert_eq!(
+            table.lookup(0, &bases),
+            Err(Error::UnsupportedPointerEncoding)
+        );
     }
 
     #[test]
     fn test_eh_frame_hdr_good() {
         let section = Section::with_endian(Endian::Little)
-            .L8(1).L8(0x0b).L8(0x03).L8(0x0b).L32(0x12345).L32(2)
-            .L32(10).L32(1)
-            .L32(20).L32(2);
+            .L8(1)
+            .L8(0x0b)
+            .L8(0x03)
+            .L8(0x0b)
+            .L32(0x12345)
+            .L32(2)
+            .L32(10)
+            .L32(1)
+            .L32(20)
+            .L32(2);
         let section = section.get_contents().unwrap();
         let bases = BaseAddresses::default();
         let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
@@ -5538,13 +5602,15 @@ mod tests {
         let section = EndianBuf::new(&section, LittleEndian);
 
         let mut offset = None;
-        match parse_fde(EhFrame::new(section.into(), LittleEndian),
-                        &mut section.range_from(end_of_cie.value().unwrap() as usize..),
-                        |o| {
-                            offset = Some(o);
-                            assert_eq!(o, EhFrameOffset(start_of_cie.value().unwrap() as usize));
-                            Ok(cie.clone())
-                        }) {
+        match parse_fde(
+            EhFrame::new(section.into(), LittleEndian),
+            &mut section.range_from(end_of_cie.value().unwrap() as usize..),
+            |o| {
+                offset = Some(o);
+                assert_eq!(o, EhFrameOffset(start_of_cie.value().unwrap() as usize));
+                Ok(cie.clone())
+            },
+        ) {
             Ok(actual) => assert_eq!(actual, fde),
             otherwise => panic!("Unexpected result {:?}", otherwise),
         }
@@ -5579,9 +5645,11 @@ mod tests {
         let section = section.get_contents().unwrap();
         let section = EndianBuf::new(&section, LittleEndian);
 
-        let result = parse_fde(EhFrame::new(section.into(), LittleEndian),
-                               &mut section.range_from(end_of_cie.value().unwrap() as usize..),
-                               |_| unreachable!());
+        let result = parse_fde(
+            EhFrame::new(section.into(), LittleEndian),
+            &mut section.range_from(end_of_cie.value().unwrap() as usize..),
+            |_| unreachable!(),
+        );
         assert_eq!(result, Err(Error::OffsetOutOfBounds));
     }
 

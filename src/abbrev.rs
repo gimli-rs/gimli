@@ -267,10 +267,15 @@ impl AttributeSpecification {
     /// Construct a new `AttributeSpecification` from the given name and form
     /// and implicit const value.
     #[inline]
-    pub fn new(name: constants::DwAt, form: constants::DwForm,
-               implicit_const_value: Option<i64>) -> AttributeSpecification {
-        debug_assert!((form == constants::DW_FORM_implicit_const && implicit_const_value.is_some()) ||
-                      (form != constants::DW_FORM_implicit_const && implicit_const_value.is_none()));
+    pub fn new(
+        name: constants::DwAt,
+        form: constants::DwForm,
+        implicit_const_value: Option<i64>,
+    ) -> AttributeSpecification {
+        debug_assert!(
+            (form == constants::DW_FORM_implicit_const && implicit_const_value.is_some())
+                || (form != constants::DW_FORM_implicit_const && implicit_const_value.is_none())
+        );
         AttributeSpecification {
             name: name,
             form: form,
@@ -414,7 +419,9 @@ pub mod tests {
         }
 
         fn abbrev_attr_implicit_const(self, name: constants::DwAt, value: i64) -> Self {
-            self.uleb(name.0).uleb(constants::DW_FORM_implicit_const.0).sleb(value)
+            self.uleb(name.0)
+                .uleb(constants::DW_FORM_implicit_const.0)
+                .sleb(value)
         }
 
         fn abbrev_attr_null(self) -> Self {
@@ -449,8 +456,16 @@ pub mod tests {
             constants::DW_TAG_compile_unit,
             constants::DW_CHILDREN_yes,
             vec![
-                AttributeSpecification::new(constants::DW_AT_producer, constants::DW_FORM_strp, None),
-                AttributeSpecification::new(constants::DW_AT_language, constants::DW_FORM_data2, None),
+                AttributeSpecification::new(
+                    constants::DW_AT_producer,
+                    constants::DW_FORM_strp,
+                    None,
+                ),
+                AttributeSpecification::new(
+                    constants::DW_AT_language,
+                    constants::DW_FORM_data2,
+                    None,
+                ),
             ],
         );
 
@@ -593,8 +608,16 @@ pub mod tests {
             constants::DW_TAG_compile_unit,
             constants::DW_CHILDREN_yes,
             vec![
-                AttributeSpecification::new(constants::DW_AT_producer, constants::DW_FORM_strp, None),
-                AttributeSpecification::new(constants::DW_AT_language, constants::DW_FORM_data2, None),
+                AttributeSpecification::new(
+                    constants::DW_AT_producer,
+                    constants::DW_FORM_strp,
+                    None,
+                ),
+                AttributeSpecification::new(
+                    constants::DW_AT_language,
+                    constants::DW_FORM_data2,
+                    None,
+                ),
             ],
         );
 
@@ -716,7 +739,11 @@ pub mod tests {
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
             vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_implicit_const, Some(-42)),
+                AttributeSpecification::new(
+                    constants::DW_AT_name,
+                    constants::DW_FORM_implicit_const,
+                    Some(-42),
+                ),
             ],
         ));
 
@@ -734,7 +761,7 @@ pub mod tests {
         let buf = &mut EndianBuf::new(&*buf, LittleEndian);
 
         match Abbreviation::parse(buf) {
-            Err(Error::UnexpectedEof) => {},
+            Err(Error::UnexpectedEof) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
     }
