@@ -222,41 +222,12 @@ where
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 enum OperationEvaluationResult<R: Reader> {
     Piece,
     Incomplete,
-    Complete {
-        location: Location<R, R::Offset>,
-    },
-    AwaitingMemory {
-        address: u64,
-        size: u8,
-        space: Option<u64>,
-    },
-    AwaitingRegister {
-        register: u64,
-        offset: u64,
-    },
-    AwaitingFrameBase {
-        offset: u64,
-    },
-    AwaitingTls {
-        index: u64,
-    },
-    AwaitingCfa,
-    AwaitingAtLocation {
-        location: DieReference<R::Offset>,
-    },
-    AwaitingEntryValue {
-        expression: R,
-    },
-    AwaitingParameterRef {
-        parameter: UnitOffset<R::Offset>,
-    },
-    AwaitingTextBase {
-        offset: u64,
-    },
+    Complete { location: Location<R, R::Offset> },
+    Waiting(EvaluationWaiting, EvaluationResult<R>),
 }
 
 /// A single location of a piece of the result of a DWARF expression.
@@ -740,12 +711,25 @@ where
 }
 
 #[derive(Debug)]
-enum EvaluationState<R: Reader> {
+enum EvaluationState {
     Start(Option<u64>),
     Ready,
     Error(Error),
     Complete,
-    Waiting(OperationEvaluationResult<R>),
+    Waiting(EvaluationWaiting),
+}
+
+#[derive(Debug)]
+enum EvaluationWaiting {
+    Memory,
+    Register { offset: i64 },
+    FrameBase { offset: i64 },
+    Tls,
+    Cfa,
+    AtLocation,
+    EntryValue,
+    ParameterRef,
+    TextBase { offset: u64 },
 }
 
 /// The state of an `Evaluation` after evaluating a DWARF expression.
@@ -890,7 +874,7 @@ pub struct Evaluation<R: Reader> {
     object_address: Option<u64>,
     max_iterations: Option<u32>,
     iteration: u32,
-    state: EvaluationState<R>,
+    state: EvaluationState,
 
     // Stack operations are done on word-sized values.  We do all
     // operations on 64-bit values, and then mask the results
@@ -1019,11 +1003,14 @@ impl<R: Reader> Evaluation<R> {
                 }
                 let addr = self.pop()?;
                 let addr_space = if space { Some(self.pop()?) } else { None };
-                return Ok(OperationEvaluationResult::AwaitingMemory {
-                    address: addr,
-                    size: size,
-                    space: addr_space,
-                });
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::Memory,
+                    EvaluationResult::RequiresMemory {
+                        address: addr,
+                        size: size,
+                        space: addr_space,
+                    },
+                ));
             }
 
             Operation::Drop => {
@@ -1200,16 +1187,17 @@ impl<R: Reader> Evaluation<R> {
             }
 
             Operation::RegisterOffset { register, offset } => {
-                return Ok(OperationEvaluationResult::AwaitingRegister {
-                    register: register,
-                    offset: offset as u64,
-                });
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::Register { offset },
+                    EvaluationResult::RequiresRegister(register),
+                ));
             }
 
             Operation::FrameOffset { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingFrameBase {
-                    offset: offset as u64,
-                });
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::FrameBase { offset },
+                    EvaluationResult::RequiresFrameBase,
+                ));
             }
 
             Operation::Nop => {}
@@ -1221,16 +1209,25 @@ impl<R: Reader> Evaluation<R> {
             },
 
             Operation::Call { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingAtLocation { location: offset });
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::AtLocation,
+                    EvaluationResult::RequiresAtLocation(offset),
+                ));
             }
 
             Operation::TLS => {
-                let value = self.pop()?;
-                return Ok(OperationEvaluationResult::AwaitingTls { index: value });
+                let index = self.pop()?;
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::Tls,
+                    EvaluationResult::RequiresTls(index),
+                ));
             }
 
             Operation::CallFrameCFA => {
-                return Ok(OperationEvaluationResult::AwaitingCfa);
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::Cfa,
+                    EvaluationResult::RequiresCallFrameCfa,
+                ));
             }
 
             Operation::Register {
@@ -1265,17 +1262,24 @@ impl<R: Reader> Evaluation<R> {
             }
 
             Operation::EntryValue { ref expression } => {
-                return Ok(OperationEvaluationResult::AwaitingEntryValue {
-                    expression: expression.clone(),
-                });
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::EntryValue,
+                    EvaluationResult::RequiresEntryValue(Expression(expression.clone())),
+                ));
             }
 
             Operation::ParameterRef { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingParameterRef { parameter: offset });
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::ParameterRef,
+                    EvaluationResult::RequiresParameterRef(offset),
+                ));
             }
 
             Operation::TextRelativeOffset { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingTextBase { offset: offset });
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::TextBase { offset },
+                    EvaluationResult::RequiresTextBase,
+                ));
             }
 
             Operation::Piece {
@@ -1358,7 +1362,7 @@ impl<R: Reader> Evaluation<R> {
     pub fn resume_with_memory(&mut self, value: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingMemory { .. }) => {
+            EvaluationState::Waiting(EvaluationWaiting::Memory) => {
                 self.push(value);
             }
             _ => panic!(
@@ -1379,10 +1383,8 @@ impl<R: Reader> Evaluation<R> {
     pub fn resume_with_register(&mut self, register: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(
-                OperationEvaluationResult::AwaitingRegister { offset, .. },
-            ) => {
-                self.push(register.wrapping_add(offset));
+            EvaluationState::Waiting(EvaluationWaiting::Register { offset }) => {
+                self.push(register.wrapping_add(offset as u64));
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_register` without a preceding `EvaluationResult::RequiresRegister`"
@@ -1402,8 +1404,8 @@ impl<R: Reader> Evaluation<R> {
     pub fn resume_with_frame_base(&mut self, frame_base: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingFrameBase { offset }) => {
-                self.push(frame_base.wrapping_add(offset));
+            EvaluationState::Waiting(EvaluationWaiting::FrameBase { offset }) => {
+                self.push(frame_base.wrapping_add(offset as u64));
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_frame_base` without a preceding `EvaluationResult::RequiresFrameBase`"
@@ -1423,7 +1425,7 @@ impl<R: Reader> Evaluation<R> {
     pub fn resume_with_tls(&mut self, value: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingTls { .. }) => {
+            EvaluationState::Waiting(EvaluationWaiting::Tls) => {
                 self.push(value);
             }
             _ => panic!(
@@ -1444,7 +1446,7 @@ impl<R: Reader> Evaluation<R> {
     pub fn resume_with_call_frame_cfa(&mut self, cfa: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingCfa) => {
+            EvaluationState::Waiting(EvaluationWaiting::Cfa) => {
                 self.push(cfa);
             }
             _ => panic!(
@@ -1465,7 +1467,7 @@ impl<R: Reader> Evaluation<R> {
     pub fn resume_with_at_location(&mut self, mut bytes: R) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingAtLocation { .. }) => {
+            EvaluationState::Waiting(EvaluationWaiting::AtLocation) => {
                 if !bytes.is_empty() {
                     let mut pc = bytes.clone();
                     mem::swap(&mut pc, &mut self.pc);
@@ -1491,7 +1493,7 @@ impl<R: Reader> Evaluation<R> {
     pub fn resume_with_entry_value(&mut self, entry_value: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingEntryValue { .. }) => {
+            EvaluationState::Waiting(EvaluationWaiting::EntryValue) => {
                 self.push(entry_value);
             }
             _ => panic!(
@@ -1515,7 +1517,7 @@ impl<R: Reader> Evaluation<R> {
     ) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingParameterRef { .. }) => {
+            EvaluationState::Waiting(EvaluationWaiting::ParameterRef) => {
                 self.push(parameter_value);
             }
             _ => panic!(
@@ -1536,7 +1538,7 @@ impl<R: Reader> Evaluation<R> {
     pub fn resume_with_text_base(&mut self, text_base: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingTextBase { offset }) => {
+            EvaluationState::Waiting(EvaluationWaiting::TextBase { offset }) => {
                 self.push(text_base.wrapping_add(offset));
             }
             _ => panic!(
@@ -1620,51 +1622,9 @@ impl<R: Reader> Evaluation<R> {
                         }
                     }
                 }
-                OperationEvaluationResult::AwaitingMemory {
-                    address,
-                    size,
-                    space,
-                } => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresMemory {
-                        address: address,
-                        size: size,
-                        space: space,
-                    });
-                }
-                OperationEvaluationResult::AwaitingRegister { register, .. } => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresRegister(register));
-                }
-                OperationEvaluationResult::AwaitingFrameBase { .. } => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresFrameBase);
-                }
-                OperationEvaluationResult::AwaitingTls { index } => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresTls(index));
-                }
-                OperationEvaluationResult::AwaitingCfa => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresCallFrameCfa);
-                }
-                OperationEvaluationResult::AwaitingAtLocation { location } => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresAtLocation(location));
-                }
-                OperationEvaluationResult::AwaitingEntryValue { ref expression } => {
-                    self.state = EvaluationState::Waiting(op_result.clone());
-                    return Ok(EvaluationResult::RequiresEntryValue(Expression(
-                        expression.clone(),
-                    )));
-                }
-                OperationEvaluationResult::AwaitingParameterRef { parameter } => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresParameterRef(parameter));
-                }
-                OperationEvaluationResult::AwaitingTextBase { .. } => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresTextBase);
+                OperationEvaluationResult::Waiting(waiting, result) => {
+                    self.state = EvaluationState::Waiting(waiting);
+                    return Ok(result);
                 }
             };
         }
