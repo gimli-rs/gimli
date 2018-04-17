@@ -224,10 +224,10 @@ where
 
 #[derive(Debug, Clone)]
 enum OperationEvaluationResult<R: Reader> {
+    Piece,
+    Incomplete,
     Complete {
-        terminated: bool,
-        piece_end: bool,
-        current_location: Location<R, R::Offset>,
+        location: Location<R, R::Offset>,
     },
     AwaitingMemory {
         address: u64,
@@ -1004,15 +1004,11 @@ impl<R: Reader> Evaluation<R> {
         self.stack.push(value);
     }
 
-    fn evaluate_one_operation(
-        &mut self,
-        operation: &Operation<R, R::Offset>,
-    ) -> Result<OperationEvaluationResult<R>> {
-        let mut terminated = false;
-        let mut piece_end = false;
-        let mut current_location = Location::Empty;
+    fn evaluate_one_operation(&mut self) -> Result<OperationEvaluationResult<R>> {
+        let operation =
+            Operation::parse(&mut self.pc, &self.bytecode, self.address_size, self.format)?;
 
-        match *operation {
+        match operation {
             Operation::Deref {
                 base_type,
                 size,
@@ -1244,28 +1240,28 @@ impl<R: Reader> Evaluation<R> {
                 if base_type != UnitOffset(R::Offset::from_u64(0).unwrap()) {
                     return Err(Error::UnsupportedTypedStack);
                 }
-                terminated = true;
-                current_location = Location::Register { register: register };
+                let location = Location::Register { register };
+                return Ok(OperationEvaluationResult::Complete { location });
             }
 
             Operation::ImplicitValue { ref data } => {
-                terminated = true;
-                current_location = Location::Bytes {
+                let location = Location::Bytes {
                     value: data.clone(),
                 };
+                return Ok(OperationEvaluationResult::Complete { location });
             }
 
             Operation::StackValue => {
-                terminated = true;
-                current_location = Location::Scalar { value: self.pop()? };
+                let location = Location::Scalar { value: self.pop()? };
+                return Ok(OperationEvaluationResult::Complete { location });
             }
 
             Operation::ImplicitPointer { value, byte_offset } => {
-                terminated = true;
-                current_location = Location::ImplicitPointer {
+                let location = Location::ImplicitPointer {
                     value: value,
                     byte_offset: byte_offset,
                 };
+                return Ok(OperationEvaluationResult::Complete { location });
             }
 
             Operation::EntryValue { ref expression } => {
@@ -1282,8 +1278,23 @@ impl<R: Reader> Evaluation<R> {
                 return Ok(OperationEvaluationResult::AwaitingTextBase { offset: offset });
             }
 
-            Operation::Piece { .. } => {
-                piece_end = true;
+            Operation::Piece {
+                size_in_bits,
+                bit_offset,
+            } => {
+                let location = if self.stack.is_empty() {
+                    Location::Empty
+                } else {
+                    Location::Address {
+                        address: self.pop()?,
+                    }
+                };
+                self.result.push(Piece {
+                    size_in_bits: Some(size_in_bits),
+                    bit_offset,
+                    location,
+                });
+                return Ok(OperationEvaluationResult::Piece);
             }
 
             Operation::TypedLiteral { .. }
@@ -1293,11 +1304,7 @@ impl<R: Reader> Evaluation<R> {
             }
         }
 
-        Ok(OperationEvaluationResult::Complete {
-            terminated: terminated,
-            piece_end: piece_end,
-            current_location: current_location,
-        })
+        Ok(OperationEvaluationResult::Incomplete)
     }
 
     /// Get the result of this `Evaluation`.
@@ -1540,18 +1547,21 @@ impl<R: Reader> Evaluation<R> {
         self.evaluate_internal()
     }
 
-    fn evaluate_internal(&mut self) -> Result<EvaluationResult<R>> {
-        'eval: loop {
-            while self.pc.is_empty() {
-                match self.expression_stack.pop() {
-                    Some((newpc, newbytes)) => {
-                        self.pc = newpc;
-                        self.bytecode = newbytes;
-                    }
-                    None => break 'eval,
+    fn end_of_expression(&mut self) -> bool {
+        while self.pc.is_empty() {
+            match self.expression_stack.pop() {
+                Some((newpc, newbytes)) => {
+                    self.pc = newpc;
+                    self.bytecode = newbytes;
                 }
+                None => return true,
             }
+        }
+        false
+    }
 
+    fn evaluate_internal(&mut self) -> Result<EvaluationResult<R>> {
+        while !self.end_of_expression() {
             self.iteration += 1;
             if let Some(max_iterations) = self.max_iterations {
                 if self.iteration > max_iterations {
@@ -1559,67 +1569,49 @@ impl<R: Reader> Evaluation<R> {
                 }
             }
 
-            let operation =
-                Operation::parse(&mut self.pc, &self.bytecode, self.address_size, self.format)?;
-
-            let op_result = self.evaluate_one_operation(&operation)?;
+            let op_result = self.evaluate_one_operation()?;
             match op_result {
-                OperationEvaluationResult::Complete {
-                    terminated,
-                    piece_end,
-                    mut current_location,
-                } => {
-                    if piece_end || terminated {
-                        // If we saw a piece end, like Piece, then we want to use
-                        // the operation we already decoded to see what to do.
-                        // Otherwise, we saw something like Register, so we want
-                        // to decode the next operation.
-                        let eof = !piece_end && self.pc.is_empty();
-                        let mut pieceop = operation;
-                        if !terminated {
-                            // We saw a piece operation without something
-                            // terminating the expression.  This means the
-                            // result is the address on the stack.
-                            assert!(current_location.is_empty());
-                            if !self.stack.is_empty() {
-                                current_location = Location::Address {
-                                    address: self.pop()?,
-                                };
-                            }
-                        } else if !eof {
-                            pieceop = Operation::parse(
-                                &mut self.pc,
-                                &self.bytecode,
-                                self.address_size,
-                                self.format,
-                            )?;
+                OperationEvaluationResult::Piece => {}
+                OperationEvaluationResult::Incomplete => {
+                    if self.end_of_expression() && !self.result.is_empty() {
+                        // We saw a piece earlier and then some
+                        // unterminated piece.  It's not clear this is
+                        // well-defined.
+                        return Err(Error::InvalidPiece);
+                    }
+                }
+                OperationEvaluationResult::Complete { location } => {
+                    if self.end_of_expression() {
+                        if !self.result.is_empty() {
+                            // We saw a piece earlier and then some
+                            // unterminated piece.  It's not clear this is
+                            // well-defined.
+                            return Err(Error::InvalidPiece);
                         }
-                        match pieceop {
-                            _ if eof => {
-                                if !self.result.is_empty() {
-                                    // We saw a piece earlier and then some
-                                    // unterminated piece.  It's not clear this is
-                                    // well-defined.
-                                    return Err(Error::InvalidPiece.into());
-                                }
-                                self.result.push(Piece {
-                                    size_in_bits: None,
-                                    bit_offset: None,
-                                    location: current_location,
-                                });
-                            }
-
+                        self.result.push(Piece {
+                            size_in_bits: None,
+                            bit_offset: None,
+                            location,
+                        });
+                    } else {
+                        // If there are more operations, then the next operation must
+                        // be a Piece.
+                        match Operation::parse(
+                            &mut self.pc,
+                            &self.bytecode,
+                            self.address_size,
+                            self.format,
+                        )? {
                             Operation::Piece {
                                 size_in_bits,
                                 bit_offset,
                             } => {
                                 self.result.push(Piece {
                                     size_in_bits: Some(size_in_bits),
-                                    bit_offset: bit_offset,
-                                    location: current_location,
+                                    bit_offset,
+                                    location,
                                 });
                             }
-
                             _ => {
                                 let value =
                                     self.bytecode.len().into_u64() - self.pc.len().into_u64() - 1;
@@ -3500,6 +3492,22 @@ mod tests {
         ];
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+
+        let program = [
+            Op(DW_OP_reg3),
+            Op(DW_OP_piece), Uleb(4),
+            Op(DW_OP_reg4),
+        ];
+
+        check_eval(&program, Err(Error::InvalidPiece), 4, Format::Dwarf32);
+
+        let program = [
+            Op(DW_OP_reg3),
+            Op(DW_OP_piece), Uleb(4),
+            Op(DW_OP_lit0),
+        ];
+
+        check_eval(&program, Err(Error::InvalidPiece), 4, Format::Dwarf32);
     }
 
     #[test]
