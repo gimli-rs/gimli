@@ -1,7 +1,7 @@
 //! Functions for parsing and evaluating DWARF expressions.
 
 use constants;
-use parser::{Error, Format};
+use parser::{Error, Format, Result};
 use reader::{Reader, ReaderOffset};
 use unit::{DebugInfoOffset, UnitOffset};
 use std::mem;
@@ -222,41 +222,12 @@ where
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 enum OperationEvaluationResult<R: Reader> {
-    Complete {
-        terminated: bool,
-        piece_end: bool,
-        current_location: Location<R, R::Offset>,
-    },
-    AwaitingMemory {
-        address: u64,
-        size: u8,
-        space: Option<u64>,
-    },
-    AwaitingRegister {
-        register: u64,
-        offset: u64,
-    },
-    AwaitingFrameBase {
-        offset: u64,
-    },
-    AwaitingTls {
-        index: u64,
-    },
-    AwaitingCfa,
-    AwaitingAtLocation {
-        location: DieReference<R::Offset>,
-    },
-    AwaitingEntryValue {
-        expression: R,
-    },
-    AwaitingParameterRef {
-        parameter: UnitOffset<R::Offset>,
-    },
-    AwaitingTextBase {
-        offset: u64,
-    },
+    Piece,
+    Incomplete,
+    Complete { location: Location<R, R::Offset> },
+    Waiting(EvaluationWaiting, EvaluationResult<R>),
 }
 
 /// A single location of a piece of the result of a DWARF expression.
@@ -331,7 +302,7 @@ where
 }
 
 // A helper function to handle branch offsets.
-fn compute_pc<R: Reader>(pc: &R, bytecode: &R, offset: i16) -> Result<R, Error> {
+fn compute_pc<R: Reader>(pc: &R, bytecode: &R, offset: i16) -> Result<R> {
     let pc_offset = pc.offset_from(bytecode);
     let new_pc_offset = pc_offset.wrapping_add(R::Offset::from_i16(offset));
     if new_pc_offset > bytecode.len() {
@@ -372,7 +343,7 @@ where
         bytecode: &R,
         address_size: u8,
         format: Format,
-    ) -> Result<Operation<R, Offset>, Error> {
+    ) -> Result<Operation<R, Offset>> {
         let opcode = bytes.read_u8()?;
         let name = constants::DwOp(opcode);
         match name {
@@ -491,291 +462,109 @@ where
                     target: compute_pc(bytes, bytecode, value)?,
                 })
             }
-            constants::DW_OP_lit0 => Ok(Operation::Literal { value: 0 }),
-            constants::DW_OP_lit1 => Ok(Operation::Literal { value: 1 }),
-            constants::DW_OP_lit2 => Ok(Operation::Literal { value: 2 }),
-            constants::DW_OP_lit3 => Ok(Operation::Literal { value: 3 }),
-            constants::DW_OP_lit4 => Ok(Operation::Literal { value: 4 }),
-            constants::DW_OP_lit5 => Ok(Operation::Literal { value: 5 }),
-            constants::DW_OP_lit6 => Ok(Operation::Literal { value: 6 }),
-            constants::DW_OP_lit7 => Ok(Operation::Literal { value: 7 }),
-            constants::DW_OP_lit8 => Ok(Operation::Literal { value: 8 }),
-            constants::DW_OP_lit9 => Ok(Operation::Literal { value: 9 }),
-            constants::DW_OP_lit10 => Ok(Operation::Literal { value: 10 }),
-            constants::DW_OP_lit11 => Ok(Operation::Literal { value: 11 }),
-            constants::DW_OP_lit12 => Ok(Operation::Literal { value: 12 }),
-            constants::DW_OP_lit13 => Ok(Operation::Literal { value: 13 }),
-            constants::DW_OP_lit14 => Ok(Operation::Literal { value: 14 }),
-            constants::DW_OP_lit15 => Ok(Operation::Literal { value: 15 }),
-            constants::DW_OP_lit16 => Ok(Operation::Literal { value: 16 }),
-            constants::DW_OP_lit17 => Ok(Operation::Literal { value: 17 }),
-            constants::DW_OP_lit18 => Ok(Operation::Literal { value: 18 }),
-            constants::DW_OP_lit19 => Ok(Operation::Literal { value: 19 }),
-            constants::DW_OP_lit20 => Ok(Operation::Literal { value: 20 }),
-            constants::DW_OP_lit21 => Ok(Operation::Literal { value: 21 }),
-            constants::DW_OP_lit22 => Ok(Operation::Literal { value: 22 }),
-            constants::DW_OP_lit23 => Ok(Operation::Literal { value: 23 }),
-            constants::DW_OP_lit24 => Ok(Operation::Literal { value: 24 }),
-            constants::DW_OP_lit25 => Ok(Operation::Literal { value: 25 }),
-            constants::DW_OP_lit26 => Ok(Operation::Literal { value: 26 }),
-            constants::DW_OP_lit27 => Ok(Operation::Literal { value: 27 }),
-            constants::DW_OP_lit28 => Ok(Operation::Literal { value: 28 }),
-            constants::DW_OP_lit29 => Ok(Operation::Literal { value: 29 }),
-            constants::DW_OP_lit30 => Ok(Operation::Literal { value: 30 }),
-            constants::DW_OP_lit31 => Ok(Operation::Literal { value: 31 }),
-            constants::DW_OP_reg0 => Ok(generic_register(0)),
-            constants::DW_OP_reg1 => Ok(generic_register(1)),
-            constants::DW_OP_reg2 => Ok(generic_register(2)),
-            constants::DW_OP_reg3 => Ok(generic_register(3)),
-            constants::DW_OP_reg4 => Ok(generic_register(4)),
-            constants::DW_OP_reg5 => Ok(generic_register(5)),
-            constants::DW_OP_reg6 => Ok(generic_register(6)),
-            constants::DW_OP_reg7 => Ok(generic_register(7)),
-            constants::DW_OP_reg8 => Ok(generic_register(8)),
-            constants::DW_OP_reg9 => Ok(generic_register(9)),
-            constants::DW_OP_reg10 => Ok(generic_register(10)),
-            constants::DW_OP_reg11 => Ok(generic_register(11)),
-            constants::DW_OP_reg12 => Ok(generic_register(12)),
-            constants::DW_OP_reg13 => Ok(generic_register(13)),
-            constants::DW_OP_reg14 => Ok(generic_register(14)),
-            constants::DW_OP_reg15 => Ok(generic_register(15)),
-            constants::DW_OP_reg16 => Ok(generic_register(16)),
-            constants::DW_OP_reg17 => Ok(generic_register(17)),
-            constants::DW_OP_reg18 => Ok(generic_register(18)),
-            constants::DW_OP_reg19 => Ok(generic_register(19)),
-            constants::DW_OP_reg20 => Ok(generic_register(20)),
-            constants::DW_OP_reg21 => Ok(generic_register(21)),
-            constants::DW_OP_reg22 => Ok(generic_register(22)),
-            constants::DW_OP_reg23 => Ok(generic_register(23)),
-            constants::DW_OP_reg24 => Ok(generic_register(24)),
-            constants::DW_OP_reg25 => Ok(generic_register(25)),
-            constants::DW_OP_reg26 => Ok(generic_register(26)),
-            constants::DW_OP_reg27 => Ok(generic_register(27)),
-            constants::DW_OP_reg28 => Ok(generic_register(28)),
-            constants::DW_OP_reg29 => Ok(generic_register(29)),
-            constants::DW_OP_reg30 => Ok(generic_register(30)),
-            constants::DW_OP_reg31 => Ok(generic_register(31)),
-            constants::DW_OP_breg0 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 0,
-                    offset: value,
-                })
+            constants::DW_OP_lit0
+            | constants::DW_OP_lit1
+            | constants::DW_OP_lit2
+            | constants::DW_OP_lit3
+            | constants::DW_OP_lit4
+            | constants::DW_OP_lit5
+            | constants::DW_OP_lit6
+            | constants::DW_OP_lit7
+            | constants::DW_OP_lit8
+            | constants::DW_OP_lit9
+            | constants::DW_OP_lit10
+            | constants::DW_OP_lit11
+            | constants::DW_OP_lit12
+            | constants::DW_OP_lit13
+            | constants::DW_OP_lit14
+            | constants::DW_OP_lit15
+            | constants::DW_OP_lit16
+            | constants::DW_OP_lit17
+            | constants::DW_OP_lit18
+            | constants::DW_OP_lit19
+            | constants::DW_OP_lit20
+            | constants::DW_OP_lit21
+            | constants::DW_OP_lit22
+            | constants::DW_OP_lit23
+            | constants::DW_OP_lit24
+            | constants::DW_OP_lit25
+            | constants::DW_OP_lit26
+            | constants::DW_OP_lit27
+            | constants::DW_OP_lit28
+            | constants::DW_OP_lit29
+            | constants::DW_OP_lit30
+            | constants::DW_OP_lit31 => Ok(Operation::Literal {
+                value: (opcode - constants::DW_OP_lit0.0).into(),
+            }),
+            constants::DW_OP_reg0
+            | constants::DW_OP_reg1
+            | constants::DW_OP_reg2
+            | constants::DW_OP_reg3
+            | constants::DW_OP_reg4
+            | constants::DW_OP_reg5
+            | constants::DW_OP_reg6
+            | constants::DW_OP_reg7
+            | constants::DW_OP_reg8
+            | constants::DW_OP_reg9
+            | constants::DW_OP_reg10
+            | constants::DW_OP_reg11
+            | constants::DW_OP_reg12
+            | constants::DW_OP_reg13
+            | constants::DW_OP_reg14
+            | constants::DW_OP_reg15
+            | constants::DW_OP_reg16
+            | constants::DW_OP_reg17
+            | constants::DW_OP_reg18
+            | constants::DW_OP_reg19
+            | constants::DW_OP_reg20
+            | constants::DW_OP_reg21
+            | constants::DW_OP_reg22
+            | constants::DW_OP_reg23
+            | constants::DW_OP_reg24
+            | constants::DW_OP_reg25
+            | constants::DW_OP_reg26
+            | constants::DW_OP_reg27
+            | constants::DW_OP_reg28
+            | constants::DW_OP_reg29
+            | constants::DW_OP_reg30
+            | constants::DW_OP_reg31 => {
+                Ok(generic_register((opcode - constants::DW_OP_reg0.0).into()))
             }
-            constants::DW_OP_breg1 => {
+            constants::DW_OP_breg0
+            | constants::DW_OP_breg1
+            | constants::DW_OP_breg2
+            | constants::DW_OP_breg3
+            | constants::DW_OP_breg4
+            | constants::DW_OP_breg5
+            | constants::DW_OP_breg6
+            | constants::DW_OP_breg7
+            | constants::DW_OP_breg8
+            | constants::DW_OP_breg9
+            | constants::DW_OP_breg10
+            | constants::DW_OP_breg11
+            | constants::DW_OP_breg12
+            | constants::DW_OP_breg13
+            | constants::DW_OP_breg14
+            | constants::DW_OP_breg15
+            | constants::DW_OP_breg16
+            | constants::DW_OP_breg17
+            | constants::DW_OP_breg18
+            | constants::DW_OP_breg19
+            | constants::DW_OP_breg20
+            | constants::DW_OP_breg21
+            | constants::DW_OP_breg22
+            | constants::DW_OP_breg23
+            | constants::DW_OP_breg24
+            | constants::DW_OP_breg25
+            | constants::DW_OP_breg26
+            | constants::DW_OP_breg27
+            | constants::DW_OP_breg28
+            | constants::DW_OP_breg29
+            | constants::DW_OP_breg30
+            | constants::DW_OP_breg31 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                    register: 1,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg2 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 2,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg3 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 3,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg4 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 4,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg5 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 5,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg6 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 6,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg7 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 7,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg8 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 8,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg9 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 9,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg10 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 10,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg11 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 11,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg12 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 12,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg13 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 13,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg14 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 14,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg15 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 15,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg16 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 16,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg17 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 17,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg18 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 18,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg19 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 19,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg20 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 20,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg21 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 21,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg22 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 22,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg23 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 23,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg24 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 24,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg25 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 25,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg26 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 26,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg27 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 27,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg28 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 28,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg29 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 29,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg30 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 30,
-                    offset: value,
-                })
-            }
-            constants::DW_OP_breg31 => {
-                let value = bytes.read_sleb128()?;
-                Ok(Operation::RegisterOffset {
-                    register: 31,
+                    register: (opcode - constants::DW_OP_breg0.0).into(),
                     offset: value,
                 })
             }
@@ -922,12 +711,25 @@ where
 }
 
 #[derive(Debug)]
-enum EvaluationState<R: Reader> {
+enum EvaluationState {
     Start(Option<u64>),
     Ready,
     Error(Error),
     Complete,
-    Waiting(OperationEvaluationResult<R>),
+    Waiting(EvaluationWaiting),
+}
+
+#[derive(Debug)]
+enum EvaluationWaiting {
+    Memory,
+    Register { offset: i64 },
+    FrameBase { offset: i64 },
+    Tls,
+    Cfa,
+    AtLocation,
+    EntryValue,
+    ParameterRef,
+    TextBase { offset: u64 },
 }
 
 /// The state of an `Evaluation` after evaluating a DWARF expression.
@@ -1072,7 +874,7 @@ pub struct Evaluation<R: Reader> {
     object_address: Option<u64>,
     max_iterations: Option<u32>,
     iteration: u32,
-    state: EvaluationState<R>,
+    state: EvaluationState,
 
     // Stack operations are done on word-sized values.  We do all
     // operations on 64-bit values, and then mask the results
@@ -1161,14 +963,14 @@ impl<R: Reader> Evaluation<R> {
         self.max_iterations = Some(value);
     }
 
-    fn pop(&mut self) -> Result<u64, Error> {
+    fn pop(&mut self) -> Result<u64> {
         match self.stack.pop() {
             Some(value) => Ok(value & self.addr_mask),
             None => Err(Error::NotEnoughStackItems),
         }
     }
 
-    fn pop_signed(&mut self) -> Result<i64, Error> {
+    fn pop_signed(&mut self) -> Result<i64> {
         match self.stack.pop() {
             Some(value) => {
                 let mut value = value & self.addr_mask;
@@ -1186,15 +988,11 @@ impl<R: Reader> Evaluation<R> {
         self.stack.push(value);
     }
 
-    fn evaluate_one_operation(
-        &mut self,
-        operation: &Operation<R, R::Offset>,
-    ) -> Result<OperationEvaluationResult<R>, Error> {
-        let mut terminated = false;
-        let mut piece_end = false;
-        let mut current_location = Location::Empty;
+    fn evaluate_one_operation(&mut self) -> Result<OperationEvaluationResult<R>> {
+        let operation =
+            Operation::parse(&mut self.pc, &self.bytecode, self.address_size, self.format)?;
 
-        match *operation {
+        match operation {
             Operation::Deref {
                 base_type,
                 size,
@@ -1205,11 +1003,14 @@ impl<R: Reader> Evaluation<R> {
                 }
                 let addr = self.pop()?;
                 let addr_space = if space { Some(self.pop()?) } else { None };
-                return Ok(OperationEvaluationResult::AwaitingMemory {
-                    address: addr,
-                    size: size,
-                    space: addr_space,
-                });
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::Memory,
+                    EvaluationResult::RequiresMemory {
+                        address: addr,
+                        size: size,
+                        space: addr_space,
+                    },
+                ));
             }
 
             Operation::Drop => {
@@ -1386,16 +1187,17 @@ impl<R: Reader> Evaluation<R> {
             }
 
             Operation::RegisterOffset { register, offset } => {
-                return Ok(OperationEvaluationResult::AwaitingRegister {
-                    register: register,
-                    offset: offset as u64,
-                });
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::Register { offset },
+                    EvaluationResult::RequiresRegister(register),
+                ));
             }
 
             Operation::FrameOffset { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingFrameBase {
-                    offset: offset as u64,
-                });
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::FrameBase { offset },
+                    EvaluationResult::RequiresFrameBase,
+                ));
             }
 
             Operation::Nop => {}
@@ -1407,16 +1209,25 @@ impl<R: Reader> Evaluation<R> {
             },
 
             Operation::Call { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingAtLocation { location: offset });
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::AtLocation,
+                    EvaluationResult::RequiresAtLocation(offset),
+                ));
             }
 
             Operation::TLS => {
-                let value = self.pop()?;
-                return Ok(OperationEvaluationResult::AwaitingTls { index: value });
+                let index = self.pop()?;
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::Tls,
+                    EvaluationResult::RequiresTls(index),
+                ));
             }
 
             Operation::CallFrameCFA => {
-                return Ok(OperationEvaluationResult::AwaitingCfa);
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::Cfa,
+                    EvaluationResult::RequiresCallFrameCfa,
+                ));
             }
 
             Operation::Register {
@@ -1426,46 +1237,68 @@ impl<R: Reader> Evaluation<R> {
                 if base_type != UnitOffset(R::Offset::from_u64(0).unwrap()) {
                     return Err(Error::UnsupportedTypedStack);
                 }
-                terminated = true;
-                current_location = Location::Register { register: register };
+                let location = Location::Register { register };
+                return Ok(OperationEvaluationResult::Complete { location });
             }
 
             Operation::ImplicitValue { ref data } => {
-                terminated = true;
-                current_location = Location::Bytes {
+                let location = Location::Bytes {
                     value: data.clone(),
                 };
+                return Ok(OperationEvaluationResult::Complete { location });
             }
 
             Operation::StackValue => {
-                terminated = true;
-                current_location = Location::Scalar { value: self.pop()? };
+                let location = Location::Scalar { value: self.pop()? };
+                return Ok(OperationEvaluationResult::Complete { location });
             }
 
             Operation::ImplicitPointer { value, byte_offset } => {
-                terminated = true;
-                current_location = Location::ImplicitPointer {
+                let location = Location::ImplicitPointer {
                     value: value,
                     byte_offset: byte_offset,
                 };
+                return Ok(OperationEvaluationResult::Complete { location });
             }
 
             Operation::EntryValue { ref expression } => {
-                return Ok(OperationEvaluationResult::AwaitingEntryValue {
-                    expression: expression.clone(),
-                });
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::EntryValue,
+                    EvaluationResult::RequiresEntryValue(Expression(expression.clone())),
+                ));
             }
 
             Operation::ParameterRef { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingParameterRef { parameter: offset });
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::ParameterRef,
+                    EvaluationResult::RequiresParameterRef(offset),
+                ));
             }
 
             Operation::TextRelativeOffset { offset } => {
-                return Ok(OperationEvaluationResult::AwaitingTextBase { offset: offset });
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::TextBase { offset },
+                    EvaluationResult::RequiresTextBase,
+                ));
             }
 
-            Operation::Piece { .. } => {
-                piece_end = true;
+            Operation::Piece {
+                size_in_bits,
+                bit_offset,
+            } => {
+                let location = if self.stack.is_empty() {
+                    Location::Empty
+                } else {
+                    Location::Address {
+                        address: self.pop()?,
+                    }
+                };
+                self.result.push(Piece {
+                    size_in_bits: Some(size_in_bits),
+                    bit_offset,
+                    location,
+                });
+                return Ok(OperationEvaluationResult::Piece);
             }
 
             Operation::TypedLiteral { .. }
@@ -1475,11 +1308,7 @@ impl<R: Reader> Evaluation<R> {
             }
         }
 
-        Ok(OperationEvaluationResult::Complete {
-            terminated: terminated,
-            piece_end: piece_end,
-            current_location: current_location,
-        })
+        Ok(OperationEvaluationResult::Incomplete)
     }
 
     /// Get the result of this `Evaluation`.
@@ -1500,7 +1329,7 @@ impl<R: Reader> Evaluation<R> {
     /// `EvaluationResult::Complete`, the caller should provide the required
     /// value and resume the evaluation by calling the appropriate resume_with
     /// method on `Evaluation`.
-    pub fn evaluate(&mut self) -> Result<EvaluationResult<R>, Error> {
+    pub fn evaluate(&mut self) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Start(initial_value) => {
                 if let Some(value) = initial_value {
@@ -1530,10 +1359,10 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresMemory`.
-    pub fn resume_with_memory(&mut self, value: u64) -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_memory(&mut self, value: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingMemory { .. }) => {
+            EvaluationState::Waiting(EvaluationWaiting::Memory) => {
                 self.push(value);
             }
             _ => panic!(
@@ -1551,13 +1380,11 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresRegister`.
-    pub fn resume_with_register(&mut self, register: u64) -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_register(&mut self, register: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(
-                OperationEvaluationResult::AwaitingRegister { offset, .. },
-            ) => {
-                self.push(register.wrapping_add(offset));
+            EvaluationState::Waiting(EvaluationWaiting::Register { offset }) => {
+                self.push(register.wrapping_add(offset as u64));
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_register` without a preceding `EvaluationResult::RequiresRegister`"
@@ -1574,14 +1401,11 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresFrameBase`.
-    pub fn resume_with_frame_base(
-        &mut self,
-        frame_base: u64,
-    ) -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_frame_base(&mut self, frame_base: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingFrameBase { offset }) => {
-                self.push(frame_base.wrapping_add(offset));
+            EvaluationState::Waiting(EvaluationWaiting::FrameBase { offset }) => {
+                self.push(frame_base.wrapping_add(offset as u64));
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_frame_base` without a preceding `EvaluationResult::RequiresFrameBase`"
@@ -1598,10 +1422,10 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresTls`.
-    pub fn resume_with_tls(&mut self, value: u64) -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_tls(&mut self, value: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingTls { .. }) => {
+            EvaluationState::Waiting(EvaluationWaiting::Tls) => {
                 self.push(value);
             }
             _ => panic!(
@@ -1619,10 +1443,10 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresCallFrameCfa`.
-    pub fn resume_with_call_frame_cfa(&mut self, cfa: u64) -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_call_frame_cfa(&mut self, cfa: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingCfa) => {
+            EvaluationState::Waiting(EvaluationWaiting::Cfa) => {
                 self.push(cfa);
             }
             _ => panic!(
@@ -1640,10 +1464,10 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresAtLocation`.
-    pub fn resume_with_at_location(&mut self, mut bytes: R) -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_at_location(&mut self, mut bytes: R) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingAtLocation { .. }) => {
+            EvaluationState::Waiting(EvaluationWaiting::AtLocation) => {
                 if !bytes.is_empty() {
                     let mut pc = bytes.clone();
                     mem::swap(&mut pc, &mut self.pc);
@@ -1666,13 +1490,10 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresEntryValue`.
-    pub fn resume_with_entry_value(
-        &mut self,
-        entry_value: u64,
-    ) -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_entry_value(&mut self, entry_value: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingEntryValue { .. }) => {
+            EvaluationState::Waiting(EvaluationWaiting::EntryValue) => {
                 self.push(entry_value);
             }
             _ => panic!(
@@ -1693,10 +1514,10 @@ impl<R: Reader> Evaluation<R> {
     pub fn resume_with_parameter_ref(
         &mut self,
         parameter_value: u64,
-    ) -> Result<EvaluationResult<R>, Error> {
+    ) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingParameterRef { .. }) => {
+            EvaluationState::Waiting(EvaluationWaiting::ParameterRef) => {
                 self.push(parameter_value);
             }
             _ => panic!(
@@ -1714,10 +1535,10 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresTextBase`.
-    pub fn resume_with_text_base(&mut self, text_base: u64) -> Result<EvaluationResult<R>, Error> {
+    pub fn resume_with_text_base(&mut self, text_base: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(OperationEvaluationResult::AwaitingTextBase { offset }) => {
+            EvaluationState::Waiting(EvaluationWaiting::TextBase { offset }) => {
                 self.push(text_base.wrapping_add(offset));
             }
             _ => panic!(
@@ -1728,18 +1549,21 @@ impl<R: Reader> Evaluation<R> {
         self.evaluate_internal()
     }
 
-    fn evaluate_internal(&mut self) -> Result<EvaluationResult<R>, Error> {
-        'eval: loop {
-            while self.pc.is_empty() {
-                match self.expression_stack.pop() {
-                    Some((newpc, newbytes)) => {
-                        self.pc = newpc;
-                        self.bytecode = newbytes;
-                    }
-                    None => break 'eval,
+    fn end_of_expression(&mut self) -> bool {
+        while self.pc.is_empty() {
+            match self.expression_stack.pop() {
+                Some((newpc, newbytes)) => {
+                    self.pc = newpc;
+                    self.bytecode = newbytes;
                 }
+                None => return true,
             }
+        }
+        false
+    }
 
+    fn evaluate_internal(&mut self) -> Result<EvaluationResult<R>> {
+        while !self.end_of_expression() {
             self.iteration += 1;
             if let Some(max_iterations) = self.max_iterations {
                 if self.iteration > max_iterations {
@@ -1747,67 +1571,49 @@ impl<R: Reader> Evaluation<R> {
                 }
             }
 
-            let operation =
-                Operation::parse(&mut self.pc, &self.bytecode, self.address_size, self.format)?;
-
-            let op_result = self.evaluate_one_operation(&operation)?;
+            let op_result = self.evaluate_one_operation()?;
             match op_result {
-                OperationEvaluationResult::Complete {
-                    terminated,
-                    piece_end,
-                    mut current_location,
-                } => {
-                    if piece_end || terminated {
-                        // If we saw a piece end, like Piece, then we want to use
-                        // the operation we already decoded to see what to do.
-                        // Otherwise, we saw something like Register, so we want
-                        // to decode the next operation.
-                        let eof = !piece_end && self.pc.is_empty();
-                        let mut pieceop = operation;
-                        if !terminated {
-                            // We saw a piece operation without something
-                            // terminating the expression.  This means the
-                            // result is the address on the stack.
-                            assert!(current_location.is_empty());
-                            if !self.stack.is_empty() {
-                                current_location = Location::Address {
-                                    address: self.pop()?,
-                                };
-                            }
-                        } else if !eof {
-                            pieceop = Operation::parse(
-                                &mut self.pc,
-                                &self.bytecode,
-                                self.address_size,
-                                self.format,
-                            )?;
+                OperationEvaluationResult::Piece => {}
+                OperationEvaluationResult::Incomplete => {
+                    if self.end_of_expression() && !self.result.is_empty() {
+                        // We saw a piece earlier and then some
+                        // unterminated piece.  It's not clear this is
+                        // well-defined.
+                        return Err(Error::InvalidPiece);
+                    }
+                }
+                OperationEvaluationResult::Complete { location } => {
+                    if self.end_of_expression() {
+                        if !self.result.is_empty() {
+                            // We saw a piece earlier and then some
+                            // unterminated piece.  It's not clear this is
+                            // well-defined.
+                            return Err(Error::InvalidPiece);
                         }
-                        match pieceop {
-                            _ if eof => {
-                                if !self.result.is_empty() {
-                                    // We saw a piece earlier and then some
-                                    // unterminated piece.  It's not clear this is
-                                    // well-defined.
-                                    return Err(Error::InvalidPiece.into());
-                                }
-                                self.result.push(Piece {
-                                    size_in_bits: None,
-                                    bit_offset: None,
-                                    location: current_location,
-                                });
-                            }
-
+                        self.result.push(Piece {
+                            size_in_bits: None,
+                            bit_offset: None,
+                            location,
+                        });
+                    } else {
+                        // If there are more operations, then the next operation must
+                        // be a Piece.
+                        match Operation::parse(
+                            &mut self.pc,
+                            &self.bytecode,
+                            self.address_size,
+                            self.format,
+                        )? {
                             Operation::Piece {
                                 size_in_bits,
                                 bit_offset,
                             } => {
                                 self.result.push(Piece {
                                     size_in_bits: Some(size_in_bits),
-                                    bit_offset: bit_offset,
-                                    location: current_location,
+                                    bit_offset,
+                                    location,
                                 });
                             }
-
                             _ => {
                                 let value =
                                     self.bytecode.len().into_u64() - self.pc.len().into_u64() - 1;
@@ -1816,51 +1622,9 @@ impl<R: Reader> Evaluation<R> {
                         }
                     }
                 }
-                OperationEvaluationResult::AwaitingMemory {
-                    address,
-                    size,
-                    space,
-                } => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresMemory {
-                        address: address,
-                        size: size,
-                        space: space,
-                    });
-                }
-                OperationEvaluationResult::AwaitingRegister { register, .. } => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresRegister(register));
-                }
-                OperationEvaluationResult::AwaitingFrameBase { .. } => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresFrameBase);
-                }
-                OperationEvaluationResult::AwaitingTls { index } => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresTls(index));
-                }
-                OperationEvaluationResult::AwaitingCfa => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresCallFrameCfa);
-                }
-                OperationEvaluationResult::AwaitingAtLocation { location } => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresAtLocation(location));
-                }
-                OperationEvaluationResult::AwaitingEntryValue { ref expression } => {
-                    self.state = EvaluationState::Waiting(op_result.clone());
-                    return Ok(EvaluationResult::RequiresEntryValue(Expression(
-                        expression.clone(),
-                    )));
-                }
-                OperationEvaluationResult::AwaitingParameterRef { parameter } => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresParameterRef(parameter));
-                }
-                OperationEvaluationResult::AwaitingTextBase { .. } => {
-                    self.state = EvaluationState::Waiting(op_result);
-                    return Ok(EvaluationResult::RequiresTextBase);
+                OperationEvaluationResult::Waiting(waiting, result) => {
+                    self.state = EvaluationState::Waiting(waiting);
+                    return Ok(result);
                 }
             };
         }
@@ -3688,6 +3452,22 @@ mod tests {
         ];
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+
+        let program = [
+            Op(DW_OP_reg3),
+            Op(DW_OP_piece), Uleb(4),
+            Op(DW_OP_reg4),
+        ];
+
+        check_eval(&program, Err(Error::InvalidPiece), 4, Format::Dwarf32);
+
+        let program = [
+            Op(DW_OP_reg3),
+            Op(DW_OP_piece), Uleb(4),
+            Op(DW_OP_lit0),
+        ];
+
+        check_eval(&program, Err(Error::InvalidPiece), 4, Format::Dwarf32);
     }
 
     #[test]
