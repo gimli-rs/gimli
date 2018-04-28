@@ -1,6 +1,6 @@
 use constants;
 use endianity::Endianity;
-use endian_buf::EndianBuf;
+use endian_slice::EndianSlice;
 use fallible_iterator::FallibleIterator;
 use parser::{self, Error, Format, Result};
 use reader::{Reader, ReaderOffset};
@@ -17,7 +17,7 @@ pub struct DebugRanges<R: Reader> {
     pub(crate) debug_ranges_section: R,
 }
 
-impl<'input, Endian> DebugRanges<EndianBuf<'input, Endian>>
+impl<'input, Endian> DebugRanges<EndianSlice<'input, Endian>>
 where
     Endian: Endianity,
 {
@@ -36,7 +36,7 @@ where
     /// let debug_ranges = DebugRanges::new(read_debug_ranges_section_somehow(), LittleEndian);
     /// ```
     pub fn new(debug_ranges_section: &'input [u8], endian: Endian) -> Self {
-        Self::from(EndianBuf::new(debug_ranges_section, endian))
+        Self::from(EndianSlice::new(debug_ranges_section, endian))
     }
 }
 
@@ -61,7 +61,7 @@ pub struct DebugRngLists<R: Reader> {
     debug_rnglists_section: R,
 }
 
-impl<'input, Endian> DebugRngLists<EndianBuf<'input, Endian>>
+impl<'input, Endian> DebugRngLists<EndianSlice<'input, Endian>>
 where
     Endian: Endianity,
 {
@@ -81,7 +81,7 @@ where
     ///     DebugRngLists::new(read_debug_rnglists_section_somehow(), LittleEndian);
     /// ```
     pub fn new(debug_rnglists_section: &'input [u8], endian: Endian) -> Self {
-        Self::from(EndianBuf::new(debug_rnglists_section, endian))
+        Self::from(EndianSlice::new(debug_rnglists_section, endian))
     }
 }
 

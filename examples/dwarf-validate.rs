@@ -23,7 +23,7 @@ trait Reader: gimli::Reader<Offset = usize> + Send + Sync {
     type SyncSendEndian: gimli::Endianity + Send + Sync;
 }
 
-impl<'input, Endian> Reader for gimli::EndianBuf<'input, Endian>
+impl<'input, Endian> Reader for gimli::EndianSlice<'input, Endian>
 where
     Endian: gimli::Endianity + Send + Sync,
 {
@@ -106,12 +106,12 @@ where
         endian: Endian,
     ) -> S
     where
-        S: gimli::Section<gimli::EndianBuf<'input, Endian>>,
+        S: gimli::Section<gimli::EndianSlice<'input, Endian>>,
         Endian: gimli::Endianity + Send + Sync,
         'file: 'input,
     {
         let data = file.section_data_by_name(S::section_name()).unwrap_or(&[]);
-        S::from(gimli::EndianBuf::new(data, endian))
+        S::from(gimli::EndianSlice::new(data, endian))
     }
 
     // Variables representing sections of the file. The type of each is inferred from its use in the

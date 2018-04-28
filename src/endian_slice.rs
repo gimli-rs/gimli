@@ -11,7 +11,7 @@ use reader::Reader;
 
 /// A `&[u8]` slice with endianity metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct EndianBuf<'input, Endian>
+pub struct EndianSlice<'input, Endian>
 where
     Endian: Endianity,
 {
@@ -19,14 +19,14 @@ where
     endian: Endian,
 }
 
-impl<'input, Endian> EndianBuf<'input, Endian>
+impl<'input, Endian> EndianSlice<'input, Endian>
 where
     Endian: Endianity,
 {
-    /// Construct a new `EndianBuf` with the given buffer.
+    /// Construct a new `EndianSlice` with the given buffer.
     #[inline]
-    pub fn new(buf: &'input [u8], endian: Endian) -> EndianBuf<'input, Endian> {
-        EndianBuf { buf, endian }
+    pub fn new(buf: &'input [u8], endian: Endian) -> EndianSlice<'input, Endian> {
+        EndianSlice { buf, endian }
     }
 
     /// Return a reference to the raw buffer.
@@ -39,7 +39,7 @@ where
     /// the first item has range [0, idx), and the second has range
     /// [idx, len). Panics if the index is out of bounds.
     #[inline]
-    pub fn split_at(&self, idx: usize) -> (EndianBuf<'input, Endian>, EndianBuf<'input, Endian>) {
+    pub fn split_at(&self, idx: usize) -> (EndianSlice<'input, Endian>, EndianSlice<'input, Endian>) {
         (self.range_to(..idx), self.range_from(idx..))
     }
 
@@ -52,7 +52,7 @@ where
     /// Return the offset of the start of the buffer relative to the start
     /// of the given buffer.
     #[inline]
-    pub fn offset_from(&self, base: EndianBuf<'input, Endian>) -> usize {
+    pub fn offset_from(&self, base: EndianSlice<'input, Endian>) -> usize {
         let base_ptr = base.buf.as_ptr() as *const u8 as usize;
         let ptr = self.buf.as_ptr() as *const u8 as usize;
         debug_assert!(base_ptr <= ptr);
@@ -90,69 +90,69 @@ where
 /// # Range Methods
 ///
 /// Unfortunately, `std::ops::Index` *must* return a reference, so we can't
-/// implement `Index<Range<usize>>` to return a new `EndianBuf` the way we would
+/// implement `Index<Range<usize>>` to return a new `EndianSlice` the way we would
 /// like to. Instead, we abandon fancy indexing operators and have these plain
 /// old methods.
-impl<'input, Endian> EndianBuf<'input, Endian>
+impl<'input, Endian> EndianSlice<'input, Endian>
 where
     Endian: Endianity,
 {
     /// Take the given `start..end` range of the underlying buffer and return a
-    /// new `EndianBuf`.
+    /// new `EndianSlice`.
     ///
     /// ```
-    /// use gimli::{EndianBuf, LittleEndian};
+    /// use gimli::{EndianSlice, LittleEndian};
     ///
     /// let buf = [0x01, 0x02, 0x03, 0x04];
-    /// let endian_buf = EndianBuf::new(&buf, LittleEndian);
-    /// assert_eq!(endian_buf.range(1..3),
-    ///            EndianBuf::new(&buf[1..3], LittleEndian));
+    /// let endian_slice = EndianSlice::new(&buf, LittleEndian);
+    /// assert_eq!(endian_slice.range(1..3),
+    ///            EndianSlice::new(&buf[1..3], LittleEndian));
     /// ```
-    pub fn range(&self, idx: Range<usize>) -> EndianBuf<'input, Endian> {
-        EndianBuf {
+    pub fn range(&self, idx: Range<usize>) -> EndianSlice<'input, Endian> {
+        EndianSlice {
             buf: &self.buf[idx],
             endian: self.endian,
         }
     }
 
     /// Take the given `start..` range of the underlying buffer and return a new
-    /// `EndianBuf`.
+    /// `EndianSlice`.
     ///
     /// ```
-    /// use gimli::{EndianBuf, LittleEndian};
+    /// use gimli::{EndianSlice, LittleEndian};
     ///
     /// let buf = [0x01, 0x02, 0x03, 0x04];
-    /// let endian_buf = EndianBuf::new(&buf, LittleEndian);
-    /// assert_eq!(endian_buf.range_from(2..),
-    ///            EndianBuf::new(&buf[2..], LittleEndian));
+    /// let endian_slice = EndianSlice::new(&buf, LittleEndian);
+    /// assert_eq!(endian_slice.range_from(2..),
+    ///            EndianSlice::new(&buf[2..], LittleEndian));
     /// ```
-    pub fn range_from(&self, idx: RangeFrom<usize>) -> EndianBuf<'input, Endian> {
-        EndianBuf {
+    pub fn range_from(&self, idx: RangeFrom<usize>) -> EndianSlice<'input, Endian> {
+        EndianSlice {
             buf: &self.buf[idx],
             endian: self.endian,
         }
     }
 
     /// Take the given `..end` range of the underlying buffer and return a new
-    /// `EndianBuf`.
+    /// `EndianSlice`.
     ///
     /// ```
-    /// use gimli::{EndianBuf, LittleEndian};
+    /// use gimli::{EndianSlice, LittleEndian};
     ///
     /// let buf = [0x01, 0x02, 0x03, 0x04];
-    /// let endian_buf = EndianBuf::new(&buf, LittleEndian);
-    /// assert_eq!(endian_buf.range_to(..3),
-    ///            EndianBuf::new(&buf[..3], LittleEndian));
+    /// let endian_slice = EndianSlice::new(&buf, LittleEndian);
+    /// assert_eq!(endian_slice.range_to(..3),
+    ///            EndianSlice::new(&buf[..3], LittleEndian));
     /// ```
-    pub fn range_to(&self, idx: RangeTo<usize>) -> EndianBuf<'input, Endian> {
-        EndianBuf {
+    pub fn range_to(&self, idx: RangeTo<usize>) -> EndianSlice<'input, Endian> {
+        EndianSlice {
             buf: &self.buf[idx],
             endian: self.endian,
         }
     }
 }
 
-impl<'input, Endian> Index<usize> for EndianBuf<'input, Endian>
+impl<'input, Endian> Index<usize> for EndianSlice<'input, Endian>
 where
     Endian: Endianity,
 {
@@ -162,7 +162,7 @@ where
     }
 }
 
-impl<'input, Endian> Index<RangeFrom<usize>> for EndianBuf<'input, Endian>
+impl<'input, Endian> Index<RangeFrom<usize>> for EndianSlice<'input, Endian>
 where
     Endian: Endianity,
 {
@@ -172,7 +172,7 @@ where
     }
 }
 
-impl<'input, Endian> Deref for EndianBuf<'input, Endian>
+impl<'input, Endian> Deref for EndianSlice<'input, Endian>
 where
     Endian: Endianity,
 {
@@ -182,7 +182,7 @@ where
     }
 }
 
-impl<'input, Endian> Into<&'input [u8]> for EndianBuf<'input, Endian>
+impl<'input, Endian> Into<&'input [u8]> for EndianSlice<'input, Endian>
 where
     Endian: Endianity,
 {
@@ -191,7 +191,7 @@ where
     }
 }
 
-impl<'input, Endian> Reader for EndianBuf<'input, Endian>
+impl<'input, Endian> Reader for EndianSlice<'input, Endian>
 where
     Endian: Endianity,
 {
@@ -251,7 +251,7 @@ where
     #[inline]
     fn split(&mut self, len: usize) -> Result<Self> {
         let slice = self.read_slice(len)?;
-        Ok(EndianBuf::new(slice, self.endian))
+        Ok(EndianSlice::new(slice, self.endian))
     }
 
     #[inline]
@@ -339,24 +339,24 @@ mod tests {
     use endianity::NativeEndian;
 
     #[test]
-    fn test_endian_buf_split_at() {
+    fn test_endian_slice_split_at() {
         let endian = NativeEndian;
         let buf = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
-        let eb = EndianBuf::new(&buf, endian);
+        let eb = EndianSlice::new(&buf, endian);
         assert_eq!(
             eb.split_at(3),
             (
-                EndianBuf::new(&buf[..3], endian),
-                EndianBuf::new(&buf[3..], endian)
+                EndianSlice::new(&buf[..3], endian),
+                EndianSlice::new(&buf[3..], endian)
             )
         );
     }
 
     #[test]
     #[should_panic]
-    fn test_endian_buf_split_at_out_of_bounds() {
+    fn test_endian_slice_split_at_out_of_bounds() {
         let buf = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
-        let eb = EndianBuf::new(&buf, NativeEndian);
+        let eb = EndianSlice::new(&buf, NativeEndian);
         eb.split_at(30);
     }
 }

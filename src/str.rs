@@ -1,5 +1,5 @@
 use endianity::Endianity;
-use endian_buf::EndianBuf;
+use endian_slice::EndianSlice;
 use parser::Result;
 use reader::Reader;
 use Section;
@@ -15,7 +15,7 @@ pub struct DebugStr<R: Reader> {
     debug_str_section: R,
 }
 
-impl<'input, Endian> DebugStr<EndianBuf<'input, Endian>>
+impl<'input, Endian> DebugStr<EndianSlice<'input, Endian>>
 where
     Endian: Endianity,
 {
@@ -34,7 +34,7 @@ where
     /// let debug_str = DebugStr::new(read_debug_str_section_somehow(), LittleEndian);
     /// ```
     pub fn new(debug_str_section: &'input [u8], endian: Endian) -> Self {
-        Self::from(EndianBuf::new(debug_str_section, endian))
+        Self::from(EndianSlice::new(debug_str_section, endian))
     }
 }
 

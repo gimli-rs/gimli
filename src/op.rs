@@ -807,9 +807,9 @@ impl<R: Reader> Expression<R> {
     /// ```rust,no_run
     /// use gimli::Expression;
     /// # let endian = gimli::LittleEndian;
-    /// # let debug_info = gimli::DebugInfo::from(gimli::EndianBuf::new(&[], endian));
+    /// # let debug_info = gimli::DebugInfo::from(gimli::EndianSlice::new(&[], endian));
     /// # let unit = debug_info.units().next().unwrap().unwrap();
-    /// # let bytecode = gimli::EndianBuf::new(&[], endian);
+    /// # let bytecode = gimli::EndianSlice::new(&[], endian);
     /// let expression = gimli::Expression(bytecode);
     /// let mut eval = expression.evaluation(unit.address_size(), unit.format());
     /// let mut result = eval.evaluate().unwrap();
@@ -840,8 +840,8 @@ impl<R: Reader> Expression<R> {
 ///
 /// # Examples
 /// ```rust,no_run
-/// use gimli::{EndianBuf, Evaluation, EvaluationResult, Format, LittleEndian};
-/// # let bytecode = EndianBuf::new(&[], LittleEndian);
+/// use gimli::{EndianSlice, Evaluation, EvaluationResult, Format, LittleEndian};
+/// # let bytecode = EndianSlice::new(&[], LittleEndian);
 /// # let address_size = 8;
 /// # let format = Format::Dwarf64;
 /// # let get_register_value = |_| 42;
@@ -1653,7 +1653,7 @@ mod tests {
     use super::compute_pc;
     use constants;
     use endianity::LittleEndian;
-    use endian_buf::EndianBuf;
+    use endian_slice::EndianSlice;
     use leb128;
     use parser::{Error, Format, Result};
     use self::test_assembler::{Endian, Section};
@@ -1666,7 +1666,7 @@ mod tests {
         // Contents don't matter for this test, just length.
         let bytes = [0, 1, 2, 3, 4];
         let bytecode = &bytes[..];
-        let ebuf = &EndianBuf::new(bytecode, LittleEndian);
+        let ebuf = &EndianSlice::new(bytecode, LittleEndian);
 
         assert_eq!(compute_pc(ebuf, ebuf, 0), Ok(*ebuf));
         assert_eq!(
@@ -1686,11 +1686,11 @@ mod tests {
 
     fn check_op_parse_simple<'input>(
         input: &'input [u8],
-        expect: &Operation<EndianBuf<'input, LittleEndian>>,
+        expect: &Operation<EndianSlice<'input, LittleEndian>>,
         address_size: u8,
         format: Format,
     ) {
-        let buf = EndianBuf::new(input, LittleEndian);
+        let buf = EndianSlice::new(input, LittleEndian);
         let mut pc = buf;
         let value = Operation::parse(&mut pc, &buf, address_size, format);
         match value {
@@ -1703,7 +1703,7 @@ mod tests {
     }
 
     fn check_op_parse_failure(input: &[u8], expect: Error, address_size: u8, format: Format) {
-        let buf = EndianBuf::new(input, LittleEndian);
+        let buf = EndianSlice::new(input, LittleEndian);
         let mut pc = buf;
         match Operation::parse(&mut pc, &buf, address_size, format) {
             Err(x) => {
@@ -1716,7 +1716,7 @@ mod tests {
 
     fn check_op_parse<F>(
         input: F,
-        expect: &Operation<EndianBuf<LittleEndian>>,
+        expect: &Operation<EndianSlice<LittleEndian>>,
         address_size: u8,
         format: Format,
     ) where
@@ -1960,12 +1960,12 @@ mod tests {
 
             let expect = if input[0] == constants::DW_OP_bra.0 {
                 Operation::Bra {
-                    target: EndianBuf::new(target, LittleEndian),
+                    target: EndianSlice::new(target, LittleEndian),
                 }
             } else {
                 assert!(input[0] == constants::DW_OP_skip.0);
                 Operation::Skip {
-                    target: EndianBuf::new(target, LittleEndian),
+                    target: EndianSlice::new(target, LittleEndian),
                 }
             };
 
@@ -2265,7 +2265,7 @@ mod tests {
                     .append_bytes(&data[..])
             },
             &Operation::ImplicitValue {
-                data: EndianBuf::new(&data[..], LittleEndian),
+                data: EndianSlice::new(&data[..], LittleEndian),
             },
             address_size,
             format,
@@ -2289,7 +2289,7 @@ mod tests {
             },
             &Operation::TypedLiteral {
                 base_type: UnitOffset(100),
-                value: EndianBuf::new(&data[..], LittleEndian),
+                value: EndianSlice::new(&data[..], LittleEndian),
             },
             address_size,
             format,
@@ -2303,7 +2303,7 @@ mod tests {
             },
             &Operation::TypedLiteral {
                 base_type: UnitOffset(100),
-                value: EndianBuf::new(&data[..], LittleEndian),
+                value: EndianSlice::new(&data[..], LittleEndian),
             },
             address_size,
             format,
@@ -2450,7 +2450,7 @@ mod tests {
             check_op_parse(
                 |s| s.D8(op.0).uleb(data.len() as u64).append_bytes(&data[..]),
                 &Operation::EntryValue {
-                    expression: EndianBuf::new(&data[..], LittleEndian),
+                    expression: EndianSlice::new(&data[..], LittleEndian),
                 },
                 4,
                 Format::Dwarf32,
@@ -2546,7 +2546,7 @@ mod tests {
 
     fn check_eval_with_args<F>(
         program: &[AssemblerEntry],
-        expect: Result<&[Piece<EndianBuf<LittleEndian>>]>,
+        expect: Result<&[Piece<EndianSlice<LittleEndian>>]>,
         address_size: u8,
         format: Format,
         object_address: Option<u64>,
@@ -2555,12 +2555,12 @@ mod tests {
         f: F,
     ) where
         for<'a> F: Fn(
-            &mut Evaluation<EndianBuf<'a, LittleEndian>>,
-            EvaluationResult<EndianBuf<'a, LittleEndian>>,
-        ) -> Result<EvaluationResult<EndianBuf<'a, LittleEndian>>>,
+            &mut Evaluation<EndianSlice<'a, LittleEndian>>,
+            EvaluationResult<EndianSlice<'a, LittleEndian>>,
+        ) -> Result<EvaluationResult<EndianSlice<'a, LittleEndian>>>,
     {
         let bytes = assemble(program);
-        let bytes = EndianBuf::new(&bytes, LittleEndian);
+        let bytes = EndianSlice::new(&bytes, LittleEndian);
 
         let mut eval = Evaluation::new(bytes, address_size, format);
 
@@ -2596,7 +2596,7 @@ mod tests {
 
     fn check_eval(
         program: &[AssemblerEntry],
-        expect: Result<&[Piece<EndianBuf<LittleEndian>>]>,
+        expect: Result<&[Piece<EndianSlice<LittleEndian>>]>,
         address_size: u8,
         format: Format,
     ) {
@@ -3281,7 +3281,7 @@ mod tests {
 
         check_eval_with_args(&program, Ok(&result), 4, Format::Dwarf32,
                              None, None, None, |eval, result| {
-                                 let buf = EndianBuf::new(&[], LittleEndian);
+                                 let buf = EndianSlice::new(&[], LittleEndian);
                                  match result {
                                      EvaluationResult::RequiresAtLocation(_) => {},
                                      _ => panic!(),
@@ -3316,7 +3316,7 @@ mod tests {
 
         check_eval_with_args(&program, Ok(&result), 4, Format::Dwarf32,
                              None, None, None, |eval, result| {
-                                 let buf = EndianBuf::new(SUBR, LittleEndian);
+                                 let buf = EndianSlice::new(SUBR, LittleEndian);
                                  match result {
                                      EvaluationResult::RequiresAtLocation(_) => {},
                                      _ => panic!(),
@@ -3407,7 +3407,7 @@ mod tests {
 
         let result = [
             Piece { size_in_bits: None, bit_offset: None,
-                    location: Location::Bytes { value: EndianBuf::new(BYTES, LittleEndian) } },
+                    location: Location::Bytes { value: EndianSlice::new(BYTES, LittleEndian) } },
         ];
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
