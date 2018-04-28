@@ -3,8 +3,9 @@
 use constants;
 use parser::{Error, Format, Result};
 use reader::{Reader, ReaderOffset};
-use unit::{DebugInfoOffset, UnitOffset};
 use std::mem;
+use unit::{DebugInfoOffset, UnitOffset};
+use value::{Value, ValueType};
 use vec::Vec;
 
 /// A reference to a DIE, either relative to the current CU or
@@ -123,8 +124,6 @@ where
     },
     /// Indicate that this piece's location is in the given register.
     Register {
-        /// The DIE of the base type or 0 to indicate the generic type
-        base_type: UnitOffset<Offset>,
         /// The register number.
         register: u64,
     },
@@ -135,6 +134,8 @@ where
         register: u64,
         /// The offset to add.
         offset: i64,
+        /// The DIE of the base type or 0 to indicate the generic type
+        base_type: UnitOffset<Offset>,
     },
     /// Compute the frame base (using `DW_AT_frame_base`), add the
     /// given offset, and then push the resulting sum on the stack.
@@ -227,11 +228,11 @@ enum OperationEvaluationResult<R: Reader> {
     Piece,
     Incomplete,
     Complete { location: Location<R, R::Offset> },
-    Waiting(EvaluationWaiting, EvaluationResult<R>),
+    Waiting(EvaluationWaiting<R>, EvaluationResult<R>),
 }
 
 /// A single location of a piece of the result of a DWARF expression.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Location<R, Offset = usize>
 where
     R: Reader<Offset = Offset>,
@@ -250,10 +251,10 @@ where
         /// The address.
         address: u64,
     },
-    /// The piece is a scalar value.
-    Scalar {
+    /// The piece has no location but its value is known.
+    Value {
         /// The value.
-        value: u64,
+        value: Value,
     },
     /// The piece is represented by some constant bytes.
     Bytes {
@@ -285,7 +286,7 @@ where
 
 /// The description of a single piece of the result of a DWARF
 /// expression.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Piece<R, Offset = usize>
 where
     R: Reader<Offset = Offset>,
@@ -316,13 +317,6 @@ fn compute_pc<R: Reader>(pc: &R, bytecode: &R, offset: i16) -> Result<R> {
 
 fn generic_type<O: ReaderOffset>() -> UnitOffset<O> {
     UnitOffset(O::from_u64(0).unwrap())
-}
-
-fn generic_register<R: Reader>(reg: u64) -> Operation<R, R::Offset> {
-    Operation::Register {
-        base_type: generic_type(),
-        register: reg,
-    }
 }
 
 impl<R, Offset> Operation<R, Offset>
@@ -527,9 +521,9 @@ where
             | constants::DW_OP_reg28
             | constants::DW_OP_reg29
             | constants::DW_OP_reg30
-            | constants::DW_OP_reg31 => {
-                Ok(generic_register((opcode - constants::DW_OP_reg0.0).into()))
-            }
+            | constants::DW_OP_reg31 => Ok(Operation::Register {
+                register: (opcode - constants::DW_OP_reg0.0).into(),
+            }),
             constants::DW_OP_breg0
             | constants::DW_OP_breg1
             | constants::DW_OP_breg2
@@ -566,11 +560,12 @@ where
                 Ok(Operation::RegisterOffset {
                     register: (opcode - constants::DW_OP_breg0.0).into(),
                     offset: value,
+                    base_type: generic_type(),
                 })
             }
             constants::DW_OP_regx => {
                 let value = bytes.read_uleb128()?;
-                Ok(generic_register(value))
+                Ok(Operation::Register { register: value })
             }
             constants::DW_OP_fbreg => {
                 let value = bytes.read_sleb128()?;
@@ -582,6 +577,7 @@ where
                 Ok(Operation::RegisterOffset {
                     register: regno,
                     offset: offset,
+                    base_type: generic_type(),
                 })
             }
             constants::DW_OP_piece => {
@@ -678,9 +674,10 @@ where
             constants::DW_OP_regval_type | constants::DW_OP_GNU_regval_type => {
                 let register = bytes.read_uleb128()?;
                 let base_type = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
-                Ok(Operation::Register {
-                    base_type: UnitOffset(base_type),
+                Ok(Operation::RegisterOffset {
                     register: register,
+                    offset: 0,
+                    base_type: UnitOffset(base_type),
                 })
             }
             constants::DW_OP_deref_type | constants::DW_OP_GNU_deref_type => {
@@ -690,6 +687,15 @@ where
                     base_type: UnitOffset(base_type),
                     size: size,
                     space: false,
+                })
+            }
+            constants::DW_OP_xderef_type => {
+                let size = bytes.read_u8()?;
+                let base_type = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
+                Ok(Operation::Deref {
+                    base_type: UnitOffset(base_type),
+                    size: size,
+                    space: true,
                 })
             }
             constants::DW_OP_convert | constants::DW_OP_GNU_convert => {
@@ -711,16 +717,16 @@ where
 }
 
 #[derive(Debug)]
-enum EvaluationState {
+enum EvaluationState<R: Reader> {
     Start(Option<u64>),
     Ready,
     Error(Error),
     Complete,
-    Waiting(EvaluationWaiting),
+    Waiting(EvaluationWaiting<R>),
 }
 
 #[derive(Debug)]
-enum EvaluationWaiting {
+enum EvaluationWaiting<R: Reader> {
     Memory,
     Register { offset: i64 },
     FrameBase { offset: i64 },
@@ -730,6 +736,9 @@ enum EvaluationWaiting {
     EntryValue,
     ParameterRef,
     TextBase { offset: u64 },
+    TypedLiteral { value: R },
+    Convert,
+    Reinterpret,
 }
 
 /// The state of an `Evaluation` after evaluating a DWARF expression.
@@ -750,11 +759,18 @@ pub enum EvaluationResult<R: Reader> {
         size: u8,
         /// If not `None`, a target-specific address space value.
         space: Option<u64>,
+        /// The DIE of the base type or 0 to indicate the generic type
+        base_type: UnitOffset<R::Offset>,
     },
     /// The `Evaluation` needs a value from a register to proceed further.  Once
     /// the caller determines what value to provide it should resume the
     /// `Evaluation` by calling `Evaluation::resume_with_register`.
-    RequiresRegister(u64),
+    RequiresRegister {
+        /// The register number.
+        register: u64,
+        /// The DIE of the base type or 0 to indicate the generic type
+        base_type: UnitOffset<R::Offset>,
+    },
     /// The `Evaluation` needs the frame base address to proceed further.  Once
     /// the caller determines what value to provide it should resume the
     /// `Evaluation` by calling `Evaluation::resume_with_frame_base`.  The frame
@@ -789,6 +805,11 @@ pub enum EvaluationResult<R: Reader> {
     /// should resume the `Evaluation` by calling
     /// `Evaluation::resume_with_text_base`.
     RequiresTextBase,
+    /// The `Evaluation` needs the `ValueType` for the base type DIE at
+    /// the give unit offset.  Once the caller determines what value to provide it
+    /// should resume the `Evaluation` by calling
+    /// `Evaluation::resume_with_base_type`.
+    RequiresBaseType(UnitOffset<R::Offset>),
 }
 
 /// The bytecode for a DWARF expression or location description.
@@ -840,19 +861,19 @@ impl<R: Reader> Expression<R> {
 ///
 /// # Examples
 /// ```rust,no_run
-/// use gimli::{EndianSlice, Evaluation, EvaluationResult, Format, LittleEndian};
+/// use gimli::{EndianSlice, Evaluation, EvaluationResult, Format, LittleEndian, Value};
 /// # let bytecode = EndianSlice::new(&[], LittleEndian);
 /// # let address_size = 8;
 /// # let format = Format::Dwarf64;
-/// # let get_register_value = |_| 42;
+/// # let get_register_value = |_, _| Value::Generic(42);
 /// # let get_frame_base = || 0xdeadbeef;
 ///
 /// let mut eval = Evaluation::new(bytecode, address_size, format);
 /// let mut result = eval.evaluate().unwrap();
 /// while result != EvaluationResult::Complete {
 ///   match result {
-///     EvaluationResult::RequiresRegister(regno) => {
-///       let value = get_register_value(regno);
+///     EvaluationResult::RequiresRegister { register, base_type } => {
+///       let value = get_register_value(register, base_type);
 ///       result = eval.resume_with_register(value).unwrap();
 ///     },
 ///     EvaluationResult::RequiresFrameBase => {
@@ -874,7 +895,7 @@ pub struct Evaluation<R: Reader> {
     object_address: Option<u64>,
     max_iterations: Option<u32>,
     iteration: u32,
-    state: EvaluationState,
+    state: EvaluationState<R>,
 
     // Stack operations are done on word-sized values.  We do all
     // operations on 64-bit values, and then mask the results
@@ -882,7 +903,7 @@ pub struct Evaluation<R: Reader> {
     addr_mask: u64,
 
     // The stack.
-    stack: Vec<u64>,
+    stack: Vec<Value>,
 
     // The next operation to decode and evaluate.
     pc: R,
@@ -963,28 +984,14 @@ impl<R: Reader> Evaluation<R> {
         self.max_iterations = Some(value);
     }
 
-    fn pop(&mut self) -> Result<u64> {
+    fn pop(&mut self) -> Result<Value> {
         match self.stack.pop() {
-            Some(value) => Ok(value & self.addr_mask),
+            Some(value) => Ok(value),
             None => Err(Error::NotEnoughStackItems),
         }
     }
 
-    fn pop_signed(&mut self) -> Result<i64> {
-        match self.stack.pop() {
-            Some(value) => {
-                let mut value = value & self.addr_mask;
-                if self.address_size < 8 && (value & (1u64 << (8 * self.address_size - 1))) != 0 {
-                    // Sign extend.
-                    value |= !self.addr_mask;
-                }
-                Ok(value as i64)
-            }
-            None => Err(Error::NotEnoughStackItems),
-        }
-    }
-
-    fn push(&mut self, value: u64) {
+    fn push(&mut self, value: Value) {
         self.stack.push(value);
     }
 
@@ -998,17 +1005,22 @@ impl<R: Reader> Evaluation<R> {
                 size,
                 space,
             } => {
-                if base_type != UnitOffset(R::Offset::from_u64(0).unwrap()) {
-                    return Err(Error::UnsupportedTypedStack);
-                }
-                let addr = self.pop()?;
-                let addr_space = if space { Some(self.pop()?) } else { None };
+                let entry = self.pop()?;
+                let addr = entry.to_u64(self.addr_mask)?;
+                let addr_space = if space {
+                    let entry = self.pop()?;
+                    let value = entry.to_u64(self.addr_mask)?;
+                    Some(value)
+                } else {
+                    None
+                };
                 return Ok(OperationEvaluationResult::Waiting(
                     EvaluationWaiting::Memory,
                     EvaluationResult::RequiresMemory {
                         address: addr,
-                        size: size,
+                        size,
                         space: addr_space,
+                        base_type,
                     },
                 ));
             }
@@ -1041,141 +1053,136 @@ impl<R: Reader> Evaluation<R> {
             }
 
             Operation::Abs => {
-                let value = self.pop_signed()?;
-                self.push(value.abs() as u64);
+                let value = self.pop()?;
+                let result = value.abs(self.addr_mask)?;
+                self.push(result);
             }
             Operation::And => {
-                let v1 = self.pop()?;
-                let v2 = self.pop()?;
-                self.push(v2 & v1);
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.and(rhs, self.addr_mask)?;
+                self.push(result);
             }
             Operation::Div => {
-                let v1 = self.pop_signed()?;
-                let v2 = self.pop_signed()?;
-                if v1 == 0 {
-                    return Err(Error::DivisionByZero.into());
-                }
-                self.push(v2.wrapping_div(v1) as u64);
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.div(rhs, self.addr_mask)?;
+                self.push(result);
             }
             Operation::Minus => {
-                let v1 = self.pop()?;
-                let v2 = self.pop()?;
-                self.push(v2.wrapping_sub(v1));
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.sub(rhs, self.addr_mask)?;
+                self.push(result);
             }
             Operation::Mod => {
-                let v1 = self.pop()?;
-                let v2 = self.pop()?;
-                if v1 == 0 {
-                    return Err(Error::DivisionByZero.into());
-                }
-                self.push(v2.wrapping_rem(v1));
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.rem(rhs, self.addr_mask)?;
+                self.push(result);
             }
             Operation::Mul => {
-                let v1 = self.pop()?;
-                let v2 = self.pop()?;
-                self.push(v2.wrapping_mul(v1));
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.mul(rhs, self.addr_mask)?;
+                self.push(result);
             }
             Operation::Neg => {
                 let v = self.pop()?;
-                self.push(v.wrapping_neg());
+                let result = v.neg(self.addr_mask)?;
+                self.push(result);
             }
             Operation::Not => {
                 let value = self.pop()?;
-                self.push(!value);
+                let result = value.not(self.addr_mask)?;
+                self.push(result);
             }
             Operation::Or => {
-                let v1 = self.pop()?;
-                let v2 = self.pop()?;
-                self.push(v2 | v1);
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.or(rhs, self.addr_mask)?;
+                self.push(result);
             }
             Operation::Plus => {
-                let v1 = self.pop()?;
-                let v2 = self.pop()?;
-                self.push(v2.wrapping_add(v1));
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.add(rhs, self.addr_mask)?;
+                self.push(result);
             }
             Operation::PlusConstant { value } => {
-                let v = self.pop()?;
-                self.push(v.wrapping_add(value));
+                let lhs = self.pop()?;
+                let rhs = Value::from_u64(lhs.value_type(), value)?;
+                let result = lhs.add(rhs, self.addr_mask)?;
+                self.push(result);
             }
             Operation::Shl => {
-                let v1 = self.pop()?;
-                let v2 = self.pop()?;
-                // Because wrapping_shl takes a u32, not a u64, we do
-                // the check by hand.
-                if v1 >= 64 {
-                    self.push(0);
-                } else {
-                    self.push(v2 << v1)
-                }
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.shl(rhs, self.addr_mask)?;
+                self.push(result);
             }
             Operation::Shr => {
-                let v1 = self.pop()?;
-                let v2 = self.pop()?;
-                // Because wrapping_shr takes a u32, not a u64, we do
-                // the check by hand.
-                if v1 >= 64 {
-                    self.push(0);
-                } else {
-                    self.push(v2 >> v1)
-                }
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.shr(rhs, self.addr_mask)?;
+                self.push(result);
             }
             Operation::Shra => {
-                let v1 = self.pop()?;
-                let v2 = self.pop_signed()?;
-                // Because wrapping_shr takes a u32, not a u64, we do
-                // the check by hand.
-                if v1 >= 64 {
-                    if v2 < 0 {
-                        self.push(!0u64);
-                    } else {
-                        self.push(0);
-                    }
-                } else {
-                    self.push((v2 >> v1) as u64);
-                }
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.shra(rhs, self.addr_mask)?;
+                self.push(result);
             }
             Operation::Xor => {
-                let v1 = self.pop()?;
-                let v2 = self.pop()?;
-                self.push(v2 ^ v1);
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.xor(rhs, self.addr_mask)?;
+                self.push(result);
             }
 
-            Operation::Bra { ref target } => {
-                let v = self.pop()?;
+            Operation::Bra { target } => {
+                let entry = self.pop()?;
+                let v = entry.to_u64(self.addr_mask)?;
                 if v != 0 {
                     self.pc = target.clone();
                 }
             }
 
             Operation::Eq => {
-                let v1 = self.pop_signed()?;
-                let v2 = self.pop_signed()?;
-                self.push(if v2 == v1 { 1 } else { 0 });
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.eq(rhs, self.addr_mask)?;
+                self.push(result);
             }
             Operation::Ge => {
-                let v1 = self.pop_signed()?;
-                let v2 = self.pop_signed()?;
-                self.push(if v2 >= v1 { 1 } else { 0 });
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.ge(rhs, self.addr_mask)?;
+                self.push(result);
             }
             Operation::Gt => {
-                let v1 = self.pop_signed()?;
-                let v2 = self.pop_signed()?;
-                self.push(if v2 > v1 { 1 } else { 0 });
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.gt(rhs, self.addr_mask)?;
+                self.push(result);
             }
             Operation::Le => {
-                let v1 = self.pop_signed()?;
-                let v2 = self.pop_signed()?;
-                self.push(if v2 <= v1 { 1 } else { 0 });
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.le(rhs, self.addr_mask)?;
+                self.push(result);
             }
             Operation::Lt => {
-                let v1 = self.pop_signed()?;
-                let v2 = self.pop_signed()?;
-                self.push(if v2 < v1 { 1 } else { 0 });
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.lt(rhs, self.addr_mask)?;
+                self.push(result);
             }
             Operation::Ne => {
-                let v1 = self.pop_signed()?;
-                let v2 = self.pop_signed()?;
-                self.push(if v2 != v1 { 1 } else { 0 });
+                let rhs = self.pop()?;
+                let lhs = self.pop()?;
+                let result = lhs.ne(rhs, self.addr_mask)?;
+                self.push(result);
             }
 
             Operation::Skip { ref target } => {
@@ -1183,13 +1190,20 @@ impl<R: Reader> Evaluation<R> {
             }
 
             Operation::Literal { value } => {
-                self.push(value);
+                self.push(Value::Generic(value));
             }
 
-            Operation::RegisterOffset { register, offset } => {
+            Operation::RegisterOffset {
+                register,
+                offset,
+                base_type,
+            } => {
                 return Ok(OperationEvaluationResult::Waiting(
                     EvaluationWaiting::Register { offset },
-                    EvaluationResult::RequiresRegister(register),
+                    EvaluationResult::RequiresRegister {
+                        register,
+                        base_type,
+                    },
                 ));
             }
 
@@ -1202,11 +1216,13 @@ impl<R: Reader> Evaluation<R> {
 
             Operation::Nop => {}
 
-            Operation::PushObjectAddress => if let Some(value) = self.object_address {
-                self.push(value);
-            } else {
-                return Err(Error::InvalidPushObjectAddress.into());
-            },
+            Operation::PushObjectAddress => {
+                if let Some(value) = self.object_address {
+                    self.push(Value::Generic(value));
+                } else {
+                    return Err(Error::InvalidPushObjectAddress.into());
+                }
+            }
 
             Operation::Call { offset } => {
                 return Ok(OperationEvaluationResult::Waiting(
@@ -1216,7 +1232,8 @@ impl<R: Reader> Evaluation<R> {
             }
 
             Operation::TLS => {
-                let index = self.pop()?;
+                let entry = self.pop()?;
+                let index = entry.to_u64(self.addr_mask)?;
                 return Ok(OperationEvaluationResult::Waiting(
                     EvaluationWaiting::Tls,
                     EvaluationResult::RequiresTls(index),
@@ -1230,13 +1247,7 @@ impl<R: Reader> Evaluation<R> {
                 ));
             }
 
-            Operation::Register {
-                base_type,
-                register,
-            } => {
-                if base_type != UnitOffset(R::Offset::from_u64(0).unwrap()) {
-                    return Err(Error::UnsupportedTypedStack);
-                }
+            Operation::Register { register } => {
                 let location = Location::Register { register };
                 return Ok(OperationEvaluationResult::Complete { location });
             }
@@ -1249,7 +1260,8 @@ impl<R: Reader> Evaluation<R> {
             }
 
             Operation::StackValue => {
-                let location = Location::Scalar { value: self.pop()? };
+                let value = self.pop()?;
+                let location = Location::Value { value };
                 return Ok(OperationEvaluationResult::Complete { location });
             }
 
@@ -1289,9 +1301,9 @@ impl<R: Reader> Evaluation<R> {
                 let location = if self.stack.is_empty() {
                     Location::Empty
                 } else {
-                    Location::Address {
-                        address: self.pop()?,
-                    }
+                    let entry = self.pop()?;
+                    let address = entry.to_u64(self.addr_mask)?;
+                    Location::Address { address }
                 };
                 self.result.push(Piece {
                     size_in_bits: Some(size_in_bits),
@@ -1301,10 +1313,23 @@ impl<R: Reader> Evaluation<R> {
                 return Ok(OperationEvaluationResult::Piece);
             }
 
-            Operation::TypedLiteral { .. }
-            | Operation::Convert { .. }
-            | Operation::Reinterpret { .. } => {
-                return Err(Error::UnsupportedTypedStack);
+            Operation::TypedLiteral { base_type, value } => {
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::TypedLiteral { value },
+                    EvaluationResult::RequiresBaseType(base_type),
+                ));
+            }
+            Operation::Convert { base_type } => {
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::Convert,
+                    EvaluationResult::RequiresBaseType(base_type),
+                ));
+            }
+            Operation::Reinterpret { base_type } => {
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::Reinterpret,
+                    EvaluationResult::RequiresBaseType(base_type),
+                ));
             }
         }
 
@@ -1333,7 +1358,7 @@ impl<R: Reader> Evaluation<R> {
         match self.state {
             EvaluationState::Start(initial_value) => {
                 if let Some(value) = initial_value {
-                    self.push(value);
+                    self.push(Value::Generic(value));
                 }
                 self.state = EvaluationState::Ready;
             }
@@ -1359,7 +1384,7 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresMemory`.
-    pub fn resume_with_memory(&mut self, value: u64) -> Result<EvaluationResult<R>> {
+    pub fn resume_with_memory(&mut self, value: Value) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::Memory) => {
@@ -1380,11 +1405,13 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresRegister`.
-    pub fn resume_with_register(&mut self, register: u64) -> Result<EvaluationResult<R>> {
+    pub fn resume_with_register(&mut self, value: Value) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::Register { offset }) => {
-                self.push(register.wrapping_add(offset as u64));
+                let offset = Value::from_u64(value.value_type(), offset as u64)?;
+                let value = value.add(offset, self.addr_mask)?;
+                self.push(value);
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_register` without a preceding `EvaluationResult::RequiresRegister`"
@@ -1405,7 +1432,7 @@ impl<R: Reader> Evaluation<R> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::FrameBase { offset }) => {
-                self.push(frame_base.wrapping_add(offset as u64));
+                self.push(Value::Generic(frame_base.wrapping_add(offset as u64)));
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_frame_base` without a preceding `EvaluationResult::RequiresFrameBase`"
@@ -1426,7 +1453,7 @@ impl<R: Reader> Evaluation<R> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::Tls) => {
-                self.push(value);
+                self.push(Value::Generic(value));
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_tls` without a preceding `EvaluationResult::RequiresTls`"
@@ -1447,7 +1474,7 @@ impl<R: Reader> Evaluation<R> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::Cfa) => {
-                self.push(cfa);
+                self.push(Value::Generic(cfa));
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_call_frame_cfa` without a preceding `EvaluationResult::RequiresCallFrameCfa`"
@@ -1490,7 +1517,7 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresEntryValue`.
-    pub fn resume_with_entry_value(&mut self, entry_value: u64) -> Result<EvaluationResult<R>> {
+    pub fn resume_with_entry_value(&mut self, entry_value: Value) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::EntryValue) => {
@@ -1518,7 +1545,7 @@ impl<R: Reader> Evaluation<R> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::ParameterRef) => {
-                self.push(parameter_value);
+                self.push(Value::Generic(parameter_value));
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_parameter_ref` without a preceding `EvaluationResult::RequiresParameterRef`"
@@ -1539,13 +1566,42 @@ impl<R: Reader> Evaluation<R> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::TextBase { offset }) => {
-                self.push(text_base.wrapping_add(offset));
+                self.push(Value::Generic(text_base.wrapping_add(offset)));
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_text_base` without a preceding `EvaluationResult::RequiresTextBase`"
             ),
         };
 
+        self.evaluate_internal()
+    }
+
+    /// Resume the `Evaluation` with the provided `base_type`.  This will use the
+    /// provided base type for the operation that required it, and continue evaluating
+    /// opcodes until the evaluation is completed, reaches an error, or needs
+    /// more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresBaseType`.
+    pub fn resume_with_base_type(&mut self, base_type: ValueType) -> Result<EvaluationResult<R>> {
+        let value = match self.state {
+            EvaluationState::Error(err) => return Err(err),
+            EvaluationState::Waiting(EvaluationWaiting::TypedLiteral { ref value }) => {
+                Value::parse(base_type, value.clone())?
+            }
+            EvaluationState::Waiting(EvaluationWaiting::Convert) => {
+                let entry = self.pop()?;
+                entry.convert(base_type, self.addr_mask)?
+            }
+            EvaluationState::Waiting(EvaluationWaiting::Reinterpret) => {
+                let entry = self.pop()?;
+                entry.reinterpret(base_type, self.addr_mask)?
+            }
+            _ => panic!(
+                "Called `Evaluation::resume_with_base_type` without a preceding `EvaluationResult::RequiresBaseType`"
+            ),
+        };
+        self.push(value);
         self.evaluate_internal()
     }
 
@@ -1632,7 +1688,8 @@ impl<R: Reader> Evaluation<R> {
         // If no pieces have been seen, use the stack top as the
         // result.
         if self.result.is_empty() {
-            let addr = self.pop()?;
+            let entry = self.pop()?;
+            let addr = entry.to_u64(self.addr_mask)?;
             self.result.push(Piece {
                 size_in_bits: None,
                 bit_offset: None,
@@ -1812,38 +1869,38 @@ mod tests {
             (constants::DW_OP_lit29, Operation::Literal { value: 29 }),
             (constants::DW_OP_lit30, Operation::Literal { value: 30 }),
             (constants::DW_OP_lit31, Operation::Literal { value: 31 }),
-            (constants::DW_OP_reg0, generic_register(0)),
-            (constants::DW_OP_reg1, generic_register(1)),
-            (constants::DW_OP_reg2, generic_register(2)),
-            (constants::DW_OP_reg3, generic_register(3)),
-            (constants::DW_OP_reg4, generic_register(4)),
-            (constants::DW_OP_reg5, generic_register(5)),
-            (constants::DW_OP_reg6, generic_register(6)),
-            (constants::DW_OP_reg7, generic_register(7)),
-            (constants::DW_OP_reg8, generic_register(8)),
-            (constants::DW_OP_reg9, generic_register(9)),
-            (constants::DW_OP_reg10, generic_register(10)),
-            (constants::DW_OP_reg11, generic_register(11)),
-            (constants::DW_OP_reg12, generic_register(12)),
-            (constants::DW_OP_reg13, generic_register(13)),
-            (constants::DW_OP_reg14, generic_register(14)),
-            (constants::DW_OP_reg15, generic_register(15)),
-            (constants::DW_OP_reg16, generic_register(16)),
-            (constants::DW_OP_reg17, generic_register(17)),
-            (constants::DW_OP_reg18, generic_register(18)),
-            (constants::DW_OP_reg19, generic_register(19)),
-            (constants::DW_OP_reg20, generic_register(20)),
-            (constants::DW_OP_reg21, generic_register(21)),
-            (constants::DW_OP_reg22, generic_register(22)),
-            (constants::DW_OP_reg23, generic_register(23)),
-            (constants::DW_OP_reg24, generic_register(24)),
-            (constants::DW_OP_reg25, generic_register(25)),
-            (constants::DW_OP_reg26, generic_register(26)),
-            (constants::DW_OP_reg27, generic_register(27)),
-            (constants::DW_OP_reg28, generic_register(28)),
-            (constants::DW_OP_reg29, generic_register(29)),
-            (constants::DW_OP_reg30, generic_register(30)),
-            (constants::DW_OP_reg31, generic_register(31)),
+            (constants::DW_OP_reg0, Operation::Register { register: 0 }),
+            (constants::DW_OP_reg1, Operation::Register { register: 1 }),
+            (constants::DW_OP_reg2, Operation::Register { register: 2 }),
+            (constants::DW_OP_reg3, Operation::Register { register: 3 }),
+            (constants::DW_OP_reg4, Operation::Register { register: 4 }),
+            (constants::DW_OP_reg5, Operation::Register { register: 5 }),
+            (constants::DW_OP_reg6, Operation::Register { register: 6 }),
+            (constants::DW_OP_reg7, Operation::Register { register: 7 }),
+            (constants::DW_OP_reg8, Operation::Register { register: 8 }),
+            (constants::DW_OP_reg9, Operation::Register { register: 9 }),
+            (constants::DW_OP_reg10, Operation::Register { register: 10 }),
+            (constants::DW_OP_reg11, Operation::Register { register: 11 }),
+            (constants::DW_OP_reg12, Operation::Register { register: 12 }),
+            (constants::DW_OP_reg13, Operation::Register { register: 13 }),
+            (constants::DW_OP_reg14, Operation::Register { register: 14 }),
+            (constants::DW_OP_reg15, Operation::Register { register: 15 }),
+            (constants::DW_OP_reg16, Operation::Register { register: 16 }),
+            (constants::DW_OP_reg17, Operation::Register { register: 17 }),
+            (constants::DW_OP_reg18, Operation::Register { register: 18 }),
+            (constants::DW_OP_reg19, Operation::Register { register: 19 }),
+            (constants::DW_OP_reg20, Operation::Register { register: 20 }),
+            (constants::DW_OP_reg21, Operation::Register { register: 21 }),
+            (constants::DW_OP_reg22, Operation::Register { register: 22 }),
+            (constants::DW_OP_reg23, Operation::Register { register: 23 }),
+            (constants::DW_OP_reg24, Operation::Register { register: 24 }),
+            (constants::DW_OP_reg25, Operation::Register { register: 25 }),
+            (constants::DW_OP_reg26, Operation::Register { register: 26 }),
+            (constants::DW_OP_reg27, Operation::Register { register: 27 }),
+            (constants::DW_OP_reg28, Operation::Register { register: 28 }),
+            (constants::DW_OP_reg29, Operation::Register { register: 29 }),
+            (constants::DW_OP_reg30, Operation::Register { register: 30 }),
+            (constants::DW_OP_reg31, Operation::Register { register: 31 }),
             (constants::DW_OP_nop, Operation::Nop),
             (
                 constants::DW_OP_push_object_address,
@@ -2127,6 +2184,7 @@ mod tests {
                     Operation::RegisterOffset {
                         register: i as u64,
                         offset: *value,
+                        base_type: UnitOffset(0),
                     },
                 ));
             }
@@ -2157,10 +2215,7 @@ mod tests {
                 ),
                 (
                     constants::DW_OP_regx,
-                    Operation::Register {
-                        base_type: generic_type(),
-                        register: *value,
-                    },
+                    Operation::Register { register: *value },
                 ),
             ];
 
@@ -2213,6 +2268,7 @@ mod tests {
                     &Operation::RegisterOffset {
                         register: *v1,
                         offset: *v2,
+                        base_type: UnitOffset(0),
                     },
                     address_size,
                     format,
@@ -2318,18 +2374,20 @@ mod tests {
 
         check_op_parse(
             |s| s.D8(constants::DW_OP_regval_type.0).uleb(1).uleb(100),
-            &Operation::Register {
-                base_type: UnitOffset(100),
+            &Operation::RegisterOffset {
                 register: 1,
+                offset: 0,
+                base_type: UnitOffset(100),
             },
             address_size,
             format,
         );
         check_op_parse(
             |s| s.D8(constants::DW_OP_GNU_regval_type.0).uleb(1).uleb(100),
-            &Operation::Register {
-                base_type: UnitOffset(100),
+            &Operation::RegisterOffset {
                 register: 1,
+                offset: 0,
+                base_type: UnitOffset(100),
             },
             address_size,
             format,
@@ -2358,6 +2416,16 @@ mod tests {
                 base_type: UnitOffset(100),
                 size: 8,
                 space: false,
+            },
+            address_size,
+            format,
+        );
+        check_op_parse(
+            |s| s.D8(constants::DW_OP_xderef_type.0).D8(8).uleb(100),
+            &Operation::Deref {
+                base_type: UnitOffset(100),
+                size: 8,
+                space: true,
             },
             address_size,
             format,
@@ -2775,7 +2843,7 @@ mod tests {
         let result = [
             Piece { size_in_bits: None,
                     bit_offset: None,
-                    location: Location::Scalar{value: 0},
+                    location: Location::Value { value: Value::Generic(0) },
             },
         ];
 
@@ -2849,7 +2917,7 @@ mod tests {
         let result = [
             Piece { size_in_bits: None,
                     bit_offset: None,
-                    location: Location::Scalar{value: 0},
+                    location: Location::Value { value: Value::Generic(0) },
             },
         ];
 
@@ -2915,7 +2983,7 @@ mod tests {
         let result = [
             Piece { size_in_bits: None,
                     bit_offset: None,
-                    location: Location::Scalar{value: 0},
+                    location: Location::Value { value: Value::Generic(0) },
             },
         ];
 
@@ -2952,7 +3020,7 @@ mod tests {
         let result = [
             Piece { size_in_bits: None,
                     bit_offset: None,
-                    location: Location::Scalar{value: 1},
+                    location: Location::Value { value: Value::Generic(1) },
             },
         ];
 
@@ -2987,22 +3055,24 @@ mod tests {
         let result = [
             Piece { size_in_bits: None,
                     bit_offset: None,
-                    location: Location::Scalar{value: 496},
+                    location: Location::Value { value: Value::Generic(496) },
             },
         ];
 
-        check_eval_with_args(&program, Ok(&result), 4, Format::Dwarf32, None, None, None,
-                             |eval, mut result| {
-                                 while result != EvaluationResult::Complete {
-                                     result = eval.resume_with_register(match result {
-                                         EvaluationResult::RequiresRegister(regno) => {
-                                             regno.wrapping_neg()
-                                         },
-                                         _ => panic!(),
-                                     })?;
-                                 }
-                                 Ok(result)
-                             });
+        check_eval_with_args(
+            &program, Ok(&result), 4, Format::Dwarf32, None, None, None,
+            |eval, mut result| {
+                while result != EvaluationResult::Complete {
+                    result = eval.resume_with_register(match result {
+                        EvaluationResult::RequiresRegister { register, base_type } => {
+                            assert_eq!(base_type, UnitOffset(0));
+                            Value::Generic(register.wrapping_neg())
+                        }
+                        _ => panic!(),
+                    })?;
+                }
+                Ok(result)
+            });
     }
 
     #[test]
@@ -3071,7 +3141,7 @@ mod tests {
         let result = [
             Piece { size_in_bits: None,
                     bit_offset: None,
-                    location: Location::Scalar{value: 0},
+                    location: Location::Value { value: Value::Generic(0) },
             },
         ];
 
@@ -3079,12 +3149,14 @@ mod tests {
                              |eval, mut result| {
                                  while result != EvaluationResult::Complete {
                                      result = match result {
-                                         EvaluationResult::RequiresMemory { address, size, space } => {
+                                         EvaluationResult::RequiresMemory { address, size, space, base_type } => {
+                                             assert_eq!(base_type, UnitOffset(0));
                                              let mut v = address << 2;
                                              if let Some(value) = space {
                                                  v += value;
                                              }
-                                             eval.resume_with_memory(v & ((1u64 << 8 * size) - 1))?
+                                             v = v & ((1u64 << 8 * size) - 1);
+                                             eval.resume_with_memory(Value::Generic(v))?
                                          }
                                          EvaluationResult::RequiresTls(slot) => {
                                              eval.resume_with_tls(!slot)?
@@ -3117,7 +3189,7 @@ mod tests {
             let ok_result = [
                 Piece { size_in_bits: None,
                         bit_offset: None,
-                        location: Location::Register{register: i as u64},
+                        location: Location::Register { register: i as u64 },
                 },
             ];
 
@@ -3134,7 +3206,7 @@ mod tests {
         let result = [
             Piece { size_in_bits: None,
                     bit_offset: None,
-                    location: Location::Register{register: 0x11223344},
+                    location: Location::Register { register: 0x11223344 },
             },
         ];
 
@@ -3161,7 +3233,7 @@ mod tests {
         let result = [
             Piece { size_in_bits: None,
                     bit_offset: None,
-                    location: Location::Scalar{value: 9},
+                    location: Location::Value { value: Value::Generic(9) },
             },
         ];
 
@@ -3187,7 +3259,7 @@ mod tests {
         let result = [
             Piece { size_in_bits: None,
                     bit_offset: None,
-                    location: Location::Scalar{value: 0x12345678},
+                    location: Location::Value { value: Value::Generic(0x12345678) },
             },
         ];
 
@@ -3199,7 +3271,7 @@ mod tests {
                                      },
                                      _ => panic!(),
                                  };
-                                 eval.resume_with_entry_value(entry_value)
+                                 eval.resume_with_entry_value(Value::Generic(entry_value))
                              });
 
         // Test missing `object_address` field.
@@ -3219,7 +3291,7 @@ mod tests {
         let result = [
             Piece { size_in_bits: None,
                     bit_offset: None,
-                    location: Location::Scalar{value: 0xff},
+                    location: Location::Value { value: Value::Generic(0xff) },
             },
         ];
 
@@ -3275,7 +3347,7 @@ mod tests {
         let result = [
             Piece { size_in_bits: None,
                     bit_offset: None,
-                    location: Location::Scalar{value: 23},
+                    location: Location::Value { value: Value::Generic(23) },
             },
         ];
 
@@ -3310,7 +3382,7 @@ mod tests {
         let result = [
             Piece { size_in_bits: None,
                     bit_offset: None,
-                    location: Location::Scalar{value: 184},
+                    location: Location::Value { value: Value::Generic(184) },
             },
         ];
 
@@ -3421,7 +3493,7 @@ mod tests {
 
         let result = [
             Piece { size_in_bits: Some(5), bit_offset: Some(0),
-                    location: Location::Scalar { value: 7 } },
+                    location: Location::Value { value: Value::Generic(7) } },
             Piece { size_in_bits: Some(3), bit_offset: Some(0),
                     location: Location::Empty },
         ];
@@ -3487,5 +3559,115 @@ mod tests {
         check_eval_with_args(&program, Err(Error::TooManyIterations),
                              4, Format::Dwarf32, None, None, Some(150),
                              |_, _| panic!());
+    }
+
+    #[test]
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn test_eval_typed_stack() {
+        use constants::*;
+        use self::AssemblerEntry::*;
+
+        let base_types = [
+            ValueType::Generic,
+            ValueType::U16,
+            ValueType::U32,
+            ValueType::F32,
+        ];
+
+        // TODO: convert, reinterpret
+        for &(program, value) in &[
+            (
+                &[
+                    Op(DW_OP_const_type), Uleb(1), U8(2), U16(0x1234),
+                    Op(DW_OP_stack_value),
+                ][..],
+                Value::U16(0x1234),
+            ),
+            (
+                &[
+                    Op(DW_OP_regval_type), Uleb(0x1234), Uleb(1),
+                    Op(DW_OP_stack_value),
+                ][..],
+                Value::U16(0x2340),
+            ),
+            (
+                &[
+                    Op(DW_OP_addr), U32(0x7fff_ffff),
+                    Op(DW_OP_deref_type), U8(2), Uleb(1),
+                    Op(DW_OP_stack_value),
+                ][..],
+                Value::U16(0xfff0),
+            ),
+            (
+                &[
+                    Op(DW_OP_lit1),
+                    Op(DW_OP_addr), U32(0x7fff_ffff),
+                    Op(DW_OP_xderef_type), U8(2), Uleb(1),
+                    Op(DW_OP_stack_value),
+                ][..],
+                Value::U16(0xfff1),
+            ),
+            (
+                &[
+                    Op(DW_OP_const_type), Uleb(1), U8(2), U16(0x1234),
+                    Op(DW_OP_convert), Uleb(2),
+                    Op(DW_OP_stack_value),
+                ][..],
+                Value::U32(0x1234),
+            ),
+            (
+                &[
+                    Op(DW_OP_const_type), Uleb(2), U8(4), U32(0x3f80_0000),
+                    Op(DW_OP_reinterpret), Uleb(3),
+                    Op(DW_OP_stack_value),
+                ][..],
+                Value::F32(1.0),
+            ),
+        ] {
+            let result = [
+                Piece {
+                    size_in_bits: None,
+                    bit_offset: None,
+                    location: Location::Value { value },
+                },
+            ];
+
+            check_eval_with_args(
+                program,
+                Ok(&result),
+                4,
+                Format::Dwarf32,
+                None,
+                None,
+                None,
+                |eval, mut result| {
+                    while result != EvaluationResult::Complete {
+                        result = match result {
+                            EvaluationResult::RequiresMemory { address, size, space, base_type } => {
+                                let mut v = address << 4;
+                                if let Some(value) = space {
+                                    v += value;
+                                }
+                                v = v & ((1u64 << 8 * size) - 1);
+                                let v = Value::from_u64(base_types[base_type.0], v)?;
+                                eval.resume_with_memory(v)?
+                            }
+                            EvaluationResult::RequiresRegister { register, base_type } => {
+                                let v = Value::from_u64(base_types[base_type.0], register << 4)?;
+                                eval.resume_with_register(v)?
+                            }
+                            EvaluationResult::RequiresBaseType(offset) => {
+                                eval.resume_with_base_type(base_types[offset.0])?
+                            }
+                            EvaluationResult::RequiresTextBase => {
+                                eval.resume_with_text_base(0)?
+                            }
+                            _ => panic!("Unexpected result {:?}", result),
+                        }
+                    }
+                    Ok(result)
+                },
+            );
+        }
     }
 }

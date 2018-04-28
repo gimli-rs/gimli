@@ -280,6 +280,9 @@ pub use unit::{DebuggingInformationEntry, EntriesCursor, EntriesTree, EntriesTre
                EntriesTreeNode};
 pub use unit::{Attribute, AttributeValue, AttrsIter};
 
+mod value;
+pub use value::{Value, ValueType};
+
 /// A convenience trait for loading DWARF sections from object files.  To be
 /// used like:
 ///

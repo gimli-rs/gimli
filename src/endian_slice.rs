@@ -339,6 +339,18 @@ where
         let slice = self.read_slice(8)?;
         Ok(self.endian.read_i64(slice))
     }
+
+    #[inline]
+    fn read_f32(&mut self) -> Result<f32> {
+        let slice = self.read_slice(4)?;
+        Ok(self.endian.read_f32(slice))
+    }
+
+    #[inline]
+    fn read_f64(&mut self) -> Result<f64> {
+        let slice = self.read_slice(8)?;
+        Ok(self.endian.read_f64(slice))
+    }
 }
 
 #[cfg(test)]

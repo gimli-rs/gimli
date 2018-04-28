@@ -96,6 +96,15 @@ pub enum Error {
     InvalidExpressionTerminator(u64),
     /// Division or modulus by zero when evaluating an expression.
     DivisionByZero,
+    /// An expression operation used mismatching types.
+    TypeMismatch,
+    /// An expression operation required an integral type but saw a
+    /// floating point type.
+    IntegralTypeRequired,
+    /// An expression operation used types that are not supported.
+    UnsupportedTypeOperation,
+    /// The shift value in an expression must be a non-negative integer.
+    InvalidShiftExpression,
     /// An unknown DW_CFA_* instruction.
     UnknownCallFrameInstruction(constants::DwCfa),
     /// The end of an address range was before the beginning.
@@ -138,8 +147,6 @@ pub enum Error {
     UnsupportedAddressIndex,
     /// Nonzero segment selector sizes aren't supported yet.
     UnsupportedSegmentSize,
-    /// Typed stack values aren't supported yet
-    UnsupportedTypedStack,
 }
 
 impl fmt::Display for Error {
@@ -219,6 +226,14 @@ impl Error {
             }
             Error::InvalidExpressionTerminator(_) => "Expected DW_OP_piece or DW_OP_bit_piece",
             Error::DivisionByZero => "Division or modulus by zero when evaluating expression",
+            Error::TypeMismatch => "Type mismatch when evaluating expression",
+            Error::IntegralTypeRequired => "Integral type expected when evaluating expression",
+            Error::UnsupportedTypeOperation => {
+                "An expression operation used types that are not supported"
+            }
+            Error::InvalidShiftExpression => {
+                "The shift value in an expression must be a non-negative integer."
+            }
             Error::UnknownCallFrameInstruction(_) => "An unknown DW_CFA_* instructiion",
             Error::InvalidAddressRange => {
                 "The end of an address range must not be before the beginning."
@@ -262,7 +277,6 @@ impl Error {
             Error::UnsupportedUnitType => "The `DW_UT_*` value for this unit is not supported yet",
             Error::UnsupportedAddressIndex => "Ranges involving AddressIndex are not supported yet",
             Error::UnsupportedSegmentSize => "Nonzero segment size not supported yet",
-            Error::UnsupportedTypedStack => "Typed stack values not supported yet",
         }
     }
 }

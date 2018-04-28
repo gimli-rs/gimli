@@ -685,6 +685,22 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
+    /// Construct a new `DebuggingInformationEntry`.
+    pub fn new(
+        offset: UnitOffset<Offset>,
+        attrs_slice: R,
+        abbrev: &'abbrev Abbreviation,
+        unit: &'unit UnitHeader<R, Offset>,
+    ) -> Self {
+        DebuggingInformationEntry {
+            offset,
+            attrs_slice,
+            attrs_len: Cell::new(None),
+            abbrev,
+            unit,
+        }
+    }
+
     /// Get this entry's code.
     pub fn code(&self) -> u64 {
         self.abbrev.code()

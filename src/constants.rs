@@ -56,7 +56,7 @@ use std::fmt;
 //     }
 macro_rules! dw {
     ($struct_name:ident($struct_type:ty) { $($name:ident = $val:expr),+ }) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub struct $struct_name(pub $struct_type);
 
         $(
