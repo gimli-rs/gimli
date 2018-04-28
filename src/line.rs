@@ -1,5 +1,6 @@
 use constants;
-use endianity::{EndianBuf, Endianity};
+use endianity::Endianity;
+use endian_buf::EndianBuf;
 use parser;
 use reader::{Reader, ReaderOffset};
 use std::fmt;
@@ -1425,7 +1426,8 @@ mod tests {
     use super::*;
     use super::StateMachineRegisters;
     use constants;
-    use endianity::{EndianBuf, LittleEndian};
+    use endianity::LittleEndian;
+    use endian_buf::EndianBuf;
     use parser::{Error, Format};
     use std::u8;
 

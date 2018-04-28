@@ -187,7 +187,8 @@ pub mod write {
 #[cfg(test)]
 mod tests {
     use super::{low_bits_of_byte, read, write, low_bits_of_u64, CONTINUATION_BIT};
-    use endianity::{EndianBuf, NativeEndian};
+    use endianity::NativeEndian;
+    use endian_buf::EndianBuf;
     use parser::Error;
     use std;
     use std::io;

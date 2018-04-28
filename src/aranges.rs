@@ -1,4 +1,5 @@
-use endianity::{EndianBuf, Endianity};
+use endianity::Endianity;
+use endian_buf::EndianBuf;
 use fallible_iterator::FallibleIterator;
 use lookup::{DebugLookup, LookupEntryIter, LookupParser};
 use parser::{parse_initial_length, Error, Format, Result};
@@ -262,7 +263,8 @@ impl<R: Reader> FallibleIterator for ArangeEntryIter<R> {
 mod tests {
     use super::*;
     use lookup::LookupParser;
-    use endianity::{EndianBuf, LittleEndian};
+    use endianity::LittleEndian;
+    use endian_buf::EndianBuf;
     use parser::Format;
     use unit::DebugInfoOffset;
 

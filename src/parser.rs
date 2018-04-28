@@ -496,7 +496,8 @@ mod tests {
     use super::*;
     use cfi::BaseAddresses;
     use constants;
-    use endianity::{EndianBuf, LittleEndian};
+    use endianity::LittleEndian;
+    use endian_buf::EndianBuf;
     use self::test_assembler::{Endian, Section};
     use std::cell::RefCell;
     use test_util::GimliSectionMethods;

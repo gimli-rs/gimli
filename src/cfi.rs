@@ -1,6 +1,7 @@
 use arrayvec::ArrayVec;
 use constants::{self, DwEhPe};
-use endianity::{EndianBuf, Endianity};
+use endianity::Endianity;
+use endian_buf::EndianBuf;
 use fallible_iterator::FallibleIterator;
 use op::Expression;
 use parser::{parse_encoded_pointer, parse_initial_length, parse_pointer_encoding, Error, Format,
@@ -3114,7 +3115,8 @@ mod tests {
     use super::*;
     use super::{parse_cfi_entry, AugmentationData, RegisterRuleMap, UnwindContext};
     use constants;
-    use endianity::{BigEndian, EndianBuf, Endianity, LittleEndian, NativeEndian};
+    use endianity::{BigEndian, Endianity, LittleEndian, NativeEndian};
+    use endian_buf::EndianBuf;
     use op::Expression;
     use parser::{Error, Format, Pointer, Result};
     use self::test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};

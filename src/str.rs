@@ -1,4 +1,5 @@
-use endianity::{EndianBuf, Endianity};
+use endianity::Endianity;
+use endian_buf::EndianBuf;
 use parser::Result;
 use reader::Reader;
 use Section;

@@ -2,7 +2,8 @@
 
 use constants;
 use abbrev::{Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, DebugAbbrevOffset};
-use endianity::{EndianBuf, Endianity};
+use endianity::Endianity;
+use endian_buf::EndianBuf;
 use fallible_iterator::FallibleIterator;
 use line::DebugLineOffset;
 use loclists::LocationListsOffset;
@@ -2843,7 +2844,8 @@ mod tests {
     use abbrev::tests::AbbrevSectionMethods;
     use constants;
     use constants::*;
-    use endianity::{EndianBuf, Endianity, LittleEndian};
+    use endianity::{Endianity, LittleEndian};
+    use endian_buf::EndianBuf;
     use leb128;
     use loclists::LocationListsOffset;
     use parser::{Error, Format, Result};

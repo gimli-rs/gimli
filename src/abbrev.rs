@@ -1,7 +1,8 @@
 //! Functions for parsing DWARF debugging abbreviations.
 
 use constants;
-use endianity::{EndianBuf, Endianity};
+use endianity::Endianity;
+use endian_buf::EndianBuf;
 use parser::{Error, Result};
 use reader::Reader;
 use unit::UnitHeader;
@@ -390,7 +391,8 @@ pub mod tests {
 
     use super::*;
     use constants;
-    use endianity::{EndianBuf, LittleEndian};
+    use endianity::LittleEndian;
+    use endian_buf::EndianBuf;
     use parser::Error;
     use self::test_assembler::Section;
     #[cfg(target_pointer_width = "32")]

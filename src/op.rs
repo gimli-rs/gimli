@@ -1652,7 +1652,8 @@ mod tests {
     use super::*;
     use super::compute_pc;
     use constants;
-    use endianity::{EndianBuf, LittleEndian};
+    use endianity::LittleEndian;
+    use endian_buf::EndianBuf;
     use leb128;
     use parser::{Error, Format, Result};
     use self::test_assembler::{Endian, Section};

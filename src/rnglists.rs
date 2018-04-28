@@ -1,5 +1,6 @@
 use constants;
-use endianity::{EndianBuf, Endianity};
+use endianity::Endianity;
+use endian_buf::EndianBuf;
 use fallible_iterator::FallibleIterator;
 use parser::{self, Error, Format, Result};
 use reader::{Reader, ReaderOffset};

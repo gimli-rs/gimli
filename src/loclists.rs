@@ -1,5 +1,6 @@
 use constants;
-use endianity::{EndianBuf, Endianity};
+use endianity::Endianity;
+use endian_buf::EndianBuf;
 use fallible_iterator::FallibleIterator;
 use op::Expression;
 use parser::{self, Error, Format, Result};
@@ -516,7 +517,8 @@ mod tests {
     extern crate test_assembler;
 
     use super::*;
-    use endianity::{EndianBuf, LittleEndian};
+    use endianity::LittleEndian;
+    use endian_buf::EndianBuf;
     use rnglists::Range;
     use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use test_util::GimliSectionMethods;
