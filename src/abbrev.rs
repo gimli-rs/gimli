@@ -1,7 +1,8 @@
 //! Functions for parsing DWARF debugging abbreviations.
 
 use constants;
-use endianity::{EndianBuf, Endianity};
+use endianity::Endianity;
+use endian_slice::EndianSlice;
 use parser::{Error, Result};
 use reader::Reader;
 use unit::UnitHeader;
@@ -21,7 +22,7 @@ pub struct DebugAbbrev<R: Reader> {
     debug_abbrev_section: R,
 }
 
-impl<'input, Endian> DebugAbbrev<EndianBuf<'input, Endian>>
+impl<'input, Endian> DebugAbbrev<EndianSlice<'input, Endian>>
 where
     Endian: Endianity,
 {
@@ -40,7 +41,7 @@ where
     /// let debug_abbrev = DebugAbbrev::new(read_debug_abbrev_section_somehow(), LittleEndian);
     /// ```
     pub fn new(debug_abbrev_section: &'input [u8], endian: Endian) -> Self {
-        Self::from(EndianBuf::new(debug_abbrev_section, endian))
+        Self::from(EndianSlice::new(debug_abbrev_section, endian))
     }
 }
 
@@ -390,7 +391,8 @@ pub mod tests {
 
     use super::*;
     use constants;
-    use endianity::{EndianBuf, LittleEndian};
+    use endianity::LittleEndian;
+    use endian_slice::EndianSlice;
     use parser::Error;
     use self::test_assembler::Section;
     #[cfg(target_pointer_width = "32")]
@@ -601,7 +603,7 @@ pub mod tests {
             .append_bytes(&expected_rest)
             .get_contents()
             .unwrap();
-        let rest = &mut EndianBuf::new(&*buf, LittleEndian);
+        let rest = &mut EndianSlice::new(&*buf, LittleEndian);
 
         let abbrev1 = Abbreviation::new(
             1,
@@ -633,7 +635,7 @@ pub mod tests {
         let abbrevs = Abbreviations::parse(rest).expect("Should parse abbreviations");
         assert_eq!(abbrevs.get(1), Some(&abbrev1));
         assert_eq!(abbrevs.get(2), Some(&abbrev2));
-        assert_eq!(*rest, EndianBuf::new(&expected_rest, LittleEndian));
+        assert_eq!(*rest, EndianSlice::new(&expected_rest, LittleEndian));
     }
 
     #[test]
@@ -655,7 +657,7 @@ pub mod tests {
             .append_bytes(&expected_rest)
             .get_contents()
             .unwrap();
-        let buf = &mut EndianBuf::new(&*buf, LittleEndian);
+        let buf = &mut EndianSlice::new(&*buf, LittleEndian);
 
         match Abbreviations::parse(buf) {
             Err(Error::DuplicateAbbreviationCode) => {}
@@ -666,16 +668,16 @@ pub mod tests {
     #[test]
     fn test_parse_abbreviation_tag_ok() {
         let buf = [0x01, 0x02];
-        let rest = &mut EndianBuf::new(&buf, LittleEndian);
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
         let tag = Abbreviation::parse_tag(rest).expect("Should parse tag");
         assert_eq!(tag, constants::DW_TAG_array_type);
-        assert_eq!(*rest, EndianBuf::new(&buf[1..], LittleEndian));
+        assert_eq!(*rest, EndianSlice::new(&buf[1..], LittleEndian));
     }
 
     #[test]
     fn test_parse_abbreviation_tag_zero() {
         let buf = [0x00];
-        let buf = &mut EndianBuf::new(&buf, LittleEndian);
+        let buf = &mut EndianSlice::new(&buf, LittleEndian);
         match Abbreviation::parse_tag(buf) {
             Err(Error::AbbreviationTagZero) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
@@ -685,7 +687,7 @@ pub mod tests {
     #[test]
     fn test_parse_abbreviation_has_children() {
         let buf = [0x00, 0x01, 0x02];
-        let rest = &mut EndianBuf::new(&buf, LittleEndian);
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
         let val = Abbreviation::parse_has_children(rest).expect("Should parse children");
         assert_eq!(val, constants::DW_CHILDREN_no);
         let val = Abbreviation::parse_has_children(rest).expect("Should parse children");
@@ -706,7 +708,7 @@ pub mod tests {
             .append_bytes(&expected_rest)
             .get_contents()
             .unwrap();
-        let rest = &mut EndianBuf::new(&*buf, LittleEndian);
+        let rest = &mut EndianSlice::new(&*buf, LittleEndian);
 
         let expect = Some(Abbreviation::new(
             1,
@@ -719,7 +721,7 @@ pub mod tests {
 
         let abbrev = Abbreviation::parse(rest).expect("Should parse abbreviation");
         assert_eq!(abbrev, expect);
-        assert_eq!(*rest, EndianBuf::new(&expected_rest, LittleEndian));
+        assert_eq!(*rest, EndianSlice::new(&expected_rest, LittleEndian));
     }
 
     #[test]
@@ -732,7 +734,7 @@ pub mod tests {
             .append_bytes(&expected_rest)
             .get_contents()
             .unwrap();
-        let rest = &mut EndianBuf::new(&*buf, LittleEndian);
+        let rest = &mut EndianSlice::new(&*buf, LittleEndian);
 
         let expect = Some(Abbreviation::new(
             1,
@@ -749,8 +751,9 @@ pub mod tests {
 
         let abbrev = Abbreviation::parse(rest).expect("Should parse abbreviation");
         assert_eq!(abbrev, expect);
-        assert_eq!(*rest, EndianBuf::new(&expected_rest, LittleEndian));
+        assert_eq!(*rest, EndianSlice::new(&expected_rest, LittleEndian));
     }
+
     #[test]
     fn test_parse_abbreviation_implicit_const_no_const() {
         let buf = Section::new()
@@ -758,7 +761,7 @@ pub mod tests {
             .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_implicit_const)
             .get_contents()
             .unwrap();
-        let buf = &mut EndianBuf::new(&*buf, LittleEndian);
+        let buf = &mut EndianSlice::new(&*buf, LittleEndian);
 
         match Abbreviation::parse(buf) {
             Err(Error::UnexpectedEof) => {}
@@ -774,26 +777,26 @@ pub mod tests {
             .append_bytes(&expected_rest)
             .get_contents()
             .unwrap();
-        let rest = &mut EndianBuf::new(&*buf, LittleEndian);
+        let rest = &mut EndianSlice::new(&*buf, LittleEndian);
 
         let abbrev = Abbreviation::parse(rest).expect("Should parse null abbreviation");
         assert!(abbrev.is_none());
-        assert_eq!(*rest, EndianBuf::new(&expected_rest, LittleEndian));
+        assert_eq!(*rest, EndianSlice::new(&expected_rest, LittleEndian));
     }
 
     #[test]
     fn test_parse_attribute_form_ok() {
         let buf = [0x01, 0x02];
-        let rest = &mut EndianBuf::new(&buf, LittleEndian);
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
         let tag = AttributeSpecification::parse_form(rest).expect("Should parse form");
         assert_eq!(tag, constants::DW_FORM_addr);
-        assert_eq!(*rest, EndianBuf::new(&buf[1..], LittleEndian));
+        assert_eq!(*rest, EndianSlice::new(&buf[1..], LittleEndian));
     }
 
     #[test]
     fn test_parse_attribute_form_zero() {
         let buf = [0x00];
-        let buf = &mut EndianBuf::new(&buf, LittleEndian);
+        let buf = &mut EndianSlice::new(&buf, LittleEndian);
         match AttributeSpecification::parse_form(buf) {
             Err(Error::AttributeFormZero) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
@@ -803,17 +806,17 @@ pub mod tests {
     #[test]
     fn test_parse_null_attribute_specification_ok() {
         let buf = [0x00, 0x00, 0x01];
-        let rest = &mut EndianBuf::new(&buf, LittleEndian);
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
         let attr =
             AttributeSpecification::parse(rest).expect("Should parse null attribute specification");
         assert!(attr.is_none());
-        assert_eq!(*rest, EndianBuf::new(&buf[2..], LittleEndian));
+        assert_eq!(*rest, EndianSlice::new(&buf[2..], LittleEndian));
     }
 
     #[test]
     fn test_parse_attribute_specifications_name_zero() {
         let buf = [0x00, 0x01, 0x00, 0x00];
-        let buf = &mut EndianBuf::new(&buf, LittleEndian);
+        let buf = &mut EndianSlice::new(&buf, LittleEndian);
         match AttributeSpecification::parse(buf) {
             Err(Error::ExpectedZero) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
@@ -823,7 +826,7 @@ pub mod tests {
     #[test]
     fn test_parse_attribute_specifications_form_zero() {
         let buf = [0x01, 0x00, 0x00, 0x00];
-        let buf = &mut EndianBuf::new(&buf, LittleEndian);
+        let buf = &mut EndianSlice::new(&buf, LittleEndian);
         match AttributeSpecification::parse(buf) {
             Err(Error::AttributeFormZero) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),

@@ -1,5 +1,6 @@
 use constants;
-use endianity::{EndianBuf, Endianity};
+use endianity::Endianity;
+use endian_slice::EndianSlice;
 use fallible_iterator::FallibleIterator;
 use op::Expression;
 use parser::{self, Error, Format, Result};
@@ -14,7 +15,7 @@ pub struct DebugLoc<R: Reader> {
     pub(crate) debug_loc_section: R,
 }
 
-impl<'input, Endian> DebugLoc<EndianBuf<'input, Endian>>
+impl<'input, Endian> DebugLoc<EndianSlice<'input, Endian>>
 where
     Endian: Endianity,
 {
@@ -33,7 +34,7 @@ where
     /// let debug_loc = DebugLoc::new(read_debug_loc_section_somehow(), LittleEndian);
     /// ```
     pub fn new(debug_loc_section: &'input [u8], endian: Endian) -> Self {
-        Self::from(EndianBuf::new(debug_loc_section, endian))
+        Self::from(EndianSlice::new(debug_loc_section, endian))
     }
 }
 
@@ -56,7 +57,7 @@ pub struct DebugLocLists<R: Reader> {
     debug_loclists_section: R,
 }
 
-impl<'input, Endian> DebugLocLists<EndianBuf<'input, Endian>>
+impl<'input, Endian> DebugLocLists<EndianSlice<'input, Endian>>
 where
     Endian: Endianity,
 {
@@ -75,7 +76,7 @@ where
     /// let debug_loclists = DebugLocLists::new(read_debug_loclists_section_somehow(), LittleEndian);
     /// ```
     pub fn new(debug_loclists_section: &'input [u8], endian: Endian) -> Self {
-        Self::from(EndianBuf::new(debug_loclists_section, endian))
+        Self::from(EndianSlice::new(debug_loclists_section, endian))
     }
 }
 
@@ -516,7 +517,8 @@ mod tests {
     extern crate test_assembler;
 
     use super::*;
-    use endianity::{EndianBuf, LittleEndian};
+    use endianity::LittleEndian;
+    use endian_slice::EndianSlice;
     use rnglists::Range;
     use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use test_util::GimliSectionMethods;
@@ -575,7 +577,7 @@ mod tests {
                     begin: 0x01010200,
                     end: 0x01010300,
                 },
-                data: Expression(EndianBuf::new(&[2, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[2, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -587,7 +589,7 @@ mod tests {
                     begin: 0x02010400,
                     end: 0x02010500,
                 },
-                data: Expression(EndianBuf::new(&[3, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[3, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -599,7 +601,7 @@ mod tests {
                     begin: 0x02010600,
                     end: 0x02010600,
                 },
-                data: Expression(EndianBuf::new(&[4, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[4, 0, 0, 0], LittleEndian)),
             }))
         );
         assert_eq!(
@@ -609,7 +611,7 @@ mod tests {
                     begin: 0x02010800,
                     end: 0x02010900,
                 },
-                data: Expression(EndianBuf::new(&[5, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[5, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -621,7 +623,7 @@ mod tests {
                     begin: 0x02010a00,
                     end: 0x02010b00,
                 },
-                data: Expression(EndianBuf::new(&[6, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[6, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -633,7 +635,7 @@ mod tests {
                     begin: 0x02010c00,
                     end: 0x02010d00,
                 },
-                data: Expression(EndianBuf::new(&[7, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[7, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -645,7 +647,7 @@ mod tests {
                     begin: 0x02000000,
                     end: 0x02000001,
                 },
-                data: Expression(EndianBuf::new(&[8, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[8, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -657,7 +659,7 @@ mod tests {
                     begin: 0x00000000,
                     end: 0xffffffff,
                 },
-                data: Expression(EndianBuf::new(&[9, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[9, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -669,7 +671,7 @@ mod tests {
                     begin: 0,
                     end: u64::max_value(),
                 },
-                data: Expression(EndianBuf::new(&[10, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[10, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -738,7 +740,7 @@ mod tests {
                     begin: 0x01010200,
                     end: 0x01010300,
                 },
-                data: Expression(EndianBuf::new(&[2, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[2, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -750,7 +752,7 @@ mod tests {
                     begin: 0x02010400,
                     end: 0x02010500,
                 },
-                data: Expression(EndianBuf::new(&[3, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[3, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -762,7 +764,7 @@ mod tests {
                     begin: 0x02010600,
                     end: 0x02010600,
                 },
-                data: Expression(EndianBuf::new(&[4, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[4, 0, 0, 0], LittleEndian)),
             }))
         );
         assert_eq!(
@@ -772,7 +774,7 @@ mod tests {
                     begin: 0x02010800,
                     end: 0x02010900,
                 },
-                data: Expression(EndianBuf::new(&[5, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[5, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -784,7 +786,7 @@ mod tests {
                     begin: 0x02010a00,
                     end: 0x02010b00,
                 },
-                data: Expression(EndianBuf::new(&[6, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[6, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -796,7 +798,7 @@ mod tests {
                     begin: 0x02010c00,
                     end: 0x02010d00,
                 },
-                data: Expression(EndianBuf::new(&[7, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[7, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -808,7 +810,7 @@ mod tests {
                     begin: 0x02000000,
                     end: 0x02000001,
                 },
-                data: Expression(EndianBuf::new(&[8, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[8, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -820,7 +822,7 @@ mod tests {
                     begin: 0x00000000,
                     end: 0xffffffff,
                 },
-                data: Expression(EndianBuf::new(&[9, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[9, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -832,7 +834,7 @@ mod tests {
                     begin: 0,
                     end: u64::max_value(),
                 },
-                data: Expression(EndianBuf::new(&[10, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[10, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -889,7 +891,7 @@ mod tests {
                     begin: 0x01010200,
                     end: 0x01010300,
                 },
-                data: Expression(EndianBuf::new(&[2, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[2, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -901,7 +903,7 @@ mod tests {
                     begin: 0x02010400,
                     end: 0x02010500,
                 },
-                data: Expression(EndianBuf::new(&[3, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[3, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -913,7 +915,7 @@ mod tests {
                     begin: 0x02010600,
                     end: 0x02010600,
                 },
-                data: Expression(EndianBuf::new(&[4, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[4, 0, 0, 0], LittleEndian)),
             }))
         );
         assert_eq!(
@@ -923,7 +925,7 @@ mod tests {
                     begin: 0x02010800,
                     end: 0x02010900,
                 },
-                data: Expression(EndianBuf::new(&[5, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[5, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -935,7 +937,7 @@ mod tests {
                     begin: 0x02000000,
                     end: 0x02000001,
                 },
-                data: Expression(EndianBuf::new(&[6, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[6, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -947,7 +949,7 @@ mod tests {
                     begin: 0x00000000,
                     end: 0xffffffff,
                 },
-                data: Expression(EndianBuf::new(&[7, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[7, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -1004,7 +1006,7 @@ mod tests {
                     begin: 0x01010200,
                     end: 0x01010300,
                 },
-                data: Expression(EndianBuf::new(&[2, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[2, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -1016,7 +1018,7 @@ mod tests {
                     begin: 0x02010400,
                     end: 0x02010500,
                 },
-                data: Expression(EndianBuf::new(&[3, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[3, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -1028,7 +1030,7 @@ mod tests {
                     begin: 0x02010600,
                     end: 0x02010600,
                 },
-                data: Expression(EndianBuf::new(&[4, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[4, 0, 0, 0], LittleEndian)),
             }))
         );
         assert_eq!(
@@ -1038,7 +1040,7 @@ mod tests {
                     begin: 0x02010800,
                     end: 0x02010900,
                 },
-                data: Expression(EndianBuf::new(&[5, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[5, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -1050,7 +1052,7 @@ mod tests {
                     begin: 0x02000000,
                     end: 0x02000001,
                 },
-                data: Expression(EndianBuf::new(&[6, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[6, 0, 0, 0], LittleEndian)),
             }))
         );
 
@@ -1062,7 +1064,7 @@ mod tests {
                     begin: 0x0,
                     end: 0xffffffffffffffff,
                 },
-                data: Expression(EndianBuf::new(&[7, 0, 0, 0], LittleEndian)),
+                data: Expression(EndianSlice::new(&[7, 0, 0, 0], LittleEndian)),
             }))
         );
 

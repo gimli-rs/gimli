@@ -1,4 +1,5 @@
-use endianity::{EndianBuf, Endianity};
+use endianity::Endianity;
+use endian_slice::EndianSlice;
 use fallible_iterator::FallibleIterator;
 use lookup::{DebugLookup, LookupEntryIter, LookupParser};
 use parser::{parse_initial_length, Error, Format, Result};
@@ -174,7 +175,7 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
 #[derive(Debug, Clone)]
 pub struct DebugAranges<R: Reader>(DebugLookup<R, ArangeParser<R>>);
 
-impl<'input, Endian> DebugAranges<EndianBuf<'input, Endian>>
+impl<'input, Endian> DebugAranges<EndianSlice<'input, Endian>>
 where
     Endian: Endianity,
 {
@@ -194,7 +195,7 @@ where
     ///     DebugAranges::new(read_debug_aranges_section(), LittleEndian);
     /// ```
     pub fn new(debug_aranges_section: &'input [u8], endian: Endian) -> Self {
-        Self::from(EndianBuf::new(debug_aranges_section, endian))
+        Self::from(EndianSlice::new(debug_aranges_section, endian))
     }
 }
 
@@ -202,7 +203,7 @@ impl<R: Reader> DebugAranges<R> {
     /// Iterate the aranges in the `.debug_aranges` section.
     ///
     /// ```
-    /// use gimli::{DebugAranges, EndianBuf, LittleEndian};
+    /// use gimli::{DebugAranges, EndianSlice, LittleEndian};
     ///
     /// # let buf = [];
     /// # let read_debug_aranges_section = || &buf;
@@ -262,7 +263,8 @@ impl<R: Reader> FallibleIterator for ArangeEntryIter<R> {
 mod tests {
     use super::*;
     use lookup::LookupParser;
-    use endianity::{EndianBuf, LittleEndian};
+    use endianity::LittleEndian;
+    use endian_slice::EndianSlice;
     use parser::Format;
     use unit::DebugInfoOffset;
 
@@ -298,13 +300,13 @@ mod tests {
             0x00, 0x00, 0x00, 0x00,
         ];
 
-        let rest = &mut EndianBuf::new(&buf, LittleEndian);
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
         let (tuples, header) = ArangeParser::parse_header(rest)
             .expect("should parse header ok");
 
-        assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 16..], LittleEndian));
-        assert_eq!(tuples, EndianBuf::new(&buf[buf.len() - 32..buf.len() - 16], LittleEndian));
+        assert_eq!(*rest, EndianSlice::new(&buf[buf.len() - 16..], LittleEndian));
+        assert_eq!(tuples, EndianSlice::new(&buf[buf.len() - 32..buf.len() - 16], LittleEndian));
         assert_eq!(header,
                    ArangeHeader {
                        format: Format::Dwarf32,
@@ -327,9 +329,9 @@ mod tests {
             segment_size: 0,
         };
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
-        let rest = &mut EndianBuf::new(&buf, LittleEndian);
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
         let entry = ArangeParser::parse_entry(rest, &header).expect("should parse entry ok");
-        assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 1..], LittleEndian));
+        assert_eq!(*rest, EndianSlice::new(&buf[buf.len() - 1..], LittleEndian));
         assert_eq!(
             entry,
             Some(ArangeEntry {
@@ -362,10 +364,10 @@ mod tests {
             // Next tuple.
             0x09
         ];
-        let rest = &mut EndianBuf::new(&buf, LittleEndian);
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
         let entry = ArangeParser::parse_entry(rest, &header)
             .expect("should parse entry ok");
-        assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 1..], LittleEndian));
+        assert_eq!(*rest, EndianSlice::new(&buf[buf.len() - 1..], LittleEndian));
         assert_eq!(entry,
                    Some(ArangeEntry {
                        segment: Some(0x1817161514131211),
@@ -396,10 +398,10 @@ mod tests {
             // Next tuple.
             0x09
         ];
-        let rest = &mut EndianBuf::new(&buf, LittleEndian);
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
         let entry = ArangeParser::parse_entry(rest, &header)
             .expect("should parse entry ok");
-        assert_eq!(*rest, EndianBuf::new(&buf[buf.len() - 1..], LittleEndian));
+        assert_eq!(*rest, EndianSlice::new(&buf[buf.len() - 1..], LittleEndian));
         assert_eq!(entry,
                    Some(ArangeEntry {
                        segment: None,

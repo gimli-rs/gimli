@@ -1,4 +1,5 @@
-use endianity::{EndianBuf, Endianity};
+use endianity::Endianity;
+use endian_slice::EndianSlice;
 use fallible_iterator::FallibleIterator;
 use lookup::{DebugLookup, LookupEntryIter, PubStuffEntry, PubStuffParser};
 use parser::{Error, Result};
@@ -52,7 +53,7 @@ impl<R: Reader> PubStuffEntry<R> for PubNamesEntry<R> {
 #[derive(Debug, Clone)]
 pub struct DebugPubNames<R: Reader>(DebugLookup<R, PubStuffParser<R, PubNamesEntry<R>>>);
 
-impl<'input, Endian> DebugPubNames<EndianBuf<'input, Endian>>
+impl<'input, Endian> DebugPubNames<EndianSlice<'input, Endian>>
 where
     Endian: Endianity,
 {
@@ -72,7 +73,7 @@ where
     ///     DebugPubNames::new(read_debug_pubnames_section_somehow(), LittleEndian);
     /// ```
     pub fn new(debug_pubnames_section: &'input [u8], endian: Endian) -> Self {
-        Self::from(EndianBuf::new(debug_pubnames_section, endian))
+        Self::from(EndianSlice::new(debug_pubnames_section, endian))
     }
 }
 
@@ -80,7 +81,7 @@ impl<R: Reader> DebugPubNames<R> {
     /// Iterate the pubnames in the `.debug_pubnames` section.
     ///
     /// ```
-    /// use gimli::{DebugPubNames, EndianBuf, LittleEndian};
+    /// use gimli::{DebugPubNames, EndianSlice, LittleEndian};
     ///
     /// # let buf = [];
     /// # let read_debug_pubnames_section_somehow = || &buf;

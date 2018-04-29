@@ -217,7 +217,15 @@ mod constants;
 pub use constants::*;
 
 mod endianity;
-pub use endianity::{BigEndian, EndianBuf, Endianity, LittleEndian, NativeEndian, RunTimeEndian};
+pub use endianity::{BigEndian, Endianity, LittleEndian, NativeEndian, RunTimeEndian};
+
+mod endian_slice;
+pub use endian_slice::EndianSlice;
+
+/// `EndianBuf` has been renamed to `EndianSlice`. For ease of upgrading across
+/// `gimli` versions, we export this type alias.
+#[deprecated(note = "EndianBuf has been renamed to EndianSlice, use that instead.")]
+pub type EndianBuf<'input, Endian> = EndianSlice<'input, Endian>;
 
 pub mod leb128;
 
