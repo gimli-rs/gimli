@@ -1504,7 +1504,7 @@ mod tests {
         assert_eq!(header.file(0).unwrap().path_name, comp_name);
 
         let expected_lengths = [1, 2];
-        assert_eq!(header.standard_opcode_lengths().buf(), &expected_lengths);
+        assert_eq!(header.standard_opcode_lengths().slice(), &expected_lengths);
 
         let expected_include_directories = [
             EndianSlice::new(b"/inc", LittleEndian),
@@ -1771,7 +1771,7 @@ mod tests {
         let input = EndianSlice::new(&input, LittleEndian);
         let mut standard_opcode_lengths = Vec::new();
         let mut header = make_test_header(input);
-        standard_opcode_lengths.extend(header.standard_opcode_lengths.buf());
+        standard_opcode_lengths.extend(header.standard_opcode_lengths.slice());
         standard_opcode_lengths.push(0);
         header.opcode_base += 1;
         header.standard_opcode_lengths = EndianSlice::new(&standard_opcode_lengths, LittleEndian);
@@ -1792,7 +1792,7 @@ mod tests {
         let input = EndianSlice::new(&input, LittleEndian);
         let mut standard_opcode_lengths = Vec::new();
         let mut header = make_test_header(input);
-        standard_opcode_lengths.extend(header.standard_opcode_lengths.buf());
+        standard_opcode_lengths.extend(header.standard_opcode_lengths.slice());
         standard_opcode_lengths.push(1);
         header.opcode_base += 1;
         header.standard_opcode_lengths = EndianSlice::new(&standard_opcode_lengths, LittleEndian);
@@ -1814,7 +1814,7 @@ mod tests {
         let args = EndianSlice::new(&input[1..], LittleEndian);
         let mut standard_opcode_lengths = Vec::new();
         let mut header = make_test_header(input);
-        standard_opcode_lengths.extend(header.standard_opcode_lengths.buf());
+        standard_opcode_lengths.extend(header.standard_opcode_lengths.slice());
         standard_opcode_lengths.push(3);
         header.opcode_base += 1;
         header.standard_opcode_lengths = EndianSlice::new(&standard_opcode_lengths, LittleEndian);

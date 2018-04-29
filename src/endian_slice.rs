@@ -1,4 +1,4 @@
-//! Types for compile-time and run-time endianity.
+//! Working with byte slices that have an associated endianity.
 
 use endianity::Endianity;
 use std::mem;
@@ -15,7 +15,7 @@ pub struct EndianSlice<'input, Endian>
 where
     Endian: Endianity,
 {
-    buf: &'input [u8],
+    slice: &'input [u8],
     endian: Endian,
 }
 
@@ -23,65 +23,73 @@ impl<'input, Endian> EndianSlice<'input, Endian>
 where
     Endian: Endianity,
 {
-    /// Construct a new `EndianSlice` with the given buffer.
+    /// Construct a new `EndianSlice` with the given slice and endianity.
     #[inline]
-    pub fn new(buf: &'input [u8], endian: Endian) -> EndianSlice<'input, Endian> {
-        EndianSlice { buf, endian }
+    pub fn new(slice: &'input [u8], endian: Endian) -> EndianSlice<'input, Endian> {
+        EndianSlice { slice, endian }
     }
 
-    /// Return a reference to the raw buffer.
+    /// Return a reference to the raw slice.
     #[inline]
+    #[doc(hidden)]
+    #[deprecated(note = "Method renamed to EndianSlice::slice; use that instead.")]
     pub fn buf(&self) -> &'input [u8] {
-        self.buf
+        self.slice
     }
 
-    /// Split the buffer in two at the given index, resulting in the tuple where
-    /// the first item has range [0, idx), and the second has range
-    /// [idx, len). Panics if the index is out of bounds.
+    /// Return a reference to the raw slice.
+    #[inline]
+    pub fn slice(&self) -> &'input [u8] {
+        self.slice
+    }
+
+    /// Split the slice in two at the given index, resulting in the tuple where
+    /// the first item has range [0, idx), and the second has range [idx,
+    /// len). Panics if the index is out of bounds.
     #[inline]
     pub fn split_at(&self, idx: usize) -> (EndianSlice<'input, Endian>, EndianSlice<'input, Endian>) {
         (self.range_to(..idx), self.range_from(idx..))
     }
 
-    /// Find the first occurence of a byte in the buffer, and return its index.
+    /// Find the first occurence of a byte in the slice, and return its index.
     #[inline]
     pub fn find(&self, byte: u8) -> Option<usize> {
-        self.buf.iter().position(|ch| *ch == byte)
+        self.slice.iter().position(|ch| *ch == byte)
     }
 
-    /// Return the offset of the start of the buffer relative to the start
-    /// of the given buffer.
+    /// Return the offset of the start of the slice relative to the start
+    /// of the given slice.
     #[inline]
     pub fn offset_from(&self, base: EndianSlice<'input, Endian>) -> usize {
-        let base_ptr = base.buf.as_ptr() as *const u8 as usize;
-        let ptr = self.buf.as_ptr() as *const u8 as usize;
+        let base_ptr = base.slice.as_ptr() as *const u8 as usize;
+        let ptr = self.slice.as_ptr() as *const u8 as usize;
         debug_assert!(base_ptr <= ptr);
-        debug_assert!(ptr + self.buf.len() <= base_ptr + base.buf.len());
+        debug_assert!(ptr + self.slice.len() <= base_ptr + base.slice.len());
         ptr - base_ptr
     }
 
-    /// Converts the buffer to a string using `str::from_utf8`.
+    /// Converts the slice to a string using `str::from_utf8`.
     ///
-    /// Returns an error if the buffer contains invalid characters.
+    /// Returns an error if the slice contains invalid characters.
     #[inline]
     pub fn to_string(&self) -> Result<&'input str> {
-        str::from_utf8(self.buf).map_err(|_| Error::BadUtf8)
+        str::from_utf8(self.slice).map_err(|_| Error::BadUtf8)
     }
 
-    /// Converts the buffer to a string, including invalid characters,
+    /// Converts the slice to a string, including invalid characters,
     /// using `String::from_utf8_lossy`.
     #[inline]
     pub fn to_string_lossy(&self) -> Cow<'input, str> {
-        String::from_utf8_lossy(self.buf)
+        String::from_utf8_lossy(self.slice)
     }
 
     #[inline]
     fn read_slice(&mut self, len: usize) -> Result<&'input [u8]> {
-        if self.buf.len() < len {
+        if self.slice.len() < len {
             Err(Error::UnexpectedEof)
         } else {
-            let val = &self.buf[..len];
-            self.buf = &self.buf[len..];
+            let val = &self.slice[..len];
+            self.slice = &self.slice[len..];
             Ok(val)
         }
     }
@@ -97,56 +105,56 @@ impl<'input, Endian> EndianSlice<'input, Endian>
 where
     Endian: Endianity,
 {
-    /// Take the given `start..end` range of the underlying buffer and return a
+    /// Take the given `start..end` range of the underlying slice and return a
     /// new `EndianSlice`.
     ///
     /// ```
     /// use gimli::{EndianSlice, LittleEndian};
     ///
-    /// let buf = [0x01, 0x02, 0x03, 0x04];
-    /// let endian_slice = EndianSlice::new(&buf, LittleEndian);
+    /// let slice = &[0x01, 0x02, 0x03, 0x04];
+    /// let endian_slice = EndianSlice::new(slice, LittleEndian);
     /// assert_eq!(endian_slice.range(1..3),
-    ///            EndianSlice::new(&buf[1..3], LittleEndian));
+    ///            EndianSlice::new(&slice[1..3], LittleEndian));
     /// ```
     pub fn range(&self, idx: Range<usize>) -> EndianSlice<'input, Endian> {
         EndianSlice {
-            buf: &self.buf[idx],
+            slice: &self.slice[idx],
             endian: self.endian,
         }
     }
 
-    /// Take the given `start..` range of the underlying buffer and return a new
+    /// Take the given `start..` range of the underlying slice and return a new
     /// `EndianSlice`.
     ///
     /// ```
     /// use gimli::{EndianSlice, LittleEndian};
     ///
-    /// let buf = [0x01, 0x02, 0x03, 0x04];
-    /// let endian_slice = EndianSlice::new(&buf, LittleEndian);
+    /// let slice = &[0x01, 0x02, 0x03, 0x04];
+    /// let endian_slice = EndianSlice::new(slice, LittleEndian);
     /// assert_eq!(endian_slice.range_from(2..),
-    ///            EndianSlice::new(&buf[2..], LittleEndian));
+    ///            EndianSlice::new(&slice[2..], LittleEndian));
     /// ```
     pub fn range_from(&self, idx: RangeFrom<usize>) -> EndianSlice<'input, Endian> {
         EndianSlice {
-            buf: &self.buf[idx],
+            slice: &self.slice[idx],
             endian: self.endian,
         }
     }
 
-    /// Take the given `..end` range of the underlying buffer and return a new
+    /// Take the given `..end` range of the underlying slice and return a new
     /// `EndianSlice`.
     ///
     /// ```
     /// use gimli::{EndianSlice, LittleEndian};
     ///
-    /// let buf = [0x01, 0x02, 0x03, 0x04];
-    /// let endian_slice = EndianSlice::new(&buf, LittleEndian);
+    /// let slice = &[0x01, 0x02, 0x03, 0x04];
+    /// let endian_slice = EndianSlice::new(slice, LittleEndian);
     /// assert_eq!(endian_slice.range_to(..3),
-    ///            EndianSlice::new(&buf[..3], LittleEndian));
+    ///            EndianSlice::new(&slice[..3], LittleEndian));
     /// ```
     pub fn range_to(&self, idx: RangeTo<usize>) -> EndianSlice<'input, Endian> {
         EndianSlice {
-            buf: &self.buf[idx],
+            slice: &self.slice[idx],
             endian: self.endian,
         }
     }
@@ -158,7 +166,7 @@ where
 {
     type Output = u8;
     fn index(&self, idx: usize) -> &Self::Output {
-        &self.buf[idx]
+        &self.slice[idx]
     }
 }
 
@@ -168,7 +176,7 @@ where
 {
     type Output = [u8];
     fn index(&self, idx: RangeFrom<usize>) -> &Self::Output {
-        &self.buf[idx]
+        &self.slice[idx]
     }
 }
 
@@ -178,7 +186,7 @@ where
 {
     type Target = [u8];
     fn deref(&self) -> &Self::Target {
-        self.buf
+        self.slice
     }
 }
 
@@ -187,7 +195,7 @@ where
     Endian: Endianity,
 {
     fn into(self) -> &'input [u8] {
-        self.buf
+        self.slice
     }
 }
 
@@ -205,25 +213,25 @@ where
 
     #[inline]
     fn len(&self) -> usize {
-        self.buf.len()
+        self.slice.len()
     }
 
     #[inline]
     fn is_empty(&self) -> bool {
-        self.buf.is_empty()
+        self.slice.is_empty()
     }
 
     #[inline]
     fn empty(&mut self) {
-        self.buf = &[];
+        self.slice = &[];
     }
 
     #[inline]
     fn truncate(&mut self, len: usize) -> Result<()> {
-        if self.buf.len() < len {
+        if self.slice.len() < len {
             Err(Error::UnexpectedEof)
         } else {
-            self.buf = &self.buf[..len];
+            self.slice = &self.slice[..len];
             Ok(())
         }
     }
@@ -240,10 +248,10 @@ where
 
     #[inline]
     fn skip(&mut self, len: usize) -> Result<()> {
-        if self.buf.len() < len {
+        if self.slice.len() < len {
             Err(Error::UnexpectedEof)
         } else {
-            self.buf = &self.buf[len..];
+            self.slice = &self.slice[len..];
             Ok(())
         }
     }
@@ -256,12 +264,12 @@ where
 
     #[inline]
     fn to_slice(&self) -> Result<Cow<[u8]>> {
-        Ok(self.buf.into())
+        Ok(self.slice.into())
     }
 
     #[inline]
     fn to_string(&self) -> Result<Cow<str>> {
-        match str::from_utf8(self.buf) {
+        match str::from_utf8(self.slice) {
             Ok(s) => Ok(s.into()),
             _ => Err(Error::BadUtf8),
         }
@@ -269,7 +277,7 @@ where
 
     #[inline]
     fn to_string_lossy(&self) -> Result<Cow<str>> {
-        Ok(String::from_utf8_lossy(self.buf))
+        Ok(String::from_utf8_lossy(self.slice))
     }
 
     #[inline]
@@ -341,13 +349,13 @@ mod tests {
     #[test]
     fn test_endian_slice_split_at() {
         let endian = NativeEndian;
-        let buf = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
-        let eb = EndianSlice::new(&buf, endian);
+        let slice = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
+        let eb = EndianSlice::new(slice, endian);
         assert_eq!(
             eb.split_at(3),
             (
-                EndianSlice::new(&buf[..3], endian),
-                EndianSlice::new(&buf[3..], endian)
+                EndianSlice::new(&slice[..3], endian),
+                EndianSlice::new(&slice[3..], endian)
             )
         );
     }
@@ -355,8 +363,8 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_endian_slice_split_at_out_of_bounds() {
-        let buf = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
-        let eb = EndianSlice::new(&buf, NativeEndian);
+        let slice = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
+        let eb = EndianSlice::new(slice, NativeEndian);
         eb.split_at(30);
     }
 }
