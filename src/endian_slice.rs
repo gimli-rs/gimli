@@ -294,66 +294,6 @@ where
         <A as AsMut<[u8]>>::as_mut(&mut val).clone_from_slice(slice);
         Ok(val)
     }
-
-    #[inline]
-    fn read_u8(&mut self) -> Result<u8> {
-        let slice = self.read_slice(1)?;
-        Ok(slice[0])
-    }
-
-    #[inline]
-    fn read_i8(&mut self) -> Result<i8> {
-        let slice = self.read_slice(1)?;
-        Ok(slice[0] as i8)
-    }
-
-    #[inline]
-    fn read_u16(&mut self) -> Result<u16> {
-        let slice = self.read_slice(2)?;
-        Ok(self.endian.read_u16(slice))
-    }
-
-    #[inline]
-    fn read_i16(&mut self) -> Result<i16> {
-        let slice = self.read_slice(2)?;
-        Ok(self.endian.read_i16(slice))
-    }
-
-    #[inline]
-    fn read_u32(&mut self) -> Result<u32> {
-        let slice = self.read_slice(4)?;
-        Ok(self.endian.read_u32(slice))
-    }
-
-    #[inline]
-    fn read_i32(&mut self) -> Result<i32> {
-        let slice = self.read_slice(4)?;
-        Ok(self.endian.read_i32(slice))
-    }
-
-    #[inline]
-    fn read_u64(&mut self) -> Result<u64> {
-        let slice = self.read_slice(8)?;
-        Ok(self.endian.read_u64(slice))
-    }
-
-    #[inline]
-    fn read_i64(&mut self) -> Result<i64> {
-        let slice = self.read_slice(8)?;
-        Ok(self.endian.read_i64(slice))
-    }
-
-    #[inline]
-    fn read_f32(&mut self) -> Result<f32> {
-        let slice = self.read_slice(4)?;
-        Ok(self.endian.read_f32(slice))
-    }
-
-    #[inline]
-    fn read_f64(&mut self) -> Result<f64> {
-        let slice = self.read_slice(8)?;
-        Ok(self.endian.read_f64(slice))
-    }
 }
 
 #[cfg(test)]

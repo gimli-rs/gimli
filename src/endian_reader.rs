@@ -1,0 +1,579 @@
+//! Defining custom `Reader`s quickly.
+
+use borrow::Cow;
+use endianity::Endianity;
+use parser::{Error, Result};
+use rc::Rc;
+use reader::Reader;
+use std::fmt::Debug;
+use std::mem;
+use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
+use std::str;
+use string::String;
+use Arc;
+
+/// A reference counted, non-thread-safe slice of bytes and associated
+/// endianity.
+///
+/// ```
+/// use std::rc::Rc;
+///
+/// let buf = Rc::from(&[1, 2, 3, 4][..]);
+/// let reader = gimli::EndianRcSlice::new(buf, gimli::NativeEndian);
+/// # let _ = reader;
+/// ```
+pub type EndianRcSlice<Endian> = EndianReader<Endian, Rc<[u8]>>;
+
+/// An atomically reference counted, thread-safe slice of bytes and associated
+/// endianity.
+///
+/// ```
+/// use std::sync::Arc;
+///
+/// let buf = Arc::from(&[1, 2, 3, 4][..]);
+/// let reader = gimli::EndianArcSlice::new(buf, gimli::NativeEndian);
+/// # let _ = reader;
+/// ```
+pub type EndianArcSlice<Endian> = EndianReader<Endian, Arc<[u8]>>;
+
+/// An easy way to define a custom `Reader` implementation with a reference to a
+/// generic buffer of bytes and an associated endianity.
+///
+/// Note that the whole original buffer is kept alive in memory even if there is
+/// only one reader that references only a handful of bytes from that original
+/// buffer. That is, `EndianReader` will not do any copying, moving, or
+/// compacting in order to free up unused regions of the original buffer. If you
+/// require this kind of behavior, it is up to you to implement `Reader`
+/// directly by-hand.
+///
+/// # Example
+///
+/// Say you have an `mmap`ed file that you want to serve as a `gimli::Reader`.
+/// You can wrap that `mmap`ed file up in a `MmapFile` type and use
+/// `EndianReader<Rc<MmapFile>>` or `EndianReader<Arc<MmapFile>>` as readers as
+/// long as `MmapFile` dereferences to the underlying `[u8]` data.
+///
+/// ```
+/// extern crate gimli;
+/// use std::io;
+/// use std::ops::Deref;
+/// use std::path::Path;
+/// use std::slice;
+/// use std::sync::Arc;
+///
+/// /// A type that represents an `mmap`ed file.
+/// #[derive(Debug)]
+/// pub struct MmapFile {
+///     ptr: *const u8,
+///     len: usize,
+/// }
+///
+/// impl MmapFile {
+///     pub fn new(path: &Path) -> io::Result<MmapFile> {
+///         // Call `mmap` and check for errors and all that...
+/// #       unimplemented!()
+///     }
+/// }
+///
+/// impl Drop for MmapFile {
+///     fn drop(&mut self) {
+///         // Call `munmap` to clean up after ourselves...
+/// #       unimplemented!()
+///     }
+/// }
+///
+/// // And `MmapFile` can deref to a slice of the `mmap`ed region of memory.
+/// impl Deref for MmapFile {
+///     type Target = [u8];
+///     fn deref(&self) -> &[u8] {
+///         unsafe {
+///             slice::from_raw_parts(self.ptr, self.len)
+///         }
+///     }
+/// }
+///
+/// /// A `gimli::Reader` that is backed by an `mmap`ed file!
+/// pub type MmapFileReader<Endian> = gimli::EndianReader<Endian, Arc<MmapFile>>;
+/// # fn main() {}
+/// ```
+#[derive(Debug, Clone, Copy, Hash)]
+pub struct EndianReader<Endian, T>
+where
+    Endian: Endianity,
+    T: Deref<Target = [u8]> + Clone + Debug,
+{
+    range: SubRange<T>,
+    endian: Endian,
+}
+
+impl<Endian, T1, T2> PartialEq<EndianReader<Endian, T2>> for EndianReader<Endian, T1>
+where
+    Endian: Endianity,
+    T1: Deref<Target = [u8]> + Clone + Debug,
+    T2: Deref<Target = [u8]> + Clone + Debug,
+{
+    fn eq(&self, rhs: &EndianReader<Endian, T2>) -> bool {
+        self.range.bytes() == rhs.range.bytes()
+    }
+}
+
+impl<Endian, T> Eq for EndianReader<Endian, T>
+where
+    Endian: Endianity,
+    T: Deref<Target = [u8]> + Clone + Debug,
+{
+}
+
+// This is separated out from `EndianReader` so that we can avoid running afoul
+// of borrowck. We need to `read_slice(&mut self, ...) -> &[u8]` and then call
+// `self.endian.read_whatever` on the result. The problem is that the returned
+// slice keeps the `&mut self` borrow active, so we wouldn't be able to access
+// `self.endian`. Splitting the sub-range out from the endian lets us work
+// around this, making it so that only the `self.range` borrow is held active,
+// not all of `self`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct SubRange<T>
+where
+    T: Deref<Target = [u8]> + Clone + Debug,
+{
+    bytes: T,
+    start: usize,
+    end: usize,
+}
+
+impl<T> SubRange<T>
+where
+    T: Deref<Target = [u8]> + Clone + Debug,
+{
+    #[inline]
+    fn bytes(&self) -> &[u8] {
+        &self.bytes[self.start..self.end]
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.end - self.start
+    }
+
+    #[inline]
+    fn find(&self, byte: u8) -> Option<usize> {
+        self.bytes().iter().position(|x| *x == byte)
+    }
+
+    #[inline]
+    fn read_slice(&mut self, len: usize) -> Result<&[u8]> {
+        if self.len() < len {
+            Err(Error::UnexpectedEof)
+        } else {
+            let start = self.start;
+            self.start += len;
+            Ok(&self.bytes[start..start + len])
+        }
+    }
+}
+
+impl<Endian, T> EndianReader<Endian, T>
+where
+    Endian: Endianity,
+    T: Deref<Target = [u8]> + Clone + Debug,
+{
+    /// Construct a new `EndianReader` with the given bytes.
+    #[inline]
+    pub fn new(bytes: T, endian: Endian) -> EndianReader<Endian, T> {
+        let start = 0;
+        let end = bytes.len();
+        EndianReader {
+            range: SubRange { bytes, start, end },
+            endian,
+        }
+    }
+
+    /// Return a reference to the raw bytes underlying this reader.
+    #[inline]
+    pub fn bytes(&self) -> &[u8] {
+        self.range.bytes()
+    }
+}
+
+/// # Range Methods
+///
+/// Unfortunately, `std::ops::Index` *must* return a reference, so we can't
+/// implement `Index<Range<usize>>` to return a new `EndianReader` the way we
+/// would like to. Instead, we abandon fancy indexing operators and have these
+/// plain old methods.
+impl<Endian, T> EndianReader<Endian, T>
+where
+    Endian: Endianity,
+    T: Deref<Target = [u8]> + Clone + Debug,
+{
+    /// Take the given `start..end` range of the underlying buffer and return a
+    /// new `EndianReader`.
+    ///
+    /// ```
+    /// use gimli::{EndianReader, LittleEndian};
+    /// use std::sync::Arc;
+    ///
+    /// let buf = Arc::<[u8]>::from(&[0x01, 0x02, 0x03, 0x04][..]);
+    /// let reader = EndianReader::new(buf.clone(), LittleEndian);
+    /// assert_eq!(reader.range(1..3),
+    ///            EndianReader::new(&buf[1..3], LittleEndian));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range is out of bounds.
+    pub fn range(&self, idx: Range<usize>) -> EndianReader<Endian, T> {
+        let mut r = self.clone();
+        r.range.end = r.range.start + idx.end;
+        r.range.start += idx.start;
+        assert!(r.range.start <= r.range.end);
+        assert!(r.range.end <= self.range.end);
+        r
+    }
+
+    /// Take the given `start..` range of the underlying buffer and return a new
+    /// `EndianReader`.
+    ///
+    /// ```
+    /// use gimli::{EndianReader, LittleEndian};
+    /// use std::sync::Arc;
+    ///
+    /// let buf = Arc::<[u8]>::from(&[0x01, 0x02, 0x03, 0x04][..]);
+    /// let reader = EndianReader::new(buf.clone(), LittleEndian);
+    /// assert_eq!(reader.range_from(2..),
+    ///            EndianReader::new(&buf[2..], LittleEndian));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range is out of bounds.
+    pub fn range_from(&self, idx: RangeFrom<usize>) -> EndianReader<Endian, T> {
+        let mut r = self.clone();
+        r.range.start += idx.start;
+        assert!(r.range.start <= r.range.end);
+        r
+    }
+
+    /// Take the given `..end` range of the underlying buffer and return a new
+    /// `EndianReader`.
+    ///
+    /// ```
+    /// use gimli::{EndianReader, LittleEndian};
+    /// use std::sync::Arc;
+    ///
+    /// let buf = Arc::<[u8]>::from(&[0x01, 0x02, 0x03, 0x04][..]);
+    /// let reader = EndianReader::new(buf.clone(), LittleEndian);
+    /// assert_eq!(reader.range_to(..3),
+    ///            EndianReader::new(&buf[..3], LittleEndian));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range is out of bounds.
+    pub fn range_to(&self, idx: RangeTo<usize>) -> EndianReader<Endian, T> {
+        let mut r = self.clone();
+        r.range.end = r.range.start + idx.end;
+        assert!(r.range.end <= self.range.end);
+        r
+    }
+}
+
+impl<Endian, T> Index<usize> for EndianReader<Endian, T>
+where
+    Endian: Endianity,
+    T: Deref<Target = [u8]> + Clone + Debug,
+{
+    type Output = u8;
+    fn index(&self, idx: usize) -> &Self::Output {
+        &self.range.bytes()[idx]
+    }
+}
+
+impl<Endian, T> Index<RangeFrom<usize>> for EndianReader<Endian, T>
+where
+    Endian: Endianity,
+    T: Deref<Target = [u8]> + Clone + Debug,
+{
+    type Output = [u8];
+    fn index(&self, idx: RangeFrom<usize>) -> &Self::Output {
+        &self.bytes()[idx]
+    }
+}
+
+impl<Endian, T> Deref for EndianReader<Endian, T>
+where
+    Endian: Endianity,
+    T: Deref<Target = [u8]> + Clone + Debug,
+{
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        self.bytes()
+    }
+}
+
+impl<Endian, T> Reader for EndianReader<Endian, T>
+where
+    Endian: Endianity,
+    T: Deref<Target = [u8]> + Clone + Debug,
+{
+    type Endian = Endian;
+    type Offset = usize;
+
+    #[inline]
+    fn endian(&self) -> Endian {
+        self.endian
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.range.len()
+    }
+
+    #[inline]
+    fn empty(&mut self) {
+        self.range.start = self.range.end;
+    }
+
+    #[inline]
+    fn truncate(&mut self, len: usize) -> Result<()> {
+        if self.len() < len {
+            Err(Error::UnexpectedEof)
+        } else {
+            self.range.end = self.range.start + len;
+            Ok(())
+        }
+    }
+
+    #[inline]
+    fn offset_from(&self, base: &EndianReader<Endian, T>) -> usize {
+        let base_ptr = base.bytes().as_ptr() as *const u8 as usize;
+        let ptr = self.bytes().as_ptr() as *const u8 as usize;
+        debug_assert!(base_ptr <= ptr);
+        debug_assert!(ptr + self.bytes().len() <= base_ptr + base.bytes().len());
+        ptr - base_ptr
+    }
+
+    #[inline]
+    fn find(&self, byte: u8) -> Result<usize> {
+        self.range.find(byte).ok_or(Error::UnexpectedEof)
+    }
+
+    #[inline]
+    fn skip(&mut self, len: usize) -> Result<()> {
+        if self.len() < len {
+            Err(Error::UnexpectedEof)
+        } else {
+            self.range.start += len;
+            Ok(())
+        }
+    }
+
+    #[inline]
+    fn split(&mut self, len: usize) -> Result<Self> {
+        if self.len() < len {
+            Err(Error::UnexpectedEof)
+        } else {
+            let mut r = self.clone();
+            r.range.end = r.range.start + len;
+            self.range.start += len;
+            Ok(r)
+        }
+    }
+
+    #[inline]
+    fn to_slice(&self) -> Result<Cow<[u8]>> {
+        Ok(self.bytes().into())
+    }
+
+    #[inline]
+    fn to_string(&self) -> Result<Cow<str>> {
+        match str::from_utf8(self.bytes()) {
+            Ok(s) => Ok(s.into()),
+            _ => Err(Error::BadUtf8),
+        }
+    }
+
+    #[inline]
+    fn to_string_lossy(&self) -> Result<Cow<str>> {
+        Ok(String::from_utf8_lossy(self.bytes()))
+    }
+
+    #[inline]
+    fn read_u8_array<A>(&mut self) -> Result<A>
+    where
+        A: Sized + Default + AsMut<[u8]>,
+    {
+        let len = mem::size_of::<A>();
+        let slice = self.range.read_slice(len)?;
+        let mut val = Default::default();
+        <A as AsMut<[u8]>>::as_mut(&mut val).clone_from_slice(slice);
+        Ok(val)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use endianity::NativeEndian;
+    use reader::Reader;
+
+    fn native_reader<T: Deref<Target = [u8]> + Clone + Debug>(
+        bytes: T,
+    ) -> EndianReader<NativeEndian, T> {
+        EndianReader::new(bytes, NativeEndian)
+    }
+
+    const BUF: &'static [u8] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
+
+    #[test]
+    fn test_reader_split() {
+        let mut reader = native_reader(BUF);
+        let left = reader.split(3).unwrap();
+        assert_eq!(left, native_reader(&BUF[..3]));
+        assert_eq!(reader, native_reader(&BUF[3..]));
+    }
+
+    #[test]
+    fn test_reader_split_out_of_bounds() {
+        let mut reader = native_reader(BUF);
+        assert!(reader.split(30).is_err());
+    }
+
+    #[test]
+    fn bytes_and_len_and_range_and_eq() {
+        let reader = native_reader(BUF);
+        assert_eq!(reader.len(), BUF.len());
+        assert_eq!(reader.bytes(), BUF);
+        assert_eq!(reader, native_reader(BUF));
+
+        let range = reader.range(2..8);
+        let buf_range = &BUF[2..8];
+        assert_eq!(range.len(), buf_range.len());
+        assert_eq!(range.bytes(), buf_range);
+        assert_ne!(range, native_reader(BUF));
+        assert_eq!(range, native_reader(buf_range));
+
+        let range_from = range.range_from(1..);
+        let buf_range_from = &buf_range[1..];
+        assert_eq!(range_from.len(), buf_range_from.len());
+        assert_eq!(range_from.bytes(), buf_range_from);
+        assert_ne!(range_from, native_reader(BUF));
+        assert_eq!(range_from, native_reader(buf_range_from));
+
+        let range_to = range_from.range_to(..4);
+        let buf_range_to = &buf_range_from[..4];
+        assert_eq!(range_to.len(), buf_range_to.len());
+        assert_eq!(range_to.bytes(), buf_range_to);
+        assert_ne!(range_to, native_reader(BUF));
+        assert_eq!(range_to, native_reader(buf_range_to));
+    }
+
+    #[test]
+    fn find() {
+        let mut reader = native_reader(BUF);
+        reader.skip(2).unwrap();
+        assert_eq!(
+            reader.find(5),
+            Ok(BUF[2..].iter().position(|x| *x == 5).unwrap())
+        );
+    }
+
+    #[test]
+    fn indexing() {
+        let mut reader = native_reader(BUF);
+        reader.skip(2).unwrap();
+        assert_eq!(reader[0], BUF[2]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn indexing_out_of_bounds() {
+        let mut reader = native_reader(BUF);
+        reader.skip(2).unwrap();
+        reader[900];
+    }
+
+    #[test]
+    fn endian() {
+        let reader = native_reader(BUF);
+        assert_eq!(reader.endian(), NativeEndian);
+    }
+
+    #[test]
+    fn empty() {
+        let mut reader = native_reader(BUF);
+        assert!(!reader.is_empty());
+        reader.empty();
+        assert!(reader.is_empty());
+        assert!(reader.bytes().is_empty());
+    }
+
+    #[test]
+    fn truncate() {
+        let reader = native_reader(BUF);
+        let mut reader = reader.range(2..8);
+        reader.truncate(2).unwrap();
+        assert_eq!(reader.bytes(), &BUF[2..4]);
+    }
+
+    #[test]
+    fn offset_from() {
+        let reader = native_reader(BUF);
+        let sub = reader.range(2..8);
+        assert_eq!(sub.offset_from(&reader), 2);
+    }
+
+    #[test]
+    fn skip() {
+        let mut reader = native_reader(BUF);
+        reader.skip(2).unwrap();
+        assert_eq!(reader.bytes(), &BUF[2..]);
+    }
+
+    #[test]
+    fn to_slice() {
+        assert_eq!(
+            native_reader(BUF).range(2..5).to_slice(),
+            Ok(Cow::from(&BUF[2..5]))
+        );
+    }
+
+    #[test]
+    fn to_string_ok() {
+        let buf = b"hello, world!";
+        let reader = native_reader(&buf[..]);
+        let reader = reader.range_from(7..);
+        assert_eq!(
+            reader.to_string(),
+            Ok(Cow::from("world!"))
+        );
+    }
+
+    // The rocket emoji (🚀 = [0xf0, 0x9f, 0x9a, 0x80]) but rotated left by one
+    // to make it invalid UTF-8.
+    const BAD_UTF8: &'static [u8] = &[0x9f, 0x9a, 0x80, 0xf0];
+
+    #[test]
+    fn to_string_err() {
+        let reader = native_reader(BAD_UTF8);
+        assert!(reader.to_string().is_err());
+    }
+
+    #[test]
+    fn to_string_lossy() {
+        let reader = native_reader(BAD_UTF8);
+        assert_eq!(
+            reader.to_string_lossy(),
+            Ok(Cow::from("����"))
+        );
+    }
+
+    #[test]
+    fn read_u8_array() {
+        let mut reader = native_reader(BAD_UTF8);
+        reader.skip(1).unwrap();
+        let arr: [u8; 2] = reader.read_u8_array().unwrap();
+        assert_eq!(arr, &BAD_UTF8[1..3]);
+        assert_eq!(reader.bytes(), &BAD_UTF8[3..]);
+    }
+}
