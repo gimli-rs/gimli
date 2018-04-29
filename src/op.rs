@@ -799,9 +799,9 @@ impl<R: Reader> Expression<R> {
     /// Create an evaluation for this expression.
     ///
     /// The `address_size` and `format` are determined by the
-    /// [CompilationUnitHeader](struct.CompilationUnitHeader.html) or
-    /// [TypeUnitHeader](struct.TypeUnitHeader.html)
-    /// that this expression relates to.
+    /// [`CompilationUnitHeader`](struct.CompilationUnitHeader.html) or
+    /// [`TypeUnitHeader`](struct.TypeUnitHeader.html) that this expression
+    /// relates to.
     ///
     /// # Examples
     /// ```rust,no_run
