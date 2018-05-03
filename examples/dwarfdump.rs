@@ -9,11 +9,13 @@ extern crate memmap;
 extern crate num_cpus;
 extern crate object;
 extern crate regex;
+extern crate typed_arena;
 
 use fallible_iterator::FallibleIterator;
 use gimli::{CompilationUnitHeader, UnitOffset, UnwindSection};
 use object::Object;
 use regex::bytes::Regex;
+use std::borrow::{Borrow, Cow};
 use std::cmp::min;
 use std::collections::HashMap;
 use std::env;
@@ -27,6 +29,7 @@ use std::mem;
 use std::result;
 use std::fmt::{self, Debug};
 use std::sync::{Condvar, Mutex};
+use typed_arena::Arena;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
@@ -307,37 +310,42 @@ fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags) -> Resu
 where
     Endian: gimli::Endianity + Send + Sync,
 {
-    fn load_section<'input, 'file, S, Endian>(
+    let arena = Arena::new();
+
+    fn load_section<'a, 'file, 'input, S, Endian>(
+        arena: &'a Arena<Cow<'file, [u8]>>,
         file: &'file object::File<'input>,
         endian: Endian,
     ) -> S
     where
-        S: gimli::Section<gimli::EndianSlice<'input, Endian>>,
+        S: gimli::Section<gimli::EndianSlice<'a, Endian>>,
         Endian: gimli::Endianity + Send + Sync,
         'file: 'input,
+        'a: 'file
     {
-        let data = file.section_data_by_name(S::section_name()).unwrap_or(&[]);
-        S::from(gimli::EndianSlice::new(data, endian))
+        let data = file.section_data_by_name(S::section_name()).unwrap_or(Cow::Borrowed(&[]));
+        let data_ref = (*arena.alloc(data)).borrow();
+        S::from(gimli::EndianSlice::new(data_ref, endian))
     }
 
     // Variables representing sections of the file. The type of each is inferred from its use in the
     // dump_* functions below.
-    let eh_frame = &load_section(file, endian);
-    let debug_abbrev = &load_section(file, endian);
-    let debug_aranges = &load_section(file, endian);
-    let debug_info = &load_section(file, endian);
-    let debug_line = &load_section(file, endian);
-    let debug_pubnames = &load_section(file, endian);
-    let debug_pubtypes = &load_section(file, endian);
-    let debug_str = &load_section(file, endian);
-    let debug_types = &load_section(file, endian);
+    let eh_frame = &load_section(&arena, file, endian);
+    let debug_abbrev = &load_section(&arena, file, endian);
+    let debug_aranges = &load_section(&arena, file, endian);
+    let debug_info = &load_section(&arena, file, endian);
+    let debug_line = &load_section(&arena, file, endian);
+    let debug_pubnames = &load_section(&arena, file, endian);
+    let debug_pubtypes = &load_section(&arena, file, endian);
+    let debug_str = &load_section(&arena, file, endian);
+    let debug_types = &load_section(&arena, file, endian);
 
-    let debug_loc = load_section(file, endian);
-    let debug_loclists = load_section(file, endian);
+    let debug_loc = load_section(&arena, file, endian);
+    let debug_loclists = load_section(&arena, file, endian);
     let loclists = &gimli::LocationLists::new(debug_loc, debug_loclists)?;
 
-    let debug_ranges = load_section(file, endian);
-    let debug_rnglists = load_section(file, endian);
+    let debug_ranges = load_section(&arena, file, endian);
+    let debug_rnglists = load_section(&arena, file, endian);
     let rnglists = &gimli::RangeLists::new(debug_ranges, debug_rnglists)?;
 
     let out = io::stdout();

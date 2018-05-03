@@ -6,10 +6,12 @@ extern crate gimli;
 extern crate memmap;
 extern crate object;
 extern crate rayon;
+extern crate typed_arena;
 
 use gimli::{AttributeValue, CompilationUnitHeader};
 use object::Object;
 use rayon::prelude::*;
+use std::borrow::{Borrow, Cow};
 use std::env;
 use std::io::{self, BufWriter, Write};
 use std::fs;
@@ -18,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::error;
 use std::sync::Mutex;
+use typed_arena::Arena;
 
 trait Reader: gimli::Reader<Offset = usize> + Send + Sync {
     type SyncSendEndian: gimli::Endianity + Send + Sync;
@@ -101,23 +104,28 @@ where
     W: Write + Send,
     Endian: gimli::Endianity + Send + Sync,
 {
-    fn load_section<'input, 'file, S, Endian>(
+    let arena = Arena::new();
+
+    fn load_section<'a, 'file, 'input, S, Endian>(
+        arena: &'a Arena<Cow<'file, [u8]>>,
         file: &'file object::File<'input>,
         endian: Endian,
     ) -> S
     where
-        S: gimli::Section<gimli::EndianSlice<'input, Endian>>,
+        S: gimli::Section<gimli::EndianSlice<'a, Endian>>,
         Endian: gimli::Endianity + Send + Sync,
         'file: 'input,
+        'a: 'file
     {
-        let data = file.section_data_by_name(S::section_name()).unwrap_or(&[]);
-        S::from(gimli::EndianSlice::new(data, endian))
+        let data = file.section_data_by_name(S::section_name()).unwrap_or(Cow::Borrowed(&[]));
+        let data_ref = (*arena.alloc(data)).borrow();
+        S::from(gimli::EndianSlice::new(data_ref, endian))
     }
 
     // Variables representing sections of the file. The type of each is inferred from its use in the
     // validate_info function below.
-    let debug_abbrev = &load_section(file, endian);
-    let debug_info = &load_section(file, endian);
+    let debug_abbrev = &load_section(&arena, file, endian);
+    let debug_info = &load_section(&arena, file, endian);
 
     validate_info(w, debug_info, debug_abbrev);
 }
