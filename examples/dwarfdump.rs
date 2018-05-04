@@ -14,6 +14,7 @@ use fallible_iterator::FallibleIterator;
 use gimli::{CompilationUnitHeader, UnitOffset, UnwindSection};
 use object::Object;
 use regex::bytes::Regex;
+use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::env;
@@ -307,37 +308,69 @@ fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags) -> Resu
 where
     Endian: gimli::Endianity + Send + Sync,
 {
-    fn load_section<'input, 'file, S, Endian>(
+    fn data_for_section<'input, 'file, S, Endian>(
         file: &'file object::File<'input>,
-        endian: Endian,
-    ) -> S
+    ) -> Cow<'file, [u8]>
     where
-        S: gimli::Section<gimli::EndianSlice<'input, Endian>>,
+        S: gimli::Section<gimli::EndianSlice<'file, Endian>>,
         Endian: gimli::Endianity + Send + Sync,
         'file: 'input,
     {
-        let data = file.section_data_by_name(S::section_name()).unwrap_or(&[]);
+        file.section_data_by_name(S::section_name()).unwrap_or(Cow::from(&[][..]))
+    }
+
+    fn section_from_data<'file, S, Endian>(
+        data: &'file [u8],
+        endian: Endian,
+    ) -> S
+    where
+        S: gimli::Section<gimli::EndianSlice<'file, Endian>>,
+        Endian: gimli::Endianity + Send + Sync,
+    {
         S::from(gimli::EndianSlice::new(data, endian))
     }
 
-    // Variables representing sections of the file. The type of each is inferred from its use in the
-    // dump_* functions below.
-    let eh_frame = &load_section(file, endian);
-    let debug_abbrev = &load_section(file, endian);
-    let debug_aranges = &load_section(file, endian);
-    let debug_info = &load_section(file, endian);
-    let debug_line = &load_section(file, endian);
-    let debug_pubnames = &load_section(file, endian);
-    let debug_pubtypes = &load_section(file, endian);
-    let debug_str = &load_section(file, endian);
-    let debug_types = &load_section(file, endian);
+    let eh_frame = data_for_section::<gimli::EhFrame<_>, Endian>(file);
+    let eh_frame = &section_from_data(&eh_frame, endian);
 
-    let debug_loc = load_section(file, endian);
-    let debug_loclists = load_section(file, endian);
+    let debug_abbrev = data_for_section::<gimli::DebugAbbrev<_>, Endian>(file);
+    let debug_abbrev = &section_from_data(&debug_abbrev, endian);
+
+    let debug_aranges = data_for_section::<gimli::DebugAranges<_>, Endian>(file);
+    let debug_aranges = &section_from_data(&debug_aranges, endian);
+
+    let debug_info = data_for_section::<gimli::DebugInfo<_>, Endian>(file);
+    let debug_info = &section_from_data(&debug_info, endian);
+
+    let debug_line = data_for_section::<gimli::DebugLine<_>, Endian>(file);
+    let debug_line = &section_from_data(&debug_line, endian);
+
+    let debug_pubnames = data_for_section::<gimli::DebugPubNames<_>, Endian>(file);
+    let debug_pubnames = &section_from_data(&debug_pubnames, endian);
+
+    let debug_pubtypes = data_for_section::<gimli::DebugPubTypes<_>, Endian>(file);
+    let debug_pubtypes = &section_from_data(&debug_pubtypes, endian);
+
+    let debug_str = data_for_section::<gimli::DebugStr<_>, Endian>(file);
+    let debug_str = &section_from_data(&debug_str, endian);
+
+    let debug_types = data_for_section::<gimli::DebugTypes<_>, Endian>(file);
+    let debug_types = &section_from_data(&debug_types, endian);
+
+    let debug_loc = data_for_section::<gimli::DebugLoc<_>, Endian>(file);
+    let debug_loc = section_from_data(&debug_loc, endian);
+
+    let debug_loclists = data_for_section::<gimli::DebugLocLists<_>, Endian>(file);
+    let debug_loclists = section_from_data(&debug_loclists, endian);
+
     let loclists = &gimli::LocationLists::new(debug_loc, debug_loclists)?;
 
-    let debug_ranges = load_section(file, endian);
-    let debug_rnglists = load_section(file, endian);
+    let debug_ranges = data_for_section::<gimli::DebugRanges<_>, Endian>(file);
+    let debug_ranges = section_from_data(&debug_ranges, endian);
+
+    let debug_rnglists = data_for_section::<gimli::DebugRngLists<_>, Endian>(file);
+    let debug_rnglists = section_from_data(&debug_rnglists, endian);
+
     let rnglists = &gimli::RangeLists::new(debug_ranges, debug_rnglists)?;
 
     let out = io::stdout();
