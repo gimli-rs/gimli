@@ -3,6 +3,7 @@
 use byteorder;
 use byteorder::ByteOrder;
 use std::fmt::Debug;
+use std::mem;
 
 /// A trait describing the endianity of some buffer.
 pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
@@ -85,6 +86,26 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
     #[inline]
     fn read_i64(self, buf: &[u8]) -> i64 {
         self.read_u64(buf) as i64
+    }
+
+    /// Reads a 32 bit floating point number from `buf`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `buf.len() < 8`.
+    #[inline]
+    fn read_f32(self, buf: &[u8]) -> f32 {
+        unsafe { mem::transmute(self.read_u32(buf)) }
+    }
+
+    /// Reads a 32 bit floating point number from `buf`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `buf.len() < 8`.
+    #[inline]
+    fn read_f64(self, buf: &[u8]) -> f64 {
+        unsafe { mem::transmute(self.read_u64(buf)) }
     }
 
     /// Writes an unsigned 64 bit integer `n` to `buf`.

@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::ops::{Add, AddAssign, Sub};
 use borrow::Cow;
 
@@ -10,7 +11,7 @@ use parser::{Error, Format, Result};
 ///
 /// This allows consumers to choose a size that is appropriate for their address space.
 pub trait ReaderOffset
-    : Debug + Copy + Eq + Ord + Add<Output = Self> + AddAssign + Sub<Output = Self>
+    : Debug + Copy + Eq + Ord + Hash + Add<Output = Self> + AddAssign + Sub<Output = Self>
     {
     /// Convert a u8 to an offset.
     fn from_u8(offset: u8) -> Self;
@@ -275,6 +276,12 @@ pub trait Reader: Debug + Clone {
 
     /// Read an i64.
     fn read_i64(&mut self) -> Result<i64>;
+
+    /// Read a f32.
+    fn read_f32(&mut self) -> Result<f32>;
+
+    /// Read a f64.
+    fn read_f64(&mut self) -> Result<f64>;
 
     /// Read a null-terminated slice, and return it (excluding the null).
     fn read_null_terminated_slice(&mut self) -> Result<Self> {

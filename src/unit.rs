@@ -685,6 +685,22 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
+    /// Construct a new `DebuggingInformationEntry`.
+    pub fn new(
+        offset: UnitOffset<Offset>,
+        attrs_slice: R,
+        abbrev: &'abbrev Abbreviation,
+        unit: &'unit UnitHeader<R, Offset>,
+    ) -> Self {
+        DebuggingInformationEntry {
+            offset,
+            attrs_slice,
+            attrs_len: Cell::new(None),
+            abbrev,
+            unit,
+        }
+    }
+
     /// Get this entry's code.
     pub fn code(&self) -> u64 {
         self.abbrev.code()
@@ -4735,7 +4751,9 @@ mod tests {
     #[test]
     fn test_entries_tree() {
         fn assert_entry<'input, 'abbrev, 'unit, 'tree, Endian>(
-            node: Result<Option<EntriesTreeNode<'abbrev, 'unit, 'tree, EndianSlice<'input, Endian>>>>,
+            node: Result<
+                Option<EntriesTreeNode<'abbrev, 'unit, 'tree, EndianSlice<'input, Endian>>>,
+            >,
             name: &str,
         ) -> EntriesTreeIter<'abbrev, 'unit, 'tree, EndianSlice<'input, Endian>>
         where

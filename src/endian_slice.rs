@@ -47,7 +47,10 @@ where
     /// the first item has range [0, idx), and the second has range [idx,
     /// len). Panics if the index is out of bounds.
     #[inline]
-    pub fn split_at(&self, idx: usize) -> (EndianSlice<'input, Endian>, EndianSlice<'input, Endian>) {
+    pub fn split_at(
+        &self,
+        idx: usize,
+    ) -> (EndianSlice<'input, Endian>, EndianSlice<'input, Endian>) {
         (self.range_to(..idx), self.range_from(idx..))
     }
 
@@ -338,6 +341,18 @@ where
     fn read_i64(&mut self) -> Result<i64> {
         let slice = self.read_slice(8)?;
         Ok(self.endian.read_i64(slice))
+    }
+
+    #[inline]
+    fn read_f32(&mut self) -> Result<f32> {
+        let slice = self.read_slice(4)?;
+        Ok(self.endian.read_f32(slice))
+    }
+
+    #[inline]
+    fn read_f64(&mut self) -> Result<f64> {
+        let slice = self.read_slice(8)?;
+        Ok(self.endian.read_f64(slice))
     }
 }
 

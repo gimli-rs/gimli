@@ -1165,19 +1165,27 @@ fn dump_op<R: Reader, W: Write>(
                 // These have the value encoded in the operation, eg DW_OP_lit0.
             }
         },
-        gimli::Operation::Register {
-            base_type,
-            register,
-        } => {
+        gimli::Operation::Register { register } => {
             if dwop == gimli::DW_OP_regx {
                 write!(w, " {}", register)?;
             }
-            if base_type != UnitOffset(0) {
-                write!(w, " type 0x{:08x}", base_type.0)?;
-            }
         }
-        gimli::Operation::RegisterOffset { offset, .. } => {
-            write!(w, "{:+}", offset)?;
+        gimli::Operation::RegisterOffset {
+            register,
+            offset,
+            base_type,
+        } => {
+            if dwop >= gimli::DW_OP_breg0 && dwop <= gimli::DW_OP_breg31 {
+                write!(w, "{:+}", offset)?;
+            } else {
+                write!(w, " {}", register)?;
+                if offset != 0 {
+                    write!(w, "{:+}", offset)?;
+                }
+                if base_type != UnitOffset(0) {
+                    write!(w, " type 0x{:08x}", base_type.0)?;
+                }
+            }
         }
         gimli::Operation::FrameOffset { offset } => {
             write!(w, " {}", offset)?;
