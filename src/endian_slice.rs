@@ -47,7 +47,10 @@ where
     /// the first item has range [0, idx), and the second has range [idx,
     /// len). Panics if the index is out of bounds.
     #[inline]
-    pub fn split_at(&self, idx: usize) -> (EndianSlice<'input, Endian>, EndianSlice<'input, Endian>) {
+    pub fn split_at(
+        &self,
+        idx: usize,
+    ) -> (EndianSlice<'input, Endian>, EndianSlice<'input, Endian>) {
         (self.range_to(..idx), self.range_from(idx..))
     }
 

@@ -4751,7 +4751,9 @@ mod tests {
     #[test]
     fn test_entries_tree() {
         fn assert_entry<'input, 'abbrev, 'unit, 'tree, Endian>(
-            node: Result<Option<EntriesTreeNode<'abbrev, 'unit, 'tree, EndianSlice<'input, Endian>>>>,
+            node: Result<
+                Option<EntriesTreeNode<'abbrev, 'unit, 'tree, EndianSlice<'input, Endian>>>,
+            >,
             name: &str,
         ) -> EntriesTreeIter<'abbrev, 'unit, 'tree, EndianSlice<'input, Endian>>
         where

@@ -3334,7 +3334,14 @@ mod tests {
 
     fn assert_parse_cie<'input, E>(
         section: Section,
-        expected: Result<Option<(EndianSlice<'input, E>, DebugFrameCie<EndianSlice<'input, E>>)>>,
+        expected: Result<
+            Option<
+                (
+                    EndianSlice<'input, E>,
+                    DebugFrameCie<EndianSlice<'input, E>>,
+                ),
+            >,
+        >,
     ) where
         E: Endianity,
     {
