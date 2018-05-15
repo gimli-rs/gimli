@@ -11,6 +11,7 @@ use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 pub fn read_section(section: &str) -> Vec<u8> {
     let mut path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into()));
@@ -46,30 +47,47 @@ fn bench_parsing_debug_abbrev(b: &mut test::Bencher) {
     });
 }
 
+#[inline]
+fn impl_bench_parsing_debug_info<R: Reader>(debug_info: DebugInfo<R>, debug_abbrev: DebugAbbrev<R>) {
+    let mut iter = debug_info.units();
+    while let Some(unit) = iter.next().expect("Should parse compilation unit") {
+        let abbrevs = unit.abbreviations(&debug_abbrev)
+            .expect("Should parse abbreviations");
+
+        let mut cursor = unit.entries(&abbrevs);
+        while let Some((_, entry)) = cursor.next_dfs().expect("Should parse next dfs") {
+            let mut attrs = entry.attrs();
+            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+                test::black_box(&attr);
+            }
+        }
+    }
+}
+
 #[bench]
 fn bench_parsing_debug_info(b: &mut test::Bencher) {
+    let debug_info = read_section("debug_info");
+    let debug_info = DebugInfo::new(&debug_info, LittleEndian);
+
     let debug_abbrev = read_section("debug_abbrev");
     let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
+    b.iter(|| impl_bench_parsing_debug_info(debug_info, debug_abbrev));
+}
+
+#[bench]
+fn bench_parsing_debug_info_with_endian_rc_slice(b: &mut test::Bencher) {
     let debug_info = read_section("debug_info");
+    let debug_info = Rc::from(&debug_info[..]);
+    let debug_info = gimli::EndianRcSlice::new(debug_info, LittleEndian);
+    let debug_info = DebugInfo::from(debug_info);
 
-    b.iter(|| {
-        let debug_info = DebugInfo::new(&debug_info, LittleEndian);
+    let debug_abbrev = read_section("debug_abbrev");
+    let debug_abbrev = Rc::from(&debug_abbrev[..]);
+    let debug_abbrev = gimli::EndianRcSlice::new(debug_abbrev, LittleEndian);
+    let debug_abbrev = DebugAbbrev::from(debug_abbrev);
 
-        let mut iter = debug_info.units();
-        while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-            let abbrevs = unit.abbreviations(&debug_abbrev)
-                .expect("Should parse abbreviations");
-
-            let mut cursor = unit.entries(&abbrevs);
-            while let Some((_, entry)) = cursor.next_dfs().expect("Should parse next dfs") {
-                let mut attrs = entry.attrs();
-                while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
-                    test::black_box(&attr);
-                }
-            }
-        }
-    });
+    b.iter(|| impl_bench_parsing_debug_info(debug_info.clone(), debug_abbrev.clone()));
 }
 
 #[bench]
