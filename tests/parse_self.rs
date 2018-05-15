@@ -8,6 +8,7 @@ use std::collections::hash_map::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 fn read_section(section: &str) -> Vec<u8> {
     let mut path = PathBuf::new();
@@ -38,14 +39,7 @@ fn parse_expression<R: Reader>(expr: Expression<R>, address_size: u8, format: Fo
     eval.evaluate().expect("Should evaluate expression");
 }
 
-#[test]
-fn test_parse_self_debug_info() {
-    let debug_info = read_section("debug_info");
-    let debug_info = DebugInfo::new(&debug_info, LittleEndian);
-
-    let debug_abbrev = read_section("debug_abbrev");
-    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
-
+fn impl_parse_self_debug_info<R: gimli::Reader>(debug_info: DebugInfo<R>, debug_abbrev: DebugAbbrev<R>) {
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
         let abbrevs = unit.abbreviations(&debug_abbrev)
@@ -64,6 +58,32 @@ fn test_parse_self_debug_info() {
             }
         }
     }
+}
+
+#[test]
+fn test_parse_self_debug_info() {
+    let debug_info = read_section("debug_info");
+    let debug_info = DebugInfo::new(&debug_info, LittleEndian);
+
+    let debug_abbrev = read_section("debug_abbrev");
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
+
+    impl_parse_self_debug_info(debug_info, debug_abbrev);
+}
+
+#[test]
+fn test_parse_self_debug_info_with_endian_rc_slice() {
+    let debug_info = read_section("debug_info");
+    let debug_info = Rc::from(&debug_info[..]);
+    let debug_info = gimli::EndianRcSlice::new(debug_info, LittleEndian);
+    let debug_info = DebugInfo::from(debug_info);
+
+    let debug_abbrev = read_section("debug_abbrev");
+    let debug_abbrev = Rc::from(&debug_abbrev[..]);
+    let debug_abbrev = gimli::EndianRcSlice::new(debug_abbrev, LittleEndian);
+    let debug_abbrev = DebugAbbrev::from(debug_abbrev);
+
+    impl_parse_self_debug_info(debug_info, debug_abbrev);
 }
 
 #[test]
