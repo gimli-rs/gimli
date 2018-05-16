@@ -192,20 +192,24 @@ extern crate fallible_iterator;
 
 #[cfg(feature = "std")]
 mod imports {
-    pub use std::boxed;
-    pub use std::vec;
-    pub use std::string;
     pub use std::borrow;
+    pub use std::boxed;
     pub use std::collections::btree_map;
+    pub use std::rc;
+    pub use std::string;
+    pub use std::sync::Arc;
+    pub use std::vec;
 }
 
 #[cfg(not(feature = "std"))]
 mod imports {
-    pub use alloc::boxed;
-    pub use alloc::vec;
-    pub use alloc::string;
+    pub use alloc::arc::Arc;
     pub use alloc::borrow;
+    pub use alloc::boxed;
     pub use alloc::btree_map;
+    pub use alloc::rc;
+    pub use alloc::string;
+    pub use alloc::vec;
 }
 
 use imports::*;
@@ -221,6 +225,9 @@ pub use endianity::{BigEndian, Endianity, LittleEndian, NativeEndian, RunTimeEnd
 
 mod endian_slice;
 pub use endian_slice::EndianSlice;
+
+mod endian_reader;
+pub use endian_reader::{EndianArcSlice, EndianRcSlice, EndianReader};
 
 /// `EndianBuf` has been renamed to `EndianSlice`. For ease of upgrading across
 /// `gimli` versions, we export this type alias.
