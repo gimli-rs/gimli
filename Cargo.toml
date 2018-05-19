@@ -24,7 +24,7 @@ crossbeam = "0.3.2"
 getopts = "0.2"
 memmap = "0.6"
 num_cpus = "1"
-object = "0.7"
+object = { path = "../object" }
 rayon = "1.0"
 regex = "0.2.6"
 test-assembler = "0.1.3"
