@@ -234,6 +234,9 @@ pub use endian_reader::{EndianArcSlice, EndianRcSlice, EndianReader};
 #[deprecated(note = "EndianBuf has been renamed to EndianSlice, use that instead.")]
 pub type EndianBuf<'input, Endian> = EndianSlice<'input, Endian>;
 
+mod gnu_debuglink;
+pub use gnu_debuglink::GnuDebuglink;
+
 pub mod leb128;
 
 mod parser;
