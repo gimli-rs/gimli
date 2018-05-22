@@ -92,9 +92,21 @@ pub type EndianArcSlice<Endian> = EndianReader<Endian, Arc<[u8]>>;
 ///     }
 /// }
 ///
+/// /// A type that represents a shared `mmap`ed file.
+/// #[derive(Debug, Clone)]
+/// pub struct ArcMmapFile(Arc<MmapFile>);
+///
+/// // And `ArcMmapFile` can deref to a slice of the `mmap`ed region of memory.
+/// impl Deref for ArcMmapFile {
+///     type Target = [u8];
+///     fn deref(&self) -> &[u8] {
+///         &*self
+///     }
+/// }
+///
 /// /// A `gimli::Reader` that is backed by an `mmap`ed file!
-/// pub type MmapFileReader<Endian> = gimli::EndianReader<Endian, Arc<MmapFile>>;
-/// # fn main() {}
+/// pub type MmapFileReader<Endian> = gimli::EndianReader<Endian, ArcMmapFile>;
+/// # fn test(_: &MmapFileReader<gimli::NativeEndian>) { }
 /// ```
 #[derive(Debug, Clone, Copy, Hash)]
 pub struct EndianReader<Endian, T>
