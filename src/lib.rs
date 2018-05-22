@@ -189,6 +189,7 @@ extern crate core as std;
 extern crate arrayvec;
 extern crate byteorder;
 extern crate fallible_iterator;
+extern crate stable_deref_trait;
 
 #[cfg(feature = "std")]
 mod imports {
@@ -213,6 +214,8 @@ mod imports {
 }
 
 use imports::*;
+
+pub use stable_deref_trait::{CloneStableDeref, StableDeref};
 
 mod cfi;
 pub use cfi::*;
