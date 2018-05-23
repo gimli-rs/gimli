@@ -18,6 +18,7 @@ coveralls = { repository = "gimli-rs/gimli" }
 arrayvec = { version = "0.4.6", default-features = false }
 byteorder = { version = "1.0", default-features = false }
 fallible-iterator = { version = "0.1.4", default-features = false }
+stable_deref_trait = "1.0.0"
 
 [dev-dependencies]
 crossbeam = "0.3.2"

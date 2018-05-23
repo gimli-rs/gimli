@@ -5,9 +5,11 @@ use endianity::Endianity;
 use parser::{Error, Result};
 use rc::Rc;
 use reader::Reader;
+use stable_deref_trait::CloneStableDeref;
 use std::fmt::Debug;
 use std::mem;
 use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
+use std::slice;
 use std::str;
 use string::String;
 use Arc;
@@ -100,9 +102,13 @@ pub type EndianArcSlice<Endian> = EndianReader<Endian, Arc<[u8]>>;
 /// impl Deref for ArcMmapFile {
 ///     type Target = [u8];
 ///     fn deref(&self) -> &[u8] {
-///         &*self
+///         &self.0
 ///     }
 /// }
+///
+/// // These are both valid for any `Rc` or `Arc`.
+/// unsafe impl gimli::StableDeref for ArcMmapFile {}
+/// unsafe impl gimli::CloneStableDeref for ArcMmapFile {}
 ///
 /// /// A `gimli::Reader` that is backed by an `mmap`ed file!
 /// pub type MmapFileReader<Endian> = gimli::EndianReader<Endian, ArcMmapFile>;
@@ -112,7 +118,7 @@ pub type EndianArcSlice<Endian> = EndianReader<Endian, Arc<[u8]>>;
 pub struct EndianReader<Endian, T>
 where
     Endian: Endianity,
-    T: Deref<Target = [u8]> + Clone + Debug,
+    T: CloneStableDeref<Target = [u8]> + Debug,
 {
     range: SubRange<T>,
     endian: Endian,
@@ -121,18 +127,18 @@ where
 impl<Endian, T1, T2> PartialEq<EndianReader<Endian, T2>> for EndianReader<Endian, T1>
 where
     Endian: Endianity,
-    T1: Deref<Target = [u8]> + Clone + Debug,
-    T2: Deref<Target = [u8]> + Clone + Debug,
+    T1: CloneStableDeref<Target = [u8]> + Debug,
+    T2: CloneStableDeref<Target = [u8]> + Debug,
 {
     fn eq(&self, rhs: &EndianReader<Endian, T2>) -> bool {
-        self.range.bytes() == rhs.range.bytes()
+        self.bytes() == rhs.bytes()
     }
 }
 
 impl<Endian, T> Eq for EndianReader<Endian, T>
 where
     Endian: Endianity,
-    T: Deref<Target = [u8]> + Clone + Debug,
+    T: CloneStableDeref<Target = [u8]> + Debug,
 {
 }
 
@@ -143,33 +149,55 @@ where
 // `self.endian`. Splitting the sub-range out from the endian lets us work
 // around this, making it so that only the `self.range` borrow is held active,
 // not all of `self`.
+//
+// This also serves to encapsulate the unsafe code concerning `CloneStableDeref`.
+// The `bytes` member is held so that the bytes live long enough, and the
+// `CloneStableDeref` ensures these bytes never move.  The `ptr` and `len`
+// members point inside `bytes`, and are updated during read operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct SubRange<T>
 where
-    T: Deref<Target = [u8]> + Clone + Debug,
+    T: CloneStableDeref<Target = [u8]> + Debug,
 {
     bytes: T,
-    start: usize,
-    end: usize,
+    ptr: * const u8,
+    len: usize,
 }
 
 impl<T> SubRange<T>
 where
-    T: Deref<Target = [u8]> + Clone + Debug,
+    T: CloneStableDeref<Target = [u8]> + Debug,
 {
     #[inline]
+    fn new(bytes: T) -> Self {
+        let ptr = bytes.as_ptr();
+        let len = bytes.len();
+        SubRange { bytes, ptr, len }
+    }
+
+    #[inline]
     fn bytes(&self) -> &[u8] {
-        &self.bytes[self.start..self.end]
+        // Safe because `T` implements `CloneStableDeref`, `bytes` can't be modified,
+        // and all operations that modify `ptr` and `len` ensure they stay in range.
+        unsafe { slice::from_raw_parts(self.ptr, self.len) }
     }
 
     #[inline]
     fn len(&self) -> usize {
-        self.end - self.start
+        self.len
     }
 
     #[inline]
-    fn find(&self, byte: u8) -> Option<usize> {
-        self.bytes().iter().position(|x| *x == byte)
+    fn truncate(&mut self, len: usize) {
+        assert!(len <= self.len);
+        self.len = len;
+    }
+
+    #[inline]
+    fn skip(&mut self, len: usize) {
+        assert!(len <= self.len);
+        self.ptr = unsafe { self.ptr.offset(len as isize) };
+        self.len -= len;
     }
 
     #[inline]
@@ -177,9 +205,10 @@ where
         if self.len() < len {
             Err(Error::UnexpectedEof)
         } else {
-            let start = self.start;
-            self.start += len;
-            Ok(&self.bytes[start..start + len])
+            // Same as for `bytes()`.
+            let bytes = unsafe { slice::from_raw_parts(self.ptr, len) };
+            self.skip(len);
+            Ok(bytes)
         }
     }
 }
@@ -187,15 +216,13 @@ where
 impl<Endian, T> EndianReader<Endian, T>
 where
     Endian: Endianity,
-    T: Deref<Target = [u8]> + Clone + Debug,
+    T: CloneStableDeref<Target = [u8]> + Debug,
 {
     /// Construct a new `EndianReader` with the given bytes.
     #[inline]
     pub fn new(bytes: T, endian: Endian) -> EndianReader<Endian, T> {
-        let start = 0;
-        let end = bytes.len();
         EndianReader {
-            range: SubRange { bytes, start, end },
+            range: SubRange::new(bytes),
             endian,
         }
     }
@@ -216,7 +243,7 @@ where
 impl<Endian, T> EndianReader<Endian, T>
 where
     Endian: Endianity,
-    T: Deref<Target = [u8]> + Clone + Debug,
+    T: CloneStableDeref<Target = [u8]> + Debug,
 {
     /// Take the given `start..end` range of the underlying buffer and return a
     /// new `EndianReader`.
@@ -236,10 +263,8 @@ where
     /// Panics if the range is out of bounds.
     pub fn range(&self, idx: Range<usize>) -> EndianReader<Endian, T> {
         let mut r = self.clone();
-        r.range.end = r.range.start + idx.end;
-        r.range.start += idx.start;
-        assert!(r.range.start <= r.range.end);
-        assert!(r.range.end <= self.range.end);
+        r.range.skip(idx.start);
+        r.range.truncate(idx.len());
         r
     }
 
@@ -261,8 +286,7 @@ where
     /// Panics if the range is out of bounds.
     pub fn range_from(&self, idx: RangeFrom<usize>) -> EndianReader<Endian, T> {
         let mut r = self.clone();
-        r.range.start += idx.start;
-        assert!(r.range.start <= r.range.end);
+        r.range.skip(idx.start);
         r
     }
 
@@ -284,8 +308,7 @@ where
     /// Panics if the range is out of bounds.
     pub fn range_to(&self, idx: RangeTo<usize>) -> EndianReader<Endian, T> {
         let mut r = self.clone();
-        r.range.end = r.range.start + idx.end;
-        assert!(r.range.end <= self.range.end);
+        r.range.truncate(idx.end);
         r
     }
 }
@@ -293,18 +316,18 @@ where
 impl<Endian, T> Index<usize> for EndianReader<Endian, T>
 where
     Endian: Endianity,
-    T: Deref<Target = [u8]> + Clone + Debug,
+    T: CloneStableDeref<Target = [u8]> + Debug,
 {
     type Output = u8;
     fn index(&self, idx: usize) -> &Self::Output {
-        &self.range.bytes()[idx]
+        &self.bytes()[idx]
     }
 }
 
 impl<Endian, T> Index<RangeFrom<usize>> for EndianReader<Endian, T>
 where
     Endian: Endianity,
-    T: Deref<Target = [u8]> + Clone + Debug,
+    T: CloneStableDeref<Target = [u8]> + Debug,
 {
     type Output = [u8];
     fn index(&self, idx: RangeFrom<usize>) -> &Self::Output {
@@ -315,7 +338,7 @@ where
 impl<Endian, T> Deref for EndianReader<Endian, T>
 where
     Endian: Endianity,
-    T: Deref<Target = [u8]> + Clone + Debug,
+    T: CloneStableDeref<Target = [u8]> + Debug,
 {
     type Target = [u8];
     fn deref(&self) -> &Self::Target {
@@ -326,7 +349,7 @@ where
 impl<Endian, T> Reader for EndianReader<Endian, T>
 where
     Endian: Endianity,
-    T: Deref<Target = [u8]> + Clone + Debug,
+    T: CloneStableDeref<Target = [u8]> + Debug,
 {
     type Endian = Endian;
     type Offset = usize;
@@ -343,7 +366,7 @@ where
 
     #[inline]
     fn empty(&mut self) {
-        self.range.start = self.range.end;
+        self.range.truncate(0);
     }
 
     #[inline]
@@ -351,7 +374,7 @@ where
         if self.len() < len {
             Err(Error::UnexpectedEof)
         } else {
-            self.range.end = self.range.start + len;
+            self.range.truncate(len);
             Ok(())
         }
     }
@@ -367,7 +390,7 @@ where
 
     #[inline]
     fn find(&self, byte: u8) -> Result<usize> {
-        self.range.find(byte).ok_or(Error::UnexpectedEof)
+        self.bytes().iter().position(|x| *x == byte).ok_or(Error::UnexpectedEof)
     }
 
     #[inline]
@@ -375,7 +398,7 @@ where
         if self.len() < len {
             Err(Error::UnexpectedEof)
         } else {
-            self.range.start += len;
+            self.range.skip(len);
             Ok(())
         }
     }
@@ -386,8 +409,8 @@ where
             Err(Error::UnexpectedEof)
         } else {
             let mut r = self.clone();
-            r.range.end = r.range.start + len;
-            self.range.start += len;
+            r.range.truncate(len);
+            self.range.skip(len);
             Ok(r)
         }
     }
@@ -429,7 +452,7 @@ mod tests {
     use endianity::NativeEndian;
     use reader::Reader;
 
-    fn native_reader<T: Deref<Target = [u8]> + Clone + Debug>(
+    fn native_reader<T: CloneStableDeref<Target = [u8]> + Debug>(
         bytes: T,
     ) -> EndianReader<NativeEndian, T> {
         EndianReader::new(bytes, NativeEndian)
