@@ -45,7 +45,8 @@
 //!
 //! Full example programs:
 //!
-//!   * [A `dwarfdump` clone](./examples/dwarfdump.rs)
+//!   * [A `dwarfdump`
+//!     clone](https://github.com/gimli-rs/gimli/blob/master/examples/dwarfdump.rs)
 //!
 //!   * [An `addr2line` clone](https://github.com/gimli-rs/addr2line)
 //!
@@ -55,6 +56,10 @@
 //!   * [`dwprod`](https://github.com/fitzgen/dwprod), a tiny utility to list the
 //!     compilers used to create each compilation unit within a shared library or
 //!     executable (via `DW_AT_producer`)
+//!
+//!   * [`dwarf-validate`](http://github.com/gimli-rs/gimli/blob/master/examples/dwarf-validate.rs),
+//!     a program to validate the integrity of some DWARF and its references
+//!     between sections and ocmpilation units.
 //!
 //! ## API Structure
 //!

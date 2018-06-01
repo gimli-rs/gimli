@@ -30,7 +30,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gimli = "0.15.0"
+gimli = "0.16.0"
 ```
 
 ## Documentation
@@ -49,6 +49,10 @@ gimli = "0.15.0"
   * [`dwprod`](https://github.com/fitzgen/dwprod), a tiny utility to list the
     compilers used to create each compilation unit within a shared library or
     executable (via `DW_AT_producer`)
+
+  * [`dwarf-validate`](./examples/dwarf-validate.rs), a program to validate the
+    integrity of some DWARF and its references between sections and ocmpilation
+    units.
 
 ## License
 
