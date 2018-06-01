@@ -16,4 +16,4 @@ git shortlog -s -n "$since.." \
     | cut -f 2- \
     | sort -u \
     | grep -v bors\-servo \
-    | xargs -I{} echo "- {}"
+    | xargs -d '\n' -I{} echo "- {}"
