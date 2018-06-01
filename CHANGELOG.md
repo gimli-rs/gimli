@@ -32,6 +32,59 @@ Released YYYY/MM/DD.
 
 --------------------------------------------------------------------------------
 
+## 0.16.0
+
+Released 2018/06/01.
+
+### Added
+
+* Added support for building in `#![no_std]` environments, when the `alloc`
+  crate is available. Disable the "std" feature and enable the "alloc"
+  feature. [#138][] [#271][]
+
+* Added support for DWARF 5 `.debug_rnglists` and `.debug_loclists`
+  sections. [#272][]
+
+* A `dwarf-validate` example program that checks the integrity of the given
+  DWARF and its references between sections. [#290][]
+
+* Added the `EndianReader<T>` type, an easy way to define a custom `Reader`
+  implementation with a reference to a generic buffer of bytes and an associated
+  endianity. [#298][] [#302][]
+
+### Changed
+
+* Various speed improvements for evaluating `.debug_line` line number
+  programs. [#276][]
+
+* The example `dwarfdump` clone is a [whole lot faster
+  now][dwarfdump-faster]. [#282][] [#284][] [#285][]
+
+### Deprecated
+
+* `EndianBuf` has been renamed to `EndianSlice`, use that name instead. [#295][]
+
+### Fixed
+
+* Evaluating the `DW_CFA_restore_state` opcode properly maintains the current
+  location. Previously it would incorrectly restore the old location when
+  popping from evaluation stack. [#274][]
+
+[#271]: https://github.com/gimli-rs/gimli/issues/271
+[#138]: https://github.com/gimli-rs/gimli/issues/138
+[#274]: https://github.com/gimli-rs/gimli/issues/274
+[#272]: https://github.com/gimli-rs/gimli/issues/272
+[#276]: https://github.com/gimli-rs/gimli/issues/276
+[#282]: https://github.com/gimli-rs/gimli/issues/282
+[#284]: https://github.com/gimli-rs/gimli/issues/284
+[#290]: https://github.com/gimli-rs/gimli/issues/290
+[#295]: https://github.com/gimli-rs/gimli/issues/295
+[#298]: https://github.com/gimli-rs/gimli/issues/298
+[#302]: https://github.com/gimli-rs/gimli/issues/302
+[dwarfdump-faster]: https://robert.ocallahan.org/2018/03/speeding-up-dwarfdump-with-rust.html
+
+--------------------------------------------------------------------------------
+
 ## 0.15.0
 
 Released 2017/12/01.
