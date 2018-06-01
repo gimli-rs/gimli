@@ -50,6 +50,10 @@ gimli = "0.15.0"
     compilers used to create each compilation unit within a shared library or
     executable (via `DW_AT_producer`)
 
+  * [`dwarf-validate`](./examples/dwarf-validate.rs), a program to validate the
+    integrity of some DWARF and its references between sections and ocmpilation
+    units.
+
 ## License
 
 Licensed under either of
