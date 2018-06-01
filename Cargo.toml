@@ -8,7 +8,7 @@ license = "Apache-2.0/MIT"
 name = "gimli"
 readme = "./README.md"
 repository = "https://github.com/gimli-rs/gimli"
-version = "0.15.0"
+version = "0.16.0"
 
 [badges]
 travis-ci = { repository = "gimli-rs/gimli" }
