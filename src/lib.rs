@@ -46,7 +46,7 @@
 //! Full example programs:
 //!
 //!   * [A `dwarfdump`
-//!   clone](https://github.com/gimli-rs/gimli/blob/master/examples/dwarfdump.rs)
+//!     clone](https://github.com/gimli-rs/gimli/blob/master/examples/dwarfdump.rs)
 //!
 //!   * [An `addr2line` clone](https://github.com/gimli-rs/addr2line)
 //!
