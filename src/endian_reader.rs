@@ -164,6 +164,18 @@ where
     len: usize,
 }
 
+unsafe impl<T> Send for SubRange<T>
+where
+    T: CloneStableDeref<Target = [u8]> + Debug + Send,
+{
+}
+
+unsafe impl<T> Sync for SubRange<T>
+where
+    T: CloneStableDeref<Target = [u8]> + Debug + Sync,
+{
+}
+
 impl<T> SubRange<T>
 where
     T: CloneStableDeref<Target = [u8]> + Debug,
