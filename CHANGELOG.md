@@ -45,6 +45,11 @@ Released 2018/06/01.
 * Added support for DWARF 5 `.debug_rnglists` and `.debug_loclists`
   sections. [#272][]
 
+* Added support for DWARF 5 `DW_FORM_ref_sup` and `DW_FORM_strp_sup` attribute
+  forms. [#288][]
+
+* Added support for DWARF 5 operations on typed values. [#293][]
+
 * A `dwarf-validate` example program that checks the integrity of the given
   DWARF and its references between sections. [#290][]
 
@@ -76,8 +81,11 @@ Released 2018/06/01.
 [#272]: https://github.com/gimli-rs/gimli/issues/272
 [#276]: https://github.com/gimli-rs/gimli/issues/276
 [#282]: https://github.com/gimli-rs/gimli/issues/282
+[#285]: https://github.com/gimli-rs/gimli/issues/285
 [#284]: https://github.com/gimli-rs/gimli/issues/284
+[#288]: https://github.com/gimli-rs/gimli/issues/288
 [#290]: https://github.com/gimli-rs/gimli/issues/290
+[#293]: https://github.com/gimli-rs/gimli/issues/293
 [#295]: https://github.com/gimli-rs/gimli/issues/295
 [#298]: https://github.com/gimli-rs/gimli/issues/298
 [#302]: https://github.com/gimli-rs/gimli/issues/302
