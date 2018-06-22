@@ -2053,12 +2053,13 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// // Move the cursor to the root.
     /// assert!(cursor.next_dfs().unwrap().is_some());
     ///
-    /// // Keep looping while the cursor is moving deeper into the DIE tree.
+    /// // Traverse the DIE tree in depth-first search order.
+    /// let mut depth = 0;
     /// while let Some((delta_depth, current)) = cursor.next_dfs().expect("Should parse next dfs") {
-    ///     // 0 means we moved to a sibling, a negative number means we went back
-    ///     // up to a parent's sibling. In either case, bail out of the loop because
-    ///     //  we aren't going deeper into the tree anymore.
-    ///     if delta_depth <= 0 {
+    ///     // Update depth value, and break out of the loop when we
+    ///     // return to the original starting position.
+    ///     depth += delta_depth;
+    ///     if depth <= 0 {
     ///         break;
     ///     }
     ///
