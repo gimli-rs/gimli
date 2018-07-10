@@ -99,7 +99,7 @@ impl<R: Reader> From<R> for DebugFrame<R> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EhFrameHdr<R: Reader>(R);
 
-/// `ParsedEhFrameHdr` contains the parsed information fron the `.eh_frame` section.
+/// `ParsedEhFrameHdr` contains the parsed information from the `.eh_frame_hdr` section.
 #[derive(Clone, Debug)]
 pub struct ParsedEhFrameHdr<R: Reader> {
     addr_size: u8,
