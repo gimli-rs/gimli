@@ -209,10 +209,10 @@ mod imports {
 
 #[cfg(not(feature = "std"))]
 mod imports {
-    pub use alloc::arc::Arc;
+    pub use alloc::sync::Arc;
     pub use alloc::borrow;
     pub use alloc::boxed;
-    pub use alloc::btree_map;
+    pub use alloc::collections::btree_map;
     pub use alloc::rc;
     pub use alloc::string;
     pub use alloc::vec;
