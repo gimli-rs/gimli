@@ -9,6 +9,7 @@ name = "gimli"
 readme = "./README.md"
 repository = "https://github.com/gimli-rs/gimli"
 version = "0.16.0"
+exclude = ["/ci/*", "/releases/*", "/.travis.yml", "/coverage", "/format"]
 
 [badges]
 travis-ci = { repository = "gimli-rs/gimli" }
