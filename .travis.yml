@@ -73,3 +73,6 @@ matrix:
         - TARGET=powerpc64-unknown-linux-gnu
         - GIMLI_JOB=cross
         - GIMLI_PROFILE=
+  allow_failures:
+    - env: GIMLI_JOB="alloc"        GIMLI_PROFILE=
+    - env: GIMLI_JOB="alloc"        GIMLI_PROFILE="--release"
