@@ -269,6 +269,37 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
             &mut reader,
         )
     }
+
+    /// Returns a parsed FDE for the given address, or NoUnwindInfoForAddress
+    /// if there are none.
+    pub fn lookup_and_parse(&self, address: u64, bases: &BaseAddresses, frame: EhFrame<R>) -> Result<FrameDescriptionEntry<EhFrame<R>, R, R::Offset>> {
+        let fdeptr = self.lookup(address, bases)?;
+        let fdeptr = match fdeptr {
+            Pointer::Direct(x) => x,
+            _ => unreachable!(),
+        };
+
+        let eh_frame_ptr = match self.hdr.eh_frame_ptr() {
+            Pointer::Direct(x) => x,
+            _ => unreachable!(),
+        };
+
+        // Calculate the offset in the EhFrame section
+        let offset = R::Offset::from_u64(fdeptr - eh_frame_ptr)?;
+        let mut input = &mut frame.section().clone();
+        input.skip(offset)?;
+
+        let entry = parse_cfi_entry(bases, frame.clone(), &mut input)?;
+        let target_fde = match entry {
+            Some(CieOrFde::Fde(fde)) => Some(fde.parse(|offset| frame.cie_from_offset(bases, offset))?),
+            Some(CieOrFde::Cie(_)) => unimplemented!(),
+            None => None
+        };
+        match target_fde {
+            Some(ref fde) if fde.contains(address) => Ok((*fde).clone()),
+            _ => Err(Error::NoUnwindInfoForAddress)
+        }
+    }
 }
 
 /// `EhFrame` contains the frame unwinding information needed during exception
