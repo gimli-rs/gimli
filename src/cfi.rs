@@ -296,10 +296,15 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         input.skip(offset)?;
 
         let entry = parse_cfi_entry(bases, frame.clone(), &mut input)?;
-        match entry {
+        let entry = match entry {
             Some(CieOrFde::Fde(fde)) => Ok(fde.parse(cb)?),
             Some(CieOrFde::Cie(_)) => Err(Error::NotFdePointer),
             None => Err(Error::NoUnwindInfoForAddress)
+        }?;
+        if entry.contains(address) {
+            Ok(entry)
+        } else {
+            Err(Error::NoUnwindInfoForAddress)
         }
     }
 }
