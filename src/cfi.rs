@@ -272,16 +272,22 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
 
     /// Returns a parsed FDE for the given address, or NoUnwindInfoForAddress
     /// if there are none.
-    pub fn lookup_and_parse(&self, address: u64, bases: &BaseAddresses, frame: EhFrame<R>) -> Result<FrameDescriptionEntry<EhFrame<R>, R, R::Offset>> {
+    ///
+    /// You must provide a function get its associated CIE. See PartialFrameDescriptionEntry::parse
+    /// for more information.
+    pub fn lookup_and_parse<F>(&self, address: u64, bases: &BaseAddresses, frame: EhFrame<R>, cb: F) -> Result<FrameDescriptionEntry<EhFrame<R>, R, R::Offset>>
+    where
+        F: FnMut(EhFrameOffset<R::Offset>) -> Result<CommonInformationEntry<EhFrame<R>, R, R::Offset>>
+    {
         let fdeptr = self.lookup(address, bases)?;
         let fdeptr = match fdeptr {
             Pointer::Direct(x) => x,
-            _ => unreachable!(),
+            _ => return Err(Error::UnsupportedPointerEncoding),
         };
 
         let eh_frame_ptr = match self.hdr.eh_frame_ptr() {
             Pointer::Direct(x) => x,
-            _ => unreachable!(),
+            _ => return Err(Error::UnsupportedPointerEncoding),
         };
 
         // Calculate the offset in the EhFrame section
@@ -290,14 +296,10 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         input.skip(offset)?;
 
         let entry = parse_cfi_entry(bases, frame.clone(), &mut input)?;
-        let target_fde = match entry {
-            Some(CieOrFde::Fde(fde)) => Some(fde.parse(|offset| frame.cie_from_offset(bases, offset))?),
-            Some(CieOrFde::Cie(_)) => unimplemented!(),
-            None => None
-        };
-        match target_fde {
-            Some(ref fde) if fde.contains(address) => Ok((*fde).clone()),
-            _ => Err(Error::NoUnwindInfoForAddress)
+        match entry {
+            Some(CieOrFde::Fde(fde)) => Ok(fde.parse(cb)?),
+            Some(CieOrFde::Cie(_)) => Err(Error::NotFdePointer),
+            None => Err(Error::NoUnwindInfoForAddress)
         }
     }
 }
