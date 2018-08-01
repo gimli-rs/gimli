@@ -275,6 +275,29 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     ///
     /// You must provide a function get its associated CIE. See PartialFrameDescriptionEntry::parse
     /// for more information.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use gimli::{BaseAddresses, EhFrame, ParsedEhFrameHdr, EndianRcSlice, NativeEndian, Error, UnwindSection};
+    /// # fn foo() -> Result<(), Error> {
+    /// # let eh_frame: EhFrame<EndianRcSlice<NativeEndian>> = unreachable!();
+    /// # let eh_frame_hdr: ParsedEhFrameHdr<EndianRcSlice<NativeEndian>> = unimplemented!();
+    /// # let addr = 0;
+    /// # let address_of_cfi_section_in_memory = unimplemented!();
+    /// # let address_of_text_section_in_memory = unimplemented!();
+    /// # let address_of_data_section_in_memory = unimplemented!();
+    /// # let address_of_the_start_of_current_func = unimplemented!();
+    /// # let bases = BaseAddresses::default()
+    /// #     .set_cfi(address_of_cfi_section_in_memory)
+    /// #     .set_text(address_of_text_section_in_memory)
+    /// #     .set_data(address_of_data_section_in_memory);
+    /// let table = eh_frame_hdr.table().unwrap();
+    /// let fde = table.lookup_and_parse(addr, &bases, eh_frame.clone(),
+    ///     |offset| eh_frame.cie_from_offset(&bases, offset))?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn lookup_and_parse<F>(&self, address: u64, bases: &BaseAddresses, frame: EhFrame<R>, cb: F) -> Result<FrameDescriptionEntry<EhFrame<R>, R, R::Offset>>
     where
         F: FnMut(EhFrameOffset<R::Offset>) -> Result<CommonInformationEntry<EhFrame<R>, R, R::Offset>>
