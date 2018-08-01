@@ -288,10 +288,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     /// # let address_of_text_section_in_memory = unimplemented!();
     /// # let address_of_data_section_in_memory = unimplemented!();
     /// # let address_of_the_start_of_current_func = unimplemented!();
-    /// # let bases = BaseAddresses::default()
-    /// #     .set_cfi(address_of_cfi_section_in_memory)
-    /// #     .set_text(address_of_text_section_in_memory)
-    /// #     .set_data(address_of_data_section_in_memory);
+    /// # let bases = unimplemented!();
     /// let table = eh_frame_hdr.table().unwrap();
     /// let fde = table.lookup_and_parse(addr, &bases, eh_frame.clone(),
     ///     |offset| eh_frame.cie_from_offset(&bases, offset))?;
@@ -318,12 +315,12 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         let mut input = &mut frame.section().clone();
         input.skip(offset)?;
 
-        let entry = parse_cfi_entry(bases, frame.clone(), &mut input)?;
+        let entry = parse_cfi_entry(bases, frame, &mut input)?;
         let entry = match entry {
-            Some(CieOrFde::Fde(fde)) => Ok(fde.parse(cb)?),
-            Some(CieOrFde::Cie(_)) => Err(Error::NotFdePointer),
-            None => Err(Error::NoUnwindInfoForAddress)
-        }?;
+            Some(CieOrFde::Fde(fde)) => fde.parse(cb)?,
+            Some(CieOrFde::Cie(_)) => return Err(Error::NotFdePointer),
+            None => return Err(Error::NoUnwindInfoForAddress)
+        };
         if entry.contains(address) {
             Ok(entry)
         } else {
