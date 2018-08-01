@@ -269,6 +269,64 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
             &mut reader,
         )
     }
+
+    /// Returns a parsed FDE for the given address, or NoUnwindInfoForAddress
+    /// if there are none.
+    ///
+    /// You must provide a function get its associated CIE. See PartialFrameDescriptionEntry::parse
+    /// for more information.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use gimli::{BaseAddresses, EhFrame, ParsedEhFrameHdr, EndianRcSlice, NativeEndian, Error, UnwindSection};
+    /// # fn foo() -> Result<(), Error> {
+    /// # let eh_frame: EhFrame<EndianRcSlice<NativeEndian>> = unreachable!();
+    /// # let eh_frame_hdr: ParsedEhFrameHdr<EndianRcSlice<NativeEndian>> = unimplemented!();
+    /// # let addr = 0;
+    /// # let address_of_cfi_section_in_memory = unimplemented!();
+    /// # let address_of_text_section_in_memory = unimplemented!();
+    /// # let address_of_data_section_in_memory = unimplemented!();
+    /// # let address_of_the_start_of_current_func = unimplemented!();
+    /// # let bases = unimplemented!();
+    /// let table = eh_frame_hdr.table().unwrap();
+    /// let fde = table.lookup_and_parse(addr, &bases, eh_frame.clone(),
+    ///     |offset| eh_frame.cie_from_offset(&bases, offset))?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn lookup_and_parse<F>(&self, address: u64, bases: &BaseAddresses, frame: EhFrame<R>, cb: F) -> Result<FrameDescriptionEntry<EhFrame<R>, R, R::Offset>>
+    where
+        F: FnMut(EhFrameOffset<R::Offset>) -> Result<CommonInformationEntry<EhFrame<R>, R, R::Offset>>
+    {
+        let fdeptr = self.lookup(address, bases)?;
+        let fdeptr = match fdeptr {
+            Pointer::Direct(x) => x,
+            _ => return Err(Error::UnsupportedPointerEncoding),
+        };
+
+        let eh_frame_ptr = match self.hdr.eh_frame_ptr() {
+            Pointer::Direct(x) => x,
+            _ => return Err(Error::UnsupportedPointerEncoding),
+        };
+
+        // Calculate the offset in the EhFrame section
+        let offset = R::Offset::from_u64(fdeptr - eh_frame_ptr)?;
+        let mut input = &mut frame.section().clone();
+        input.skip(offset)?;
+
+        let entry = parse_cfi_entry(bases, frame, &mut input)?;
+        let entry = match entry {
+            Some(CieOrFde::Fde(fde)) => fde.parse(cb)?,
+            Some(CieOrFde::Cie(_)) => return Err(Error::NotFdePointer),
+            None => return Err(Error::NoUnwindInfoForAddress)
+        };
+        if entry.contains(address) {
+            Ok(entry)
+        } else {
+            Err(Error::NoUnwindInfoForAddress)
+        }
+    }
 }
 
 /// `EhFrame` contains the frame unwinding information needed during exception
@@ -5526,6 +5584,97 @@ mod tests {
         assert_eq!(table.lookup(20, &bases), Ok(Pointer::Direct(2)));
         assert_eq!(table.lookup(21, &bases), Ok(Pointer::Direct(2)));
         assert_eq!(table.lookup(100000, &bases), Ok(Pointer::Direct(2)));
+    }
+
+    #[test]
+    fn test_eh_frame_lookup_parse_good() {
+        // First, setup eh_frame
+        // Write the CIE first so that its length gets set before we clone it
+        // into the FDE.
+        let mut cie = make_test_cie();
+        cie.format = Format::Dwarf32;
+        cie.version = 1;
+
+        let start_of_cie = Label::new();
+        let end_of_cie = Label::new();
+
+        let section = Section::with_endian(Endian::Little)
+            .append_repeated(0, 16)
+            .mark(&start_of_cie)
+            .cie(Endian::Little, None, &mut cie)
+            .mark(&end_of_cie);
+
+        let mut fde1 = EhFrameFde {
+            offset: 0,
+            length: 0,
+            format: Format::Dwarf32,
+            cie: cie.clone(),
+            initial_segment: 0,
+            initial_address: 9,
+            address_range: 4,
+            augmentation: None,
+            instructions: EndianSlice::new(&[], LittleEndian),
+        };
+        let mut fde2 = EhFrameFde {
+            offset: 0,
+            length: 0,
+            format: Format::Dwarf32,
+            cie: cie.clone(),
+            initial_segment: 0,
+            initial_address: 20,
+            address_range: 8,
+            augmentation: None,
+            instructions: EndianSlice::new(&[], LittleEndian),
+        };
+
+        let start_of_fde1 = Label::new();
+        let start_of_fde2 = Label::new();
+
+        let section = section
+            // +4 for the FDE length before the CIE offset.
+            .mark(&start_of_fde1)
+            .fde(Endian::Little, (&end_of_cie - &start_of_cie + 4) as u64, &mut fde1)
+            .mark(&start_of_fde2)
+            .fde(Endian::Little, (&end_of_cie - &start_of_cie + 4) as u64, &mut fde2);
+
+        section.start().set_const(0);
+        let section = section.get_contents().unwrap();
+        let section = EndianSlice::new(&section, LittleEndian);
+        let eh_frame = EhFrame::new(section.into(), LittleEndian);
+
+        // Setup eh_frame_hdr
+        let section = Section::with_endian(Endian::Little)
+            .L8(1)
+            .L8(0x0b)
+            .L8(0x03)
+            .L8(0x0b)
+            .L32(0x12345)
+            .L32(2)
+            .L32(10)
+            .L32(0x12345 + start_of_fde1.value().unwrap() as u32)
+            .L32(20)
+            .L32(0x12345 + start_of_fde2.value().unwrap() as u32);
+
+        let section = section.get_contents().unwrap();
+        let bases = BaseAddresses::default();
+        let eh_frame_hdr = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
+        assert!(eh_frame_hdr.is_ok());
+        let eh_frame_hdr = eh_frame_hdr.unwrap();
+
+        let table = eh_frame_hdr.table();
+        assert!(table.is_some());
+        let table = table.unwrap();
+
+        let bases = Default::default();
+
+        let f = |_offset| Ok(cie.clone());
+        assert_eq!(table.lookup_and_parse(9, &bases, eh_frame.clone(), f), Ok(fde1.clone()));
+        assert_eq!(table.lookup_and_parse(10, &bases, eh_frame.clone(), f), Ok(fde1.clone()));
+        assert_eq!(table.lookup_and_parse(11, &bases, eh_frame.clone(), f), Ok(fde1));
+        assert_eq!(table.lookup_and_parse(19, &bases, eh_frame.clone(), f), Err(Error::NoUnwindInfoForAddress));
+        assert_eq!(table.lookup_and_parse(20, &bases, eh_frame.clone(), f), Ok(fde2.clone()));
+        assert_eq!(table.lookup_and_parse(21, &bases, eh_frame.clone(), f), Ok(fde2));
+        assert_eq!(table.lookup_and_parse(100000, &bases, eh_frame.clone(), f), Err(Error::NoUnwindInfoForAddress));
     }
 
     #[test]
