@@ -2283,6 +2283,12 @@ where
                 self.ctx.set_start_address(start_address);
             }
 
+            // GNU Extension. Save the size somewhere so the unwinder can use
+            // it when restoring IP
+            ArgsSize { size } => {
+                // TODO: Ignore for now.
+            }
+
             // No operation.
             Nop => {}
         };
@@ -2905,6 +2911,19 @@ pub enum CallFrameInstruction<R: Reader> {
     /// > them in the current row.
     RestoreState,
 
+
+    /// > DW_CFA_GNU_args_size
+    /// > 
+    /// > GNU Extension
+    /// >
+    /// > The DW_CFA_GNU_args_size instruction takes an unsigned LEB128 operand
+    /// > representing an argument size. This instruction specifies the total of
+    /// > the size of the arguments which have been pushed onto the stack.
+    ArgsSize {
+        /// The size of the arguments which have been pushed onto the stack
+        size: u64
+    },
+
     // 6.4.2.5 Padding Instruction
     /// > 1. DW_CFA_nop
     /// >
@@ -3096,6 +3115,13 @@ impl<R: Reader> CallFrameInstruction<R> {
                 Ok(CallFrameInstruction::ValExpression {
                     register: register,
                     expression: Expression(expression),
+                })
+            }
+
+            constants::DW_CFA_GNU_args_size => {
+                let size = input.read_uleb128()?;
+                Ok(CallFrameInstruction::ArgsSize {
+                    size
                 })
             }
 
