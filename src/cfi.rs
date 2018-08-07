@@ -6204,7 +6204,7 @@ mod tests {
             mem::size_of::<
                 UnwindContext<EhFrame<EndianSlice<NativeEndian>>, EndianSlice<NativeEndian>>,
             >(),
-            5384
+            5416
         );
     }
 
