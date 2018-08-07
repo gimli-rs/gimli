@@ -2310,6 +2310,12 @@ where
                 self.ctx.set_start_address(start_address);
             }
 
+            // GNU Extension. Save the size somewhere so the unwinder can use
+            // it when restoring IP
+            ArgsSize { size } => {
+                self.ctx.row_mut().saved_args_size = size;
+            }
+
             // No operation.
             Nop => {}
         };
@@ -2466,6 +2472,7 @@ impl<'iter, R: Reader> Iterator for RegisterRuleIter<'iter, R> {
 pub struct UnwindTableRow<R: Reader> {
     start_address: u64,
     end_address: u64,
+    saved_args_size: u64,
     cfa: CfaRule<R>,
     registers: RegisterRuleMap<R>,
 }
@@ -2475,6 +2482,7 @@ impl<R: Reader> Default for UnwindTableRow<R> {
         UnwindTableRow {
             start_address: 0,
             end_address: 0,
+            saved_args_size: 0,
             cfa: Default::default(),
             registers: Default::default(),
         }
@@ -2507,6 +2515,14 @@ impl<R: Reader> UnwindTableRow<R> {
     /// `false` otherwise.
     pub fn contains(&self, address: u64) -> bool {
         self.start_address <= address && address < self.end_address
+    }
+
+    /// Returns the amount of args currently on the stack.
+    ///
+    /// When unwinding, if the personality function requested a change in IP,
+    /// the SP needs to be adjusted by saved_args_size.
+    pub fn saved_args_size(&self) -> u64 {
+        self.saved_args_size
     }
 
     /// Get the canonical frame address (CFA) recovery rule for this row.
@@ -2932,6 +2948,19 @@ pub enum CallFrameInstruction<R: Reader> {
     /// > them in the current row.
     RestoreState,
 
+
+    /// > DW_CFA_GNU_args_size
+    /// > 
+    /// > GNU Extension
+    /// >
+    /// > The DW_CFA_GNU_args_size instruction takes an unsigned LEB128 operand
+    /// > representing an argument size. This instruction specifies the total of
+    /// > the size of the arguments which have been pushed onto the stack.
+    ArgsSize {
+        /// The size of the arguments which have been pushed onto the stack
+        size: u64
+    },
+
     // 6.4.2.5 Padding Instruction
     /// > 1. DW_CFA_nop
     /// >
@@ -3123,6 +3152,13 @@ impl<R: Reader> CallFrameInstruction<R> {
                 Ok(CallFrameInstruction::ValExpression {
                     register: register,
                     expression: Expression(expression),
+                })
+            }
+
+            constants::DW_CFA_GNU_args_size => {
+                let size = input.read_uleb128()?;
+                Ok(CallFrameInstruction::ArgsSize {
+                    size
                 })
             }
 
@@ -5223,6 +5259,7 @@ mod tests {
             let expected = UnwindTableRow {
                 start_address: 0,
                 end_address: 1,
+                saved_args_size: 0,
                 cfa: CfaRule::RegisterAndOffset {
                     register: 4,
                     offset: -12,
@@ -5239,6 +5276,7 @@ mod tests {
             let expected = UnwindTableRow {
                 start_address: 1,
                 end_address: 33,
+                saved_args_size: 0,
                 cfa: CfaRule::RegisterAndOffset {
                     register: 4,
                     offset: -12,
@@ -5255,6 +5293,7 @@ mod tests {
             let expected = UnwindTableRow {
                 start_address: 33,
                 end_address: 97,
+                saved_args_size: 0,
                 cfa: CfaRule::RegisterAndOffset {
                     register: 4,
                     offset: -12,
@@ -5273,6 +5312,7 @@ mod tests {
             let expected = UnwindTableRow {
                 start_address: 97,
                 end_address: 100,
+                saved_args_size: 0,
                 cfa: CfaRule::RegisterAndOffset {
                     register: 4,
                     offset: -12,
@@ -5403,6 +5443,7 @@ mod tests {
             UnwindTableRow {
                 start_address: fde1.initial_address() + 100,
                 end_address: fde1.initial_address() + fde1.len(),
+                saved_args_size: 0,
                 cfa: CfaRule::RegisterAndOffset {
                     register: 4,
                     offset: -12,
@@ -6281,7 +6322,7 @@ mod tests {
             mem::size_of::<
                 UnwindContext<EhFrame<EndianSlice<NativeEndian>>, EndianSlice<NativeEndian>>,
             >(),
-            5384
+            5416
         );
     }
 

@@ -610,6 +610,9 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
                 RestoreState => {
                     writeln!(w, "                DW_CFA_restore_state")?;
                 }
+                ArgsSize { size } => {
+                    writeln!(w, "                DW_CFA_GNU_args_size ({})", size)?;
+                }
                 Nop => {
                     writeln!(w, "                DW_CFA_nop")?;
                 }
