@@ -32,6 +32,28 @@ Released YYYY/MM/DD.
 
 --------------------------------------------------------------------------------
 
+## 0.16.1
+
+Released 2018/08/28.
+
+### Added
+
+* Added `EhFrameHdr::lookup_and_parse`. [#316][]
+* Added support for `DW_CFA_GNU_args_size`. [#319][]
+
+### Fixed
+
+* Implement `Send`/`Sync` for `SubRange`. [#305][]
+* Fixed `alloc` support on nightly. [#306][] [#310][]
+
+[#305]: https://github.com/gimli-rs/gimli/pull/305
+[#306]: https://github.com/gimli-rs/gimli/pull/306
+[#310]: https://github.com/gimli-rs/gimli/pull/310
+[#316]: https://github.com/gimli-rs/gimli/pull/316
+[#319]: https://github.com/gimli-rs/gimli/pull/319
+
+--------------------------------------------------------------------------------
+
 ## 0.16.0
 
 Released 2018/06/01.

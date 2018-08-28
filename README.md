@@ -30,7 +30,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gimli = "0.16.0"
+gimli = "0.16.1"
 ```
 
 ## Documentation
