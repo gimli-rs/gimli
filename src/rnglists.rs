@@ -488,8 +488,6 @@ impl Range {
     /// This should only be called for raw ranges.
     #[inline]
     pub fn add_base_address(&mut self, base_address: u64, address_size: u8) {
-        debug_assert!(!self.is_end());
-        debug_assert!(!self.is_base_address(address_size));
         let mask = !0 >> (64 - address_size * 8);
         self.begin = base_address.wrapping_add(self.begin) & mask;
         self.end = base_address.wrapping_add(self.end) & mask;
@@ -546,6 +544,8 @@ mod tests {
             .L8(7).L32(0x2010c00).uleb(0x100)
             // An OffsetPair that starts at 0.
             .L8(4).uleb(0).uleb(1)
+            // An OffsetPair that starts and ends at 0.
+            .L8(4).uleb(0).uleb(0)
             // An OffsetPair that ends at -1.
             .L8(5).L32(0)
             .L8(4).uleb(0).uleb(0xffffffff)
@@ -623,6 +623,15 @@ mod tests {
             }))
         );
 
+        // A range that starts and ends at 0.
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x02000000,
+                end: 0x02000000,
+            }))
+        );
+
         // A range that ends at -1.
         assert_eq!(
             ranges.next(),
@@ -671,6 +680,8 @@ mod tests {
             .L8(7).L64(0x2010c00).uleb(0x100)
             // An OffsetPair that starts at 0.
             .L8(4).uleb(0).uleb(1)
+            // An OffsetPair that starts and ends at 0.
+            .L8(4).uleb(0).uleb(0)
             // An OffsetPair that ends at -1.
             .L8(5).L64(0)
             .L8(4).uleb(0).uleb(0xffffffff)
@@ -745,6 +756,15 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02000000,
                 end: 0x02000001,
+            }))
+        );
+
+        // A range that starts and ends at 0.
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x02000000,
+                end: 0x02000000,
             }))
         );
 
