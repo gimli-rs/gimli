@@ -2385,4 +2385,14 @@ mod tests {
         let expected_registers = initial_registers.clone();
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }
+
+    /// Ensure that `StateMachine<R,P>` is covariant wrt R.
+    /// This only needs to compile.
+    #[allow(dead_code, unreachable_code, unused_variables)]
+    fn test_statemachine_variance<'a, 'b>(_: &'a [u8], _: &'b [u8])
+        where 'a: 'b
+    {
+        let a: &OneShotStateMachine<EndianSlice<'a, LittleEndian>> = unimplemented!();
+        let _: &OneShotStateMachine<EndianSlice<'b, LittleEndian>> = a;
+    }
 }
