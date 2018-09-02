@@ -330,7 +330,6 @@ where
 
     // Variables representing sections of the file. The type of each is inferred from its use in the
     // dump_* functions below.
-    let eh_frame = &load_section(&arena, file, endian);
     let debug_abbrev = &load_section(&arena, file, endian);
     let debug_aranges = &load_section(&arena, file, endian);
     let debug_info = &load_section(&arena, file, endian);
@@ -350,7 +349,16 @@ where
 
     let out = io::stdout();
     if flags.eh_frame {
-        dump_eh_frame(&mut BufWriter::new(out.lock()), eh_frame)?;
+        // TODO: this might be better based on the file format.
+        let address_size = match file.machine() {
+            object::Machine::Arm | object::Machine::X86 => 4,
+            object::Machine::Arm64 | object::Machine::X86_64 => 8,
+            object::Machine::Other => mem::size_of::<usize>() as u8,
+        };
+
+        let mut eh_frame: gimli::EhFrame<_> = load_section(&arena, file, endian);
+        eh_frame.set_address_size(address_size);
+        dump_eh_frame(&mut BufWriter::new(out.lock()), &eh_frame)?;
     }
     if flags.info {
         dump_info(

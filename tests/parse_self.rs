@@ -338,16 +338,14 @@ fn test_parse_self_debug_pubtypes() {
     }
 }
 
-// Because `.eh_frame` doesn't contain address sizes, we need to assume the
-// native word size, so this test is only valid on 64-bit machines (as the
-// `.eh_frame` fixture data was created on a 64-bit machine).
-#[cfg(target_pointer_width = "64")]
 #[test]
 fn test_parse_self_eh_frame() {
     use gimli::{BaseAddresses, CieOrFde, EhFrame, UnwindSection};
 
     let eh_frame = read_section("eh_frame");
-    let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
+    let mut eh_frame = EhFrame::new(&eh_frame, LittleEndian);
+    // The `.eh_frame` fixture data was created on a 64-bit machine.
+    eh_frame.set_address_size(8);
 
     let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
     let mut entries = eh_frame.entries(&bases);

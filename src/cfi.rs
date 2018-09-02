@@ -54,7 +54,29 @@ impl<T> From<T> for EhFrameOffset<T> {
 /// encode the subset of information needed for exception handling. Often, only
 /// one of `.eh_frame` or `.debug_frame` will be present in an object file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DebugFrame<R: Reader>(R);
+pub struct DebugFrame<R: Reader> {
+    section: R,
+    address_size: u8,
+    segment_size: u8,
+}
+
+impl<R: Reader> DebugFrame<R> {
+    /// Set the size of a target address in bytes.
+    ///
+    /// This defaults to the native word size.
+    /// This is only used if the CIE version is less than 4.
+    pub fn set_address_size(&mut self, address_size: u8) {
+        self.address_size = address_size
+    }
+
+    /// Set the size of a segment selector in bytes.
+    ///
+    /// This defaults to 0.
+    /// This is only used if the CIE version is less than 4.
+    pub fn set_segment_size(&mut self, segment_size: u8) {
+        self.segment_size = segment_size
+    }
+}
 
 impl<'input, Endian> DebugFrame<EndianSlice<'input, Endian>>
 where
@@ -88,7 +110,12 @@ impl<R: Reader> Section<R> for DebugFrame<R> {
 
 impl<R: Reader> From<R> for DebugFrame<R> {
     fn from(section: R) -> Self {
-        DebugFrame(section)
+        // Default to no segments and native word size.
+        DebugFrame {
+            section,
+            address_size: mem::size_of::<usize>() as u8,
+            segment_size: 0,
+        }
     }
 }
 
@@ -102,7 +129,7 @@ pub struct EhFrameHdr<R: Reader>(R);
 /// `ParsedEhFrameHdr` contains the parsed information from the `.eh_frame_hdr` section.
 #[derive(Clone, Debug)]
 pub struct ParsedEhFrameHdr<R: Reader> {
-    addr_size: u8,
+    address_size: u8,
     section: R,
 
     eh_frame_ptr: Pointer,
@@ -123,7 +150,7 @@ where
 
 impl<R: Reader> EhFrameHdr<R> {
     /// Parses this `EhFrameHdr` to a `ParsedEhFrameHdr`.
-    pub fn parse(&self, bases: &BaseAddresses, addr_size: u8) -> Result<ParsedEhFrameHdr<R>> {
+    pub fn parse(&self, bases: &BaseAddresses, address_size: u8) -> Result<ParsedEhFrameHdr<R>> {
         let mut reader = self.0.clone();
         let version = reader.read_u8()?;
         if version != 1 {
@@ -140,16 +167,16 @@ impl<R: Reader> EhFrameHdr<R> {
         }
 
         let eh_frame_ptr =
-            parse_encoded_pointer(eh_frame_ptr_enc, bases, addr_size, &self.0, &mut reader)?;
+            parse_encoded_pointer(eh_frame_ptr_enc, bases, address_size, &self.0, &mut reader)?;
         let fde_count =
-            parse_encoded_pointer(fde_count_enc, bases, addr_size, &self.0, &mut reader)?;
+            parse_encoded_pointer(fde_count_enc, bases, address_size, &self.0, &mut reader)?;
         let fde_count = match fde_count {
             Pointer::Direct(c) => c,
             Pointer::Indirect(_) => return Err(Error::UnsupportedPointerEncoding),
         };
 
         Ok(ParsedEhFrameHdr {
-            addr_size,
+            address_size,
             section: self.0.clone(),
 
             eh_frame_ptr,
@@ -234,7 +261,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
             let pivot = parse_encoded_pointer(
                 self.hdr.table_enc,
                 bases,
-                self.hdr.addr_size,
+                self.hdr.address_size,
                 &self.hdr.section,
                 &mut reader,
             )?;
@@ -264,7 +291,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         parse_encoded_pointer(
             self.hdr.table_enc,
             bases,
-            self.hdr.addr_size,
+            self.hdr.address_size,
             &self.hdr.section,
             &mut reader,
         )
@@ -340,7 +367,19 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
 /// for some discussion on the differences between `.debug_frame` and
 /// `.eh_frame`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct EhFrame<R: Reader>(R);
+pub struct EhFrame<R: Reader> {
+    section: R,
+    address_size: u8,
+}
+
+impl<R: Reader> EhFrame<R> {
+    /// Set the size of a target address in bytes.
+    ///
+    /// This defaults to the native word size.
+    pub fn set_address_size(&mut self, address_size: u8) {
+        self.address_size = address_size
+    }
+}
 
 impl<'input, Endian> EhFrame<EndianSlice<'input, Endian>>
 where
@@ -374,7 +413,11 @@ impl<R: Reader> Section<R> for EhFrame<R> {
 
 impl<R: Reader> From<R> for EhFrame<R> {
     fn from(section: R) -> Self {
-        EhFrame(section)
+        // Default to native word size.
+        EhFrame {
+            section,
+            address_size: mem::size_of::<usize>() as u8,
+        }
     }
 }
 
@@ -460,6 +503,12 @@ pub trait _UnwindSectionPrivate<R: Reader> {
     /// Does this version of this unwind section encode address and segment
     /// sizes in its CIEs?
     fn has_address_and_segment_sizes(version: u8) -> bool;
+
+    /// The address size to use if `has_address_and_segment_sizes` returns false.
+    fn address_size(&self) -> u8;
+
+    /// The segment size to use if `has_address_and_segment_sizes` returns false.
+    fn segment_size(&self) -> u8;
 
     /// What is the encoding used for the return address register in CIEs for
     /// this unwind section?
@@ -611,7 +660,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
 
 impl<R: Reader> _UnwindSectionPrivate<R> for DebugFrame<R> {
     fn section(&self) -> &R {
-        &self.0
+        &self.section
     }
 
     fn length_value_is_end_of_entries(_: u64) -> bool {
@@ -650,6 +699,14 @@ impl<R: Reader> _UnwindSectionPrivate<R> for DebugFrame<R> {
         version == 4
     }
 
+    fn address_size(&self) -> u8 {
+        self.address_size
+    }
+
+    fn segment_size(&self) -> u8 {
+        self.segment_size
+    }
+
     fn return_address_register_encoding(version: u8) -> ReturnAddressRegisterEncoding {
         if version == 1 {
             ReturnAddressRegisterEncoding::U8
@@ -665,7 +722,7 @@ impl<R: Reader> UnwindSection<R> for DebugFrame<R> {
 
 impl<R: Reader> _UnwindSectionPrivate<R> for EhFrame<R> {
     fn section(&self) -> &R {
-        &self.0
+        &self.section
     }
 
     fn length_value_is_end_of_entries(length: u64) -> bool {
@@ -704,6 +761,14 @@ impl<R: Reader> _UnwindSectionPrivate<R> for EhFrame<R> {
 
     fn has_address_and_segment_sizes(_version: u8) -> bool {
         false
+    }
+
+    fn address_size(&self) -> u8 {
+        self.address_size
+    }
+
+    fn segment_size(&self) -> u8 {
+        0
     }
 
     fn return_address_register_encoding(_version: u8) -> ReturnAddressRegisterEncoding {
@@ -1225,8 +1290,7 @@ where
             let segment_size = rest.read_u8()?;
             (address_size, segment_size)
         } else {
-            // Assume no segments and native word size.
-            (mem::size_of::<usize>() as u8, 0)
+            (section.address_size(), section.segment_size())
         };
 
         let code_alignment_factor = rest.read_uleb128()?;
@@ -3428,6 +3492,7 @@ mod tests {
 
     fn assert_parse_cie<'input, E>(
         section: Section,
+        address_size: u8,
         expected: Result<
             Option<
                 (
@@ -3440,7 +3505,8 @@ mod tests {
         E: Endianity,
     {
         let section = section.get_contents().unwrap();
-        let debug_frame = DebugFrame::new(&section, E::default());
+        let mut debug_frame = DebugFrame::new(&section, E::default());
+        debug_frame.set_address_size(address_size);
         let input = &mut EndianSlice::new(&section, E::default());
         let bases = Default::default();
         let result = DebugFrameCie::parse(&bases, debug_frame, input);
@@ -3451,7 +3517,7 @@ mod tests {
     #[test]
     fn test_parse_cie_incomplete_length_32() {
         let section = Section::with_endian(Endian::Little).L16(5);
-        assert_parse_cie::<LittleEndian>(section, Err(Error::UnexpectedEof));
+        assert_parse_cie::<LittleEndian>(section, 8, Err(Error::UnexpectedEof));
     }
 
     #[test]
@@ -3459,7 +3525,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little)
             .L32(0xffffffff)
             .L32(12345);
-        assert_parse_cie::<LittleEndian>(section, Err(Error::UnexpectedEof));
+        assert_parse_cie::<LittleEndian>(section, 8, Err(Error::UnexpectedEof));
     }
 
     #[test]
@@ -3468,7 +3534,7 @@ mod tests {
             // The length is not large enough to contain the ID.
             .B32(3)
             .B32(0xffffffff);
-        assert_parse_cie::<BigEndian>(section, Err(Error::UnexpectedEof));
+        assert_parse_cie::<BigEndian>(section, 8, Err(Error::UnexpectedEof));
     }
 
     #[test]
@@ -3478,7 +3544,7 @@ mod tests {
             .B32(4)
             // Not the CIE Id.
             .B32(0xbad1bad2);
-        assert_parse_cie::<BigEndian>(section, Err(Error::NotCieId));
+        assert_parse_cie::<BigEndian>(section, 8, Err(Error::NotCieId));
     }
 
     #[test]
@@ -3499,7 +3565,7 @@ mod tests {
         };
 
         let section = Section::with_endian(Endian::Little).cie(Endian::Little, None, &mut cie);
-        assert_parse_cie::<LittleEndian>(section, Err(Error::UnknownVersion(99)));
+        assert_parse_cie::<LittleEndian>(section, 4, Err(Error::UnknownVersion(99)));
     }
 
     #[test]
@@ -3536,21 +3602,20 @@ mod tests {
         let expected_length = (&end - &start) as u64;
         length.set_const(expected_length);
 
-        assert_parse_cie::<LittleEndian>(section, Err(Error::UnknownAugmentation));
+        assert_parse_cie::<LittleEndian>(section, 8, Err(Error::UnknownAugmentation));
     }
 
-    #[test]
-    fn test_parse_cie_32_ok() {
+    fn test_parse_cie(format: Format, version: u8, address_size: u8) {
         let expected_rest = [1, 2, 3, 4, 5, 6, 7, 8, 9];
         let expected_instrs: Vec<_> = (0..4).map(|_| constants::DW_CFA_nop.0).collect();
 
         let mut cie = DebugFrameCie {
             offset: 0,
             length: 0,
-            format: Format::Dwarf32,
-            version: 4,
+            format,
+            version,
             augmentation: None,
-            address_size: 4,
+            address_size,
             segment_size: 0,
             code_alignment_factor: 16,
             data_alignment_factor: 32,
@@ -3565,38 +3630,25 @@ mod tests {
 
         assert_parse_cie(
             section,
+            address_size,
             Ok(Some((EndianSlice::new(&expected_rest, LittleEndian), cie))),
         );
     }
 
     #[test]
+    fn test_parse_cie_32_ok() {
+        test_parse_cie(Format::Dwarf32, 1, 4);
+        test_parse_cie(Format::Dwarf32, 1, 8);
+        test_parse_cie(Format::Dwarf32, 4, 4);
+        test_parse_cie(Format::Dwarf32, 4, 8);
+    }
+
+    #[test]
     fn test_parse_cie_64_ok() {
-        let expected_rest = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let expected_instrs: Vec<_> = (0..5).map(|_| constants::DW_CFA_nop.0).collect();
-
-        let mut cie = DebugFrameCie {
-            offset: 0,
-            length: 0,
-            format: Format::Dwarf64,
-            version: 4,
-            augmentation: None,
-            address_size: 4,
-            segment_size: 0,
-            code_alignment_factor: 16,
-            data_alignment_factor: 32,
-            return_address_register: 7,
-            initial_instructions: EndianSlice::new(&expected_instrs, BigEndian),
-            phantom: PhantomData,
-        };
-
-        let section = Section::with_endian(Endian::Big)
-            .cie(Endian::Big, None, &mut cie)
-            .append_bytes(&expected_rest);
-
-        assert_parse_cie(
-            section,
-            Ok(Some((EndianSlice::new(&expected_rest, BigEndian), cie))),
-        );
+        test_parse_cie(Format::Dwarf64, 1, 4);
+        test_parse_cie(Format::Dwarf64, 1, 8);
+        test_parse_cie(Format::Dwarf64, 4, 4);
+        test_parse_cie(Format::Dwarf64, 4, 8);
     }
 
     #[test]
