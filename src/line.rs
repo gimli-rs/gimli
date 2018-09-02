@@ -72,7 +72,7 @@ impl<R: Reader> DebugLine<R> {
         address_size: u8,
         comp_dir: Option<R>,
         comp_name: Option<R>,
-    ) -> parser::Result<IncompleteLineNumberProgram<R>> {
+    ) -> parser::Result<IncompleteLineNumberProgram<R, R::Offset>> {
         let input = &mut self.debug_line_section.clone();
         input.skip(offset.0)?;
         let header = LineNumberProgramHeader::parse(input, address_size, comp_dir, comp_name)?;
@@ -96,15 +96,23 @@ impl<R: Reader> From<R> for DebugLine<R> {
 /// A `LineNumberProgram` provides access to a `LineNumberProgramHeader` and
 /// a way to add files to the files table if necessary. Gimli consumers should
 /// never need to use or see this trait.
-pub trait LineNumberProgram<R: Reader> {
+pub trait LineNumberProgram<R, Offset = usize>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
     /// Get a reference to the held `LineNumberProgramHeader`.
-    fn header(&self) -> &LineNumberProgramHeader<R>;
+    fn header(&self) -> &LineNumberProgramHeader<R, Offset>;
     /// Add a file to the file table if necessary.
     fn add_file(&mut self, file: FileEntry<R>);
 }
 
-impl<R: Reader> LineNumberProgram<R> for IncompleteLineNumberProgram<R> {
-    fn header(&self) -> &LineNumberProgramHeader<R> {
+impl<R, Offset> LineNumberProgram<R, Offset> for IncompleteLineNumberProgram<R, Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
+    fn header(&self) -> &LineNumberProgramHeader<R, Offset> {
         &self.header
     }
     fn add_file(&mut self, file: FileEntry<R>) {
@@ -112,8 +120,13 @@ impl<R: Reader> LineNumberProgram<R> for IncompleteLineNumberProgram<R> {
     }
 }
 
-impl<'program, R: Reader> LineNumberProgram<R> for &'program CompleteLineNumberProgram<R> {
-    fn header(&self) -> &LineNumberProgramHeader<R> {
+impl<'program, R, Offset> LineNumberProgram<R, Offset>
+    for &'program CompleteLineNumberProgram<R, Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
+    fn header(&self) -> &LineNumberProgramHeader<R, Offset> {
         &self.header
     }
     fn add_file(&mut self, _: FileEntry<R>) {
@@ -128,27 +141,31 @@ impl<'program, R: Reader> LineNumberProgram<R> for &'program CompleteLineNumberP
 /// to expand the byte-coded instruction stream into a matrix of line number
 /// information." -- Section 6.2.1
 #[derive(Debug, Clone)]
-pub struct StateMachine<R, Program>
+pub struct StateMachine<R, Program, Offset = usize>
 where
-    Program: LineNumberProgram<R>,
-    R: Reader,
+    Program: LineNumberProgram<R, Offset>,
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     program: Program,
     row: LineNumberRow,
     opcodes: OpcodesIter<R>,
 }
 
-type OneShotStateMachine<R> = StateMachine<R, IncompleteLineNumberProgram<R>>;
+type OneShotStateMachine<R, Offset = usize> =
+    StateMachine<R, IncompleteLineNumberProgram<R, Offset>, Offset>;
 
-type ResumedStateMachine<'program, R> = StateMachine<R, &'program CompleteLineNumberProgram<R>>;
+type ResumedStateMachine<'program, R, Offset = usize> =
+    StateMachine<R, &'program CompleteLineNumberProgram<R, Offset>, Offset>;
 
-impl<R, Program> StateMachine<R, Program>
+impl<R, Program, Offset> StateMachine<R, Program, Offset>
 where
-    Program: LineNumberProgram<R>,
-    R: Reader,
+    Program: LineNumberProgram<R, Offset>,
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     #[allow(new_ret_no_self)]
-    fn new(program: IncompleteLineNumberProgram<R>) -> OneShotStateMachine<R> {
+    fn new(program: IncompleteLineNumberProgram<R, Offset>) -> OneShotStateMachine<R, Offset> {
         let mut row = LineNumberRow::default();
         row.registers.reset(program.header().default_is_stmt());
         let opcodes = OpcodesIter {
@@ -162,9 +179,9 @@ where
     }
 
     fn resume<'program>(
-        program: &'program CompleteLineNumberProgram<R>,
+        program: &'program CompleteLineNumberProgram<R, Offset>,
         sequence: &LineNumberSequence<R>,
-    ) -> ResumedStateMachine<'program, R> {
+    ) -> ResumedStateMachine<'program, R, Offset> {
         let mut row = LineNumberRow::default();
         row.registers.reset(program.header().default_is_stmt());
         let opcodes = sequence.opcodes.clone();
@@ -329,7 +346,7 @@ where
 
     /// Get a reference to the header for this state machine's line number
     /// program.
-    pub fn header(&self) -> &LineNumberProgramHeader<R> {
+    pub fn header(&self) -> &LineNumberProgramHeader<R, Offset> {
         self.program.header()
     }
 
@@ -345,7 +362,7 @@ where
     /// `FallibleIterator`.
     pub fn next_row(
         &mut self,
-    ) -> parser::Result<Option<(&LineNumberProgramHeader<R>, &LineNumberRow)>> {
+    ) -> parser::Result<Option<(&LineNumberProgramHeader<R, Offset>, &LineNumberRow)>> {
         // Perform any reset that was required after copying the previous row.
         if self.row.registers.end_sequence {
             // Previous opcode was EndSequence, so reset everything
@@ -387,7 +404,7 @@ where
     pub fn run_to_address(
         &mut self,
         addr: &u64,
-    ) -> parser::Result<Option<(&LineNumberProgramHeader<R>, &LineNumberRow)>> {
+    ) -> parser::Result<Option<(&LineNumberProgramHeader<R, Offset>, &LineNumberRow)>> {
         loop {
             match self.next_row() {
                 Ok(Some((_, row))) => {
@@ -539,7 +556,7 @@ pub enum Opcode<R: Reader> {
 
 impl<R: Reader> Opcode<R> {
     fn parse<'header>(
-        header: &'header LineNumberProgramHeader<R>,
+        header: &'header LineNumberProgramHeader<R, R::Offset>,
         input: &mut R,
     ) -> parser::Result<Opcode<R>>
     where
@@ -722,7 +739,7 @@ impl<R: Reader> OpcodesIter<R> {
     #[inline(always)]
     pub fn next_opcode(
         &mut self,
-        header: &LineNumberProgramHeader<R>,
+        header: &LineNumberProgramHeader<R, R::Offset>,
     ) -> parser::Result<Option<Opcode<R>>> {
         if self.input.is_empty() {
             return Ok(None);
@@ -775,7 +792,7 @@ impl LineNumberRow {
     #[inline]
     pub fn file<'header, R: Reader>(
         &self,
-        header: &'header LineNumberProgramHeader<R>,
+        header: &'header LineNumberProgramHeader<R, R::Offset>,
     ) -> Option<&'header FileEntry<R>> {
         header.file(self.registers.file)
     }
@@ -938,14 +955,18 @@ pub struct LineNumberSequence<R: Reader> {
 /// A header for a line number program in the `.debug_line` section, as defined
 /// in section 6.2.4 of the standard.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LineNumberProgramHeader<R: Reader> {
-    unit_length: R::Offset,
+pub struct LineNumberProgramHeader<R, Offset = usize>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
+    unit_length: Offset,
 
     /// "A version number. This number is specific to the line number
     /// information and is independent of the DWARF version number."
     version: u16,
 
-    header_length: R::Offset,
+    header_length: Offset,
 
     /// "The size in bytes of the smallest target machine instruction. Line
     /// number program opcodes that alter the address and `op_index` registers
@@ -1011,7 +1032,11 @@ pub struct LineNumberProgramHeader<R: Reader> {
     comp_name: Option<FileEntry<R>>,
 }
 
-impl<R: Reader> LineNumberProgramHeader<R> {
+impl<R, Offset> LineNumberProgramHeader<R, Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
     /// Return the length of the line number program and header, not including
     /// the length of the encoded length itself.
     pub fn unit_length(&self) -> R::Offset {
@@ -1139,7 +1164,7 @@ impl<R: Reader> LineNumberProgramHeader<R> {
         address_size: u8,
         comp_dir: Option<R>,
         comp_name: Option<R>,
-    ) -> parser::Result<LineNumberProgramHeader<R>> {
+    ) -> parser::Result<LineNumberProgramHeader<R, Offset>> {
         let (unit_length, format) = parser::parse_initial_length(input)?;
         let unit_length = R::Offset::from_u64(unit_length)?;
         let rest = &mut input.split(unit_length)?;
@@ -1233,19 +1258,27 @@ impl<R: Reader> LineNumberProgramHeader<R> {
 
 /// A line number program that has not been run to completion.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IncompleteLineNumberProgram<R: Reader> {
-    header: LineNumberProgramHeader<R>,
+pub struct IncompleteLineNumberProgram<R, Offset = usize>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
+    header: LineNumberProgramHeader<R, Offset>,
 }
 
-impl<R: Reader> IncompleteLineNumberProgram<R> {
+impl<R, Offset> IncompleteLineNumberProgram<R, Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
     /// Retrieve the `LineNumberProgramHeader` for this program.
-    pub fn header(&self) -> &LineNumberProgramHeader<R> {
+    pub fn header(&self) -> &LineNumberProgramHeader<R, Offset> {
         &self.header
     }
 
     /// Construct a new `StateMachine` for executing line programs and
     /// generating the line information matrix.
-    pub fn rows(self) -> OneShotStateMachine<R> {
+    pub fn rows(self) -> OneShotStateMachine<R, Offset> {
         OneShotStateMachine::new(self)
     }
 
@@ -1271,7 +1304,10 @@ impl<R: Reader> IncompleteLineNumberProgram<R> {
     /// ```
     pub fn sequences(
         self,
-    ) -> parser::Result<(CompleteLineNumberProgram<R>, Vec<LineNumberSequence<R>>)> {
+    ) -> parser::Result<(
+        CompleteLineNumberProgram<R, Offset>,
+        Vec<LineNumberSequence<R>>,
+    )> {
         let mut sequences = Vec::new();
         let mut state_machine = self.rows();
         let mut opcodes = state_machine.opcodes.clone();
@@ -1313,13 +1349,21 @@ impl<R: Reader> IncompleteLineNumberProgram<R> {
 
 /// A line number program that has previously been run to completion.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CompleteLineNumberProgram<R: Reader> {
-    header: LineNumberProgramHeader<R>,
+pub struct CompleteLineNumberProgram<R, Offset = usize>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
+    header: LineNumberProgramHeader<R, Offset>,
 }
 
-impl<R: Reader> CompleteLineNumberProgram<R> {
+impl<R, Offset> CompleteLineNumberProgram<R, Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
     /// Retrieve the `LineNumberProgramHeader` for this program.
-    pub fn header(&self) -> &LineNumberProgramHeader<R> {
+    pub fn header(&self) -> &LineNumberProgramHeader<R, Offset> {
         &self.header
     }
 
@@ -1347,7 +1391,7 @@ impl<R: Reader> CompleteLineNumberProgram<R> {
     pub fn resume_from<'program>(
         &'program self,
         sequence: &LineNumberSequence<R>,
-    ) -> ResumedStateMachine<'program, R> {
+    ) -> ResumedStateMachine<'program, R, Offset> {
         ResumedStateMachine::resume(self, sequence)
     }
 }
@@ -1404,7 +1448,7 @@ impl<R: Reader> FileEntry<R> {
     /// Get this file's directory.
     ///
     /// A directory index of 0 corresponds to the compilation unit directory.
-    pub fn directory(&self, header: &LineNumberProgramHeader<R>) -> Option<R> {
+    pub fn directory(&self, header: &LineNumberProgramHeader<R, R::Offset>) -> Option<R> {
         header.directory(self.directory_index)
     }
 
@@ -2340,5 +2384,15 @@ mod tests {
             Opcode::UnknownExtended(constants::DwLne(74), EndianSlice::new(&[], LittleEndian));
         let expected_registers = initial_registers.clone();
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    /// Ensure that `StateMachine<R,P>` is covariant wrt R.
+    /// This only needs to compile.
+    #[allow(dead_code, unreachable_code, unused_variables)]
+    fn test_statemachine_variance<'a, 'b>(_: &'a [u8], _: &'b [u8])
+        where 'a: 'b
+    {
+        let a: &OneShotStateMachine<EndianSlice<'a, LittleEndian>> = unimplemented!();
+        let _: &OneShotStateMachine<EndianSlice<'b, LittleEndian>> = a;
     }
 }
