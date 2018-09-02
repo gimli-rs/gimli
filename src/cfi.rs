@@ -5674,9 +5674,9 @@ mod tests {
         let section = section
             // +4 for the FDE length before the CIE offset.
             .mark(&start_of_fde1)
-            .fde(Endian::Little, (&end_of_cie - &start_of_cie + 4) as u64, &mut fde1)
+            .fde(Endian::Little, (&start_of_fde1 - &start_of_cie + 4) as u64, &mut fde1)
             .mark(&start_of_fde2)
-            .fde(Endian::Little, (&end_of_cie - &start_of_cie + 4) as u64, &mut fde2);
+            .fde(Endian::Little, (&start_of_fde2 - &start_of_cie + 4) as u64, &mut fde2);
 
         section.start().set_const(0);
         let section = section.get_contents().unwrap();
@@ -5708,7 +5708,10 @@ mod tests {
 
         let bases = Default::default();
 
-        let f = |_offset| Ok(cie.clone());
+        let f = |o: EhFrameOffset| {
+            assert_eq!(o, EhFrameOffset(start_of_cie.value().unwrap() as usize));
+            Ok(cie.clone())
+        };
         assert_eq!(table.lookup_and_parse(9, &bases, eh_frame.clone(), f), Ok(fde1.clone()));
         assert_eq!(table.lookup_and_parse(10, &bases, eh_frame.clone(), f), Ok(fde1.clone()));
         assert_eq!(table.lookup_and_parse(11, &bases, eh_frame.clone(), f), Ok(fde1));
