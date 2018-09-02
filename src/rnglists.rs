@@ -297,7 +297,7 @@ impl RawRngListEntry {
     /// Parse a range entry from `.debug_rnglists`
     fn parse<R: Reader>(input: &mut R, version: u16, address_size: u8) -> Result<Option<Self>> {
         if version < 5 {
-            let range = Range::parse(input, address_size)?;
+            let range = RawRange::parse(input, address_size)?;
             return Ok(if range.is_end() {
                 None
             } else if range.is_base_address(address_size) {
@@ -455,9 +455,9 @@ impl<R: Reader> FallibleIterator for RngListIter<R> {
     }
 }
 
-/// An address range from the `.debug_ranges` section.
+/// A raw address range from the `.debug_ranges` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Range {
+pub(crate) struct RawRange {
     /// The beginning address of the range.
     pub begin: u64,
 
@@ -465,7 +465,7 @@ pub struct Range {
     pub end: u64,
 }
 
-impl Range {
+impl RawRange {
     /// Check if this is a range end entry.
     ///
     /// This will only occur for raw ranges.
@@ -483,27 +483,37 @@ impl Range {
         self.begin == !0 >> (64 - address_size * 8)
     }
 
-    /// Add a base address to this range.
-    ///
-    /// This should only be called for raw ranges.
-    #[inline]
-    pub fn add_base_address(&mut self, base_address: u64, address_size: u8) {
-        let mask = !0 >> (64 - address_size * 8);
-        self.begin = base_address.wrapping_add(self.begin) & mask;
-        self.end = base_address.wrapping_add(self.end) & mask;
-    }
-
     /// Parse an address range entry from `.debug_ranges` or `.debug_loc`.
     #[doc(hidden)]
     #[inline]
-    pub fn parse<R: Reader>(input: &mut R, address_size: u8) -> Result<Range> {
+    pub fn parse<R: Reader>(input: &mut R, address_size: u8) -> Result<RawRange> {
         let begin = input.read_address(address_size)?;
         let end = input.read_address(address_size)?;
-        let range = Range {
+        let range = RawRange {
             begin: begin,
             end: end,
         };
         Ok(range)
+    }
+}
+
+/// An address range from the `.debug_ranges` or `.debug_rnglists` sections.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Range {
+    /// The beginning address of the range.
+    pub begin: u64,
+
+    /// The first address past the end of the range.
+    pub end: u64,
+}
+
+impl Range {
+    /// Add a base address to this range.
+    #[inline]
+    pub(crate) fn add_base_address(&mut self, base_address: u64, address_size: u8) {
+        let mask = !0 >> (64 - address_size * 8);
+        self.begin = base_address.wrapping_add(self.begin) & mask;
+        self.end = base_address.wrapping_add(self.end) & mask;
     }
 }
 
@@ -788,8 +798,8 @@ mod tests {
     }
 
     #[test]
-    fn test_range() {
-        let range = Range {
+    fn test_raw_range() {
+        let range = RawRange {
             begin: 0,
             end: 0xffffffff,
         };
@@ -797,12 +807,12 @@ mod tests {
         assert!(!range.is_base_address(4));
         assert!(!range.is_base_address(8));
 
-        let range = Range { begin: 0, end: 0 };
+        let range = RawRange { begin: 0, end: 0 };
         assert!(range.is_end());
         assert!(!range.is_base_address(4));
         assert!(!range.is_base_address(8));
 
-        let range = Range {
+        let range = RawRange {
             begin: 0xffffffff,
             end: 0,
         };
@@ -810,7 +820,7 @@ mod tests {
         assert!(range.is_base_address(4));
         assert!(!range.is_base_address(8));
 
-        let range = Range {
+        let range = RawRange {
             begin: 0xffffffffffffffff,
             end: 0,
         };

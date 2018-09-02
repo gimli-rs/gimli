@@ -5,7 +5,7 @@ use fallible_iterator::FallibleIterator;
 use op::Expression;
 use parser::{self, Error, Format, Result};
 use reader::{Reader, ReaderOffset};
-use rnglists::{AddressIndex, Range};
+use rnglists::{AddressIndex, Range, RawRange};
 use Section;
 
 /// The `DebugLoc` struct represents the DWARF strings
@@ -313,7 +313,7 @@ impl<R: Reader> RawLocListEntry<R> {
     /// Parse a range entry from `.debug_rnglists`
     fn parse(input: &mut R, version: u16, address_size: u8) -> Result<Option<Self>> {
         if version < 5 {
-            let range = Range::parse(input, address_size)?;
+            let range = RawRange::parse(input, address_size)?;
             return Ok(if range.is_end() {
                 None
             } else if range.is_base_address(address_size) {
