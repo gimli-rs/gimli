@@ -1,7 +1,7 @@
 //! Functions for parsing and evaluating DWARF expressions.
 
 use constants;
-use parser::{Error, Format, Result};
+use parser::{Error, Format, Register, Result};
 use reader::{Reader, ReaderOffset};
 use std::mem;
 use unit::{DebugInfoOffset, UnitOffset};
@@ -125,13 +125,13 @@ where
     /// Indicate that this piece's location is in the given register.
     Register {
         /// The register number.
-        register: u64,
+        register: Register,
     },
     /// Find the value of the given register, add the offset, and then
     /// push the resulting sum on the stack.
     RegisterOffset {
         /// The register number.
-        register: u64,
+        register: Register,
         /// The offset to add.
         offset: i64,
         /// The DIE of the base type or 0 to indicate the generic type
@@ -244,7 +244,7 @@ where
     /// The piece is found in a register.
     Register {
         /// The register number.
-        register: u64,
+        register: Register,
     },
     /// The piece is found in memory.
     Address {
@@ -522,7 +522,7 @@ where
             | constants::DW_OP_reg29
             | constants::DW_OP_reg30
             | constants::DW_OP_reg31 => Ok(Operation::Register {
-                register: (opcode - constants::DW_OP_reg0.0).into(),
+                register: Register((opcode - constants::DW_OP_reg0.0).into()),
             }),
             constants::DW_OP_breg0
             | constants::DW_OP_breg1
@@ -558,25 +558,25 @@ where
             | constants::DW_OP_breg31 => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                    register: (opcode - constants::DW_OP_breg0.0).into(),
+                    register: Register((opcode - constants::DW_OP_breg0.0).into()),
                     offset: value,
                     base_type: generic_type(),
                 })
             }
             constants::DW_OP_regx => {
-                let value = bytes.read_uleb128()?;
-                Ok(Operation::Register { register: value })
+                let register = bytes.read_uleb128().and_then(Register::from_u64)?;
+                Ok(Operation::Register { register })
             }
             constants::DW_OP_fbreg => {
                 let value = bytes.read_sleb128()?;
                 Ok(Operation::FrameOffset { offset: value })
             }
             constants::DW_OP_bregx => {
-                let regno = bytes.read_uleb128()?;
+                let register = bytes.read_uleb128().and_then(Register::from_u64)?;
                 let offset = bytes.read_sleb128()?;
                 Ok(Operation::RegisterOffset {
-                    register: regno,
-                    offset: offset,
+                    register,
+                    offset,
                     base_type: generic_type(),
                 })
             }
@@ -672,10 +672,10 @@ where
                 })
             }
             constants::DW_OP_regval_type | constants::DW_OP_GNU_regval_type => {
-                let register = bytes.read_uleb128()?;
+                let register = bytes.read_uleb128().and_then(Register::from_u64)?;
                 let base_type = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
                 Ok(Operation::RegisterOffset {
-                    register: register,
+                    register,
                     offset: 0,
                     base_type: UnitOffset(base_type),
                 })
@@ -767,7 +767,7 @@ pub enum EvaluationResult<R: Reader> {
     /// `Evaluation` by calling `Evaluation::resume_with_register`.
     RequiresRegister {
         /// The register number.
-        register: u64,
+        register: Register,
         /// The DIE of the base type or 0 to indicate the generic type
         base_type: UnitOffset<R::Offset>,
     },
@@ -1869,38 +1869,38 @@ mod tests {
             (constants::DW_OP_lit29, Operation::Literal { value: 29 }),
             (constants::DW_OP_lit30, Operation::Literal { value: 30 }),
             (constants::DW_OP_lit31, Operation::Literal { value: 31 }),
-            (constants::DW_OP_reg0, Operation::Register { register: 0 }),
-            (constants::DW_OP_reg1, Operation::Register { register: 1 }),
-            (constants::DW_OP_reg2, Operation::Register { register: 2 }),
-            (constants::DW_OP_reg3, Operation::Register { register: 3 }),
-            (constants::DW_OP_reg4, Operation::Register { register: 4 }),
-            (constants::DW_OP_reg5, Operation::Register { register: 5 }),
-            (constants::DW_OP_reg6, Operation::Register { register: 6 }),
-            (constants::DW_OP_reg7, Operation::Register { register: 7 }),
-            (constants::DW_OP_reg8, Operation::Register { register: 8 }),
-            (constants::DW_OP_reg9, Operation::Register { register: 9 }),
-            (constants::DW_OP_reg10, Operation::Register { register: 10 }),
-            (constants::DW_OP_reg11, Operation::Register { register: 11 }),
-            (constants::DW_OP_reg12, Operation::Register { register: 12 }),
-            (constants::DW_OP_reg13, Operation::Register { register: 13 }),
-            (constants::DW_OP_reg14, Operation::Register { register: 14 }),
-            (constants::DW_OP_reg15, Operation::Register { register: 15 }),
-            (constants::DW_OP_reg16, Operation::Register { register: 16 }),
-            (constants::DW_OP_reg17, Operation::Register { register: 17 }),
-            (constants::DW_OP_reg18, Operation::Register { register: 18 }),
-            (constants::DW_OP_reg19, Operation::Register { register: 19 }),
-            (constants::DW_OP_reg20, Operation::Register { register: 20 }),
-            (constants::DW_OP_reg21, Operation::Register { register: 21 }),
-            (constants::DW_OP_reg22, Operation::Register { register: 22 }),
-            (constants::DW_OP_reg23, Operation::Register { register: 23 }),
-            (constants::DW_OP_reg24, Operation::Register { register: 24 }),
-            (constants::DW_OP_reg25, Operation::Register { register: 25 }),
-            (constants::DW_OP_reg26, Operation::Register { register: 26 }),
-            (constants::DW_OP_reg27, Operation::Register { register: 27 }),
-            (constants::DW_OP_reg28, Operation::Register { register: 28 }),
-            (constants::DW_OP_reg29, Operation::Register { register: 29 }),
-            (constants::DW_OP_reg30, Operation::Register { register: 30 }),
-            (constants::DW_OP_reg31, Operation::Register { register: 31 }),
+            (constants::DW_OP_reg0, Operation::Register { register: Register(0) }),
+            (constants::DW_OP_reg1, Operation::Register { register: Register(1) }),
+            (constants::DW_OP_reg2, Operation::Register { register: Register(2) }),
+            (constants::DW_OP_reg3, Operation::Register { register: Register(3) }),
+            (constants::DW_OP_reg4, Operation::Register { register: Register(4) }),
+            (constants::DW_OP_reg5, Operation::Register { register: Register(5) }),
+            (constants::DW_OP_reg6, Operation::Register { register: Register(6) }),
+            (constants::DW_OP_reg7, Operation::Register { register: Register(7) }),
+            (constants::DW_OP_reg8, Operation::Register { register: Register(8) }),
+            (constants::DW_OP_reg9, Operation::Register { register: Register(9) }),
+            (constants::DW_OP_reg10, Operation::Register { register: Register(10) }),
+            (constants::DW_OP_reg11, Operation::Register { register: Register(11) }),
+            (constants::DW_OP_reg12, Operation::Register { register: Register(12) }),
+            (constants::DW_OP_reg13, Operation::Register { register: Register(13) }),
+            (constants::DW_OP_reg14, Operation::Register { register: Register(14) }),
+            (constants::DW_OP_reg15, Operation::Register { register: Register(15) }),
+            (constants::DW_OP_reg16, Operation::Register { register: Register(16) }),
+            (constants::DW_OP_reg17, Operation::Register { register: Register(17) }),
+            (constants::DW_OP_reg18, Operation::Register { register: Register(18) }),
+            (constants::DW_OP_reg19, Operation::Register { register: Register(19) }),
+            (constants::DW_OP_reg20, Operation::Register { register: Register(20) }),
+            (constants::DW_OP_reg21, Operation::Register { register: Register(21) }),
+            (constants::DW_OP_reg22, Operation::Register { register: Register(22) }),
+            (constants::DW_OP_reg23, Operation::Register { register: Register(23) }),
+            (constants::DW_OP_reg24, Operation::Register { register: Register(24) }),
+            (constants::DW_OP_reg25, Operation::Register { register: Register(25) }),
+            (constants::DW_OP_reg26, Operation::Register { register: Register(26) }),
+            (constants::DW_OP_reg27, Operation::Register { register: Register(27) }),
+            (constants::DW_OP_reg28, Operation::Register { register: Register(28) }),
+            (constants::DW_OP_reg29, Operation::Register { register: Register(29) }),
+            (constants::DW_OP_reg30, Operation::Register { register: Register(30) }),
+            (constants::DW_OP_reg31, Operation::Register { register: Register(31) }),
             (constants::DW_OP_nop, Operation::Nop),
             (
                 constants::DW_OP_push_object_address,
@@ -2182,7 +2182,7 @@ mod tests {
                 inputs.push((
                     constants::DW_OP_breg0.0 + i,
                     Operation::RegisterOffset {
-                        register: i as u64,
+                        register: Register(i.into()),
                         offset: *value,
                         base_type: UnitOffset(0),
                     },
@@ -2202,7 +2202,7 @@ mod tests {
         let address_size = 4;
         let format = Format::Dwarf32;
 
-        let values = [0, 1, 0x100, 0x1eeeeeee, 0x7fffffffffffffff, !0u64];
+        let values = [0, 1, 0x100, (!0u16).into(), 0x1eeeeeee, 0x7fffffffffffffff, !0u64];
         for value in values.iter() {
             let mut inputs = vec![
                 (
@@ -2213,11 +2213,14 @@ mod tests {
                     constants::DW_OP_plus_uconst,
                     Operation::PlusConstant { value: *value },
                 ),
-                (
-                    constants::DW_OP_regx,
-                    Operation::Register { register: *value },
-                ),
             ];
+
+            if *value <= (!0u16).into() {
+                inputs.push((
+                    constants::DW_OP_regx,
+                    Operation::Register { register: Register::from_u64(*value).unwrap() },
+                ));
+            }
 
             // FIXME
             if *value < !0u64 / 8 {
@@ -2248,7 +2251,7 @@ mod tests {
         let address_size = 4;
         let format = Format::Dwarf32;
 
-        let uvalues = [0, 1, 0x100, 0x1eeeeeee, 0x7fffffffffffffff, !0u64];
+        let uvalues = [0, 1, 0x100, (!0u16).into()];
         let svalues = [
             -1i64,
             0,
@@ -2264,9 +2267,9 @@ mod tests {
         for v1 in uvalues.iter() {
             for v2 in svalues.iter() {
                 check_op_parse(
-                    |s| s.D8(constants::DW_OP_bregx.0).uleb(*v1).sleb(*v2),
+                    |s| s.D8(constants::DW_OP_bregx.0).uleb((*v1).into()).sleb(*v2),
                     &Operation::RegisterOffset {
-                        register: *v1,
+                        register: Register(*v1),
                         offset: *v2,
                         base_type: UnitOffset(0),
                     },
@@ -2375,7 +2378,7 @@ mod tests {
         check_op_parse(
             |s| s.D8(constants::DW_OP_regval_type.0).uleb(1).uleb(100),
             &Operation::RegisterOffset {
-                register: 1,
+                register: Register(1),
                 offset: 0,
                 base_type: UnitOffset(100),
             },
@@ -2385,7 +2388,7 @@ mod tests {
         check_op_parse(
             |s| s.D8(constants::DW_OP_GNU_regval_type.0).uleb(1).uleb(100),
             &Operation::RegisterOffset {
-                register: 1,
+                register: Register(1),
                 offset: 0,
                 base_type: UnitOffset(100),
             },
@@ -3046,8 +3049,8 @@ mod tests {
         }
 
         program.push(Op(DW_OP_bregx));
-        program.push(Uleb(0x123456));
-        program.push(Sleb(0x123456));
+        program.push(Uleb(0x1234));
+        program.push(Sleb(0x1234));
         program.push(Op(DW_OP_plus));
 
         program.push(Op(DW_OP_stack_value));
@@ -3066,7 +3069,7 @@ mod tests {
                     result = eval.resume_with_register(match result {
                         EvaluationResult::RequiresRegister { register, base_type } => {
                             assert_eq!(base_type, UnitOffset(0));
-                            Value::Generic(register.wrapping_neg())
+                            Value::Generic(u64::from(register.0).wrapping_neg())
                         }
                         _ => panic!(),
                     })?;
@@ -3189,7 +3192,7 @@ mod tests {
             let ok_result = [
                 Piece { size_in_bits: None,
                         bit_offset: None,
-                        location: Location::Register { register: i as u64 },
+                        location: Location::Register { register: Register(i.into()) },
                 },
             ];
 
@@ -3200,13 +3203,13 @@ mod tests {
         }
 
         let program = [
-            Op(DW_OP_regx), Uleb(0x11223344)
+            Op(DW_OP_regx), Uleb(0x1234)
         ];
 
         let result = [
             Piece { size_in_bits: None,
                     bit_offset: None,
-                    location: Location::Register { register: 0x11223344 },
+                    location: Location::Register { register: Register(0x1234) },
             },
         ];
 
@@ -3430,9 +3433,9 @@ mod tests {
 
         let result = [
             Piece { size_in_bits: Some(32), bit_offset: None,
-                    location: Location::Register { register: 3 } },
+                    location: Location::Register { register: Register(3) } },
             Piece { size_in_bits: Some(16), bit_offset: None,
-                    location: Location::Register { register: 4 } },
+                    location: Location::Register { register: Register(4) } },
         ];
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
@@ -3449,7 +3452,7 @@ mod tests {
 
         let result = [
             Piece { size_in_bits: Some(32), bit_offset: None,
-                    location: Location::Register { register: 0 } },
+                    location: Location::Register { register: Register(0) } },
             Piece { size_in_bits: Some(32), bit_offset: None,
                     location: Location::Empty },
             Piece { size_in_bits: Some(32), bit_offset: None,
@@ -3653,7 +3656,7 @@ mod tests {
                                 eval.resume_with_memory(v)?
                             }
                             EvaluationResult::RequiresRegister { register, base_type } => {
-                                let v = Value::from_u64(base_types[base_type.0], register << 4)?;
+                                let v = Value::from_u64(base_types[base_type.0], u64::from(register.0) << 4)?;
                                 eval.resume_with_register(v)?
                             }
                             EvaluationResult::RequiresBaseType(offset) => {
