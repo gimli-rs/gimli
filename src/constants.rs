@@ -37,21 +37,22 @@ use std::fmt;
 //
 // into this:
 //
-//     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-//     struct DwFoo(pub u32);
+//     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+//     pub struct DwFoo(pub u32);
 //
 //     pub const DW_FOO_bar: DwFoo = DwFoo(0);
 //     pub const DW_FOO_baz: DwFoo = DwFoo(1);
 //     pub const DW_FOO_bang: DwFoo = DwFoo(2);
 //
+//     impl DwFoo {
+//         pub fn static_string(&self) -> Option<&'static str> {
+//             ...
+//         }
+//     }
+//
 //     impl fmt::Display for DwFoo {
 //         fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-//             match *self {
-//                 DW_FOO_bar => write!(f, "DW_FOO_bar"),
-//                 DW_FOO_baz => write!(f, "DW_FOO_baz"),
-//                 DW_FOO_bang => write!(f, "DW_FOO_bang"),
-//                 otherwise => write!(f, "Unknown DwFoo: {}", otherwise.0),
-//             }
+//             ...
 //         }
 //     }
 macro_rules! dw {
