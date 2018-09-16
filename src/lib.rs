@@ -222,6 +222,9 @@ use imports::*;
 
 pub use stable_deref_trait::{CloneStableDeref, StableDeref};
 
+mod arch;
+pub use arch::*;
+
 mod cfi;
 pub use cfi::*;
 
