@@ -222,6 +222,9 @@ use imports::*;
 
 pub use stable_deref_trait::{CloneStableDeref, StableDeref};
 
+mod arch;
+pub use arch::*;
+
 mod cfi;
 pub use cfi::*;
 
@@ -245,7 +248,7 @@ pub type EndianBuf<'input, Endian> = EndianSlice<'input, Endian>;
 pub mod leb128;
 
 mod parser;
-pub use parser::{Error, Format, Result};
+pub use parser::{Error, Format, Register, Result};
 pub use parser::{DebugMacinfoOffset, Pointer};
 
 mod reader;

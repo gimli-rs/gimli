@@ -133,8 +133,8 @@ pub enum Error {
     UnknownAugmentation,
     /// We do not support the given pointer encoding yet.
     UnsupportedPointerEncoding,
-    /// We tried to convert some number into a `u8`, but it was too large.
-    CannotFitInU8,
+    /// Registers larger than `u16` are not supported.
+    UnsupportedRegister(u64),
     /// The CFI program defined more register rules than we have storage for.
     TooManyRegisterRules,
     /// Attempted to push onto the CFI stack, but it was already at full
@@ -264,9 +264,7 @@ impl Error {
             Error::UnsupportedPointerEncoding => {
                 "We do not support the given pointer encoding yet."
             }
-            Error::CannotFitInU8 => {
-                "We tried to convert some number into a `u8`, but it was too large."
-            }
+            Error::UnsupportedRegister(_) => "Registers larger than `u16` are not supported.",
             Error::TooManyRegisterRules => {
                 "The CFI program defined more register rules than we have storage for."
             }
@@ -300,18 +298,6 @@ impl From<io::Error> for Error {
 
 /// The result of a parse.
 pub type Result<T> = result::Result<T, Error>;
-
-/// Convert a `u64` to a `u8` and return it.
-#[doc(hidden)]
-#[inline]
-pub fn u64_to_u8(x: u64) -> Result<u8> {
-    let y = x as u8;
-    if y as u64 == x {
-        Ok(y)
-    } else {
-        Err(Error::CannotFitInU8)
-    }
-}
 
 /// Parse a `DW_EH_PE_*` pointer encoding.
 #[doc(hidden)]
@@ -503,6 +489,24 @@ pub fn parse_initial_length<R: Reader>(input: &mut R) -> Result<(u64, Format)> {
         Ok((val, Format::Dwarf64))
     } else {
         Err(Error::UnknownReservedLength)
+    }
+}
+
+/// A DWARF register number.
+///
+/// The meaning of this value is ABI dependent. This is generally encoded as
+/// a ULEB128, but supported architectures need 16 bits at most.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Register(pub u16);
+
+impl Register {
+    pub(crate) fn from_u64(x: u64) -> Result<Register> {
+        let y = x as u16;
+        if y as u64 == x {
+            Ok(Register(y))
+        } else {
+            Err(Error::UnsupportedRegister(x))
+        }
     }
 }
 

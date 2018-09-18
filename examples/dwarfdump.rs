@@ -356,9 +356,25 @@ where
             object::Machine::Other => mem::size_of::<usize>() as u8,
         };
 
+        fn register_name_none(_: gimli::Register) -> Option<&'static str> {
+            None
+        }
+        let arch_register_name = match file.machine() {
+            object::Machine::Arm | object::Machine::Arm64 => gimli::Arm::register_name,
+            object::Machine::X86 => gimli::X86::register_name,
+            object::Machine::X86_64 => gimli::X86_64::register_name,
+            _ => register_name_none,
+        };
+        let register_name = |register| {
+            match arch_register_name(register) {
+                Some(name) => Cow::Borrowed(name),
+                None => Cow::Owned(format!("{}", register.0)),
+            }
+        };
+
         let mut eh_frame: gimli::EhFrame<_> = load_section(&arena, file, endian);
         eh_frame.set_address_size(address_size);
-        dump_eh_frame(&mut BufWriter::new(out.lock()), &eh_frame)?;
+        dump_eh_frame(&mut BufWriter::new(out.lock()), &eh_frame, &register_name)?;
     }
     if flags.info {
         dump_info(
@@ -400,7 +416,11 @@ where
     Ok(())
 }
 
-fn dump_eh_frame<R: Reader, W: Write>(w: &mut W, eh_frame: &gimli::EhFrame<R>) -> Result<()> {
+fn dump_eh_frame<R: Reader, W: Write>(
+    w: &mut W,
+    eh_frame: &gimli::EhFrame<R>,
+    register_name: &Fn(gimli::Register) -> Cow<'static, str>,
+) -> Result<()> {
     // TODO: Print "__eh_frame" here on macOS, and more generally use the
     // section that we're actually looking at, which is what the canonical
     // dwarfdump does.
@@ -431,9 +451,9 @@ fn dump_eh_frame<R: Reader, W: Write>(w: &mut W, eh_frame: &gimli::EhFrame<R>) -
                 // TODO: augmentation
                 writeln!(w, "    code_align: {}", cie.code_alignment_factor())?;
                 writeln!(w, "    data_align: {}", cie.data_alignment_factor())?;
-                writeln!(w, "   ra_register: {:#x}", cie.return_address_register())?;
+                writeln!(w, "   ra_register: {:#x}", cie.return_address_register().0)?;
                 // TODO: aug_arg
-                dump_cfi_instructions(w, cie.instructions(), true)?;
+                dump_cfi_instructions(w, cie.instructions(), true, register_name)?;
                 writeln!(w)?;
             }
             Some(gimli::CieOrFde::Fde(partial)) => {
@@ -457,7 +477,7 @@ fn dump_eh_frame<R: Reader, W: Write>(w: &mut W, eh_frame: &gimli::EhFrame<R>) -
                     fde.len(),
                     fde.initial_address() + fde.len()
                 )?;
-                dump_cfi_instructions(w, fde.instructions(), false)?;
+                dump_cfi_instructions(w, fde.instructions(), false, register_name)?;
                 writeln!(w)?;
             }
         }
@@ -468,15 +488,13 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
     w: &mut W,
     mut insns: gimli::CallFrameInstructionIter<R>,
     is_initial: bool,
+    register_name: &Fn(gimli::Register) -> Cow<'static, str>,
 ) -> Result<()> {
     use gimli::CallFrameInstruction::*;
 
     // TODO: we need to actually evaluate these instructions as we iterate them
     // so we can print the initialized state for CIEs, and each unwind row's
     // registers for FDEs.
-    //
-    // TODO: We should turn register numbers into register names (eg "7" ->
-    // "rsp" on x86_64).
     //
     // TODO: We should print DWARF expressions for the CFI instructions that
     // embed DWARF expressions within themselves.
@@ -508,7 +526,7 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
                     writeln!(
                         w,
                         "                DW_CFA_def_cfa ({}, {})",
-                        register, offset
+                        register_name(register), offset
                     )?;
                 }
                 DefCfaSf {
@@ -518,11 +536,11 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
                     writeln!(
                         w,
                         "                DW_CFA_def_cfa_sf ({}, {})",
-                        register, factored_offset
+                        register_name(register), factored_offset
                     )?;
                 }
                 DefCfaRegister { register } => {
-                    writeln!(w, "                DW_CFA_def_cfa_register ({})", register)?;
+                    writeln!(w, "                DW_CFA_def_cfa_register ({})", register_name(register))?;
                 }
                 DefCfaOffset { offset } => {
                     writeln!(w, "                DW_CFA_def_cfa_offset ({})", offset)?;
@@ -538,10 +556,10 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
                     writeln!(w, "                DW_CFA_def_cfa_expression (...)")?;
                 }
                 Undefined { register } => {
-                    writeln!(w, "                DW_CFA_undefined ({})", register)?;
+                    writeln!(w, "                DW_CFA_undefined ({})", register_name(register))?;
                 }
                 SameValue { register } => {
-                    writeln!(w, "                DW_CFA_same_value ({})", register)?;
+                    writeln!(w, "                DW_CFA_same_value ({})", register_name(register))?;
                 }
                 Offset {
                     register,
@@ -550,7 +568,7 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
                     writeln!(
                         w,
                         "                DW_CFA_offset ({}, {})",
-                        register, factored_offset
+                        register_name(register), factored_offset
                     )?;
                 }
                 OffsetExtendedSf {
@@ -560,7 +578,7 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
                     writeln!(
                         w,
                         "                DW_CFA_offset_extended_sf ({}, {})",
-                        register, factored_offset
+                        register_name(register), factored_offset
                     )?;
                 }
                 ValOffset {
@@ -570,7 +588,7 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
                     writeln!(
                         w,
                         "                DW_CFA_val_offset ({}, {})",
-                        register, factored_offset
+                        register_name(register), factored_offset
                     )?;
                 }
                 ValOffsetSf {
@@ -580,7 +598,7 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
                     writeln!(
                         w,
                         "                DW_CFA_val_offset_sf ({}, {})",
-                        register, factored_offset
+                        register_name(register), factored_offset
                     )?;
                 }
                 Register {
@@ -590,14 +608,14 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
                     writeln!(
                         w,
                         "                DW_CFA_register ({}, {})",
-                        dest_register, src_register
+                        register_name(dest_register), register_name(src_register)
                     )?;
                 }
                 Expression {
                     register,
                     expression: _,
                 } => {
-                    writeln!(w, "                DW_CFA_expression ({}, ...)", register)?;
+                    writeln!(w, "                DW_CFA_expression ({}, ...)", register_name(register))?;
                 }
                 ValExpression {
                     register,
@@ -606,11 +624,11 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
                     writeln!(
                         w,
                         "                DW_CFA_val_expression ({}, ...)",
-                        register
+                        register_name(register)
                     )?;
                 }
                 Restore { register } => {
-                    writeln!(w, "                DW_CFA_restore ({})", register)?;
+                    writeln!(w, "                DW_CFA_restore ({})", register_name(register))?;
                 }
                 RememberState => {
                     writeln!(w, "                DW_CFA_remember_state")?;
@@ -1127,6 +1145,10 @@ fn dump_exprloc<R: Reader, W: Write>(
                 writeln!(w, "WARNING: unsupported operation 0x{:02x}", op.0)?;
                 return Ok(());
             }
+            Err(gimli::Error::UnsupportedRegister(register)) => {
+                writeln!(w, "WARNING: unsupported register {}", register)?;
+                return Ok(());
+            }
             otherwise => panic!("Unexpected Operation::parse result: {:?}", otherwise),
         }
     }
@@ -1186,7 +1208,7 @@ fn dump_op<R: Reader, W: Write>(
         },
         gimli::Operation::Register { register } => {
             if dwop == gimli::DW_OP_regx {
-                write!(w, " {}", register)?;
+                write!(w, " {}", register.0)?;
             }
         }
         gimli::Operation::RegisterOffset {
@@ -1197,7 +1219,7 @@ fn dump_op<R: Reader, W: Write>(
             if dwop >= gimli::DW_OP_breg0 && dwop <= gimli::DW_OP_breg31 {
                 write!(w, "{:+}", offset)?;
             } else {
-                write!(w, " {}", register)?;
+                write!(w, " {}", register.0)?;
                 if offset != 0 {
                     write!(w, "{:+}", offset)?;
                 }
