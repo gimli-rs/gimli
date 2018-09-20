@@ -49,7 +49,7 @@ impl error::Error for Error {
     fn description(&self) -> &str {
         match *self {
             Error::GimliError(ref err) => err.description(),
-            Error::IoError => "An I/O error occurred while reading.",
+            Error::IoError => "An I/O error occurred while writing.",
             Error::MissingDIE => "Expected a DIE but none was found",
         }
     }
@@ -1477,167 +1477,189 @@ fn dump_line<R: Reader, W: Write>(
     debug_abbrev: &gimli::DebugAbbrev<R>,
     debug_str: &gimli::DebugStr<R>,
 ) -> Result<()> {
-    writeln!(w, "\n.debug_line")?;
-
     let mut iter = debug_info.units();
-    while let Some(unit) = iter.next()? {
-        let abbrevs = unit.abbreviations(debug_abbrev)?;
+    while let Some(ref unit) = iter.next()? {
+        writeln!(
+            w,
+            "\n.debug_line: line number info for unit at .debug_info offset 0x{:08x}",
+            unit.offset().0
+        )?;
+        match dump_line_program(w, unit, debug_line, debug_abbrev, debug_str) {
+            Ok(_) => (),
+            Err(Error::IoError) => return Err(Error::IoError),
+            Err(err) => writeln!(
+                w,
+                "Failed to dump line program: {}",
+                error::Error::description(&err)
+            )?,
+        }
+    }
+    Ok(())
+}
 
-        let mut cursor = unit.entries(&abbrevs);
-        cursor.next_dfs()?;
+fn dump_line_program<R: Reader, W: Write>(
+    w: &mut W,
+    unit: &CompilationUnitHeader<R, R::Offset>,
+    debug_line: &gimli::DebugLine<R>,
+    debug_abbrev: &gimli::DebugAbbrev<R>,
+    debug_str: &gimli::DebugStr<R>,
+) -> Result<()> {
+    let abbrevs = unit.abbreviations(debug_abbrev)?;
 
-        let root = cursor.current().ok_or(Error::MissingDIE)?;
-        let offset = match root.attr_value(gimli::DW_AT_stmt_list)? {
-            Some(gimli::AttributeValue::DebugLineRef(offset)) => offset,
-            _ => continue,
-        };
-        let comp_dir = root.attr(gimli::DW_AT_comp_dir)?
-            .and_then(|attr| attr.string_value(debug_str));
-        let comp_name = root.attr(gimli::DW_AT_name)?
-            .and_then(|attr| attr.string_value(debug_str));
+    let mut cursor = unit.entries(&abbrevs);
+    cursor.next_dfs()?;
 
-        let program = debug_line.program(offset, unit.address_size(), comp_dir, comp_name);
-        if let Ok(program) = program {
+    let root = cursor.current().ok_or(Error::MissingDIE)?;
+    let offset = match root.attr_value(gimli::DW_AT_stmt_list)? {
+        Some(gimli::AttributeValue::DebugLineRef(offset)) => offset,
+        _ => return Ok(()),
+    };
+    let comp_dir = root.attr(gimli::DW_AT_comp_dir)?
+        .and_then(|attr| attr.string_value(debug_str));
+    let comp_name = root.attr(gimli::DW_AT_name)?
+        .and_then(|attr| attr.string_value(debug_str));
+
+    let program = debug_line.program(offset, unit.address_size(), comp_dir, comp_name);
+    if let Ok(program) = program {
+        {
+            let header = program.header();
+            writeln!(w)?;
+            writeln!(w, "Offset:                             0x{:x}", offset.0)?;
+            writeln!(
+                w,
+                "Length:                             {}",
+                header.unit_length()
+            )?;
+            writeln!(
+                w,
+                "DWARF version:                      {}",
+                header.version()
+            )?;
+            writeln!(
+                w,
+                "Prologue length:                    {}",
+                header.header_length()
+            )?;
+            writeln!(
+                w,
+                "Minimum instruction length:         {}",
+                header.minimum_instruction_length()
+            )?;
+            writeln!(
+                w,
+                "Maximum operations per instruction: {}",
+                header.maximum_operations_per_instruction()
+            )?;
+            writeln!(
+                w,
+                "Default is_stmt:                    {}",
+                header.default_is_stmt()
+            )?;
+            writeln!(
+                w,
+                "Line base:                          {}",
+                header.line_base()
+            )?;
+            writeln!(
+                w,
+                "Line range:                         {}",
+                header.line_range()
+            )?;
+            writeln!(
+                w,
+                "Opcode base:                        {}",
+                header.opcode_base()
+            )?;
+
+            writeln!(w)?;
+            writeln!(w, "Opcodes:")?;
+            for (i, length) in header
+                .standard_opcode_lengths()
+                .to_slice()?
+                .iter()
+                .enumerate()
             {
-                let header = program.header();
-                writeln!(w)?;
-                writeln!(w, "Offset:                             0x{:x}", offset.0)?;
-                writeln!(
-                    w,
-                    "Length:                             {}",
-                    header.unit_length()
-                )?;
-                writeln!(
-                    w,
-                    "DWARF version:                      {}",
-                    header.version()
-                )?;
-                writeln!(
-                    w,
-                    "Prologue length:                    {}",
-                    header.header_length()
-                )?;
-                writeln!(
-                    w,
-                    "Minimum instruction length:         {}",
-                    header.minimum_instruction_length()
-                )?;
-                writeln!(
-                    w,
-                    "Maximum operations per instruction: {}",
-                    header.maximum_operations_per_instruction()
-                )?;
-                writeln!(
-                    w,
-                    "Default is_stmt:                    {}",
-                    header.default_is_stmt()
-                )?;
-                writeln!(
-                    w,
-                    "Line base:                          {}",
-                    header.line_base()
-                )?;
-                writeln!(
-                    w,
-                    "Line range:                         {}",
-                    header.line_range()
-                )?;
-                writeln!(
-                    w,
-                    "Opcode base:                        {}",
-                    header.opcode_base()
-                )?;
-
-                writeln!(w)?;
-                writeln!(w, "Opcodes:")?;
-                for (i, length) in header
-                    .standard_opcode_lengths()
-                    .to_slice()?
-                    .iter()
-                    .enumerate()
-                {
-                    writeln!(w, "  Opcode {} as {} args", i + 1, length)?;
-                }
-
-                writeln!(w)?;
-                writeln!(w, "The Directory Table:")?;
-                for (i, dir) in header.include_directories().iter().enumerate() {
-                    writeln!(w, "  {} {}", i + 1, dir.to_string_lossy()?)?;
-                }
-
-                writeln!(w)?;
-                writeln!(w, "The File Name Table")?;
-                writeln!(w, "  Entry\tDir\tTime\tSize\tName")?;
-                for (i, file) in header.file_names().iter().enumerate() {
-                    writeln!(
-                        w,
-                        "  {}\t{}\t{}\t{}\t{}",
-                        i + 1,
-                        file.directory_index(),
-                        file.last_modification(),
-                        file.length(),
-                        file.path_name().to_string_lossy()?
-                    )?;
-                }
-
-                writeln!(w)?;
-                writeln!(w, "Line Number Statements:")?;
-                let mut opcodes = header.opcodes();
-                while let Some(opcode) = opcodes.next_opcode(header)? {
-                    writeln!(w, "  {}", opcode)?;
-                }
-
-                writeln!(w)?;
-                writeln!(w, "Line Number Rows:")?;
-                writeln!(w, "<pc>        [lno,col]")?;
+                writeln!(w, "  Opcode {} as {} args", i + 1, length)?;
             }
-            let mut rows = program.rows();
-            let mut file_index = 0;
-            while let Some((header, row)) = rows.next_row()? {
-                let line = row.line().unwrap_or(0);
-                let column = match row.column() {
-                    gimli::ColumnType::Column(column) => column,
-                    gimli::ColumnType::LeftEdge => 0,
-                };
-                write!(w, "0x{:08x}  [{:4},{:2}]", row.address(), line, column)?;
-                if row.is_stmt() {
-                    write!(w, " NS")?;
-                }
-                if row.basic_block() {
-                    write!(w, " BB")?;
-                }
-                if row.end_sequence() {
-                    write!(w, " ET")?;
-                }
-                if row.prologue_end() {
-                    write!(w, " PE")?;
-                }
-                if row.epilogue_begin() {
-                    write!(w, " EB")?;
-                }
-                if row.isa() != 0 {
-                    write!(w, " IS={}", row.isa())?;
-                }
-                if row.discriminator() != 0 {
-                    write!(w, " DI={}", row.discriminator())?;
-                }
-                if file_index != row.file_index() {
-                    file_index = row.file_index();
-                    if let Some(file) = row.file(header) {
-                        if let Some(directory) = file.directory(header) {
-                            write!(
-                                w,
-                                " uri: \"{}/{}\"",
-                                directory.to_string_lossy()?,
-                                file.path_name().to_string_lossy()?
-                            )?;
-                        } else {
-                            write!(w, " uri: \"{}\"", file.path_name().to_string_lossy()?)?;
-                        }
+
+            writeln!(w)?;
+            writeln!(w, "The Directory Table:")?;
+            for (i, dir) in header.include_directories().iter().enumerate() {
+                writeln!(w, "  {} {}", i + 1, dir.to_string_lossy()?)?;
+            }
+
+            writeln!(w)?;
+            writeln!(w, "The File Name Table")?;
+            writeln!(w, "  Entry\tDir\tTime\tSize\tName")?;
+            for (i, file) in header.file_names().iter().enumerate() {
+                writeln!(
+                    w,
+                    "  {}\t{}\t{}\t{}\t{}",
+                    i + 1,
+                    file.directory_index(),
+                    file.last_modification(),
+                    file.length(),
+                    file.path_name().to_string_lossy()?
+                )?;
+            }
+
+            writeln!(w)?;
+            writeln!(w, "Line Number Statements:")?;
+            let mut opcodes = header.opcodes();
+            while let Some(opcode) = opcodes.next_opcode(header)? {
+                writeln!(w, "  {}", opcode)?;
+            }
+
+            writeln!(w)?;
+            writeln!(w, "Line Number Rows:")?;
+            writeln!(w, "<pc>        [lno,col]")?;
+        }
+        let mut rows = program.rows();
+        let mut file_index = 0;
+        while let Some((header, row)) = rows.next_row()? {
+            let line = row.line().unwrap_or(0);
+            let column = match row.column() {
+                gimli::ColumnType::Column(column) => column,
+                gimli::ColumnType::LeftEdge => 0,
+            };
+            write!(w, "0x{:08x}  [{:4},{:2}]", row.address(), line, column)?;
+            if row.is_stmt() {
+                write!(w, " NS")?;
+            }
+            if row.basic_block() {
+                write!(w, " BB")?;
+            }
+            if row.end_sequence() {
+                write!(w, " ET")?;
+            }
+            if row.prologue_end() {
+                write!(w, " PE")?;
+            }
+            if row.epilogue_begin() {
+                write!(w, " EB")?;
+            }
+            if row.isa() != 0 {
+                write!(w, " IS={}", row.isa())?;
+            }
+            if row.discriminator() != 0 {
+                write!(w, " DI={}", row.discriminator())?;
+            }
+            if file_index != row.file_index() {
+                file_index = row.file_index();
+                if let Some(file) = row.file(header) {
+                    if let Some(directory) = file.directory(header) {
+                        write!(
+                            w,
+                            " uri: \"{}/{}\"",
+                            directory.to_string_lossy()?,
+                            file.path_name().to_string_lossy()?
+                        )?;
+                    } else {
+                        write!(w, " uri: \"{}\"", file.path_name().to_string_lossy()?)?;
                     }
                 }
-                writeln!(w)?;
             }
+            writeln!(w)?;
         }
     }
     Ok(())
