@@ -208,7 +208,7 @@ where
     #[inline]
     fn skip(&mut self, len: usize) {
         assert!(len <= self.len);
-        self.ptr = unsafe { self.ptr.offset(len as isize) };
+        self.ptr = unsafe { self.ptr.add(len) };
         self.len -= len;
     }
 

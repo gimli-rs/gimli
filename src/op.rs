@@ -343,7 +343,7 @@ where
         match name {
             constants::DW_OP_addr => {
                 let offset = bytes.read_address(address_size)?;
-                Ok(Operation::TextRelativeOffset { offset: offset })
+                Ok(Operation::TextRelativeOffset { offset })
             }
             constants::DW_OP_deref => Ok(Operation::Deref {
                 base_type: generic_type(),
@@ -353,7 +353,7 @@ where
             constants::DW_OP_const1u => {
                 let value = bytes.read_u8()?;
                 Ok(Operation::Literal {
-                    value: value as u64,
+                    value: u64::from(value),
                 })
             }
             constants::DW_OP_const1s => {
@@ -365,7 +365,7 @@ where
             constants::DW_OP_const2u => {
                 let value = bytes.read_u16()?;
                 Ok(Operation::Literal {
-                    value: value as u64,
+                    value: u64::from(value),
                 })
             }
             constants::DW_OP_const2s => {
@@ -377,7 +377,7 @@ where
             constants::DW_OP_const4u => {
                 let value = bytes.read_u32()?;
                 Ok(Operation::Literal {
-                    value: value as u64,
+                    value: u64::from(value),
                 })
             }
             constants::DW_OP_const4s => {
@@ -388,7 +388,7 @@ where
             }
             constants::DW_OP_const8u => {
                 let value = bytes.read_u64()?;
-                Ok(Operation::Literal { value: value })
+                Ok(Operation::Literal { value })
             }
             constants::DW_OP_const8s => {
                 let value = bytes.read_i64()?;
@@ -398,7 +398,7 @@ where
             }
             constants::DW_OP_constu => {
                 let value = bytes.read_uleb128()?;
-                Ok(Operation::Literal { value: value })
+                Ok(Operation::Literal { value })
             }
             constants::DW_OP_consts => {
                 let value = bytes.read_sleb128()?;
@@ -432,7 +432,7 @@ where
             constants::DW_OP_plus => Ok(Operation::Plus),
             constants::DW_OP_plus_uconst => {
                 let value = bytes.read_uleb128()?;
-                Ok(Operation::PlusConstant { value: value })
+                Ok(Operation::PlusConstant { value })
             }
             constants::DW_OP_shl => Ok(Operation::Shl),
             constants::DW_OP_shr => Ok(Operation::Shr),
@@ -591,7 +591,7 @@ where
                 let size = bytes.read_u8()?;
                 Ok(Operation::Deref {
                     base_type: generic_type(),
-                    size: size,
+                    size,
                     space: false,
                 })
             }
@@ -599,7 +599,7 @@ where
                 let size = bytes.read_u8()?;
                 Ok(Operation::Deref {
                     base_type: generic_type(),
-                    size: size,
+                    size,
                     space: true,
                 })
             }
@@ -638,7 +638,7 @@ where
             constants::DW_OP_implicit_value => {
                 let len = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
                 let data = bytes.split(len)?;
-                Ok(Operation::ImplicitValue { data: data })
+                Ok(Operation::ImplicitValue { data })
             }
             constants::DW_OP_stack_value => Ok(Operation::StackValue),
             constants::DW_OP_implicit_pointer | constants::DW_OP_GNU_implicit_pointer => {
@@ -646,14 +646,14 @@ where
                 let byte_offset = bytes.read_sleb128()?;
                 Ok(Operation::ImplicitPointer {
                     value: DebugInfoOffset(value),
-                    byte_offset: byte_offset,
+                    byte_offset,
                 })
             }
             constants::DW_OP_entry_value | constants::DW_OP_GNU_entry_value => {
                 let len = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
                 let expression = bytes.split(len)?;
                 Ok(Operation::EntryValue {
-                    expression: expression,
+                    expression,
                 })
             }
             constants::DW_OP_GNU_parameter_ref => {
@@ -668,7 +668,7 @@ where
                 let value = bytes.split(R::Offset::from_u8(len))?;
                 Ok(Operation::TypedLiteral {
                     base_type: UnitOffset(base_type),
-                    value: value,
+                    value,
                 })
             }
             constants::DW_OP_regval_type | constants::DW_OP_GNU_regval_type => {
@@ -685,7 +685,7 @@ where
                 let base_type = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
                 Ok(Operation::Deref {
                     base_type: UnitOffset(base_type),
-                    size: size,
+                    size,
                     space: false,
                 })
             }
@@ -694,7 +694,7 @@ where
                 let base_type = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
                 Ok(Operation::Deref {
                     base_type: UnitOffset(base_type),
-                    size: size,
+                    size,
                     space: true,
                 })
             }
@@ -923,9 +923,9 @@ impl<R: Reader> Evaluation<R> {
     pub fn new(bytecode: R, address_size: u8, format: Format) -> Evaluation<R> {
         let pc = bytecode.clone();
         Evaluation {
-            bytecode: bytecode,
-            address_size: address_size,
-            format: format,
+            bytecode,
+            address_size,
+            format,
             object_address: None,
             max_iterations: None,
             iteration: 0,
@@ -933,11 +933,11 @@ impl<R: Reader> Evaluation<R> {
             addr_mask: if address_size == 8 {
                 !0u64
             } else {
-                (1 << (8 * address_size as u64)) - 1
+                (1 << (8 * u64::from(address_size))) - 1
             },
             stack: Vec::new(),
             expression_stack: Vec::new(),
-            pc: pc,
+            pc,
             result: Vec::new(),
         }
     }
@@ -1032,7 +1032,7 @@ impl<R: Reader> Evaluation<R> {
                 let len = self.stack.len();
                 let index = index as usize;
                 if index >= len {
-                    return Err(Error::NotEnoughStackItems.into());
+                    return Err(Error::NotEnoughStackItems);
                 }
                 let value = self.stack[len - index - 1];
                 self.push(value);
@@ -1220,7 +1220,7 @@ impl<R: Reader> Evaluation<R> {
                 if let Some(value) = self.object_address {
                     self.push(Value::Generic(value));
                 } else {
-                    return Err(Error::InvalidPushObjectAddress.into());
+                    return Err(Error::InvalidPushObjectAddress);
                 }
             }
 
@@ -1267,8 +1267,8 @@ impl<R: Reader> Evaluation<R> {
 
             Operation::ImplicitPointer { value, byte_offset } => {
                 let location = Location::ImplicitPointer {
-                    value: value,
-                    byte_offset: byte_offset,
+                    value,
+                    byte_offset,
                 };
                 return Ok(OperationEvaluationResult::Complete { location });
             }
@@ -1623,7 +1623,7 @@ impl<R: Reader> Evaluation<R> {
             self.iteration += 1;
             if let Some(max_iterations) = self.max_iterations {
                 if self.iteration > max_iterations {
-                    return Err(Error::TooManyIterations.into());
+                    return Err(Error::TooManyIterations);
                 }
             }
 
@@ -1673,7 +1673,7 @@ impl<R: Reader> Evaluation<R> {
                             _ => {
                                 let value =
                                     self.bytecode.len().into_u64() - self.pc.len().into_u64() - 1;
-                                return Err(Error::InvalidExpressionTerminator(value).into());
+                                return Err(Error::InvalidExpressionTerminator(value));
                             }
                         }
                     }

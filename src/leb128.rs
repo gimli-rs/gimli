@@ -53,7 +53,7 @@ fn low_bits_of_byte(byte: u8) -> u8 {
 #[inline]
 #[allow(dead_code)]
 fn low_bits_of_u64(val: u64) -> u8 {
-    let byte = val & (std::u8::MAX as u64);
+    let byte = val & u64::from(std::u8::MAX);
     low_bits_of_byte(byte as u8)
 }
 
@@ -76,7 +76,7 @@ pub mod read {
                 return Err(Error::BadUnsignedLeb128);
             }
 
-            let low_bits = low_bits_of_byte(byte) as u64;
+            let low_bits = u64::from(low_bits_of_byte(byte));
             result |= low_bits << shift;
 
             if byte & CONTINUATION_BIT == 0 {
@@ -101,7 +101,7 @@ pub mod read {
                 return Err(Error::BadSignedLeb128);
             }
 
-            let low_bits = low_bits_of_byte(byte) as i64;
+            let low_bits = i64::from(low_bits_of_byte(byte));
             result |= low_bits << shift;
             shift += 7;
 

@@ -175,10 +175,10 @@ impl Abbreviation {
     ) -> Abbreviation {
         assert_ne!(code, 0);
         Abbreviation {
-            code: code,
-            tag: tag,
-            has_children: has_children,
-            attributes: attributes,
+            code,
+            tag,
+            has_children,
+            attributes,
         }
     }
 
@@ -278,8 +278,8 @@ impl AttributeSpecification {
                 || (form != constants::DW_FORM_implicit_const && implicit_const_value.is_none())
         );
         AttributeSpecification {
-            name: name,
-            form: form,
+            name,
+            form,
             implicit_const_value: implicit_const_value.unwrap_or(0),
         }
     }

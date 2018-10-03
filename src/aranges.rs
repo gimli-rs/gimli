@@ -98,7 +98,7 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
 
         let version = rest.read_u16()?;
         if version != 2 {
-            return Err(Error::UnknownVersion(version as u64));
+            return Err(Error::UnknownVersion(u64::from(version)));
         }
 
         let offset = parse_debug_info_offset(&mut rest, format)?;
@@ -122,12 +122,12 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
         Ok((
             rest,
             ArangeHeader {
-                format: format,
-                length: length,
-                version: version,
-                offset: offset,
-                address_size: address_size,
-                segment_size: segment_size,
+                format,
+                length,
+                version,
+                offset,
+                address_size,
+                segment_size,
             },
         ))
     }
@@ -162,8 +162,8 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
                 } else {
                     None
                 },
-                address: address,
-                length: length,
+                address,
+                length,
                 unit_header_offset: header.offset,
             })),
         }

@@ -116,7 +116,7 @@ fn parse_header<R: Reader>(input: &mut R) -> Result<LocListsHeader> {
 
     let version = input.read_u16()?;
     if version != 5 {
-        return Err(Error::UnknownVersion(version as u64));
+        return Err(Error::UnknownVersion(u64::from(version)));
     }
 
     let address_size = input.read_u8()?;
@@ -126,9 +126,9 @@ fn parse_header<R: Reader>(input: &mut R) -> Result<LocListsHeader> {
     }
     let offset_entry_count = input.read_u32()?;
     Ok(LocListsHeader {
-        format: format,
-        address_size: address_size,
-        offset_entry_count: offset_entry_count,
+        format,
+        address_size,
+        offset_entry_count,
     })
 }
 
@@ -426,8 +426,8 @@ impl<R: Reader> LocListIter<R> {
     /// Construct a `LocListIter`.
     fn new(raw: RawLocListIter<R>, base_address: u64) -> LocListIter<R> {
         LocListIter {
-            raw: raw,
-            base_address: base_address,
+            raw,
+            base_address,
         }
     }
 
@@ -458,8 +458,8 @@ impl<R: Reader> LocListIter<R> {
                 }
                 RawLocListEntry::StartEnd { begin, end, data } => (
                     Range {
-                        begin: begin,
-                        end: end,
+                        begin,
+                        end,
                     },
                     data,
                 ),
@@ -469,7 +469,7 @@ impl<R: Reader> LocListIter<R> {
                     data,
                 } => (
                     Range {
-                        begin: begin,
+                        begin,
                         end: begin + length,
                     },
                     data,
@@ -486,8 +486,8 @@ impl<R: Reader> LocListIter<R> {
             }
 
             return Ok(Some(LocationListEntry {
-                range: range,
-                data: data,
+                range,
+                data,
             }));
         }
     }
