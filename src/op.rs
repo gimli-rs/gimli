@@ -35,14 +35,14 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    /// A dereference operation.
+    /// Dereference the topmost value of the stack.
     Deref {
         /// The DIE of the base type or 0 to indicate the generic type
         base_type: UnitOffset<Offset>,
         /// The size of the data to dereference.
         size: u8,
         /// True if the dereference operation takes an address space
-        /// argument; false otherwise.
+        /// argument from the stack; false otherwise.
         space: bool,
     },
     /// Drop an item from the stack.
@@ -123,6 +123,7 @@ where
         value: u64,
     },
     /// Indicate that this piece's location is in the given register.
+    /// Completes the piece or expression.
     Register {
         /// The register number.
         register: Register,
@@ -169,15 +170,20 @@ where
         bit_offset: Option<u64>,
     },
     /// Represents `DW_OP_implicit_value`.
+    /// The object has no location, but has a known constant value.
+    /// Completes the piece or expression.
     ImplicitValue {
         /// The implicit value to use.
         data: R,
     },
     /// Represents `DW_OP_stack_value`.
+    /// The object has no location, but its value is at the top of the stack.
+    /// Completes the piece or expression.
     StackValue,
     /// Represents `DW_OP_implicit_pointer`. The object is a pointer to
     /// a value which has no actual location, such as an implicit value or
     /// a stack value.
+    /// Completes the piece or expression.
     ImplicitPointer {
         /// The `.debug_info` offset of the value that this is an implicit pointer into.
         value: DebugInfoOffset<Offset>,
@@ -205,20 +211,24 @@ where
         offset: u64,
     },
     /// Represents `DW_OP_const_type`.
+    /// Interpret the value bytes as a constant of a given type, and push it on the stack.
     TypedLiteral {
-        /// The DIE of the base type
+        /// The DIE of the base type.
         base_type: UnitOffset<Offset>,
-        /// The value
+        /// The value bytes.
         value: R,
     },
-    /// Represents `DW_OP_convert`
+    /// Represents `DW_OP_convert`.
+    /// Pop the top stack entry, convert it to a different type, and push it on the stack.
     Convert {
-        /// The DIE of the base type
+        /// The DIE of the base type.
         base_type: UnitOffset<Offset>,
     },
-    /// Represents `DW_OP_reinterpret`
+    /// Represents `DW_OP_reinterpret`.
+    /// Pop the top stack entry, reinterpret the bits in its value as a different type,
+    /// and push it on the stack.
     Reinterpret {
-        /// The DIE of the base type
+        /// The DIE of the base type.
         base_type: UnitOffset<Offset>,
     },
 }
