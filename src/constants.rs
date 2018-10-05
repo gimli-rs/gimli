@@ -1220,10 +1220,10 @@ dw!(DwEhPe(u8) {
     DW_EH_PE_omit = 0xff,
 });
 
-const DW_EH_PE_FORMAT_MASK: u8 = 0b00001111;
+const DW_EH_PE_FORMAT_MASK: u8 = 0b0000_1111;
 
 // Ignores indirection bit.
-const DW_EH_PE_APPLICATION_MASK: u8 = 0b01110000;
+const DW_EH_PE_APPLICATION_MASK: u8 = 0b0111_0000;
 
 impl DwEhPe {
     /// Get the pointer encoding's format.

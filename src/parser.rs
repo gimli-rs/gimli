@@ -375,8 +375,8 @@ pub fn parse_encoded_pointer<'bases, R: Reader>(
             // Unsigned variants.
             constants::DW_EH_PE_absptr => input.read_address(address_size),
             constants::DW_EH_PE_uleb128 => input.read_uleb128(),
-            constants::DW_EH_PE_udata2 => input.read_u16().map(|a| a as u64),
-            constants::DW_EH_PE_udata4 => input.read_u32().map(|a| a as u64),
+            constants::DW_EH_PE_udata2 => input.read_u16().map(u64::from),
+            constants::DW_EH_PE_udata4 => input.read_u32().map(u64::from),
             constants::DW_EH_PE_udata8 => input.read_u64(),
 
             // Signed variants. Here we sign extend the values (happens by
@@ -404,7 +404,7 @@ pub fn parse_encoded_pointer<'bases, R: Reader>(
     match encoding.application() {
         constants::DW_EH_PE_absptr => {
             let addr = parse_data(encoding, address_size, input)?;
-            Ok(Pointer::new(encoding, addr.into()))
+            Ok(Pointer::new(encoding, addr))
         }
         constants::DW_EH_PE_pcrel => if let Some(cfi) = bases.cfi {
             let offset_from_section = input.offset_from(section);
@@ -474,14 +474,14 @@ impl Format {
     }
 }
 
-const MAX_DWARF_32_UNIT_LENGTH: u64 = 0xfffffff0;
+const MAX_DWARF_32_UNIT_LENGTH: u64 = 0xffff_fff0;
 
-const DWARF_64_INITIAL_UNIT_LENGTH: u64 = 0xffffffff;
+const DWARF_64_INITIAL_UNIT_LENGTH: u64 = 0xffff_ffff;
 
 /// Parse the compilation unit header's length.
 #[doc(hidden)]
 pub fn parse_initial_length<R: Reader>(input: &mut R) -> Result<(u64, Format)> {
-    let val = input.read_u32().map(|v| v as u64)?;
+    let val = input.read_u32().map(u64::from)?;
     if val < MAX_DWARF_32_UNIT_LENGTH {
         Ok((val, Format::Dwarf32))
     } else if val == DWARF_64_INITIAL_UNIT_LENGTH {
@@ -502,7 +502,7 @@ pub struct Register(pub u16);
 impl Register {
     pub(crate) fn from_u64(x: u64) -> Result<Register> {
         let y = x as u16;
-        if y as u64 == x {
+        if u64::from(y) == x {
             Ok(Register(y))
         } else {
             Err(Error::UnsupportedRegister(x))

@@ -403,8 +403,8 @@ where
     ) -> Result<CompilationUnitHeader<R, R::Offset>> {
         let header = parse_unit_header(input)?;
         Ok(CompilationUnitHeader {
-            header: header,
-            offset: offset,
+            header,
+            offset,
         })
     }
 }
@@ -463,12 +463,12 @@ where
         entries_buf: R,
     ) -> Self {
         UnitHeader {
-            unit_length: unit_length,
-            version: version,
-            debug_abbrev_offset: debug_abbrev_offset,
-            address_size: address_size,
-            format: format,
-            entries_buf: entries_buf,
+            unit_length,
+            version,
+            debug_abbrev_offset,
+            address_size,
+            format,
+            entries_buf,
         }
     }
 
@@ -586,7 +586,7 @@ where
         EntriesCursor {
             unit: self,
             input: self.entries_buf.clone(),
-            abbreviations: abbreviations,
+            abbreviations,
             cached_current: None,
             delta_depth: 0,
         }
@@ -602,8 +602,8 @@ where
         let input = self.range_from(offset..)?;
         Ok(EntriesCursor {
             unit: self,
-            input: input,
-            abbreviations: abbreviations,
+            input,
+            abbreviations,
             cached_current: None,
             delta_depth: 0,
         })
@@ -646,12 +646,12 @@ fn parse_unit_header<R: Reader>(input: &mut R) -> Result<UnitHeader<R, R::Offset
     } else if version == 5 {
         let unit_type = parse_compilation_unit_type(&mut rest)?;
         if unit_type != constants::DW_UT_compile {
-            return Err(Error::UnsupportedUnitType.into());
+            return Err(Error::UnsupportedUnitType);
         }
         address_size = rest.read_u8()?;
         offset = parse_debug_abbrev_offset(&mut rest, format)?;
     } else {
-        return Err(Error::UnknownVersion(version as u64));
+        return Err(Error::UnknownVersion(u64::from(version)));
     }
 
     Ok(UnitHeader::new(
@@ -942,8 +942,8 @@ where
             offset: UnitOffset(offset),
             attrs_slice: input.clone(),
             attrs_len: Cell::new(None),
-            abbrev: abbrev,
-            unit: unit,
+            abbrev,
+            unit,
         }))
     }
 }
@@ -1502,7 +1502,7 @@ impl<R: Reader> Attribute<R> {
     /// Try to convert this attribute's value to a u8.
     pub fn u8_value(&self) -> Option<u8> {
         if let Some(value) = self.udata_value() {
-            if value <= u8::MAX as u64 {
+            if value <= u64::from(u8::MAX) {
                 return Some(value as u8);
             }
         }
@@ -1512,7 +1512,7 @@ impl<R: Reader> Attribute<R> {
     /// Try to convert this attribute's value to a u16.
     pub fn u16_value(&self) -> Option<u16> {
         if let Some(value) = self.udata_value() {
-            if value <= u16::MAX as u64 {
+            if value <= u64::from(u16::MAX) {
                 return Some(value as u16);
             }
         }
@@ -1522,9 +1522,9 @@ impl<R: Reader> Attribute<R> {
     /// Try to convert this attribute's value to an unsigned integer.
     pub fn udata_value(&self) -> Option<u64> {
         Some(match self.value {
-            AttributeValue::Data1(ref data) => data[0] as u64,
-            AttributeValue::Data2((ref data, endian)) => endian.read_u16(data) as u64,
-            AttributeValue::Data4((ref data, endian)) => endian.read_u32(data) as u64,
+            AttributeValue::Data1(ref data) => u64::from(data[0]),
+            AttributeValue::Data2((ref data, endian)) => u64::from(endian.read_u16(data)),
+            AttributeValue::Data4((ref data, endian)) => u64::from(endian.read_u32(data)),
             AttributeValue::Data8((ref data, endian)) => endian.read_u64(data),
             AttributeValue::Udata(data) => data,
             AttributeValue::Sdata(data) => {
@@ -1541,9 +1541,9 @@ impl<R: Reader> Attribute<R> {
     /// Try to convert this attribute's value to a signed integer.
     pub fn sdata_value(&self) -> Option<i64> {
         Some(match self.value {
-            AttributeValue::Data1(ref data) => data[0] as i8 as i64,
-            AttributeValue::Data2((ref data, endian)) => endian.read_u16(data) as i16 as i64,
-            AttributeValue::Data4((ref data, endian)) => endian.read_u32(data) as i32 as i64,
+            AttributeValue::Data1(ref data) => i64::from(data[0] as i8),
+            AttributeValue::Data2((ref data, endian)) => i64::from(endian.read_u16(data) as i16),
+            AttributeValue::Data4((ref data, endian)) => i64::from(endian.read_u32(data) as i32),
             AttributeValue::Data8((ref data, endian)) => endian.read_u64(data) as i64,
             AttributeValue::Sdata(data) => data,
             AttributeValue::Udata(data) => {
@@ -1809,7 +1809,7 @@ fn parse_attribute<'unit, 'abbrev, R: Reader>(
         };
         let attr = Attribute {
             name: spec.name(),
-            value: value,
+            value,
         };
         return Ok((attr, specs));
     }
@@ -2443,8 +2443,8 @@ impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeNode<'abbrev, 'unit, 'tree, R>
     ) -> EntriesTreeNode<'abbrev, 'unit, 'tree, R> {
         debug_assert!(tree.entry.is_some());
         EntriesTreeNode {
-            tree: tree,
-            depth: depth,
+            tree,
+            depth,
         }
     }
 
@@ -2486,8 +2486,8 @@ impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeIter<'abbrev, 'unit, 'tree, R>
         depth: isize,
     ) -> EntriesTreeIter<'abbrev, 'unit, 'tree, R> {
         EntriesTreeIter {
-            tree: tree,
-            depth: depth,
+            tree,
+            depth,
             empty: false,
         }
     }
@@ -2655,10 +2655,10 @@ where
         type_offset: UnitOffset<R::Offset>,
     ) -> Self {
         TypeUnitHeader {
-            header: header,
-            offset: offset,
-            type_signature: type_signature,
-            type_offset: type_offset,
+            header,
+            offset,
+            type_signature,
+            type_offset,
         }
     }
 
@@ -3475,7 +3475,7 @@ mod tests {
             let (value, expect_udata, expect_sdata) = *test;
             let attribute = Attribute {
                 name: DW_AT_data_member_location,
-                value: value,
+                value,
             };
             assert_eq!(attribute.udata_value(), expect_udata);
             assert_eq!(attribute.sdata_value(), expect_sdata);
@@ -3519,7 +3519,7 @@ mod tests {
 
         let expect = Attribute {
             name: constants::DW_AT_low_pc,
-            value: value,
+            value,
         };
 
         let rest = &mut EndianSlice::new(buf, Endian::default());
@@ -4603,7 +4603,7 @@ mod tests {
                 version: 4,
                 debug_abbrev_offset: DebugAbbrevOffset(0),
                 address_size: 4,
-                format: format,
+                format,
                 entries_buf: EndianSlice::new(&entries_buf, LittleEndian),
             },
             offset: DebugInfoOffset(0),
@@ -4640,7 +4640,7 @@ mod tests {
                 version: 4,
                 debug_abbrev_offset: DebugAbbrevOffset(0),
                 address_size: 4,
-                format: format,
+                format,
                 entries_buf: EndianSlice::new(&entries_buf, LittleEndian),
             },
             type_signature: DebugTypeSignature(0),
@@ -4789,7 +4789,7 @@ mod tests {
                 version: 4,
                 debug_abbrev_offset: DebugAbbrevOffset(0),
                 address_size: 4,
-                format: format,
+                format,
                 entries_buf: EndianSlice::new(&entries_buf, LittleEndian),
             },
             offset: DebugInfoOffset(0),

@@ -154,7 +154,7 @@ impl<R: Reader> EhFrameHdr<R> {
         let mut reader = self.0.clone();
         let version = reader.read_u8()?;
         if version != 1 {
-            return Err(Error::UnknownVersion(version as u64));
+            return Err(Error::UnknownVersion(u64::from(version)));
         }
 
         let eh_frame_ptr_enc = DwEhPe(reader.read_u8()?);
@@ -531,7 +531,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     fn entries<'bases>(&self, bases: &'bases BaseAddresses) -> CfiEntriesIter<'bases, Self, R> {
         CfiEntriesIter {
             section: self.clone(),
-            bases: bases,
+            bases,
             input: self.section().clone(),
             phantom: PhantomData,
         }
@@ -669,8 +669,8 @@ impl<R: Reader> _UnwindSectionPrivate<R> for DebugFrame<R> {
 
     fn is_cie(format: Format, id: u64) -> bool {
         match format {
-            Format::Dwarf32 => id == 0xffffffff,
-            Format::Dwarf64 => id == 0xffffffffffffffff,
+            Format::Dwarf32 => id == 0xffff_ffff,
+            Format::Dwarf64 => id == 0xffff_ffff_ffff_ffff,
         }
     }
 
@@ -966,17 +966,17 @@ where
 
     let mut rest = cie_offset_input.clone();
     let cie_id_or_offset = match Section::cie_offset_encoding(format) {
-        CieOffsetEncoding::U32 => rest.read_u32().map(|v| v as u64)?,
+        CieOffsetEncoding::U32 => rest.read_u32().map(u64::from)?,
         CieOffsetEncoding::U64 => rest.read_u64()?,
     };
 
     Ok(Some(CfiEntryCommon {
-        offset: offset,
-        length: length,
-        format: format,
-        cie_offset_input: cie_offset_input,
-        cie_id_or_offset: cie_id_or_offset,
-        rest: rest,
+        offset,
+        length,
+        format,
+        cie_offset_input,
+        cie_id_or_offset,
+        rest,
     }))
 }
 
@@ -1028,13 +1028,13 @@ where
         };
 
         let fde = PartialFrameDescriptionEntry {
-            offset: offset,
-            length: length,
-            format: format,
+            offset,
+            length,
+            format,
             cie_offset: cie_offset.into(),
-            rest: rest,
-            section: section,
-            bases: bases,
+            rest,
+            section,
+            bases,
         };
 
         Ok(Some(CieOrFde::Fde(fde)))
@@ -1280,7 +1280,7 @@ where
     ) -> Result<CommonInformationEntry<Section, R, Offset>> {
         let version = rest.read_u8()?;
         if !Section::compatible_version(version) {
-            return Err(Error::UnknownVersion(version as u64));
+            return Err(Error::UnknownVersion(u64::from(version)));
         }
 
         let mut augmentation_string = rest.read_null_terminated_slice()?;
@@ -1314,16 +1314,16 @@ where
         };
 
         let entry = CommonInformationEntry {
-            offset: offset,
-            length: length,
-            format: format,
-            version: version,
-            augmentation: augmentation,
-            address_size: address_size,
-            segment_size: segment_size,
-            code_alignment_factor: code_alignment_factor,
-            data_alignment_factor: data_alignment_factor,
-            return_address_register: return_address_register,
+            offset,
+            length,
+            format,
+            version,
+            augmentation,
+            address_size,
+            segment_size,
+            code_alignment_factor,
+            data_alignment_factor,
+            return_address_register,
             initial_instructions: rest,
             phantom: PhantomData,
         };
@@ -1540,13 +1540,13 @@ where
         };
 
         let entry = FrameDescriptionEntry {
-            offset: offset,
-            length: length,
-            format: format,
-            cie: cie,
-            initial_segment: initial_segment,
-            initial_address: initial_address,
-            address_range: address_range,
+            offset,
+            length,
+            format,
+            cie,
+            initial_segment,
+            initial_address,
+            address_range,
             augmentation: aug_data,
             instructions: rest,
         };
@@ -2168,12 +2168,12 @@ where
         let next_start_address = fde.map_or(0, |fde| fde.initial_address());
         let instructions = fde.map_or_else(|| cie.instructions(), |fde| fde.instructions());
         UnwindTable {
-            ctx: ctx,
-            cie: cie,
-            next_start_address: next_start_address,
+            ctx,
+            cie,
+            next_start_address,
             returned_last_row: false,
-            instructions: instructions,
-            fde: fde,
+            instructions,
+            fde,
         }
     }
 
@@ -2231,7 +2231,7 @@ where
                 return Ok(true);
             }
             AdvanceLoc { delta } => {
-                self.next_start_address = self.ctx.start_address() + delta as u64;
+                self.next_start_address = self.ctx.start_address() + u64::from(delta);
                 self.ctx.row_mut().end_address = self.next_start_address;
                 return Ok(true);
             }
@@ -2239,7 +2239,7 @@ where
             // Instructions that modify the CFA.
             DefCfa { register, offset } => {
                 self.ctx.set_cfa(CfaRule::RegisterAndOffset {
-                    register: register,
+                    register,
                     offset: offset as i64,
                 });
             }
@@ -2249,7 +2249,7 @@ where
             } => {
                 let data_align = self.cie.data_alignment_factor();
                 self.ctx.set_cfa(CfaRule::RegisterAndOffset {
-                    register: register,
+                    register,
                     offset: factored_offset * data_align,
                 });
             }
@@ -3014,7 +3014,7 @@ pub enum CallFrameInstruction<R: Reader> {
 
 
     /// > DW_CFA_GNU_args_size
-    /// > 
+    /// >
     /// > GNU Extension
     /// >
     /// > The DW_CFA_GNU_args_size instruction takes an unsigned LEB128 operand
@@ -3033,7 +3033,7 @@ pub enum CallFrameInstruction<R: Reader> {
     Nop,
 }
 
-const CFI_INSTRUCTION_HIGH_BITS_MASK: u8 = 0b11000000;
+const CFI_INSTRUCTION_HIGH_BITS_MASK: u8 = 0b1100_0000;
 const CFI_INSTRUCTION_LOW_BITS_MASK: u8 = !CFI_INSTRUCTION_HIGH_BITS_MASK;
 
 impl<R: Reader> CallFrameInstruction<R> {
@@ -3044,7 +3044,7 @@ impl<R: Reader> CallFrameInstruction<R> {
         if high_bits == constants::DW_CFA_advance_loc.0 {
             let delta = instruction & CFI_INSTRUCTION_LOW_BITS_MASK;
             return Ok(CallFrameInstruction::AdvanceLoc {
-                delta: delta as u32,
+                delta: u32::from(delta),
             });
         }
 
@@ -3052,14 +3052,14 @@ impl<R: Reader> CallFrameInstruction<R> {
             let register = Register((instruction & CFI_INSTRUCTION_LOW_BITS_MASK).into());
             let offset = input.read_uleb128()?;
             return Ok(CallFrameInstruction::Offset {
-                register: register,
+                register,
                 factored_offset: offset,
             });
         }
 
         if high_bits == constants::DW_CFA_restore.0 {
             let register = Register((instruction & CFI_INSTRUCTION_LOW_BITS_MASK).into());
-            return Ok(CallFrameInstruction::Restore { register: register });
+            return Ok(CallFrameInstruction::Restore { register });
         }
 
         debug_assert_eq!(high_bits, 0);
@@ -3070,50 +3070,50 @@ impl<R: Reader> CallFrameInstruction<R> {
 
             constants::DW_CFA_set_loc => {
                 let address = input.read_uleb128()?;
-                Ok(CallFrameInstruction::SetLoc { address: address })
+                Ok(CallFrameInstruction::SetLoc { address })
             }
 
             constants::DW_CFA_advance_loc1 => {
                 let delta = input.read_u8()?;
                 Ok(CallFrameInstruction::AdvanceLoc {
-                    delta: delta as u32,
+                    delta: u32::from(delta),
                 })
             }
 
             constants::DW_CFA_advance_loc2 => {
                 let delta = input.read_u16()?;
                 Ok(CallFrameInstruction::AdvanceLoc {
-                    delta: delta as u32,
+                    delta: u32::from(delta),
                 })
             }
 
             constants::DW_CFA_advance_loc4 => {
                 let delta = input.read_u32()?;
-                Ok(CallFrameInstruction::AdvanceLoc { delta: delta })
+                Ok(CallFrameInstruction::AdvanceLoc { delta })
             }
 
             constants::DW_CFA_offset_extended => {
                 let register = input.read_uleb128().and_then(Register::from_u64)?;
                 let offset = input.read_uleb128()?;
                 Ok(CallFrameInstruction::Offset {
-                    register: register,
+                    register,
                     factored_offset: offset,
                 })
             }
 
             constants::DW_CFA_restore_extended => {
                 let register = input.read_uleb128().and_then(Register::from_u64)?;
-                Ok(CallFrameInstruction::Restore { register: register })
+                Ok(CallFrameInstruction::Restore { register })
             }
 
             constants::DW_CFA_undefined => {
                 let register = input.read_uleb128().and_then(Register::from_u64)?;
-                Ok(CallFrameInstruction::Undefined { register: register })
+                Ok(CallFrameInstruction::Undefined { register })
             }
 
             constants::DW_CFA_same_value => {
                 let register = input.read_uleb128().and_then(Register::from_u64)?;
-                Ok(CallFrameInstruction::SameValue { register: register })
+                Ok(CallFrameInstruction::SameValue { register })
             }
 
             constants::DW_CFA_register => {
@@ -3133,19 +3133,19 @@ impl<R: Reader> CallFrameInstruction<R> {
                 let register = input.read_uleb128().and_then(Register::from_u64)?;
                 let offset = input.read_uleb128()?;
                 Ok(CallFrameInstruction::DefCfa {
-                    register: register,
-                    offset: offset,
+                    register,
+                    offset,
                 })
             }
 
             constants::DW_CFA_def_cfa_register => {
                 let register = input.read_uleb128().and_then(Register::from_u64)?;
-                Ok(CallFrameInstruction::DefCfaRegister { register: register })
+                Ok(CallFrameInstruction::DefCfaRegister { register })
             }
 
             constants::DW_CFA_def_cfa_offset => {
                 let offset = input.read_uleb128()?;
-                Ok(CallFrameInstruction::DefCfaOffset { offset: offset })
+                Ok(CallFrameInstruction::DefCfaOffset { offset })
             }
 
             constants::DW_CFA_def_cfa_expression => {
@@ -3161,7 +3161,7 @@ impl<R: Reader> CallFrameInstruction<R> {
                 let len = input.read_uleb128().and_then(R::Offset::from_u64)?;
                 let expression = input.split(len)?;
                 Ok(CallFrameInstruction::Expression {
-                    register: register,
+                    register,
                     expression: Expression(expression),
                 })
             }
@@ -3170,7 +3170,7 @@ impl<R: Reader> CallFrameInstruction<R> {
                 let register = input.read_uleb128().and_then(Register::from_u64)?;
                 let offset = input.read_sleb128()?;
                 Ok(CallFrameInstruction::OffsetExtendedSf {
-                    register: register,
+                    register,
                     factored_offset: offset,
                 })
             }
@@ -3179,7 +3179,7 @@ impl<R: Reader> CallFrameInstruction<R> {
                 let register = input.read_uleb128().and_then(Register::from_u64)?;
                 let offset = input.read_sleb128()?;
                 Ok(CallFrameInstruction::DefCfaSf {
-                    register: register,
+                    register,
                     factored_offset: offset,
                 })
             }
@@ -3195,7 +3195,7 @@ impl<R: Reader> CallFrameInstruction<R> {
                 let register = input.read_uleb128().and_then(Register::from_u64)?;
                 let offset = input.read_uleb128()?;
                 Ok(CallFrameInstruction::ValOffset {
-                    register: register,
+                    register,
                     factored_offset: offset,
                 })
             }
@@ -3204,7 +3204,7 @@ impl<R: Reader> CallFrameInstruction<R> {
                 let register = input.read_uleb128().and_then(Register::from_u64)?;
                 let offset = input.read_sleb128()?;
                 Ok(CallFrameInstruction::ValOffsetSf {
-                    register: register,
+                    register,
                     factored_offset: offset,
                 })
             }
@@ -3214,7 +3214,7 @@ impl<R: Reader> CallFrameInstruction<R> {
                 let len = input.read_uleb128().and_then(R::Offset::from_u64)?;
                 let expression = input.split(len)?;
                 Ok(CallFrameInstruction::ValExpression {
-                    register: register,
+                    register,
                     expression: Expression(expression),
                 })
             }
@@ -4731,7 +4731,7 @@ mod tests {
         length.set_const((&end - &start) as u64);
         let contents = section.get_contents().unwrap();
         let input = EndianSlice::new(&contents, BigEndian);
-        let mut iter = CallFrameInstructionIter { input: input };
+        let mut iter = CallFrameInstructionIter { input };
 
         assert_eq!(
             iter.next(),
@@ -4758,7 +4758,7 @@ mod tests {
 
         let contents = section.get_contents().unwrap();
         let input = EndianSlice::new(&contents, BigEndian);
-        let mut iter = CallFrameInstructionIter { input: input };
+        let mut iter = CallFrameInstructionIter { input };
 
         assert_eq!(iter.next(), Err(Error::UnexpectedEof));
         assert_eq!(iter.next(), Ok(None));

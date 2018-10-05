@@ -76,7 +76,7 @@ impl<R: Reader> DebugLine<R> {
         let input = &mut self.debug_line_section.clone();
         input.skip(offset.0)?;
         let header = LineNumberProgramHeader::parse(input, address_size, comp_dir, comp_name)?;
-        let program = IncompleteLineNumberProgram { header: header };
+        let program = IncompleteLineNumberProgram { header };
         Ok(program)
     }
 }
@@ -172,9 +172,9 @@ where
             input: program.header().program_buf.clone(),
         };
         StateMachine {
-            program: program,
-            row: row,
-            opcodes: opcodes,
+            program,
+            row,
+            opcodes,
         }
     }
 
@@ -186,9 +186,9 @@ where
         row.registers.reset(program.header().default_is_stmt());
         let opcodes = sequence.opcodes.clone();
         StateMachine {
-            program: program,
-            row: row,
-            opcodes: opcodes,
+            program,
+            row,
+            opcodes,
         }
     }
 
@@ -208,9 +208,9 @@ where
 
     /// Step 2 of section 6.2.5.1
     fn apply_operation_advance(&mut self, operation_advance: u64) {
-        let minimum_instruction_length = self.header().minimum_instruction_length as u64;
+        let minimum_instruction_length = u64::from(self.header().minimum_instruction_length);
         let maximum_operations_per_instruction =
-            self.header().maximum_operations_per_instruction as u64;
+            u64::from(self.header().maximum_operations_per_instruction);
 
         if maximum_operations_per_instruction == 1 {
             self.row.registers.address += minimum_instruction_length * operation_advance;
@@ -237,11 +237,11 @@ where
         let operation_advance = adjusted_opcode / line_range;
 
         // Step 1
-        let line_base = self.header().line_base as i64;
-        self.apply_line_advance(line_base + line_advance as i64);
+        let line_base = i64::from(self.header().line_base);
+        self.apply_line_advance(line_base + i64::from(line_advance));
 
         // Step 2
-        self.apply_operation_advance(operation_advance as u64);
+        self.apply_operation_advance(u64::from(operation_advance));
     }
 
     /// Execute the given opcode, and return true if a new row in the
@@ -290,12 +290,12 @@ where
             Opcode::ConstAddPc => {
                 let adjusted = self.adjust_opcode(255);
                 let operation_advance = adjusted / self.header().line_range;
-                self.apply_operation_advance(operation_advance as u64);
+                self.apply_operation_advance(u64::from(operation_advance));
                 false
             }
 
             Opcode::FixedAddPc(operand) => {
-                self.row.registers.address += operand as u64;
+                self.row.registers.address += u64::from(operand);
                 self.row.registers.op_index = 0;
                 false
             }
@@ -1171,7 +1171,7 @@ where
 
         let version = rest.read_u16()?;
         if version < 2 || version > 4 {
-            return Err(parser::Error::UnknownVersion(version as u64));
+            return Err(parser::Error::UnknownVersion(u64::from(version)));
         }
 
         let header_length = rest.read_word(format).and_then(R::Offset::from_u64)?;
@@ -1234,23 +1234,23 @@ where
         });
 
         let header = LineNumberProgramHeader {
-            unit_length: unit_length,
-            version: version,
-            header_length: header_length,
-            minimum_instruction_length: minimum_instruction_length,
-            maximum_operations_per_instruction: maximum_operations_per_instruction,
+            unit_length,
+            version,
+            header_length,
+            minimum_instruction_length,
+            maximum_operations_per_instruction,
             default_is_stmt: default_is_stmt != 0,
-            line_base: line_base,
-            line_range: line_range,
-            opcode_base: opcode_base,
-            standard_opcode_lengths: standard_opcode_lengths,
-            include_directories: include_directories,
-            file_names: file_names,
-            format: format,
-            program_buf: program_buf,
-            address_size: address_size,
-            comp_dir: comp_dir,
-            comp_name: comp_name,
+            line_base,
+            line_range,
+            opcode_base,
+            standard_opcode_lengths,
+            include_directories,
+            file_names,
+            format,
+            program_buf,
+            address_size,
+            comp_dir,
+            comp_name,
         };
         Ok(header)
     }
@@ -1412,10 +1412,10 @@ impl<R: Reader> FileEntry<R> {
         let length = input.read_uleb128()?;
 
         let entry = FileEntry {
-            path_name: path_name,
-            directory_index: directory_index,
-            last_modification: last_modification,
-            length: length,
+            path_name,
+            directory_index,
+            last_modification,
+            length,
         };
 
         Ok(entry)
@@ -1984,7 +1984,7 @@ mod tests {
         expected_registers: StateMachineRegisters,
         expect_new_row: bool,
     ) {
-        let mut sm = OneShotStateMachine::new(IncompleteLineNumberProgram { header: header });
+        let mut sm = OneShotStateMachine::new(IncompleteLineNumberProgram { header });
         sm.row.registers = initial_registers;
 
         let is_new_row = sm.execute(opcode);

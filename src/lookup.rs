@@ -45,7 +45,7 @@ where
 {
     fn from(input_buffer: R) -> Self {
         DebugLookup {
-            input_buffer: input_buffer,
+            input_buffer,
             phantom: PhantomData,
         }
     }
@@ -165,7 +165,7 @@ where
 
         let version = rest.read_u16()?;
         if version != 2 {
-            return Err(Error::UnknownVersion(version as u64));
+            return Err(Error::UnknownVersion(u64::from(version)));
         }
 
         let unit_offset = parse_debug_info_offset(&mut rest, format)?;

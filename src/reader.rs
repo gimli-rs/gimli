@@ -43,12 +43,12 @@ pub trait ReaderOffset
 impl ReaderOffset for u64 {
     #[inline]
     fn from_u8(offset: u8) -> Self {
-        offset as u64
+        u64::from(offset)
     }
 
     #[inline]
     fn from_u16(offset: u16) -> Self {
-        offset as u64
+        u64::from(offset)
     }
 
     #[inline]
@@ -58,7 +58,7 @@ impl ReaderOffset for u64 {
 
     #[inline]
     fn from_u32(offset: u32) -> Self {
-        offset as u64
+        u64::from(offset)
     }
 
     #[inline]
@@ -85,12 +85,12 @@ impl ReaderOffset for u64 {
 impl ReaderOffset for u32 {
     #[inline]
     fn from_u8(offset: u8) -> Self {
-        offset as u32
+        u32::from(offset)
     }
 
     #[inline]
     fn from_u16(offset: u16) -> Self {
-        offset as u32
+        u32::from(offset)
     }
 
     #[inline]
@@ -106,7 +106,7 @@ impl ReaderOffset for u32 {
     #[inline]
     fn from_u64(offset64: u64) -> Result<Self> {
         let offset = offset64 as u32;
-        if offset as u64 == offset64 {
+        if u64::from(offset) == offset64 {
             Ok(offset)
         } else {
             Err(Error::UnsupportedOffset)
@@ -115,7 +115,7 @@ impl ReaderOffset for u32 {
 
     #[inline]
     fn into_u64(self) -> u64 {
-        self as u64
+        u64::from(self)
     }
 
     #[inline]
@@ -362,9 +362,9 @@ pub trait Reader: Debug + Clone {
     /// Read an address-sized integer, and return it as a `u64`.
     fn read_address(&mut self, address_size: u8) -> Result<u64> {
         match address_size {
-            1 => self.read_u8().map(|v| v as u64),
-            2 => self.read_u16().map(|v| v as u64),
-            4 => self.read_u32().map(|v| v as u64),
+            1 => self.read_u8().map(u64::from),
+            2 => self.read_u16().map(u64::from),
+            4 => self.read_u32().map(u64::from),
             8 => self.read_u64(),
             otherwise => Err(Error::UnsupportedAddressSize(otherwise)),
         }
@@ -373,7 +373,7 @@ pub trait Reader: Debug + Clone {
     /// Parse a word-sized integer according to the DWARF format, and return it as a `u64`.
     fn read_word(&mut self, format: Format) -> Result<u64> {
         match format {
-            Format::Dwarf32 => self.read_u32().map(|v| v as u64),
+            Format::Dwarf32 => self.read_u32().map(u64::from),
             Format::Dwarf64 => self.read_u64(),
         }
     }

@@ -121,7 +121,7 @@ fn parse_header<R: Reader>(input: &mut R) -> Result<RngListsHeader> {
 
     let version = input.read_u16()?;
     if version != 5 {
-        return Err(Error::UnknownVersion(version as u64));
+        return Err(Error::UnknownVersion(u64::from(version)));
     }
 
     let address_size = input.read_u8()?;
@@ -131,9 +131,9 @@ fn parse_header<R: Reader>(input: &mut R) -> Result<RngListsHeader> {
     }
     let offset_entry_count = input.read_u32()?;
     Ok(RngListsHeader {
-        format: format,
-        address_size: address_size,
-        offset_entry_count: offset_entry_count,
+        format,
+        address_size,
+        offset_entry_count,
     })
 }
 
@@ -399,8 +399,8 @@ impl<R: Reader> RngListIter<R> {
     /// Construct a `RngListIter`.
     fn new(raw: RawRngListIter<R>, base_address: u64) -> RngListIter<R> {
         RngListIter {
-            raw: raw,
-            base_address: base_address,
+            raw,
+            base_address,
         }
     }
 
@@ -423,11 +423,11 @@ impl<R: Reader> RngListIter<R> {
                     range
                 }
                 RawRngListEntry::StartEnd { begin, end } => Range {
-                    begin: begin,
-                    end: end,
+                    begin,
+                    end,
                 },
                 RawRngListEntry::StartLength { begin, length } => Range {
-                    begin: begin,
+                    begin,
                     end: begin + length,
                 },
                 _ => {
@@ -490,8 +490,8 @@ impl RawRange {
         let begin = input.read_address(address_size)?;
         let end = input.read_address(address_size)?;
         let range = RawRange {
-            begin: begin,
-            end: end,
+            begin,
+            end,
         };
         Ok(range)
     }

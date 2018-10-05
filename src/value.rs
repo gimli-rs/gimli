@@ -193,11 +193,11 @@ impl Value {
         let value = match self {
             Value::Generic(value) => value & addr_mask,
             Value::I8(value) => value as u64,
-            Value::U8(value) => value as u64,
+            Value::U8(value) => u64::from(value),
             Value::I16(value) => value as u64,
-            Value::U16(value) => value as u64,
+            Value::U16(value) => u64::from(value),
             Value::I32(value) => value as u64,
-            Value::U32(value) => value as u64,
+            Value::U32(value) => u64::from(value),
             Value::I64(value) => value as u64,
             Value::U64(value) => value as u64,
             _ => return Err(Error::IntegralTypeRequired),
@@ -244,7 +244,7 @@ impl Value {
             ValueType::I64 => Value::I64(value as i64),
             ValueType::U64 => Value::U64(value as u64),
             ValueType::F32 => Value::F32(value),
-            ValueType::F64 => Value::F64(value as f64),
+            ValueType::F64 => Value::F64(f64::from(value)),
         };
         Ok(value)
     }
@@ -299,14 +299,14 @@ impl Value {
         let bits = match self {
             Value::Generic(value) => value,
             Value::I8(value) => value as u64,
-            Value::U8(value) => value as u64,
+            Value::U8(value) => u64::from(value),
             Value::I16(value) => value as u64,
-            Value::U16(value) => value as u64,
+            Value::U16(value) => u64::from(value),
             Value::I32(value) => value as u64,
-            Value::U32(value) => value as u64,
+            Value::U32(value) => u64::from(value),
             Value::I64(value) => value as u64,
             Value::U64(value) => value,
-            Value::F32(value) => unsafe { mem::transmute::<f32, u32>(value) as u64 },
+            Value::F32(value) => u64::from(unsafe { mem::transmute::<f32, u32>(value) }),
             Value::F64(value) => unsafe { mem::transmute(value) },
         };
         let value = match value_type {
@@ -319,8 +319,8 @@ impl Value {
             ValueType::U32 => Value::U32(bits as u32),
             ValueType::I64 => Value::I64(bits as i64),
             ValueType::U64 => Value::U64(bits),
-            ValueType::F32 => Value::F32(unsafe { mem::transmute(bits as u32) }),
-            ValueType::F64 => Value::F64(unsafe { mem::transmute(bits) }),
+            ValueType::F32 => Value::F32(f32::from_bits(bits as u32)),
+            ValueType::F64 => Value::F64(f64::from_bits(bits)),
         };
         Ok(value)
     }
@@ -602,13 +602,13 @@ impl Value {
         let value = match self {
             Value::Generic(value) => value,
             Value::I8(value) if value >= 0 => value as u64,
-            Value::U8(value) => value as u64,
+            Value::U8(value) => u64::from(value),
             Value::I16(value) if value >= 0 => value as u64,
-            Value::U16(value) => value as u64,
+            Value::U16(value) => u64::from(value),
             Value::I32(value) if value >= 0 => value as u64,
-            Value::U32(value) => value as u64,
+            Value::U32(value) => u64::from(value),
             Value::I64(value) if value >= 0 => value as u64,
-            Value::U64(value) => value as u64,
+            Value::U64(value) => value,
             _ => return Err(Error::InvalidShiftExpression),
         };
         Ok(value)
@@ -624,7 +624,7 @@ impl Value {
     pub fn shl(self, rhs: Value, addr_mask: u64) -> Result<Value> {
         let v2 = rhs.shift_length()?;
         let value = match self {
-            Value::Generic(v1) => Value::Generic(if v2 >= mask_bit_size(addr_mask) as u64 {
+            Value::Generic(v1) => Value::Generic(if v2 >= u64::from(mask_bit_size(addr_mask)) {
                 0
             } else {
                 (v1 & addr_mask) << v2
@@ -655,7 +655,7 @@ impl Value {
     pub fn shr(self, rhs: Value, addr_mask: u64) -> Result<Value> {
         let v2 = rhs.shift_length()?;
         let value = match self {
-            Value::Generic(v1) => Value::Generic(if v2 >= mask_bit_size(addr_mask) as u64 {
+            Value::Generic(v1) => Value::Generic(if v2 >= u64::from(mask_bit_size(addr_mask)) {
                 0
             } else {
                 (v1 & addr_mask) >> v2
@@ -690,7 +690,7 @@ impl Value {
         let value = match self {
             Value::Generic(v1) => {
                 let v1 = sign_extend(v1, addr_mask);
-                let value = if v2 >= mask_bit_size(addr_mask) as u64 {
+                let value = if v2 >= u64::from(mask_bit_size(addr_mask)) {
                     if v1 < 0 {
                         !0
                     } else {
