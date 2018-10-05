@@ -1270,8 +1270,8 @@ fn dump_op<R: Reader, W: Write>(
         gimli::Operation::ParameterRef { offset } => {
             write!(w, " 0x{:08x}", offset.0)?;
         }
-        gimli::Operation::TextRelativeOffset { offset } => {
-            write!(w, " 0x{:08x}", offset)?;
+        gimli::Operation::Address { address } => {
+            write!(w, " 0x{:08x}", address)?;
         }
         gimli::Operation::TypedLiteral { base_type, value } => {
             write!(w, " type 0x{:08x} contents 0x", base_type.0)?;
