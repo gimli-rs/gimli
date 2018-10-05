@@ -40,8 +40,8 @@ env:
 matrix:
   fast_finish: true
   include:
-    # Coverage should only run on Linux and stable Rust.
-    - rust: stable
+    # Coverage should only run on Linux. tarpaulin currently requires nightly Rust.
+    - rust: nightly
       os: linux
       sudo: required
       env: GIMLI_JOB="coverage"     GIMLI_PROFILE=
