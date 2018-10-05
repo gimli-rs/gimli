@@ -39,7 +39,7 @@ case "$GIMLI_JOB" in
 
     "coverage")
         RUSTFLAGS="--cfg procmacro2_semver_exempt" cargo install --force cargo-tarpaulin
-        cargo tarpaulin --verbose --no-count --ciserver travis-ci --coveralls "$TRAVIS_JOB_ID";
+        cargo tarpaulin --verbose --ciserver travis-ci --coveralls "$TRAVIS_JOB_ID";
         ;;
 
     "cross")
