@@ -302,11 +302,20 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    /// If given, the size of the piece in bits.  If `None`, then the
-    /// piece takes its size from the enclosed location.
+    /// If given, the size of the piece in bits.  If `None`, there
+    /// must be only one piece whose size is all of the object.
     pub size_in_bits: Option<u64>,
-    /// If given, the bit offset of the piece.  If `None`, then the
-    /// piece starts at the next byte boundary.
+    /// If given, the bit offset of the piece within the location.
+    /// If the location is a `Location::Register` or `Location::Value`,
+    /// then this offset is from the least significant bit end of
+    /// the register or value.
+    /// If the location is a `Location::Address` then the offset uses
+    /// the bit numbering and direction conventions of the language
+    /// and target system.
+    ///
+    /// If `None`, the piece starts at the location. If the
+    /// location is a register whose size is larger than the piece,
+    /// then placement within the register is defined by the ABI.
     pub bit_offset: Option<u64>,
     /// Where this piece is to be found.
     pub location: Location<R, Offset>,
