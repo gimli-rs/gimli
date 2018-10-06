@@ -35,14 +35,14 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    /// A dereference operation.
+    /// Dereference the topmost value of the stack.
     Deref {
         /// The DIE of the base type or 0 to indicate the generic type
         base_type: UnitOffset<Offset>,
         /// The size of the data to dereference.
         size: u8,
         /// True if the dereference operation takes an address space
-        /// argument; false otherwise.
+        /// argument from the stack; false otherwise.
         space: bool,
     },
     /// Drop an item from the stack.
@@ -123,6 +123,7 @@ where
         value: u64,
     },
     /// Indicate that this piece's location is in the given register.
+    /// Completes the piece or expression.
     Register {
         /// The register number.
         register: Register,
@@ -169,15 +170,20 @@ where
         bit_offset: Option<u64>,
     },
     /// Represents `DW_OP_implicit_value`.
+    /// The object has no location, but has a known constant value.
+    /// Completes the piece or expression.
     ImplicitValue {
         /// The implicit value to use.
         data: R,
     },
     /// Represents `DW_OP_stack_value`.
+    /// The object has no location, but its value is at the top of the stack.
+    /// Completes the piece or expression.
     StackValue,
     /// Represents `DW_OP_implicit_pointer`. The object is a pointer to
     /// a value which has no actual location, such as an implicit value or
     /// a stack value.
+    /// Completes the piece or expression.
     ImplicitPointer {
         /// The `.debug_info` offset of the value that this is an implicit pointer into.
         value: DebugInfoOffset<Offset>,
@@ -198,27 +204,31 @@ where
         /// The DIE to use.
         offset: UnitOffset<Offset>,
     },
-    /// An offset relative to the base of the .text section of the binary.
-    /// e.g. for `DW_OP_addr`.
-    TextRelativeOffset {
+    /// Represents `DW_OP_addr`.
+    /// Relocate the address if needed, and push it on the stack.
+    Address {
         /// The offfset to add.
-        offset: u64,
+        address: u64,
     },
     /// Represents `DW_OP_const_type`.
+    /// Interpret the value bytes as a constant of a given type, and push it on the stack.
     TypedLiteral {
-        /// The DIE of the base type
+        /// The DIE of the base type.
         base_type: UnitOffset<Offset>,
-        /// The value
+        /// The value bytes.
         value: R,
     },
-    /// Represents `DW_OP_convert`
+    /// Represents `DW_OP_convert`.
+    /// Pop the top stack entry, convert it to a different type, and push it on the stack.
     Convert {
-        /// The DIE of the base type
+        /// The DIE of the base type.
         base_type: UnitOffset<Offset>,
     },
-    /// Represents `DW_OP_reinterpret`
+    /// Represents `DW_OP_reinterpret`.
+    /// Pop the top stack entry, reinterpret the bits in its value as a different type,
+    /// and push it on the stack.
     Reinterpret {
-        /// The DIE of the base type
+        /// The DIE of the base type.
         base_type: UnitOffset<Offset>,
     },
 }
@@ -342,8 +352,8 @@ where
         let name = constants::DwOp(opcode);
         match name {
             constants::DW_OP_addr => {
-                let offset = bytes.read_address(address_size)?;
-                Ok(Operation::TextRelativeOffset { offset })
+                let address = bytes.read_address(address_size)?;
+                Ok(Operation::Address { address })
             }
             constants::DW_OP_deref => Ok(Operation::Deref {
                 base_type: generic_type(),
@@ -735,7 +745,7 @@ enum EvaluationWaiting<R: Reader> {
     AtLocation,
     EntryValue,
     ParameterRef,
-    TextBase { offset: u64 },
+    RelocatedAddress,
     TypedLiteral { value: R },
     Convert,
     Reinterpret,
@@ -800,11 +810,10 @@ pub enum EvaluationResult<R: Reader> {
     /// to provide it should resume the `Evaluation` by calling
     /// `Evaluation::resume_with_parameter_ref`.
     RequiresParameterRef(UnitOffset<R::Offset>),
-    /// The `Evaluation` needs the base address of the .text section of the
-    /// binary to proceed.  Once the caller determines what value to provide it
-    /// should resume the `Evaluation` by calling
-    /// `Evaluation::resume_with_text_base`.
-    RequiresTextBase,
+    /// The `Evaluation` needs an address to be relocated to proceed further.
+    /// Once the caller determines what value to provide it should resume the
+    /// `Evaluation` by calling `Evaluation::resume_with_relocated_address`.
+    RequiresRelocatedAddress(u64),
     /// The `Evaluation` needs the `ValueType` for the base type DIE at
     /// the give unit offset.  Once the caller determines what value to provide it
     /// should resume the `Evaluation` by calling
@@ -1287,10 +1296,10 @@ impl<R: Reader> Evaluation<R> {
                 ));
             }
 
-            Operation::TextRelativeOffset { offset } => {
+            Operation::Address { address } => {
                 return Ok(OperationEvaluationResult::Waiting(
-                    EvaluationWaiting::TextBase { offset },
-                    EvaluationResult::RequiresTextBase,
+                    EvaluationWaiting::RelocatedAddress,
+                    EvaluationResult::RequiresRelocatedAddress(address),
                 ));
             }
 
@@ -1555,21 +1564,22 @@ impl<R: Reader> Evaluation<R> {
         self.evaluate_internal()
     }
 
-    /// Resume the `Evaluation` with the provided `text_base`.  This will apply the
-    /// provided base address to the evaluation and continue evaluating
+    /// Resume the `Evaluation` with the provided relocated `address`.  This will use the
+    /// provided relocated address for the operation that required it, and continue evaluating
     /// opcodes until the evaluation is completed, reaches an error, or needs
     /// more information again.
     ///
     /// # Panics
-    /// Panics if this `Evaluation` did not previously stop with `EvaluationResult::RequiresTextBase`.
-    pub fn resume_with_text_base(&mut self, text_base: u64) -> Result<EvaluationResult<R>> {
+    /// Panics if this `Evaluation` did not previously stop with
+    /// `EvaluationResult::RequiresRelocatedAddress`.
+    pub fn resume_with_relocated_address(&mut self, address: u64) -> Result<EvaluationResult<R>> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
-            EvaluationState::Waiting(EvaluationWaiting::TextBase { offset }) => {
-                self.push(Value::Generic(text_base.wrapping_add(offset)));
+            EvaluationState::Waiting(EvaluationWaiting::RelocatedAddress) => {
+                self.push(Value::Generic(address));
             }
             _ => panic!(
-                "Called `Evaluation::resume_with_text_base` without a preceding `EvaluationResult::RequiresTextBase`"
+                "Called `Evaluation::resume_with_relocated_address` without a preceding `EvaluationResult::RequiresRelocatedAddress`"
             ),
         };
 
@@ -2067,7 +2077,7 @@ mod tests {
             (
                 constants::DW_OP_addr,
                 0x12345678,
-                Operation::TextRelativeOffset { offset: 0x12345678 },
+                Operation::Address { address: 0x12345678 },
             ),
             (
                 constants::DW_OP_const4u,
@@ -2114,8 +2124,8 @@ mod tests {
             (
                 constants::DW_OP_addr,
                 0x1234567812345678,
-                Operation::TextRelativeOffset {
-                    offset: 0x1234567812345678,
+                Operation::Address {
+                    address: 0x1234567812345678,
                 },
             ),
             (
@@ -3164,8 +3174,8 @@ mod tests {
                                          EvaluationResult::RequiresTls(slot) => {
                                              eval.resume_with_tls(!slot)?
                                          }
-                                         EvaluationResult::RequiresTextBase => {
-                                             eval.resume_with_text_base(0)?
+                                         EvaluationResult::RequiresRelocatedAddress(address) => {
+                                             eval.resume_with_relocated_address(address)?
                                          }
                                          _ => panic!(),
                                      };
@@ -3463,8 +3473,8 @@ mod tests {
                              |eval, mut result| {
                                  while result != EvaluationResult::Complete {
                                      result = match result {
-                                         EvaluationResult::RequiresTextBase => {
-                                             eval.resume_with_text_base(0)?
+                                         EvaluationResult::RequiresRelocatedAddress(address) => {
+                                             eval.resume_with_relocated_address(address)?
                                          }
                                          _ => panic!(),
                                      };
@@ -3662,8 +3672,8 @@ mod tests {
                             EvaluationResult::RequiresBaseType(offset) => {
                                 eval.resume_with_base_type(base_types[offset.0])?
                             }
-                            EvaluationResult::RequiresTextBase => {
-                                eval.resume_with_text_base(0)?
+                            EvaluationResult::RequiresRelocatedAddress(address) => {
+                                eval.resume_with_relocated_address(address)?
                             }
                             _ => panic!("Unexpected result {:?}", result),
                         }
