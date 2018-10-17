@@ -133,8 +133,12 @@ where
                         }
                         if lock.result.is_ok() {
                             let out = io::stdout();
-                            out.lock().write_all(&v).unwrap();
-                            lock.result = ret;
+                            let ret2 = out.lock().write_all(&v);
+                            if ret.is_err() {
+                                lock.result = ret;
+                            } else {
+                                lock.result = ret2.map_err(|x| Error::from(x));
+                            }
                         }
                     }
                 });
