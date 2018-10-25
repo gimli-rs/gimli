@@ -1765,9 +1765,7 @@ fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 // has the same size as an address on the target system.  This was changed
                 // in DWARF version 3.
                 let offset = if unit.version() == 2 {
-                    input
-                        .read_address(unit.address_size())
-                        .and_then(R::Offset::from_u64)?
+                    input.read_sized_offset(unit.address_size())?
                 } else {
                     input.read_offset(unit.format())?
                 };

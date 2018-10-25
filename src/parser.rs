@@ -61,6 +61,8 @@ pub enum Error {
     UnknownExtendedOpcode(constants::DwLne),
     /// The specified address size is not supported.
     UnsupportedAddressSize(u8),
+    /// The specified offset size is not supported.
+    UnsupportedOffsetSize(u8),
     /// The specified field size is not supported.
     UnsupportedFieldSize(u8),
     /// The minimum instruction length must not be zero.
@@ -204,6 +206,7 @@ impl Error {
             Error::UnknownStandardOpcode(_) => "Found an unknown standard opcode",
             Error::UnknownExtendedOpcode(_) => "Found an unknown extended opcode",
             Error::UnsupportedAddressSize(_) => "The specified address size is not supported",
+            Error::UnsupportedOffsetSize(_) => "The specified offset size is not supported",
             Error::UnsupportedFieldSize(_) => "The specified field size is not supported",
             Error::MinimumInstructionLengthZero => {
                 "The minimum instruction length must not be zero."

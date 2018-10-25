@@ -411,4 +411,17 @@ pub trait Reader: Debug + Clone {
     fn read_offset(&mut self, format: Format) -> Result<Self::Offset> {
         self.read_word(format)
     }
+
+    /// Parse a section offset of the given size.
+    ///
+    /// This is used for `DW_FORM_ref_addr` values in DWARF version 2.
+    fn read_sized_offset(&mut self, size: u8) -> Result<Self::Offset> {
+        match size {
+            1 => self.read_u8().map(u64::from),
+            2 => self.read_u16().map(u64::from),
+            4 => self.read_u32().map(u64::from),
+            8 => self.read_u64(),
+            otherwise => Err(Error::UnsupportedOffsetSize(otherwise)),
+        }.and_then(Self::Offset::from_u64)
+    }
 }
