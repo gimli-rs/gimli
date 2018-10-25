@@ -127,7 +127,7 @@ pub struct PubStuffHeader<T = usize> {
     length: T,
     version: u16,
     unit_offset: DebugInfoOffset<T>,
-    unit_length: u64,
+    unit_length: T,
 }
 
 pub trait PubStuffEntry<R: Reader> {
@@ -168,7 +168,7 @@ where
         }
 
         let unit_offset = parse_debug_info_offset(&mut rest, format)?;
-        let unit_length = rest.read_word(format)?;
+        let unit_length = rest.read_length(format)?;
 
         let header = PubStuffHeader {
             format,
@@ -182,13 +182,11 @@ where
 
     /// Parse a single pubthing. Return `None` for the null pubthing, `Some` for an actual pubthing.
     fn parse_entry(input: &mut R, header: &Self::Header) -> Result<Option<Self::Entry>> {
-        let offset = input.read_word(header.format)?;
-
-        if offset == 0 {
+        let offset = input.read_offset(header.format)?;
+        if offset.into_u64() == 0 {
             input.empty();
             Ok(None)
         } else {
-            let offset = R::Offset::from_u64(offset)?;
             let name = input.read_null_terminated_slice()?;
             Ok(Some(Self::Entry::new(
                 UnitOffset(offset),

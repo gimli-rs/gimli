@@ -1173,7 +1173,7 @@ where
             return Err(parser::Error::UnknownVersion(u64::from(version)));
         }
 
-        let header_length = rest.read_word(format).and_then(R::Offset::from_u64)?;
+        let header_length = rest.read_length(format)?;
 
         let mut program_buf = rest.clone();
         program_buf.skip(header_length)?;

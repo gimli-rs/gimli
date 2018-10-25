@@ -389,16 +389,26 @@ pub trait Reader: Debug + Clone {
         }
     }
 
-    /// Parse a word-sized integer according to the DWARF format, and return it as a `u64`.
-    fn read_word(&mut self, format: Format) -> Result<u64> {
+    /// Parse a word-sized integer according to the DWARF format.
+    ///
+    /// These are always used to encode section offsets or lengths,
+    /// and so have a type of `Self::Offset`.
+    fn read_word(&mut self, format: Format) -> Result<Self::Offset> {
         match format {
-            Format::Dwarf32 => self.read_u32().map(u64::from),
-            Format::Dwarf64 => self.read_u64(),
+            Format::Dwarf32 => self.read_u32().map(Self::Offset::from_u32),
+            Format::Dwarf64 => self.read_u64().and_then(Self::Offset::from_u64),
         }
     }
 
-    /// Parse a word-sized integer according to the DWARF format, and return it as an offset.
+    /// Parse a word-sized section length according to the DWARF format.
+    #[inline]
+    fn read_length(&mut self, format: Format) -> Result<Self::Offset> {
+        self.read_word(format)
+    }
+
+    /// Parse a word-sized section offset according to the DWARF format.
+    #[inline]
     fn read_offset(&mut self, format: Format) -> Result<Self::Offset> {
-        self.read_word(format).and_then(Self::Offset::from_u64)
+        self.read_word(format)
     }
 }
