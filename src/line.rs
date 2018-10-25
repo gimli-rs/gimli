@@ -1165,8 +1165,7 @@ where
         comp_dir: Option<R>,
         comp_name: Option<R>,
     ) -> parser::Result<LineNumberProgramHeader<R, Offset>> {
-        let (unit_length, format) = parser::parse_initial_length(input)?;
-        let unit_length = R::Offset::from_u64(unit_length)?;
+        let (unit_length, format) = input.read_initial_length()?;
         let rest = &mut input.split(unit_length)?;
 
         let version = rest.read_u16()?;

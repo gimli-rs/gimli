@@ -2,7 +2,7 @@ use constants;
 use endianity::Endianity;
 use endian_slice::EndianSlice;
 use fallible_iterator::FallibleIterator;
-use parser::{self, Error, Format, Result};
+use parser::{Error, Format, Result};
 use reader::{Reader, ReaderOffset};
 use Section;
 
@@ -115,8 +115,7 @@ impl RngListsHeader {
 }
 
 fn parse_header<R: Reader>(input: &mut R) -> Result<RngListsHeader> {
-    let (length, format) = parser::parse_initial_length(input)?;
-    let length = R::Offset::from_u64(length)?;
+    let (length, format) = input.read_initial_length()?;
     input.truncate(length)?;
 
     let version = input.read_u16()?;

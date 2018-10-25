@@ -359,6 +359,25 @@ pub trait Reader: Debug + Clone {
         leb128::read::signed(self)
     }
 
+    /// Read an initial length field.
+    ///
+    /// This field is encoded as either a 32-bit length or
+    /// a 64-bit length, and the returned `Format` indicates which.
+    fn read_initial_length(&mut self) -> Result<(Self::Offset, Format)> {
+        const MAX_DWARF_32_UNIT_LENGTH: u32 = 0xffff_fff0;
+        const DWARF_64_INITIAL_UNIT_LENGTH: u32 = 0xffff_ffff;
+
+        let val = self.read_u32()?;
+        if val < MAX_DWARF_32_UNIT_LENGTH {
+            Ok((Self::Offset::from_u32(val), Format::Dwarf32))
+        } else if val == DWARF_64_INITIAL_UNIT_LENGTH {
+            let val = self.read_u64().and_then(Self::Offset::from_u64)?;
+            Ok((val, Format::Dwarf64))
+        } else {
+            Err(Error::UnknownReservedLength)
+        }
+    }
+
     /// Read an address-sized integer, and return it as a `u64`.
     fn read_address(&mut self, address_size: u8) -> Result<u64> {
         match address_size {
