@@ -671,9 +671,7 @@ where
             constants::DW_OP_entry_value | constants::DW_OP_GNU_entry_value => {
                 let len = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
                 let expression = bytes.split(len)?;
-                Ok(Operation::EntryValue {
-                    expression,
-                })
+                Ok(Operation::EntryValue { expression })
             }
             constants::DW_OP_GNU_parameter_ref => {
                 let value = bytes.read_u32().map(R::Offset::from_u32)?;
@@ -1284,10 +1282,7 @@ impl<R: Reader> Evaluation<R> {
             }
 
             Operation::ImplicitPointer { value, byte_offset } => {
-                let location = Location::ImplicitPointer {
-                    value,
-                    byte_offset,
-                };
+                let location = Location::ImplicitPointer { value, byte_offset };
                 return Ok(OperationEvaluationResult::Complete { location });
             }
 
@@ -1725,14 +1720,14 @@ impl<R: Reader> Evaluation<R> {
 mod tests {
     extern crate test_assembler;
 
-    use super::*;
+    use self::test_assembler::{Endian, Section};
     use super::compute_pc;
+    use super::*;
     use constants;
-    use endianity::LittleEndian;
     use endian_slice::EndianSlice;
+    use endianity::LittleEndian;
     use leb128;
     use parser::{Error, Format, Result};
-    use self::test_assembler::{Endian, Section};
     use std::usize;
     use test_util::GimliSectionMethods;
     use unit::{DebugInfoOffset, UnitOffset};
@@ -2084,7 +2079,9 @@ mod tests {
             (
                 constants::DW_OP_addr,
                 0x12345678,
-                Operation::Address { address: 0x12345678 },
+                Operation::Address {
+                    address: 0x12345678,
+                },
             ),
             (
                 constants::DW_OP_const4u,
@@ -2219,7 +2216,15 @@ mod tests {
         let address_size = 4;
         let format = Format::Dwarf32;
 
-        let values = [0, 1, 0x100, (!0u16).into(), 0x1eeeeeee, 0x7fffffffffffffff, !0u64];
+        let values = [
+            0,
+            1,
+            0x100,
+            (!0u16).into(),
+            0x1eeeeeee,
+            0x7fffffffffffffff,
+            !0u64,
+        ];
         for value in values.iter() {
             let mut inputs = vec![
                 (
@@ -2235,7 +2240,9 @@ mod tests {
             if *value <= (!0u16).into() {
                 inputs.push((
                     constants::DW_OP_regx,
-                    Operation::Register { register: Register::from_u64(*value).unwrap() },
+                    Operation::Register {
+                        register: Register::from_u64(*value).unwrap(),
+                    },
                 ));
             }
 
@@ -2704,8 +2711,8 @@ mod tests {
     fn test_eval_arith() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
-        use constants::*;
         use self::AssemblerEntry::*;
+        use constants::*;
 
         // Indices of marks in the assembly.
         let done = 0;
@@ -2860,12 +2867,13 @@ mod tests {
             Op(DW_OP_stack_value),
         ];
 
-        let result = [
-            Piece { size_in_bits: None,
-                    bit_offset: None,
-                    location: Location::Value { value: Value::Generic(0) },
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::Value {
+                value: Value::Generic(0),
             },
-        ];
+        }];
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
     }
@@ -2874,8 +2882,8 @@ mod tests {
     fn test_eval_arith64() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
-        use constants::*;
         use self::AssemblerEntry::*;
+        use constants::*;
 
         // Indices of marks in the assembly.
         let done = 0;
@@ -2934,12 +2942,13 @@ mod tests {
             Op(DW_OP_stack_value),
         ];
 
-        let result = [
-            Piece { size_in_bits: None,
-                    bit_offset: None,
-                    location: Location::Value { value: Value::Generic(0) },
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::Value {
+                value: Value::Generic(0),
             },
-        ];
+        }];
 
         check_eval(&program, Ok(&result), 8, Format::Dwarf64);
     }
@@ -2948,8 +2957,8 @@ mod tests {
     fn test_eval_compare() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
-        use constants::*;
         use self::AssemblerEntry::*;
+        use constants::*;
 
         // Indices of marks in the assembly.
         let done = 0;
@@ -3000,12 +3009,13 @@ mod tests {
             Op(DW_OP_stack_value),
         ];
 
-        let result = [
-            Piece { size_in_bits: None,
-                    bit_offset: None,
-                    location: Location::Value { value: Value::Generic(0) },
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::Value {
+                value: Value::Generic(0),
             },
-        ];
+        }];
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
     }
@@ -3014,8 +3024,8 @@ mod tests {
     fn test_eval_stack() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
-        use constants::*;
         use self::AssemblerEntry::*;
+        use constants::*;
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
@@ -3037,12 +3047,13 @@ mod tests {
             Op(DW_OP_stack_value),
         ];
 
-        let result = [
-            Piece { size_in_bits: None,
-                    bit_offset: None,
-                    location: Location::Value { value: Value::Generic(1) },
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::Value {
+                value: Value::Generic(1),
             },
-        ];
+        }];
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
     }
@@ -3051,8 +3062,8 @@ mod tests {
     fn test_eval_lit_and_reg() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
-        use constants::*;
         use self::AssemblerEntry::*;
+        use constants::*;
 
         let mut program = Vec::new();
         program.push(Op(DW_OP_lit0));
@@ -3071,19 +3082,29 @@ mod tests {
 
         program.push(Op(DW_OP_stack_value));
 
-        let result = [
-            Piece { size_in_bits: None,
-                    bit_offset: None,
-                    location: Location::Value { value: Value::Generic(496) },
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::Value {
+                value: Value::Generic(496),
             },
-        ];
+        }];
 
         check_eval_with_args(
-            &program, Ok(&result), 4, Format::Dwarf32, None, None, None,
+            &program,
+            Ok(&result),
+            4,
+            Format::Dwarf32,
+            None,
+            None,
+            None,
             |eval, mut result| {
                 while result != EvaluationResult::Complete {
                     result = eval.resume_with_register(match result {
-                        EvaluationResult::RequiresRegister { register, base_type } => {
+                        EvaluationResult::RequiresRegister {
+                            register,
+                            base_type,
+                        } => {
                             assert_eq!(base_type, UnitOffset(0));
                             Value::Generic(u64::from(register.0).wrapping_neg())
                         }
@@ -3091,15 +3112,16 @@ mod tests {
                     })?;
                 }
                 Ok(result)
-            });
+            },
+        );
     }
 
     #[test]
     fn test_eval_memory() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
-        use constants::*;
         use self::AssemblerEntry::*;
+        use constants::*;
 
         // Indices of marks in the assembly.
         let done = 0;
@@ -3157,46 +3179,58 @@ mod tests {
             Op(DW_OP_stack_value),
         ];
 
-        let result = [
-            Piece { size_in_bits: None,
-                    bit_offset: None,
-                    location: Location::Value { value: Value::Generic(0) },
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::Value {
+                value: Value::Generic(0),
             },
-        ];
+        }];
 
-        check_eval_with_args(&program, Ok(&result), 4, Format::Dwarf32, None, None, None,
-                             |eval, mut result| {
-                                 while result != EvaluationResult::Complete {
-                                     result = match result {
-                                         EvaluationResult::RequiresMemory { address, size, space, base_type } => {
-                                             assert_eq!(base_type, UnitOffset(0));
-                                             let mut v = address << 2;
-                                             if let Some(value) = space {
-                                                 v += value;
-                                             }
-                                             v = v & ((1u64 << 8 * size) - 1);
-                                             eval.resume_with_memory(Value::Generic(v))?
-                                         }
-                                         EvaluationResult::RequiresTls(slot) => {
-                                             eval.resume_with_tls(!slot)?
-                                         }
-                                         EvaluationResult::RequiresRelocatedAddress(address) => {
-                                             eval.resume_with_relocated_address(address)?
-                                         }
-                                         _ => panic!(),
-                                     };
-                                 }
+        check_eval_with_args(
+            &program,
+            Ok(&result),
+            4,
+            Format::Dwarf32,
+            None,
+            None,
+            None,
+            |eval, mut result| {
+                while result != EvaluationResult::Complete {
+                    result = match result {
+                        EvaluationResult::RequiresMemory {
+                            address,
+                            size,
+                            space,
+                            base_type,
+                        } => {
+                            assert_eq!(base_type, UnitOffset(0));
+                            let mut v = address << 2;
+                            if let Some(value) = space {
+                                v += value;
+                            }
+                            v = v & ((1u64 << 8 * size) - 1);
+                            eval.resume_with_memory(Value::Generic(v))?
+                        }
+                        EvaluationResult::RequiresTls(slot) => eval.resume_with_tls(!slot)?,
+                        EvaluationResult::RequiresRelocatedAddress(address) => {
+                            eval.resume_with_relocated_address(address)?
+                        }
+                        _ => panic!(),
+                    };
+                }
 
-                                 Ok(result)
-                             });
+                Ok(result)
+            },
+        );
     }
 
     #[test]
     fn test_eval_register() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
-        use constants::*;
         use self::AssemblerEntry::*;
+        use constants::*;
 
         for i in 0..32 {
             #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -3205,17 +3239,22 @@ mod tests {
                 // Included only in the "bad" run.
                 Op(DW_OP_lit23),
             ];
-            let ok_result = [
-                Piece { size_in_bits: None,
-                        bit_offset: None,
-                        location: Location::Register { register: Register(i.into()) },
+            let ok_result = [Piece {
+                size_in_bits: None,
+                bit_offset: None,
+                location: Location::Register {
+                    register: Register(i.into()),
                 },
-            ];
+            }];
 
             check_eval(&program[..1], Ok(&ok_result), 4, Format::Dwarf32);
 
-            check_eval(&program, Err(Error::InvalidExpressionTerminator(1)),
-                       4, Format::Dwarf32);
+            check_eval(
+                &program,
+                Err(Error::InvalidExpressionTerminator(1)),
+                4,
+                Format::Dwarf32,
+            );
         }
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -3223,12 +3262,13 @@ mod tests {
             Op(DW_OP_regx), Uleb(0x1234)
         ];
 
-        let result = [
-            Piece { size_in_bits: None,
-                    bit_offset: None,
-                    location: Location::Register { register: Register(0x1234) },
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::Register {
+                register: Register(0x1234),
             },
-        ];
+        }];
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
     }
@@ -3237,8 +3277,8 @@ mod tests {
     fn test_eval_context() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
-        use constants::*;
         use self::AssemblerEntry::*;
+        use constants::*;
 
         // Test `frame_base` and `call_frame_cfa` callbacks.
         #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -3250,25 +3290,34 @@ mod tests {
             Op(DW_OP_stack_value)
         ];
 
-        let result = [
-            Piece { size_in_bits: None,
-                    bit_offset: None,
-                    location: Location::Value { value: Value::Generic(9) },
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::Value {
+                value: Value::Generic(9),
             },
-        ];
+        }];
 
-        check_eval_with_args(&program, Ok(&result), 8, Format::Dwarf64,
-                             None, None, None, |eval, result| {
-                                 match result {
-                                     EvaluationResult::RequiresFrameBase => {},
-                                     _ => panic!(),
-                                 };
-                                 match eval.resume_with_frame_base(0x0123456789abcdef)? {
-                                     EvaluationResult::RequiresCallFrameCfa => {},
-                                     _ => panic!(),
-                                 };
-                                 eval.resume_with_call_frame_cfa(0xfedcba9876543210)
-                             });
+        check_eval_with_args(
+            &program,
+            Ok(&result),
+            8,
+            Format::Dwarf64,
+            None,
+            None,
+            None,
+            |eval, result| {
+                match result {
+                    EvaluationResult::RequiresFrameBase => {}
+                    _ => panic!(),
+                };
+                match eval.resume_with_frame_base(0x0123456789abcdef)? {
+                    EvaluationResult::RequiresCallFrameCfa => {}
+                    _ => panic!(),
+                };
+                eval.resume_with_call_frame_cfa(0xfedcba9876543210)
+            },
+        );
 
         // Test `evaluate_entry_value` callback.
         #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -3277,23 +3326,32 @@ mod tests {
             Op(DW_OP_stack_value)
         ];
 
-        let result = [
-            Piece { size_in_bits: None,
-                    bit_offset: None,
-                    location: Location::Value { value: Value::Generic(0x12345678) },
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::Value {
+                value: Value::Generic(0x12345678),
             },
-        ];
+        }];
 
-        check_eval_with_args(&program, Ok(&result), 8, Format::Dwarf64,
-                             None, None, None, |eval, result| {
-                                 let entry_value = match result {
-                                     EvaluationResult::RequiresEntryValue(mut expression) => {
-                                         expression.0.read_u64()?
-                                     },
-                                     _ => panic!(),
-                                 };
-                                 eval.resume_with_entry_value(Value::Generic(entry_value))
-                             });
+        check_eval_with_args(
+            &program,
+            Ok(&result),
+            8,
+            Format::Dwarf64,
+            None,
+            None,
+            None,
+            |eval, result| {
+                let entry_value = match result {
+                    EvaluationResult::RequiresEntryValue(mut expression) => {
+                        expression.0.read_u64()?
+                    }
+                    _ => panic!(),
+                };
+                eval.resume_with_entry_value(Value::Generic(entry_value))
+            },
+        );
 
         // Test missing `object_address` field.
         #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -3301,8 +3359,16 @@ mod tests {
             Op(DW_OP_push_object_address),
         ];
 
-        check_eval_with_args(&program, Err(Error::InvalidPushObjectAddress),
-                             4, Format::Dwarf32, None, None, None, |_, _| panic!());
+        check_eval_with_args(
+            &program,
+            Err(Error::InvalidPushObjectAddress),
+            4,
+            Format::Dwarf32,
+            None,
+            None,
+            None,
+            |_, _| panic!(),
+        );
 
         // Test `object_address` field.
         #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -3311,53 +3377,76 @@ mod tests {
             Op(DW_OP_stack_value),
         ];
 
-        let result = [
-            Piece { size_in_bits: None,
-                    bit_offset: None,
-                    location: Location::Value { value: Value::Generic(0xff) },
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::Value {
+                value: Value::Generic(0xff),
             },
-        ];
+        }];
 
-        check_eval_with_args(&program, Ok(&result), 8, Format::Dwarf64,
-                             Some(0xff), None, None, |_, result| Ok(result));
+        check_eval_with_args(
+            &program,
+            Ok(&result),
+            8,
+            Format::Dwarf64,
+            Some(0xff),
+            None,
+            None,
+            |_, result| Ok(result),
+        );
 
         // Test `initial_value` field.
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
         ];
 
-        let result = [
-            Piece { size_in_bits: None,
-                    bit_offset: None,
-                    location: Location::Address{address: 0x12345678},
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::Address {
+                address: 0x12345678,
             },
-        ];
+        }];
 
-        check_eval_with_args(&program, Ok(&result), 8, Format::Dwarf64,
-                             None, Some(0x12345678), None, |_, result| Ok(result));
+        check_eval_with_args(
+            &program,
+            Ok(&result),
+            8,
+            Format::Dwarf64,
+            None,
+            Some(0x12345678),
+            None,
+            |_, result| Ok(result),
+        );
     }
 
     #[test]
     fn test_eval_empty_stack() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
-        use constants::*;
         use self::AssemblerEntry::*;
+        use constants::*;
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_stack_value)
         ];
 
-        check_eval(&program, Err(Error::NotEnoughStackItems), 4, Format::Dwarf32);
+        check_eval(
+            &program,
+            Err(Error::NotEnoughStackItems),
+            4,
+            Format::Dwarf32,
+        );
     }
 
     #[test]
     fn test_eval_call() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
-        use constants::*;
         use self::AssemblerEntry::*;
+        use constants::*;
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
@@ -3368,80 +3457,98 @@ mod tests {
             Op(DW_OP_stack_value)
         ];
 
-        let result = [
-            Piece { size_in_bits: None,
-                    bit_offset: None,
-                    location: Location::Value { value: Value::Generic(23) },
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::Value {
+                value: Value::Generic(23),
             },
-        ];
+        }];
 
-        check_eval_with_args(&program, Ok(&result), 4, Format::Dwarf32,
-                             None, None, None, |eval, result| {
-                                 let buf = EndianSlice::new(&[], LittleEndian);
-                                 match result {
-                                     EvaluationResult::RequiresAtLocation(_) => {},
-                                     _ => panic!(),
-                                 };
+        check_eval_with_args(
+            &program,
+            Ok(&result),
+            4,
+            Format::Dwarf32,
+            None,
+            None,
+            None,
+            |eval, result| {
+                let buf = EndianSlice::new(&[], LittleEndian);
+                match result {
+                    EvaluationResult::RequiresAtLocation(_) => {}
+                    _ => panic!(),
+                };
 
-                                 eval.resume_with_at_location(buf)?;
+                eval.resume_with_at_location(buf)?;
 
-                                 match result {
-                                     EvaluationResult::RequiresAtLocation(_) => {},
-                                     _ => panic!(),
-                                 };
+                match result {
+                    EvaluationResult::RequiresAtLocation(_) => {}
+                    _ => panic!(),
+                };
 
-                                 eval.resume_with_at_location(buf)?;
+                eval.resume_with_at_location(buf)?;
 
-                                 match result {
-                                     EvaluationResult::RequiresAtLocation(_) => {},
-                                     _ => panic!(),
-                                 };
+                match result {
+                    EvaluationResult::RequiresAtLocation(_) => {}
+                    _ => panic!(),
+                };
 
-                                 eval.resume_with_at_location(buf)
-                             });
+                eval.resume_with_at_location(buf)
+            },
+        );
 
         // DW_OP_lit2 DW_OP_mul
         const SUBR: &'static [u8] = &[0x32, 0x1e];
 
-        let result = [
-            Piece { size_in_bits: None,
-                    bit_offset: None,
-                    location: Location::Value { value: Value::Generic(184) },
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::Value {
+                value: Value::Generic(184),
             },
-        ];
+        }];
 
-        check_eval_with_args(&program, Ok(&result), 4, Format::Dwarf32,
-                             None, None, None, |eval, result| {
-                                 let buf = EndianSlice::new(SUBR, LittleEndian);
-                                 match result {
-                                     EvaluationResult::RequiresAtLocation(_) => {},
-                                     _ => panic!(),
-                                 };
+        check_eval_with_args(
+            &program,
+            Ok(&result),
+            4,
+            Format::Dwarf32,
+            None,
+            None,
+            None,
+            |eval, result| {
+                let buf = EndianSlice::new(SUBR, LittleEndian);
+                match result {
+                    EvaluationResult::RequiresAtLocation(_) => {}
+                    _ => panic!(),
+                };
 
-                                 eval.resume_with_at_location(buf)?;
+                eval.resume_with_at_location(buf)?;
 
-                                 match result {
-                                     EvaluationResult::RequiresAtLocation(_) => {},
-                                     _ => panic!(),
-                                 };
+                match result {
+                    EvaluationResult::RequiresAtLocation(_) => {}
+                    _ => panic!(),
+                };
 
-                                 eval.resume_with_at_location(buf)?;
+                eval.resume_with_at_location(buf)?;
 
-                                 match result {
-                                     EvaluationResult::RequiresAtLocation(_) => {},
-                                     _ => panic!(),
-                                 };
+                match result {
+                    EvaluationResult::RequiresAtLocation(_) => {}
+                    _ => panic!(),
+                };
 
-                                 eval.resume_with_at_location(buf)
-                             });
+                eval.resume_with_at_location(buf)
+            },
+        );
     }
 
     #[test]
     fn test_eval_pieces() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
-        use constants::*;
         use self::AssemblerEntry::*;
+        use constants::*;
 
         // Example from DWARF 2.6.1.3.
         #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -3453,10 +3560,20 @@ mod tests {
         ];
 
         let result = [
-            Piece { size_in_bits: Some(32), bit_offset: None,
-                    location: Location::Register { register: Register(3) } },
-            Piece { size_in_bits: Some(16), bit_offset: None,
-                    location: Location::Register { register: Register(4) } },
+            Piece {
+                size_in_bits: Some(32),
+                bit_offset: None,
+                location: Location::Register {
+                    register: Register(3),
+                },
+            },
+            Piece {
+                size_in_bits: Some(16),
+                bit_offset: None,
+                location: Location::Register {
+                    register: Register(4),
+                },
+            },
         ];
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
@@ -3473,27 +3590,48 @@ mod tests {
         ];
 
         let result = [
-            Piece { size_in_bits: Some(32), bit_offset: None,
-                    location: Location::Register { register: Register(0) } },
-            Piece { size_in_bits: Some(32), bit_offset: None,
-                    location: Location::Empty },
-            Piece { size_in_bits: Some(32), bit_offset: None,
-                    location: Location::Address { address: 0x7fffffff } },
+            Piece {
+                size_in_bits: Some(32),
+                bit_offset: None,
+                location: Location::Register {
+                    register: Register(0),
+                },
+            },
+            Piece {
+                size_in_bits: Some(32),
+                bit_offset: None,
+                location: Location::Empty,
+            },
+            Piece {
+                size_in_bits: Some(32),
+                bit_offset: None,
+                location: Location::Address {
+                    address: 0x7fffffff,
+                },
+            },
         ];
 
-        check_eval_with_args(&program, Ok(&result), 4, Format::Dwarf32, None, None, None,
-                             |eval, mut result| {
-                                 while result != EvaluationResult::Complete {
-                                     result = match result {
-                                         EvaluationResult::RequiresRelocatedAddress(address) => {
-                                             eval.resume_with_relocated_address(address)?
-                                         }
-                                         _ => panic!(),
-                                     };
-                                 }
+        check_eval_with_args(
+            &program,
+            Ok(&result),
+            4,
+            Format::Dwarf32,
+            None,
+            None,
+            None,
+            |eval, mut result| {
+                while result != EvaluationResult::Complete {
+                    result = match result {
+                        EvaluationResult::RequiresRelocatedAddress(address) => {
+                            eval.resume_with_relocated_address(address)?
+                        }
+                        _ => panic!(),
+                    };
+                }
 
-                                 Ok(result)
-                             });
+                Ok(result)
+            },
+        );
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
@@ -3503,10 +3641,13 @@ mod tests {
 
         const BYTES: &'static [u8] = &[23, 24, 25, 26, 0];
 
-        let result = [
-            Piece { size_in_bits: None, bit_offset: None,
-                    location: Location::Bytes { value: EndianSlice::new(BYTES, LittleEndian) } },
-        ];
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::Bytes {
+                value: EndianSlice::new(BYTES, LittleEndian),
+            },
+        }];
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
 
@@ -3519,10 +3660,18 @@ mod tests {
         ];
 
         let result = [
-            Piece { size_in_bits: Some(5), bit_offset: Some(0),
-                    location: Location::Value { value: Value::Generic(7) } },
-            Piece { size_in_bits: Some(3), bit_offset: Some(0),
-                    location: Location::Empty },
+            Piece {
+                size_in_bits: Some(5),
+                bit_offset: Some(0),
+                location: Location::Value {
+                    value: Value::Generic(7),
+                },
+            },
+            Piece {
+                size_in_bits: Some(3),
+                bit_offset: Some(0),
+                location: Location::Empty,
+            },
         ];
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
@@ -3532,10 +3681,11 @@ mod tests {
             Op(DW_OP_lit7),
         ];
 
-        let result = [
-            Piece { size_in_bits: None, bit_offset: None,
-                    location: Location::Address { address: 7 } },
-        ];
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::Address { address: 7 },
+        }];
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
 
@@ -3544,14 +3694,14 @@ mod tests {
             Op(DW_OP_implicit_pointer), U32(0x12345678), Sleb(0x123),
         ];
 
-        let result = [
-            Piece { size_in_bits: None, bit_offset: None,
-                    location: Location::ImplicitPointer {
-                        value: DebugInfoOffset(0x12345678),
-                        byte_offset: 0x123,
-                    },
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::ImplicitPointer {
+                value: DebugInfoOffset(0x12345678),
+                byte_offset: 0x123,
             },
-        ];
+        }];
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
 
@@ -3578,8 +3728,8 @@ mod tests {
     fn test_eval_max_iterations() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
-        use constants::*;
         use self::AssemblerEntry::*;
+        use constants::*;
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
@@ -3587,15 +3737,22 @@ mod tests {
             Op(DW_OP_skip), Branch(1),
         ];
 
-        check_eval_with_args(&program, Err(Error::TooManyIterations),
-                             4, Format::Dwarf32, None, None, Some(150),
-                             |_, _| panic!());
+        check_eval_with_args(
+            &program,
+            Err(Error::TooManyIterations),
+            4,
+            Format::Dwarf32,
+            None,
+            None,
+            Some(150),
+            |_, _| panic!(),
+        );
     }
 
     #[test]
     fn test_eval_typed_stack() {
-        use constants::*;
         use self::AssemblerEntry::*;
+        use constants::*;
 
         let base_types = [
             ValueType::Generic,
@@ -3656,13 +3813,11 @@ mod tests {
             ),
         ];
         for &(program, value) in &tests {
-            let result = [
-                Piece {
-                    size_in_bits: None,
-                    bit_offset: None,
-                    location: Location::Value { value },
-                },
-            ];
+            let result = [Piece {
+                size_in_bits: None,
+                bit_offset: None,
+                location: Location::Value { value },
+            }];
 
             check_eval_with_args(
                 program,
@@ -3675,7 +3830,12 @@ mod tests {
                 |eval, mut result| {
                     while result != EvaluationResult::Complete {
                         result = match result {
-                            EvaluationResult::RequiresMemory { address, size, space, base_type } => {
+                            EvaluationResult::RequiresMemory {
+                                address,
+                                size,
+                                space,
+                                base_type,
+                            } => {
                                 let mut v = address << 4;
                                 if let Some(value) = space {
                                     v += value;
@@ -3684,8 +3844,14 @@ mod tests {
                                 let v = Value::from_u64(base_types[base_type.0], v)?;
                                 eval.resume_with_memory(v)?
                             }
-                            EvaluationResult::RequiresRegister { register, base_type } => {
-                                let v = Value::from_u64(base_types[base_type.0], u64::from(register.0) << 4)?;
+                            EvaluationResult::RequiresRegister {
+                                register,
+                                base_type,
+                            } => {
+                                let v = Value::from_u64(
+                                    base_types[base_type.0],
+                                    u64::from(register.0) << 4,
+                                )?;
                                 eval.resume_with_register(v)?
                             }
                             EvaluationResult::RequiresBaseType(offset) => {

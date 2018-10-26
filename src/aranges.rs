@@ -1,12 +1,12 @@
-use endianity::Endianity;
 use endian_slice::EndianSlice;
+use endianity::Endianity;
 use fallible_iterator::FallibleIterator;
 use lookup::{DebugLookup, LookupEntryIter, LookupParser};
 use parser::{Error, Format, Result};
 use reader::{Reader, ReaderOffset};
-use unit::{parse_debug_info_offset, DebugInfoOffset};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
+use unit::{parse_debug_info_offset, DebugInfoOffset};
 use Section;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -261,9 +261,9 @@ impl<R: Reader> FallibleIterator for ArangeEntryIter<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lookup::LookupParser;
-    use endianity::LittleEndian;
     use endian_slice::EndianSlice;
+    use endianity::LittleEndian;
+    use lookup::LookupParser;
     use parser::Format;
     use unit::DebugInfoOffset;
 
@@ -301,20 +301,27 @@ mod tests {
 
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
-        let (tuples, header) = ArangeParser::parse_header(rest)
-            .expect("should parse header ok");
+        let (tuples, header) = ArangeParser::parse_header(rest).expect("should parse header ok");
 
-        assert_eq!(*rest, EndianSlice::new(&buf[buf.len() - 16..], LittleEndian));
-        assert_eq!(tuples, EndianSlice::new(&buf[buf.len() - 32..buf.len() - 16], LittleEndian));
-        assert_eq!(header,
-                   ArangeHeader {
-                       format: Format::Dwarf32,
-                       length: 0x20,
-                       version: 2,
-                       offset: DebugInfoOffset(0x04030201),
-                       address_size: 8,
-                       segment_size: 4,
-                   });
+        assert_eq!(
+            *rest,
+            EndianSlice::new(&buf[buf.len() - 16..], LittleEndian)
+        );
+        assert_eq!(
+            tuples,
+            EndianSlice::new(&buf[buf.len() - 32..buf.len() - 16], LittleEndian)
+        );
+        assert_eq!(
+            header,
+            ArangeHeader {
+                format: Format::Dwarf32,
+                length: 0x20,
+                version: 2,
+                offset: DebugInfoOffset(0x04030201),
+                address_size: 8,
+                segment_size: 4,
+            }
+        );
     }
 
     #[test]
@@ -364,16 +371,17 @@ mod tests {
             0x09
         ];
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
-        let entry = ArangeParser::parse_entry(rest, &header)
-            .expect("should parse entry ok");
+        let entry = ArangeParser::parse_entry(rest, &header).expect("should parse entry ok");
         assert_eq!(*rest, EndianSlice::new(&buf[buf.len() - 1..], LittleEndian));
-        assert_eq!(entry,
-                   Some(ArangeEntry {
-                       segment: Some(0x1817161514131211),
-                       address: 0x04030201,
-                       length: 0x08070605,
-                       unit_header_offset: header.offset,
-                   }));
+        assert_eq!(
+            entry,
+            Some(ArangeEntry {
+                segment: Some(0x1817161514131211),
+                address: 0x04030201,
+                length: 0x08070605,
+                unit_header_offset: header.offset,
+            })
+        );
     }
 
     #[test]
@@ -398,15 +406,16 @@ mod tests {
             0x09
         ];
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
-        let entry = ArangeParser::parse_entry(rest, &header)
-            .expect("should parse entry ok");
+        let entry = ArangeParser::parse_entry(rest, &header).expect("should parse entry ok");
         assert_eq!(*rest, EndianSlice::new(&buf[buf.len() - 1..], LittleEndian));
-        assert_eq!(entry,
-                   Some(ArangeEntry {
-                       segment: None,
-                       address: 0x04030201,
-                       length: 0x08070605,
-                       unit_header_offset: header.offset,
-                   }));
+        assert_eq!(
+            entry,
+            Some(ArangeEntry {
+                segment: None,
+                address: 0x04030201,
+                length: 0x08070605,
+                unit_header_offset: header.offset,
+            })
+        );
     }
 }

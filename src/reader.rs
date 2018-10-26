@@ -1,7 +1,7 @@
+use borrow::Cow;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::{Add, AddAssign, Sub};
-use borrow::Cow;
 
 use endianity::Endianity;
 use leb128;
@@ -10,9 +10,9 @@ use parser::{Error, Format, Result};
 /// A trait for offsets with a DWARF section.
 ///
 /// This allows consumers to choose a size that is appropriate for their address space.
-pub trait ReaderOffset
-    : Debug + Copy + Eq + Ord + Hash + Add<Output = Self> + AddAssign + Sub<Output = Self>
-    {
+pub trait ReaderOffset:
+    Debug + Copy + Eq + Ord + Hash + Add<Output = Self> + AddAssign + Sub<Output = Self>
+{
     /// Convert a u8 to an offset.
     fn from_u8(offset: u8) -> Self;
 

@@ -4,8 +4,8 @@ extern crate test_assembler;
 
 use vec::Vec;
 
-use leb128;
 use self::test_assembler::{Endian, Section, ToLabelOrNum};
+use leb128;
 
 pub trait GimliSectionMethods {
     fn e32<'a, T>(self, endian: Endian, val: T) -> Self

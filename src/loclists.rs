@@ -1,6 +1,6 @@
 use constants;
-use endianity::Endianity;
 use endian_slice::EndianSlice;
+use endianity::Endianity;
 use fallible_iterator::FallibleIterator;
 use op::Expression;
 use parser::{Error, Format, Result};
@@ -424,10 +424,7 @@ pub struct LocListIter<R: Reader> {
 impl<R: Reader> LocListIter<R> {
     /// Construct a `LocListIter`.
     fn new(raw: RawLocListIter<R>, base_address: u64) -> LocListIter<R> {
-        LocListIter {
-            raw,
-            base_address,
-        }
+        LocListIter { raw, base_address }
     }
 
     /// Advance the iterator to the next location.
@@ -455,13 +452,7 @@ impl<R: Reader> LocListIter<R> {
                     range.add_base_address(self.base_address, self.raw.address_size);
                     (range, data)
                 }
-                RawLocListEntry::StartEnd { begin, end, data } => (
-                    Range {
-                        begin,
-                        end,
-                    },
-                    data,
-                ),
+                RawLocListEntry::StartEnd { begin, end, data } => (Range { begin, end }, data),
                 RawLocListEntry::StartLength {
                     begin,
                     length,
@@ -484,10 +475,7 @@ impl<R: Reader> LocListIter<R> {
                 return Err(Error::InvalidLocationAddressRange);
             }
 
-            return Ok(Some(LocationListEntry {
-                range,
-                data,
-            }));
+            return Ok(Some(LocationListEntry { range, data }));
         }
     }
 }
@@ -515,11 +503,11 @@ pub struct LocationListEntry<R: Reader> {
 mod tests {
     extern crate test_assembler;
 
-    use super::*;
-    use endianity::LittleEndian;
-    use endian_slice::EndianSlice;
-    use rnglists::Range;
     use self::test_assembler::{Endian, Label, LabelMaker, Section};
+    use super::*;
+    use endian_slice::EndianSlice;
+    use endianity::LittleEndian;
+    use rnglists::Range;
     use test_util::GimliSectionMethods;
 
     #[test]

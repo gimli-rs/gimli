@@ -1,12 +1,12 @@
 //! Functions for parsing DWARF debugging information.
 
+use cfi::BaseAddresses;
+use constants;
+use reader::{Reader, ReaderOffset};
 use std::fmt::{self, Debug};
 use std::result;
 #[cfg(feature = "std")]
 use std::{error, io};
-use cfi::BaseAddresses;
-use constants;
-use reader::{Reader, ReaderOffset};
 
 /// An error that occurred when parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,7 +219,9 @@ impl Error {
             Error::BadUtf8 => "Found an invalid UTF-8 string.",
             Error::NotCieId => "Expected to find the CIE ID, but found something else.",
             Error::NotCiePointer => "Expected to find a CIE pointer, but found the CIE ID instead.",
-            Error::NotFdePointer => "Expected to find an FDE pointer, but found a CIE pointer instead.",
+            Error::NotFdePointer => {
+                "Expected to find an FDE pointer, but found a CIE pointer instead."
+            }
             Error::BadBranchTarget(_) => "Invalid branch target in DWARF expression",
             Error::InvalidPushObjectAddress => {
                 "DW_OP_push_object_address used but no object address given"
@@ -412,7 +414,8 @@ pub fn parse_encoded_pointer<'bases, R: Reader>(
         constants::DW_EH_PE_pcrel => if let Some(cfi) = bases.cfi {
             let offset_from_section = input.offset_from(section);
             let offset = parse_data(encoding, address_size, input)?;
-            let p = cfi.wrapping_add(offset_from_section.into_u64())
+            let p = cfi
+                .wrapping_add(offset_from_section.into_u64())
                 .wrapping_add(offset);
             Ok(Pointer::new(encoding, p))
         } else {
@@ -499,12 +502,12 @@ impl Register {
 mod tests {
     extern crate test_assembler;
 
+    use self::test_assembler::{Endian, Section};
     use super::*;
     use cfi::BaseAddresses;
     use constants;
-    use endianity::LittleEndian;
     use endian_slice::EndianSlice;
-    use self::test_assembler::{Endian, Section};
+    use endianity::LittleEndian;
     use std::cell::RefCell;
     use test_util::GimliSectionMethods;
 
@@ -546,7 +549,7 @@ mod tests {
 
         #[cfg(target_pointer_width = "32")]
         match input.read_initial_length() {
-            Err(Error::UnsupportedOffset) => {},
+            Err(Error::UnsupportedOffset) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }

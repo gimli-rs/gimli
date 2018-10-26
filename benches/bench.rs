@@ -3,10 +3,11 @@
 extern crate gimli;
 extern crate test;
 
-use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset,
-            DebugLoc, DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges, DebugRngLists,
-            EntriesTreeNode, Expression, Format, LittleEndian, LocationLists, Operation,
-            RangeLists, Reader};
+use gimli::{
+    AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLineOffset, DebugLoc,
+    DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges, DebugRngLists, EntriesTreeNode,
+    Expression, Format, LittleEndian, LocationLists, Operation, RangeLists, Reader,
+};
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -48,10 +49,14 @@ fn bench_parsing_debug_abbrev(b: &mut test::Bencher) {
 }
 
 #[inline]
-fn impl_bench_parsing_debug_info<R: Reader>(debug_info: DebugInfo<R>, debug_abbrev: DebugAbbrev<R>) {
+fn impl_bench_parsing_debug_info<R: Reader>(
+    debug_info: DebugInfo<R>,
+    debug_abbrev: DebugAbbrev<R>,
+) {
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(&debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -102,10 +107,12 @@ fn bench_parsing_debug_info_tree(b: &mut test::Bencher) {
 
         let mut iter = debug_info.units();
         while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-            let abbrevs = unit.abbreviations(&debug_abbrev)
+            let abbrevs = unit
+                .abbreviations(&debug_abbrev)
                 .expect("Should parse abbreviations");
 
-            let mut tree = unit.entries_tree(&abbrevs, None)
+            let mut tree = unit
+                .entries_tree(&abbrevs, None)
                 .expect("Should have entries tree");
             let root = tree.root().expect("Should parse root entry");
             parse_debug_info_tree(root);
@@ -200,7 +207,8 @@ fn bench_executing_line_number_programs(b: &mut test::Bencher) {
             .expect("Should parse line number program header");
 
         let mut rows = program.rows();
-        while let Some(row) = rows.next_row()
+        while let Some(row) = rows
+            .next_row()
             .expect("Should parse and execute all rows in the line number program")
         {
             test::black_box(row);
@@ -225,7 +233,8 @@ fn bench_parsing_debug_loc(b: &mut test::Bencher) {
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(&debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -283,7 +292,8 @@ fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(&debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -332,7 +342,8 @@ fn debug_info_expressions<R: Reader>(
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -399,7 +410,8 @@ fn debug_loc_expressions<R: Reader>(
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -494,11 +506,13 @@ mod cfi {
     extern crate gimli;
     extern crate test;
 
-    use super::*;
     use self::fallible_iterator::FallibleIterator;
+    use super::*;
 
-    use gimli::{BaseAddresses, CieOrFde, EhFrame, FrameDescriptionEntry, LittleEndian,
-                UninitializedUnwindContext, UnwindSection, UnwindTable};
+    use gimli::{
+        BaseAddresses, CieOrFde, EhFrame, FrameDescriptionEntry, LittleEndian,
+        UninitializedUnwindContext, UnwindSection, UnwindTable,
+    };
 
     #[bench]
     fn iterate_entries_and_do_not_parse_any_fde(b: &mut test::Bencher) {
@@ -594,7 +608,8 @@ mod cfi {
                             .parse(|offset| eh_frame.cie_from_offset(&bases, offset))
                             .expect("Should be able to get CIE for FED");
 
-                        let mut context = ctx.take()
+                        let mut context = ctx
+                            .take()
                             .unwrap()
                             .initialize(fde.cie())
                             .expect("Should be able to initialize ctx");
@@ -695,7 +710,8 @@ mod cfi {
         let mut ctx = Some(UninitializedUnwindContext::new());
 
         b.iter(|| {
-            let mut context = ctx.take()
+            let mut context = ctx
+                .take()
                 .unwrap()
                 .initialize(fde.cie())
                 .expect("Should be able to initialize ctx");

@@ -1,5 +1,5 @@
-use endianity::Endianity;
 use endian_slice::EndianSlice;
+use endianity::Endianity;
 use parser::Result;
 use reader::Reader;
 use Section;

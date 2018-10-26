@@ -1,5 +1,5 @@
-use endianity::Endianity;
 use endian_slice::EndianSlice;
+use endianity::Endianity;
 use fallible_iterator::FallibleIterator;
 use lookup::{DebugLookup, LookupEntryIter, PubStuffEntry, PubStuffParser};
 use parser::{Error, Result};

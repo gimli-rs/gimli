@@ -209,12 +209,12 @@ mod imports {
 
 #[cfg(not(feature = "std"))]
 mod imports {
-    pub use alloc::sync::Arc;
     pub use alloc::borrow;
     pub use alloc::boxed;
     pub use alloc::collections::btree_map;
     pub use alloc::rc;
     pub use alloc::string;
+    pub use alloc::sync::Arc;
     pub use alloc::vec;
 }
 
@@ -248,15 +248,16 @@ pub type EndianBuf<'input, Endian> = EndianSlice<'input, Endian>;
 pub mod leb128;
 
 mod parser;
-pub use parser::{Error, Format, Register, Result};
 pub use parser::{DebugMacinfoOffset, Pointer};
+pub use parser::{Error, Format, Register, Result};
 
 mod reader;
 pub use reader::{Reader, ReaderOffset};
 
 mod abbrev;
-pub use abbrev::{Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev,
-                 DebugAbbrevOffset};
+pub use abbrev::{
+    Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, DebugAbbrevOffset,
+};
 
 mod aranges;
 pub use aranges::{ArangeEntry, ArangeEntryIter, DebugAranges};
@@ -265,8 +266,10 @@ mod line;
 pub use line::*;
 
 mod loclists;
-pub use loclists::{DebugLoc, DebugLocLists, LocListIter, LocationListEntry, LocationLists,
-                   LocationListsOffset, RawLocListEntry, RawLocListIter};
+pub use loclists::{
+    DebugLoc, DebugLocLists, LocListIter, LocationListEntry, LocationLists, LocationListsOffset,
+    RawLocListEntry, RawLocListIter,
+};
 
 mod lookup;
 
@@ -280,8 +283,9 @@ mod pubtypes;
 pub use pubtypes::{DebugPubTypes, PubTypesEntry, PubTypesEntryIter};
 
 mod rnglists;
-pub use rnglists::{DebugRanges, DebugRngLists, Range, RangeLists, RangeListsOffset,
-                   RawRngListEntry, RngListIter};
+pub use rnglists::{
+    DebugRanges, DebugRngLists, Range, RangeLists, RangeListsOffset, RawRngListEntry, RngListIter,
+};
 
 mod str;
 pub use str::*;
@@ -291,10 +295,10 @@ mod test_util;
 
 mod unit;
 pub use unit::{
-    CompilationUnitHeader, CompilationUnitHeadersIter, DebugInfo, DebugInfoOffset, UnitOffset,
-    DebugTypeSignature, DebugTypes, DebugTypesOffset, TypeUnitHeader, TypeUnitHeadersIter,
+    Attribute, AttributeValue, AttrsIter, CompilationUnitHeader, CompilationUnitHeadersIter,
+    DebugInfo, DebugInfoOffset, DebugTypeSignature, DebugTypes, DebugTypesOffset,
     DebuggingInformationEntry, EntriesCursor, EntriesTree, EntriesTreeIter, EntriesTreeNode,
-    Attribute, AttributeValue, AttrsIter,
+    TypeUnitHeader, TypeUnitHeadersIter, UnitOffset,
 };
 
 mod value;

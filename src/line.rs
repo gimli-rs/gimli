@@ -1,6 +1,6 @@
 use constants;
-use endianity::Endianity;
 use endian_slice::EndianSlice;
+use endianity::Endianity;
 use parser;
 use reader::{Reader, ReaderOffset};
 use std::fmt;
@@ -1186,8 +1186,7 @@ where
 
         // This field did not exist before DWARF 4, but is specified to be 1 for
         // non-VLIW architectures, which makes it a no-op.
-        let maximum_operations_per_instruction =
-            if version >= 4 { rest.read_u8()? } else { 1 };
+        let maximum_operations_per_instruction = if version >= 4 { rest.read_u8()? } else { 1 };
         if maximum_operations_per_instruction == 0 {
             return Err(parser::Error::MaximumOperationsPerInstructionZero);
         }
@@ -1466,11 +1465,11 @@ impl<R: Reader> FileEntry<R> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::StateMachineRegisters;
+    use super::*;
     use constants;
-    use endianity::LittleEndian;
     use endian_slice::EndianSlice;
+    use endianity::LittleEndian;
     use parser::{Error, Format};
     use std::u8;
 
@@ -1534,7 +1533,10 @@ mod tests {
         let header = LineNumberProgramHeader::parse(rest, 4, Some(comp_dir), Some(comp_name))
             .expect("should parse header ok");
 
-        assert_eq!(*rest, EndianSlice::new(&buf[buf.len() - 16..], LittleEndian));
+        assert_eq!(
+            *rest,
+            EndianSlice::new(&buf[buf.len() - 16..], LittleEndian)
+        );
 
         assert_eq!(header.version, 4);
         assert_eq!(header.minimum_instruction_length(), 1);
@@ -2389,7 +2391,8 @@ mod tests {
     /// This only needs to compile.
     #[allow(dead_code, unreachable_code, unused_variables)]
     fn test_statemachine_variance<'a, 'b>(_: &'a [u8], _: &'b [u8])
-        where 'a: 'b
+    where
+        'a: 'b,
     {
         let a: &OneShotStateMachine<EndianSlice<'a, LittleEndian>> = unimplemented!();
         let _: &OneShotStateMachine<EndianSlice<'b, LittleEndian>> = a;

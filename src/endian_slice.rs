@@ -1,13 +1,13 @@
 //! Working with byte slices that have an associated endianity.
 
+use borrow::Cow;
 use endianity::Endianity;
+use parser::{Error, Result};
+use reader::Reader;
 use std::mem;
 use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 use std::str;
 use string::String;
-use borrow::Cow;
-use parser::{Error, Result};
-use reader::Reader;
 
 /// A `&[u8]` slice with endianity metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -907,11 +907,11 @@ impl Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use unit::{DebuggingInformationEntry, UnitHeader, UnitOffset};
     use abbrev::{Abbreviation, AttributeSpecification, DebugAbbrevOffset};
-    use parser::Format;
-    use endianity::LittleEndian;
     use endian_slice::EndianSlice;
+    use endianity::LittleEndian;
+    use parser::Format;
+    use unit::{DebuggingInformationEntry, UnitHeader, UnitOffset};
 
     #[test]
     #[cfg_attr(rustfmt, rustfmt_skip)]
