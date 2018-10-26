@@ -105,12 +105,11 @@ We use `rustfmt` to automatically format and style all of our code.
 To install `rustfmt`:
 
 ```
-$ cargo install rustfmt
+$ rustup component add rustfmt-preview
 ```
 
-To run `rustfmt` on `gimli`, use the `format` script in the root of the
-repository:
+To run `rustfmt` on `gimli`:
 
 ```
-$ ./format
+$ cargo fmt
 ```
