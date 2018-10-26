@@ -13,7 +13,7 @@ extern crate typed_arena;
 
 use fallible_iterator::FallibleIterator;
 use gimli::{CompilationUnitHeader, UnitOffset, UnwindSection};
-use object::Object;
+use object::{Object, ObjectSection};
 use regex::bytes::Regex;
 use std::borrow::{Borrow, Cow};
 use std::cmp::min;
@@ -157,6 +157,187 @@ where
     Endian: gimli::Endianity + Send + Sync,
 {
     type SyncSendEndian = Endian;
+}
+
+type RelocationMap = HashMap<usize, object::Relocation>;
+
+fn add_relocations(
+    relocations: &mut RelocationMap,
+    file: &object::File,
+    section: &object::Section,
+) {
+    for (offset64, mut relocation) in section.relocations() {
+        let offset = offset64 as usize;
+        if offset as u64 != offset64 {
+            continue;
+        }
+        let offset = offset as usize;
+        match relocation.kind() {
+            object::RelocationKind::Direct32 | object::RelocationKind::Direct64 => {
+                if let Some(symbol) = file.symbol_by_index(relocation.symbol()) {
+                    let addend = symbol.address().wrapping_add(relocation.addend() as u64);
+                    relocation.set_addend(addend as i64);
+                    if relocations.insert(offset, relocation).is_some() {
+                        println!(
+                            "Multiple relocations for section {} at offset 0x{:08x}",
+                            section.name().unwrap(),
+                            offset
+                        );
+                    }
+                } else {
+                    println!(
+                        "Relocation with invalid symbol for section {} at offset 0x{:08x}",
+                        section.name().unwrap(),
+                        offset
+                    );
+                }
+            }
+            _ => {
+                println!(
+                    "Unsupported relocation for section {} at offset 0x{:08x}",
+                    section.name().unwrap(),
+                    offset
+                );
+            }
+        }
+    }
+}
+
+/// Apply relocations to addresses and offsets during parsing,
+/// instead of requiring the data to be fully relocated prior
+/// to parsing.
+///
+/// Pros
+/// - allows readonly buffers, we don't need to implement writing of values back to buffers
+/// - potentially allows us to handle addresses and offsets differently
+/// - potentially allows us to add metadata from the relocation (eg symbol names)
+/// Cons
+/// - maybe incomplete
+#[derive(Debug, Clone)]
+struct Relocate<'a, R: gimli::Reader<Offset = usize>> {
+    relocations: &'a RelocationMap,
+    section: R,
+    reader: R,
+}
+
+impl<'a, R: gimli::Reader<Offset = usize>> Relocate<'a, R> {
+    fn relocate(&self, offset: usize, value: u64) -> u64 {
+        if let Some(relocation) = self.relocations.get(&offset) {
+            match relocation.kind() {
+                object::RelocationKind::Direct32 | object::RelocationKind::Direct64 => {
+                    if relocation.has_implicit_addend() {
+                        // Use the explicit addend too, because it may have the symbol value.
+                        return value.wrapping_add(relocation.addend() as u64);
+                    } else {
+                        return relocation.addend() as u64;
+                    }
+                }
+                _ => {}
+            }
+        };
+        value
+    }
+}
+
+impl<'a, R: gimli::Reader<Offset = usize>> gimli::Reader for Relocate<'a, R> {
+    type Endian = R::Endian;
+    type Offset = R::Offset;
+
+    fn read_address(&mut self, address_size: u8) -> gimli::Result<u64> {
+        let offset = self.reader.offset_from(&self.section);
+        let value = self.reader.read_address(address_size)?;
+        Ok(self.relocate(offset, value))
+    }
+
+    fn read_length(&mut self, format: gimli::Format) -> gimli::Result<usize> {
+        let offset = self.reader.offset_from(&self.section);
+        let value = self.reader.read_length(format)?;
+        <usize as gimli::ReaderOffset>::from_u64(self.relocate(offset, value as u64))
+    }
+
+    fn read_offset(&mut self, format: gimli::Format) -> gimli::Result<usize> {
+        let offset = self.reader.offset_from(&self.section);
+        let value = self.reader.read_offset(format)?;
+        <usize as gimli::ReaderOffset>::from_u64(self.relocate(offset, value as u64))
+    }
+
+    fn read_sized_offset(&mut self, size: u8) -> gimli::Result<usize> {
+        let offset = self.reader.offset_from(&self.section);
+        let value = self.reader.read_sized_offset(size)?;
+        <usize as gimli::ReaderOffset>::from_u64(self.relocate(offset, value as u64))
+    }
+
+    #[inline]
+    fn split(&mut self, len: Self::Offset) -> gimli::Result<Self> {
+        let mut other = self.clone();
+        other.reader.truncate(len)?;
+        self.reader.skip(len)?;
+        Ok(other)
+    }
+
+    // All remaining methods simply delegate to `self.reader`.
+
+    #[inline]
+    fn endian(&self) -> Self::Endian {
+        self.reader.endian()
+    }
+
+    #[inline]
+    fn len(&self) -> Self::Offset {
+        self.reader.len()
+    }
+
+    #[inline]
+    fn empty(&mut self) {
+        self.reader.empty()
+    }
+
+    #[inline]
+    fn truncate(&mut self, len: Self::Offset) -> gimli::Result<()> {
+        self.reader.truncate(len)
+    }
+
+    #[inline]
+    fn offset_from(&self, base: &Self) -> Self::Offset {
+        self.reader.offset_from(&base.reader)
+    }
+
+    #[inline]
+    fn find(&self, byte: u8) -> gimli::Result<Self::Offset> {
+        self.reader.find(byte)
+    }
+
+    #[inline]
+    fn skip(&mut self, len: Self::Offset) -> gimli::Result<()> {
+        self.reader.skip(len)
+    }
+
+    #[inline]
+    fn to_slice(&self) -> gimli::Result<Cow<[u8]>> {
+        self.reader.to_slice()
+    }
+
+    #[inline]
+    fn to_string(&self) -> gimli::Result<Cow<str>> {
+        self.reader.to_string()
+    }
+
+    #[inline]
+    fn to_string_lossy(&self) -> gimli::Result<Cow<str>> {
+        self.reader.to_string_lossy()
+    }
+
+    #[inline]
+    fn read_u8_array<A>(&mut self) -> gimli::Result<A>
+    where
+        A: Sized + Default + AsMut<[u8]>,
+    {
+        self.reader.read_u8_array()
+    }
+}
+
+impl<'a, R: Reader> Reader for Relocate<'a, R> {
+    type SyncSendEndian = R::SyncSendEndian;
 }
 
 #[derive(Default)]
@@ -314,22 +495,36 @@ fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags) -> Resu
 where
     Endian: gimli::Endianity + Send + Sync,
 {
-    let arena = Arena::new();
+    let arena = (Arena::new(), Arena::new());
 
     fn load_section<'a, 'file, 'input, S, Endian>(
-        arena: &'a Arena<Cow<'file, [u8]>>,
+        arena: &'a (Arena<Cow<'file, [u8]>>, Arena<RelocationMap>),
         file: &'file object::File<'input>,
         endian: Endian,
     ) -> S
     where
-        S: gimli::Section<gimli::EndianSlice<'a, Endian>>,
+        S: gimli::Section<Relocate<'a, gimli::EndianSlice<'a, Endian>>>,
         Endian: gimli::Endianity + Send + Sync,
         'file: 'input,
-        'a: 'file
+        'a: 'file,
     {
-        let data = file.section_data_by_name(S::section_name()).unwrap_or(Cow::Borrowed(&[]));
-        let data_ref = (*arena.alloc(data)).borrow();
-        S::from(gimli::EndianSlice::new(data_ref, endian))
+        let mut relocations = RelocationMap::default();
+        let data = match file.section_by_name(S::section_name()) {
+            Some(ref section) => {
+                add_relocations(&mut relocations, file, section);
+                section.uncompressed_data()
+            }
+            None => Cow::Borrowed(&[][..]),
+        };
+        let data_ref = (*arena.0.alloc(data)).borrow();
+        let reader = gimli::EndianSlice::new(data_ref, endian);
+        let section = reader.clone();
+        let relocations = (*arena.1.alloc(relocations)).borrow();
+        S::from(Relocate {
+            relocations,
+            section,
+            reader,
+        })
     }
 
     // Variables representing sections of the file. The type of each is inferred from its use in the
