@@ -1475,8 +1475,8 @@ mod tests {
     use std::u8;
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_parse_debug_line_32_ok() {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let buf = [
             // 32-bit length = 62.
             0x3e, 0x00, 0x00, 0x00,
@@ -1573,8 +1573,8 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_parse_debug_line_header_length_too_short() {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let buf = [
             // 32-bit length = 62.
             0x3e, 0x00, 0x00, 0x00,
@@ -1634,8 +1634,8 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_parse_debug_line_unit_length_too_short() {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let buf = [
             // 32-bit length = 40. TOO SHORT!!!
             0x28, 0x00, 0x00, 0x00,

@@ -530,6 +530,7 @@ mod tests {
         let start = Label::new();
         let first = Label::new();
         let size = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // Header
             .mark(&start)
@@ -665,6 +666,7 @@ mod tests {
         let start = Label::new();
         let first = Label::new();
         let size = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // Header
             .mark(&start)
@@ -832,6 +834,7 @@ mod tests {
     fn test_ranges_32() {
         let start = Label::new();
         let first = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // A range before the offset.
             .mark(&start)
@@ -929,6 +932,7 @@ mod tests {
     fn test_ranges_64() {
         let start = Label::new();
         let first = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // A range before the offset.
             .mark(&start)
@@ -1024,6 +1028,7 @@ mod tests {
 
     #[test]
     fn test_ranges_invalid() {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // An invalid range.
             .L32(0x20000).L32(0x10000)

@@ -4216,16 +4216,17 @@ mod tests {
     }
 
     fn entries_cursor_tests_abbrev_buf() -> Vec<u8> {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             .abbrev(1, DW_TAG_subprogram, DW_CHILDREN_yes)
-            .abbrev_attr(DW_AT_name, DW_FORM_string)
-            .abbrev_attr_null()
+                .abbrev_attr(DW_AT_name, DW_FORM_string)
+                .abbrev_attr_null()
             .abbrev_null();
         section.get_contents().unwrap()
     }
 
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn entries_cursor_tests_debug_info_buf() -> Vec<u8> {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             .die(1, |s| s.attr_string("001"))
                 .die(1, |s| s.attr_string("002"))
@@ -4265,8 +4266,8 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_cursor_next_entry_incomplete() {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             .die(1, |s| s.attr_string("001"))
                 .die(1, |s| s.attr_string("002"))
@@ -4317,7 +4318,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_cursor_next_entry() {
         let info_buf = &entries_cursor_tests_debug_info_buf();
         let debug_info = DebugInfo::new(info_buf, LittleEndian);
@@ -4360,7 +4360,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_cursor_next_dfs() {
         let info_buf = &entries_cursor_tests_debug_info_buf();
         let debug_info = DebugInfo::new(info_buf, LittleEndian);
@@ -4393,7 +4392,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_cursor_next_sibling_no_sibling_ptr() {
         let info_buf = &entries_cursor_tests_debug_info_buf();
         let debug_info = DebugInfo::new(info_buf, LittleEndian);
@@ -4500,15 +4498,16 @@ mod tests {
     }
 
     fn entries_cursor_sibling_abbrev_buf() -> Vec<u8> {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             .abbrev(1, DW_TAG_subprogram, DW_CHILDREN_yes)
-            .abbrev_attr(DW_AT_name, DW_FORM_string)
-            .abbrev_attr(DW_AT_sibling, DW_FORM_ref1)
-            .abbrev_attr_null()
+                .abbrev_attr(DW_AT_name, DW_FORM_string)
+                .abbrev_attr(DW_AT_sibling, DW_FORM_ref1)
+                .abbrev_attr_null()
             .abbrev(2, DW_TAG_subprogram, DW_CHILDREN_yes)
-            .abbrev_attr(DW_AT_name, DW_FORM_string)
-            .abbrev_attr_null()
-            .abbrev_null();
+                .abbrev_attr(DW_AT_name, DW_FORM_string)
+                .abbrev_attr_null()
+                .abbrev_null();
         section.get_contents().unwrap()
     }
 
@@ -4519,6 +4518,7 @@ mod tests {
         let sibling009_ref = Label::new();
         let sibling009 = Label::new();
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             .mark(&start)
             .die(2, |s| s.attr_string("001"))
@@ -4695,8 +4695,8 @@ mod tests {
         }
     }
 
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn entries_tree_tests_debug_abbrevs_buf() -> Vec<u8> {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         Section::with_endian(Endian::Little)
             .abbrev(1, DW_TAG_subprogram, DW_CHILDREN_yes)
                 .abbrev_attr(DW_AT_name, DW_FORM_string)
@@ -4709,10 +4709,10 @@ mod tests {
             .unwrap()
     }
 
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn entries_tree_tests_debug_info_buf(header_size: usize) -> (Vec<u8>, UnitOffset) {
         let start = Label::new();
         let entry2 = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             .mark(&start)
             .die(1, |s| s.attr_string("root"))

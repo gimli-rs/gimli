@@ -290,13 +290,12 @@ pub use str::*;
 mod test_util;
 
 mod unit;
-pub use unit::{CompilationUnitHeader, CompilationUnitHeadersIter, DebugInfo, DebugInfoOffset,
-               UnitOffset};
-pub use unit::{DebugTypeSignature, DebugTypes, DebugTypesOffset, TypeUnitHeader,
-               TypeUnitHeadersIter};
-pub use unit::{DebuggingInformationEntry, EntriesCursor, EntriesTree, EntriesTreeIter,
-               EntriesTreeNode};
-pub use unit::{Attribute, AttributeValue, AttrsIter};
+pub use unit::{
+    CompilationUnitHeader, CompilationUnitHeadersIter, DebugInfo, DebugInfoOffset, UnitOffset,
+    DebugTypeSignature, DebugTypes, DebugTypesOffset, TypeUnitHeader, TypeUnitHeadersIter,
+    DebuggingInformationEntry, EntriesCursor, EntriesTree, EntriesTreeIter, EntriesTreeNode,
+    Attribute, AttributeValue, AttrsIter,
+};
 
 mod value;
 pub use value::{Value, ValueType};

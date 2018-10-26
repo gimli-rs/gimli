@@ -527,6 +527,7 @@ mod tests {
         let start = Label::new();
         let first = Label::new();
         let size = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // Header
             .mark(&start)
@@ -689,6 +690,7 @@ mod tests {
         let start = Label::new();
         let first = Label::new();
         let size = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // Header
             .mark(&start)
@@ -851,6 +853,7 @@ mod tests {
     fn test_location_list_32() {
         let start = Label::new();
         let first = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // A location before the offset.
             .mark(&start)
@@ -966,6 +969,7 @@ mod tests {
     fn test_location_list_64() {
         let start = Label::new();
         let first = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // A location before the offset.
             .mark(&start)
@@ -1079,6 +1083,7 @@ mod tests {
 
     #[test]
     fn test_locations_invalid() {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // An invalid location range.
             .L32(0x20000).L32(0x10000).L16(4).L32(1)

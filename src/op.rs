@@ -1814,6 +1814,7 @@ mod tests {
         let format = Format::Dwarf32;
 
         // Test all single-byte opcodes.
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let inputs = [
             (
                 constants::DW_OP_deref,
@@ -1921,10 +1922,7 @@ mod tests {
             (constants::DW_OP_reg30, Operation::Register { register: Register(30) }),
             (constants::DW_OP_reg31, Operation::Register { register: Register(31) }),
             (constants::DW_OP_nop, Operation::Nop),
-            (
-                constants::DW_OP_push_object_address,
-                Operation::PushObjectAddress,
-            ),
+            (constants::DW_OP_push_object_address, Operation::PushObjectAddress),
             (constants::DW_OP_form_tls_address, Operation::TLS),
             (constants::DW_OP_GNU_push_tls_address, Operation::TLS),
             (constants::DW_OP_call_frame_cfa, Operation::CallFrameCFA),
@@ -2703,7 +2701,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_eval_arith() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
@@ -2714,6 +2711,7 @@ mod tests {
         let done = 0;
         let fail = 1;
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_const1u), U8(23),
             Op(DW_OP_const1s), U8((-23i8) as u8),
@@ -2873,7 +2871,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_eval_arith64() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
@@ -2884,6 +2881,7 @@ mod tests {
         let done = 0;
         let fail = 1;
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_const8u), U64(0x1111222233334444),
             Op(DW_OP_const8s), U64((-0x1111222233334444i64) as u64),
@@ -2947,7 +2945,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_eval_compare() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
@@ -2958,6 +2955,7 @@ mod tests {
         let done = 0;
         let fail = 1;
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             // Comparisons are signed.
             Op(DW_OP_const1s), U8(1),
@@ -3013,13 +3011,13 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_eval_stack() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
         use constants::*;
         use self::AssemblerEntry::*;
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_lit17),                // -- 17
             Op(DW_OP_dup),                  // -- 17 17
@@ -3050,7 +3048,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_eval_lit_and_reg() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
@@ -3098,7 +3095,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_eval_memory() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
@@ -3109,6 +3105,7 @@ mod tests {
         let done = 0;
         let fail = 1;
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_addr), U32(0x7fffffff),
             Op(DW_OP_deref),
@@ -3195,7 +3192,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_eval_register() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
@@ -3203,6 +3199,7 @@ mod tests {
         use self::AssemblerEntry::*;
 
         for i in 0..32 {
+            #[cfg_attr(rustfmt, rustfmt_skip)]
             let program = [
                 Op(DwOp(DW_OP_reg0.0 + i)),
                 // Included only in the "bad" run.
@@ -3221,6 +3218,7 @@ mod tests {
                        4, Format::Dwarf32);
         }
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_regx), Uleb(0x1234)
         ];
@@ -3236,7 +3234,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_eval_context() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
@@ -3244,6 +3241,7 @@ mod tests {
         use self::AssemblerEntry::*;
 
         // Test `frame_base` and `call_frame_cfa` callbacks.
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_fbreg), Sleb((-8i8) as u64),
             Op(DW_OP_call_frame_cfa),
@@ -3273,6 +3271,7 @@ mod tests {
                              });
 
         // Test `evaluate_entry_value` callback.
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_entry_value), Uleb(8), U64(0x12345678),
             Op(DW_OP_stack_value)
@@ -3297,6 +3296,7 @@ mod tests {
                              });
 
         // Test missing `object_address` field.
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_push_object_address),
         ];
@@ -3305,6 +3305,7 @@ mod tests {
                              4, Format::Dwarf32, None, None, None, |_, _| panic!());
 
         // Test `object_address` field.
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_push_object_address),
             Op(DW_OP_stack_value),
@@ -3321,6 +3322,7 @@ mod tests {
                              Some(0xff), None, None, |_, result| Ok(result));
 
         // Test `initial_value` field.
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
         ];
 
@@ -3336,13 +3338,13 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_eval_empty_stack() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
         use constants::*;
         use self::AssemblerEntry::*;
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_stack_value)
         ];
@@ -3351,13 +3353,13 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_eval_call() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
         use constants::*;
         use self::AssemblerEntry::*;
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_lit23),
             Op(DW_OP_call2), U16(0x7755),
@@ -3435,7 +3437,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_eval_pieces() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
@@ -3443,6 +3444,7 @@ mod tests {
         use self::AssemblerEntry::*;
 
         // Example from DWARF 2.6.1.3.
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_reg3),
             Op(DW_OP_piece), Uleb(4),
@@ -3461,6 +3463,7 @@ mod tests {
 
         // Example from DWARF 2.6.1.3 (but hacked since dealing with fbreg
         // in the tests is a pain).
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_reg0),
             Op(DW_OP_piece), Uleb(4),
@@ -3492,6 +3495,7 @@ mod tests {
                                  Ok(result)
                              });
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_implicit_value), Uleb(5),
             U8(23), U8(24), U8(25), U8(26), U8(0),
@@ -3506,6 +3510,7 @@ mod tests {
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_lit7),
             Op(DW_OP_stack_value),
@@ -3522,6 +3527,7 @@ mod tests {
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_lit7),
         ];
@@ -3533,6 +3539,7 @@ mod tests {
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_implicit_pointer), U32(0x12345678), Sleb(0x123),
         ];
@@ -3548,6 +3555,7 @@ mod tests {
 
         check_eval(&program, Ok(&result), 4, Format::Dwarf32);
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_reg3),
             Op(DW_OP_piece), Uleb(4),
@@ -3556,6 +3564,7 @@ mod tests {
 
         check_eval(&program, Err(Error::InvalidPiece), 4, Format::Dwarf32);
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Op(DW_OP_reg3),
             Op(DW_OP_piece), Uleb(4),
@@ -3566,13 +3575,13 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_eval_max_iterations() {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
         use constants::*;
         use self::AssemblerEntry::*;
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
             Mark(1),
             Op(DW_OP_skip), Branch(1),
@@ -3584,7 +3593,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_eval_typed_stack() {
         use constants::*;
         use self::AssemblerEntry::*;
@@ -3597,7 +3605,8 @@ mod tests {
         ];
 
         // TODO: convert, reinterpret
-        for &(program, value) in &[
+        #[cfg_attr(rustfmt, rustfmt_skip)]
+        let tests = [
             (
                 &[
                     Op(DW_OP_const_type), Uleb(1), U8(2), U16(0x1234),
@@ -3645,7 +3654,8 @@ mod tests {
                 ][..],
                 Value::F32(1.0),
             ),
-        ] {
+        ];
+        for &(program, value) in &tests {
             let result = [
                 Piece {
                     size_in_bits: None,
