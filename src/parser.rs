@@ -61,6 +61,8 @@ pub enum Error {
     UnknownExtendedOpcode(constants::DwLne),
     /// The specified address size is not supported.
     UnsupportedAddressSize(u8),
+    /// The specified offset size is not supported.
+    UnsupportedOffsetSize(u8),
     /// The specified field size is not supported.
     UnsupportedFieldSize(u8),
     /// The minimum instruction length must not be zero.
@@ -204,6 +206,7 @@ impl Error {
             Error::UnknownStandardOpcode(_) => "Found an unknown standard opcode",
             Error::UnknownExtendedOpcode(_) => "Found an unknown extended opcode",
             Error::UnsupportedAddressSize(_) => "The specified address size is not supported",
+            Error::UnsupportedOffsetSize(_) => "The specified offset size is not supported",
             Error::UnsupportedFieldSize(_) => "The specified field size is not supported",
             Error::MinimumInstructionLengthZero => {
                 "The minimum instruction length must not be zero."
@@ -474,24 +477,6 @@ impl Format {
     }
 }
 
-const MAX_DWARF_32_UNIT_LENGTH: u64 = 0xffff_fff0;
-
-const DWARF_64_INITIAL_UNIT_LENGTH: u64 = 0xffff_ffff;
-
-/// Parse the compilation unit header's length.
-#[doc(hidden)]
-pub fn parse_initial_length<R: Reader>(input: &mut R) -> Result<(u64, Format)> {
-    let val = input.read_u32().map(u64::from)?;
-    if val < MAX_DWARF_32_UNIT_LENGTH {
-        Ok((val, Format::Dwarf32))
-    } else if val == DWARF_64_INITIAL_UNIT_LENGTH {
-        let val = input.read_u64()?;
-        Ok((val, Format::Dwarf64))
-    } else {
-        Err(Error::UnknownReservedLength)
-    }
-}
-
 /// A DWARF register number.
 ///
 /// The meaning of this value is ABI dependent. This is generally encoded as
@@ -529,7 +514,7 @@ mod tests {
         let buf = section.get_contents().unwrap();
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
-        match parse_initial_length(input) {
+        match input.read_initial_length() {
             Ok((length, format)) => {
                 assert_eq!(input.len(), 0);
                 assert_eq!(format, Format::Dwarf32);
@@ -547,9 +532,10 @@ mod tests {
             // Actual length
             .L64(0xffdebc9a78563412);
         let buf = section.get_contents().unwrap();
-
         let input = &mut EndianSlice::new(&buf, LittleEndian);
-        match parse_initial_length(input) {
+
+        #[cfg(target_pointer_width = "64")]
+        match input.read_initial_length() {
             Ok((length, format)) => {
                 assert_eq!(input.len(), 0);
                 assert_eq!(format, Format::Dwarf64);
@@ -557,6 +543,12 @@ mod tests {
             }
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
+
+        #[cfg(target_pointer_width = "32")]
+        match input.read_initial_length() {
+            Err(Error::UnsupportedOffset) => {},
+            otherwise => panic!("Unexpected result: {:?}", otherwise),
+        };
     }
 
     #[test]
@@ -564,7 +556,8 @@ mod tests {
         let section = Section::with_endian(Endian::Little).L32(0xfffffffe);
         let buf = section.get_contents().unwrap();
 
-        match parse_initial_length(&mut EndianSlice::new(&buf, LittleEndian)) {
+        let input = &mut EndianSlice::new(&buf, LittleEndian);
+        match input.read_initial_length() {
             Err(Error::UnknownReservedLength) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -574,7 +567,8 @@ mod tests {
     fn test_parse_initial_length_incomplete() {
         let buf = [0xff, 0xff, 0xff]; // Need at least 4 bytes.
 
-        match parse_initial_length(&mut EndianSlice::new(&buf, LittleEndian)) {
+        let input = &mut EndianSlice::new(&buf, LittleEndian);
+        match input.read_initial_length() {
             Err(Error::UnexpectedEof) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -589,7 +583,8 @@ mod tests {
             .L32(0x78563412);
         let buf = section.get_contents().unwrap();
 
-        match parse_initial_length(&mut EndianSlice::new(&buf, LittleEndian)) {
+        let input = &mut EndianSlice::new(&buf, LittleEndian);
+        match input.read_initial_length() {
             Err(Error::UnexpectedEof) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };

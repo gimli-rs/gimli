@@ -2,7 +2,7 @@ use endianity::Endianity;
 use endian_slice::EndianSlice;
 use fallible_iterator::FallibleIterator;
 use lookup::{DebugLookup, LookupEntryIter, LookupParser};
-use parser::{parse_initial_length, Error, Format, Result};
+use parser::{Error, Format, Result};
 use reader::{Reader, ReaderOffset};
 use unit::{parse_debug_info_offset, DebugInfoOffset};
 use std::cmp::Ordering;
@@ -92,8 +92,7 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
     /// Parse an arange set header. Returns a tuple of the aranges to be
     /// parsed for this set, and the newly created ArangeHeader struct.
     fn parse_header(input: &mut R) -> Result<(R, Self::Header)> {
-        let (length, format) = parse_initial_length(input)?;
-        let length = R::Offset::from_u64(length)?;
+        let (length, format) = input.read_initial_length()?;
         let mut rest = input.split(length)?;
 
         let version = rest.read_u16()?;

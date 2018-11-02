@@ -4,7 +4,7 @@ use endianity::Endianity;
 use endian_slice::EndianSlice;
 use fallible_iterator::FallibleIterator;
 use op::Expression;
-use parser::{parse_encoded_pointer, parse_initial_length, parse_pointer_encoding, Error, Format,
+use parser::{parse_encoded_pointer, parse_pointer_encoding, Error, Format,
              Pointer, Register, Result};
 use reader::{Reader, ReaderOffset};
 use std::cell::RefCell;
@@ -481,7 +481,7 @@ pub trait _UnwindSectionPrivate<R: Reader> {
 
     /// Returns true if the given length value should be considered an
     /// end-of-entries sentinel.
-    fn length_value_is_end_of_entries(length: u64) -> bool;
+    fn length_value_is_end_of_entries(length: R::Offset) -> bool;
 
     /// Return true if the given offset if the CIE sentinel, false otherwise.
     fn is_cie(format: Format, id: u64) -> bool;
@@ -663,7 +663,7 @@ impl<R: Reader> _UnwindSectionPrivate<R> for DebugFrame<R> {
         &self.section
     }
 
-    fn length_value_is_end_of_entries(_: u64) -> bool {
+    fn length_value_is_end_of_entries(_: R::Offset) -> bool {
         false
     }
 
@@ -725,8 +725,8 @@ impl<R: Reader> _UnwindSectionPrivate<R> for EhFrame<R> {
         &self.section
     }
 
-    fn length_value_is_end_of_entries(length: u64) -> bool {
-        length == 0
+    fn length_value_is_end_of_entries(length: R::Offset) -> bool {
+        length.into_u64() == 0
     }
 
     fn is_cie(_: Format, id: u64) -> bool {
@@ -955,13 +955,12 @@ where
     Section: UnwindSection<R>,
 {
     let offset = input.offset_from(section.section());
-    let (length, format) = parse_initial_length(input)?;
+    let (length, format) = input.read_initial_length()?;
 
     if Section::length_value_is_end_of_entries(length) {
         return Ok(None);
     }
 
-    let length = R::Offset::from_u64(length)?;
     let cie_offset_input = input.split(length)?;
 
     let mut rest = cie_offset_input.clone();

@@ -3,7 +3,7 @@ use endianity::Endianity;
 use endian_slice::EndianSlice;
 use fallible_iterator::FallibleIterator;
 use op::Expression;
-use parser::{self, Error, Format, Result};
+use parser::{Error, Format, Result};
 use reader::{Reader, ReaderOffset};
 use rnglists::{AddressIndex, Range, RawRange};
 use Section;
@@ -110,8 +110,7 @@ impl LocListsHeader {
 }
 
 fn parse_header<R: Reader>(input: &mut R) -> Result<LocListsHeader> {
-    let (length, format) = parser::parse_initial_length(input)?;
-    let length = R::Offset::from_u64(length)?;
+    let (length, format) = input.read_initial_length()?;
     input.truncate(length)?;
 
     let version = input.read_u16()?;

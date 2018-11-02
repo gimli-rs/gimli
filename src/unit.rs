@@ -8,7 +8,7 @@ use fallible_iterator::FallibleIterator;
 use line::DebugLineOffset;
 use loclists::LocationListsOffset;
 use op::Expression;
-use parser::{parse_initial_length, DebugMacinfoOffset, Error, Format, Result};
+use parser::{DebugMacinfoOffset, Error, Format, Result};
 use rnglists::RangeListsOffset;
 use reader::{Reader, ReaderOffset};
 use std::cell::Cell;
@@ -631,8 +631,7 @@ where
 
 /// Parse a compilation unit header.
 fn parse_unit_header<R: Reader>(input: &mut R) -> Result<UnitHeader<R, R::Offset>> {
-    let (unit_length, format) = parse_initial_length(input)?;
-    let unit_length = R::Offset::from_u64(unit_length)?;
+    let (unit_length, format) = input.read_initial_length()?;
     let mut rest = input.split(unit_length)?;
 
     let version = rest.read_u16()?;
@@ -1766,9 +1765,7 @@ fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 // has the same size as an address on the target system.  This was changed
                 // in DWARF version 3.
                 let offset = if unit.version() == 2 {
-                    input
-                        .read_address(unit.address_size())
-                        .and_then(R::Offset::from_u64)?
+                    input.read_sized_offset(unit.address_size())?
                 } else {
                     input.read_offset(unit.format())?
                 };
