@@ -1,10 +1,8 @@
-use constants;
-use endian_slice::EndianSlice;
-use endianity::Endianity;
 use fallible_iterator::FallibleIterator;
-use parser::{Error, Format, Result};
-use reader::{Reader, ReaderOffset};
-use Section;
+
+use constants;
+use endianity::Endianity;
+use read::{EndianSlice, Error, Format, Reader, ReaderOffset, Result, Section};
 
 /// An offset into the `.debug_addr` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -1,12 +1,11 @@
-use constants;
-use endian_slice::EndianSlice;
-use endianity::Endianity;
 use fallible_iterator::FallibleIterator;
-use op::Expression;
-use parser::{Error, Format, Result};
-use reader::{Reader, ReaderOffset};
-use rnglists::{AddressIndex, Range, RawRange};
-use Section;
+
+use constants;
+use endianity::Endianity;
+use read::{
+    AddressIndex, EndianSlice, Error, Expression, Format, Range, RawRange, Reader, ReaderOffset,
+    Result, Section,
+};
 
 /// The `DebugLoc` struct represents the DWARF strings
 /// found in the `.debug_loc` section.
@@ -505,9 +504,8 @@ mod tests {
 
     use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
-    use endian_slice::EndianSlice;
     use endianity::LittleEndian;
-    use rnglists::Range;
+    use read::{EndianSlice, Range};
     use test_util::GimliSectionMethods;
 
     #[test]

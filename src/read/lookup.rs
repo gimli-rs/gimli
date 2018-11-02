@@ -1,7 +1,9 @@
-use parser::{Error, Format, Result};
-use reader::{Reader, ReaderOffset};
 use std::marker::PhantomData;
-use unit::{parse_debug_info_offset, DebugInfoOffset, UnitOffset};
+
+use read::{
+    parse_debug_info_offset, DebugInfoOffset, Error, Format, Reader, ReaderOffset, Result,
+    UnitOffset,
+};
 
 // The various "Accelerated Access" sections (DWARF standard v4 Section 6.1) all have
 // similar structures. They consist of a header with metadata and an offset into the

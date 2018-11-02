@@ -1,14 +1,11 @@
 //! Functions for parsing DWARF debugging abbreviations.
 
 use btree_map;
-use constants;
-use endian_slice::EndianSlice;
-use endianity::Endianity;
-use parser::{Error, Result};
-use reader::Reader;
-use unit::UnitHeader;
 use vec::Vec;
-use Section;
+
+use constants;
+use endianity::Endianity;
+use read::{EndianSlice, Error, Reader, Result, Section, UnitHeader};
 
 /// An offset into the `.debug_abbrev` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -392,9 +389,8 @@ pub mod tests {
     use self::test_assembler::Section;
     use super::*;
     use constants;
-    use endian_slice::EndianSlice;
     use endianity::LittleEndian;
-    use parser::Error;
+    use read::{EndianSlice, Error};
     #[cfg(target_pointer_width = "32")]
     use std::u32;
     use test_util::GimliSectionMethods;

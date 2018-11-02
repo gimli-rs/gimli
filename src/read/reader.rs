@@ -5,7 +5,7 @@ use std::ops::{Add, AddAssign, Sub};
 
 use endianity::Endianity;
 use leb128;
-use parser::{Error, Format, Result};
+use read::{Error, Format, Result};
 
 /// A trait for offsets with a DWARF section.
 ///

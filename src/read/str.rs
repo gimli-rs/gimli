@@ -1,8 +1,5 @@
-use endian_slice::EndianSlice;
 use endianity::Endianity;
-use parser::Result;
-use reader::Reader;
-use Section;
+use read::{EndianSlice, Reader, Result, Section};
 
 /// An offset into the `.debug_str` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

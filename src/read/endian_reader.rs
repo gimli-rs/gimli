@@ -1,10 +1,7 @@
 //! Defining custom `Reader`s quickly.
 
 use borrow::Cow;
-use endianity::Endianity;
-use parser::{Error, Result};
 use rc::Rc;
-use reader::Reader;
 use stable_deref_trait::CloneStableDeref;
 use std::fmt::Debug;
 use std::mem;
@@ -13,6 +10,9 @@ use std::slice;
 use std::str;
 use string::String;
 use Arc;
+
+use endianity::Endianity;
+use read::{Error, Reader, Result};
 
 /// A reference counted, non-thread-safe slice of bytes and associated
 /// endianity.
@@ -456,7 +456,7 @@ where
 mod tests {
     use super::*;
     use endianity::NativeEndian;
-    use reader::Reader;
+    use read::Reader;
 
     fn native_reader<T: CloneStableDeref<Target = [u8]> + Debug>(
         bytes: T,

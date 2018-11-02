@@ -1,21 +1,17 @@
 //! Functions for parsing DWARF `.debug_info` and `.debug_types` sections.
 
-use abbrev::{Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, DebugAbbrevOffset};
-use constants;
-use endian_slice::EndianSlice;
-use endianity::Endianity;
 use fallible_iterator::FallibleIterator;
-use line::DebugLineOffset;
-use loclists::LocationListsOffset;
-use op::Expression;
-use parser::{DebugMacinfoOffset, Error, Format, Result};
-use reader::{Reader, ReaderOffset};
-use rnglists::RangeListsOffset;
 use std::cell::Cell;
 use std::ops::{Range, RangeFrom, RangeTo};
 use std::{u16, u8};
-use str::{DebugStr, DebugStrOffset};
-use Section;
+
+use constants;
+use endianity::Endianity;
+use read::{
+    Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, DebugAbbrevOffset,
+    DebugLineOffset, DebugMacinfoOffset, DebugStr, DebugStrOffset, EndianSlice, Error, Expression,
+    Format, LocationListsOffset, RangeListsOffset, Reader, ReaderOffset, Result, Section,
+};
 
 /// An offset into the `.debug_types` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -421,7 +417,7 @@ fn parse_debug_abbrev_offset<R: Reader>(
 }
 
 /// Parse the `debug_info_offset` in the arange header.
-pub fn parse_debug_info_offset<R: Reader>(
+pub(crate) fn parse_debug_info_offset<R: Reader>(
     input: &mut R,
     format: Format,
 ) -> Result<DebugInfoOffset<R::Offset>> {
@@ -2856,18 +2852,17 @@ mod tests {
         parse_attribute, parse_debug_abbrev_offset, parse_type_offset, parse_type_unit_header,
         parse_unit_header,
     };
-    use abbrev::tests::AbbrevSectionMethods;
-    use abbrev::{Abbreviation, AttributeSpecification, DebugAbbrev, DebugAbbrevOffset};
     use constants;
     use constants::*;
-    use endian_slice::EndianSlice;
     use endianity::{Endianity, LittleEndian};
     use leb128;
-    use loclists::LocationListsOffset;
-    use parser::{Error, Format, Result};
+    use read::abbrev::tests::AbbrevSectionMethods;
+    use read::{
+        Abbreviation, AttributeSpecification, DebugAbbrev, DebugAbbrevOffset, DebugStrOffset,
+        EndianSlice, Error, Format, LocationListsOffset, Result,
+    };
     use std;
     use std::cell::Cell;
-    use str::DebugStrOffset;
     use test_util::GimliSectionMethods;
     use vec::Vec;
 

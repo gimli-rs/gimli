@@ -1,11 +1,8 @@
-use endian_slice::EndianSlice;
-use endianity::Endianity;
 use fallible_iterator::FallibleIterator;
-use lookup::{DebugLookup, LookupEntryIter, PubStuffEntry, PubStuffParser};
-use parser::{Error, Result};
-use reader::Reader;
-use unit::{DebugInfoOffset, UnitOffset};
-use Section;
+
+use endianity::Endianity;
+use read::lookup::{DebugLookup, LookupEntryIter, PubStuffEntry, PubStuffParser};
+use read::{DebugInfoOffset, EndianSlice, Error, Reader, Result, Section, UnitOffset};
 
 /// A single parsed pubname.
 #[derive(Debug, Clone)]

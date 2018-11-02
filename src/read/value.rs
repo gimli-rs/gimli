@@ -1,10 +1,9 @@
 //! Definitions for values used in DWARF expressions.
 
-use constants;
-use parser::{Error, Result};
-use reader::Reader;
 use std::mem;
-use unit::{AttributeValue, DebuggingInformationEntry};
+
+use constants;
+use read::{AttributeValue, DebuggingInformationEntry, Error, Reader, Result};
 
 /// Convert a u64 to an i64, with sign extension if required.
 ///
@@ -907,11 +906,11 @@ impl Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use abbrev::{Abbreviation, AttributeSpecification, DebugAbbrevOffset};
-    use endian_slice::EndianSlice;
     use endianity::LittleEndian;
-    use parser::Format;
-    use unit::{DebuggingInformationEntry, UnitHeader, UnitOffset};
+    use read::{
+        Abbreviation, AttributeSpecification, DebugAbbrevOffset, DebuggingInformationEntry,
+        EndianSlice, Format, UnitHeader, UnitOffset,
+    };
 
     #[test]
     #[cfg_attr(rustfmt, rustfmt_skip)]

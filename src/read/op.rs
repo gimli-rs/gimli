@@ -1,12 +1,13 @@
 //! Functions for parsing and evaluating DWARF expressions.
 
-use constants;
-use parser::{Error, Format, Register, Result};
-use reader::{Reader, ReaderOffset};
 use std::mem;
-use unit::{DebugInfoOffset, UnitOffset};
-use value::{Value, ValueType};
 use vec::Vec;
+
+use constants;
+use read::{
+    DebugInfoOffset, Error, Format, Reader, ReaderOffset, Register, Result, UnitOffset, Value,
+    ValueType,
+};
 
 /// A reference to a DIE, either relative to the current CU or
 /// relative to the section.
@@ -1724,13 +1725,11 @@ mod tests {
     use super::compute_pc;
     use super::*;
     use constants;
-    use endian_slice::EndianSlice;
     use endianity::LittleEndian;
     use leb128;
-    use parser::{Error, Format, Result};
+    use read::{DebugInfoOffset, EndianSlice, Error, Format, Result, UnitOffset};
     use std::usize;
     use test_util::GimliSectionMethods;
-    use unit::{DebugInfoOffset, UnitOffset};
 
     #[test]
     fn test_compute_pc() {

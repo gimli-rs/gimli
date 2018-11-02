@@ -1,11 +1,10 @@
-use constants;
-use endian_slice::EndianSlice;
-use endianity::Endianity;
-use parser;
-use reader::{Reader, ReaderOffset};
 use std::fmt;
+use std::result;
 use vec::Vec;
-use Section;
+
+use constants;
+use endianity::Endianity;
+use read::{EndianSlice, Error, Format, Reader, ReaderOffset, Result, Section};
 
 /// An offset into the `.debug_line` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,7 +71,7 @@ impl<R: Reader> DebugLine<R> {
         address_size: u8,
         comp_dir: Option<R>,
         comp_name: Option<R>,
-    ) -> parser::Result<IncompleteLineNumberProgram<R, R::Offset>> {
+    ) -> Result<IncompleteLineNumberProgram<R, R::Offset>> {
         let input = &mut self.debug_line_section.clone();
         input.skip(offset.0)?;
         let header = LineNumberProgramHeader::parse(input, address_size, comp_dir, comp_name)?;
@@ -362,7 +361,7 @@ where
     /// `FallibleIterator`.
     pub fn next_row(
         &mut self,
-    ) -> parser::Result<Option<(&LineNumberProgramHeader<R, Offset>, &LineNumberRow)>> {
+    ) -> Result<Option<(&LineNumberProgramHeader<R, Offset>, &LineNumberRow)>> {
         // Perform any reset that was required after copying the previous row.
         if self.row.registers.end_sequence {
             // Previous opcode was EndSequence, so reset everything
@@ -404,7 +403,7 @@ where
     pub fn run_to_address(
         &mut self,
         addr: &u64,
-    ) -> parser::Result<Option<(&LineNumberProgramHeader<R, Offset>, &LineNumberRow)>> {
+    ) -> Result<Option<(&LineNumberProgramHeader<R, Offset>, &LineNumberRow)>> {
         loop {
             match self.next_row() {
                 Ok(Some((_, row))) => {
@@ -558,7 +557,7 @@ impl<R: Reader> Opcode<R> {
     fn parse<'header>(
         header: &'header LineNumberProgramHeader<R, R::Offset>,
         input: &mut R,
-    ) -> parser::Result<Opcode<R>>
+    ) -> Result<Opcode<R>>
     where
         R: 'header,
     {
@@ -662,7 +661,7 @@ impl<R: Reader> Opcode<R> {
 }
 
 impl<R: Reader> fmt::Display for Opcode<R> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         match *self {
             Opcode::Special(opcode) => write!(f, "Special opcode {}", opcode),
             Opcode::Copy => write!(f, "{}", constants::DW_LNS_copy),
@@ -716,7 +715,7 @@ pub struct OpcodesIter<R: Reader> {
 }
 
 impl<R: Reader> OpcodesIter<R> {
-    fn remove_trailing(&self, other: &OpcodesIter<R>) -> parser::Result<OpcodesIter<R>> {
+    fn remove_trailing(&self, other: &OpcodesIter<R>) -> Result<OpcodesIter<R>> {
         let offset = other.input.offset_from(&self.input);
         let mut input = self.input.clone();
         input.truncate(offset)?;
@@ -740,7 +739,7 @@ impl<R: Reader> OpcodesIter<R> {
     pub fn next_opcode(
         &mut self,
         header: &LineNumberProgramHeader<R, R::Offset>,
-    ) -> parser::Result<Option<Opcode<R>>> {
+    ) -> Result<Option<Opcode<R>>> {
         if self.input.is_empty() {
             return Ok(None);
         }
@@ -1017,7 +1016,7 @@ where
     file_names: Vec<FileEntry<R>>,
 
     /// Whether this line program is encoded in the 32- or 64-bit DWARF format.
-    format: parser::Format,
+    format: Format,
 
     /// The encoded line program instructions.
     program_buf: R,
@@ -1164,13 +1163,13 @@ where
         address_size: u8,
         comp_dir: Option<R>,
         comp_name: Option<R>,
-    ) -> parser::Result<LineNumberProgramHeader<R, Offset>> {
+    ) -> Result<LineNumberProgramHeader<R, Offset>> {
         let (unit_length, format) = input.read_initial_length()?;
         let rest = &mut input.split(unit_length)?;
 
         let version = rest.read_u16()?;
         if version < 2 || version > 4 {
-            return Err(parser::Error::UnknownVersion(u64::from(version)));
+            return Err(Error::UnknownVersion(u64::from(version)));
         }
 
         let header_length = rest.read_length(format)?;
@@ -1181,26 +1180,26 @@ where
 
         let minimum_instruction_length = rest.read_u8()?;
         if minimum_instruction_length == 0 {
-            return Err(parser::Error::MinimumInstructionLengthZero);
+            return Err(Error::MinimumInstructionLengthZero);
         }
 
         // This field did not exist before DWARF 4, but is specified to be 1 for
         // non-VLIW architectures, which makes it a no-op.
         let maximum_operations_per_instruction = if version >= 4 { rest.read_u8()? } else { 1 };
         if maximum_operations_per_instruction == 0 {
-            return Err(parser::Error::MaximumOperationsPerInstructionZero);
+            return Err(Error::MaximumOperationsPerInstructionZero);
         }
 
         let default_is_stmt = rest.read_u8()?;
         let line_base = rest.read_i8()?;
         let line_range = rest.read_u8()?;
         if line_range == 0 {
-            return Err(parser::Error::LineRangeZero);
+            return Err(Error::LineRangeZero);
         }
 
         let opcode_base = rest.read_u8()?;
         if opcode_base == 0 {
-            return Err(parser::Error::OpcodeBaseZero);
+            return Err(Error::OpcodeBaseZero);
         }
 
         let standard_opcode_count = R::Offset::from_u8(opcode_base - 1);
@@ -1302,7 +1301,7 @@ where
     /// ```
     pub fn sequences(
         self,
-    ) -> parser::Result<(
+    ) -> Result<(
         CompleteLineNumberProgram<R, Offset>,
         Vec<LineNumberSequence<R>>,
     )> {
@@ -1404,7 +1403,7 @@ pub struct FileEntry<R: Reader> {
 }
 
 impl<R: Reader> FileEntry<R> {
-    fn parse(input: &mut R, path_name: R) -> parser::Result<FileEntry<R>> {
+    fn parse(input: &mut R, path_name: R) -> Result<FileEntry<R>> {
         let directory_index = input.read_uleb128()?;
         let last_modification = input.read_uleb128()?;
         let length = input.read_uleb128()?;
@@ -1468,9 +1467,8 @@ mod tests {
     use super::StateMachineRegisters;
     use super::*;
     use constants;
-    use endian_slice::EndianSlice;
     use endianity::LittleEndian;
-    use parser::{Error, Format};
+    use read::{EndianSlice, Error, Format};
     use std::u8;
 
     #[test]

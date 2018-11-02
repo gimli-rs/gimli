@@ -1,14 +1,6 @@
 use arrayvec::ArrayVec;
 use boxed::Box;
-use constants::{self, DwEhPe};
-use endian_slice::EndianSlice;
-use endianity::Endianity;
 use fallible_iterator::FallibleIterator;
-use op::Expression;
-use parser::{
-    parse_encoded_pointer, parse_pointer_encoding, Error, Format, Pointer, Register, Result,
-};
-use reader::{Reader, ReaderOffset};
 use std::cell::RefCell;
 use std::cmp::{Ord, Ordering};
 use std::fmt::Debug;
@@ -16,7 +8,13 @@ use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::mem;
 use std::str;
-use Section;
+
+use constants::{self, DwEhPe};
+use endianity::Endianity;
+use read::{
+    parse_encoded_pointer, parse_pointer_encoding, EndianSlice, Error, Expression, Format, Pointer,
+    Reader, ReaderOffset, Register, Result, Section,
+};
 
 /// An offset into the `.debug_frame` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -3277,10 +3275,8 @@ mod tests {
     use super::*;
     use super::{parse_cfi_entry, AugmentationData, RegisterRuleMap, UnwindContext};
     use constants;
-    use endian_slice::EndianSlice;
     use endianity::{BigEndian, Endianity, LittleEndian, NativeEndian};
-    use op::Expression;
-    use parser::{Error, Format, Pointer, Result};
+    use read::{EndianSlice, Error, Expression, Format, Pointer, Result};
     use std::marker::PhantomData;
     use std::mem;
     use std::u64;
