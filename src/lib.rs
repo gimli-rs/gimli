@@ -225,7 +225,8 @@ pub use stable_deref_trait::{CloneStableDeref, StableDeref};
 mod arch;
 pub use arch::*;
 
-mod constants;
+pub mod constants;
+// For backwards compat.
 pub use constants::*;
 
 mod endianity;
