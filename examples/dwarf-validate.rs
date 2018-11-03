@@ -13,12 +13,12 @@ use object::Object;
 use rayon::prelude::*;
 use std::borrow::{Borrow, Cow};
 use std::env;
-use std::io::{self, BufWriter, Write};
+use std::error;
 use std::fs;
+use std::io::{self, BufWriter, Write};
 use std::iter::Iterator;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::error;
 use std::sync::Mutex;
 use typed_arena::Arena;
 
@@ -115,9 +115,11 @@ where
         S: gimli::Section<gimli::EndianSlice<'a, Endian>>,
         Endian: gimli::Endianity + Send + Sync,
         'file: 'input,
-        'a: 'file
+        'a: 'file,
     {
-        let data = file.section_data_by_name(S::section_name()).unwrap_or(Cow::Borrowed(&[]));
+        let data = file
+            .section_data_by_name(S::section_name())
+            .unwrap_or(Cow::Borrowed(&[]));
         let data_ref = (*arena.alloc(data)).borrow();
         S::from(gimli::EndianSlice::new(data_ref, endian))
     }

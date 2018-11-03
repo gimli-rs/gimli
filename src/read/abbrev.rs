@@ -1,14 +1,11 @@
 //! Functions for parsing DWARF debugging abbreviations.
 
+use btree_map;
+use vec::Vec;
+
 use constants;
 use endianity::Endianity;
-use endian_slice::EndianSlice;
-use parser::{Error, Result};
-use reader::Reader;
-use unit::UnitHeader;
-use vec::Vec;
-use btree_map;
-use Section;
+use read::{EndianSlice, Error, Reader, Result, Section, UnitHeader};
 
 /// An offset into the `.debug_abbrev` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -389,12 +386,11 @@ impl AttributeSpecification {
 pub mod tests {
     extern crate test_assembler;
 
+    use self::test_assembler::Section;
     use super::*;
     use constants;
     use endianity::LittleEndian;
-    use endian_slice::EndianSlice;
-    use parser::Error;
-    use self::test_assembler::Section;
+    use read::{EndianSlice, Error};
     #[cfg(target_pointer_width = "32")]
     use std::u32;
     use test_util::GimliSectionMethods;
@@ -435,19 +431,16 @@ pub mod tests {
     fn test_debug_abbrev_ok() {
         let extra_start = [1, 2, 3, 4];
         let expected_rest = [5, 6, 7, 8];
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let buf = Section::new()
             .append_bytes(&extra_start)
             .abbrev(2, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
-            .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)
-            .abbrev_attr_null()
-            .abbrev(
-                1,
-                constants::DW_TAG_compile_unit,
-                constants::DW_CHILDREN_yes,
-            )
-            .abbrev_attr(constants::DW_AT_producer, constants::DW_FORM_strp)
-            .abbrev_attr(constants::DW_AT_language, constants::DW_FORM_data2)
-            .abbrev_attr_null()
+                .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)
+                .abbrev_attr_null()
+            .abbrev(1, constants::DW_TAG_compile_unit, constants::DW_CHILDREN_yes)
+                .abbrev_attr(constants::DW_AT_producer, constants::DW_FORM_strp)
+                .abbrev_attr(constants::DW_AT_language, constants::DW_FORM_data2)
+                .abbrev_attr_null()
             .abbrev_null()
             .append_bytes(&expected_rest)
             .get_contents()
@@ -475,9 +468,11 @@ pub mod tests {
             2,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
-            vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
-            ],
+            vec![AttributeSpecification::new(
+                constants::DW_AT_name,
+                constants::DW_FORM_string,
+                None,
+            )],
         );
 
         let debug_abbrev = DebugAbbrev::new(&buf, LittleEndian);
@@ -587,18 +582,15 @@ pub mod tests {
     #[test]
     fn test_parse_abbreviations_ok() {
         let expected_rest = [1, 2, 3, 4];
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let buf = Section::new()
             .abbrev(2, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
-            .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)
-            .abbrev_attr_null()
-            .abbrev(
-                1,
-                constants::DW_TAG_compile_unit,
-                constants::DW_CHILDREN_yes,
-            )
-            .abbrev_attr(constants::DW_AT_producer, constants::DW_FORM_strp)
-            .abbrev_attr(constants::DW_AT_language, constants::DW_FORM_data2)
-            .abbrev_attr_null()
+                .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)
+                .abbrev_attr_null()
+            .abbrev(1, constants::DW_TAG_compile_unit, constants::DW_CHILDREN_yes)
+                .abbrev_attr(constants::DW_AT_producer, constants::DW_FORM_strp)
+                .abbrev_attr(constants::DW_AT_language, constants::DW_FORM_data2)
+                .abbrev_attr_null()
             .abbrev_null()
             .append_bytes(&expected_rest)
             .get_contents()
@@ -627,9 +619,11 @@ pub mod tests {
             2,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
-            vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
-            ],
+            vec![AttributeSpecification::new(
+                constants::DW_AT_name,
+                constants::DW_FORM_string,
+                None,
+            )],
         );
 
         let abbrevs = Abbreviations::parse(rest).expect("Should parse abbreviations");
@@ -641,18 +635,15 @@ pub mod tests {
     #[test]
     fn test_parse_abbreviations_duplicate() {
         let expected_rest = [1, 2, 3, 4];
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let buf = Section::new()
             .abbrev(1, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
-            .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)
-            .abbrev_attr_null()
-            .abbrev(
-                1,
-                constants::DW_TAG_compile_unit,
-                constants::DW_CHILDREN_yes,
-            )
-            .abbrev_attr(constants::DW_AT_producer, constants::DW_FORM_strp)
-            .abbrev_attr(constants::DW_AT_language, constants::DW_FORM_data2)
-            .abbrev_attr_null()
+                .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)
+                .abbrev_attr_null()
+            .abbrev(1, constants::DW_TAG_compile_unit, constants::DW_CHILDREN_yes)
+                .abbrev_attr(constants::DW_AT_producer, constants::DW_FORM_strp)
+                .abbrev_attr(constants::DW_AT_language, constants::DW_FORM_data2)
+                .abbrev_attr_null()
             .abbrev_null()
             .append_bytes(&expected_rest)
             .get_contents()
@@ -714,9 +705,11 @@ pub mod tests {
             1,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
-            vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
-            ],
+            vec![AttributeSpecification::new(
+                constants::DW_AT_name,
+                constants::DW_FORM_string,
+                None,
+            )],
         ));
 
         let abbrev = Abbreviation::parse(rest).expect("Should parse abbreviation");
@@ -740,13 +733,11 @@ pub mod tests {
             1,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
-            vec![
-                AttributeSpecification::new(
-                    constants::DW_AT_name,
-                    constants::DW_FORM_implicit_const,
-                    Some(-42),
-                ),
-            ],
+            vec![AttributeSpecification::new(
+                constants::DW_AT_name,
+                constants::DW_FORM_implicit_const,
+                Some(-42),
+            )],
         ));
 
         let abbrev = Abbreviation::parse(rest).expect("Should parse abbreviation");

@@ -209,12 +209,12 @@ mod imports {
 
 #[cfg(not(feature = "std"))]
 mod imports {
-    pub use alloc::sync::Arc;
     pub use alloc::borrow;
     pub use alloc::boxed;
     pub use alloc::collections::btree_map;
     pub use alloc::rc;
     pub use alloc::string;
+    pub use alloc::sync::Arc;
     pub use alloc::vec;
 }
 
@@ -225,101 +225,18 @@ pub use stable_deref_trait::{CloneStableDeref, StableDeref};
 mod arch;
 pub use arch::*;
 
-mod cfi;
-pub use cfi::*;
-
-mod constants;
+pub mod constants;
+// For backwards compat.
 pub use constants::*;
 
 mod endianity;
 pub use endianity::{BigEndian, Endianity, LittleEndian, NativeEndian, RunTimeEndian};
 
-mod endian_slice;
-pub use endian_slice::EndianSlice;
-
-mod endian_reader;
-pub use endian_reader::{EndianArcSlice, EndianRcSlice, EndianReader};
-
-/// `EndianBuf` has been renamed to `EndianSlice`. For ease of upgrading across
-/// `gimli` versions, we export this type alias.
-#[deprecated(note = "EndianBuf has been renamed to EndianSlice, use that instead.")]
-pub type EndianBuf<'input, Endian> = EndianSlice<'input, Endian>;
-
 pub mod leb128;
 
-mod parser;
-pub use parser::{Error, Format, Register, Result};
-pub use parser::{DebugMacinfoOffset, Pointer};
-
-mod reader;
-pub use reader::{Reader, ReaderOffset};
-
-mod abbrev;
-pub use abbrev::{Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev,
-                 DebugAbbrevOffset};
-
-mod aranges;
-pub use aranges::{ArangeEntry, ArangeEntryIter, DebugAranges};
-
-mod line;
-pub use line::*;
-
-mod loclists;
-pub use loclists::{DebugLoc, DebugLocLists, LocListIter, LocationListEntry, LocationLists,
-                   LocationListsOffset, RawLocListEntry, RawLocListIter};
-
-mod lookup;
-
-mod op;
-pub use op::*;
-
-mod pubnames;
-pub use pubnames::{DebugPubNames, PubNamesEntry, PubNamesEntryIter};
-
-mod pubtypes;
-pub use pubtypes::{DebugPubTypes, PubTypesEntry, PubTypesEntryIter};
-
-mod rnglists;
-pub use rnglists::{DebugRanges, DebugRngLists, Range, RangeLists, RangeListsOffset,
-                   RawRngListEntry, RngListIter};
-
-mod str;
-pub use str::*;
+pub mod read;
+// For backwards compat.
+pub use read::*;
 
 #[cfg(test)]
 mod test_util;
-
-mod unit;
-pub use unit::{CompilationUnitHeader, CompilationUnitHeadersIter, DebugInfo, DebugInfoOffset,
-               UnitOffset};
-pub use unit::{DebugTypeSignature, DebugTypes, DebugTypesOffset, TypeUnitHeader,
-               TypeUnitHeadersIter};
-pub use unit::{DebuggingInformationEntry, EntriesCursor, EntriesTree, EntriesTreeIter,
-               EntriesTreeNode};
-pub use unit::{Attribute, AttributeValue, AttrsIter};
-
-mod value;
-pub use value::{Value, ValueType};
-
-/// A convenience trait for loading DWARF sections from object files.  To be
-/// used like:
-///
-/// ```
-/// use gimli::{DebugInfo, EndianBuf, LittleEndian, Reader, Section};
-///
-/// fn load_section<R, S, F>(loader: F) -> S
-///   where R: Reader, S: Section<R>, F: FnOnce(&'static str) -> R
-/// {
-///   let data = loader(S::section_name());
-///   S::from(data)
-/// }
-///
-/// let buf = [0x00, 0x01, 0x02, 0x03];
-/// let reader = EndianBuf::new(&buf, LittleEndian);
-///
-/// let debug_info: DebugInfo<_> = load_section(|_: &'static str| reader);
-/// ```
-pub trait Section<R: Reader>: From<R> {
-    /// Returns the ELF section name for this type.
-    fn section_name() -> &'static str;
-}

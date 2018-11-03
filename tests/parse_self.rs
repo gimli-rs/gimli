@@ -1,10 +1,12 @@
 extern crate gimli;
 
-use gimli::{AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLoc,
-            DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges, DebugRngLists, DebugStr,
-            Expression, Format, LittleEndian, LocationLists, Operation, RangeLists, Reader};
-use std::env;
+use gimli::{
+    AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLoc, DebugLocLists,
+    DebugPubNames, DebugPubTypes, DebugRanges, DebugRngLists, DebugStr, Expression, Format,
+    LittleEndian, LocationLists, Operation, RangeLists, Reader,
+};
 use std::collections::hash_map::HashMap;
+use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
@@ -39,10 +41,14 @@ fn parse_expression<R: Reader>(expr: Expression<R>, address_size: u8, format: Fo
     eval.evaluate().expect("Should evaluate expression");
 }
 
-fn impl_parse_self_debug_info<R: gimli::Reader>(debug_info: DebugInfo<R>, debug_abbrev: DebugAbbrev<R>) {
+fn impl_parse_self_debug_info<R: gimli::Reader>(
+    debug_info: DebugInfo<R>,
+    debug_abbrev: DebugAbbrev<R>,
+) {
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(&debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -102,7 +108,8 @@ fn test_parse_self_debug_line() {
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(&debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -129,7 +136,8 @@ fn test_parse_self_debug_line() {
 
             let mut results = Vec::new();
             let mut rows = program.rows();
-            while let Some((_, row)) = rows.next_row()
+            while let Some((_, row)) = rows
+                .next_row()
                 .expect("Should parse and execute all rows in the line number program")
             {
                 results.push(*row);
@@ -145,7 +153,8 @@ fn test_parse_self_debug_line() {
             assert!(!sequences.is_empty()); // Should be at least one sequence.
             for sequence in sequences {
                 let mut rows = program.resume_from(&sequence);
-                while let Some((_, row)) = rows.next_row()
+                while let Some((_, row)) = rows
+                    .next_row()
                     .expect("Should parse and execute all rows after resuming")
                 {
                     let other_row = results.pop().unwrap();
@@ -175,7 +184,8 @@ fn test_parse_self_debug_loc() {
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(&debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -226,7 +236,8 @@ fn test_parse_self_debug_ranges() {
 
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
-        let abbrevs = unit.abbreviations(&debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -299,7 +310,8 @@ fn test_parse_self_debug_pubnames() {
                 .abbreviations(abbrev_offset)
                 .expect("Should parse abbreviations OK")
         });
-        let mut cursor = unit.entries_at_offset(abbrevs, entry.die_offset())
+        let mut cursor = unit
+            .entries_at_offset(abbrevs, entry.die_offset())
             .expect("DIE offset should be valid");
         assert!(cursor.next_dfs().expect("Should parse DIE").is_some());
     }
@@ -332,7 +344,8 @@ fn test_parse_self_debug_pubtypes() {
                 .abbreviations(abbrev_offset)
                 .expect("Should parse abbreviations OK")
         });
-        let mut cursor = unit.entries_at_offset(abbrevs, entry.die_offset())
+        let mut cursor = unit
+            .entries_at_offset(abbrevs, entry.die_offset())
             .expect("DIE offset should be valid");
         assert!(cursor.next_dfs().expect("Should parse DIE").is_some());
     }

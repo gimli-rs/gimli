@@ -1,12 +1,11 @@
+use fallible_iterator::FallibleIterator;
+
 use constants;
 use endianity::Endianity;
-use endian_slice::EndianSlice;
-use fallible_iterator::FallibleIterator;
-use op::Expression;
-use parser::{Error, Format, Result};
-use reader::{Reader, ReaderOffset};
-use rnglists::{AddressIndex, Range, RawRange};
-use Section;
+use read::{
+    AddressIndex, EndianSlice, Error, Expression, Format, Range, RawRange, Reader, ReaderOffset,
+    Result, Section,
+};
 
 /// The `DebugLoc` struct represents the DWARF strings
 /// found in the `.debug_loc` section.
@@ -424,10 +423,7 @@ pub struct LocListIter<R: Reader> {
 impl<R: Reader> LocListIter<R> {
     /// Construct a `LocListIter`.
     fn new(raw: RawLocListIter<R>, base_address: u64) -> LocListIter<R> {
-        LocListIter {
-            raw,
-            base_address,
-        }
+        LocListIter { raw, base_address }
     }
 
     /// Advance the iterator to the next location.
@@ -455,13 +451,7 @@ impl<R: Reader> LocListIter<R> {
                     range.add_base_address(self.base_address, self.raw.address_size);
                     (range, data)
                 }
-                RawLocListEntry::StartEnd { begin, end, data } => (
-                    Range {
-                        begin,
-                        end,
-                    },
-                    data,
-                ),
+                RawLocListEntry::StartEnd { begin, end, data } => (Range { begin, end }, data),
                 RawLocListEntry::StartLength {
                     begin,
                     length,
@@ -484,10 +474,7 @@ impl<R: Reader> LocListIter<R> {
                 return Err(Error::InvalidLocationAddressRange);
             }
 
-            return Ok(Some(LocationListEntry {
-                range,
-                data,
-            }));
+            return Ok(Some(LocationListEntry { range, data }));
         }
     }
 }
@@ -515,11 +502,10 @@ pub struct LocationListEntry<R: Reader> {
 mod tests {
     extern crate test_assembler;
 
+    use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
     use endianity::LittleEndian;
-    use endian_slice::EndianSlice;
-    use rnglists::Range;
-    use self::test_assembler::{Endian, Label, LabelMaker, Section};
+    use read::{EndianSlice, Range};
     use test_util::GimliSectionMethods;
 
     #[test]
@@ -527,6 +513,7 @@ mod tests {
         let start = Label::new();
         let first = Label::new();
         let size = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // Header
             .mark(&start)
@@ -689,6 +676,7 @@ mod tests {
         let start = Label::new();
         let first = Label::new();
         let size = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // Header
             .mark(&start)
@@ -851,6 +839,7 @@ mod tests {
     fn test_location_list_32() {
         let start = Label::new();
         let first = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // A location before the offset.
             .mark(&start)
@@ -966,6 +955,7 @@ mod tests {
     fn test_location_list_64() {
         let start = Label::new();
         let first = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // A location before the offset.
             .mark(&start)
@@ -1079,6 +1069,7 @@ mod tests {
 
     #[test]
     fn test_locations_invalid() {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // An invalid location range.
             .L32(0x20000).L32(0x10000).L16(4).L32(1)

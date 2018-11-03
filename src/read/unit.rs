@@ -1,21 +1,17 @@
 //! Functions for parsing DWARF `.debug_info` and `.debug_types` sections.
 
-use constants;
-use abbrev::{Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, DebugAbbrevOffset};
-use endianity::Endianity;
-use endian_slice::EndianSlice;
 use fallible_iterator::FallibleIterator;
-use line::DebugLineOffset;
-use loclists::LocationListsOffset;
-use op::Expression;
-use parser::{DebugMacinfoOffset, Error, Format, Result};
-use rnglists::RangeListsOffset;
-use reader::{Reader, ReaderOffset};
 use std::cell::Cell;
 use std::ops::{Range, RangeFrom, RangeTo};
 use std::{u16, u8};
-use str::{DebugStr, DebugStrOffset};
-use Section;
+
+use constants;
+use endianity::Endianity;
+use read::{
+    Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, DebugAbbrevOffset,
+    DebugLineOffset, DebugMacinfoOffset, DebugStr, DebugStrOffset, EndianSlice, Error, Expression,
+    Format, LocationListsOffset, RangeListsOffset, Reader, ReaderOffset, Result, Section,
+};
 
 /// An offset into the `.debug_types` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -402,10 +398,7 @@ where
         offset: DebugInfoOffset<R::Offset>,
     ) -> Result<CompilationUnitHeader<R, R::Offset>> {
         let header = parse_unit_header(input)?;
-        Ok(CompilationUnitHeader {
-            header,
-            offset,
-        })
+        Ok(CompilationUnitHeader { header, offset })
     }
 }
 
@@ -424,7 +417,7 @@ fn parse_debug_abbrev_offset<R: Reader>(
 }
 
 /// Parse the `debug_info_offset` in the arange header.
-pub fn parse_debug_info_offset<R: Reader>(
+pub(crate) fn parse_debug_info_offset<R: Reader>(
     input: &mut R,
     format: Format,
 ) -> Result<DebugInfoOffset<R::Offset>> {
@@ -1128,59 +1121,66 @@ impl<R: Reader> Attribute<R> {
         // they simply provide a way to document the allowed classes for
         // each name.
         macro_rules! address {
-            () => ();
+            () => {};
         }
         macro_rules! block {
-            () => ();
+            () => {};
         }
         macro_rules! constant {
-            ($value:ident, $variant:ident) => (
+            ($value:ident, $variant:ident) => {
                 if let Some(value) = self.$value() {
                     return AttributeValue::$variant(value);
-                });
-            ($value:ident, $variant:ident, $constant:ident) => (
+                }
+            };
+            ($value:ident, $variant:ident, $constant:ident) => {
                 if let Some(value) = self.$value() {
                     return AttributeValue::$variant(constants::$constant(value));
-                });
+                }
+            };
         }
         macro_rules! exprloc {
-            () => (
+            () => {
                 if let Some(value) = self.exprloc_value() {
                     return AttributeValue::Exprloc(value);
-                });
+                }
+            };
         }
         macro_rules! flag {
-            () => ();
+            () => {};
         }
         macro_rules! loclistptr {
-            () => (
+            () => {
                 if let Some(offset) = self.offset_value() {
                     return AttributeValue::LocationListsRef(LocationListsOffset(offset));
-                });
+                }
+            };
         }
         macro_rules! lineptr {
-            () => (
+            () => {
                 if let Some(offset) = self.offset_value() {
                     return AttributeValue::DebugLineRef(DebugLineOffset(offset));
-                });
+                }
+            };
         }
         macro_rules! macptr {
-            () => (
+            () => {
                 if let Some(offset) = self.offset_value() {
                     return AttributeValue::DebugMacinfoRef(DebugMacinfoOffset(offset));
-                });
+                }
+            };
         }
         macro_rules! rangelistptr {
-            () => (
+            () => {
                 if let Some(offset) = self.offset_value() {
                     return AttributeValue::RangeListsRef(RangeListsOffset(offset));
-                });
+                }
+            };
         }
         macro_rules! reference {
-            () => ();
+            () => {};
         }
         macro_rules! string {
-            () => ();
+            () => {};
         }
 
         // Perform the allowed class conversions for each attribute name.
@@ -2070,12 +2070,10 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     pub fn next_dfs(
         &mut self,
     ) -> Result<
-        Option<
-            (
-                isize,
-                &DebuggingInformationEntry<'abbrev, 'unit, R, R::Offset>,
-            ),
-        >,
+        Option<(
+            isize,
+            &DebuggingInformationEntry<'abbrev, 'unit, R, R::Offset>,
+        )>,
     > {
         let mut delta_depth = self.delta_depth;
         loop {
@@ -2439,10 +2437,7 @@ impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeNode<'abbrev, 'unit, 'tree, R>
         depth: isize,
     ) -> EntriesTreeNode<'abbrev, 'unit, 'tree, R> {
         debug_assert!(tree.entry.is_some());
-        EntriesTreeNode {
-            tree,
-            depth,
-        }
+        EntriesTreeNode { tree, depth }
     }
 
     /// Returns the current entry in the tree.
@@ -2851,24 +2846,25 @@ fn parse_type_unit_header<R: Reader>(
 mod tests {
     extern crate test_assembler;
 
+    use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
-    use super::{parse_attribute, parse_debug_abbrev_offset, parse_type_offset,
-                parse_type_unit_header, parse_unit_header};
-    use abbrev::{Abbreviation, AttributeSpecification, DebugAbbrev, DebugAbbrevOffset};
-    use abbrev::tests::AbbrevSectionMethods;
+    use super::{
+        parse_attribute, parse_debug_abbrev_offset, parse_type_offset, parse_type_unit_header,
+        parse_unit_header,
+    };
     use constants;
     use constants::*;
     use endianity::{Endianity, LittleEndian};
-    use endian_slice::EndianSlice;
     use leb128;
-    use loclists::LocationListsOffset;
-    use parser::{Error, Format, Result};
-    use self::test_assembler::{Endian, Label, LabelMaker, Section};
-    use str::DebugStrOffset;
+    use read::abbrev::tests::AbbrevSectionMethods;
+    use read::{
+        Abbreviation, AttributeSpecification, DebugAbbrev, DebugAbbrevOffset, DebugStrOffset,
+        EndianSlice, Error, Format, LocationListsOffset, Result,
+    };
     use std;
     use std::cell::Cell;
-    use vec::Vec;
     use test_util::GimliSectionMethods;
+    use vec::Vec;
 
     // Mixin methods for `Section` to help define binary test data.
 
@@ -3510,9 +3506,11 @@ mod tests {
     ) where
         Endian: Endianity,
     {
-        let spec = vec![
-            AttributeSpecification::new(constants::DW_AT_low_pc, form, None),
-        ];
+        let spec = vec![AttributeSpecification::new(
+            constants::DW_AT_low_pc,
+            form,
+            None,
+        )];
 
         let expect = Attribute {
             name: constants::DW_AT_low_pc,
@@ -4216,16 +4214,17 @@ mod tests {
     }
 
     fn entries_cursor_tests_abbrev_buf() -> Vec<u8> {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             .abbrev(1, DW_TAG_subprogram, DW_CHILDREN_yes)
-            .abbrev_attr(DW_AT_name, DW_FORM_string)
-            .abbrev_attr_null()
+                .abbrev_attr(DW_AT_name, DW_FORM_string)
+                .abbrev_attr_null()
             .abbrev_null();
         section.get_contents().unwrap()
     }
 
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn entries_cursor_tests_debug_info_buf() -> Vec<u8> {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             .die(1, |s| s.attr_string("001"))
                 .die(1, |s| s.attr_string("002"))
@@ -4265,8 +4264,8 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_cursor_next_entry_incomplete() {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             .die(1, |s| s.attr_string("001"))
                 .die(1, |s| s.attr_string("002"))
@@ -4288,14 +4287,17 @@ mod tests {
         let info_buf = &section.get_contents().unwrap();
         let debug_info = DebugInfo::new(info_buf, LittleEndian);
 
-        let unit = debug_info.units().next()
+        let unit = debug_info
+            .units()
+            .next()
             .expect("should have a unit result")
             .expect("and it should be ok");
 
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
         let debug_abbrev = DebugAbbrev::new(abbrevs_buf, LittleEndian);
 
-        let abbrevs = unit.abbreviations(&debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -4305,7 +4307,8 @@ mod tests {
 
         {
             // Entry code is present, but none of the attributes.
-            cursor.next_entry()
+            cursor
+                .next_entry()
                 .expect("Should parse next entry")
                 .expect("Should have an entry");
             let entry = cursor.current().expect("Should have an entry result");
@@ -4317,19 +4320,21 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_cursor_next_entry() {
         let info_buf = &entries_cursor_tests_debug_info_buf();
         let debug_info = DebugInfo::new(info_buf, LittleEndian);
 
-        let unit = debug_info.units().next()
+        let unit = debug_info
+            .units()
+            .next()
             .expect("should have a unit result")
             .expect("and it should be ok");
 
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
         let debug_abbrev = DebugAbbrev::new(abbrevs_buf, LittleEndian);
 
-        let abbrevs = unit.abbreviations(&debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -4355,24 +4360,31 @@ mod tests {
         assert_next_entry_null(&mut cursor);
         assert_next_entry_null(&mut cursor);
 
-        assert!(cursor.next_entry().expect("Should parse next entry").is_none());
+        assert!(
+            cursor
+                .next_entry()
+                .expect("Should parse next entry")
+                .is_none()
+        );
         assert!(cursor.current().is_none());
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_cursor_next_dfs() {
         let info_buf = &entries_cursor_tests_debug_info_buf();
         let debug_info = DebugInfo::new(info_buf, LittleEndian);
 
-        let unit = debug_info.units().next()
+        let unit = debug_info
+            .units()
+            .next()
             .expect("should have a unit result")
             .expect("and it should be ok");
 
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
         let debug_abbrev = DebugAbbrev::new(abbrevs_buf, LittleEndian);
 
-        let abbrevs = unit.abbreviations(&debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -4393,19 +4405,21 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn test_cursor_next_sibling_no_sibling_ptr() {
         let info_buf = &entries_cursor_tests_debug_info_buf();
         let debug_info = DebugInfo::new(info_buf, LittleEndian);
 
-        let unit = debug_info.units().next()
+        let unit = debug_info
+            .units()
+            .next()
             .expect("should have a unit result")
             .expect("and it should be ok");
 
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
         let debug_abbrev = DebugAbbrev::new(abbrevs_buf, LittleEndian);
 
-        let abbrevs = unit.abbreviations(&debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -4424,7 +4438,12 @@ mod tests {
 
         // There should be no more siblings.
 
-        assert!(cursor.next_sibling().expect("Should parse next sibling").is_none());
+        assert!(
+            cursor
+                .next_sibling()
+                .expect("Should parse next sibling")
+                .is_none()
+        );
         assert!(cursor.current().is_none());
     }
 
@@ -4442,7 +4461,8 @@ mod tests {
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
         let debug_abbrev = DebugAbbrev::new(abbrevs_buf, LittleEndian);
 
-        let abbrevs = unit.abbreviations(&debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -4500,15 +4520,16 @@ mod tests {
     }
 
     fn entries_cursor_sibling_abbrev_buf() -> Vec<u8> {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             .abbrev(1, DW_TAG_subprogram, DW_CHILDREN_yes)
-            .abbrev_attr(DW_AT_name, DW_FORM_string)
-            .abbrev_attr(DW_AT_sibling, DW_FORM_ref1)
-            .abbrev_attr_null()
+                .abbrev_attr(DW_AT_name, DW_FORM_string)
+                .abbrev_attr(DW_AT_sibling, DW_FORM_ref1)
+                .abbrev_attr_null()
             .abbrev(2, DW_TAG_subprogram, DW_CHILDREN_yes)
-            .abbrev_attr(DW_AT_name, DW_FORM_string)
-            .abbrev_attr_null()
-            .abbrev_null();
+                .abbrev_attr(DW_AT_name, DW_FORM_string)
+                .abbrev_attr_null()
+                .abbrev_null();
         section.get_contents().unwrap()
     }
 
@@ -4519,6 +4540,7 @@ mod tests {
         let sibling009_ref = Label::new();
         let sibling009 = Label::new();
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             .mark(&start)
             .die(2, |s| s.attr_string("001"))
@@ -4618,7 +4640,8 @@ mod tests {
         let abbrev_buf = entries_cursor_sibling_abbrev_buf();
         let debug_abbrev = DebugAbbrev::new(&abbrev_buf, LittleEndian);
 
-        let abbrevs = unit.abbreviations(&debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -4657,7 +4680,8 @@ mod tests {
         let abbrev_buf = entries_cursor_sibling_abbrev_buf();
         let debug_abbrev = DebugAbbrev::new(&abbrev_buf, LittleEndian);
 
-        let abbrevs = unit.abbreviations(&debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -4678,10 +4702,12 @@ mod tests {
         let abbrevs_buf = &entries_cursor_tests_abbrev_buf();
         let debug_abbrev = DebugAbbrev::new(abbrevs_buf, LittleEndian);
 
-        let abbrevs = unit.abbreviations(&debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
 
-        let mut cursor = unit.entries_at_offset(&abbrevs, UnitOffset(unit.header_size()))
+        let mut cursor = unit
+            .entries_at_offset(&abbrevs, UnitOffset(unit.header_size()))
             .unwrap();
         assert_next_entry(&mut cursor, "001");
 
@@ -4695,8 +4721,8 @@ mod tests {
         }
     }
 
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn entries_tree_tests_debug_abbrevs_buf() -> Vec<u8> {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         Section::with_endian(Endian::Little)
             .abbrev(1, DW_TAG_subprogram, DW_CHILDREN_yes)
                 .abbrev_attr(DW_AT_name, DW_FORM_string)
@@ -4709,10 +4735,10 @@ mod tests {
             .unwrap()
     }
 
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     fn entries_tree_tests_debug_info_buf(header_size: usize) -> (Vec<u8>, UnitOffset) {
         let start = Label::new();
         let entry2 = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             .mark(&start)
             .die(1, |s| s.attr_string("root"))
@@ -4757,7 +4783,8 @@ mod tests {
         where
             Endian: Endianity,
         {
-            let node = node.expect("Should parse entry")
+            let node = node
+                .expect("Should parse entry")
                 .expect("Should have entry");
             assert_entry_name(node.entry(), name);
             node.children()
@@ -4802,9 +4829,11 @@ mod tests {
             .next()
             .expect("Should parse unit")
             .expect("and it should be some");
-        let abbrevs = unit.abbreviations(&debug_abbrev)
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
             .expect("Should parse abbreviations");
-        let mut tree = unit.entries_tree(&abbrevs, None)
+        let mut tree = unit
+            .entries_tree(&abbrevs, None)
             .expect("Should have entries tree");
 
         // Test we can restart iteration of the tree.
@@ -4858,7 +4887,8 @@ mod tests {
         assert_null(iter.next());
 
         // Test starting at an offset.
-        let mut tree = unit.entries_tree(&abbrevs, Some(entry2))
+        let mut tree = unit
+            .entries_tree(&abbrevs, Some(entry2))
             .expect("Should have entries tree");
         let mut iter = assert_entry(tree.root().map(Some), "2");
         assert_entry(iter.next(), "2a");

@@ -1,10 +1,8 @@
+use fallible_iterator::FallibleIterator;
+
 use constants;
 use endianity::Endianity;
-use endian_slice::EndianSlice;
-use fallible_iterator::FallibleIterator;
-use parser::{Error, Format, Result};
-use reader::{Reader, ReaderOffset};
-use Section;
+use read::{EndianSlice, Error, Format, Reader, ReaderOffset, Result, Section};
 
 /// An offset into the `.debug_addr` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -397,10 +395,7 @@ pub struct RngListIter<R: Reader> {
 impl<R: Reader> RngListIter<R> {
     /// Construct a `RngListIter`.
     fn new(raw: RawRngListIter<R>, base_address: u64) -> RngListIter<R> {
-        RngListIter {
-            raw,
-            base_address,
-        }
+        RngListIter { raw, base_address }
     }
 
     /// Advance the iterator to the next range.
@@ -421,10 +416,7 @@ impl<R: Reader> RngListIter<R> {
                     range.add_base_address(self.base_address, self.raw.address_size);
                     range
                 }
-                RawRngListEntry::StartEnd { begin, end } => Range {
-                    begin,
-                    end,
-                },
+                RawRngListEntry::StartEnd { begin, end } => Range { begin, end },
                 RawRngListEntry::StartLength { begin, length } => Range {
                     begin,
                     end: begin + length,
@@ -488,10 +480,7 @@ impl RawRange {
     pub fn parse<R: Reader>(input: &mut R, address_size: u8) -> Result<RawRange> {
         let begin = input.read_address(address_size)?;
         let end = input.read_address(address_size)?;
-        let range = RawRange {
-            begin,
-            end,
-        };
+        let range = RawRange { begin, end };
         Ok(range)
     }
 }
@@ -520,9 +509,9 @@ impl Range {
 mod tests {
     extern crate test_assembler;
 
+    use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
     use endianity::LittleEndian;
-    use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use test_util::GimliSectionMethods;
 
     #[test]
@@ -530,6 +519,7 @@ mod tests {
         let start = Label::new();
         let first = Label::new();
         let size = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // Header
             .mark(&start)
@@ -665,6 +655,7 @@ mod tests {
         let start = Label::new();
         let first = Label::new();
         let size = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // Header
             .mark(&start)
@@ -832,6 +823,7 @@ mod tests {
     fn test_ranges_32() {
         let start = Label::new();
         let first = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // A range before the offset.
             .mark(&start)
@@ -929,6 +921,7 @@ mod tests {
     fn test_ranges_64() {
         let start = Label::new();
         let first = Label::new();
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // A range before the offset.
             .mark(&start)
@@ -1024,6 +1017,7 @@ mod tests {
 
     #[test]
     fn test_ranges_invalid() {
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let section = Section::with_endian(Endian::Little)
             // An invalid range.
             .L32(0x20000).L32(0x10000)

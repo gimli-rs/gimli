@@ -1,12 +1,63 @@
-//! Functions for parsing DWARF debugging information.
+//! Read DWARF debugging information.
 
 use std::fmt::{self, Debug};
 use std::result;
 #[cfg(feature = "std")]
 use std::{error, io};
-use cfi::BaseAddresses;
+
 use constants;
-use reader::{Reader, ReaderOffset};
+
+mod cfi;
+pub use self::cfi::*;
+
+mod endian_slice;
+pub use self::endian_slice::*;
+
+mod endian_reader;
+pub use self::endian_reader::*;
+
+mod reader;
+pub use self::reader::*;
+
+mod abbrev;
+pub use self::abbrev::*;
+
+mod aranges;
+pub use self::aranges::*;
+
+mod line;
+pub use self::line::*;
+
+mod loclists;
+pub use self::loclists::*;
+
+mod lookup;
+
+mod op;
+pub use self::op::*;
+
+mod pubnames;
+pub use self::pubnames::*;
+
+mod pubtypes;
+pub use self::pubtypes::*;
+
+mod rnglists;
+pub use self::rnglists::*;
+
+mod str;
+pub use self::str::*;
+
+mod unit;
+pub use self::unit::*;
+
+mod value;
+pub use self::value::*;
+
+/// `EndianBuf` has been renamed to `EndianSlice`. For ease of upgrading across
+/// `gimli` versions, we export this type alias.
+#[deprecated(note = "EndianBuf has been renamed to EndianSlice, use that instead.")]
+pub type EndianBuf<'input, Endian> = EndianSlice<'input, Endian>;
 
 /// An error that occurred when parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,7 +270,9 @@ impl Error {
             Error::BadUtf8 => "Found an invalid UTF-8 string.",
             Error::NotCieId => "Expected to find the CIE ID, but found something else.",
             Error::NotCiePointer => "Expected to find a CIE pointer, but found the CIE ID instead.",
-            Error::NotFdePointer => "Expected to find an FDE pointer, but found a CIE pointer instead.",
+            Error::NotFdePointer => {
+                "Expected to find an FDE pointer, but found a CIE pointer instead."
+            }
             Error::BadBranchTarget(_) => "Invalid branch target in DWARF expression",
             Error::InvalidPushObjectAddress => {
                 "DW_OP_push_object_address used but no object address given"
@@ -302,10 +355,33 @@ impl From<io::Error> for Error {
 /// The result of a parse.
 pub type Result<T> = result::Result<T, Error>;
 
+/// A convenience trait for loading DWARF sections from object files.  To be
+/// used like:
+///
+/// ```
+/// use gimli::{DebugInfo, EndianBuf, LittleEndian, Reader, Section};
+///
+/// fn load_section<R, S, F>(loader: F) -> S
+///   where R: Reader, S: Section<R>, F: FnOnce(&'static str) -> R
+/// {
+///   let data = loader(S::section_name());
+///   S::from(data)
+/// }
+///
+/// let buf = [0x00, 0x01, 0x02, 0x03];
+/// let reader = EndianBuf::new(&buf, LittleEndian);
+///
+/// let debug_info: DebugInfo<_> = load_section(|_: &'static str| reader);
+/// ```
+pub trait Section<R: Reader>: From<R> {
+    /// Returns the ELF section name for this type.
+    fn section_name() -> &'static str;
+}
+
 /// Parse a `DW_EH_PE_*` pointer encoding.
 #[doc(hidden)]
 #[inline]
-pub fn parse_pointer_encoding<R: Reader>(input: &mut R) -> Result<constants::DwEhPe> {
+pub(crate) fn parse_pointer_encoding<R: Reader>(input: &mut R) -> Result<constants::DwEhPe> {
     let eh_pe = input.read_u8()?;
     let eh_pe = constants::DwEhPe(eh_pe);
 
@@ -358,7 +434,7 @@ impl Pointer {
     }
 }
 
-pub fn parse_encoded_pointer<'bases, R: Reader>(
+pub(crate) fn parse_encoded_pointer<'bases, R: Reader>(
     encoding: constants::DwEhPe,
     bases: &'bases BaseAddresses,
     address_size: u8,
@@ -412,7 +488,8 @@ pub fn parse_encoded_pointer<'bases, R: Reader>(
         constants::DW_EH_PE_pcrel => if let Some(cfi) = bases.cfi {
             let offset_from_section = input.offset_from(section);
             let offset = parse_data(encoding, address_size, input)?;
-            let p = cfi.wrapping_add(offset_from_section.into_u64())
+            let p = cfi
+                .wrapping_add(offset_from_section.into_u64())
                 .wrapping_add(offset);
             Ok(Pointer::new(encoding, p))
         } else {
@@ -499,12 +576,10 @@ impl Register {
 mod tests {
     extern crate test_assembler;
 
+    use self::test_assembler::{Endian, Section};
     use super::*;
-    use cfi::BaseAddresses;
     use constants;
     use endianity::LittleEndian;
-    use endian_slice::EndianSlice;
-    use self::test_assembler::{Endian, Section};
     use std::cell::RefCell;
     use test_util::GimliSectionMethods;
 
@@ -546,7 +621,7 @@ mod tests {
 
         #[cfg(target_pointer_width = "32")]
         match input.read_initial_length() {
-            Err(Error::UnsupportedOffset) => {},
+            Err(Error::UnsupportedOffset) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }

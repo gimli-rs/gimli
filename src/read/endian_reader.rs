@@ -1,10 +1,7 @@
 //! Defining custom `Reader`s quickly.
 
 use borrow::Cow;
-use endianity::Endianity;
-use parser::{Error, Result};
 use rc::Rc;
-use reader::Reader;
 use stable_deref_trait::CloneStableDeref;
 use std::fmt::Debug;
 use std::mem;
@@ -13,6 +10,9 @@ use std::slice;
 use std::str;
 use string::String;
 use Arc;
+
+use endianity::Endianity;
+use read::{Error, Reader, Result};
 
 /// A reference counted, non-thread-safe slice of bytes and associated
 /// endianity.
@@ -139,8 +139,7 @@ impl<Endian, T> Eq for EndianReader<Endian, T>
 where
     Endian: Endianity,
     T: CloneStableDeref<Target = [u8]> + Debug,
-{
-}
+{}
 
 // This is separated out from `EndianReader` so that we can avoid running afoul
 // of borrowck. We need to `read_slice(&mut self, ...) -> &[u8]` and then call
@@ -160,21 +159,13 @@ where
     T: CloneStableDeref<Target = [u8]> + Debug,
 {
     bytes: T,
-    ptr: * const u8,
+    ptr: *const u8,
     len: usize,
 }
 
-unsafe impl<T> Send for SubRange<T>
-where
-    T: CloneStableDeref<Target = [u8]> + Debug + Send,
-{
-}
+unsafe impl<T> Send for SubRange<T> where T: CloneStableDeref<Target = [u8]> + Debug + Send {}
 
-unsafe impl<T> Sync for SubRange<T>
-where
-    T: CloneStableDeref<Target = [u8]> + Debug + Sync,
-{
-}
+unsafe impl<T> Sync for SubRange<T> where T: CloneStableDeref<Target = [u8]> + Debug + Sync {}
 
 impl<T> SubRange<T>
 where
@@ -402,7 +393,10 @@ where
 
     #[inline]
     fn find(&self, byte: u8) -> Result<usize> {
-        self.bytes().iter().position(|x| *x == byte).ok_or(Error::UnexpectedEof)
+        self.bytes()
+            .iter()
+            .position(|x| *x == byte)
+            .ok_or(Error::UnexpectedEof)
     }
 
     #[inline]
@@ -462,7 +456,7 @@ where
 mod tests {
     use super::*;
     use endianity::NativeEndian;
-    use reader::Reader;
+    use read::Reader;
 
     fn native_reader<T: CloneStableDeref<Target = [u8]> + Debug>(
         bytes: T,
@@ -590,10 +584,7 @@ mod tests {
         let buf = b"hello, world!";
         let reader = native_reader(&buf[..]);
         let reader = reader.range_from(7..);
-        assert_eq!(
-            reader.to_string(),
-            Ok(Cow::from("world!"))
-        );
+        assert_eq!(reader.to_string(), Ok(Cow::from("world!")));
     }
 
     // The rocket emoji (🚀 = [0xf0, 0x9f, 0x9a, 0x80]) but rotated left by one
@@ -609,10 +600,7 @@ mod tests {
     #[test]
     fn to_string_lossy() {
         let reader = native_reader(BAD_UTF8);
-        assert_eq!(
-            reader.to_string_lossy(),
-            Ok(Cow::from("����"))
-        );
+        assert_eq!(reader.to_string_lossy(), Ok(Cow::from("����")));
     }
 
     #[test]

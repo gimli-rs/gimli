@@ -61,8 +61,7 @@ fn low_bits_of_u64(val: u64) -> u8 {
 /// encoded.
 pub mod read {
     use super::{low_bits_of_byte, CONTINUATION_BIT, SIGN_BIT};
-    use parser::{Error, Result};
-    use reader::Reader;
+    use read::{Error, Reader, Result};
 
     /// Read an unsigned LEB128 number from the given `Reader` and
     /// return it or an error if reading failed.
@@ -186,10 +185,9 @@ pub mod write {
 
 #[cfg(test)]
 mod tests {
-    use super::{low_bits_of_byte, read, write, low_bits_of_u64, CONTINUATION_BIT};
+    use super::{low_bits_of_byte, low_bits_of_u64, read, write, CONTINUATION_BIT};
     use endianity::NativeEndian;
-    use endian_slice::EndianSlice;
-    use parser::Error;
+    use read::{EndianSlice, Error};
     use std;
     use std::io;
 
