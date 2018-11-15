@@ -492,7 +492,7 @@ where
     /// Get the length of the debugging info for this compilation unit,
     /// including the byte length of the encoded length itself.
     pub fn length_including_self(&self) -> R::Offset {
-        R::Offset::from_u8(self.format.word_size()) + self.unit_length
+        R::Offset::from_u8(self.format.initial_length_size()) + self.unit_length
     }
 
     /// Get the DWARF version of the debugging info for this compilation unit.
@@ -4995,5 +4995,23 @@ mod tests {
             UnitOffset(length - 1).to_debug_types_offset(&unit),
             DebugTypesOffset(offset + length - 1)
         );
+    }
+
+    #[test]
+    fn test_length_including_self() {
+        let mut unit = UnitHeader {
+            unit_length: 0,
+            version: 4,
+            debug_abbrev_offset: DebugAbbrevOffset(0),
+            address_size: 4,
+            format: Format::Dwarf32,
+            entries_buf: EndianSlice::new(&[], LittleEndian),
+        };
+        unit.format = Format::Dwarf32;
+        assert_eq!(unit.length_including_self(), 4);
+        unit.format = Format::Dwarf64;
+        assert_eq!(unit.length_including_self(), 12);
+        unit.unit_length = 10;
+        assert_eq!(unit.length_including_self(), 22);
     }
 }
