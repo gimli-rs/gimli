@@ -3,11 +3,9 @@
 use std::mem;
 use vec::Vec;
 
+use common::{DebugInfoOffset, Format, Register};
 use constants;
-use read::{
-    DebugInfoOffset, Error, Format, Reader, ReaderOffset, Register, Result, UnitOffset, Value,
-    ValueType,
-};
+use read::{Error, Reader, ReaderOffset, Result, UnitOffset, Value, ValueType};
 
 /// A reference to a DIE, either relative to the current CU or
 /// relative to the section.
@@ -1722,12 +1720,11 @@ mod tests {
     extern crate test_assembler;
 
     use self::test_assembler::{Endian, Section};
-    use super::compute_pc;
     use super::*;
     use constants;
     use endianity::LittleEndian;
     use leb128;
-    use read::{DebugInfoOffset, EndianSlice, Error, Format, Result, UnitOffset};
+    use read::{EndianSlice, Error, Result, UnitOffset};
     use std::usize;
     use test_util::GimliSectionMethods;
 

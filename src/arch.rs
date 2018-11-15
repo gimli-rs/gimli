@@ -1,5 +1,4 @@
-// TODO: don't depend on read
-use read::Register;
+use common::Register;
 
 macro_rules! registers {
     ($struct_name:ident, { $($name:ident = ($val:expr, $disp:expr)),+ }) => {

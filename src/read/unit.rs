@@ -5,17 +5,16 @@ use std::cell::Cell;
 use std::ops::{Range, RangeFrom, RangeTo};
 use std::{u16, u8};
 
+use common::{
+    DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugStrOffset,
+    DebugTypeSignature, DebugTypesOffset, Format, LocationListsOffset, RangeListsOffset,
+};
 use constants;
 use endianity::Endianity;
 use read::{
-    Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, DebugAbbrevOffset,
-    DebugLineOffset, DebugMacinfoOffset, DebugStr, DebugStrOffset, EndianSlice, Error, Expression,
-    Format, LocationListsOffset, RangeListsOffset, Reader, ReaderOffset, Result, Section,
+    Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, DebugStr, EndianSlice, Error,
+    Expression, Reader, ReaderOffset, Result, Section,
 };
-
-/// An offset into the `.debug_types` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugTypesOffset<T = usize>(pub T);
 
 impl<T: ReaderOffset> DebugTypesOffset<T> {
     /// Convert an offset to be relative to the start of the given unit,
@@ -35,14 +34,6 @@ impl<T: ReaderOffset> DebugTypesOffset<T> {
         Some(offset)
     }
 }
-
-/// A type signature as used in the `.debug_types` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugTypeSignature(pub u64);
-
-/// An offset into the `.debug_info` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub struct DebugInfoOffset<T = usize>(pub T);
 
 impl<T: ReaderOffset> DebugInfoOffset<T> {
     /// Convert an offset to be relative to the start of the given unit,
@@ -2848,19 +2839,12 @@ mod tests {
 
     use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
-    use super::{
-        parse_attribute, parse_debug_abbrev_offset, parse_type_offset, parse_type_unit_header,
-        parse_unit_header,
-    };
     use constants;
     use constants::*;
     use endianity::{Endianity, LittleEndian};
     use leb128;
     use read::abbrev::tests::AbbrevSectionMethods;
-    use read::{
-        Abbreviation, AttributeSpecification, DebugAbbrev, DebugAbbrevOffset, DebugStrOffset,
-        EndianSlice, Error, Format, LocationListsOffset, Result,
-    };
+    use read::{Abbreviation, AttributeSpecification, DebugAbbrev, EndianSlice, Error, Result};
     use std;
     use std::cell::Cell;
     use test_util::GimliSectionMethods;

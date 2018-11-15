@@ -5,6 +5,7 @@ use std::result;
 #[cfg(feature = "std")]
 use std::{error, io};
 
+use common::Register;
 use constants;
 
 mod cfi;
@@ -521,46 +522,6 @@ pub(crate) fn parse_encoded_pointer<'bases, R: Reader>(
     }
 }
 
-/// An offset into the `.debug_macinfo` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugMacinfoOffset<T = usize>(pub T);
-
-/// Whether the format of a compilation unit is 32- or 64-bit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Format {
-    /// 64-bit DWARF
-    Dwarf64,
-    /// 32-bit DWARF
-    Dwarf32,
-}
-
-impl Format {
-    /// Return the serialized size of an initial length field for the format.
-    #[inline]
-    pub fn initial_length_size(self) -> u8 {
-        match self {
-            Format::Dwarf32 => 4,
-            Format::Dwarf64 => 12,
-        }
-    }
-
-    /// Return the natural word size for the format
-    #[inline]
-    pub fn word_size(self) -> u8 {
-        match self {
-            Format::Dwarf32 => 4,
-            Format::Dwarf64 => 8,
-        }
-    }
-}
-
-/// A DWARF register number.
-///
-/// The meaning of this value is ABI dependent. This is generally encoded as
-/// a ULEB128, but supported architectures need 16 bits at most.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Register(pub u16);
-
 impl Register {
     pub(crate) fn from_u64(x: u64) -> Result<Register> {
         let y = x as u16;
@@ -578,6 +539,7 @@ mod tests {
 
     use self::test_assembler::{Endian, Section};
     use super::*;
+    use common::Format;
     use constants;
     use endianity::LittleEndian;
     use std::cell::RefCell;

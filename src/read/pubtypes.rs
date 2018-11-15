@@ -1,8 +1,9 @@
 use fallible_iterator::FallibleIterator;
 
+use common::DebugInfoOffset;
 use endianity::Endianity;
 use read::lookup::{DebugLookup, LookupEntryIter, PubStuffEntry, PubStuffParser};
-use read::{DebugInfoOffset, EndianSlice, Error, Reader, Result, Section, UnitOffset};
+use read::{EndianSlice, Error, Reader, Result, Section, UnitOffset};
 
 /// A single parsed pubtype.
 #[derive(Debug, Clone)]

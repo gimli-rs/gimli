@@ -3,9 +3,10 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::{Add, AddAssign, Sub};
 
+use common::Format;
 use endianity::Endianity;
 use leb128;
-use read::{Error, Format, Result};
+use read::{Error, Result};
 
 /// A trait for offsets with a DWARF section.
 ///
