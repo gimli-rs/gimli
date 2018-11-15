@@ -194,13 +194,15 @@ extern crate core as std;
 extern crate arrayvec;
 extern crate byteorder;
 extern crate fallible_iterator;
+#[cfg(feature = "std")]
+extern crate indexmap;
 extern crate stable_deref_trait;
 
 #[cfg(feature = "std")]
 mod imports {
     pub use std::borrow;
     pub use std::boxed;
-    pub use std::collections::btree_map;
+    pub use std::collections;
     pub use std::rc;
     pub use std::string;
     pub use std::sync::Arc;
@@ -211,7 +213,7 @@ mod imports {
 mod imports {
     pub use alloc::borrow;
     pub use alloc::boxed;
-    pub use alloc::collections::btree_map;
+    pub use alloc::collections;
     pub use alloc::rc;
     pub use alloc::string;
     pub use alloc::sync::Arc;
@@ -240,6 +242,9 @@ pub mod leb128;
 pub mod read;
 // For backwards compat.
 pub use read::*;
+
+#[cfg(feature = "std")]
+pub mod write;
 
 #[cfg(test)]
 mod test_util;

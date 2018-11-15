@@ -224,6 +224,11 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
+    /// Construct a new `CompilationUnitHeader`.
+    pub fn new(header: UnitHeader<R, Offset>, offset: DebugInfoOffset<Offset>) -> Self {
+        CompilationUnitHeader { header, offset }
+    }
+
     /// Return the serialized size of the compilation unit header for the given
     /// DWARF format.
     pub fn size_of_header(format: Format) -> usize {
@@ -982,8 +987,7 @@ pub enum AttributeValue<R: Reader> {
     /// location description (see Section 2.6)."
     Exprloc(Expression<R>),
 
-    /// A boolean typically used to describe the presence or absence of another
-    /// attribute.
+    /// A boolean that indicates presence or absence of the attribute.
     Flag(bool),
 
     /// An offset into another section. Which section this is an offset into
@@ -1633,7 +1637,7 @@ fn length_uleb128_value<R: Reader>(input: &mut R) -> Result<R> {
     input.split(len)
 }
 
-fn parse_attribute<'unit, 'abbrev, R: Reader>(
+pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
     input: &mut R,
     unit: &'unit UnitHeader<R, R::Offset>,
     mut specs: &'abbrev [AttributeSpecification],

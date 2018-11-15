@@ -1,6 +1,6 @@
 //! Functions for parsing DWARF debugging abbreviations.
 
-use btree_map;
+use collections::btree_map;
 use vec::Vec;
 
 use common::DebugAbbrevOffset;
