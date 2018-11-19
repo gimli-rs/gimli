@@ -34,6 +34,8 @@ test-assembler = "0.1.3"
 typed-arena = "1"
 
 [features]
-std = ["fallible-iterator/std", "stable_deref_trait/std", "indexmap"]
+read = []
+write = ["std", "indexmap"]
+std = ["fallible-iterator/std", "stable_deref_trait/std"]
 alloc = ["fallible-iterator/alloc", "stable_deref_trait/alloc"]
-default = ["std"]
+default = ["read", "write", "std"]

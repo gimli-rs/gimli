@@ -1,7 +1,9 @@
 sudo: false
 
 language: rust
-cache: cargo
+cache:
+  directories:
+    - /home/travis/.cargo
 
 os:
 - linux
@@ -17,11 +19,7 @@ rust:
 addons:
   apt:
     packages:
-    - libcurl4-openssl-dev
-    - libelf-dev
-    - libdw-dev
-    - binutils-dev
-    - libiberty-dev # same
+    - libssl-dev
 
 before_script:
 - if [[ -e ~/.local/bin ]]; then export PATH=~/.local/bin:$PATH; fi
@@ -33,9 +31,8 @@ script: ./ci/script.sh
 env:
   matrix:
     - GIMLI_JOB="test"              GIMLI_PROFILE=
-    - GIMLI_JOB="test"              GIMLI_PROFILE="--release"
-    - GIMLI_JOB="examples"          GIMLI_PROFILE=
-    - GIMLI_JOB="examples"          GIMLI_PROFILE="--release"
+    - GIMLI_JOB="build"             GIMLI_PROFILE="--no-default-features --features read,std"
+    - GIMLI_JOB="build"             GIMLI_PROFILE="--no-default-features --features write"
 
 matrix:
   fast_finish: true
@@ -49,14 +46,12 @@ matrix:
     - rust: stable
       os: linux
       env: GIMLI_JOB="doc"          GIMLI_PROFILE=
-    # Benching should only happen on nightly with --release.
+    # Benching should only happen on nightly.
     - rust: nightly
-      env: GIMLI_JOB="bench"        GIMLI_PROFILE="--release"
+      env: GIMLI_JOB="bench"        GIMLI_PROFILE=
     # The no-std/alloc build should only happen on nightly.
     - rust: nightly
       env: GIMLI_JOB="alloc"        GIMLI_PROFILE=
-    - rust: nightly
-      env: GIMLI_JOB="alloc"        GIMLI_PROFILE="--release"
     # Build a 32 bit target.
     - rust: stable
       sudo: required
@@ -75,4 +70,3 @@ matrix:
         - GIMLI_PROFILE=
   allow_failures:
     - env: GIMLI_JOB="alloc"        GIMLI_PROFILE=
-    - env: GIMLI_JOB="alloc"        GIMLI_PROFILE="--release"
