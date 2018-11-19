@@ -4,6 +4,8 @@ use endianity::Endianity;
 use write::{Error, Result, Writer};
 
 /// A `Vec<u8>` with endianity metadata.
+///
+/// This implements the `Writer` trait, which is used for all writing of DWARF sections.
 #[derive(Debug, Clone)]
 pub struct EndianVec<Endian>
 where

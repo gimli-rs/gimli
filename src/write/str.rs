@@ -19,7 +19,8 @@ pub struct StringId(usize);
 // - able to get an existing value given an id
 //
 // Limitations of current implementation (using IndexSet):
-// - inserting a duplicate requires an allocation or a double lookup
+// - inserting requires either an allocation for duplicates,
+//   or a double lookup for non-duplicates
 // - doesn't preserve offsets when updating an existing `.debug_str` section
 //
 // Possible changes:
@@ -34,7 +35,9 @@ pub struct StringTable {
 impl StringTable {
     /// Add a string to the string table and return its id.
     ///
-    /// `bytes` must not contain a null byte.
+    /// # Panics
+    ///
+    /// Panics if `bytes` contains a null byte.
     pub fn add<T>(&mut self, bytes: T) -> StringId
     where
         T: Into<Vec<u8>>,
@@ -53,7 +56,9 @@ impl StringTable {
 
     /// Get a reference to a string in the table.
     ///
-    /// The given `id` must be valid.
+    /// # Panics
+    ///
+    /// Panics if `id` is invalid.
     pub fn get(&self, id: StringId) -> &[u8] {
         self.strings.get_index(id.0).map(Vec::as_slice).unwrap()
     }

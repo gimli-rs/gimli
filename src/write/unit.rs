@@ -52,12 +52,20 @@ impl UnitTable {
     }
 
     /// Get a reference to a compilation unit.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is invalid.
     #[inline]
     pub fn get(&self, id: UnitId) -> &CompilationUnit {
         &self.units[id.0]
     }
 
     /// Get a mutable reference to a compilation unit.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is invalid.
     #[inline]
     pub fn get_mut(&mut self, id: UnitId) -> &mut CompilationUnit {
         &mut self.units[id.0]
@@ -240,18 +248,30 @@ impl CompilationUnit {
     /// Add a new `DebuggingInformationEntry` to this unit and return its id.
     ///
     /// The `parent` must be within the same unit.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `parent` is invalid.
     #[inline]
     pub fn add(&mut self, parent: UnitEntryId, tag: constants::DwTag) -> UnitEntryId {
         DebuggingInformationEntry::new(&mut self.entries, Some(parent), tag)
     }
 
     /// Get a reference to an entry.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is invalid.
     #[inline]
     pub fn get(&self, id: UnitEntryId) -> &DebuggingInformationEntry {
         &self.entries[id.0]
     }
 
     /// Get a mutable reference to an entry.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is invalid.
     #[inline]
     pub fn get_mut(&mut self, id: UnitEntryId) -> &mut DebuggingInformationEntry {
         &mut self.entries[id.0]
@@ -366,6 +386,9 @@ impl CompilationUnit {
 /// A Debugging Information Entry (DIE).
 ///
 /// DIEs have a set of attributes and optionally have children DIEs as well.
+///
+/// DIEs form a tree without any cycles. This is enforced by specifying the
+/// parent when creating a DIE, and disallowing changes of parent.
 #[derive(Debug)]
 pub struct DebuggingInformationEntry {
     id: UnitEntryId,
@@ -380,6 +403,10 @@ pub struct DebuggingInformationEntry {
 
 impl DebuggingInformationEntry {
     /// Create a new `DebuggingInformationEntry`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `parent` is invalid.
     fn new(
         entries: &mut Vec<DebuggingInformationEntry>,
         parent: Option<UnitEntryId>,
@@ -395,6 +422,7 @@ impl DebuggingInformationEntry {
             children: Vec::new(),
         });
         if let Some(parent) = parent {
+            assert_ne!(parent, id);
             entries[parent.0].children.push(id);
         }
         id
