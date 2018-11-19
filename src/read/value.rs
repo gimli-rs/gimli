@@ -906,10 +906,11 @@ impl Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common::{DebugAbbrevOffset, Format};
     use endianity::LittleEndian;
     use read::{
-        Abbreviation, AttributeSpecification, DebugAbbrevOffset, DebuggingInformationEntry,
-        EndianSlice, Format, UnitHeader, UnitOffset,
+        Abbreviation, AttributeSpecification, DebuggingInformationEntry, EndianSlice, UnitHeader,
+        UnitOffset,
     };
 
     #[test]

@@ -1,8 +1,9 @@
 use fallible_iterator::FallibleIterator;
 
+use common::{Format, RangeListsOffset};
 use constants;
 use endianity::Endianity;
-use read::{EndianSlice, Error, Format, Reader, ReaderOffset, Result, Section};
+use read::{EndianSlice, Error, Reader, ReaderOffset, Result, Section};
 
 /// An offset into the `.debug_addr` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -133,11 +134,6 @@ fn parse_header<R: Reader>(input: &mut R) -> Result<RngListsHeader> {
         offset_entry_count,
     })
 }
-
-/// An offset into either the `.debug_ranges` section or the `.debug_rnglists` section,
-/// depending on the version of the unit the offset was contained in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct RangeListsOffset<T = usize>(pub T);
 
 /// The DWARF data found in `.debug_ranges` and `.debug_rnglists` sections.
 #[derive(Debug, Clone, Copy)]

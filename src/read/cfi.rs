@@ -9,34 +9,13 @@ use std::marker::PhantomData;
 use std::mem;
 use std::str;
 
+use common::{DebugFrameOffset, EhFrameOffset, Format, Register};
 use constants::{self, DwEhPe};
 use endianity::Endianity;
 use read::{
-    parse_encoded_pointer, parse_pointer_encoding, EndianSlice, Error, Expression, Format, Pointer,
-    Reader, ReaderOffset, Register, Result, Section,
+    parse_encoded_pointer, parse_pointer_encoding, EndianSlice, Error, Expression, Pointer, Reader,
+    ReaderOffset, Result, Section,
 };
-
-/// An offset into the `.debug_frame` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DebugFrameOffset<T = usize>(pub T);
-
-impl<T> From<T> for DebugFrameOffset<T> {
-    #[inline]
-    fn from(o: T) -> Self {
-        DebugFrameOffset(o)
-    }
-}
-
-/// An offset into the `.eh_frame` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct EhFrameOffset<T = usize>(pub T);
-
-impl<T> From<T> for EhFrameOffset<T> {
-    #[inline]
-    fn from(o: T) -> Self {
-        EhFrameOffset(o)
-    }
-}
 
 /// `DebugFrame` contains the `.debug_frame` section's frame unwinding
 /// information required to unwind to and recover registers from older frames on
@@ -3274,9 +3253,10 @@ mod tests {
     use self::test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};
     use super::*;
     use super::{parse_cfi_entry, AugmentationData, RegisterRuleMap, UnwindContext};
+    use common::Format;
     use constants;
     use endianity::{BigEndian, Endianity, LittleEndian, NativeEndian};
-    use read::{EndianSlice, Error, Expression, Format, Pointer, Result};
+    use read::{EndianSlice, Error, Expression, Pointer, Result};
     use std::marker::PhantomData;
     use std::mem;
     use std::u64;

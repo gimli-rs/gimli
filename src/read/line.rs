@@ -2,13 +2,10 @@ use std::fmt;
 use std::result;
 use vec::Vec;
 
+use common::{DebugLineOffset, Format};
 use constants;
 use endianity::Endianity;
-use read::{EndianSlice, Error, Format, Reader, ReaderOffset, Result, Section};
-
-/// An offset into the `.debug_line` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DebugLineOffset<T = usize>(pub T);
+use read::{EndianSlice, Error, Reader, ReaderOffset, Result, Section};
 
 /// The `DebugLine` struct contains the source location to instruction mapping
 /// found in the `.debug_line` section.
@@ -1464,11 +1461,10 @@ impl<R: Reader> FileEntry<R> {
 
 #[cfg(test)]
 mod tests {
-    use super::StateMachineRegisters;
     use super::*;
     use constants;
     use endianity::LittleEndian;
-    use read::{EndianSlice, Error, Format};
+    use read::{EndianSlice, Error};
     use std::u8;
 
     #[test]

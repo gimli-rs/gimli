@@ -107,6 +107,34 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
         f64::from_bits(self.read_u64(buf))
     }
 
+    /// Writes an unsigned 16 bit integer `n` to `buf`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `buf.len() < 2`.
+    #[inline]
+    fn write_u16(self, buf: &mut [u8], n: u16) {
+        if self.is_big_endian() {
+            byteorder::BigEndian::write_u16(buf, n)
+        } else {
+            byteorder::LittleEndian::write_u16(buf, n)
+        }
+    }
+
+    /// Writes an unsigned 32 bit integer `n` to `buf`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `buf.len() < 4`.
+    #[inline]
+    fn write_u32(self, buf: &mut [u8], n: u32) {
+        if self.is_big_endian() {
+            byteorder::BigEndian::write_u32(buf, n)
+        } else {
+            byteorder::LittleEndian::write_u32(buf, n)
+        }
+    }
+
     /// Writes an unsigned 64 bit integer `n` to `buf`.
     ///
     /// # Panics

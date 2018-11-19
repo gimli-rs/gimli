@@ -1,10 +1,11 @@
 use fallible_iterator::FallibleIterator;
 
+use common::{Format, LocationListsOffset};
 use constants;
 use endianity::Endianity;
 use read::{
-    AddressIndex, EndianSlice, Error, Expression, Format, Range, RawRange, Reader, ReaderOffset,
-    Result, Section,
+    AddressIndex, EndianSlice, Error, Expression, Range, RawRange, Reader, ReaderOffset, Result,
+    Section,
 };
 
 /// The `DebugLoc` struct represents the DWARF strings
@@ -129,11 +130,6 @@ fn parse_header<R: Reader>(input: &mut R) -> Result<LocListsHeader> {
         offset_entry_count,
     })
 }
-
-/// An offset into either the `.debug_loc` section or the `.debug_loclists` section,
-/// depending on the version of the unit the offset was contained in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct LocationListsOffset<T = usize>(pub T);
 
 /// The DWARF data found in `.debug_loc` and `.debug_loclists` sections.
 #[derive(Debug, Clone, Copy)]
