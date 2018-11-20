@@ -1,4 +1,3 @@
-use collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::{slice, usize};
 use vec::Vec;
@@ -8,11 +7,9 @@ use common::{
     DebugTypeSignature, Format, LocationListsOffset, RangeListsOffset,
 };
 use constants;
-use read::{self, Reader};
 use write::{
-    self, Abbreviation, AbbreviationTable, Address, AttributeSpecification, ConvertError,
-    ConvertResult, DebugAbbrev, DebugStrOffsets, Error, Result, Section, SectionId, StringId,
-    Writer,
+    Abbreviation, AbbreviationTable, Address, AttributeSpecification, DebugAbbrev, DebugStrOffsets,
+    Error, Result, Section, SectionId, StringId, Writer,
 };
 
 /// An identifier for a unit in a `UnitTable`.
@@ -106,66 +103,6 @@ impl UnitTable {
         abbrevs.write(debug_abbrev)?;
 
         Ok(offsets)
-    }
-
-    /// Create a compilation unit table by reading the data in the given sections.
-    ///
-    /// This also updates the given string table with the strings that are read
-    /// from the `debug_str` section.
-    ///
-    /// `convert_address` is a function to convert read addresses into the `Address`
-    /// type. For non-relocatable addresses, this function may simply return
-    /// `Address::Absolute(address)`. For relocatable addresses, it is the caller's
-    /// responsibility to determine the symbol and addend corresponding to the address
-    /// and return `Address::Relative { symbol, addend }`.
-    pub fn from<R: Reader<Offset = usize>>(
-        debug_info: &read::DebugInfo<R>,
-        debug_abbrev: &read::DebugAbbrev<R>,
-        debug_str: &read::DebugStr<R>,
-        strings: &mut write::StringTable,
-        convert_address: &Fn(u64) -> Option<Address>,
-    ) -> ConvertResult<UnitTable> {
-        let mut units = Vec::new();
-        let mut unit_entry_offsets = HashMap::new();
-
-        let mut from_units = debug_info.units();
-        while let Some(ref from_unit) = from_units.next()? {
-            CompilationUnit::from(
-                from_unit,
-                &mut units,
-                debug_abbrev,
-                debug_str,
-                strings,
-                convert_address,
-                &mut unit_entry_offsets,
-            )?;
-        }
-
-        // Convert all DebugInfoOffset to UnitEntryId
-        for unit in &mut units {
-            for entry in &mut unit.entries {
-                for attr in &mut entry.attrs {
-                    let id = match attr.value {
-                        AttributeValue::DebugInfoRef(ref offset) => {
-                            match unit_entry_offsets.get(offset) {
-                                Some(id) => Some(*id),
-                                None => return Err(ConvertError::InvalidDebugInfoOffset),
-                            }
-                        }
-                        _ => None,
-                    };
-                    if let Some((unit_id, entry_id)) = id {
-                        if unit_id == unit.id {
-                            attr.value = AttributeValue::ThisUnitEntryRef(entry_id)
-                        } else {
-                            attr.value = AttributeValue::AnyUnitEntryRef((unit_id, entry_id))
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(UnitTable { units })
     }
 }
 
@@ -341,45 +278,6 @@ impl CompilationUnit {
         }
 
         Ok(offsets)
-    }
-
-    /// Create an entry by reading the data in the given sections.
-    fn from<R: Reader<Offset = usize>>(
-        from_unit: &read::CompilationUnitHeader<R>,
-        units: &mut Vec<CompilationUnit>,
-        debug_abbrev: &read::DebugAbbrev<R>,
-        debug_str: &read::DebugStr<R>,
-        strings: &mut write::StringTable,
-        convert_address: &Fn(u64) -> Option<Address>,
-        unit_entry_offsets: &mut HashMap<DebugInfoOffset, (UnitId, UnitEntryId)>,
-    ) -> ConvertResult<UnitId> {
-        let id = UnitId(units.len());
-        let version = from_unit.version();
-        let address_size = from_unit.address_size();
-        let format = from_unit.format();
-        let mut entries = Vec::new();
-        let abbreviations = from_unit.abbreviations(debug_abbrev)?;
-        let mut from_tree = from_unit.entries_tree(&abbreviations, None)?;
-        let root = DebuggingInformationEntry::from(
-            from_tree.root()?,
-            from_unit,
-            &mut entries,
-            None,
-            id,
-            debug_str,
-            strings,
-            convert_address,
-            unit_entry_offsets,
-        )?;
-        units.push(CompilationUnit {
-            id,
-            version,
-            address_size,
-            format,
-            entries,
-            root,
-        });
-        Ok(id)
     }
 }
 
@@ -565,58 +463,6 @@ impl DebuggingInformationEntry {
         }
         Ok(())
     }
-
-    /// Create an entry by reading the data in the given sections.
-    fn from<R: Reader<Offset = usize>>(
-        from: read::EntriesTreeNode<R>,
-        from_unit: &read::CompilationUnitHeader<R>,
-        entries: &mut Vec<DebuggingInformationEntry>,
-        parent: Option<UnitEntryId>,
-        unit_id: UnitId,
-        debug_str: &read::DebugStr<R>,
-        strings: &mut write::StringTable,
-        convert_address: &Fn(u64) -> Option<Address>,
-        unit_entry_offsets: &mut HashMap<DebugInfoOffset, (UnitId, UnitEntryId)>,
-    ) -> ConvertResult<UnitEntryId> {
-        let id = {
-            let from = from.entry();
-            let entry = DebuggingInformationEntry::new(entries, parent, from.tag());
-            let entry = &mut entries[entry.0];
-
-            let offset = from.offset().to_debug_info_offset(from_unit);
-            unit_entry_offsets.insert(offset, (unit_id, entry.id));
-
-            let mut from_attrs = from.attrs();
-            while let Some(from_attr) = from_attrs.next()? {
-                if from_attr.name() == constants::DW_AT_sibling {
-                    // This may point to a null entry, so we have to treat it differently.
-                    entry.set_sibling(true);
-                } else {
-                    let attr =
-                        Attribute::from(from_attr, from_unit, debug_str, strings, convert_address)?;
-                    entry.set(attr.name, attr.value);
-                }
-            }
-
-            entry.id
-        };
-
-        let mut from_children = from.children();
-        while let Some(from_child) = from_children.next()? {
-            DebuggingInformationEntry::from(
-                from_child,
-                from_unit,
-                entries,
-                Some(id),
-                unit_id,
-                debug_str,
-                strings,
-                convert_address,
-                unit_entry_offsets,
-            )?;
-        }
-        Ok(id)
-    }
 }
 
 /// An attribute in a `DebuggingInformationEntry`, consisting of a name and
@@ -666,22 +512,6 @@ impl Attribute {
     ) -> Result<()> {
         self.value
             .write(w, unit, strings, unit_refs, debug_info_refs)
-    }
-
-    /// Create an attribute by reading the data in the given sections.
-    fn from<R: Reader<Offset = usize>>(
-        from: read::Attribute<R>,
-        from_unit: &read::CompilationUnitHeader<R>,
-        debug_str: &read::DebugStr<R>,
-        strings: &mut write::StringTable,
-        convert_address: &Fn(u64) -> Option<Address>,
-    ) -> ConvertResult<Attribute> {
-        let value =
-            AttributeValue::from(from.value(), from_unit, debug_str, strings, convert_address)?;
-        Ok(Attribute {
-            name: from.name(),
-            value,
-        })
     }
 }
 
@@ -1106,72 +936,6 @@ impl AttributeValue {
         }
         Ok(())
     }
-
-    /// Create an attribute value by reading the data in the given sections.
-    fn from<R: Reader<Offset = usize>>(
-        from: read::AttributeValue<R>,
-        from_unit: &read::CompilationUnitHeader<R>,
-        debug_str: &read::DebugStr<R>,
-        strings: &mut write::StringTable,
-        convert_address: &Fn(u64) -> Option<Address>,
-    ) -> ConvertResult<AttributeValue> {
-        let to = match from {
-            read::AttributeValue::Addr(val) => match convert_address(val) {
-                Some(val) => AttributeValue::Address(val),
-                None => return Err(ConvertError::InvalidAddress),
-            },
-            read::AttributeValue::Block(r) => AttributeValue::Block(r.to_slice()?.into()),
-            read::AttributeValue::Data1(val) => AttributeValue::Data1(val),
-            // TODO: do we need to handle endian?
-            read::AttributeValue::Data2((val, _endian)) => AttributeValue::Data2(val),
-            read::AttributeValue::Data4((val, _endian)) => AttributeValue::Data4(val),
-            read::AttributeValue::Data8((val, _endian)) => AttributeValue::Data8(val),
-            read::AttributeValue::Sdata(val) => AttributeValue::Sdata(val),
-            read::AttributeValue::Udata(val) => AttributeValue::Udata(val),
-            // TODO: addresses and offsets in expressions need special handling.
-            read::AttributeValue::Exprloc(read::Expression(val)) => {
-                AttributeValue::Exprloc(Expression(val.to_slice()?.into()))
-            }
-            // TODO: it would be nice to preserve the flag form.
-            read::AttributeValue::Flag(val) => AttributeValue::Flag(val),
-            read::AttributeValue::UnitRef(val) => {
-                AttributeValue::DebugInfoRef(val.to_debug_info_offset(from_unit))
-            }
-            read::AttributeValue::DebugInfoRef(val) => AttributeValue::DebugInfoRef(val),
-            read::AttributeValue::DebugInfoRefSup(val) => AttributeValue::DebugInfoRefSup(val),
-            read::AttributeValue::DebugLineRef(val) => AttributeValue::DebugLineRef(val),
-            read::AttributeValue::DebugMacinfoRef(val) => AttributeValue::DebugMacinfoRef(val),
-            read::AttributeValue::LocationListsRef(val) => AttributeValue::LocationListsRef(val),
-            read::AttributeValue::RangeListsRef(val) => AttributeValue::RangeListsRef(val),
-            read::AttributeValue::DebugTypesRef(val) => AttributeValue::DebugTypesRef(val),
-            read::AttributeValue::DebugStrRef(offset) => {
-                let r = debug_str.get_str(offset)?;
-                let id = strings.add(r.to_slice()?);
-                AttributeValue::StringRef(id)
-            }
-            read::AttributeValue::DebugStrRefSup(val) => AttributeValue::DebugStrRefSup(val),
-            read::AttributeValue::String(r) => AttributeValue::String(r.to_slice()?.into()),
-            read::AttributeValue::Encoding(val) => AttributeValue::Encoding(val),
-            read::AttributeValue::DecimalSign(val) => AttributeValue::DecimalSign(val),
-            read::AttributeValue::Endianity(val) => AttributeValue::Endianity(val),
-            read::AttributeValue::Accessibility(val) => AttributeValue::Accessibility(val),
-            read::AttributeValue::Visibility(val) => AttributeValue::Visibility(val),
-            read::AttributeValue::Virtuality(val) => AttributeValue::Virtuality(val),
-            read::AttributeValue::Language(val) => AttributeValue::Language(val),
-            read::AttributeValue::AddressClass(val) => AttributeValue::AddressClass(val),
-            read::AttributeValue::IdentifierCase(val) => AttributeValue::IdentifierCase(val),
-            read::AttributeValue::CallingConvention(val) => AttributeValue::CallingConvention(val),
-            read::AttributeValue::Inline(val) => AttributeValue::Inline(val),
-            read::AttributeValue::Ordering(val) => AttributeValue::Ordering(val),
-            // TODO: validation
-            read::AttributeValue::FileIndex(val) => AttributeValue::FileIndex(val as usize),
-            // Should always be a more specific section reference.
-            read::AttributeValue::SecOffset(_) => {
-                return Err(ConvertError::InvalidAttributeValue);
-            }
-        };
-        Ok(to)
-    }
 }
 
 /// A writable `.debug_info` section.
@@ -1249,10 +1013,271 @@ impl UnitOffsets {
     }
 }
 
+#[cfg(feature = "read")]
+mod convert {
+    use super::*;
+    use collections::HashMap;
+    use read::{self, Reader};
+    use write::{self, ConvertError, ConvertResult};
+
+    impl UnitTable {
+        /// Create a compilation unit table by reading the data in the given sections.
+        ///
+        /// This also updates the given string table with the strings that are read
+        /// from the `debug_str` section.
+        ///
+        /// `convert_address` is a function to convert read addresses into the `Address`
+        /// type. For non-relocatable addresses, this function may simply return
+        /// `Address::Absolute(address)`. For relocatable addresses, it is the caller's
+        /// responsibility to determine the symbol and addend corresponding to the address
+        /// and return `Address::Relative { symbol, addend }`.
+        pub fn from<R: Reader<Offset = usize>>(
+            debug_info: &read::DebugInfo<R>,
+            debug_abbrev: &read::DebugAbbrev<R>,
+            debug_str: &read::DebugStr<R>,
+            strings: &mut write::StringTable,
+            convert_address: &Fn(u64) -> Option<Address>,
+        ) -> ConvertResult<UnitTable> {
+            let mut units = Vec::new();
+            let mut unit_entry_offsets = HashMap::new();
+
+            let mut from_units = debug_info.units();
+            while let Some(ref from_unit) = from_units.next()? {
+                CompilationUnit::from(
+                    from_unit,
+                    &mut units,
+                    debug_abbrev,
+                    debug_str,
+                    strings,
+                    convert_address,
+                    &mut unit_entry_offsets,
+                )?;
+            }
+
+            // Convert all DebugInfoOffset to UnitEntryId
+            for unit in &mut units {
+                for entry in &mut unit.entries {
+                    for attr in &mut entry.attrs {
+                        let id = match attr.value {
+                            AttributeValue::DebugInfoRef(ref offset) => {
+                                match unit_entry_offsets.get(offset) {
+                                    Some(id) => Some(*id),
+                                    None => return Err(ConvertError::InvalidDebugInfoOffset),
+                                }
+                            }
+                            _ => None,
+                        };
+                        if let Some((unit_id, entry_id)) = id {
+                            if unit_id == unit.id {
+                                attr.value = AttributeValue::ThisUnitEntryRef(entry_id)
+                            } else {
+                                attr.value = AttributeValue::AnyUnitEntryRef((unit_id, entry_id))
+                            }
+                        }
+                    }
+                }
+            }
+
+            Ok(UnitTable { units })
+        }
+    }
+
+    impl CompilationUnit {
+        /// Create an entry by reading the data in the given sections.
+        pub(crate) fn from<R: Reader<Offset = usize>>(
+            from_unit: &read::CompilationUnitHeader<R>,
+            units: &mut Vec<CompilationUnit>,
+            debug_abbrev: &read::DebugAbbrev<R>,
+            debug_str: &read::DebugStr<R>,
+            strings: &mut write::StringTable,
+            convert_address: &Fn(u64) -> Option<Address>,
+            unit_entry_offsets: &mut HashMap<DebugInfoOffset, (UnitId, UnitEntryId)>,
+        ) -> ConvertResult<UnitId> {
+            let id = UnitId(units.len());
+            let version = from_unit.version();
+            let address_size = from_unit.address_size();
+            let format = from_unit.format();
+            let mut entries = Vec::new();
+            let abbreviations = from_unit.abbreviations(debug_abbrev)?;
+            let mut from_tree = from_unit.entries_tree(&abbreviations, None)?;
+            let root = DebuggingInformationEntry::from(
+                from_tree.root()?,
+                from_unit,
+                &mut entries,
+                None,
+                id,
+                debug_str,
+                strings,
+                convert_address,
+                unit_entry_offsets,
+            )?;
+            units.push(CompilationUnit {
+                id,
+                version,
+                address_size,
+                format,
+                entries,
+                root,
+            });
+            Ok(id)
+        }
+    }
+
+    impl DebuggingInformationEntry {
+        /// Create an entry by reading the data in the given sections.
+        pub(crate) fn from<R: Reader<Offset = usize>>(
+            from: read::EntriesTreeNode<R>,
+            from_unit: &read::CompilationUnitHeader<R>,
+            entries: &mut Vec<DebuggingInformationEntry>,
+            parent: Option<UnitEntryId>,
+            unit_id: UnitId,
+            debug_str: &read::DebugStr<R>,
+            strings: &mut write::StringTable,
+            convert_address: &Fn(u64) -> Option<Address>,
+            unit_entry_offsets: &mut HashMap<DebugInfoOffset, (UnitId, UnitEntryId)>,
+        ) -> ConvertResult<UnitEntryId> {
+            let id = {
+                let from = from.entry();
+                let entry = DebuggingInformationEntry::new(entries, parent, from.tag());
+                let entry = &mut entries[entry.0];
+
+                let offset = from.offset().to_debug_info_offset(from_unit);
+                unit_entry_offsets.insert(offset, (unit_id, entry.id));
+
+                let mut from_attrs = from.attrs();
+                while let Some(from_attr) = from_attrs.next()? {
+                    if from_attr.name() == constants::DW_AT_sibling {
+                        // This may point to a null entry, so we have to treat it differently.
+                        entry.set_sibling(true);
+                    } else {
+                        let attr = Attribute::from(
+                            from_attr,
+                            from_unit,
+                            debug_str,
+                            strings,
+                            convert_address,
+                        )?;
+                        entry.set(attr.name, attr.value);
+                    }
+                }
+
+                entry.id
+            };
+
+            let mut from_children = from.children();
+            while let Some(from_child) = from_children.next()? {
+                DebuggingInformationEntry::from(
+                    from_child,
+                    from_unit,
+                    entries,
+                    Some(id),
+                    unit_id,
+                    debug_str,
+                    strings,
+                    convert_address,
+                    unit_entry_offsets,
+                )?;
+            }
+            Ok(id)
+        }
+    }
+
+    impl Attribute {
+        /// Create an attribute by reading the data in the given sections.
+        pub(crate) fn from<R: Reader<Offset = usize>>(
+            from: read::Attribute<R>,
+            from_unit: &read::CompilationUnitHeader<R>,
+            debug_str: &read::DebugStr<R>,
+            strings: &mut write::StringTable,
+            convert_address: &Fn(u64) -> Option<Address>,
+        ) -> ConvertResult<Attribute> {
+            let value =
+                AttributeValue::from(from.value(), from_unit, debug_str, strings, convert_address)?;
+            Ok(Attribute {
+                name: from.name(),
+                value,
+            })
+        }
+    }
+
+    impl AttributeValue {
+        /// Create an attribute value by reading the data in the given sections.
+        pub(crate) fn from<R: Reader<Offset = usize>>(
+            from: read::AttributeValue<R>,
+            from_unit: &read::CompilationUnitHeader<R>,
+            debug_str: &read::DebugStr<R>,
+            strings: &mut write::StringTable,
+            convert_address: &Fn(u64) -> Option<Address>,
+        ) -> ConvertResult<AttributeValue> {
+            let to = match from {
+                read::AttributeValue::Addr(val) => match convert_address(val) {
+                    Some(val) => AttributeValue::Address(val),
+                    None => return Err(ConvertError::InvalidAddress),
+                },
+                read::AttributeValue::Block(r) => AttributeValue::Block(r.to_slice()?.into()),
+                read::AttributeValue::Data1(val) => AttributeValue::Data1(val),
+                // TODO: do we need to handle endian?
+                read::AttributeValue::Data2((val, _endian)) => AttributeValue::Data2(val),
+                read::AttributeValue::Data4((val, _endian)) => AttributeValue::Data4(val),
+                read::AttributeValue::Data8((val, _endian)) => AttributeValue::Data8(val),
+                read::AttributeValue::Sdata(val) => AttributeValue::Sdata(val),
+                read::AttributeValue::Udata(val) => AttributeValue::Udata(val),
+                // TODO: addresses and offsets in expressions need special handling.
+                read::AttributeValue::Exprloc(read::Expression(val)) => {
+                    AttributeValue::Exprloc(Expression(val.to_slice()?.into()))
+                }
+                // TODO: it would be nice to preserve the flag form.
+                read::AttributeValue::Flag(val) => AttributeValue::Flag(val),
+                read::AttributeValue::UnitRef(val) => {
+                    AttributeValue::DebugInfoRef(val.to_debug_info_offset(from_unit))
+                }
+                read::AttributeValue::DebugInfoRef(val) => AttributeValue::DebugInfoRef(val),
+                read::AttributeValue::DebugInfoRefSup(val) => AttributeValue::DebugInfoRefSup(val),
+                read::AttributeValue::DebugLineRef(val) => AttributeValue::DebugLineRef(val),
+                read::AttributeValue::DebugMacinfoRef(val) => AttributeValue::DebugMacinfoRef(val),
+                read::AttributeValue::LocationListsRef(val) => {
+                    AttributeValue::LocationListsRef(val)
+                }
+                read::AttributeValue::RangeListsRef(val) => AttributeValue::RangeListsRef(val),
+                read::AttributeValue::DebugTypesRef(val) => AttributeValue::DebugTypesRef(val),
+                read::AttributeValue::DebugStrRef(offset) => {
+                    let r = debug_str.get_str(offset)?;
+                    let id = strings.add(r.to_slice()?);
+                    AttributeValue::StringRef(id)
+                }
+                read::AttributeValue::DebugStrRefSup(val) => AttributeValue::DebugStrRefSup(val),
+                read::AttributeValue::String(r) => AttributeValue::String(r.to_slice()?.into()),
+                read::AttributeValue::Encoding(val) => AttributeValue::Encoding(val),
+                read::AttributeValue::DecimalSign(val) => AttributeValue::DecimalSign(val),
+                read::AttributeValue::Endianity(val) => AttributeValue::Endianity(val),
+                read::AttributeValue::Accessibility(val) => AttributeValue::Accessibility(val),
+                read::AttributeValue::Visibility(val) => AttributeValue::Visibility(val),
+                read::AttributeValue::Virtuality(val) => AttributeValue::Virtuality(val),
+                read::AttributeValue::Language(val) => AttributeValue::Language(val),
+                read::AttributeValue::AddressClass(val) => AttributeValue::AddressClass(val),
+                read::AttributeValue::IdentifierCase(val) => AttributeValue::IdentifierCase(val),
+                read::AttributeValue::CallingConvention(val) => {
+                    AttributeValue::CallingConvention(val)
+                }
+                read::AttributeValue::Inline(val) => AttributeValue::Inline(val),
+                read::AttributeValue::Ordering(val) => AttributeValue::Ordering(val),
+                // TODO: validation
+                read::AttributeValue::FileIndex(val) => AttributeValue::FileIndex(val as usize),
+                // Should always be a more specific section reference.
+                read::AttributeValue::SecOffset(_) => {
+                    return Err(ConvertError::InvalidAttributeValue);
+                }
+            };
+            Ok(to)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use constants;
+    use read;
     use std::mem;
     use write::{DebugStr, EndianVec, StringTable};
     use LittleEndian;

@@ -5,8 +5,6 @@ use std::fmt;
 use std::ops::DerefMut;
 use std::result;
 
-use read;
-
 mod endian_vec;
 pub use self::endian_vec::*;
 
@@ -69,53 +67,6 @@ impl error::Error for Error {}
 
 /// The result of a write.
 pub type Result<T> = result::Result<T, Error>;
-
-/// An error that occurred when converting a read value into a write value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConvertError {
-    /// An error occurred when reading.
-    Read(read::Error),
-    /// Writing of this attribute value is not implemented yet.
-    UnsupportedAttributeValue,
-    /// This attribute value is an invalid name/form combination.
-    InvalidAttributeValue,
-    /// A `.debug_info` reference does not refer to a valid entry.
-    InvalidDebugInfoOffset,
-    /// An address could not be converted.
-    InvalidAddress,
-}
-
-impl fmt::Display for ConvertError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        use self::ConvertError::*;
-        match *self {
-            Read(ref e) => e.fmt(f),
-            UnsupportedAttributeValue => {
-                write!(f, "Writing of this attribute value is not implemented yet.")
-            }
-            InvalidAttributeValue => write!(
-                f,
-                "This attribute value is an invalid name/form combination."
-            ),
-            InvalidDebugInfoOffset => write!(
-                f,
-                "A `.debug_info` reference does not refer to a valid entry."
-            ),
-            InvalidAddress => write!(f, "An address could not be converted."),
-        }
-    }
-}
-
-impl error::Error for ConvertError {}
-
-impl From<read::Error> for ConvertError {
-    fn from(e: read::Error) -> Self {
-        ConvertError::Read(e)
-    }
-}
-
-/// The result of a conversion.
-pub type ConvertResult<T> = result::Result<T, ConvertError>;
 
 /// An identifier for a DWARF section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,3 +137,58 @@ pub enum Address {
         addend: i64,
     },
 }
+
+#[cfg(feature = "read")]
+mod convert {
+    use super::*;
+    use read;
+
+    /// An error that occurred when converting a read value into a write value.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum ConvertError {
+        /// An error occurred when reading.
+        Read(read::Error),
+        /// Writing of this attribute value is not implemented yet.
+        UnsupportedAttributeValue,
+        /// This attribute value is an invalid name/form combination.
+        InvalidAttributeValue,
+        /// A `.debug_info` reference does not refer to a valid entry.
+        InvalidDebugInfoOffset,
+        /// An address could not be converted.
+        InvalidAddress,
+    }
+
+    impl fmt::Display for ConvertError {
+        fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+            use self::ConvertError::*;
+            match *self {
+                Read(ref e) => e.fmt(f),
+                UnsupportedAttributeValue => {
+                    write!(f, "Writing of this attribute value is not implemented yet.")
+                }
+                InvalidAttributeValue => write!(
+                    f,
+                    "This attribute value is an invalid name/form combination."
+                ),
+                InvalidDebugInfoOffset => write!(
+                    f,
+                    "A `.debug_info` reference does not refer to a valid entry."
+                ),
+                InvalidAddress => write!(f, "An address could not be converted."),
+            }
+        }
+    }
+
+    impl error::Error for ConvertError {}
+
+    impl From<read::Error> for ConvertError {
+        fn from(e: read::Error) -> Self {
+            ConvertError::Read(e)
+        }
+    }
+
+    /// The result of a conversion.
+    pub type ConvertResult<T> = result::Result<T, ConvertError>;
+}
+#[cfg(feature = "read")]
+pub use self::convert::*;

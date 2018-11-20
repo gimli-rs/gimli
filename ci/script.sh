@@ -3,13 +3,16 @@
 set -ex
 
 case "$GIMLI_JOB" in
+    "build")
+        cargo build $GIMLI_PROFILE
+        cargo build --release $GIMLI_PROFILE
+        ;;
+
     "test")
         cargo build $GIMLI_PROFILE
         cargo test $GIMLI_PROFILE
-        ;;
-
-    "examples")
-        cargo build $GIMLI_PROFILE
+        cargo build --release $GIMLI_PROFILE
+        cargo test --release $GIMLI_PROFILE
         case "$TRAVIS_OS_NAME" in
             "osx")
                 with_debug_info=$(find ./target/debug -type f | grep DWARF | grep gimli | head -n 1)
@@ -21,7 +24,8 @@ case "$GIMLI_JOB" in
                 echo "Error! Unknown \$TRAVIS_OS_NAME: $TRAVIS_OS_NAME"
                 exit 1
         esac
-        cargo run --example dwarfdump -- "$with_debug_info" > /dev/null
+        cargo run           --example dwarfdump -- "$with_debug_info" > /dev/null
+        cargo run --release --example dwarfdump -- "$with_debug_info" > /dev/null
         ;;
 
     "doc")
@@ -30,7 +34,8 @@ case "$GIMLI_JOB" in
 
     "alloc")
         test "$TRAVIS_RUST_VERSION" == "nightly"
-        cargo build --no-default-features --features alloc $GIMLI_PROFILE
+        cargo build           --no-default-features --features read,alloc $GIMLI_PROFILE
+        cargo build --release --no-default-features --features read,alloc $GIMLI_PROFILE
         ;;
 
     "bench")

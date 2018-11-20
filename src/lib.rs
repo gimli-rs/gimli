@@ -167,6 +167,12 @@
 //! * `alloc`: Nightly only. Enables usage of the unstable, nightly-only
 //! `#![feature(alloc)]` Rust feature that allows `gimli` to use boxes and
 //! collection types in a `#[no_std]` environment.
+//!
+//! * `read`: Enabled by default. Enables the `read` module. Requires
+//! either `alloc` or `std` to also be enabled.
+//!
+//! * `write`: Enabled by default. Enables the `write` module. Automatically
+//! enables `std` too.
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
 // Allow clippy warnings when we aren't building with clippy.
@@ -194,7 +200,7 @@ extern crate core as std;
 extern crate arrayvec;
 extern crate byteorder;
 extern crate fallible_iterator;
-#[cfg(feature = "std")]
+#[cfg(feature = "write")]
 extern crate indexmap;
 extern crate stable_deref_trait;
 
@@ -239,11 +245,13 @@ pub use endianity::{BigEndian, Endianity, LittleEndian, NativeEndian, RunTimeEnd
 
 pub mod leb128;
 
+#[cfg(feature = "read")]
 pub mod read;
 // For backwards compat.
+#[cfg(feature = "read")]
 pub use read::*;
 
-#[cfg(feature = "std")]
+#[cfg(feature = "write")]
 pub mod write;
 
 #[cfg(test)]
