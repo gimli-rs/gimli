@@ -350,6 +350,8 @@ impl DebuggingInformationEntry {
     }
 
     /// Set whether a `DW_AT_sibling` attribute will be emitted.
+    ///
+    /// The attribute will only be emitted if the DIE has children.
     #[inline]
     pub fn set_sibling(&mut self, sibling: bool) {
         self.sibling = sibling;
@@ -411,7 +413,7 @@ impl DebuggingInformationEntry {
     fn abbreviation(&self, format: Format) -> Result<Abbreviation> {
         let mut attrs = Vec::new();
 
-        if self.sibling {
+        if self.sibling && !self.children.is_empty() {
             let form = match format {
                 Format::Dwarf32 => constants::DW_FORM_ref4,
                 Format::Dwarf64 => constants::DW_FORM_ref8,
@@ -445,7 +447,7 @@ impl DebuggingInformationEntry {
         let code = abbrevs.add(self.abbreviation(unit.format)?);
         w.write_uleb128(code)?;
 
-        let sibling_offset = if self.sibling {
+        let sibling_offset = if self.sibling && !self.children.is_empty() {
             let offset = w.offset();
             w.write_word(0, unit.format.word_size())?;
             Some(offset)
@@ -2000,20 +2002,25 @@ mod tests {
         fn add_children(units: &mut UnitTable, unit_id: UnitId) {
             let unit = units.get_mut(unit_id);
             let root = unit.root();
-            add_child(unit, root, constants::DW_TAG_subprogram, "child1");
+            let child1 = add_child(unit, root, constants::DW_TAG_subprogram, "child1");
+            add_child(unit, child1, constants::DW_TAG_variable, "grandchild1");
             add_child(unit, root, constants::DW_TAG_subprogram, "child2");
             add_child(unit, root, constants::DW_TAG_subprogram, "child3");
         }
 
         fn next_child<R: read::Reader<Offset = usize>>(
             entries: &mut read::EntriesCursor<R>,
-        ) -> (read::UnitOffset, read::UnitOffset) {
+        ) -> (read::UnitOffset, Option<read::UnitOffset>) {
             let (_, entry) = entries.next_dfs().unwrap().unwrap();
             let offset = entry.offset();
-            let sibling = match entry.attr_value(constants::DW_AT_sibling).unwrap().unwrap() {
-                read::AttributeValue::UnitRef(offset) => offset,
-                _ => panic!("bad sibling value"),
-            };
+            let sibling =
+                entry
+                    .attr_value(constants::DW_AT_sibling)
+                    .unwrap()
+                    .map(|attr| match attr {
+                        read::AttributeValue::UnitRef(offset) => offset,
+                        _ => panic!("bad sibling value"),
+                    });
             (offset, sibling)
         }
 
@@ -2023,12 +2030,18 @@ mod tests {
         ) {
             let abbrevs = unit.abbreviations(debug_abbrev).unwrap();
             let mut entries = unit.entries(&abbrevs);
+            // root
             entries.next_dfs().unwrap().unwrap();
+            // child1
             let (_, sibling1) = next_child(&mut entries);
+            // grandchild1
+            entries.next_dfs().unwrap().unwrap();
+            // child2
             let (offset2, sibling2) = next_child(&mut entries);
-            let (offset3, _) = next_child(&mut entries);
-            assert_eq!(sibling1, offset2);
-            assert_eq!(sibling2, offset3);
+            // child3
+            let (_, _) = next_child(&mut entries);
+            assert_eq!(sibling1, Some(offset2));
+            assert_eq!(sibling2, None);
         }
 
         let mut units = UnitTable::default();
