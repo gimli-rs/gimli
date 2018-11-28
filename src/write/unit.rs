@@ -293,7 +293,6 @@ pub struct DebuggingInformationEntry {
     parent: Option<UnitEntryId>,
     tag: constants::DwTag,
     /// Whether to emit `DW_AT_sibling`.
-    // TODO: should this be automatic?
     sibling: bool,
     attrs: Vec<Attribute>,
     children: Vec<UnitEntryId>,
@@ -351,6 +350,8 @@ impl DebuggingInformationEntry {
     }
 
     /// Set whether a `DW_AT_sibling` attribute will be emitted.
+    ///
+    /// The attribute will only be emitted if the DIE has children.
     #[inline]
     pub fn set_sibling(&mut self, sibling: bool) {
         self.sibling = sibling;
@@ -387,7 +388,12 @@ impl DebuggingInformationEntry {
     /// Set an attribute.
     ///
     /// Replaces any existing attribute with the same name.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `name` is `DW_AT_sibling`. Use `set_sibling` instead.
     pub fn set(&mut self, name: constants::DwAt, value: AttributeValue) {
+        assert_ne!(name, constants::DW_AT_sibling);
         if let Some(attr) = self.attrs.iter_mut().find(|attr| attr.name == name) {
             attr.value = value;
             return;
@@ -406,18 +412,19 @@ impl DebuggingInformationEntry {
     /// Return the type abbreviation for this DIE.
     fn abbreviation(&self, format: Format) -> Result<Abbreviation> {
         let mut attrs = Vec::new();
-        /* TODO: implement sibling support
-        if self.sibling {
+
+        if self.sibling && !self.children.is_empty() {
             let form = match format {
                 Format::Dwarf32 => constants::DW_FORM_ref4,
                 Format::Dwarf64 => constants::DW_FORM_ref8,
             };
             attrs.push(AttributeSpecification::new(constants::DW_AT_sibling, form));
         }
-        */
+
         for attr in &self.attrs {
             attrs.push(attr.specification(format)?);
         }
+
         Ok(Abbreviation::new(
             self.tag,
             !self.children.is_empty(),
@@ -439,13 +446,19 @@ impl DebuggingInformationEntry {
         offsets.entries[self.id.0] = w.offset();
         let code = abbrevs.add(self.abbreviation(unit.format)?);
         w.write_uleb128(code)?;
-        /* TODO: implement sibling support
-        if self.sibling {
-        }
-        */
+
+        let sibling_offset = if self.sibling && !self.children.is_empty() {
+            let offset = w.offset();
+            w.write_word(0, unit.format.word_size())?;
+            Some(offset)
+        } else {
+            None
+        };
+
         for attr in &self.attrs {
             attr.write(w, unit, strings, unit_refs, debug_info_refs)?;
         }
+
         if !self.children.is_empty() {
             for child in &self.children {
                 unit.entries[child.0].write(
@@ -460,6 +473,12 @@ impl DebuggingInformationEntry {
             }
             // Null child
             w.write_u8(0)?;
+        }
+
+        if let Some(offset) = sibling_offset {
+            let next_offset = (w.offset().0 - offsets.unit.0) as u64;
+            // This does not need relocation.
+            w.write_word_at(offset.0, next_offset, unit.format.word_size())?;
         }
         Ok(())
     }
@@ -1963,5 +1982,88 @@ mod tests {
                 assert_eq!(convert_attr, attr);
             }
         }
+    }
+
+    #[test]
+    fn test_sibling() {
+        fn add_child(
+            unit: &mut CompilationUnit,
+            parent: UnitEntryId,
+            tag: constants::DwTag,
+            name: &str,
+        ) -> UnitEntryId {
+            let id = unit.add(parent, tag);
+            let child = unit.get_mut(id);
+            child.set(constants::DW_AT_name, AttributeValue::String(name.into()));
+            child.set_sibling(true);
+            id
+        }
+
+        fn add_children(units: &mut UnitTable, unit_id: UnitId) {
+            let unit = units.get_mut(unit_id);
+            let root = unit.root();
+            let child1 = add_child(unit, root, constants::DW_TAG_subprogram, "child1");
+            add_child(unit, child1, constants::DW_TAG_variable, "grandchild1");
+            add_child(unit, root, constants::DW_TAG_subprogram, "child2");
+            add_child(unit, root, constants::DW_TAG_subprogram, "child3");
+        }
+
+        fn next_child<R: read::Reader<Offset = usize>>(
+            entries: &mut read::EntriesCursor<R>,
+        ) -> (read::UnitOffset, Option<read::UnitOffset>) {
+            let (_, entry) = entries.next_dfs().unwrap().unwrap();
+            let offset = entry.offset();
+            let sibling =
+                entry
+                    .attr_value(constants::DW_AT_sibling)
+                    .unwrap()
+                    .map(|attr| match attr {
+                        read::AttributeValue::UnitRef(offset) => offset,
+                        _ => panic!("bad sibling value"),
+                    });
+            (offset, sibling)
+        }
+
+        fn check_sibling<R: read::Reader<Offset = usize>>(
+            unit: read::CompilationUnitHeader<R>,
+            debug_abbrev: &read::DebugAbbrev<R>,
+        ) {
+            let abbrevs = unit.abbreviations(debug_abbrev).unwrap();
+            let mut entries = unit.entries(&abbrevs);
+            // root
+            entries.next_dfs().unwrap().unwrap();
+            // child1
+            let (_, sibling1) = next_child(&mut entries);
+            // grandchild1
+            entries.next_dfs().unwrap().unwrap();
+            // child2
+            let (offset2, sibling2) = next_child(&mut entries);
+            // child3
+            let (_, _) = next_child(&mut entries);
+            assert_eq!(sibling1, Some(offset2));
+            assert_eq!(sibling2, None);
+        }
+
+        let mut units = UnitTable::default();
+        let unit_id1 = units.add(4, 8, Format::Dwarf32);
+        add_children(&mut units, unit_id1);
+        let unit_id2 = units.add(4, 8, Format::Dwarf32);
+        add_children(&mut units, unit_id2);
+
+        let debug_str_offsets = DebugStrOffsets::default();
+        let mut debug_info = DebugInfo::from(EndianVec::new(LittleEndian));
+        let mut debug_abbrev = DebugAbbrev::from(EndianVec::new(LittleEndian));
+        units
+            .write(&mut debug_info, &mut debug_abbrev, &debug_str_offsets)
+            .unwrap();
+
+        println!("{:?}", debug_info);
+        println!("{:?}", debug_abbrev);
+
+        let read_debug_info = read::DebugInfo::new(debug_info.slice(), LittleEndian);
+        let read_debug_abbrev = read::DebugAbbrev::new(debug_abbrev.slice(), LittleEndian);
+        let mut read_units = read_debug_info.units();
+        check_sibling(read_units.next().unwrap().unwrap(), &read_debug_abbrev);
+        check_sibling(read_units.next().unwrap().unwrap(), &read_debug_abbrev);
     }
 }
