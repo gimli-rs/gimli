@@ -38,8 +38,10 @@ impl UnitTable {
     ///
     /// Returns the `UnitId` of the new unit.
     #[inline]
-    pub fn add(&mut self, version: u16, address_size: u8, format: Format) -> UnitId {
-        CompilationUnit::new(&mut self.units, version, address_size, format)
+    pub fn add(&mut self, unit: CompilationUnit) -> UnitId {
+        let id = UnitId(self.units.len());
+        self.units.push(unit);
+        id
     }
 
     /// Return the number of compilation units.
@@ -109,7 +111,6 @@ impl UnitTable {
 /// A compilation unit's debugging information.
 #[derive(Debug)]
 pub struct CompilationUnit {
-    id: UnitId,
     version: u16,
     address_size: u8,
     // TODO: this should be automatic
@@ -129,25 +130,17 @@ pub struct CompilationUnit {
 
 impl CompilationUnit {
     /// Create a new `CompilationUnit`.
-    fn new(
-        units: &mut Vec<CompilationUnit>,
-        version: u16,
-        address_size: u8,
-        format: Format,
-    ) -> UnitId {
-        let id = UnitId(units.len());
+    pub fn new(version: u16, address_size: u8, format: Format) -> Self {
         let mut entries = Vec::new();
         let root =
             DebuggingInformationEntry::new(&mut entries, None, constants::DW_TAG_compile_unit);
-        units.push(CompilationUnit {
-            id,
+        CompilationUnit {
             version,
             address_size,
             format,
             entries,
             root,
-        });
-        id
+        }
     }
 
     /// Return the DWARF version for this unit.
@@ -1062,19 +1055,21 @@ mod convert {
 
             let mut from_units = debug_info.units();
             while let Some(ref from_unit) = from_units.next()? {
-                CompilationUnit::from(
+                let unit_id = UnitId(units.len());
+                units.push(CompilationUnit::from(
                     from_unit,
-                    &mut units,
+                    unit_id,
                     debug_abbrev,
                     debug_str,
                     strings,
                     convert_address,
                     &mut unit_entry_offsets,
-                )?;
+                )?);
             }
 
             // Convert all DebugInfoOffset to UnitEntryId
-            for unit in &mut units {
+            for (unit_id, unit) in units.iter_mut().enumerate() {
+                let unit_id = UnitId(unit_id);
                 for entry in &mut unit.entries {
                     for attr in &mut entry.attrs {
                         let id = match attr.value {
@@ -1086,11 +1081,11 @@ mod convert {
                             }
                             _ => None,
                         };
-                        if let Some((unit_id, entry_id)) = id {
-                            if unit_id == unit.id {
-                                attr.value = AttributeValue::ThisUnitEntryRef(entry_id)
+                        if let Some(id) = id {
+                            if id.0 == unit_id {
+                                attr.value = AttributeValue::ThisUnitEntryRef(id.1)
                             } else {
-                                attr.value = AttributeValue::AnyUnitEntryRef((unit_id, entry_id))
+                                attr.value = AttributeValue::AnyUnitEntryRef(id)
                             }
                         }
                     }
@@ -1105,14 +1100,13 @@ mod convert {
         /// Create an entry by reading the data in the given sections.
         pub(crate) fn from<R: Reader<Offset = usize>>(
             from_unit: &read::CompilationUnitHeader<R>,
-            units: &mut Vec<CompilationUnit>,
+            unit_id: UnitId,
             debug_abbrev: &read::DebugAbbrev<R>,
             debug_str: &read::DebugStr<R>,
             strings: &mut write::StringTable,
             convert_address: &Fn(u64) -> Option<Address>,
             unit_entry_offsets: &mut HashMap<DebugInfoOffset, (UnitId, UnitEntryId)>,
-        ) -> ConvertResult<UnitId> {
-            let id = UnitId(units.len());
+        ) -> ConvertResult<CompilationUnit> {
             let version = from_unit.version();
             let address_size = from_unit.address_size();
             let format = from_unit.format();
@@ -1124,21 +1118,19 @@ mod convert {
                 from_unit,
                 &mut entries,
                 None,
-                id,
+                unit_id,
                 debug_str,
                 strings,
                 convert_address,
                 unit_entry_offsets,
             )?;
-            units.push(CompilationUnit {
-                id,
+            Ok(CompilationUnit {
                 version,
                 address_size,
                 format,
                 entries,
                 root,
-            });
-            Ok(id)
+            })
         }
     }
 
@@ -1306,9 +1298,9 @@ mod tests {
         let mut strings = StringTable::default();
 
         let mut units = UnitTable::default();
-        let unit1 = units.add(4, 8, Format::Dwarf32);
-        let unit2 = units.add(2, 4, Format::Dwarf64);
-        let unit3 = units.add(5, 4, Format::Dwarf32);
+        let unit1 = units.add(CompilationUnit::new(4, 8, Format::Dwarf32));
+        let unit2 = units.add(CompilationUnit::new(2, 4, Format::Dwarf64));
+        let unit3 = units.add(CompilationUnit::new(5, 4, Format::Dwarf32));
         assert_eq!(units.count(), 3);
         {
             let unit1 = units.get_mut(unit1);
@@ -1585,7 +1577,7 @@ mod tests {
             for &format in &[Format::Dwarf32, Format::Dwarf64] {
                 for &version in &[2, 3, 4, 5] {
                     let mut units = UnitTable::default();
-                    let unit = units.add(version, address_size, format);
+                    let unit = units.add(CompilationUnit::new(version, address_size, format));
                     let unit = units.get(unit);
                     let from_unit = read::UnitHeader::new(
                         0,
@@ -1817,9 +1809,9 @@ mod tests {
     #[test]
     fn test_unit_ref() {
         let mut units = UnitTable::default();
-        let unit_id1 = units.add(4, 8, Format::Dwarf32);
+        let unit_id1 = units.add(CompilationUnit::new(4, 8, Format::Dwarf32));
         assert_eq!(unit_id1, UnitId(0));
-        let unit_id2 = units.add(2, 4, Format::Dwarf64);
+        let unit_id2 = units.add(CompilationUnit::new(2, 4, Format::Dwarf64));
         assert_eq!(unit_id2, UnitId(1));
         // These will be the same for children in both units.
         let child_id1 = UnitEntryId(1);
@@ -2045,9 +2037,9 @@ mod tests {
         }
 
         let mut units = UnitTable::default();
-        let unit_id1 = units.add(4, 8, Format::Dwarf32);
+        let unit_id1 = units.add(CompilationUnit::new(4, 8, Format::Dwarf32));
         add_children(&mut units, unit_id1);
-        let unit_id2 = units.add(4, 8, Format::Dwarf32);
+        let unit_id2 = units.add(CompilationUnit::new(4, 8, Format::Dwarf32));
         add_children(&mut units, unit_id2);
 
         let debug_str_offsets = DebugStrOffsets::default();
