@@ -14,6 +14,9 @@ pub use self::writer::*;
 mod abbrev;
 pub use self::abbrev::*;
 
+mod line;
+pub use self::line::*;
+
 mod str;
 pub use self::str::*;
 
@@ -39,6 +42,8 @@ pub enum Error {
     InitialLengthOverflow,
     /// The address is invalid.
     InvalidAddress,
+    /// A requested feature requires a different DWARF version.
+    NeedVersion(u16),
 }
 
 impl fmt::Display for Error {
@@ -59,6 +64,11 @@ impl fmt::Display for Error {
                 "The unit length is too large for the requested DWARF format."
             ),
             Error::InvalidAddress => write!(f, "The address is invalid."),
+            Error::NeedVersion(version) => write!(
+                f,
+                "A requested feature requires a DWARF version {}.",
+                version
+            ),
         }
     }
 }
@@ -156,6 +166,20 @@ mod convert {
         InvalidDebugInfoOffset,
         /// An address could not be converted.
         InvalidAddress,
+        /// The line number program is missing the compilation directory.
+        MissingCompilationDirectory,
+        /// The line number program is missing the compilation file.
+        MissingCompilationFile,
+        /// Writing this line number instruction is not implemented yet.
+        UnsupportedLineInstruction,
+        /// A `.debug_line` file index is invalid.
+        InvalidFileIndex,
+        /// A `.debug_line` directory index is invalid.
+        InvalidDirectoryIndex,
+        /// A `.debug_line` line base is invalid.
+        InvalidLineBase,
+        /// A `.debug_line` reference is invalid.
+        InvalidLineRef,
     }
 
     impl fmt::Display for ConvertError {
@@ -175,6 +199,22 @@ mod convert {
                     "A `.debug_info` reference does not refer to a valid entry."
                 ),
                 InvalidAddress => write!(f, "An address could not be converted."),
+                MissingCompilationDirectory => write!(
+                    f,
+                    "The line number program is missing the compilation directory."
+                ),
+                MissingCompilationFile => write!(
+                    f,
+                    "The line number program is missing the compilation file."
+                ),
+                UnsupportedLineInstruction => write!(
+                    f,
+                    "Writing this line number instruction is not implemented yet."
+                ),
+                InvalidFileIndex => write!(f, "A `.debug_line` file index is invalid."),
+                InvalidDirectoryIndex => write!(f, "A `.debug_line` directory index is invalid."),
+                InvalidLineBase => write!(f, "A `.debug_line` line base is invalid."),
+                InvalidLineRef => write!(f, "A `.debug_line` reference is invalid."),
             }
         }
     }

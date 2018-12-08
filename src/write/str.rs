@@ -35,6 +35,8 @@ pub struct StringTable {
 impl StringTable {
     /// Add a string to the string table and return its id.
     ///
+    /// If the string already exists, then return the id of the existing string.
+    ///
     /// # Panics
     ///
     /// Panics if `bytes` contains a null byte.
@@ -129,13 +131,15 @@ pub struct DebugStrOffsets {
 impl DebugStrOffsets {
     /// Get the `.debug_str` offset of a string.
     ///
-    /// The given `id` must be valid.
+    /// # Panics
+    ///
+    /// Panics if `id` is invalid.
     #[inline]
     pub fn get(&self, id: StringId) -> DebugStrOffset {
         self.strings[id.0]
     }
 
-    /// Return the number of strings in the table.
+    /// Return the number of string offsets.
     #[inline]
     pub fn count(&self) -> usize {
         self.strings.len()

@@ -1102,6 +1102,16 @@ where
         self.header_length
     }
 
+    /// Get the size in bytes of a target machine address.
+    pub fn address_size(&self) -> u8 {
+        self.address_size
+    }
+
+    /// Whether this line program is encoded in 64- or 32-bit DWARF.
+    pub fn format(&self) -> Format {
+        self.format
+    }
+
     /// Get the minimum instruction length any opcode in this header's line
     /// program may have.
     pub fn minimum_instruction_length(&self) -> u8 {
@@ -1168,6 +1178,8 @@ where
     /// The source file with the given file index.
     ///
     /// A file index of 0 corresponds to the compilation unit file.
+    /// Note that a file index of 0 is invalid for DWARF version <= 4,
+    /// but we support it anyway.
     pub fn file(&self, file: u64) -> Option<&FileEntry<R>> {
         if file == 0 {
             self.comp_name.as_ref()
