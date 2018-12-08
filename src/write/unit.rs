@@ -76,8 +76,8 @@ impl UnitTable {
     /// `StringTable`.
     pub fn write<W: Writer>(
         &self,
-        debug_info: &mut DebugInfo<W>,
         debug_abbrev: &mut DebugAbbrev<W>,
+        debug_info: &mut DebugInfo<W>,
         strings: &DebugStrOffsets,
     ) -> Result<DebugInfoOffsets> {
         // Use one abbreviation table for everything.
@@ -1044,8 +1044,8 @@ mod convert {
         /// responsibility to determine the symbol and addend corresponding to the address
         /// and return `Address::Relative { symbol, addend }`.
         pub fn from<R: Reader<Offset = usize>>(
-            debug_info: &read::DebugInfo<R>,
             debug_abbrev: &read::DebugAbbrev<R>,
+            debug_info: &read::DebugInfo<R>,
             debug_str: &read::DebugStr<R>,
             strings: &mut write::StringTable,
             convert_address: &Fn(u64) -> Option<Address>,
@@ -1059,11 +1059,11 @@ mod convert {
                 units.push(CompilationUnit::from(
                     from_unit,
                     unit_id,
+                    &mut unit_entry_offsets,
                     debug_abbrev,
                     debug_str,
                     strings,
                     convert_address,
-                    &mut unit_entry_offsets,
                 )?);
             }
 
@@ -1097,15 +1097,15 @@ mod convert {
     }
 
     impl CompilationUnit {
-        /// Create an entry by reading the data in the given sections.
+        /// Create a compilation unit by reading the data in the given sections.
         pub(crate) fn from<R: Reader<Offset = usize>>(
             from_unit: &read::CompilationUnitHeader<R>,
             unit_id: UnitId,
+            unit_entry_offsets: &mut HashMap<DebugInfoOffset, (UnitId, UnitEntryId)>,
             debug_abbrev: &read::DebugAbbrev<R>,
             debug_str: &read::DebugStr<R>,
             strings: &mut write::StringTable,
             convert_address: &Fn(u64) -> Option<Address>,
-            unit_entry_offsets: &mut HashMap<DebugInfoOffset, (UnitId, UnitEntryId)>,
         ) -> ConvertResult<CompilationUnit> {
             let version = from_unit.version();
             let address_size = from_unit.address_size();
@@ -1398,16 +1398,19 @@ mod tests {
         let mut debug_info = DebugInfo::from(EndianVec::new(LittleEndian));
         let mut debug_abbrev = DebugAbbrev::from(EndianVec::new(LittleEndian));
         units
-            .write(&mut debug_info, &mut debug_abbrev, &debug_str_offsets)
-            .unwrap();
+            .write(
+                &mut debug_abbrev,
+                &mut debug_info,
+                &debug_str_offsets,
+            ).unwrap();
 
         println!("{:?}", debug_str);
         println!("{:?}", debug_info);
         println!("{:?}", debug_abbrev);
 
-        let read_debug_str = read::DebugStr::new(debug_str.slice(), LittleEndian);
-        let read_debug_info = read::DebugInfo::new(debug_info.slice(), LittleEndian);
         let read_debug_abbrev = read::DebugAbbrev::new(debug_abbrev.slice(), LittleEndian);
+        let read_debug_info = read::DebugInfo::new(debug_info.slice(), LittleEndian);
+        let read_debug_str = read::DebugStr::new(debug_str.slice(), LittleEndian);
         let mut read_units = read_debug_info.units();
 
         {
@@ -1534,8 +1537,8 @@ mod tests {
 
         let mut convert_strings = StringTable::default();
         let convert_units = UnitTable::from(
-            &read_debug_info,
             &read_debug_abbrev,
+            &read_debug_info,
             &read_debug_str,
             &mut convert_strings,
             &|address| Some(Address::Absolute(address)),
@@ -1865,15 +1868,18 @@ mod tests {
         let mut debug_info = DebugInfo::from(EndianVec::new(LittleEndian));
         let mut debug_abbrev = DebugAbbrev::from(EndianVec::new(LittleEndian));
         let debug_info_offsets = units
-            .write(&mut debug_info, &mut debug_abbrev, &debug_str_offsets)
-            .unwrap();
+            .write(
+                &mut debug_abbrev,
+                &mut debug_info,
+                &debug_str_offsets,
+            ).unwrap();
 
         println!("{:?}", debug_info);
         println!("{:?}", debug_abbrev);
 
-        let read_debug_str = read::DebugStr::new(&[], LittleEndian);
-        let read_debug_info = read::DebugInfo::new(debug_info.slice(), LittleEndian);
         let read_debug_abbrev = read::DebugAbbrev::new(debug_abbrev.slice(), LittleEndian);
+        let read_debug_info = read::DebugInfo::new(debug_info.slice(), LittleEndian);
+        let read_debug_str = read::DebugStr::new(&[], LittleEndian);
         let mut read_units = read_debug_info.units();
         {
             let read_unit1 = read_units.next().unwrap().unwrap();
@@ -1936,8 +1942,8 @@ mod tests {
 
         let mut convert_strings = StringTable::default();
         let convert_units = UnitTable::from(
-            &read_debug_info,
             &read_debug_abbrev,
+            &read_debug_info,
             &read_debug_str,
             &mut convert_strings,
             &|address| Some(Address::Absolute(address)),
@@ -2046,8 +2052,11 @@ mod tests {
         let mut debug_info = DebugInfo::from(EndianVec::new(LittleEndian));
         let mut debug_abbrev = DebugAbbrev::from(EndianVec::new(LittleEndian));
         units
-            .write(&mut debug_info, &mut debug_abbrev, &debug_str_offsets)
-            .unwrap();
+            .write(
+                &mut debug_abbrev,
+                &mut debug_info,
+                &debug_str_offsets,
+            ).unwrap();
 
         println!("{:?}", debug_info);
         println!("{:?}", debug_abbrev);
