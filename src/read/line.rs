@@ -162,8 +162,7 @@ where
 {
     #[allow(new_ret_no_self)]
     fn new(program: IncompleteLineNumberProgram<R, Offset>) -> OneShotStateMachine<R, Offset> {
-        let mut row = LineNumberRow::default();
-        row.registers.reset(program.header().default_is_stmt());
+        let row = LineNumberRow::new(&program);
         let opcodes = OpcodesIter {
             input: program.header().program_buf.clone(),
         };
@@ -178,165 +177,12 @@ where
         program: &'program CompleteLineNumberProgram<R, Offset>,
         sequence: &LineNumberSequence<R>,
     ) -> ResumedStateMachine<'program, R, Offset> {
-        let mut row = LineNumberRow::default();
-        row.registers.reset(program.header().default_is_stmt());
+        let row = LineNumberRow::new(&program);
         let opcodes = sequence.opcodes.clone();
         StateMachine {
             program,
             row,
             opcodes,
-        }
-    }
-
-    /// Step 1 of section 6.2.5.1
-    fn apply_line_advance(&mut self, line_increment: i64) {
-        if line_increment < 0 {
-            let decrement = -line_increment as u64;
-            if decrement <= self.row.registers.line {
-                self.row.registers.line -= decrement;
-            } else {
-                self.row.registers.line = 0;
-            }
-        } else {
-            self.row.registers.line += line_increment as u64;
-        }
-    }
-
-    /// Step 2 of section 6.2.5.1
-    fn apply_operation_advance(&mut self, operation_advance: u64) {
-        let minimum_instruction_length = u64::from(self.header().minimum_instruction_length);
-        let maximum_operations_per_instruction =
-            u64::from(self.header().maximum_operations_per_instruction);
-
-        if maximum_operations_per_instruction == 1 {
-            self.row.registers.address += minimum_instruction_length * operation_advance;
-            self.row.registers.op_index = 0;
-        } else {
-            let op_index_with_advance = self.row.registers.op_index + operation_advance;
-            self.row.registers.address += minimum_instruction_length
-                * (op_index_with_advance / maximum_operations_per_instruction);
-            self.row.registers.op_index =
-                op_index_with_advance % maximum_operations_per_instruction;
-        }
-    }
-
-    fn adjust_opcode(&self, opcode: u8) -> u8 {
-        opcode - self.header().opcode_base
-    }
-
-    /// Section 6.2.5.1
-    fn exec_special_opcode(&mut self, opcode: u8) {
-        let adjusted_opcode = self.adjust_opcode(opcode);
-
-        let line_range = self.header().line_range;
-        let line_advance = adjusted_opcode % line_range;
-        let operation_advance = adjusted_opcode / line_range;
-
-        // Step 1
-        let line_base = i64::from(self.header().line_base);
-        self.apply_line_advance(line_base + i64::from(line_advance));
-
-        // Step 2
-        self.apply_operation_advance(u64::from(operation_advance));
-    }
-
-    /// Execute the given opcode, and return true if a new row in the
-    /// line number matrix needs to be generated.
-    ///
-    /// Unknown opcodes are treated as no-ops.
-    fn execute(&mut self, opcode: Opcode<R>) -> bool {
-        match opcode {
-            Opcode::Special(opcode) => {
-                self.exec_special_opcode(opcode);
-                true
-            }
-
-            Opcode::Copy => true,
-
-            Opcode::AdvancePc(operation_advance) => {
-                self.apply_operation_advance(operation_advance);
-                false
-            }
-
-            Opcode::AdvanceLine(line_increment) => {
-                self.apply_line_advance(line_increment);
-                false
-            }
-
-            Opcode::SetFile(file) => {
-                self.row.registers.file = file;
-                false
-            }
-
-            Opcode::SetColumn(column) => {
-                self.row.registers.column = column;
-                false
-            }
-
-            Opcode::NegateStatement => {
-                self.row.registers.is_stmt = !self.row.registers.is_stmt;
-                false
-            }
-
-            Opcode::SetBasicBlock => {
-                self.row.registers.basic_block = true;
-                false
-            }
-
-            Opcode::ConstAddPc => {
-                let adjusted = self.adjust_opcode(255);
-                let operation_advance = adjusted / self.header().line_range;
-                self.apply_operation_advance(u64::from(operation_advance));
-                false
-            }
-
-            Opcode::FixedAddPc(operand) => {
-                self.row.registers.address += u64::from(operand);
-                self.row.registers.op_index = 0;
-                false
-            }
-
-            Opcode::SetPrologueEnd => {
-                self.row.registers.prologue_end = true;
-                false
-            }
-
-            Opcode::SetEpilogueBegin => {
-                self.row.registers.epilogue_begin = true;
-                false
-            }
-
-            Opcode::SetIsa(isa) => {
-                self.row.registers.isa = isa;
-                false
-            }
-
-            Opcode::EndSequence => {
-                self.row.registers.end_sequence = true;
-                true
-            }
-
-            Opcode::SetAddress(address) => {
-                self.row.registers.address = address;
-                self.row.registers.op_index = 0;
-                false
-            }
-
-            Opcode::DefineFile(entry) => {
-                self.program.add_file(entry);
-                false
-            }
-
-            Opcode::SetDiscriminator(discriminator) => {
-                self.row.registers.discriminator = discriminator;
-                false
-            }
-
-            // Compatibility with future opcodes.
-            Opcode::UnknownStandard0(_)
-            | Opcode::UnknownStandard1(_, _)
-            | Opcode::UnknownStandardN(_, _)
-            | Opcode::UnknownExtended(_, _) => false,
         }
     }
 
@@ -360,24 +206,7 @@ where
         &mut self,
     ) -> Result<Option<(&LineNumberProgramHeader<R, Offset>, &LineNumberRow)>> {
         // Perform any reset that was required after copying the previous row.
-        if self.row.registers.end_sequence {
-            // Previous opcode was EndSequence, so reset everything
-            // as specified in Section 6.2.5.3.
-
-            // Split the borrow here, rather than calling `self.header()`.
-            self.row
-                .registers
-                .reset(self.program.header().default_is_stmt);
-        } else {
-            // Previous opcode was one of:
-            // - Special - specified in Section 6.2.5.1, steps 4-7
-            // - Copy - specified in Section 6.2.5.2
-            // The reset behaviour is the same in both cases.
-            self.row.registers.discriminator = 0;
-            self.row.registers.basic_block = false;
-            self.row.registers.prologue_end = false;
-            self.row.registers.epilogue_begin = false;
-        }
+        self.row.reset(&self.program);
 
         loop {
             // Split the borrow here, rather than calling `self.header()`.
@@ -385,7 +214,7 @@ where
                 Err(err) => return Err(err),
                 Ok(None) => return Ok(None),
                 Ok(Some(opcode)) => {
-                    if self.execute(opcode) {
+                    if self.row.execute(opcode, &mut self.program) {
                         return Ok(Some((self.header(), &self.row)));
                     }
                     // Fall through, parse the next opcode, and see if that
@@ -752,12 +581,24 @@ impl<R: Reader> OpcodesIter<R> {
 }
 
 /// A row in the line number program's resulting matrix.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LineNumberRow {
     registers: StateMachineRegisters,
 }
 
 impl LineNumberRow {
+    /// Create a line number row in the initial state for the given program.
+    pub fn new<R, Program>(program: &Program) -> Self
+    where
+        Program: LineNumberProgram<R, R::Offset>,
+        R: Reader,
+    {
+        let default_is_stmt = program.header().default_is_stmt;
+        LineNumberRow {
+            registers: StateMachineRegisters::new(default_is_stmt),
+        }
+    }
+
     /// "The program-counter value corresponding to a machine instruction
     /// generated by the compiler."
     #[inline]
@@ -881,6 +722,29 @@ impl LineNumberRow {
     pub fn discriminator(&self) -> u64 {
         self.registers.discriminator
     }
+
+    /// Execute the given opcode, and return true if a new row in the
+    /// line number matrix needs to be generated.
+    ///
+    /// Unknown opcodes are treated as no-ops.
+    #[inline]
+    pub fn execute<R, Program>(&mut self, opcode: Opcode<R>, program: &mut Program) -> bool
+    where
+        Program: LineNumberProgram<R, R::Offset>,
+        R: Reader,
+    {
+        self.registers.execute(opcode, program)
+    }
+
+    /// Perform any reset that was required after copying the previous row.
+    #[inline]
+    pub fn reset<R, Program>(&mut self, program: &Program)
+    where
+        Program: LineNumberProgram<R, R::Offset>,
+        R: Reader,
+    {
+        self.registers.reset(program.header().default_is_stmt);
+    }
 }
 
 /// The type of column that a row is referring to.
@@ -911,26 +775,214 @@ struct StateMachineRegisters {
 }
 
 impl StateMachineRegisters {
+    fn new(default_is_stmt: bool) -> Self {
+        StateMachineRegisters {
+            // "At the beginning of each sequence within a line number program, the
+            // state of the registers is:" -- Section 6.2.2
+            address: 0,
+            op_index: 0,
+            file: 1,
+            line: 1,
+            column: 0,
+            // "determined by default_is_stmt in the line number program header"
+            is_stmt: default_is_stmt,
+            basic_block: false,
+            end_sequence: false,
+            prologue_end: false,
+            epilogue_begin: false,
+            // "The isa value 0 specifies that the instruction set is the
+            // architecturally determined default instruction set. This may be fixed
+            // by the ABI, or it may be specified by other means, for example, by
+            // the object file description."
+            isa: 0,
+            discriminator: 0,
+        }
+    }
+
+    /// Step 1 of section 6.2.5.1
+    fn apply_line_advance(&mut self, line_increment: i64) {
+        if line_increment < 0 {
+            let decrement = -line_increment as u64;
+            if decrement <= self.line {
+                self.line -= decrement;
+            } else {
+                self.line = 0;
+            }
+        } else {
+            self.line += line_increment as u64;
+        }
+    }
+
+    /// Step 2 of section 6.2.5.1
+    fn apply_operation_advance<R: Reader>(
+        &mut self,
+        operation_advance: u64,
+        header: &LineNumberProgramHeader<R, R::Offset>,
+    ) {
+        let minimum_instruction_length = u64::from(header.minimum_instruction_length);
+        let maximum_operations_per_instruction =
+            u64::from(header.maximum_operations_per_instruction);
+
+        if maximum_operations_per_instruction == 1 {
+            self.address += minimum_instruction_length * operation_advance;
+            self.op_index = 0;
+        } else {
+            let op_index_with_advance = self.op_index + operation_advance;
+            self.address += minimum_instruction_length
+                * (op_index_with_advance / maximum_operations_per_instruction);
+            self.op_index = op_index_with_advance % maximum_operations_per_instruction;
+        }
+    }
+
+    #[inline]
+    fn adjust_opcode<R: Reader>(
+        &self,
+        opcode: u8,
+        header: &LineNumberProgramHeader<R, R::Offset>,
+    ) -> u8 {
+        opcode - header.opcode_base
+    }
+
+    /// Section 6.2.5.1
+    fn exec_special_opcode<R: Reader>(
+        &mut self,
+        opcode: u8,
+        header: &LineNumberProgramHeader<R, R::Offset>,
+    ) {
+        let adjusted_opcode = self.adjust_opcode(opcode, header);
+
+        let line_range = header.line_range;
+        let line_advance = adjusted_opcode % line_range;
+        let operation_advance = adjusted_opcode / line_range;
+
+        // Step 1
+        let line_base = i64::from(header.line_base);
+        self.apply_line_advance(line_base + i64::from(line_advance));
+
+        // Step 2
+        self.apply_operation_advance(u64::from(operation_advance), header);
+    }
+
+    /// Execute the given opcode, and return true if a new row in the
+    /// line number matrix needs to be generated.
+    ///
+    /// Unknown opcodes are treated as no-ops.
+    fn execute<R, Program>(&mut self, opcode: Opcode<R>, program: &mut Program) -> bool
+    where
+        Program: LineNumberProgram<R, R::Offset>,
+        R: Reader,
+    {
+        match opcode {
+            Opcode::Special(opcode) => {
+                self.exec_special_opcode(opcode, program.header());
+                true
+            }
+
+            Opcode::Copy => true,
+
+            Opcode::AdvancePc(operation_advance) => {
+                self.apply_operation_advance(operation_advance, program.header());
+                false
+            }
+
+            Opcode::AdvanceLine(line_increment) => {
+                self.apply_line_advance(line_increment);
+                false
+            }
+
+            Opcode::SetFile(file) => {
+                self.file = file;
+                false
+            }
+
+            Opcode::SetColumn(column) => {
+                self.column = column;
+                false
+            }
+
+            Opcode::NegateStatement => {
+                self.is_stmt = !self.is_stmt;
+                false
+            }
+
+            Opcode::SetBasicBlock => {
+                self.basic_block = true;
+                false
+            }
+
+            Opcode::ConstAddPc => {
+                let adjusted = self.adjust_opcode(255, program.header());
+                let operation_advance = adjusted / program.header().line_range;
+                self.apply_operation_advance(u64::from(operation_advance), program.header());
+                false
+            }
+
+            Opcode::FixedAddPc(operand) => {
+                self.address += u64::from(operand);
+                self.op_index = 0;
+                false
+            }
+
+            Opcode::SetPrologueEnd => {
+                self.prologue_end = true;
+                false
+            }
+
+            Opcode::SetEpilogueBegin => {
+                self.epilogue_begin = true;
+                false
+            }
+
+            Opcode::SetIsa(isa) => {
+                self.isa = isa;
+                false
+            }
+
+            Opcode::EndSequence => {
+                self.end_sequence = true;
+                true
+            }
+
+            Opcode::SetAddress(address) => {
+                self.address = address;
+                self.op_index = 0;
+                false
+            }
+
+            Opcode::DefineFile(entry) => {
+                program.add_file(entry);
+                false
+            }
+
+            Opcode::SetDiscriminator(discriminator) => {
+                self.discriminator = discriminator;
+                false
+            }
+
+            // Compatibility with future opcodes.
+            Opcode::UnknownStandard0(_)
+            | Opcode::UnknownStandard1(_, _)
+            | Opcode::UnknownStandardN(_, _)
+            | Opcode::UnknownExtended(_, _) => false,
+        }
+    }
+
+    /// Perform any reset that was required after copying the previous row.
     fn reset(&mut self, default_is_stmt: bool) {
-        // "At the beginning of each sequence within a line number program, the
-        // state of the registers is:" -- Section 6.2.2
-        self.address = 0;
-        self.op_index = 0;
-        self.file = 1;
-        self.line = 1;
-        self.column = 0;
-        // "determined by default_is_stmt in the line number program header"
-        self.is_stmt = default_is_stmt;
-        self.basic_block = false;
-        self.end_sequence = false;
-        self.prologue_end = false;
-        self.epilogue_begin = false;
-        // "The isa value 0 specifies that the instruction set is the
-        // architecturally determined default instruction set. This may be fixed
-        // by the ABI, or it may be specified by other means, for example, by
-        // the object file description."
-        self.isa = 0;
-        self.discriminator = 0;
+        if self.end_sequence {
+            // Previous opcode was EndSequence, so reset everything
+            // as specified in Section 6.2.5.3.
+            *self = Self::new(default_is_stmt);
+        } else {
+            // Previous opcode was one of:
+            // - Special - specified in Section 6.2.5.1, steps 4-7
+            // - Copy - specified in Section 6.2.5.2
+            // The reset behaviour is the same in both cases.
+            self.discriminator = 0;
+            self.basic_block = false;
+            self.prologue_end = false;
+            self.epilogue_begin = false;
+        }
     }
 }
 
@@ -1050,6 +1102,16 @@ where
         self.header_length
     }
 
+    /// Get the size in bytes of a target machine address.
+    pub fn address_size(&self) -> u8 {
+        self.address_size
+    }
+
+    /// Whether this line program is encoded in 64- or 32-bit DWARF.
+    pub fn format(&self) -> Format {
+        self.format
+    }
+
     /// Get the minimum instruction length any opcode in this header's line
     /// program may have.
     pub fn minimum_instruction_length(&self) -> u8 {
@@ -1116,6 +1178,8 @@ where
     /// The source file with the given file index.
     ///
     /// A file index of 0 corresponds to the compilation unit file.
+    /// Note that a file index of 0 is invalid for DWARF version <= 4,
+    /// but we support it anyway.
     pub fn file(&self, file: u64) -> Option<&FileEntry<R>> {
         if file == 0 {
             self.comp_name.as_ref()
@@ -1979,13 +2043,15 @@ mod tests {
         expected_registers: StateMachineRegisters,
         expect_new_row: bool,
     ) {
-        let mut sm = OneShotStateMachine::new(IncompleteLineNumberProgram { header });
-        sm.row.registers = initial_registers;
+        let mut program = IncompleteLineNumberProgram { header };
+        let mut row = LineNumberRow {
+            registers: initial_registers,
+        };
 
-        let is_new_row = sm.execute(opcode);
+        let is_new_row = row.execute(opcode, &mut program);
 
         assert_eq!(is_new_row, expect_new_row);
-        assert_eq!(sm.row.registers, expected_registers);
+        assert_eq!(row.registers, expected_registers);
     }
 
     #[test]
@@ -2342,8 +2408,8 @@ mod tests {
 
     #[test]
     fn test_exec_define_file() {
-        let program = make_test_program(EndianSlice::new(&[], LittleEndian));
-        let mut sm = program.rows();
+        let mut program = make_test_program(EndianSlice::new(&[], LittleEndian));
+        let mut row = LineNumberRow::new(&program);
 
         let file = FileEntry {
             path_name: EndianSlice::new(b"test.cpp", LittleEndian),
@@ -2353,10 +2419,10 @@ mod tests {
         };
 
         let opcode = Opcode::DefineFile(file.clone());
-        let is_new_row = sm.execute(opcode);
+        let is_new_row = row.execute(opcode, &mut program);
 
         assert_eq!(is_new_row, false);
-        assert_eq!(Some(&file), sm.header().file_names.last());
+        assert_eq!(Some(&file), program.header().file_names.last());
     }
 
     #[test]
