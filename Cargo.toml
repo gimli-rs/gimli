@@ -23,7 +23,7 @@ indexmap = { version = "1.0", optional = true }
 stable_deref_trait = { version = "1.1.0", default-features = false }
 
 [dev-dependencies]
-crossbeam = "0.4.1"
+crossbeam = "0.6.0"
 getopts = "0.2"
 memmap = "0.7"
 num_cpus = "1"
