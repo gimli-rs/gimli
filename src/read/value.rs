@@ -1388,7 +1388,7 @@ mod tests {
         let addr_mask = 0xffff_ffff;
         for &(v1, v2, result) in &[
             // One of each type
-            (Value::Generic(-96i32 as u32 as u64), Value::Generic(5), Ok(Value::Generic(-3i64 as u64))),
+            (Value::Generic(u64::from(-96i32 as u32)), Value::Generic(5), Ok(Value::Generic(-3i64 as u64))),
             (Value::I8(-96), Value::U8(5), Ok(Value::I8(-3))),
             (Value::U8(96), Value::I8(5), Err(Error::UnsupportedTypeOperation)),
             (Value::I16(-96), Value::U16(5), Ok(Value::I16(-3))),

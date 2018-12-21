@@ -54,10 +54,10 @@ fn test_convert_debug_info() {
     )
     .expect("Should convert compilation units");
     assert_eq!(units.count(), 23);
-    let entries = (0..units.count())
+    let entries: usize = (0..units.count())
         .map(|id| units.get(write::UnitId(id)).count())
-        .fold(0, |x, y| x + y);
-    assert_eq!(entries, 29560);
+        .sum();
+    assert_eq!(entries, 29_560);
     assert_eq!(strings.count(), 3921);
 
     // Write to new sections
@@ -67,7 +67,7 @@ fn test_convert_debug_info() {
         .expect("Should write line programs");
     let debug_line_data = write_debug_line.slice();
     assert_eq!(debug_line_offsets.count(), 23);
-    assert_eq!(debug_line_data.len(), 105797);
+    assert_eq!(debug_line_data.len(), 105_797);
 
     let mut write_debug_str = write::DebugStr::from(EndianVec::new(LittleEndian));
     let debug_str_offsets = strings
@@ -75,7 +75,7 @@ fn test_convert_debug_info() {
         .expect("Should write strings");
     let debug_str_data = write_debug_str.slice();
     assert_eq!(debug_str_offsets.count(), 3921);
-    assert_eq!(debug_str_data.len(), 144731);
+    assert_eq!(debug_str_data.len(), 144_731);
 
     let mut write_debug_abbrev = write::DebugAbbrev::from(EndianVec::new(LittleEndian));
     let mut write_debug_info = write::DebugInfo::from(EndianVec::new(LittleEndian));
@@ -89,7 +89,7 @@ fn test_convert_debug_info() {
         .expect("Should write units");
     let debug_info_data = write_debug_info.slice();
     let debug_abbrev_data = write_debug_abbrev.slice();
-    assert_eq!(debug_info_data.len(), 394930);
+    assert_eq!(debug_info_data.len(), 394_930);
     assert_eq!(debug_abbrev_data.len(), 1282);
 
     // Convert new sections
@@ -111,10 +111,10 @@ fn test_convert_debug_info() {
     )
     .expect("Should convert compilation units");
     assert_eq!(units.count(), 23);
-    let entries = (0..units.count())
+    let entries: usize = (0..units.count())
         .map(|id| units.get(write::UnitId(id)).count())
-        .fold(0, |x, y| x + y);
-    assert_eq!(entries, 29560);
+        .sum();
+    assert_eq!(entries, 29_560);
     assert_eq!(line_programs.count(), 23);
     assert_eq!(strings.count(), 3921);
 }

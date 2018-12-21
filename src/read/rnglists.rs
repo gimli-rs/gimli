@@ -107,7 +107,8 @@ struct RngListsHeader {
 
 impl RngListsHeader {
     /// Return the serialized size of the table header.
-    fn size(&self) -> u8 {
+    #[inline]
+    fn size(self) -> u8 {
         // initial_length + version + address_size + segment_selector_size + offset_entry_count
         self.format.initial_length_size() + 2 + 1 + 1 + 4
     }
@@ -146,6 +147,7 @@ pub struct RangeLists<R: Reader> {
 impl<R: Reader> RangeLists<R> {
     /// Construct a new `RangeLists` instance from the data in the `.debug_ranges` and
     /// `.debug_rnglists` sections.
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(
         debug_ranges: DebugRanges<R>,
         debug_rnglists: DebugRngLists<R>,
@@ -528,26 +530,26 @@ mod tests {
             // OffsetPair
             .L8(4).uleb(0x10200).uleb(0x10300)
             // A base address selection followed by an OffsetPair.
-            .L8(5).L32(0x02000000)
+            .L8(5).L32(0x0200_0000)
             .L8(4).uleb(0x10400).uleb(0x10500)
             // An empty OffsetPair followed by a normal OffsetPair.
             .L8(4).uleb(0x10600).uleb(0x10600)
             .L8(4).uleb(0x10800).uleb(0x10900)
             // A StartEnd
-            .L8(6).L32(0x2010a00).L32(0x2010b00)
+            .L8(6).L32(0x201_0a00).L32(0x201_0b00)
             // A StartLength
-            .L8(7).L32(0x2010c00).uleb(0x100)
+            .L8(7).L32(0x201_0c00).uleb(0x100)
             // An OffsetPair that starts at 0.
             .L8(4).uleb(0).uleb(1)
             // An OffsetPair that starts and ends at 0.
             .L8(4).uleb(0).uleb(0)
             // An OffsetPair that ends at -1.
             .L8(5).L32(0)
-            .L8(4).uleb(0).uleb(0xffffffff)
+            .L8(4).uleb(0).uleb(0xffff_ffff)
             // A range end.
             .L8(0)
             // Some extra data.
-            .L32(0xffffffff);
+            .L32(0xffff_ffff);
         size.set_const((&section.here() - &start - 4) as u64);
 
         let buf = section.get_contents().unwrap();
@@ -555,14 +557,14 @@ mod tests {
         let debug_rnglists = DebugRngLists::new(&buf, LittleEndian);
         let rnglists = RangeLists::new(debug_ranges, debug_rnglists).unwrap();
         let offset = RangeListsOffset((&first - &start) as usize);
-        let mut ranges = rnglists.ranges(offset, 5, 0, 0x01000000).unwrap();
+        let mut ranges = rnglists.ranges(offset, 5, 0, 0x0100_0000).unwrap();
 
         // A normal range.
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x01010200,
-                end: 0x01010300,
+                begin: 0x0101_0200,
+                end: 0x0101_0300,
             }))
         );
 
@@ -570,8 +572,8 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02010400,
-                end: 0x02010500,
+                begin: 0x0201_0400,
+                end: 0x0201_0500,
             }))
         );
 
@@ -579,24 +581,15 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02010600,
-                end: 0x02010600,
+                begin: 0x0201_0600,
+                end: 0x0201_0600,
             }))
         );
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02010800,
-                end: 0x02010900,
-            }))
-        );
-
-        // A normal range.
-        assert_eq!(
-            ranges.next(),
-            Ok(Some(Range {
-                begin: 0x02010a00,
-                end: 0x02010b00,
+                begin: 0x0201_0800,
+                end: 0x0201_0900,
             }))
         );
 
@@ -604,8 +597,17 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02010c00,
-                end: 0x02010d00,
+                begin: 0x0201_0a00,
+                end: 0x0201_0b00,
+            }))
+        );
+
+        // A normal range.
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x0201_0c00,
+                end: 0x0201_0d00,
             }))
         );
 
@@ -613,8 +615,8 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02000000,
-                end: 0x02000001,
+                begin: 0x0200_0000,
+                end: 0x0200_0001,
             }))
         );
 
@@ -622,8 +624,8 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02000000,
-                end: 0x02000000,
+                begin: 0x0200_0000,
+                end: 0x0200_0000,
             }))
         );
 
@@ -631,8 +633,8 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x00000000,
-                end: 0xffffffff,
+                begin: 0x0000_0000,
+                end: 0xffff_ffff,
             }))
         );
 
@@ -641,7 +643,7 @@ mod tests {
 
         // An offset at the end of buf.
         let mut ranges = rnglists
-            .ranges(RangeListsOffset(buf.len()), 5, 0, 0x01000000)
+            .ranges(RangeListsOffset(buf.len()), 5, 0, 0x0100_0000)
             .unwrap();
         assert_eq!(ranges.next(), Ok(None));
     }
@@ -655,7 +657,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little)
             // Header
             .mark(&start)
-            .L32(0xffffffff)
+            .L32(0xffff_ffff)
             .L64(&size)
             .L16(5)
             .L8(8)
@@ -665,26 +667,26 @@ mod tests {
             // OffsetPair
             .L8(4).uleb(0x10200).uleb(0x10300)
             // A base address selection followed by an OffsetPair.
-            .L8(5).L64(0x02000000)
+            .L8(5).L64(0x0200_0000)
             .L8(4).uleb(0x10400).uleb(0x10500)
             // An empty OffsetPair followed by a normal OffsetPair.
             .L8(4).uleb(0x10600).uleb(0x10600)
             .L8(4).uleb(0x10800).uleb(0x10900)
             // A StartEnd
-            .L8(6).L64(0x2010a00).L64(0x2010b00)
+            .L8(6).L64(0x201_0a00).L64(0x201_0b00)
             // A StartLength
-            .L8(7).L64(0x2010c00).uleb(0x100)
+            .L8(7).L64(0x201_0c00).uleb(0x100)
             // An OffsetPair that starts at 0.
             .L8(4).uleb(0).uleb(1)
             // An OffsetPair that starts and ends at 0.
             .L8(4).uleb(0).uleb(0)
             // An OffsetPair that ends at -1.
             .L8(5).L64(0)
-            .L8(4).uleb(0).uleb(0xffffffff)
+            .L8(4).uleb(0).uleb(0xffff_ffff)
             // A range end.
             .L8(0)
             // Some extra data.
-            .L32(0xffffffff);
+            .L32(0xffff_ffff);
         size.set_const((&section.here() - &start - 12) as u64);
 
         let buf = section.get_contents().unwrap();
@@ -692,14 +694,14 @@ mod tests {
         let debug_rnglists = DebugRngLists::new(&buf, LittleEndian);
         let rnglists = RangeLists::new(debug_ranges, debug_rnglists).unwrap();
         let offset = RangeListsOffset((&first - &start) as usize);
-        let mut ranges = rnglists.ranges(offset, 5, 0, 0x01000000).unwrap();
+        let mut ranges = rnglists.ranges(offset, 5, 0, 0x0100_0000).unwrap();
 
         // A normal range.
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x01010200,
-                end: 0x01010300,
+                begin: 0x0101_0200,
+                end: 0x0101_0300,
             }))
         );
 
@@ -707,8 +709,8 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02010400,
-                end: 0x02010500,
+                begin: 0x0201_0400,
+                end: 0x0201_0500,
             }))
         );
 
@@ -716,24 +718,15 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02010600,
-                end: 0x02010600,
+                begin: 0x0201_0600,
+                end: 0x0201_0600,
             }))
         );
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02010800,
-                end: 0x02010900,
-            }))
-        );
-
-        // A normal range.
-        assert_eq!(
-            ranges.next(),
-            Ok(Some(Range {
-                begin: 0x02010a00,
-                end: 0x02010b00,
+                begin: 0x0201_0800,
+                end: 0x0201_0900,
             }))
         );
 
@@ -741,8 +734,17 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02010c00,
-                end: 0x02010d00,
+                begin: 0x0201_0a00,
+                end: 0x0201_0b00,
+            }))
+        );
+
+        // A normal range.
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x0201_0c00,
+                end: 0x0201_0d00,
             }))
         );
 
@@ -750,8 +752,8 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02000000,
-                end: 0x02000001,
+                begin: 0x0200_0000,
+                end: 0x0200_0001,
             }))
         );
 
@@ -759,8 +761,8 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02000000,
-                end: 0x02000000,
+                begin: 0x0200_0000,
+                end: 0x0200_0000,
             }))
         );
 
@@ -768,8 +770,8 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x00000000,
-                end: 0xffffffff,
+                begin: 0x0000_0000,
+                end: 0xffff_ffff,
             }))
         );
 
@@ -778,7 +780,7 @@ mod tests {
 
         // An offset at the end of buf.
         let mut ranges = rnglists
-            .ranges(RangeListsOffset(buf.len()), 5, 0, 0x01000000)
+            .ranges(RangeListsOffset(buf.len()), 5, 0, 0x0100_0000)
             .unwrap();
         assert_eq!(ranges.next(), Ok(None));
     }
@@ -787,7 +789,7 @@ mod tests {
     fn test_raw_range() {
         let range = RawRange {
             begin: 0,
-            end: 0xffffffff,
+            end: 0xffff_ffff,
         };
         assert!(!range.is_end());
         assert!(!range.is_base_address(4));
@@ -799,7 +801,7 @@ mod tests {
         assert!(!range.is_base_address(8));
 
         let range = RawRange {
-            begin: 0xffffffff,
+            begin: 0xffff_ffff,
             end: 0,
         };
         assert!(!range.is_end());
@@ -807,7 +809,7 @@ mod tests {
         assert!(!range.is_base_address(8));
 
         let range = RawRange {
-            begin: 0xffffffffffffffff,
+            begin: 0xffff_ffff_ffff_ffff,
             end: 0,
         };
         assert!(!range.is_end());
@@ -828,7 +830,7 @@ mod tests {
             // A normal range.
             .L32(0x10200).L32(0x10300)
             // A base address selection followed by a normal range.
-            .L32(0xffffffff).L32(0x02000000)
+            .L32(0xffff_ffff).L32(0x0200_0000)
             .L32(0x10400).L32(0x10500)
             // An empty range followed by a normal range.
             .L32(0x10600).L32(0x10600)
@@ -836,8 +838,8 @@ mod tests {
             // A range that starts at 0.
             .L32(0).L32(1)
             // A range that ends at -1.
-            .L32(0xffffffff).L32(0x00000000)
-            .L32(0).L32(0xffffffff)
+            .L32(0xffff_ffff).L32(0x0000_0000)
+            .L32(0).L32(0xffff_ffff)
             // A range end.
             .L32(0).L32(0)
             // Some extra data.
@@ -849,14 +851,14 @@ mod tests {
         let rnglists = RangeLists::new(debug_ranges, debug_rnglists).unwrap();
         let offset = RangeListsOffset((&first - &start) as usize);
         let version = 4;
-        let mut ranges = rnglists.ranges(offset, version, 4, 0x01000000).unwrap();
+        let mut ranges = rnglists.ranges(offset, version, 4, 0x0100_0000).unwrap();
 
         // A normal range.
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x01010200,
-                end: 0x01010300,
+                begin: 0x0101_0200,
+                end: 0x0101_0300,
             }))
         );
 
@@ -864,8 +866,8 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02010400,
-                end: 0x02010500,
+                begin: 0x0201_0400,
+                end: 0x0201_0500,
             }))
         );
 
@@ -873,15 +875,15 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02010600,
-                end: 0x02010600,
+                begin: 0x0201_0600,
+                end: 0x0201_0600,
             }))
         );
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02010800,
-                end: 0x02010900,
+                begin: 0x0201_0800,
+                end: 0x0201_0900,
             }))
         );
 
@@ -889,8 +891,8 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02000000,
-                end: 0x02000001,
+                begin: 0x0200_0000,
+                end: 0x0200_0001,
             }))
         );
 
@@ -898,8 +900,8 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x00000000,
-                end: 0xffffffff,
+                begin: 0x0000_0000,
+                end: 0xffff_ffff,
             }))
         );
 
@@ -908,7 +910,7 @@ mod tests {
 
         // An offset at the end of buf.
         let mut ranges = rnglists
-            .ranges(RangeListsOffset(buf.len()), version, 4, 0x01000000)
+            .ranges(RangeListsOffset(buf.len()), version, 4, 0x0100_0000)
             .unwrap();
         assert_eq!(ranges.next(), Ok(None));
     }
@@ -926,7 +928,7 @@ mod tests {
             // A normal range.
             .L64(0x10200).L64(0x10300)
             // A base address selection followed by a normal range.
-            .L64(0xffffffffffffffff).L64(0x02000000)
+            .L64(0xffff_ffff_ffff_ffff).L64(0x0200_0000)
             .L64(0x10400).L64(0x10500)
             // An empty range followed by a normal range.
             .L64(0x10600).L64(0x10600)
@@ -934,8 +936,8 @@ mod tests {
             // A range that starts at 0.
             .L64(0).L64(1)
             // A range that ends at -1.
-            .L64(0xffffffffffffffff).L64(0x00000000)
-            .L64(0).L64(0xffffffffffffffff)
+            .L64(0xffff_ffff_ffff_ffff).L64(0x0000_0000)
+            .L64(0).L64(0xffff_ffff_ffff_ffff)
             // A range end.
             .L64(0).L64(0)
             // Some extra data.
@@ -947,14 +949,14 @@ mod tests {
         let rnglists = RangeLists::new(debug_ranges, debug_rnglists).unwrap();
         let offset = RangeListsOffset((&first - &start) as usize);
         let version = 4;
-        let mut ranges = rnglists.ranges(offset, version, 8, 0x01000000).unwrap();
+        let mut ranges = rnglists.ranges(offset, version, 8, 0x0100_0000).unwrap();
 
         // A normal range.
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x01010200,
-                end: 0x01010300,
+                begin: 0x0101_0200,
+                end: 0x0101_0300,
             }))
         );
 
@@ -962,8 +964,8 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02010400,
-                end: 0x02010500,
+                begin: 0x0201_0400,
+                end: 0x0201_0500,
             }))
         );
 
@@ -971,15 +973,15 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02010600,
-                end: 0x02010600,
+                begin: 0x0201_0600,
+                end: 0x0201_0600,
             }))
         );
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02010800,
-                end: 0x02010900,
+                begin: 0x0201_0800,
+                end: 0x0201_0900,
             }))
         );
 
@@ -987,8 +989,8 @@ mod tests {
         assert_eq!(
             ranges.next(),
             Ok(Some(Range {
-                begin: 0x02000000,
-                end: 0x02000001,
+                begin: 0x0200_0000,
+                end: 0x0200_0001,
             }))
         );
 
@@ -997,7 +999,7 @@ mod tests {
             ranges.next(),
             Ok(Some(Range {
                 begin: 0x0,
-                end: 0xffffffffffffffff,
+                end: 0xffff_ffff_ffff_ffff,
             }))
         );
 
@@ -1006,7 +1008,7 @@ mod tests {
 
         // An offset at the end of buf.
         let mut ranges = rnglists
-            .ranges(RangeListsOffset(buf.len()), version, 8, 0x01000000)
+            .ranges(RangeListsOffset(buf.len()), version, 8, 0x0100_0000)
             .unwrap();
         assert_eq!(ranges.next(), Ok(None));
     }
@@ -1018,7 +1020,7 @@ mod tests {
             // An invalid range.
             .L32(0x20000).L32(0x10000)
             // An invalid range after wrapping.
-            .L32(0x20000).L32(0xff010000);
+            .L32(0x20000).L32(0xff01_0000);
 
         let buf = section.get_contents().unwrap();
         let debug_ranges = DebugRanges::new(&buf, LittleEndian);
@@ -1028,18 +1030,18 @@ mod tests {
 
         // An invalid range.
         let mut ranges = rnglists
-            .ranges(RangeListsOffset(0x0), version, 4, 0x01000000)
+            .ranges(RangeListsOffset(0x0), version, 4, 0x0100_0000)
             .unwrap();
         assert_eq!(ranges.next(), Err(Error::InvalidAddressRange));
 
         // An invalid range after wrapping.
         let mut ranges = rnglists
-            .ranges(RangeListsOffset(0x8), version, 4, 0x01000000)
+            .ranges(RangeListsOffset(0x8), version, 4, 0x0100_0000)
             .unwrap();
         assert_eq!(ranges.next(), Err(Error::InvalidAddressRange));
 
         // An invalid offset.
-        match rnglists.ranges(RangeListsOffset(buf.len() + 1), version, 4, 0x01000000) {
+        match rnglists.ranges(RangeListsOffset(buf.len() + 1), version, 4, 0x0100_0000) {
             Err(Error::UnexpectedEof) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }

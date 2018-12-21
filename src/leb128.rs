@@ -206,7 +206,7 @@ mod tests {
             assert_eq!(i as u8, low_bits_of_u64(1 << 16 | i));
             assert_eq!(
                 i as u8,
-                low_bits_of_u64(i << 16 | i | (CONTINUATION_BIT as u64))
+                low_bits_of_u64(i << 16 | i | (u64::from(CONTINUATION_BIT)))
             );
         }
     }
@@ -326,7 +326,7 @@ mod tests {
         ];
         let mut readable = EndianSlice::new(&buf[..], NativeEndian);
         assert_eq!(
-            -0x4000000000000000,
+            -0x4000_0000_0000_0000,
             read::signed(&mut readable).expect("Should read number")
         );
     }

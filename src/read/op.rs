@@ -1010,6 +1010,7 @@ impl<R: Reader> Evaluation<R> {
         self.stack.push(value);
     }
 
+    #[allow(clippy::cyclomatic_complexity)]
     fn evaluate_one_operation(&mut self) -> Result<OperationEvaluationResult<R>> {
         let operation =
             Operation::parse(&mut self.pc, &self.bytecode, self.address_size, self.format)?;
@@ -2074,15 +2075,15 @@ mod tests {
         let inputs = [
             (
                 constants::DW_OP_addr,
-                0x12345678,
+                0x1234_5678,
                 Operation::Address {
-                    address: 0x12345678,
+                    address: 0x1234_5678,
                 },
             ),
             (
                 constants::DW_OP_const4u,
-                0x12345678,
-                Operation::Literal { value: 0x12345678 },
+                0x1234_5678,
+                Operation::Literal { value: 0x1234_5678 },
             ),
             (
                 constants::DW_OP_const4s,
@@ -2093,16 +2094,16 @@ mod tests {
             ),
             (
                 constants::DW_OP_call4,
-                0x12345678,
+                0x1234_5678,
                 Operation::Call {
-                    offset: DieReference::UnitRef(UnitOffset(0x12345678)),
+                    offset: DieReference::UnitRef(UnitOffset(0x1234_5678)),
                 },
             ),
             (
                 constants::DW_OP_call_ref,
-                0x12345678,
+                0x1234_5678,
                 Operation::Call {
-                    offset: DieReference::DebugInfoRef(DebugInfoOffset(0x12345678)),
+                    offset: DieReference::DebugInfoRef(DebugInfoOffset(0x1234_5678)),
                 },
             ),
         ];
@@ -2123,16 +2124,16 @@ mod tests {
         let inputs = [
             (
                 constants::DW_OP_addr,
-                0x1234567812345678,
+                0x1234_5678_1234_5678,
                 Operation::Address {
-                    address: 0x1234567812345678,
+                    address: 0x1234_5678_1234_5678,
                 },
             ),
             (
                 constants::DW_OP_const8u,
-                0x1234567812345678,
+                0x1234_5678_1234_5678,
                 Operation::Literal {
-                    value: 0x1234567812345678,
+                    value: 0x1234_5678_1234_5678,
                 },
             ),
             (
@@ -2144,9 +2145,9 @@ mod tests {
             ),
             (
                 constants::DW_OP_call_ref,
-                0x1234567812345678,
+                0x1234_5678_1234_5678,
                 Operation::Call {
-                    offset: DieReference::DebugInfoRef(DebugInfoOffset(0x1234567812345678)),
+                    offset: DieReference::DebugInfoRef(DebugInfoOffset(0x1234_5678_1234_5678)),
                 },
             ),
         ];
@@ -2168,11 +2169,11 @@ mod tests {
             0,
             1,
             0x100,
-            0x1eeeeeee,
-            0x7fffffffffffffff,
+            0x1eee_eeee,
+            0x7fff_ffff_ffff_ffff,
             -0x100,
-            -0x1eeeeeee,
-            -0x7fffffffffffffff,
+            -0x1eee_eeee,
+            -0x7fff_ffff_ffff_ffff,
         ];
         for value in values.iter() {
             let mut inputs = vec![
@@ -2217,8 +2218,8 @@ mod tests {
             1,
             0x100,
             (!0u16).into(),
-            0x1eeeeeee,
-            0x7fffffffffffffff,
+            0x1eee_eeee,
+            0x7fff_ffff_ffff_ffff,
             !0u64,
         ];
         for value in values.iter() {
@@ -2271,17 +2272,17 @@ mod tests {
         let address_size = 4;
         let format = Format::Dwarf32;
 
-        let uvalues = [0, 1, 0x100, (!0u16).into()];
+        let uvalues = [0, 1, 0x100, !0u16];
         let svalues = [
             -1i64,
             0,
             1,
             0x100,
-            0x1eeeeeee,
-            0x7fffffffffffffff,
+            0x1eee_eeee,
+            0x7fff_ffff_ffff_ffff,
             -0x100,
-            -0x1eeeeeee,
-            -0x7fffffffffffffff,
+            -0x1eee_eeee,
+            -0x7fff_ffff_ffff_ffff,
         ];
 
         for v1 in uvalues.iter() {
@@ -2306,7 +2307,7 @@ mod tests {
         let address_size = 4;
         let format = Format::Dwarf32;
 
-        let values = [0, 1, 0x100, 0x1eeeeeee, 0x7fffffffffffffff, !0u64];
+        let values = [0, 1, 0x100, 0x1eee_eeee, 0x7fff_ffff_ffff_ffff, !0u64];
 
         for v1 in values.iter() {
             for v2 in values.iter() {
@@ -2510,9 +2511,9 @@ mod tests {
             constants::DW_OP_GNU_implicit_pointer,
         ] {
             check_op_parse(
-                |s| s.D8(op.0).D32(0x12345678).sleb(0x123),
+                |s| s.D8(op.0).D32(0x1234_5678).sleb(0x123),
                 &Operation::ImplicitPointer {
-                    value: DebugInfoOffset(0x12345678),
+                    value: DebugInfoOffset(0x1234_5678),
                     byte_offset: 0x123,
                 },
                 4,
@@ -2520,9 +2521,9 @@ mod tests {
             );
 
             check_op_parse(
-                |s| s.D8(op.0).D64(0x12345678).sleb(0x123),
+                |s| s.D8(op.0).D64(0x1234_5678).sleb(0x123),
                 &Operation::ImplicitPointer {
-                    value: DebugInfoOffset(0x12345678),
+                    value: DebugInfoOffset(0x1234_5678),
                     byte_offset: 0x123,
                 },
                 8,
@@ -2552,9 +2553,9 @@ mod tests {
     #[test]
     fn test_op_parse_gnu_parameter_ref() {
         check_op_parse(
-            |s| s.D8(constants::DW_OP_GNU_parameter_ref.0).D32(0x12345678),
+            |s| s.D8(constants::DW_OP_GNU_parameter_ref.0).D32(0x1234_5678),
             &Operation::ParameterRef {
-                offset: UnitOffset(0x12345678),
+                offset: UnitOffset(0x1234_5678),
             },
             4,
             Format::Dwarf32,
@@ -2610,8 +2611,8 @@ mod tests {
                     push(&mut result, 0, 2);
                 }
                 AssemblerEntry::U8(num) => result.push(num),
-                AssemblerEntry::U16(num) => push(&mut result, num as u64, 2),
-                AssemblerEntry::U32(num) => push(&mut result, num as u64, 4),
+                AssemblerEntry::U16(num) => push(&mut result, u64::from(num), 2),
+                AssemblerEntry::U32(num) => push(&mut result, u64::from(num), 4),
                 AssemblerEntry::U64(num) => push(&mut result, num, 8),
                 AssemblerEntry::Uleb(num) => {
                     leb128::write::unsigned(&mut result, num).unwrap();
@@ -2635,6 +2636,7 @@ mod tests {
         result
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn check_eval_with_args<F>(
         program: &[AssemblerEntry],
         expect: Result<&[Piece<EndianSlice<LittleEndian>>]>,
@@ -2726,8 +2728,8 @@ mod tests {
             Op(DW_OP_plus),
             Op(DW_OP_bra), Branch(fail),
 
-            Op(DW_OP_const4u), U32(0x11112222),
-            Op(DW_OP_const4s), U32((-0x11112222i32) as u32),
+            Op(DW_OP_const4u), U32(0x1111_2222),
+            Op(DW_OP_const4s), U32((-0x1111_2222i32) as u32),
             Op(DW_OP_plus),
             Op(DW_OP_bra), Branch(fail),
 
@@ -2755,15 +2757,15 @@ mod tests {
             Op(DW_OP_minus),
             Op(DW_OP_bra), Branch(fail),
 
-            Op(DW_OP_const4u), U32(0xf078fffe),
-            Op(DW_OP_const4u), U32(0x0f870001),
+            Op(DW_OP_const4u), U32(0xf078_fffe),
+            Op(DW_OP_const4u), U32(0x0f87_0001),
             Op(DW_OP_and),
             Op(DW_OP_bra), Branch(fail),
 
-            Op(DW_OP_const4u), U32(0xf078fffe),
-            Op(DW_OP_const4u), U32(0xf00000fe),
+            Op(DW_OP_const4u), U32(0xf078_fffe),
+            Op(DW_OP_const4u), U32(0xf000_00fe),
             Op(DW_OP_and),
-            Op(DW_OP_const4u), U32(0xf00000fe),
+            Op(DW_OP_const4u), U32(0xf000_00fe),
             Op(DW_OP_ne),
             Op(DW_OP_bra), Branch(fail),
 
@@ -2783,26 +2785,26 @@ mod tests {
             Op(DW_OP_bra), Branch(fail),
 
             // Overflow is defined for multiplication.
-            Op(DW_OP_const4u), U32(0x80000001),
+            Op(DW_OP_const4u), U32(0x8000_0001),
             Op(DW_OP_lit2),
             Op(DW_OP_mul),
             Op(DW_OP_lit2),
             Op(DW_OP_ne),
             Op(DW_OP_bra), Branch(fail),
 
-            Op(DW_OP_const4u), U32(0xf0f0f0f0),
-            Op(DW_OP_const4u), U32(0xf0f0f0f0),
+            Op(DW_OP_const4u), U32(0xf0f0_f0f0),
+            Op(DW_OP_const4u), U32(0xf0f0_f0f0),
             Op(DW_OP_xor),
             Op(DW_OP_bra), Branch(fail),
 
-            Op(DW_OP_const4u), U32(0xf0f0f0f0),
-            Op(DW_OP_const4u), U32(0x0f0f0f0f),
+            Op(DW_OP_const4u), U32(0xf0f0_f0f0),
+            Op(DW_OP_const4u), U32(0x0f0f_0f0f),
             Op(DW_OP_or),
             Op(DW_OP_not),
             Op(DW_OP_bra), Branch(fail),
 
             // In 32 bit mode, values are truncated.
-            Op(DW_OP_const8u), U64(0xffffffff00000000),
+            Op(DW_OP_const8u), U64(0xffff_ffff_0000_0000),
             Op(DW_OP_lit2),
             Op(DW_OP_div),
             Op(DW_OP_bra), Branch(fail),
@@ -2828,7 +2830,7 @@ mod tests {
             Op(DW_OP_const1s), U8(0xff),
             Op(DW_OP_lit1),
             Op(DW_OP_shr),
-            Op(DW_OP_const4u), U32(0x7fffffff),
+            Op(DW_OP_const4u), U32(0x7fff_ffff),
             Op(DW_OP_ne),
             Op(DW_OP_bra), Branch(fail),
 
@@ -2887,13 +2889,13 @@ mod tests {
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
-            Op(DW_OP_const8u), U64(0x1111222233334444),
-            Op(DW_OP_const8s), U64((-0x1111222233334444i64) as u64),
+            Op(DW_OP_const8u), U64(0x1111_2222_3333_4444),
+            Op(DW_OP_const8s), U64((-0x1111_2222_3333_4444i64) as u64),
             Op(DW_OP_plus),
             Op(DW_OP_bra), Branch(fail),
 
-            Op(DW_OP_constu), Uleb(0x1111222233334444),
-            Op(DW_OP_consts), Sleb((-0x1111222233334444i64) as u64),
+            Op(DW_OP_constu), Uleb(0x1111_2222_3333_4444),
+            Op(DW_OP_consts), Sleb((-0x1111_2222_3333_4444i64) as u64),
             Op(DW_OP_plus),
             Op(DW_OP_bra), Branch(fail),
 
@@ -2906,14 +2908,14 @@ mod tests {
             Op(DW_OP_not),
             Op(DW_OP_bra), Branch(fail),
 
-            Op(DW_OP_const8u), U64(0x8000000000000000),
+            Op(DW_OP_const8u), U64(0x8000_0000_0000_0000),
             Op(DW_OP_const1u), U8(63),
             Op(DW_OP_shr),
             Op(DW_OP_lit1),
             Op(DW_OP_ne),
             Op(DW_OP_bra), Branch(fail),
 
-            Op(DW_OP_const8u), U64(0x8000000000000000),
+            Op(DW_OP_const8u), U64(0x8000_0000_0000_0000),
             Op(DW_OP_const1u), U8(62),
             Op(DW_OP_shra),
             Op(DW_OP_plus_uconst), Uleb(2),
@@ -2922,7 +2924,7 @@ mod tests {
             Op(DW_OP_lit1),
             Op(DW_OP_const1u), U8(63),
             Op(DW_OP_shl),
-            Op(DW_OP_const8u), U64(0x8000000000000000),
+            Op(DW_OP_const8u), U64(0x8000_0000_0000_0000),
             Op(DW_OP_ne),
             Op(DW_OP_bra), Branch(fail),
 
@@ -3066,7 +3068,7 @@ mod tests {
         for i in 0..32 {
             program.push(Op(DwOp(DW_OP_lit0.0 + i)));
             program.push(Op(DwOp(DW_OP_breg0.0 + i)));
-            program.push(Sleb(i as u64));
+            program.push(Sleb(u64::from(i)));
             program.push(Op(DW_OP_plus));
             program.push(Op(DW_OP_plus));
         }
@@ -3125,27 +3127,27 @@ mod tests {
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
-            Op(DW_OP_addr), U32(0x7fffffff),
+            Op(DW_OP_addr), U32(0x7fff_ffff),
             Op(DW_OP_deref),
-            Op(DW_OP_const4u), U32(0xfffffffc),
+            Op(DW_OP_const4u), U32(0xffff_fffc),
             Op(DW_OP_ne),
             Op(DW_OP_bra), Branch(fail),
 
-            Op(DW_OP_addr), U32(0x7fffffff),
+            Op(DW_OP_addr), U32(0x7fff_ffff),
             Op(DW_OP_deref_size), U8(2),
             Op(DW_OP_const4u), U32(0xfffc),
             Op(DW_OP_ne),
             Op(DW_OP_bra), Branch(fail),
 
             Op(DW_OP_lit1),
-            Op(DW_OP_addr), U32(0x7fffffff),
+            Op(DW_OP_addr), U32(0x7fff_ffff),
             Op(DW_OP_xderef),
-            Op(DW_OP_const4u), U32(0xfffffffd),
+            Op(DW_OP_const4u), U32(0xffff_fffd),
             Op(DW_OP_ne),
             Op(DW_OP_bra), Branch(fail),
 
             Op(DW_OP_lit1),
-            Op(DW_OP_addr), U32(0x7fffffff),
+            Op(DW_OP_addr), U32(0x7fff_ffff),
             Op(DW_OP_xderef_size), U8(2),
             Op(DW_OP_const4u), U32(0xfffd),
             Op(DW_OP_ne),
@@ -3205,7 +3207,7 @@ mod tests {
                             if let Some(value) = space {
                                 v += value;
                             }
-                            v = v & ((1u64 << 8 * size) - 1);
+                            v &= (1u64 << (8 * size)) - 1;
                             eval.resume_with_memory(Value::Generic(v))?
                         }
                         EvaluationResult::RequiresTls(slot) => eval.resume_with_tls(!slot)?,
@@ -3307,18 +3309,18 @@ mod tests {
                     EvaluationResult::RequiresFrameBase => {}
                     _ => panic!(),
                 };
-                match eval.resume_with_frame_base(0x0123456789abcdef)? {
+                match eval.resume_with_frame_base(0x0123_4567_89ab_cdef)? {
                     EvaluationResult::RequiresCallFrameCfa => {}
                     _ => panic!(),
                 };
-                eval.resume_with_call_frame_cfa(0xfedcba9876543210)
+                eval.resume_with_call_frame_cfa(0xfedc_ba98_7654_3210)
             },
         );
 
         // Test `evaluate_entry_value` callback.
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
-            Op(DW_OP_entry_value), Uleb(8), U64(0x12345678),
+            Op(DW_OP_entry_value), Uleb(8), U64(0x1234_5678),
             Op(DW_OP_stack_value)
         ];
 
@@ -3326,7 +3328,7 @@ mod tests {
             size_in_bits: None,
             bit_offset: None,
             location: Location::Value {
-                value: Value::Generic(0x12345678),
+                value: Value::Generic(0x1234_5678),
             },
         }];
 
@@ -3401,7 +3403,7 @@ mod tests {
             size_in_bits: None,
             bit_offset: None,
             location: Location::Address {
-                address: 0x12345678,
+                address: 0x1234_5678,
             },
         }];
 
@@ -3411,7 +3413,7 @@ mod tests {
             8,
             Format::Dwarf64,
             None,
-            Some(0x12345678),
+            Some(0x1234_5678),
             None,
             |_, result| Ok(result),
         );
@@ -3448,8 +3450,8 @@ mod tests {
         let program = [
             Op(DW_OP_lit23),
             Op(DW_OP_call2), U16(0x7755),
-            Op(DW_OP_call4), U32(0x7755aaee),
-            Op(DW_OP_call_ref), U32(0x7755aaee),
+            Op(DW_OP_call4), U32(0x7755_aaee),
+            Op(DW_OP_call_ref), U32(0x7755_aaee),
             Op(DW_OP_stack_value)
         ];
 
@@ -3495,7 +3497,7 @@ mod tests {
         );
 
         // DW_OP_lit2 DW_OP_mul
-        const SUBR: &'static [u8] = &[0x32, 0x1e];
+        const SUBR: &[u8] = &[0x32, 0x1e];
 
         let result = [Piece {
             size_in_bits: None,
@@ -3581,7 +3583,7 @@ mod tests {
             Op(DW_OP_reg0),
             Op(DW_OP_piece), Uleb(4),
             Op(DW_OP_piece), Uleb(4),
-            Op(DW_OP_addr), U32(0x7fffffff),
+            Op(DW_OP_addr), U32(0x7fff_ffff),
             Op(DW_OP_piece), Uleb(4),
         ];
 
@@ -3602,7 +3604,7 @@ mod tests {
                 size_in_bits: Some(32),
                 bit_offset: None,
                 location: Location::Address {
-                    address: 0x7fffffff,
+                    address: 0x7fff_ffff,
                 },
             },
         ];
@@ -3635,7 +3637,7 @@ mod tests {
             U8(23), U8(24), U8(25), U8(26), U8(0),
         ];
 
-        const BYTES: &'static [u8] = &[23, 24, 25, 26, 0];
+        const BYTES: &[u8] = &[23, 24, 25, 26, 0];
 
         let result = [Piece {
             size_in_bits: None,
@@ -3687,14 +3689,14 @@ mod tests {
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
-            Op(DW_OP_implicit_pointer), U32(0x12345678), Sleb(0x123),
+            Op(DW_OP_implicit_pointer), U32(0x1234_5678), Sleb(0x123),
         ];
 
         let result = [Piece {
             size_in_bits: None,
             bit_offset: None,
             location: Location::ImplicitPointer {
-                value: DebugInfoOffset(0x12345678),
+                value: DebugInfoOffset(0x1234_5678),
                 byte_offset: 0x123,
             },
         }];
@@ -3836,7 +3838,7 @@ mod tests {
                                 if let Some(value) = space {
                                     v += value;
                                 }
-                                v = v & ((1u64 << 8 * size) - 1);
+                                v &= (1u64 << (8 * size)) - 1;
                                 let v = Value::from_u64(base_types[base_type.0], v)?;
                                 eval.resume_with_memory(v)?
                             }

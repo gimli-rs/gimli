@@ -6,6 +6,7 @@ use Format;
 /// A trait for writing the data to a DWARF section.
 ///
 /// All write operations append to the section unless otherwise specified.
+#[allow(clippy::len_without_is_empty)]
 pub trait Writer {
     /// The endianity of bytes that are written.
     type Endian: Endianity;
@@ -121,21 +122,21 @@ pub trait Writer {
         match size {
             1 => {
                 let write_val = val as u8;
-                if val != write_val as u64 {
+                if val != u64::from(write_val) {
                     return Err(Error::ValueTooLarge);
                 }
                 self.write_u8(write_val)
             }
             2 => {
                 let write_val = val as u16;
-                if val != write_val as u64 {
+                if val != u64::from(write_val) {
                     return Err(Error::ValueTooLarge);
                 }
                 self.write_u16(write_val)
             }
             4 => {
                 let write_val = val as u32;
-                if val != write_val as u64 {
+                if val != u64::from(write_val) {
                     return Err(Error::ValueTooLarge);
                 }
                 self.write_u32(write_val)
@@ -153,21 +154,21 @@ pub trait Writer {
         match size {
             1 => {
                 let write_val = val as u8;
-                if val != write_val as u64 {
+                if val != u64::from(write_val) {
                     return Err(Error::ValueTooLarge);
                 }
                 self.write_u8_at(offset, write_val)
             }
             2 => {
                 let write_val = val as u16;
-                if val != write_val as u64 {
+                if val != u64::from(write_val) {
                     return Err(Error::ValueTooLarge);
                 }
                 self.write_u16_at(offset, write_val)
             }
             4 => {
                 let write_val = val as u32;
-                if val != write_val as u64 {
+                if val != u64::from(write_val) {
                     return Err(Error::ValueTooLarge);
                 }
                 self.write_u32_at(offset, write_val)
@@ -232,6 +233,7 @@ mod tests {
     use {BigEndian, LittleEndian};
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_writer() {
         let mut w = write::EndianVec::new(LittleEndian);
         w.write_address(Address::Absolute(0x1122_3344), 4).unwrap();

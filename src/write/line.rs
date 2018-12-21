@@ -133,6 +133,8 @@ impl LineProgram {
     ///
     /// Panics if `line_base` > 0.
     /// Panics if `line_base` + `line_range` <= 0.
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(
         version: u16,
         address_size: u8,
@@ -1102,20 +1104,20 @@ mod tests {
                     program.begin_sequence(None);
                     program.row.line = 0x1000;
                     program.generate_row();
-                    let base_row = program.row.clone();
+                    let base_row = program.row;
                     let base_instructions = program.instructions.clone();
 
                     // Create test cases.
                     let mut tests = Vec::new();
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     tests.push((row, vec![LineInstruction::Copy]));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.line -= u64::from(neg_line_base);
                     tests.push((row, vec![LineInstruction::Special(OPCODE_BASE)]));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.line += u64::from(line_range) - 1;
                     row.line -= u64::from(neg_line_base);
                     tests.push((
@@ -1123,7 +1125,7 @@ mod tests {
                         vec![LineInstruction::Special(OPCODE_BASE + line_range - 1)],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.line += u64::from(line_range);
                     row.line -= u64::from(neg_line_base);
                     tests.push((
@@ -1134,7 +1136,7 @@ mod tests {
                         ],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = 1;
                     row.line -= u64::from(neg_line_base);
                     tests.push((
@@ -1143,7 +1145,7 @@ mod tests {
                     ));
 
                     let op_range = (255 - OPCODE_BASE) / line_range;
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = u64::from(op_range);
                     row.line -= u64::from(neg_line_base);
                     tests.push((
@@ -1153,13 +1155,13 @@ mod tests {
                         )],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = u64::from(op_range);
                     row.line += u64::from(255 - OPCODE_BASE - op_range * line_range);
                     row.line -= u64::from(neg_line_base);
                     tests.push((row, vec![LineInstruction::Special(255)]));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = u64::from(op_range);
                     row.line += u64::from(255 - OPCODE_BASE - op_range * line_range) + 1;
                     row.line -= u64::from(neg_line_base);
@@ -1168,7 +1170,7 @@ mod tests {
                         vec![LineInstruction::ConstAddPc, LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = u64::from(op_range);
                     row.line += u64::from(255 - OPCODE_BASE - op_range * line_range) + 2;
                     row.line -= u64::from(neg_line_base);
@@ -1180,7 +1182,7 @@ mod tests {
                         ],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = u64::from(op_range) * 2;
                     row.line += u64::from(255 - OPCODE_BASE - op_range * line_range);
                     row.line -= u64::from(neg_line_base);
@@ -1189,7 +1191,7 @@ mod tests {
                         vec![LineInstruction::ConstAddPc, LineInstruction::Special(255)],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = u64::from(op_range) * 2;
                     row.line += u64::from(255 - OPCODE_BASE - op_range * line_range) + 1;
                     row.line -= u64::from(neg_line_base);
@@ -1201,7 +1203,7 @@ mod tests {
                         ],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = u64::from(op_range) * 2;
                     row.line += u64::from(255 - OPCODE_BASE - op_range * line_range) + 2;
                     row.line -= u64::from(neg_line_base);
@@ -1213,35 +1215,35 @@ mod tests {
                         ],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = 0x1234;
                     tests.push((
                         row,
                         vec![LineInstruction::AdvancePc(0x1234), LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.line += 0x1234;
                     tests.push((
                         row,
                         vec![LineInstruction::AdvanceLine(0x1234), LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.file = file_id;
                     tests.push((
                         row,
                         vec![LineInstruction::SetFile(file_id), LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.column = 0x1234;
                     tests.push((
                         row,
                         vec![LineInstruction::SetColumn(0x1234), LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.discriminator = 0x1234;
                     tests.push((
                         row,
@@ -1251,35 +1253,35 @@ mod tests {
                         ],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.is_statement = !row.is_statement;
                     tests.push((
                         row,
                         vec![LineInstruction::NegateStatement, LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.basic_block = true;
                     tests.push((
                         row,
                         vec![LineInstruction::SetBasicBlock, LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.prologue_end = true;
                     tests.push((
                         row,
                         vec![LineInstruction::SetPrologueEnd, LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.epilogue_begin = true;
                     tests.push((
                         row,
                         vec![LineInstruction::SetEpilogueBegin, LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.isa = 0x1234;
                     tests.push((
                         row,
@@ -1432,6 +1434,7 @@ mod tests {
 
     // Test that the address/line advance is correct. We don't test for optimality.
     #[test]
+    #[allow(clippy::useless_vec)]
     fn test_advance() {
         let dir1 = &b"dir1"[..];
         let file1 = &b"file1"[..];
@@ -1463,13 +1466,13 @@ mod tests {
                                 {
                                     let row = program.row();
                                     row.address_offset +=
-                                        address_advance * minimum_instruction_length as u64;
+                                        address_advance * u64::from(minimum_instruction_length);
                                     row.line = row.line.wrapping_add(line_advance as u64);
                                 }
                                 program.generate_row();
                             }
-                            let address_offset =
-                                program.row().address_offset + minimum_instruction_length as u64;
+                            let address_offset = program.row().address_offset
+                                + u64::from(minimum_instruction_length);
                             program.end_sequence(address_offset);
                         }
 
@@ -1504,7 +1507,7 @@ mod tests {
                                 let row = rows.next_row().unwrap().unwrap().1;
                                 assert_eq!(
                                     row.address() - address,
-                                    address_advance * minimum_instruction_length as u64
+                                    address_advance * u64::from(minimum_instruction_length)
                                 );
                                 assert_eq!(
                                     (row.line().unwrap() as i64) - (line as i64),

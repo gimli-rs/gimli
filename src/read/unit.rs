@@ -884,7 +884,7 @@ where
     }
 
     /// Return the input buffer after the last attribute.
-    #[allow(inline_always)]
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn after_attrs(&self) -> Result<R> {
         if let Some(attrs_len) = self.attrs_len.get() {
@@ -913,7 +913,7 @@ where
     }
 
     /// Parse an entry. Returns `Ok(None)` for null entries.
-    #[allow(inline_always)]
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn parse(
         input: &mut R,
@@ -1097,8 +1097,8 @@ impl<R: Reader> Attribute<R> {
     /// name.
     ///
     /// See "Figure 20. Attribute encodings" and "Figure 21. Attribute form encodings".
-    #[allow(cyclomatic_complexity)]
-    #[allow(match_same_arms)]
+    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::match_same_arms)]
     pub fn value(&self) -> AttributeValue<R> {
         // Figure 20 shows the possible attribute classes for each name.
         // Figure 21 shows the possible attribute classes for each form.
@@ -1833,7 +1833,7 @@ impl<'abbrev, 'entry, 'unit, R: Reader> AttrsIter<'abbrev, 'entry, 'unit, R> {
     /// Returns `None` when iteration is finished. If an error
     /// occurs while parsing the next attribute, then this error
     /// is returned, and all subsequent calls return `None`.
-    #[allow(inline_always)]
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn next(&mut self) -> Result<Option<Attribute<R>>> {
         if self.attributes.is_empty() {
@@ -2061,7 +2061,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// println!("The first entry with no children is {:?}",
     ///          first_entry_with_no_children.unwrap());
     /// ```
-    #[allow(type_complexity)]
+    #[allow(clippy::type_complexity)]
     pub fn next_dfs(
         &mut self,
     ) -> Result<
@@ -2920,7 +2920,7 @@ mod tests {
 
             let section = match unit.format {
                 Format::Dwarf32 => self.L32(&length),
-                Format::Dwarf64 => self.L32(0xffffffff).L64(&length),
+                Format::Dwarf64 => self.L32(0xffff_ffff).L64(&length),
             };
 
             let section = match unit.version {
@@ -2980,12 +2980,12 @@ mod tests {
 
     #[test]
     fn test_parse_debug_abbrev_offset_32() {
-        let section = Section::with_endian(Endian::Little).L32(0x04030201);
+        let section = Section::with_endian(Endian::Little).L32(0x0403_0201);
         let buf = section.get_contents().unwrap();
         let buf = &mut EndianSlice::new(&buf, LittleEndian);
 
         match parse_debug_abbrev_offset(buf, Format::Dwarf32) {
-            Ok(val) => assert_eq!(val, DebugAbbrevOffset(0x04030201)),
+            Ok(val) => assert_eq!(val, DebugAbbrevOffset(0x0403_0201)),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
@@ -3004,12 +3004,12 @@ mod tests {
     #[test]
     #[cfg(target_pointer_width = "64")]
     fn test_parse_debug_abbrev_offset_64() {
-        let section = Section::with_endian(Endian::Little).L64(0x0807060504030201);
+        let section = Section::with_endian(Endian::Little).L64(0x0807_0605_0403_0201);
         let buf = section.get_contents().unwrap();
         let buf = &mut EndianSlice::new(&buf, LittleEndian);
 
         match parse_debug_abbrev_offset(buf, Format::Dwarf64) {
-            Ok(val) => assert_eq!(val, DebugAbbrevOffset(0x0807060504030201)),
+            Ok(val) => assert_eq!(val, DebugAbbrevOffset(0x0807_0605_0403_0201)),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
@@ -3027,12 +3027,12 @@ mod tests {
 
     #[test]
     fn test_parse_debug_info_offset_32() {
-        let section = Section::with_endian(Endian::Little).L32(0x04030201);
+        let section = Section::with_endian(Endian::Little).L32(0x0403_0201);
         let buf = section.get_contents().unwrap();
         let buf = &mut EndianSlice::new(&buf, LittleEndian);
 
         match parse_debug_info_offset(buf, Format::Dwarf32) {
-            Ok(val) => assert_eq!(val, DebugInfoOffset(0x04030201)),
+            Ok(val) => assert_eq!(val, DebugInfoOffset(0x0403_0201)),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
@@ -3051,12 +3051,12 @@ mod tests {
     #[test]
     #[cfg(target_pointer_width = "64")]
     fn test_parse_debug_info_offset_64() {
-        let section = Section::with_endian(Endian::Little).L64(0x0807060504030201);
+        let section = Section::with_endian(Endian::Little).L64(0x0807_0605_0403_0201);
         let buf = section.get_contents().unwrap();
         let buf = &mut EndianSlice::new(&buf, LittleEndian);
 
         match parse_debug_info_offset(buf, Format::Dwarf64) {
-            Ok(val) => assert_eq!(val, DebugInfoOffset(0x0807060504030201)),
+            Ok(val) => assert_eq!(val, DebugInfoOffset(0x0807_0605_0403_0201)),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
@@ -3080,7 +3080,7 @@ mod tests {
             header: UnitHeader {
                 unit_length: 0,
                 version: 4,
-                debug_abbrev_offset: DebugAbbrevOffset(0x0102030405060708),
+                debug_abbrev_offset: DebugAbbrevOffset(0x0102_0304_0506_0708),
                 address_size: 8,
                 format: Format::Dwarf64,
                 entries_buf: EndianSlice::new(expected_rest, LittleEndian),
@@ -3091,7 +3091,7 @@ mod tests {
             header: UnitHeader {
                 unit_length: 0,
                 version: 4,
-                debug_abbrev_offset: DebugAbbrevOffset(0x08070605),
+                debug_abbrev_offset: DebugAbbrevOffset(0x0807_0605),
                 address_size: 4,
                 format: Format::Dwarf32,
                 entries_buf: EndianSlice::new(expected_rest, LittleEndian),
@@ -3147,7 +3147,7 @@ mod tests {
         let mut expected_unit = UnitHeader {
             unit_length: 0,
             version: 4,
-            debug_abbrev_offset: DebugAbbrevOffset(0x08070605),
+            debug_abbrev_offset: DebugAbbrevOffset(0x0807_0605),
             address_size: 4,
             format: Format::Dwarf32,
             entries_buf: EndianSlice::new(expected_rest, LittleEndian),
@@ -3169,7 +3169,7 @@ mod tests {
         let mut expected_unit = UnitHeader {
             unit_length: 0,
             version: 4,
-            debug_abbrev_offset: DebugAbbrevOffset(0x0102030405060708),
+            debug_abbrev_offset: DebugAbbrevOffset(0x0102_0304_0506_0708),
             address_size: 8,
             format: Format::Dwarf64,
             entries_buf: EndianSlice::new(expected_rest, LittleEndian),
@@ -3190,7 +3190,7 @@ mod tests {
         let mut expected_unit = UnitHeader {
             unit_length: 0,
             version: 5,
-            debug_abbrev_offset: DebugAbbrevOffset(0x08070605),
+            debug_abbrev_offset: DebugAbbrevOffset(0x0807_0605),
             address_size: 4,
             format: Format::Dwarf32,
             entries_buf: EndianSlice::new(expected_rest, LittleEndian),
@@ -3212,7 +3212,7 @@ mod tests {
         let mut expected_unit = UnitHeader {
             unit_length: 0,
             version: 5,
-            debug_abbrev_offset: DebugAbbrevOffset(0x0102030405060708),
+            debug_abbrev_offset: DebugAbbrevOffset(0x0102_0304_0506_0708),
             address_size: 8,
             format: Format::Dwarf64,
             entries_buf: EndianSlice::new(expected_rest, LittleEndian),
@@ -3235,7 +3235,7 @@ mod tests {
         match parse_type_offset(rest, Format::Dwarf32) {
             Ok(offset) => {
                 assert_eq!(rest.len(), 1);
-                assert_eq!(UnitOffset(0x78563412), offset);
+                assert_eq!(UnitOffset(0x7856_3412), offset);
             }
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
@@ -3250,7 +3250,7 @@ mod tests {
         match parse_type_offset(rest, Format::Dwarf64) {
             Ok(offset) => {
                 assert_eq!(rest.len(), 1);
-                assert_eq!(UnitOffset(0xffdebc9a78563412), offset);
+                assert_eq!(UnitOffset(0xffde_bc9a_7856_3412), offset);
             }
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
@@ -3275,14 +3275,14 @@ mod tests {
             header: UnitHeader {
                 unit_length: 0,
                 version: 4,
-                debug_abbrev_offset: DebugAbbrevOffset(0x08070605),
+                debug_abbrev_offset: DebugAbbrevOffset(0x0807_0605),
                 address_size: 8,
                 format: Format::Dwarf32,
                 entries_buf: EndianSlice::new(expected_rest, LittleEndian),
             },
             offset: DebugTypesOffset(0),
-            type_signature: DebugTypeSignature(0xdeadbeefdeadbeef),
-            type_offset: UnitOffset(0x78563412),
+            type_signature: DebugTypeSignature(0xdead_beef_dead_beef),
+            type_offset: UnitOffset(0x7856_3412),
         };
         let section = Section::with_endian(Endian::Little)
             .type_unit(&mut expected_unit)
@@ -3305,14 +3305,14 @@ mod tests {
             header: UnitHeader {
                 unit_length: 0,
                 version: 4,
-                debug_abbrev_offset: DebugAbbrevOffset(0x08070605),
+                debug_abbrev_offset: DebugAbbrevOffset(0x0807_0605),
                 address_size: 8,
                 format: Format::Dwarf64,
                 entries_buf: EndianSlice::new(expected_rest, LittleEndian),
             },
             offset: DebugTypesOffset(0),
-            type_signature: DebugTypeSignature(0xdeadbeefdeadbeef),
-            type_offset: UnitOffset(0x7856341278563412),
+            type_signature: DebugTypeSignature(0xdead_beef_dead_beef),
+            type_offset: UnitOffset(0x7856_3412_7856_3412),
         };
         let section = Section::with_endian(Endian::Little)
             .type_unit(&mut expected_unit)
@@ -3345,10 +3345,10 @@ mod tests {
         let buf = section_contents(|s| s.uleb(block_data.len() as u64).append_bytes(block_data));
         let block = EndianSlice::new(&buf, endian);
 
-        let buf = section_contents(|s| s.L32(0x01020304));
+        let buf = section_contents(|s| s.L32(0x0102_0304));
         let data4 = EndianSlice::new(&buf, endian);
 
-        let buf = section_contents(|s| s.L64(0x0102030405060708));
+        let buf = section_contents(|s| s.L64(0x0102_0304_0506_0708));
         let data8 = EndianSlice::new(&buf, endian);
 
         let tests = [
@@ -3365,8 +3365,8 @@ mod tests {
                 constants::DW_AT_data_member_location,
                 constants::DW_FORM_data4,
                 data4,
-                AttributeValue::SecOffset(0x01020304),
-                AttributeValue::LocationListsRef(LocationListsOffset(0x01020304)),
+                AttributeValue::SecOffset(0x0102_0304),
+                AttributeValue::LocationListsRef(LocationListsOffset(0x0102_0304)),
             ),
             (
                 4,
@@ -3374,7 +3374,7 @@ mod tests {
                 constants::DW_FORM_data4,
                 data4,
                 AttributeValue::Data4(([4, 3, 2, 1], endian)),
-                AttributeValue::Udata(0x01020304),
+                AttributeValue::Udata(0x0102_0304),
             ),
             #[cfg(target_pointer_width = "64")]
             (
@@ -3382,8 +3382,8 @@ mod tests {
                 constants::DW_AT_data_member_location,
                 constants::DW_FORM_data8,
                 data8,
-                AttributeValue::SecOffset(0x0102030405060708),
-                AttributeValue::LocationListsRef(LocationListsOffset(0x0102030405060708)),
+                AttributeValue::SecOffset(0x0102_0304_0506_0708),
+                AttributeValue::LocationListsRef(LocationListsOffset(0x0102_0304_0506_0708)),
             ),
             (
                 4,
@@ -3391,7 +3391,7 @@ mod tests {
                 constants::DW_FORM_data8,
                 data8,
                 AttributeValue::Data8(([8, 7, 6, 5, 4, 3, 2, 1], endian)),
-                AttributeValue::Udata(0x0102030405060708),
+                AttributeValue::Udata(0x0102_0304_0506_0708),
             ),
         ];
 
@@ -3410,6 +3410,7 @@ mod tests {
     #[test]
     fn test_attribute_udata_sdata_value() {
         let endian = LittleEndian;
+        #[allow(clippy::type_complexity)]
         let tests: &[(
             AttributeValue<EndianSlice<LittleEndian>>,
             Option<u64>,
@@ -3418,13 +3419,13 @@ mod tests {
             (AttributeValue::Data1([1]), Some(1), Some(1)),
             (
                 AttributeValue::Data1([255]),
-                Some(std::u8::MAX as u64),
+                Some(u64::from(std::u8::MAX)),
                 Some(-1),
             ),
             (AttributeValue::Data2(([1, 0], endian)), Some(1), Some(1)),
             (
                 AttributeValue::Data2(([255; 2], endian)),
-                Some(std::u16::MAX as u64),
+                Some(u64::from(std::u16::MAX)),
                 Some(-1),
             ),
             (
@@ -3434,7 +3435,7 @@ mod tests {
             ),
             (
                 AttributeValue::Data4(([255; 4], endian)),
-                Some(std::u32::MAX as u64),
+                Some(u64::from(std::u32::MAX)),
                 Some(-1),
             ),
             (
@@ -3474,7 +3475,7 @@ mod tests {
         UnitHeader::new(
             7,
             4,
-            DebugAbbrevOffset(0x08070605),
+            DebugAbbrevOffset(0x0807_0605),
             address_size,
             format,
             EndianSlice::new(&[], endian),
@@ -3523,7 +3524,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
         let unit = test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian);
         let form = constants::DW_FORM_addr;
-        let value = AttributeValue::Addr(0x04030201);
+        let value = AttributeValue::Addr(0x0403_0201);
         test_parse_attribute(&buf, 4, &unit, form, value);
     }
 
@@ -3532,7 +3533,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
         let unit = test_parse_attribute_unit(8, Format::Dwarf32, LittleEndian);
         let form = constants::DW_FORM_addr;
-        let value = AttributeValue::Addr(0x0807060504030201);
+        let value = AttributeValue::Addr(0x0807_0605_0403_0201);
         test_parse_attribute(&buf, 8, &unit, form, value);
     }
 
@@ -3688,7 +3689,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10];
         let unit = test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian);
         let form = constants::DW_FORM_sec_offset;
-        let value = AttributeValue::SecOffset(0x04030201);
+        let value = AttributeValue::SecOffset(0x0403_0201);
         test_parse_attribute(&buf, 4, &unit, form, value);
     }
 
@@ -3698,7 +3699,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10];
         let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
         let form = constants::DW_FORM_sec_offset;
-        let value = AttributeValue::SecOffset(0x0807060504030201);
+        let value = AttributeValue::SecOffset(0x0807_0605_0403_0201);
         test_parse_attribute(&buf, 8, &unit, form, value);
     }
 
@@ -3725,7 +3726,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_ref4;
-        let value = AttributeValue::UnitRef(UnitOffset(67305985));
+        let value = AttributeValue::UnitRef(UnitOffset(0x0403_0201));
         test_parse_attribute(&buf, 4, &unit, form, value);
     }
 
@@ -3735,7 +3736,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_ref8;
-        let value = AttributeValue::UnitRef(UnitOffset(578437695752307201));
+        let value = AttributeValue::UnitRef(UnitOffset(0x0807_0605_0403_0201));
         test_parse_attribute(&buf, 8, &unit, form, value);
     }
 
@@ -3744,7 +3745,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_ref_sup4;
-        let value = AttributeValue::DebugInfoRefSup(DebugInfoOffset(67305985));
+        let value = AttributeValue::DebugInfoRefSup(DebugInfoOffset(0x0403_0201));
         test_parse_attribute(&buf, 4, &unit, form, value);
     }
 
@@ -3754,7 +3755,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_ref_sup8;
-        let value = AttributeValue::DebugInfoRefSup(DebugInfoOffset(578437695752307201));
+        let value = AttributeValue::DebugInfoRefSup(DebugInfoOffset(0x0807_0605_0403_0201));
         test_parse_attribute(&buf, 8, &unit, form, value);
     }
 
@@ -3778,7 +3779,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian);
         let form = constants::DW_FORM_ref_addr;
-        let value = AttributeValue::DebugInfoRef(DebugInfoOffset(67305985));
+        let value = AttributeValue::DebugInfoRef(DebugInfoOffset(0x0403_0201));
         test_parse_attribute(&buf, 4, &unit, form, value);
     }
 
@@ -3788,7 +3789,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
         let form = constants::DW_FORM_ref_addr;
-        let value = AttributeValue::DebugInfoRef(DebugInfoOffset(578437695752307201));
+        let value = AttributeValue::DebugInfoRef(DebugInfoOffset(0x0807_0605_0403_0201));
         test_parse_attribute(&buf, 8, &unit, form, value);
     }
 
@@ -3798,7 +3799,7 @@ mod tests {
         let mut unit = test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian);
         unit.version = 2;
         let form = constants::DW_FORM_ref_addr;
-        let value = AttributeValue::DebugInfoRef(DebugInfoOffset(0x04030201));
+        let value = AttributeValue::DebugInfoRef(DebugInfoOffset(0x0403_0201));
         test_parse_attribute(&buf, 4, &unit, form, value);
     }
 
@@ -3809,7 +3810,7 @@ mod tests {
         let mut unit = test_parse_attribute_unit(8, Format::Dwarf32, LittleEndian);
         unit.version = 2;
         let form = constants::DW_FORM_ref_addr;
-        let value = AttributeValue::DebugInfoRef(DebugInfoOffset(0x0807060504030201));
+        let value = AttributeValue::DebugInfoRef(DebugInfoOffset(0x0807_0605_0403_0201));
         test_parse_attribute(&buf, 8, &unit, form, value);
     }
 
@@ -3818,7 +3819,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian);
         let form = constants::DW_FORM_GNU_ref_alt;
-        let value = AttributeValue::DebugInfoRefSup(DebugInfoOffset(67305985));
+        let value = AttributeValue::DebugInfoRefSup(DebugInfoOffset(0x0403_0201));
         test_parse_attribute(&buf, 4, &unit, form, value);
     }
 
@@ -3828,7 +3829,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
         let form = constants::DW_FORM_GNU_ref_alt;
-        let value = AttributeValue::DebugInfoRefSup(DebugInfoOffset(578437695752307201));
+        let value = AttributeValue::DebugInfoRefSup(DebugInfoOffset(0x0807_0605_0403_0201));
         test_parse_attribute(&buf, 8, &unit, form, value);
     }
 
@@ -3837,7 +3838,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_ref_sig8;
-        let value = AttributeValue::DebugTypesRef(DebugTypeSignature(578437695752307201));
+        let value = AttributeValue::DebugTypesRef(DebugTypeSignature(0x0807_0605_0403_0201));
         test_parse_attribute(&buf, 8, &unit, form, value);
     }
 
@@ -3855,7 +3856,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian);
         let form = constants::DW_FORM_strp;
-        let value = AttributeValue::DebugStrRef(DebugStrOffset(67305985));
+        let value = AttributeValue::DebugStrRef(DebugStrOffset(0x0403_0201));
         test_parse_attribute(&buf, 4, &unit, form, value);
     }
 
@@ -3865,7 +3866,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
         let form = constants::DW_FORM_strp;
-        let value = AttributeValue::DebugStrRef(DebugStrOffset(578437695752307201));
+        let value = AttributeValue::DebugStrRef(DebugStrOffset(0x0807_0605_0403_0201));
         test_parse_attribute(&buf, 8, &unit, form, value);
     }
 
@@ -3874,7 +3875,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian);
         let form = constants::DW_FORM_strp_sup;
-        let value = AttributeValue::DebugStrRefSup(DebugStrOffset(67305985));
+        let value = AttributeValue::DebugStrRefSup(DebugStrOffset(0x0403_0201));
         test_parse_attribute(&buf, 4, &unit, form, value);
     }
 
@@ -3884,7 +3885,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
         let form = constants::DW_FORM_strp_sup;
-        let value = AttributeValue::DebugStrRefSup(DebugStrOffset(578437695752307201));
+        let value = AttributeValue::DebugStrRefSup(DebugStrOffset(0x0807_0605_0403_0201));
         test_parse_attribute(&buf, 8, &unit, form, value);
     }
 
@@ -3893,7 +3894,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit(4, Format::Dwarf32, LittleEndian);
         let form = constants::DW_FORM_GNU_strp_alt;
-        let value = AttributeValue::DebugStrRefSup(DebugStrOffset(67305985));
+        let value = AttributeValue::DebugStrRefSup(DebugStrOffset(0x0403_0201));
         test_parse_attribute(&buf, 4, &unit, form, value);
     }
 
@@ -3903,7 +3904,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
         let form = constants::DW_FORM_GNU_strp_alt;
-        let value = AttributeValue::DebugStrRefSup(DebugStrOffset(578437695752307201));
+        let value = AttributeValue::DebugStrRefSup(DebugStrOffset(0x0807_0605_0403_0201));
         test_parse_attribute(&buf, 8, &unit, form, value);
     }
 
@@ -3915,12 +3916,12 @@ mod tests {
             let mut writable = &mut buf[..];
             leb128::write::unsigned(&mut writable, constants::DW_FORM_udata.0)
                 .expect("should write udata")
-                + leb128::write::unsigned(&mut writable, 9999999).expect("should write value")
+                + leb128::write::unsigned(&mut writable, 9_999_999).expect("should write value")
         };
 
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_indirect;
-        let value = AttributeValue::Udata(9999999);
+        let value = AttributeValue::Udata(9_999_999);
         test_parse_attribute(&buf, bytes_written, &unit, form, value);
     }
 
@@ -3929,7 +3930,7 @@ mod tests {
         let unit = UnitHeader::new(
             7,
             4,
-            DebugAbbrevOffset(0x08070605),
+            DebugAbbrevOffset(0x0807_0605),
             4,
             Format::Dwarf32,
             EndianSlice::new(&[], LittleEndian),
@@ -4037,7 +4038,7 @@ mod tests {
         let unit = UnitHeader::new(
             7,
             4,
-            DebugAbbrevOffset(0x08070605),
+            DebugAbbrevOffset(0x0807_0605),
             4,
             Format::Dwarf32,
             EndianSlice::new(&[], LittleEndian),

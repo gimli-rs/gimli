@@ -39,6 +39,7 @@ struct ErrorWriter<W: Write + Send> {
 }
 
 impl<W: Write + Send> ErrorWriter<W> {
+    #[allow(clippy::needless_pass_by_value)]
     fn error(&self, s: String) {
         let mut lock = self.inner.lock().unwrap();
         writeln!(&mut lock.0, "DWARF error in {}: {}", self.path.display(), s).unwrap();
@@ -234,7 +235,7 @@ fn validate_info<W, R>(
 
         // Check intra-unit references
         for (from, to) in unit_refs {
-            if let Err(_) = ret.die_offsets.binary_search(&to) {
+            if ret.die_offsets.binary_search(&to).is_err() {
                 w.error(format!(
                     "Invalid intra-unit reference in unit {:#x} from DIE {:#x} to {:#x}",
                     unit.offset().0,
@@ -269,7 +270,7 @@ fn validate_info<W, R>(
                 continue;
             }
             let to_offset = gimli::UnitOffset(to.0 - u.offset.0);
-            if let Err(_) = u.die_offsets.binary_search(&to_offset) {
+            if u.die_offsets.binary_search(&to_offset).is_err() {
                 w.error(format!("Invalid cross-unit reference in unit {:#x} from DIE {:#x} to global DIE {:#x}: unit at {:#x} contains no DIE {:#x}",
                                 summary.offset.0, from.0, to.0, u.offset.0, to_offset.0));
             }
