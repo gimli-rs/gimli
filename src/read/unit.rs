@@ -4348,12 +4348,10 @@ mod tests {
         assert_next_entry_null(&mut cursor);
         assert_next_entry_null(&mut cursor);
 
-        assert!(
-            cursor
-                .next_entry()
-                .expect("Should parse next entry")
-                .is_none()
-        );
+        assert!(cursor
+            .next_entry()
+            .expect("Should parse next entry")
+            .is_none());
         assert!(cursor.current().is_none());
     }
 
@@ -4426,12 +4424,10 @@ mod tests {
 
         // There should be no more siblings.
 
-        assert!(
-            cursor
-                .next_sibling()
-                .expect("Should parse next sibling")
-                .is_none()
-        );
+        assert!(cursor
+            .next_sibling()
+            .expect("Should parse next sibling")
+            .is_none());
         assert!(cursor.current().is_none());
     }
 
@@ -4466,30 +4462,22 @@ mod tests {
         assert_next_sibling(&mut cursor, "004");
         assert_next_dfs(&mut cursor, "005", 1);
         assert_next_sibling(&mut cursor, "006");
-        assert!(
-            cursor
-                .next_sibling()
-                .expect("Should parse next sibling")
-                .is_none()
-        );
-        assert!(
-            cursor
-                .next_sibling()
-                .expect("Should parse next sibling")
-                .is_none()
-        );
-        assert!(
-            cursor
-                .next_sibling()
-                .expect("Should parse next sibling")
-                .is_none()
-        );
-        assert!(
-            cursor
-                .next_sibling()
-                .expect("Should parse next sibling")
-                .is_none()
-        );
+        assert!(cursor
+            .next_sibling()
+            .expect("Should parse next sibling")
+            .is_none());
+        assert!(cursor
+            .next_sibling()
+            .expect("Should parse next sibling")
+            .is_none());
+        assert!(cursor
+            .next_sibling()
+            .expect("Should parse next sibling")
+            .is_none());
+        assert!(cursor
+            .next_sibling()
+            .expect("Should parse next sibling")
+            .is_none());
 
         // And we should be able to continue with the children of the root entry.
 
@@ -4498,12 +4486,10 @@ mod tests {
 
         // There should be no more siblings.
 
-        assert!(
-            cursor
-                .next_sibling()
-                .expect("Should parse next sibling")
-                .is_none()
-        );
+        assert!(cursor
+            .next_sibling()
+            .expect("Should parse next sibling")
+            .is_none());
         assert!(cursor.current().is_none());
     }
 
@@ -4588,12 +4574,10 @@ mod tests {
 
         // There should be no more siblings.
 
-        assert!(
-            cursor
-                .next_sibling()
-                .expect("Should parse next sibling")
-                .is_none()
-        );
+        assert!(cursor
+            .next_sibling()
+            .expect("Should parse next sibling")
+            .is_none());
         assert!(cursor.current().is_none());
     }
 

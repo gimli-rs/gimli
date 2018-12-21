@@ -314,8 +314,9 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         cb: F,
     ) -> Result<FrameDescriptionEntry<EhFrame<R>, R, R::Offset>>
     where
-        F: FnMut(EhFrameOffset<R::Offset>)
-            -> Result<CommonInformationEntry<EhFrame<R>, R, R::Offset>>,
+        F: FnMut(
+            EhFrameOffset<R::Offset>,
+        ) -> Result<CommonInformationEntry<EhFrame<R>, R, R::Offset>>,
     {
         let fdeptr = self.lookup(address, bases)?;
         let fdeptr = match fdeptr {
@@ -610,11 +611,13 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
                 Ok(Some(CieOrFde::Fde(partial))) => {
                     match partial.parse(|offset| self.cie_from_offset(bases, offset)) {
                         Err(e) => break Err(e),
-                        Ok(fde) => if fde.contains(address) {
-                            break Ok(Some(fde));
-                        } else {
-                            continue;
-                        },
+                        Ok(fde) => {
+                            if fde.contains(address) {
+                                break Ok(Some(fde));
+                            } else {
+                                continue;
+                            }
+                        }
                     }
                 }
             }
@@ -2238,9 +2241,11 @@ where
                     return Ok(Some(row));
                 }
 
-                Ok(Some(instruction)) => if self.evaluate(instruction)? {
-                    return Ok(Some(self.ctx.row()));
-                },
+                Ok(Some(instruction)) => {
+                    if self.evaluate(instruction)? {
+                        return Ok(Some(self.ctx.row()));
+                    }
+                }
             };
         }
     }
@@ -2285,34 +2290,40 @@ where
                     offset: factored_offset * data_align,
                 });
             }
-            DefCfaRegister { register } => if let CfaRule::RegisterAndOffset {
-                register: ref mut reg,
-                ..
-            } = *self.ctx.cfa_mut()
-            {
-                *reg = register;
-            } else {
-                return Err(Error::CfiInstructionInInvalidContext);
-            },
-            DefCfaOffset { offset } => if let CfaRule::RegisterAndOffset {
-                offset: ref mut off,
-                ..
-            } = *self.ctx.cfa_mut()
-            {
-                *off = offset as i64;
-            } else {
-                return Err(Error::CfiInstructionInInvalidContext);
-            },
-            DefCfaOffsetSf { factored_offset } => if let CfaRule::RegisterAndOffset {
-                offset: ref mut off,
-                ..
-            } = *self.ctx.cfa_mut()
-            {
-                let data_align = self.cie.data_alignment_factor();
-                *off = factored_offset * data_align;
-            } else {
-                return Err(Error::CfiInstructionInInvalidContext);
-            },
+            DefCfaRegister { register } => {
+                if let CfaRule::RegisterAndOffset {
+                    register: ref mut reg,
+                    ..
+                } = *self.ctx.cfa_mut()
+                {
+                    *reg = register;
+                } else {
+                    return Err(Error::CfiInstructionInInvalidContext);
+                }
+            }
+            DefCfaOffset { offset } => {
+                if let CfaRule::RegisterAndOffset {
+                    offset: ref mut off,
+                    ..
+                } = *self.ctx.cfa_mut()
+                {
+                    *off = offset as i64;
+                } else {
+                    return Err(Error::CfiInstructionInInvalidContext);
+                }
+            }
+            DefCfaOffsetSf { factored_offset } => {
+                if let CfaRule::RegisterAndOffset {
+                    offset: ref mut off,
+                    ..
+                } = *self.ctx.cfa_mut()
+                {
+                    let data_align = self.cie.data_alignment_factor();
+                    *off = factored_offset * data_align;
+                } else {
+                    return Err(Error::CfiInstructionInInvalidContext);
+                }
+            }
             DefCfaExpression { expression } => {
                 self.ctx.set_cfa(CfaRule::Expression(expression));
             }
@@ -2460,7 +2471,8 @@ impl<R: Reader> RegisterRuleMap<R> {
             .map(|r| {
                 debug_assert!(r.1.is_defined());
                 r.1.clone()
-            }).unwrap_or(RegisterRule::Undefined)
+            })
+            .unwrap_or(RegisterRule::Undefined)
     }
 
     fn set(&mut self, register: Register, rule: RegisterRule<R>) -> Result<()> {
@@ -5043,7 +5055,8 @@ mod tests {
             .set_register_rule(
                 Register(2),
                 RegisterRule::Offset(3 * cie.data_alignment_factor),
-            ).unwrap();
+            )
+            .unwrap();
         let instructions = [(
             Ok(false),
             CallFrameInstruction::Offset {
@@ -5063,7 +5076,8 @@ mod tests {
             .set_register_rule(
                 Register(4),
                 RegisterRule::Offset(-3 * cie.data_alignment_factor),
-            ).unwrap();
+            )
+            .unwrap();
         let instructions = [(
             Ok(false),
             CallFrameInstruction::OffsetExtendedSf {
@@ -5083,7 +5097,8 @@ mod tests {
             .set_register_rule(
                 Register(5),
                 RegisterRule::ValOffset(7 * cie.data_alignment_factor),
-            ).unwrap();
+            )
+            .unwrap();
         let instructions = [(
             Ok(false),
             CallFrameInstruction::ValOffset {
@@ -5103,7 +5118,8 @@ mod tests {
             .set_register_rule(
                 Register(5),
                 RegisterRule::ValOffset(-7 * cie.data_alignment_factor),
-            ).unwrap();
+            )
+            .unwrap();
         let instructions = [(
             Ok(false),
             CallFrameInstruction::ValOffsetSf {
@@ -5124,7 +5140,8 @@ mod tests {
             .set_register_rule(
                 Register(9),
                 RegisterRule::Expression(Expression(EndianSlice::new(&expr, LittleEndian))),
-            ).unwrap();
+            )
+            .unwrap();
         let instructions = [(
             Ok(false),
             CallFrameInstruction::Expression {
@@ -5145,7 +5162,8 @@ mod tests {
             .set_register_rule(
                 Register(9),
                 RegisterRule::ValExpression(Expression(EndianSlice::new(&expr, LittleEndian))),
-            ).unwrap();
+            )
+            .unwrap();
         let instructions = [(
             Ok(false),
             CallFrameInstruction::ValExpression {
@@ -5328,8 +5346,8 @@ mod tests {
             (Register(0), RegisterRule::Offset(8)),
             (Register(3), RegisterRule::Offset(4)),
         ]
-            .into_iter()
-            .collect();
+        .into_iter()
+        .collect();
         assert_eq!(ctx.0.initial_rules, expected_initial_rules);
 
         let mut table = UnwindTable::new(&mut ctx, &fde);
@@ -5348,8 +5366,8 @@ mod tests {
                     (Register(0), RegisterRule::Offset(8)),
                     (Register(3), RegisterRule::Offset(4)),
                 ]
-                    .into_iter()
-                    .collect(),
+                .into_iter()
+                .collect(),
             };
             assert_eq!(Some(&expected), row);
         }
@@ -5368,8 +5386,8 @@ mod tests {
                     (Register(0), RegisterRule::Offset(-16)),
                     (Register(3), RegisterRule::Offset(4)),
                 ]
-                    .into_iter()
-                    .collect(),
+                .into_iter()
+                .collect(),
             };
             assert_eq!(Some(&expected), row);
         }
@@ -5388,8 +5406,8 @@ mod tests {
                     (Register(0), RegisterRule::Offset(-16)),
                     (Register(3), RegisterRule::Offset(-4)),
                 ]
-                    .into_iter()
-                    .collect(),
+                .into_iter()
+                .collect(),
             };
             assert_eq!(Some(&expected), row);
         }
@@ -5409,8 +5427,8 @@ mod tests {
                     (Register(3), RegisterRule::Offset(-4)),
                     (Register(5), RegisterRule::Offset(4)),
                 ]
-                    .into_iter()
-                    .collect(),
+                .into_iter()
+                .collect(),
             };
             assert_eq!(Some(&expected), row);
         }
@@ -5768,7 +5786,8 @@ mod tests {
                 Endian::Little,
                 (&start_of_fde1 - &start_of_cie + 4) as u64,
                 &mut fde1,
-            ).mark(&start_of_fde2)
+            )
+            .mark(&start_of_fde2)
             .fde(
                 Endian::Little,
                 (&start_of_fde2 - &start_of_cie + 4) as u64,
@@ -6371,14 +6390,14 @@ mod tests {
             (Register(0), RegisterRule::SameValue),
             (Register(3), RegisterRule::Offset(1)),
         ]
-            .iter()
-            .collect();
+        .iter()
+        .collect();
         let map2: RegisterRuleMap<EndianSlice<LittleEndian>> = [
             (Register(3), RegisterRule::Offset(1)),
             (Register(0), RegisterRule::SameValue),
         ]
-            .iter()
-            .collect();
+        .iter()
+        .collect();
         assert_eq!(map1, map2);
         assert_eq!(map2, map1);
 
@@ -6387,14 +6406,14 @@ mod tests {
             (Register(0), RegisterRule::SameValue),
             (Register(2), RegisterRule::Offset(1)),
         ]
-            .iter()
-            .collect();
+        .iter()
+        .collect();
         let map4: RegisterRuleMap<EndianSlice<LittleEndian>> = [
             (Register(3), RegisterRule::Offset(1)),
             (Register(0), RegisterRule::SameValue),
         ]
-            .iter()
-            .collect();
+        .iter()
+        .collect();
         assert!(map3 != map4);
         assert!(map4 != map3);
 
@@ -6415,8 +6434,8 @@ mod tests {
             (Register(1), RegisterRule::Offset(1)),
             (Register(2), RegisterRule::ValOffset(2)),
         ]
-            .iter()
-            .collect();
+        .iter()
+        .collect();
 
         let mut found0 = false;
         let mut found1 = false;

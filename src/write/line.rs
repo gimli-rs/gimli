@@ -911,38 +911,40 @@ mod convert {
                     read::Opcode::DefineFile(_) => {
                         return Err(ConvertError::UnsupportedLineInstruction);
                     }
-                    _ => if from_row.execute(opcode, &mut from_program) {
-                        if !program.in_sequence() {
-                            program.begin_sequence(address);
-                            address = None;
+                    _ => {
+                        if from_row.execute(opcode, &mut from_program) {
+                            if !program.in_sequence() {
+                                program.begin_sequence(address);
+                                address = None;
+                            }
+                            if from_row.end_sequence() {
+                                program.end_sequence(from_row.address());
+                            } else {
+                                program.row().address_offset = from_row.address();
+                                program.row().op_index = from_row.op_index();
+                                program.row().file = {
+                                    let file = from_row.file_index();
+                                    if file >= files.len() as u64 {
+                                        return Err(ConvertError::InvalidFileIndex);
+                                    }
+                                    files[file as usize]
+                                };
+                                program.row().line = from_row.line().unwrap_or(0);
+                                program.row().column = match from_row.column() {
+                                    read::ColumnType::LeftEdge => 0,
+                                    read::ColumnType::Column(val) => val,
+                                };
+                                program.row().discriminator = from_row.discriminator();
+                                program.row().is_statement = from_row.is_stmt();
+                                program.row().basic_block = from_row.basic_block();
+                                program.row().prologue_end = from_row.prologue_end();
+                                program.row().epilogue_begin = from_row.epilogue_begin();
+                                program.row().isa = from_row.isa();
+                                program.generate_row();
+                            }
+                            from_row.reset(&from_program);
                         }
-                        if from_row.end_sequence() {
-                            program.end_sequence(from_row.address());
-                        } else {
-                            program.row().address_offset = from_row.address();
-                            program.row().op_index = from_row.op_index();
-                            program.row().file = {
-                                let file = from_row.file_index();
-                                if file >= files.len() as u64 {
-                                    return Err(ConvertError::InvalidFileIndex);
-                                }
-                                files[file as usize]
-                            };
-                            program.row().line = from_row.line().unwrap_or(0);
-                            program.row().column = match from_row.column() {
-                                read::ColumnType::LeftEdge => 0,
-                                read::ColumnType::Column(val) => val,
-                            };
-                            program.row().discriminator = from_row.discriminator();
-                            program.row().is_statement = from_row.is_stmt();
-                            program.row().basic_block = from_row.basic_block();
-                            program.row().prologue_end = from_row.prologue_end();
-                            program.row().epilogue_begin = from_row.epilogue_begin();
-                            program.row().isa = from_row.isa();
-                            program.generate_row();
-                        }
-                        from_row.reset(&from_program);
-                    },
+                    }
                 };
             }
             Ok((program, files))
@@ -1012,14 +1014,16 @@ mod tests {
                 8,
                 Some(read::EndianSlice::new(dir1, LittleEndian)),
                 Some(read::EndianSlice::new(file1, LittleEndian)),
-            ).unwrap();
+            )
+            .unwrap();
         let read_program2 = read_debug_line
             .program(
                 debug_line_offsets.get(program_id2),
                 4,
                 Some(read::EndianSlice::new(dir2, LittleEndian)),
                 Some(read::EndianSlice::new(file2, LittleEndian)),
-            ).unwrap();
+            )
+            .unwrap();
 
         let convert_address = &|address| Some(Address::Absolute(address));
         for (program_id, read_program) in
@@ -1307,7 +1311,8 @@ mod tests {
                                 address_size,
                                 Some(read::EndianSlice::new(dir1, LittleEndian)),
                                 Some(read::EndianSlice::new(file1, LittleEndian)),
-                            ).unwrap();
+                            )
+                            .unwrap();
 
                         let (convert_program, _convert_files) =
                             LineProgram::from(read_program, convert_address).unwrap();
@@ -1410,7 +1415,8 @@ mod tests {
                                 address_size,
                                 Some(read::EndianSlice::new(dir1, LittleEndian)),
                                 Some(read::EndianSlice::new(file1, LittleEndian)),
-                            ).unwrap();
+                            )
+                            .unwrap();
                         let read_header = read_program.header();
                         let mut read_insts = read_header.opcodes();
                         assert_eq!(
@@ -1480,7 +1486,8 @@ mod tests {
                                 8,
                                 Some(read::EndianSlice::new(dir1, LittleEndian)),
                                 Some(read::EndianSlice::new(file1, LittleEndian)),
-                            ).unwrap();
+                            )
+                            .unwrap();
 
                         let mut rows = read_program.rows();
                         for address_advance in addresses.clone() {

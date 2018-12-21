@@ -139,7 +139,8 @@ impl<Endian, T> Eq for EndianReader<Endian, T>
 where
     Endian: Endianity,
     T: CloneStableDeref<Target = [u8]> + Debug,
-{}
+{
+}
 
 // This is separated out from `EndianReader` so that we can avoid running afoul
 // of borrowck. We need to `read_slice(&mut self, ...) -> &[u8]` and then call

@@ -1093,7 +1093,8 @@ fn dump_entries<R: Reader, W: Write>(
                         unit.address_size,
                         unit.comp_dir.clone(),
                         unit.comp_name.clone(),
-                    ).ok(),
+                    )
+                    .ok(),
                 _ => None,
             }
         }
@@ -1162,11 +1163,13 @@ fn dump_attr_value<R: Reader, W: Write>(
                 gimli::DW_AT_data_member_location => {
                     writeln!(w, "{}", data)?;
                 }
-                _ => if data >= 0 {
-                    writeln!(w, "0x{:08x}", data)?;
-                } else {
-                    writeln!(w, "0x{:08x} ({})", data, data)?;
-                },
+                _ => {
+                    if data >= 0 {
+                        writeln!(w, "0x{:08x}", data)?;
+                    } else {
+                        writeln!(w, "0x{:08x} ({})", data, data)?;
+                    }
+                }
             };
         }
         gimli::AttributeValue::Udata(data) => {
@@ -1242,11 +1245,13 @@ fn dump_attr_value<R: Reader, W: Write>(
             dump_type_signature(w, signature, unit.endian)?;
             writeln!(w, " <type signature>")?;
         }
-        gimli::AttributeValue::DebugStrRef(offset) => if let Ok(s) = debug_str.get_str(offset) {
-            writeln!(w, "{}", s.to_string_lossy()?)?;
-        } else {
-            writeln!(w, "<GOFF=0x{:08x}>", offset.0)?;
-        },
+        gimli::AttributeValue::DebugStrRef(offset) => {
+            if let Ok(s) = debug_str.get_str(offset) {
+                writeln!(w, "{}", s.to_string_lossy()?)?;
+            } else {
+                writeln!(w, "<GOFF=0x{:08x}>", offset.0)?;
+            }
+        }
         gimli::AttributeValue::DebugStrRefSup(offset) => {
             writeln!(w, "<SUP_GOFF=0x{:08x}>", offset.0)?;
         }
@@ -1397,9 +1402,11 @@ fn dump_op<R: Reader, W: Write>(
                 write!(w, " type 0x{:08x}", base_type.0)?;
             }
         }
-        gimli::Operation::Pick { index } => if dwop == gimli::DW_OP_pick {
-            write!(w, " {}", index)?;
-        },
+        gimli::Operation::Pick { index } => {
+            if dwop == gimli::DW_OP_pick {
+                write!(w, " {}", index)?;
+            }
+        }
         gimli::Operation::PlusConstant { value } => {
             write!(w, " {}", value as i64)?;
         }

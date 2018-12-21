@@ -255,13 +255,15 @@ fn validate_info<W, R>(
         for &(from, to) in summary.global_die_references.iter() {
             let u = match processed_units.binary_search_by_key(&to, |v| v.offset) {
                 Ok(i) => &processed_units[i],
-                Err(i) => if i > 0 {
-                    &processed_units[i - 1]
-                } else {
-                    w.error(format!("Invalid cross-unit reference in unit {:#x} from DIE {:#x} to global DIE {:#x}: no unit found",
+                Err(i) => {
+                    if i > 0 {
+                        &processed_units[i - 1]
+                    } else {
+                        w.error(format!("Invalid cross-unit reference in unit {:#x} from DIE {:#x} to global DIE {:#x}: no unit found",
                                         summary.offset.0, from.0, to.0));
-                    continue;
-                },
+                        continue;
+                    }
+                }
             };
             if !u.internally_valid {
                 continue;

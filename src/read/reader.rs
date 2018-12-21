@@ -423,6 +423,7 @@ pub trait Reader: Debug + Clone {
             4 => self.read_u32().map(u64::from),
             8 => self.read_u64(),
             otherwise => Err(Error::UnsupportedOffsetSize(otherwise)),
-        }.and_then(Self::Offset::from_u64)
+        }
+        .and_then(Self::Offset::from_u64)
     }
 }

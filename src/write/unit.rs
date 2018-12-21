@@ -1457,7 +1457,8 @@ mod tests {
                 &mut debug_info,
                 &debug_line_offsets,
                 &debug_str_offsets,
-            ).unwrap();
+            )
+            .unwrap();
 
         println!("{:?}", debug_str);
         println!("{:?}", debug_info);
@@ -1601,7 +1602,8 @@ mod tests {
             &mut convert_line_programs,
             &mut convert_strings,
             &|address| Some(Address::Absolute(address)),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(convert_units.count(), units.count());
 
         for unit_id in 0..convert_units.count() {
@@ -1829,7 +1831,8 @@ mod tests {
                             &debug_str_offsets,
                             &mut unit_refs,
                             &mut debug_info_refs,
-                        ).unwrap();
+                        )
+                        .unwrap();
 
                         let spec = read::AttributeSpecification::new(*name, form, None);
                         let mut r = read::EndianSlice::new(debug_info.slice(), LittleEndian);
@@ -1928,7 +1931,8 @@ mod tests {
                 &mut debug_info,
                 &debug_line_offsets,
                 &debug_str_offsets,
-            ).unwrap();
+            )
+            .unwrap();
 
         println!("{:?}", debug_info);
         println!("{:?}", debug_abbrev);
@@ -2007,7 +2011,8 @@ mod tests {
             &mut convert_line_programs,
             &mut convert_strings,
             &|address| Some(Address::Absolute(address)),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(convert_units.count(), units.count());
 
         for unit_id in 0..convert_units.count() {
@@ -2118,7 +2123,8 @@ mod tests {
                 &mut debug_info,
                 &debug_line_offsets,
                 &debug_str_offsets,
-            ).unwrap();
+            )
+            .unwrap();
 
         println!("{:?}", debug_info);
         println!("{:?}", debug_abbrev);
@@ -2174,11 +2180,13 @@ mod tests {
                             address_size,
                             Some(read::EndianSlice::new(b"comp_dir", LittleEndian)),
                             Some(read::EndianSlice::new(b"comp_name", LittleEndian)),
-                        ).unwrap();
+                        )
+                        .unwrap();
                     let (_, line_program_files) =
                         LineProgram::from(read_line_program, &|address| {
                             Some(Address::Absolute(address))
-                        }).unwrap();
+                        })
+                        .unwrap();
 
                     // Fake the unit.
                     let mut units = UnitTable::default();
@@ -2229,7 +2237,8 @@ mod tests {
                             &debug_str_offsets,
                             &mut unit_refs,
                             &mut debug_info_refs,
-                        ).unwrap();
+                        )
+                        .unwrap();
 
                         let spec = read::AttributeSpecification::new(*name, form, None);
                         let mut r = read::EndianSlice::new(debug_info.slice(), LittleEndian);

@@ -486,28 +486,34 @@ pub(crate) fn parse_encoded_pointer<'bases, R: Reader>(
             let addr = parse_data(encoding, address_size, input)?;
             Ok(Pointer::new(encoding, addr))
         }
-        constants::DW_EH_PE_pcrel => if let Some(section_base) = bases.section {
-            let offset_from_section = input.offset_from(section);
-            let offset = parse_data(encoding, address_size, input)?;
-            let p = section_base
-                .wrapping_add(offset_from_section.into_u64())
-                .wrapping_add(offset);
-            Ok(Pointer::new(encoding, p))
-        } else {
-            Err(Error::PcRelativePointerButSectionBaseIsUndefined)
-        },
-        constants::DW_EH_PE_textrel => if let Some(text) = bases.text {
-            let offset = parse_data(encoding, address_size, input)?;
-            Ok(Pointer::new(encoding, text.wrapping_add(offset)))
-        } else {
-            Err(Error::TextRelativePointerButTextBaseIsUndefined)
-        },
-        constants::DW_EH_PE_datarel => if let Some(data) = bases.data {
-            let offset = parse_data(encoding, address_size, input)?;
-            Ok(Pointer::new(encoding, data.wrapping_add(offset)))
-        } else {
-            Err(Error::DataRelativePointerButDataBaseIsUndefined)
-        },
+        constants::DW_EH_PE_pcrel => {
+            if let Some(section_base) = bases.section {
+                let offset_from_section = input.offset_from(section);
+                let offset = parse_data(encoding, address_size, input)?;
+                let p = section_base
+                    .wrapping_add(offset_from_section.into_u64())
+                    .wrapping_add(offset);
+                Ok(Pointer::new(encoding, p))
+            } else {
+                Err(Error::PcRelativePointerButSectionBaseIsUndefined)
+            }
+        }
+        constants::DW_EH_PE_textrel => {
+            if let Some(text) = bases.text {
+                let offset = parse_data(encoding, address_size, input)?;
+                Ok(Pointer::new(encoding, text.wrapping_add(offset)))
+            } else {
+                Err(Error::TextRelativePointerButTextBaseIsUndefined)
+            }
+        }
+        constants::DW_EH_PE_datarel => {
+            if let Some(data) = bases.data {
+                let offset = parse_data(encoding, address_size, input)?;
+                Ok(Pointer::new(encoding, data.wrapping_add(offset)))
+            } else {
+                Err(Error::DataRelativePointerButDataBaseIsUndefined)
+            }
+        }
         constants::DW_EH_PE_funcrel => {
             let func = bases.func.borrow();
             if let Some(func) = *func {

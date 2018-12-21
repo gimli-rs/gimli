@@ -51,7 +51,8 @@ fn test_convert_debug_info() {
         &mut line_programs,
         &mut strings,
         &|address| Some(Address::Absolute(address)),
-    ).expect("Should convert compilation units");
+    )
+    .expect("Should convert compilation units");
     assert_eq!(units.count(), 23);
     let entries = (0..units.count())
         .map(|id| units.get(write::UnitId(id)).count())
@@ -84,7 +85,8 @@ fn test_convert_debug_info() {
             &mut write_debug_info,
             &debug_line_offsets,
             &debug_str_offsets,
-        ).expect("Should write units");
+        )
+        .expect("Should write units");
     let debug_info_data = write_debug_info.slice();
     let debug_abbrev_data = write_debug_abbrev.slice();
     assert_eq!(debug_info_data.len(), 394930);
@@ -106,7 +108,8 @@ fn test_convert_debug_info() {
         &mut line_programs,
         &mut strings,
         &|address| Some(Address::Absolute(address)),
-    ).expect("Should convert compilation units");
+    )
+    .expect("Should convert compilation units");
     assert_eq!(units.count(), 23);
     let entries = (0..units.count())
         .map(|id| units.get(write::UnitId(id)).count())
