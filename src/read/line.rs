@@ -133,14 +133,17 @@ where
     }
 }
 
-/// Executes a `LineProgram` to recreate the matrix mapping to and from
-/// instructions to source locations.
+/// Deprecated. `StateMachine` has been renamed to `LineRows`.
+#[deprecated(note = "StateMachine has been renamed to LineRows, use that instead.")]
+pub type StateMachine<R, Program, Offset> = LineRows<R, Program, Offset>;
+
+/// Executes a `LineProgram` to iterate over the rows in the matrix of line number information.
 ///
 /// "The hypothetical machine used by a consumer of the line number information
 /// to expand the byte-coded instruction stream into a matrix of line number
 /// information." -- Section 6.2.1
 #[derive(Debug, Clone)]
-pub struct StateMachine<R, Program, Offset = usize>
+pub struct LineRows<R, Program, Offset = usize>
 where
     Program: LineProgram<R, Offset>,
     R: Reader<Offset = Offset>,
@@ -151,25 +154,24 @@ where
     opcodes: OpcodesIter<R>,
 }
 
-type OneShotStateMachine<R, Offset = usize> =
-    StateMachine<R, IncompleteLineProgram<R, Offset>, Offset>;
+type OneShotLineRows<R, Offset = usize> = LineRows<R, IncompleteLineProgram<R, Offset>, Offset>;
 
-type ResumedStateMachine<'program, R, Offset = usize> =
-    StateMachine<R, &'program CompleteLineProgram<R, Offset>, Offset>;
+type ResumedLineRows<'program, R, Offset = usize> =
+    LineRows<R, &'program CompleteLineProgram<R, Offset>, Offset>;
 
-impl<R, Program, Offset> StateMachine<R, Program, Offset>
+impl<R, Program, Offset> LineRows<R, Program, Offset>
 where
     Program: LineProgram<R, Offset>,
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
     #[allow(clippy::new_ret_no_self)]
-    fn new(program: IncompleteLineProgram<R, Offset>) -> OneShotStateMachine<R, Offset> {
+    fn new(program: IncompleteLineProgram<R, Offset>) -> OneShotLineRows<R, Offset> {
         let row = LineRow::new(&program);
         let opcodes = OpcodesIter {
             input: program.header().program_buf.clone(),
         };
-        StateMachine {
+        LineRows {
             program,
             row,
             opcodes,
@@ -179,10 +181,10 @@ where
     fn resume<'program>(
         program: &'program CompleteLineProgram<R, Offset>,
         sequence: &LineSequence<R>,
-    ) -> ResumedStateMachine<'program, R, Offset> {
+    ) -> ResumedLineRows<'program, R, Offset> {
         let row = LineRow::new(&program);
         let opcodes = sequence.opcodes.clone();
-        StateMachine {
+        LineRows {
             program,
             row,
             opcodes,
@@ -1359,10 +1361,10 @@ where
         &self.header
     }
 
-    /// Construct a new `StateMachine` for executing line programs and
-    /// generating the line information matrix.
-    pub fn rows(self) -> OneShotStateMachine<R, Offset> {
-        OneShotStateMachine::new(self)
+    /// Construct a new `LineRows` for executing this program to iterate
+    /// over rows in the line information matrix.
+    pub fn rows(self) -> OneShotLineRows<R, Offset> {
+        OneShotLineRows::new(self)
     }
 
     /// Execute the line number program, completing the `IncompleteLineProgram`
@@ -1388,16 +1390,16 @@ where
     #[allow(clippy::type_complexity)]
     pub fn sequences(self) -> Result<(CompleteLineProgram<R, Offset>, Vec<LineSequence<R>>)> {
         let mut sequences = Vec::new();
-        let mut state_machine = self.rows();
-        let mut opcodes = state_machine.opcodes.clone();
+        let mut rows = self.rows();
+        let mut opcodes = rows.opcodes.clone();
         let mut sequence_start_addr = None;
         loop {
             let sequence_end_addr;
-            if state_machine.next_row()?.is_none() {
+            if rows.next_row()?.is_none() {
                 break;
             }
 
-            let row = &state_machine.row;
+            let row = &rows.row;
             if row.end_sequence() {
                 sequence_end_addr = row.address();
             } else if sequence_start_addr.is_none() {
@@ -1413,14 +1415,14 @@ where
                 // in a row.
                 start: sequence_start_addr.unwrap_or(0),
                 end: sequence_end_addr,
-                opcodes: opcodes.remove_trailing(&state_machine.opcodes)?,
+                opcodes: opcodes.remove_trailing(&rows.opcodes)?,
             });
             sequence_start_addr = None;
-            opcodes = state_machine.opcodes.clone();
+            opcodes = rows.opcodes.clone();
         }
 
         let program = CompleteLineProgram {
-            header: state_machine.program.header,
+            header: rows.program.header,
         };
         Ok((program, sequences))
     }
@@ -1452,7 +1454,7 @@ where
         &self.header
     }
 
-    /// Construct a new `StateMachine` for executing the subset of the line
+    /// Construct a new `LineRows` for executing the subset of the line
     /// number program identified by 'sequence' and  generating the line information
     /// matrix.
     ///
@@ -1476,8 +1478,8 @@ where
     pub fn resume_from<'program>(
         &'program self,
         sequence: &LineSequence<R>,
-    ) -> ResumedStateMachine<'program, R, Offset> {
-        ResumedStateMachine::resume(self, sequence)
+    ) -> ResumedLineRows<'program, R, Offset> {
+        ResumedLineRows::resume(self, sequence)
     }
 }
 
@@ -2477,14 +2479,14 @@ mod tests {
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }
 
-    /// Ensure that `StateMachine<R,P>` is covariant wrt R.
+    /// Ensure that `LineRows<R,P>` is covariant wrt R.
     /// This only needs to compile.
     #[allow(dead_code, unreachable_code, unused_variables)]
-    fn test_statemachine_variance<'a, 'b>(_: &'a [u8], _: &'b [u8])
+    fn test_line_rows_variance<'a, 'b>(_: &'a [u8], _: &'b [u8])
     where
         'a: 'b,
     {
-        let a: &OneShotStateMachine<EndianSlice<'a, LittleEndian>> = unimplemented!();
-        let _: &OneShotStateMachine<EndianSlice<'b, LittleEndian>> = a;
+        let a: &OneShotLineRows<EndianSlice<'a, LittleEndian>> = unimplemented!();
+        let _: &OneShotLineRows<EndianSlice<'b, LittleEndian>> = a;
     }
 }
