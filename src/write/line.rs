@@ -820,7 +820,7 @@ mod convert {
         ///
         /// Return the program and a mapping from file index to `FileId`.
         pub fn from<R: Reader<Offset = usize>>(
-            mut from_program: read::IncompleteLineNumberProgram<R, R::Offset>,
+            mut from_program: read::IncompleteLineProgram<R, R::Offset>,
             convert_address: &Fn(u64) -> Option<Address>,
         ) -> ConvertResult<(LineProgram, Vec<FileId>)> {
             // Create mappings in case the source has duplicate files or directories.
@@ -895,7 +895,7 @@ mod convert {
 
             // We can't use the `from_program.rows()` because that wouldn't let
             // us preserve address relocations.
-            let mut from_row = read::LineNumberRow::new(&from_program);
+            let mut from_row = read::LineRow::new(&from_program);
             let mut opcodes = from_program.header().opcodes();
             let mut address = None;
             while let Some(opcode) = opcodes.next_opcode(from_program.header())? {

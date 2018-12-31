@@ -980,7 +980,7 @@ struct Unit<R: Reader> {
     address_size: u8,
     version: u16,
     base_address: u64,
-    line_program: Option<gimli::IncompleteLineNumberProgram<R>>,
+    line_program: Option<gimli::IncompleteLineProgram<R>>,
     comp_dir: Option<R>,
     comp_name: Option<R>,
     str_offsets_base: gimli::DebugStrOffsetsBase,
