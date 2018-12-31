@@ -895,7 +895,7 @@ mod convert {
 
             // We can't use the `from_program.rows()` because that wouldn't let
             // us preserve address relocations.
-            let mut from_row = read::LineRow::new(&from_program);
+            let mut from_row = read::LineRow::new(from_program.header());
             let mut opcodes = from_program.header().opcodes();
             let mut address = None;
             while let Some(opcode) = opcodes.next_opcode(from_program.header())? {
@@ -944,7 +944,7 @@ mod convert {
                                 program.row().isa = from_row.isa();
                                 program.generate_row();
                             }
-                            from_row.reset(&from_program);
+                            from_row.reset(from_program.header());
                         }
                     }
                 };
