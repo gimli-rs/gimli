@@ -6452,21 +6452,23 @@ mod tests {
     #[cfg(target_pointer_width = "64")]
     fn size_of_unwind_ctx() {
         use std::mem;
-        assert_eq!(
-            mem::size_of::<
-                UnwindContext<EhFrame<EndianSlice<NativeEndian>>, EndianSlice<NativeEndian>>,
-            >(),
-            5416
-        );
+        let size = mem::size_of::<
+            UnwindContext<EhFrame<EndianSlice<NativeEndian>>, EndianSlice<NativeEndian>>,
+        >();
+        let max_size = 5416;
+        if size > max_size {
+            assert_eq!(size, max_size);
+        }
     }
 
     #[test]
     #[cfg(target_pointer_width = "64")]
     fn size_of_register_rule_map() {
         use std::mem;
-        assert_eq!(
-            mem::size_of::<RegisterRuleMap<EndianSlice<NativeEndian>>>(),
-            1040
-        );
+        let size = mem::size_of::<RegisterRuleMap<EndianSlice<NativeEndian>>>();
+        let max_size = 1040;
+        if size > max_size {
+            assert_eq!(size, max_size);
+        }
     }
 }
