@@ -360,7 +360,10 @@ fn test_parse_self_eh_frame() {
     // The `.eh_frame` fixture data was created on a 64-bit machine.
     eh_frame.set_address_size(8);
 
-    let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
+    let bases = BaseAddresses::default()
+        .set_eh_frame(0)
+        .set_text(0)
+        .set_got(0);
     let mut entries = eh_frame.entries(&bases);
     while let Some(entry) = entries.next().expect("Should parse CFI entry OK") {
         match entry {
