@@ -629,9 +629,10 @@ fn dump_eh_frame<R: Reader, W: Write>(
     // TODO: when grabbing section contents in `dump_file`, we should also grab
     // these addresses.
     let bases = gimli::BaseAddresses::default()
-        .set_cfi(0)
+        .set_eh_frame_hdr(0)
+        .set_eh_frame(0)
         .set_text(0)
-        .set_data(0);
+        .set_got(0);
 
     let mut cies = HashMap::new();
 

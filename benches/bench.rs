@@ -519,7 +519,10 @@ mod cfi {
         let eh_frame = read_section("eh_frame");
         let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
 
-        let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
+        let bases = BaseAddresses::default()
+            .set_eh_frame(0)
+            .set_got(0)
+            .set_text(0);
 
         b.iter(|| {
             let mut entries = eh_frame.entries(&bases);
@@ -534,7 +537,10 @@ mod cfi {
         let eh_frame = read_section("eh_frame");
         let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
 
-        let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
+        let bases = BaseAddresses::default()
+            .set_eh_frame(0)
+            .set_got(0)
+            .set_text(0);
 
         b.iter(|| {
             let mut entries = eh_frame.entries(&bases);
@@ -559,7 +565,10 @@ mod cfi {
         let eh_frame = read_section("eh_frame");
         let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
 
-        let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
+        let bases = BaseAddresses::default()
+            .set_eh_frame(0)
+            .set_got(0)
+            .set_text(0);
 
         b.iter(|| {
             let mut entries = eh_frame.entries(&bases);
@@ -594,7 +603,10 @@ mod cfi {
         let eh_frame = read_section("eh_frame");
         let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
 
-        let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
+        let bases = BaseAddresses::default()
+            .set_eh_frame(0)
+            .set_got(0)
+            .set_text(0);
 
         let mut ctx = Some(UninitializedUnwindContext::new());
 
@@ -639,7 +651,10 @@ mod cfi {
     fn get_fde_with_longest_cfi_instructions<R: Reader>(
         eh_frame: &EhFrame<R>,
     ) -> FrameDescriptionEntry<EhFrame<R>, R, R::Offset> {
-        let bases = BaseAddresses::default().set_cfi(0).set_data(0).set_text(0);
+        let bases = BaseAddresses::default()
+            .set_eh_frame(0)
+            .set_got(0)
+            .set_text(0);
 
         let mut longest: Option<(usize, FrameDescriptionEntry<_, _, _>)> = None;
 

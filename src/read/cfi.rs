@@ -135,19 +135,29 @@ impl<R: Reader> EhFrameHdr<R> {
             return Err(Error::UnknownVersion(u64::from(version)));
         }
 
-        let eh_frame_ptr_enc = DwEhPe(reader.read_u8()?);
-        let fde_count_enc = DwEhPe(reader.read_u8()?);
-        let table_enc = DwEhPe(reader.read_u8()?);
+        let eh_frame_ptr_enc = parse_pointer_encoding(&mut reader)?;
+        let fde_count_enc = parse_pointer_encoding(&mut reader)?;
+        let table_enc = parse_pointer_encoding(&mut reader)?;
 
         // Omitting this pointer is not valid (defeats the purpose of .eh_frame_hdr entirely)
         if eh_frame_ptr_enc == constants::DW_EH_PE_omit {
             return Err(Error::UnexpectedNull);
         }
 
-        let eh_frame_ptr =
-            parse_encoded_pointer(eh_frame_ptr_enc, bases, address_size, &self.0, &mut reader)?;
-        let fde_count =
-            parse_encoded_pointer(fde_count_enc, bases, address_size, &self.0, &mut reader)?;
+        let eh_frame_ptr = parse_encoded_pointer(
+            eh_frame_ptr_enc,
+            &bases.eh_frame_hdr,
+            address_size,
+            &self.0,
+            &mut reader,
+        )?;
+        let fde_count = parse_encoded_pointer(
+            fde_count_enc,
+            &bases.eh_frame_hdr,
+            address_size,
+            &self.0,
+            &mut reader,
+        )?;
         let fde_count = match fde_count {
             Pointer::Direct(c) => c,
             Pointer::Indirect(_) => return Err(Error::UnsupportedPointerEncoding),
@@ -238,7 +248,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
 
             let pivot = parse_encoded_pointer(
                 self.hdr.table_enc,
-                bases,
+                &bases.eh_frame_hdr,
                 self.hdr.address_size,
                 &self.hdr.section,
                 &mut reader,
@@ -268,7 +278,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
 
         parse_encoded_pointer(
             self.hdr.table_enc,
-            bases,
+            &bases.eh_frame_hdr,
             self.hdr.address_size,
             &self.hdr.section,
             &mut reader,
@@ -289,10 +299,6 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     /// # let eh_frame: EhFrame<EndianRcSlice<NativeEndian>> = unreachable!();
     /// # let eh_frame_hdr: ParsedEhFrameHdr<EndianRcSlice<NativeEndian>> = unimplemented!();
     /// # let addr = 0;
-    /// # let address_of_cfi_section_in_memory = unimplemented!();
-    /// # let address_of_text_section_in_memory = unimplemented!();
-    /// # let address_of_data_section_in_memory = unimplemented!();
-    /// # let address_of_the_start_of_current_func = unimplemented!();
     /// # let bases = unimplemented!();
     /// let table = eh_frame_hdr.table().unwrap();
     /// let fde = table.lookup_and_parse(addr, &bases, eh_frame.clone(),
@@ -567,10 +573,10 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// // base address isn't provided and a pointer is found that is relative to
     /// // it, we will return an `Err`.
     /// # let address_of_text_section_in_memory = unimplemented!();
-    /// # let address_of_data_section_in_memory = unimplemented!();
+    /// # let address_of_got_section_in_memory = unimplemented!();
     /// let bases = BaseAddresses::default()
     ///     .set_text(address_of_text_section_in_memory)
-    ///     .set_data(address_of_data_section_in_memory);
+    ///     .set_got(address_of_got_section_in_memory);
     ///
     /// let (unwind_info, ctx) = eh_frame.unwind_info_for_address(&bases, ctx, address)
     ///     .map_err(|(err, ctx)| {
@@ -774,55 +780,83 @@ impl<R: Reader> UnwindSection<R> for EhFrame<R> {
 /// use gimli::BaseAddresses;
 ///
 /// # fn foo() {
-/// # let address_of_cfi_section_in_memory = unimplemented!();
+/// # let address_of_eh_frame_hdr_section_in_memory = unimplemented!();
+/// # let address_of_eh_frame_section_in_memory = unimplemented!();
 /// # let address_of_text_section_in_memory = unimplemented!();
-/// # let address_of_data_section_in_memory = unimplemented!();
+/// # let address_of_got_section_in_memory = unimplemented!();
 /// # let address_of_the_start_of_current_func = unimplemented!();
 /// let bases = BaseAddresses::default()
-///     .set_cfi(address_of_cfi_section_in_memory)
+///     .set_eh_frame_hdr(address_of_eh_frame_hdr_section_in_memory)
+///     .set_eh_frame(address_of_eh_frame_section_in_memory)
 ///     .set_text(address_of_text_section_in_memory)
-///     .set_data(address_of_data_section_in_memory);
+///     .set_got(address_of_got_section_in_memory);
 /// # let _ = bases;
 /// # }
 /// ```
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
 pub struct BaseAddresses {
-    /// The address of the current CFI unwind section (`.eh_frame` or
-    /// `.debug_frame`) in memory.
-    pub cfi: Option<u64>,
+    /// The base addresses to use for pointers in the `.eh_frame_hdr` section.
+    pub eh_frame_hdr: SectionBaseAddresses,
 
-    /// The address of the `.text` section in memory.
+    /// The base addresses to use for pointers in the `.eh_frame` section.
+    pub eh_frame: SectionBaseAddresses,
+}
+
+/// Optional base addresses for the relative `DW_EH_PE_*` encoded pointers
+/// in a particular section.
+///
+/// See `BaseAddresses` for methods that are helpful in setting these addresses.
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
+pub struct SectionBaseAddresses {
+    /// The address of the section containing the pointer.
+    pub section: Option<u64>,
+
+    /// The base address for text relative pointers.
+    /// This is generally the address of the `.text` section.
     pub text: Option<u64>,
 
-    /// The address of the `.data` section in memory.
+    /// The base address for data relative pointers.
+    ///
+    /// For pointers in the `.eh_frame_hdr` section, this is the address
+    /// of the `.eh_frame_hdr` section
+    ///
+    /// For pointers in the `.eh_frame` section, this is generally the
+    /// global pointer, such as the address of the `.got` section.
     pub data: Option<u64>,
 
     // Unlike the others, the function base is managed internally to the parser
     // as we enter and exit FDE parsing.
-    #[doc(hidden)]
-    #[allow(missing_docs)]
-    pub func: RefCell<Option<u64>>,
+    pub(crate) func: RefCell<Option<u64>>,
 }
 
 impl BaseAddresses {
-    /// Set the CFI section base address.
+    /// Set the `.eh_frame_hdr` section base address.
     #[inline]
-    pub fn set_cfi(mut self, addr: u64) -> Self {
-        self.cfi = Some(addr);
+    pub fn set_eh_frame_hdr(mut self, addr: u64) -> Self {
+        self.eh_frame_hdr.section = Some(addr);
+        self.eh_frame_hdr.data = Some(addr);
+        self
+    }
+
+    /// Set the `.eh_frame` section base address.
+    #[inline]
+    pub fn set_eh_frame(mut self, addr: u64) -> Self {
+        self.eh_frame.section = Some(addr);
         self
     }
 
     /// Set the `.text` section base address.
     #[inline]
     pub fn set_text(mut self, addr: u64) -> Self {
-        self.text = Some(addr);
+        self.eh_frame_hdr.text = Some(addr);
+        self.eh_frame.text = Some(addr);
         self
     }
 
-    /// Set the `.data` section base address.
+    /// Set the `.got` section base address.
     #[inline]
-    pub fn set_data(mut self, addr: u64) -> Self {
-        self.data = Some(addr);
+    pub fn set_got(mut self, addr: u64) -> Self {
+        self.eh_frame.data = Some(addr);
         self
     }
 }
@@ -845,15 +879,17 @@ impl BaseAddresses {
 /// # let read_eh_frame_somehow = || unimplemented!();
 /// let eh_frame = EhFrame::new(read_eh_frame_somehow(), NativeEndian);
 ///
-/// # let address_of_cfi_section_in_memory = unimplemented!();
+/// # let address_of_eh_frame_hdr_section_in_memory = unimplemented!();
+/// # let address_of_eh_frame_section_in_memory = unimplemented!();
 /// # let address_of_text_section_in_memory = unimplemented!();
-/// # let address_of_data_section_in_memory = unimplemented!();
+/// # let address_of_got_section_in_memory = unimplemented!();
 /// # let address_of_the_start_of_current_func = unimplemented!();
 /// // Provide base addresses for relative pointers.
 /// let bases = BaseAddresses::default()
-///     .set_cfi(address_of_cfi_section_in_memory)
+///     .set_eh_frame_hdr(address_of_eh_frame_hdr_section_in_memory)
+///     .set_eh_frame(address_of_eh_frame_section_in_memory)
 ///     .set_text(address_of_text_section_in_memory)
-///     .set_data(address_of_data_section_in_memory);
+///     .set_got(address_of_got_section_in_memory);
 ///
 /// let mut entries = eh_frame.entries(&bases);
 ///
@@ -889,7 +925,7 @@ where
 
         // Clear any function relative base address, if one was set when parsing
         // the last entry.
-        self.bases.func.borrow_mut().take();
+        self.bases.eh_frame.func.borrow_mut().take();
 
         match parse_cfi_entry(self.bases, self.section.clone(), &mut self.input) {
             Err(e) => {
@@ -1099,7 +1135,7 @@ impl Augmentation {
                     let encoding = parse_pointer_encoding(rest)?;
                     let personality = parse_encoded_pointer(
                         encoding,
-                        bases,
+                        &bases.eh_frame,
                         address_size,
                         section.section(),
                         rest,
@@ -1147,8 +1183,13 @@ impl AugmentationData {
         let rest = &mut input.split(aug_data_len)?;
         let mut augmentation_data = AugmentationData::default();
         if let Some(encoding) = augmentation.lsda {
-            let lsda =
-                parse_encoded_pointer(encoding, bases, address_size, section.section(), rest)?;
+            let lsda = parse_encoded_pointer(
+                encoding,
+                &bases.eh_frame,
+                address_size,
+                section.section(),
+                rest,
+            )?;
             augmentation_data.lsda = Some(lsda);
         }
         Ok(augmentation_data)
@@ -1497,7 +1538,7 @@ where
         F: FnMut(Section::Offset) -> Result<CommonInformationEntry<Section, R, R::Offset>>,
     {
         {
-            let mut func = bases.func.borrow_mut();
+            let mut func = bases.eh_frame.func.borrow_mut();
             let offset = rest.offset_from(section.section());
             *func = Some(offset.into_u64());
         }
@@ -1548,8 +1589,13 @@ where
     ) -> Result<(u64, u64)> {
         let encoding = cie.augmentation().and_then(|a| a.fde_address_encoding);
         if let Some(encoding) = encoding {
-            let initial_address =
-                parse_encoded_pointer(encoding, bases, cie.address_size, section.section(), input)?;
+            let initial_address = parse_encoded_pointer(
+                encoding,
+                &bases.eh_frame,
+                cie.address_size,
+                section.section(),
+                input,
+            )?;
 
             // Ignore indirection.
             let initial_address = initial_address.into();
@@ -1558,7 +1604,7 @@ where
             // data format bits from the encoding.
             let address_range = parse_encoded_pointer(
                 encoding.format(),
-                bases,
+                &bases.eh_frame,
                 cie.address_size,
                 section.section(),
                 input,
@@ -6406,21 +6452,23 @@ mod tests {
     #[cfg(target_pointer_width = "64")]
     fn size_of_unwind_ctx() {
         use std::mem;
-        assert_eq!(
-            mem::size_of::<
-                UnwindContext<EhFrame<EndianSlice<NativeEndian>>, EndianSlice<NativeEndian>>,
-            >(),
-            5416
-        );
+        let size = mem::size_of::<
+            UnwindContext<EhFrame<EndianSlice<NativeEndian>>, EndianSlice<NativeEndian>>,
+        >();
+        let max_size = 5416;
+        if size > max_size {
+            assert_eq!(size, max_size);
+        }
     }
 
     #[test]
     #[cfg(target_pointer_width = "64")]
     fn size_of_register_rule_map() {
         use std::mem;
-        assert_eq!(
-            mem::size_of::<RegisterRuleMap<EndianSlice<NativeEndian>>>(),
-            1040
-        );
+        let size = mem::size_of::<RegisterRuleMap<EndianSlice<NativeEndian>>>();
+        let max_size = 1040;
+        if size > max_size {
+            assert_eq!(size, max_size);
+        }
     }
 }
