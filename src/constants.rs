@@ -807,8 +807,8 @@ dw!(DwLang(u16) {
 
 impl DwLang {
     /// Get the default DW_AT_lower_bound for this language.
-    pub fn default_lower_bound(&self) -> Option<usize> {
-        match *self {
+    pub fn default_lower_bound(self) -> Option<usize> {
+        match self {
             DW_LANG_C89
             | DW_LANG_C
             | DW_LANG_C_plus_plus
@@ -1228,31 +1228,31 @@ const DW_EH_PE_APPLICATION_MASK: u8 = 0b0111_0000;
 impl DwEhPe {
     /// Get the pointer encoding's format.
     #[inline]
-    pub fn format(&self) -> DwEhPe {
+    pub fn format(self) -> DwEhPe {
         DwEhPe(self.0 & DW_EH_PE_FORMAT_MASK)
     }
 
     /// Get the pointer encoding's application.
     #[inline]
-    pub fn application(&self) -> DwEhPe {
+    pub fn application(self) -> DwEhPe {
         DwEhPe(self.0 & DW_EH_PE_APPLICATION_MASK)
     }
 
     /// Is this encoding the absent pointer encoding?
     #[inline]
-    pub fn is_absent(&self) -> bool {
-        *self == DW_EH_PE_omit
+    pub fn is_absent(self) -> bool {
+        self == DW_EH_PE_omit
     }
 
     /// Is this coding indirect? If so, its encoded value is the address of the
     /// real pointer result, not the pointer result itself.
     #[inline]
-    pub fn is_indirect(&self) -> bool {
+    pub fn is_indirect(self) -> bool {
         self.0 & DW_EH_PE_indirect.0 != 0
     }
 
     /// Is this a known, valid pointer encoding?
-    pub fn is_valid_encoding(&self) -> bool {
+    pub fn is_valid_encoding(self) -> bool {
         if self.is_absent() {
             return true;
         }

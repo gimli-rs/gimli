@@ -42,8 +42,8 @@ fn parse_expression<R: Reader>(expr: Expression<R>, address_size: u8, format: Fo
 }
 
 fn impl_parse_self_debug_info<R: gimli::Reader>(
-    debug_info: DebugInfo<R>,
-    debug_abbrev: DebugAbbrev<R>,
+    debug_info: &DebugInfo<R>,
+    debug_abbrev: &DebugAbbrev<R>,
 ) {
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
@@ -74,7 +74,7 @@ fn test_parse_self_debug_info() {
     let debug_abbrev = read_section("debug_abbrev");
     let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
-    impl_parse_self_debug_info(debug_info, debug_abbrev);
+    impl_parse_self_debug_info(&debug_info, &debug_abbrev);
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn test_parse_self_debug_info_with_endian_rc_slice() {
     let debug_abbrev = gimli::EndianRcSlice::new(debug_abbrev, LittleEndian);
     let debug_abbrev = DebugAbbrev::from(debug_abbrev);
 
-    impl_parse_self_debug_info(debug_info, debug_abbrev);
+    impl_parse_self_debug_info(&debug_info, &debug_abbrev);
 }
 
 #[test]

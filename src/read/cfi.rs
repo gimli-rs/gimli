@@ -314,8 +314,9 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         cb: F,
     ) -> Result<FrameDescriptionEntry<EhFrame<R>, R, R::Offset>>
     where
-        F: FnMut(EhFrameOffset<R::Offset>)
-            -> Result<CommonInformationEntry<EhFrame<R>, R, R::Offset>>,
+        F: FnMut(
+            EhFrameOffset<R::Offset>,
+        ) -> Result<CommonInformationEntry<EhFrame<R>, R, R::Offset>>,
     {
         let fdeptr = self.lookup(address, bases)?;
         let fdeptr = match fdeptr {
@@ -537,7 +538,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
         let offset = UnwindOffset::into(offset);
         let input = &mut self.section().clone();
         input.skip(offset)?;
-        if let Some(entry) = CommonInformationEntry::parse(bases, self.clone(), input)? {
+        if let Some(entry) = CommonInformationEntry::parse(bases, self, input)? {
             debug_assert_eq!(entry.offset(), offset);
             Ok(entry)
         } else {
@@ -592,6 +593,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// # unreachable!()
     /// # }
     /// ```
+    #[allow(clippy::type_complexity)]
     fn unwind_info_for_address<'bases>(
         &self,
         bases: &'bases BaseAddresses,
@@ -610,11 +612,13 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
                 Ok(Some(CieOrFde::Fde(partial))) => {
                     match partial.parse(|offset| self.cie_from_offset(bases, offset)) {
                         Err(e) => break Err(e),
-                        Ok(fde) => if fde.contains(address) {
-                            break Ok(Some(fde));
-                        } else {
-                            continue;
-                        },
+                        Ok(fde) => {
+                            if fde.contains(address) {
+                                break Ok(Some(fde));
+                            } else {
+                                continue;
+                            }
+                        }
                     }
                 }
             }
@@ -968,7 +972,7 @@ struct CfiEntryCommon<R: Reader> {
 /// `Ok(Some(tuple))`, where `tuple.0` is the start of the next entry and
 /// `tuple.1` is the parsed CFI entry data.
 fn parse_cfi_entry_common<Section, R>(
-    section: Section,
+    section: &Section,
     input: &mut R,
 ) -> Result<Option<CfiEntryCommon<R>>>
 where
@@ -1015,7 +1019,7 @@ where
     Fde(PartialFrameDescriptionEntry<'bases, Section, R>),
 }
 
-#[allow(type_complexity)]
+#[allow(clippy::type_complexity)]
 fn parse_cfi_entry<'bases, Section, R>(
     bases: &'bases BaseAddresses,
     section: Section,
@@ -1032,13 +1036,14 @@ where
         cie_offset_input,
         cie_id_or_offset,
         rest,
-    } = match parse_cfi_entry_common::<Section, R>(section.clone(), input)? {
+    } = match parse_cfi_entry_common::<Section, R>(&section, input)? {
         None => return Ok(None),
         Some(common) => common,
     };
 
     if Section::is_cie(format, cie_id_or_offset) {
-        let cie = CommonInformationEntry::parse_rest(offset, length, format, bases, section, rest)?;
+        let cie =
+            CommonInformationEntry::parse_rest(offset, length, format, bases, &section, rest)?;
         Ok(Some(CieOrFde::Cie(cie)))
     } else {
         let cie_offset = R::Offset::from_u64(cie_id_or_offset)?;
@@ -1102,7 +1107,7 @@ impl Augmentation {
         augmentation_str: &mut R,
         bases: &'bases BaseAddresses,
         address_size: u8,
-        section: Section,
+        section: &Section,
         input: &mut R,
     ) -> Result<Augmentation>
     where
@@ -1269,10 +1274,10 @@ where
     Section: UnwindSection<R>,
     Section::Offset: UnwindOffset<R::Offset>,
 {
-    #[allow(type_complexity)]
+    #[allow(clippy::type_complexity)]
     fn parse<'bases>(
         bases: &'bases BaseAddresses,
-        section: Section,
+        section: &Section,
         input: &mut R,
     ) -> Result<Option<CommonInformationEntry<Section, R, Offset>>> {
         let CfiEntryCommon {
@@ -1282,7 +1287,7 @@ where
             cie_id_or_offset: cie_id,
             rest,
             ..
-        } = match parse_cfi_entry_common::<Section, R>(section.clone(), input)? {
+        } = match parse_cfi_entry_common::<Section, R>(section, input)? {
             None => return Ok(None),
             Some(common) => common,
         };
@@ -1300,7 +1305,7 @@ where
         length: R::Offset,
         format: Format,
         bases: &BaseAddresses,
-        section: Section,
+        section: &Section,
         mut rest: R,
     ) -> Result<CommonInformationEntry<Section, R, Offset>> {
         let version = rest.read_u8()?;
@@ -1524,6 +1529,7 @@ where
     Section: UnwindSection<R>,
     Section::Offset: UnwindOffset<R::Offset>,
 {
+    #[allow(clippy::too_many_arguments)]
     fn parse_rest<F>(
         offset: R::Offset,
         length: R::Offset,
@@ -1622,6 +1628,7 @@ where
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
+#[allow(clippy::len_without_is_empty)]
 impl<Section, R, Offset> FrameDescriptionEntry<Section, R, Offset>
 where
     R: Reader<Offset = Offset>,
@@ -2238,9 +2245,11 @@ where
                     return Ok(Some(row));
                 }
 
-                Ok(Some(instruction)) => if self.evaluate(instruction)? {
-                    return Ok(Some(self.ctx.row()));
-                },
+                Ok(Some(instruction)) => {
+                    if self.evaluate(instruction)? {
+                        return Ok(Some(self.ctx.row()));
+                    }
+                }
             };
         }
     }
@@ -2285,34 +2294,40 @@ where
                     offset: factored_offset * data_align,
                 });
             }
-            DefCfaRegister { register } => if let CfaRule::RegisterAndOffset {
-                register: ref mut reg,
-                ..
-            } = *self.ctx.cfa_mut()
-            {
-                *reg = register;
-            } else {
-                return Err(Error::CfiInstructionInInvalidContext);
-            },
-            DefCfaOffset { offset } => if let CfaRule::RegisterAndOffset {
-                offset: ref mut off,
-                ..
-            } = *self.ctx.cfa_mut()
-            {
-                *off = offset as i64;
-            } else {
-                return Err(Error::CfiInstructionInInvalidContext);
-            },
-            DefCfaOffsetSf { factored_offset } => if let CfaRule::RegisterAndOffset {
-                offset: ref mut off,
-                ..
-            } = *self.ctx.cfa_mut()
-            {
-                let data_align = self.cie.data_alignment_factor();
-                *off = factored_offset * data_align;
-            } else {
-                return Err(Error::CfiInstructionInInvalidContext);
-            },
+            DefCfaRegister { register } => {
+                if let CfaRule::RegisterAndOffset {
+                    register: ref mut reg,
+                    ..
+                } = *self.ctx.cfa_mut()
+                {
+                    *reg = register;
+                } else {
+                    return Err(Error::CfiInstructionInInvalidContext);
+                }
+            }
+            DefCfaOffset { offset } => {
+                if let CfaRule::RegisterAndOffset {
+                    offset: ref mut off,
+                    ..
+                } = *self.ctx.cfa_mut()
+                {
+                    *off = offset as i64;
+                } else {
+                    return Err(Error::CfiInstructionInInvalidContext);
+                }
+            }
+            DefCfaOffsetSf { factored_offset } => {
+                if let CfaRule::RegisterAndOffset {
+                    offset: ref mut off,
+                    ..
+                } = *self.ctx.cfa_mut()
+                {
+                    let data_align = self.cie.data_alignment_factor();
+                    *off = factored_offset * data_align;
+                } else {
+                    return Err(Error::CfiInstructionInInvalidContext);
+                }
+            }
             DefCfaExpression { expression } => {
                 self.ctx.set_cfa(CfaRule::Expression(expression));
             }
@@ -2460,7 +2475,8 @@ impl<R: Reader> RegisterRuleMap<R> {
             .map(|r| {
                 debug_assert!(r.1.is_defined());
                 r.1.clone()
-            }).unwrap_or(RegisterRule::Undefined)
+            })
+            .unwrap_or(RegisterRule::Undefined)
     }
 
     fn set(&mut self, register: Register, rule: RegisterRule<R>) -> Result<()> {
@@ -3379,13 +3395,13 @@ mod tests {
                 Format::Dwarf32 => self
                     .e32(endian, &length)
                     .mark(&start)
-                    .e32(endian, 0xffffffff),
+                    .e32(endian, 0xffff_ffff),
                 Format::Dwarf64 => {
-                    let section = self.e32(endian, 0xffffffff);
+                    let section = self.e32(endian, 0xffff_ffff);
                     section
                         .e64(endian, &length)
                         .mark(&start)
-                        .e64(endian, 0xffffffffffffffff)
+                        .e64(endian, 0xffff_ffff_ffff_ffff)
                 }
             };
 
@@ -3445,7 +3461,7 @@ mod tests {
                     }
                 }
                 CieOffsetEncoding::U64 => {
-                    let section = self.e32(endian, 0xffffffff);
+                    let section = self.e32(endian, 0xffff_ffff);
                     section
                         .e64(endian, &length)
                         .mark(&start)
@@ -3487,7 +3503,7 @@ mod tests {
                     );
 
                     // Augmentation data length
-                    let section = section.uleb(fde.cie.address_size as u64);
+                    let section = section.uleb(u64::from(fde.cie.address_size));
                     match fde.cie.address_size {
                         4 => section.e32(endian, {
                             let x: u64 = lsda.into();
@@ -3517,6 +3533,8 @@ mod tests {
         }
     }
 
+    #[allow(clippy::type_complexity)]
+    #[allow(clippy::needless_pass_by_value)]
     fn assert_parse_cie<'input, E>(
         section: Section,
         address_size: u8,
@@ -3534,7 +3552,7 @@ mod tests {
         debug_frame.set_address_size(address_size);
         let input = &mut EndianSlice::new(&section, E::default());
         let bases = Default::default();
-        let result = DebugFrameCie::parse(&bases, debug_frame, input);
+        let result = DebugFrameCie::parse(&bases, &debug_frame, input);
         let result = result.map(|option| option.map(|cie| (*input, cie)));
         assert_eq!(result, expected);
     }
@@ -3548,7 +3566,7 @@ mod tests {
     #[test]
     fn test_parse_cie_incomplete_length_64() {
         let section = Section::with_endian(Endian::Little)
-            .L32(0xffffffff)
+            .L32(0xffff_ffff)
             .L32(12345);
         assert_parse_cie::<LittleEndian>(section, 8, Err(Error::UnexpectedEof));
     }
@@ -3558,7 +3576,7 @@ mod tests {
         let section = Section::with_endian(Endian::Big)
             // The length is not large enough to contain the ID.
             .B32(3)
-            .B32(0xffffffff);
+            .B32(0xffff_ffff);
         assert_parse_cie::<BigEndian>(section, 8, Err(Error::UnexpectedEof));
     }
 
@@ -3568,7 +3586,7 @@ mod tests {
             // Initial length
             .B32(4)
             // Not the CIE Id.
-            .B32(0xbad1bad2);
+            .B32(0xbad1_bad2);
         assert_parse_cie::<BigEndian>(section, 8, Err(Error::NotCieId));
     }
 
@@ -3607,7 +3625,7 @@ mod tests {
             .L32(&length)
             .mark(&start)
             // CIE Id
-            .L32(0xffffffff)
+            .L32(0xffff_ffff)
             // Version
             .D8(4)
             // Augmentation
@@ -3709,7 +3727,7 @@ mod tests {
         assert_eq!(
             DebugFrameCie::parse(
                 &bases,
-                DebugFrame::new(&contents, LittleEndian),
+                &DebugFrame::new(&contents, LittleEndian),
                 &mut EndianSlice::new(&contents, LittleEndian)
             ),
             Err(Error::UnexpectedEof)
@@ -3731,7 +3749,7 @@ mod tests {
     #[test]
     fn test_parse_fde_incomplete_length_64() {
         let section = Section::with_endian(Endian::Little)
-            .L32(0xffffffff)
+            .L32(0xffff_ffff)
             .L32(12345);
         let section = section.get_contents().unwrap();
         let debug_frame = DebugFrame::new(&section, LittleEndian);
@@ -3760,7 +3778,7 @@ mod tests {
     #[test]
     fn test_parse_fde_32_ok() {
         let expected_rest = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let cie_offset = 0xbad0bad1;
+        let cie_offset = 0xbad0_bad1;
         let expected_instrs: Vec<_> = (0..7).map(|_| constants::DW_CFA_nop.0).collect();
 
         let cie = DebugFrameCie {
@@ -3785,7 +3803,7 @@ mod tests {
             format: Format::Dwarf32,
             cie: cie.clone(),
             initial_segment: 0,
-            initial_address: 0xfeedbeef,
+            initial_address: 0xfeed_beef,
             address_range: 39,
             augmentation: None,
             instructions: EndianSlice::new(&expected_instrs, LittleEndian),
@@ -3813,7 +3831,7 @@ mod tests {
     #[test]
     fn test_parse_fde_32_with_segment_ok() {
         let expected_rest = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let cie_offset = 0xbad0bad1;
+        let cie_offset = 0xbad0_bad1;
         let expected_instrs: Vec<_> = (0..92).map(|_| constants::DW_CFA_nop.0).collect();
 
         let cie = DebugFrameCie {
@@ -3836,8 +3854,8 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
-            initial_segment: 0xbadbad11,
-            initial_address: 0xfeedbeef,
+            initial_segment: 0xbadb_ad11,
+            initial_address: 0xfeed_beef,
             address_range: 999,
             augmentation: None,
             instructions: EndianSlice::new(&expected_instrs, LittleEndian),
@@ -3865,7 +3883,7 @@ mod tests {
     #[test]
     fn test_parse_fde_64_ok() {
         let expected_rest = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let cie_offset = 0xbad0bad1;
+        let cie_offset = 0xbad0_bad1;
         let expected_instrs: Vec<_> = (0..7).map(|_| constants::DW_CFA_nop.0).collect();
 
         let cie = DebugFrameCie {
@@ -3889,7 +3907,7 @@ mod tests {
             format: Format::Dwarf64,
             cie: cie.clone(),
             initial_segment: 0,
-            initial_address: 0xfeedbeef,
+            initial_address: 0xfeed_beef,
             address_range: 999,
             augmentation: None,
             instructions: EndianSlice::new(&expected_instrs, LittleEndian),
@@ -3950,7 +3968,7 @@ mod tests {
 
     #[test]
     fn test_parse_cfi_entry_on_fde_32_ok() {
-        let cie_offset = 0x12345678;
+        let cie_offset = 0x1234_5678;
         let expected_rest = [1, 2, 3, 4, 5, 6, 7, 8, 9];
         let expected_instrs: Vec<_> = (0..4).map(|_| constants::DW_CFA_nop.0).collect();
 
@@ -3975,7 +3993,7 @@ mod tests {
             format: Format::Dwarf32,
             cie: cie.clone(),
             initial_segment: 0,
-            initial_address: 0xfeedbeef,
+            initial_address: 0xfeed_beef,
             address_range: 39,
             augmentation: None,
             instructions: EndianSlice::new(&expected_instrs, BigEndian),
@@ -4066,7 +4084,7 @@ mod tests {
             format: Format::Dwarf32,
             cie: cie1.clone(),
             initial_segment: 0,
-            initial_address: 0xfeedbeef,
+            initial_address: 0xfeed_beef,
             address_range: 39,
             augmentation: None,
             instructions: EndianSlice::new(&expected_instrs3, BigEndian),
@@ -4078,7 +4096,7 @@ mod tests {
             format: Format::Dwarf32,
             cie: cie2.clone(),
             initial_segment: 0,
-            initial_address: 0xfeedface,
+            initial_address: 0xfeed_face,
             address_range: 9000,
             augmentation: None,
             instructions: EndianSlice::new(&expected_instrs4, BigEndian),
@@ -4188,7 +4206,7 @@ mod tests {
         assert_eq!(
             CallFrameInstruction::parse(input),
             Ok(CallFrameInstruction::AdvanceLoc {
-                delta: expected_delta as u32,
+                delta: u32::from(expected_delta),
             })
         );
         assert_eq!(*input, EndianSlice::new(&expected_rest, LittleEndian));
@@ -4251,7 +4269,7 @@ mod tests {
     #[test]
     fn test_parse_cfi_instruction_set_loc() {
         let expected_rest = [1, 2, 3, 4];
-        let expected_addr = 0xdeadbeef;
+        let expected_addr = 0xdead_beef;
         let section = Section::with_endian(Endian::Little)
             .D8(constants::DW_CFA_set_loc.0)
             .uleb(expected_addr)
@@ -4280,7 +4298,7 @@ mod tests {
         assert_eq!(
             CallFrameInstruction::parse(input),
             Ok(CallFrameInstruction::AdvanceLoc {
-                delta: expected_delta as u32,
+                delta: u32::from(expected_delta),
             })
         );
         assert_eq!(*input, EndianSlice::new(&expected_rest, LittleEndian));
@@ -4299,7 +4317,7 @@ mod tests {
         assert_eq!(
             CallFrameInstruction::parse(input),
             Ok(CallFrameInstruction::AdvanceLoc {
-                delta: expected_delta as u32,
+                delta: u32::from(expected_delta),
             })
         );
         assert_eq!(*input, EndianSlice::new(&expected_rest, LittleEndian));
@@ -4721,7 +4739,7 @@ mod tests {
     #[test]
     fn test_parse_cfi_instruction_unknown_instruction() {
         let expected_rest = [1, 2, 3, 4];
-        let unknown_instr = constants::DwCfa(0b00111111);
+        let unknown_instr = constants::DwCfa(0b0011_1111);
         let section = Section::with_endian(Endian::Little)
             .D8(unknown_instr.0)
             .append_bytes(&expected_rest);
@@ -4769,7 +4787,7 @@ mod tests {
         assert_eq!(
             iter.next(),
             Ok(Some(CallFrameInstruction::AdvanceLoc {
-                delta: expected_delta as u32,
+                delta: u32::from(expected_delta),
             }))
         );
 
@@ -4789,6 +4807,7 @@ mod tests {
         assert_eq!(iter.next(), Ok(None));
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     fn assert_eval<'a, I, T>(
         mut initial_ctx: UnwindContext<T, EndianSlice<'a, LittleEndian>>,
         expected_ctx: UnwindContext<T, EndianSlice<'a, LittleEndian>>,
@@ -5043,7 +5062,8 @@ mod tests {
             .set_register_rule(
                 Register(2),
                 RegisterRule::Offset(3 * cie.data_alignment_factor),
-            ).unwrap();
+            )
+            .unwrap();
         let instructions = [(
             Ok(false),
             CallFrameInstruction::Offset {
@@ -5063,7 +5083,8 @@ mod tests {
             .set_register_rule(
                 Register(4),
                 RegisterRule::Offset(-3 * cie.data_alignment_factor),
-            ).unwrap();
+            )
+            .unwrap();
         let instructions = [(
             Ok(false),
             CallFrameInstruction::OffsetExtendedSf {
@@ -5083,7 +5104,8 @@ mod tests {
             .set_register_rule(
                 Register(5),
                 RegisterRule::ValOffset(7 * cie.data_alignment_factor),
-            ).unwrap();
+            )
+            .unwrap();
         let instructions = [(
             Ok(false),
             CallFrameInstruction::ValOffset {
@@ -5103,7 +5125,8 @@ mod tests {
             .set_register_rule(
                 Register(5),
                 RegisterRule::ValOffset(-7 * cie.data_alignment_factor),
-            ).unwrap();
+            )
+            .unwrap();
         let instructions = [(
             Ok(false),
             CallFrameInstruction::ValOffsetSf {
@@ -5124,7 +5147,8 @@ mod tests {
             .set_register_rule(
                 Register(9),
                 RegisterRule::Expression(Expression(EndianSlice::new(&expr, LittleEndian))),
-            ).unwrap();
+            )
+            .unwrap();
         let instructions = [(
             Ok(false),
             CallFrameInstruction::Expression {
@@ -5145,7 +5169,8 @@ mod tests {
             .set_register_rule(
                 Register(9),
                 RegisterRule::ValExpression(Expression(EndianSlice::new(&expr, LittleEndian))),
-            ).unwrap();
+            )
+            .unwrap();
         let instructions = [(
             Ok(false),
             CallFrameInstruction::ValExpression {
@@ -5253,6 +5278,7 @@ mod tests {
 
     #[test]
     fn test_unwind_table_next_row() {
+        #[allow(clippy::identity_op)]
         let initial_instructions = Section::with_endian(Endian::Little)
             // The CFA is -12 from register 4.
             .D8(constants::DW_CFA_def_cfa_sf.0)
@@ -5328,8 +5354,8 @@ mod tests {
             (Register(0), RegisterRule::Offset(8)),
             (Register(3), RegisterRule::Offset(4)),
         ]
-            .into_iter()
-            .collect();
+        .into_iter()
+        .collect();
         assert_eq!(ctx.0.initial_rules, expected_initial_rules);
 
         let mut table = UnwindTable::new(&mut ctx, &fde);
@@ -5348,8 +5374,8 @@ mod tests {
                     (Register(0), RegisterRule::Offset(8)),
                     (Register(3), RegisterRule::Offset(4)),
                 ]
-                    .into_iter()
-                    .collect(),
+                .into_iter()
+                .collect(),
             };
             assert_eq!(Some(&expected), row);
         }
@@ -5368,8 +5394,8 @@ mod tests {
                     (Register(0), RegisterRule::Offset(-16)),
                     (Register(3), RegisterRule::Offset(4)),
                 ]
-                    .into_iter()
-                    .collect(),
+                .into_iter()
+                .collect(),
             };
             assert_eq!(Some(&expected), row);
         }
@@ -5388,8 +5414,8 @@ mod tests {
                     (Register(0), RegisterRule::Offset(-16)),
                     (Register(3), RegisterRule::Offset(-4)),
                 ]
-                    .into_iter()
-                    .collect(),
+                .into_iter()
+                .collect(),
             };
             assert_eq!(Some(&expected), row);
         }
@@ -5409,8 +5435,8 @@ mod tests {
                     (Register(3), RegisterRule::Offset(-4)),
                     (Register(5), RegisterRule::Offset(4)),
                 ]
-                    .into_iter()
-                    .collect(),
+                .into_iter()
+                .collect(),
             };
             assert_eq!(Some(&expected), row);
         }
@@ -5491,7 +5517,7 @@ mod tests {
             format: Format::Dwarf32,
             cie: cie1.clone(),
             initial_segment: 0,
-            initial_address: 0xfeedbeef,
+            initial_address: 0xfeed_beef,
             address_range: 200,
             augmentation: None,
             instructions: EndianSlice::new(&instrs3, BigEndian),
@@ -5503,7 +5529,7 @@ mod tests {
             format: Format::Dwarf32,
             cie: cie2.clone(),
             initial_segment: 0,
-            initial_address: 0xfeedface,
+            initial_address: 0xfeed_face,
             address_range: 9000,
             augmentation: None,
             instructions: EndianSlice::new(&instrs4, BigEndian),
@@ -5522,7 +5548,7 @@ mod tests {
         // Get the second row of the unwind table in `instrs3`.
         let bases = Default::default();
         let ctx = UninitializedUnwindContext::new();
-        let result = debug_frame.unwind_info_for_address(&bases, ctx, 0xfeedbeef + 150);
+        let result = debug_frame.unwind_info_for_address(&bases, ctx, 0xfeed_beef + 150);
         assert!(result.is_ok());
         let (unwind_info, _) = result.unwrap();
 
@@ -5548,7 +5574,7 @@ mod tests {
         let debug_frame = DebugFrame::new(&[], NativeEndian);
         let bases = Default::default();
         let ctx = UninitializedUnwindContext::new();
-        let result = debug_frame.unwind_info_for_address(&bases, ctx, 0xbadbad99);
+        let result = debug_frame.unwind_info_for_address(&bases, ctx, 0xbadb_ad99);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().0, Error::NoUnwindInfoForAddress);
     }
@@ -5714,7 +5740,7 @@ mod tests {
         assert_eq!(table.lookup(19, &bases), Ok(Pointer::Direct(1)));
         assert_eq!(table.lookup(20, &bases), Ok(Pointer::Direct(2)));
         assert_eq!(table.lookup(21, &bases), Ok(Pointer::Direct(2)));
-        assert_eq!(table.lookup(100000, &bases), Ok(Pointer::Direct(2)));
+        assert_eq!(table.lookup(100_000, &bases), Ok(Pointer::Direct(2)));
     }
 
     #[test]
@@ -5768,7 +5794,8 @@ mod tests {
                 Endian::Little,
                 (&start_of_fde1 - &start_of_cie + 4) as u64,
                 &mut fde1,
-            ).mark(&start_of_fde2)
+            )
+            .mark(&start_of_fde2)
             .fde(
                 Endian::Little,
                 (&start_of_fde2 - &start_of_cie + 4) as u64,
@@ -5810,31 +5837,25 @@ mod tests {
             Ok(cie.clone())
         };
         assert_eq!(
-            table.lookup_and_parse(9, &bases, eh_frame.clone(), f),
+            table.lookup_and_parse(9, &bases, eh_frame, f),
             Ok(fde1.clone())
         );
         assert_eq!(
-            table.lookup_and_parse(10, &bases, eh_frame.clone(), f),
+            table.lookup_and_parse(10, &bases, eh_frame, f),
             Ok(fde1.clone())
         );
+        assert_eq!(table.lookup_and_parse(11, &bases, eh_frame, f), Ok(fde1));
         assert_eq!(
-            table.lookup_and_parse(11, &bases, eh_frame.clone(), f),
-            Ok(fde1)
-        );
-        assert_eq!(
-            table.lookup_and_parse(19, &bases, eh_frame.clone(), f),
+            table.lookup_and_parse(19, &bases, eh_frame, f),
             Err(Error::NoUnwindInfoForAddress)
         );
         assert_eq!(
-            table.lookup_and_parse(20, &bases, eh_frame.clone(), f),
+            table.lookup_and_parse(20, &bases, eh_frame, f),
             Ok(fde2.clone())
         );
+        assert_eq!(table.lookup_and_parse(21, &bases, eh_frame, f), Ok(fde2));
         assert_eq!(
-            table.lookup_and_parse(21, &bases, eh_frame.clone(), f),
-            Ok(fde2)
-        );
-        assert_eq!(
-            table.lookup_and_parse(100000, &bases, eh_frame.clone(), f),
+            table.lookup_and_parse(100_000, &bases, eh_frame, f),
             Err(Error::NoUnwindInfoForAddress)
         );
     }
@@ -5907,7 +5928,7 @@ mod tests {
             format: Format::Dwarf32,
             cie: cie.clone(),
             initial_segment: 0,
-            initial_address: 0xfeedbeef,
+            initial_address: 0xfeed_beef,
             address_range: 999,
             augmentation: None,
             instructions: EndianSlice::new(&[], LittleEndian),
@@ -5954,7 +5975,7 @@ mod tests {
             format: Format::Dwarf64,
             cie: cie.clone(),
             initial_segment: 0,
-            initial_address: 0xfeedbeef,
+            initial_address: 0xfeed_beef,
             address_range: 999,
             augmentation: None,
             instructions: EndianSlice::new(&[], LittleEndian),
@@ -5963,7 +5984,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little)
             .cie(Endian::Little, None, &mut cie)
             .mark(&end_of_cie)
-            .fde(Endian::Little, 99999999999999, &mut fde);
+            .fde(Endian::Little, 99_999_999_999_999, &mut fde);
 
         section.start().set_const(0);
         let section = section.get_contents().unwrap();
@@ -5985,7 +6006,7 @@ mod tests {
         let section = EhFrame::new(&[], NativeEndian);
         let input = &mut EndianSlice::new(&[], NativeEndian);
         assert_eq!(
-            Augmentation::parse(augmentation, &bases, address_size, section, input),
+            Augmentation::parse(augmentation, &bases, address_size, &section, input),
             Err(Error::UnknownAugmentation)
         );
     }
@@ -6004,7 +6025,7 @@ mod tests {
         let input = &mut section.section().clone();
         let augmentation = &mut EndianSlice::new(b"zZ", LittleEndian);
         assert_eq!(
-            Augmentation::parse(augmentation, &bases, address_size, section, input),
+            Augmentation::parse(augmentation, &bases, address_size, &section, input),
             Err(Error::UnknownAugmentation)
         );
     }
@@ -6030,7 +6051,7 @@ mod tests {
         augmentation.lsda = Some(constants::DW_EH_PE_uleb128);
 
         assert_eq!(
-            Augmentation::parse(aug_str, &bases, address_size, section, input),
+            Augmentation::parse(aug_str, &bases, address_size, &section, input),
             Ok(augmentation)
         );
         assert_eq!(*input, EndianSlice::new(&rest, LittleEndian));
@@ -6046,7 +6067,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little)
             .uleb(9)
             .D8(constants::DW_EH_PE_udata8.0)
-            .L64(0xf00df00d)
+            .L64(0xf00d_f00d)
             .append_bytes(&rest)
             .get_contents()
             .unwrap();
@@ -6055,10 +6076,10 @@ mod tests {
         let aug_str = &mut EndianSlice::new(b"zP", LittleEndian);
 
         let mut augmentation = Augmentation::default();
-        augmentation.personality = Some(Pointer::Direct(0xf00df00d));
+        augmentation.personality = Some(Pointer::Direct(0xf00d_f00d));
 
         assert_eq!(
-            Augmentation::parse(aug_str, &bases, address_size, section, input),
+            Augmentation::parse(aug_str, &bases, address_size, &section, input),
             Ok(augmentation)
         );
         assert_eq!(*input, EndianSlice::new(&rest, LittleEndian));
@@ -6085,7 +6106,7 @@ mod tests {
         augmentation.fde_address_encoding = Some(constants::DW_EH_PE_udata4);
 
         assert_eq!(
-            Augmentation::parse(aug_str, &bases, address_size, section, input),
+            Augmentation::parse(aug_str, &bases, address_size, &section, input),
             Ok(augmentation)
         );
         assert_eq!(*input, EndianSlice::new(&rest, LittleEndian));
@@ -6111,7 +6132,7 @@ mod tests {
         augmentation.is_signal_trampoline = true;
 
         assert_eq!(
-            Augmentation::parse(aug_str, &bases, address_size, section, input),
+            Augmentation::parse(aug_str, &bases, address_size, &section, input),
             Ok(augmentation)
         );
         assert_eq!(*input, EndianSlice::new(&rest, LittleEndian));
@@ -6129,7 +6150,7 @@ mod tests {
             .D8(constants::DW_EH_PE_uleb128.0)
             // P
             .D8(constants::DW_EH_PE_udata8.0)
-            .L64(0x1badf00d)
+            .L64(0x1bad_f00d)
             // R
             .D8(constants::DW_EH_PE_uleb128.0)
             .append_bytes(&rest)
@@ -6141,13 +6162,13 @@ mod tests {
 
         let augmentation = Augmentation {
             lsda: Some(constants::DW_EH_PE_uleb128),
-            personality: Some(Pointer::Direct(0x1badf00d)),
+            personality: Some(Pointer::Direct(0x1bad_f00d)),
             fde_address_encoding: Some(constants::DW_EH_PE_uleb128),
             is_signal_trampoline: true,
         };
 
         assert_eq!(
-            Augmentation::parse(aug_str, &bases, address_size, section, input),
+            Augmentation::parse(aug_str, &bases, address_size, &section, input),
             Ok(augmentation)
         );
         assert_eq!(*input, EndianSlice::new(&rest, LittleEndian));
@@ -6168,7 +6189,7 @@ mod tests {
             format: Format::Dwarf32,
             cie: cie.clone(),
             initial_segment: 0,
-            initial_address: 0xfeedface,
+            initial_address: 0xfeed_face,
             address_range: 9000,
             augmentation: None,
             instructions: EndianSlice::new(&instrs, LittleEndian),
@@ -6205,7 +6226,7 @@ mod tests {
             format: Format::Dwarf32,
             cie: cie.clone(),
             initial_segment: 0,
-            initial_address: 0xfeedface,
+            initial_address: 0xfeed_face,
             address_range: 9000,
             augmentation: Some(AugmentationData::default()),
             instructions: EndianSlice::new(&instrs, LittleEndian),
@@ -6243,10 +6264,10 @@ mod tests {
             format: Format::Dwarf32,
             cie: cie.clone(),
             initial_segment: 0,
-            initial_address: 0xfeedface,
+            initial_address: 0xfeed_face,
             address_range: 9000,
             augmentation: Some(AugmentationData {
-                lsda: Some(Pointer::Direct(0x11223344)),
+                lsda: Some(Pointer::Direct(0x1122_3344)),
             }),
             instructions: EndianSlice::new(&instrs, LittleEndian),
         };
@@ -6285,7 +6306,7 @@ mod tests {
             format: Format::Dwarf32,
             cie: cie.clone(),
             initial_segment: 0,
-            initial_address: 0xfeedface,
+            initial_address: 0xfeed_face,
             address_range: 9000,
             augmentation: Some(AugmentationData {
                 lsda: Some(Pointer::Direct(1)),
@@ -6371,14 +6392,14 @@ mod tests {
             (Register(0), RegisterRule::SameValue),
             (Register(3), RegisterRule::Offset(1)),
         ]
-            .iter()
-            .collect();
+        .iter()
+        .collect();
         let map2: RegisterRuleMap<EndianSlice<LittleEndian>> = [
             (Register(3), RegisterRule::Offset(1)),
             (Register(0), RegisterRule::SameValue),
         ]
-            .iter()
-            .collect();
+        .iter()
+        .collect();
         assert_eq!(map1, map2);
         assert_eq!(map2, map1);
 
@@ -6387,14 +6408,14 @@ mod tests {
             (Register(0), RegisterRule::SameValue),
             (Register(2), RegisterRule::Offset(1)),
         ]
-            .iter()
-            .collect();
+        .iter()
+        .collect();
         let map4: RegisterRuleMap<EndianSlice<LittleEndian>> = [
             (Register(3), RegisterRule::Offset(1)),
             (Register(0), RegisterRule::SameValue),
         ]
-            .iter()
-            .collect();
+        .iter()
+        .collect();
         assert!(map3 != map4);
         assert!(map4 != map3);
 
@@ -6415,8 +6436,8 @@ mod tests {
             (Register(1), RegisterRule::Offset(1)),
             (Register(2), RegisterRule::ValOffset(2)),
         ]
-            .iter()
-            .collect();
+        .iter()
+        .collect();
 
         let mut found0 = false;
         let mut found1 = false;

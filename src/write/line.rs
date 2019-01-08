@@ -133,6 +133,8 @@ impl LineProgram {
     ///
     /// Panics if `line_base` > 0.
     /// Panics if `line_base` + `line_range` <= 0.
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(
         version: u16,
         address_size: u8,
@@ -911,38 +913,40 @@ mod convert {
                     read::Opcode::DefineFile(_) => {
                         return Err(ConvertError::UnsupportedLineInstruction);
                     }
-                    _ => if from_row.execute(opcode, &mut from_program) {
-                        if !program.in_sequence() {
-                            program.begin_sequence(address);
-                            address = None;
+                    _ => {
+                        if from_row.execute(opcode, &mut from_program) {
+                            if !program.in_sequence() {
+                                program.begin_sequence(address);
+                                address = None;
+                            }
+                            if from_row.end_sequence() {
+                                program.end_sequence(from_row.address());
+                            } else {
+                                program.row().address_offset = from_row.address();
+                                program.row().op_index = from_row.op_index();
+                                program.row().file = {
+                                    let file = from_row.file_index();
+                                    if file >= files.len() as u64 {
+                                        return Err(ConvertError::InvalidFileIndex);
+                                    }
+                                    files[file as usize]
+                                };
+                                program.row().line = from_row.line().unwrap_or(0);
+                                program.row().column = match from_row.column() {
+                                    read::ColumnType::LeftEdge => 0,
+                                    read::ColumnType::Column(val) => val,
+                                };
+                                program.row().discriminator = from_row.discriminator();
+                                program.row().is_statement = from_row.is_stmt();
+                                program.row().basic_block = from_row.basic_block();
+                                program.row().prologue_end = from_row.prologue_end();
+                                program.row().epilogue_begin = from_row.epilogue_begin();
+                                program.row().isa = from_row.isa();
+                                program.generate_row();
+                            }
+                            from_row.reset(&from_program);
                         }
-                        if from_row.end_sequence() {
-                            program.end_sequence(from_row.address());
-                        } else {
-                            program.row().address_offset = from_row.address();
-                            program.row().op_index = from_row.op_index();
-                            program.row().file = {
-                                let file = from_row.file_index();
-                                if file >= files.len() as u64 {
-                                    return Err(ConvertError::InvalidFileIndex);
-                                }
-                                files[file as usize]
-                            };
-                            program.row().line = from_row.line().unwrap_or(0);
-                            program.row().column = match from_row.column() {
-                                read::ColumnType::LeftEdge => 0,
-                                read::ColumnType::Column(val) => val,
-                            };
-                            program.row().discriminator = from_row.discriminator();
-                            program.row().is_statement = from_row.is_stmt();
-                            program.row().basic_block = from_row.basic_block();
-                            program.row().prologue_end = from_row.prologue_end();
-                            program.row().epilogue_begin = from_row.epilogue_begin();
-                            program.row().isa = from_row.isa();
-                            program.generate_row();
-                        }
-                        from_row.reset(&from_program);
-                    },
+                    }
                 };
             }
             Ok((program, files))
@@ -1012,14 +1016,16 @@ mod tests {
                 8,
                 Some(read::EndianSlice::new(dir1, LittleEndian)),
                 Some(read::EndianSlice::new(file1, LittleEndian)),
-            ).unwrap();
+            )
+            .unwrap();
         let read_program2 = read_debug_line
             .program(
                 debug_line_offsets.get(program_id2),
                 4,
                 Some(read::EndianSlice::new(dir2, LittleEndian)),
                 Some(read::EndianSlice::new(file2, LittleEndian)),
-            ).unwrap();
+            )
+            .unwrap();
 
         let convert_address = &|address| Some(Address::Absolute(address));
         for (program_id, read_program) in
@@ -1098,20 +1104,20 @@ mod tests {
                     program.begin_sequence(None);
                     program.row.line = 0x1000;
                     program.generate_row();
-                    let base_row = program.row.clone();
+                    let base_row = program.row;
                     let base_instructions = program.instructions.clone();
 
                     // Create test cases.
                     let mut tests = Vec::new();
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     tests.push((row, vec![LineInstruction::Copy]));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.line -= u64::from(neg_line_base);
                     tests.push((row, vec![LineInstruction::Special(OPCODE_BASE)]));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.line += u64::from(line_range) - 1;
                     row.line -= u64::from(neg_line_base);
                     tests.push((
@@ -1119,7 +1125,7 @@ mod tests {
                         vec![LineInstruction::Special(OPCODE_BASE + line_range - 1)],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.line += u64::from(line_range);
                     row.line -= u64::from(neg_line_base);
                     tests.push((
@@ -1130,7 +1136,7 @@ mod tests {
                         ],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = 1;
                     row.line -= u64::from(neg_line_base);
                     tests.push((
@@ -1139,7 +1145,7 @@ mod tests {
                     ));
 
                     let op_range = (255 - OPCODE_BASE) / line_range;
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = u64::from(op_range);
                     row.line -= u64::from(neg_line_base);
                     tests.push((
@@ -1149,13 +1155,13 @@ mod tests {
                         )],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = u64::from(op_range);
                     row.line += u64::from(255 - OPCODE_BASE - op_range * line_range);
                     row.line -= u64::from(neg_line_base);
                     tests.push((row, vec![LineInstruction::Special(255)]));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = u64::from(op_range);
                     row.line += u64::from(255 - OPCODE_BASE - op_range * line_range) + 1;
                     row.line -= u64::from(neg_line_base);
@@ -1164,7 +1170,7 @@ mod tests {
                         vec![LineInstruction::ConstAddPc, LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = u64::from(op_range);
                     row.line += u64::from(255 - OPCODE_BASE - op_range * line_range) + 2;
                     row.line -= u64::from(neg_line_base);
@@ -1176,7 +1182,7 @@ mod tests {
                         ],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = u64::from(op_range) * 2;
                     row.line += u64::from(255 - OPCODE_BASE - op_range * line_range);
                     row.line -= u64::from(neg_line_base);
@@ -1185,7 +1191,7 @@ mod tests {
                         vec![LineInstruction::ConstAddPc, LineInstruction::Special(255)],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = u64::from(op_range) * 2;
                     row.line += u64::from(255 - OPCODE_BASE - op_range * line_range) + 1;
                     row.line -= u64::from(neg_line_base);
@@ -1197,7 +1203,7 @@ mod tests {
                         ],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = u64::from(op_range) * 2;
                     row.line += u64::from(255 - OPCODE_BASE - op_range * line_range) + 2;
                     row.line -= u64::from(neg_line_base);
@@ -1209,35 +1215,35 @@ mod tests {
                         ],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.address_offset = 0x1234;
                     tests.push((
                         row,
                         vec![LineInstruction::AdvancePc(0x1234), LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.line += 0x1234;
                     tests.push((
                         row,
                         vec![LineInstruction::AdvanceLine(0x1234), LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.file = file_id;
                     tests.push((
                         row,
                         vec![LineInstruction::SetFile(file_id), LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.column = 0x1234;
                     tests.push((
                         row,
                         vec![LineInstruction::SetColumn(0x1234), LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.discriminator = 0x1234;
                     tests.push((
                         row,
@@ -1247,35 +1253,35 @@ mod tests {
                         ],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.is_statement = !row.is_statement;
                     tests.push((
                         row,
                         vec![LineInstruction::NegateStatement, LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.basic_block = true;
                     tests.push((
                         row,
                         vec![LineInstruction::SetBasicBlock, LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.prologue_end = true;
                     tests.push((
                         row,
                         vec![LineInstruction::SetPrologueEnd, LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.epilogue_begin = true;
                     tests.push((
                         row,
                         vec![LineInstruction::SetEpilogueBegin, LineInstruction::Copy],
                     ));
 
-                    let mut row = base_row.clone();
+                    let mut row = base_row;
                     row.isa = 0x1234;
                     tests.push((
                         row,
@@ -1307,7 +1313,8 @@ mod tests {
                                 address_size,
                                 Some(read::EndianSlice::new(dir1, LittleEndian)),
                                 Some(read::EndianSlice::new(file1, LittleEndian)),
-                            ).unwrap();
+                            )
+                            .unwrap();
 
                         let (convert_program, _convert_files) =
                             LineProgram::from(read_program, convert_address).unwrap();
@@ -1410,7 +1417,8 @@ mod tests {
                                 address_size,
                                 Some(read::EndianSlice::new(dir1, LittleEndian)),
                                 Some(read::EndianSlice::new(file1, LittleEndian)),
-                            ).unwrap();
+                            )
+                            .unwrap();
                         let read_header = read_program.header();
                         let mut read_insts = read_header.opcodes();
                         assert_eq!(
@@ -1426,6 +1434,7 @@ mod tests {
 
     // Test that the address/line advance is correct. We don't test for optimality.
     #[test]
+    #[allow(clippy::useless_vec)]
     fn test_advance() {
         let dir1 = &b"dir1"[..];
         let file1 = &b"file1"[..];
@@ -1457,13 +1466,13 @@ mod tests {
                                 {
                                     let row = program.row();
                                     row.address_offset +=
-                                        address_advance * minimum_instruction_length as u64;
+                                        address_advance * u64::from(minimum_instruction_length);
                                     row.line = row.line.wrapping_add(line_advance as u64);
                                 }
                                 program.generate_row();
                             }
-                            let address_offset =
-                                program.row().address_offset + minimum_instruction_length as u64;
+                            let address_offset = program.row().address_offset
+                                + u64::from(minimum_instruction_length);
                             program.end_sequence(address_offset);
                         }
 
@@ -1480,7 +1489,8 @@ mod tests {
                                 8,
                                 Some(read::EndianSlice::new(dir1, LittleEndian)),
                                 Some(read::EndianSlice::new(file1, LittleEndian)),
-                            ).unwrap();
+                            )
+                            .unwrap();
 
                         let mut rows = read_program.rows();
                         for address_advance in addresses.clone() {
@@ -1497,7 +1507,7 @@ mod tests {
                                 let row = rows.next_row().unwrap().unwrap().1;
                                 assert_eq!(
                                     row.address() - address,
-                                    address_advance * minimum_instruction_length as u64
+                                    address_advance * u64::from(minimum_instruction_length)
                                 );
                                 assert_eq!(
                                     (row.line().unwrap() as i64) - (line as i64),

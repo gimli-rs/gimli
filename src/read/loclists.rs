@@ -103,7 +103,8 @@ struct LocListsHeader {
 
 impl LocListsHeader {
     /// Return the serialized size of the table header.
-    fn size(&self) -> u8 {
+    #[inline]
+    fn size(self) -> u8 {
         // initial_length + version + address_size + segment_selector_size + offset_entry_count
         self.format.initial_length_size() + 2 + 1 + 1 + 4
     }
@@ -142,6 +143,7 @@ pub struct LocationLists<R: Reader> {
 impl<R: Reader> LocationLists<R> {
     /// Construct a new `LocationLists` instance from the data in the `.debug_loc` and
     /// `.debug_loclists` sections.
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(
         debug_loc: DebugLoc<R>,
         debug_loclists: DebugLocLists<R>,
@@ -522,26 +524,26 @@ mod tests {
             // OffsetPair
             .L8(4).uleb(0x10200).uleb(0x10300).uleb(4).L32(2)
             // A base address selection followed by an OffsetPair.
-            .L8(6).L32(0x02000000)
+            .L8(6).L32(0x0200_0000)
             .L8(4).uleb(0x10400).uleb(0x10500).uleb(4).L32(3)
             // An empty OffsetPair followed by a normal OffsetPair.
             .L8(4).uleb(0x10600).uleb(0x10600).uleb(4).L32(4)
             .L8(4).uleb(0x10800).uleb(0x10900).uleb(4).L32(5)
             // A StartEnd
-            .L8(7).L32(0x2010a00).L32(0x2010b00).uleb(4).L32(6)
+            .L8(7).L32(0x201_0a00).L32(0x201_0b00).uleb(4).L32(6)
             // A StartLength
-            .L8(8).L32(0x2010c00).uleb(0x100).uleb(4).L32(7)
+            .L8(8).L32(0x201_0c00).uleb(0x100).uleb(4).L32(7)
             // An OffsetPair that starts at 0.
             .L8(4).uleb(0).uleb(1).uleb(4).L32(8)
             // An OffsetPair that ends at -1.
             .L8(6).L32(0)
-            .L8(4).uleb(0).uleb(0xffffffff).uleb(4).L32(9)
+            .L8(4).uleb(0).uleb(0xffff_ffff).uleb(4).L32(9)
             // A DefaultLocation
             .L8(5).uleb(4).L32(10)
             // A range end.
             .L8(0)
             // Some extra data.
-            .L32(0xffffffff);
+            .L32(0xffff_ffff);
         size.set_const((&section.here() - &start - 4) as u64);
 
         let buf = section.get_contents().unwrap();
@@ -549,15 +551,15 @@ mod tests {
         let debug_loclists = DebugLocLists::new(&buf, LittleEndian);
         let loclists = LocationLists::new(debug_loc, debug_loclists).unwrap();
         let offset = LocationListsOffset((&first - &start) as usize);
-        let mut locations = loclists.locations(offset, 5, 0, 0x01000000).unwrap();
+        let mut locations = loclists.locations(offset, 5, 0, 0x0100_0000).unwrap();
 
         // A normal location.
         assert_eq!(
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x01010200,
-                    end: 0x01010300,
+                    begin: 0x0101_0200,
+                    end: 0x0101_0300,
                 },
                 data: Expression(EndianSlice::new(&[2, 0, 0, 0], LittleEndian)),
             }))
@@ -568,8 +570,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02010400,
-                    end: 0x02010500,
+                    begin: 0x0201_0400,
+                    end: 0x0201_0500,
                 },
                 data: Expression(EndianSlice::new(&[3, 0, 0, 0], LittleEndian)),
             }))
@@ -580,8 +582,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02010600,
-                    end: 0x02010600,
+                    begin: 0x0201_0600,
+                    end: 0x0201_0600,
                 },
                 data: Expression(EndianSlice::new(&[4, 0, 0, 0], LittleEndian)),
             }))
@@ -590,8 +592,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02010800,
-                    end: 0x02010900,
+                    begin: 0x0201_0800,
+                    end: 0x0201_0900,
                 },
                 data: Expression(EndianSlice::new(&[5, 0, 0, 0], LittleEndian)),
             }))
@@ -602,8 +604,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02010a00,
-                    end: 0x02010b00,
+                    begin: 0x0201_0a00,
+                    end: 0x0201_0b00,
                 },
                 data: Expression(EndianSlice::new(&[6, 0, 0, 0], LittleEndian)),
             }))
@@ -614,8 +616,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02010c00,
-                    end: 0x02010d00,
+                    begin: 0x0201_0c00,
+                    end: 0x0201_0d00,
                 },
                 data: Expression(EndianSlice::new(&[7, 0, 0, 0], LittleEndian)),
             }))
@@ -626,8 +628,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02000000,
-                    end: 0x02000001,
+                    begin: 0x0200_0000,
+                    end: 0x0200_0001,
                 },
                 data: Expression(EndianSlice::new(&[8, 0, 0, 0], LittleEndian)),
             }))
@@ -638,8 +640,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x00000000,
-                    end: 0xffffffff,
+                    begin: 0x0000_0000,
+                    end: 0xffff_ffff,
                 },
                 data: Expression(EndianSlice::new(&[9, 0, 0, 0], LittleEndian)),
             }))
@@ -662,7 +664,7 @@ mod tests {
 
         // An offset at the end of buf.
         let mut locations = loclists
-            .locations(LocationListsOffset(buf.len()), 5, 0, 0x01000000)
+            .locations(LocationListsOffset(buf.len()), 5, 0, 0x0100_0000)
             .unwrap();
         assert_eq!(locations.next(), Ok(None));
     }
@@ -676,7 +678,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little)
             // Header
             .mark(&start)
-            .L32(0xffffffff)
+            .L32(0xffff_ffff)
             .L64(&size)
             .L16(5)
             .L8(8)
@@ -686,26 +688,26 @@ mod tests {
             // OffsetPair
             .L8(4).uleb(0x10200).uleb(0x10300).uleb(4).L32(2)
             // A base address selection followed by an OffsetPair.
-            .L8(6).L64(0x02000000)
+            .L8(6).L64(0x0200_0000)
             .L8(4).uleb(0x10400).uleb(0x10500).uleb(4).L32(3)
             // An empty OffsetPair followed by a normal OffsetPair.
             .L8(4).uleb(0x10600).uleb(0x10600).uleb(4).L32(4)
             .L8(4).uleb(0x10800).uleb(0x10900).uleb(4).L32(5)
             // A StartEnd
-            .L8(7).L64(0x2010a00).L64(0x2010b00).uleb(4).L32(6)
+            .L8(7).L64(0x201_0a00).L64(0x201_0b00).uleb(4).L32(6)
             // A StartLength
-            .L8(8).L64(0x2010c00).uleb(0x100).uleb(4).L32(7)
+            .L8(8).L64(0x201_0c00).uleb(0x100).uleb(4).L32(7)
             // An OffsetPair that starts at 0.
             .L8(4).uleb(0).uleb(1).uleb(4).L32(8)
             // An OffsetPair that ends at -1.
             .L8(6).L64(0)
-            .L8(4).uleb(0).uleb(0xffffffff).uleb(4).L32(9)
+            .L8(4).uleb(0).uleb(0xffff_ffff).uleb(4).L32(9)
             // A DefaultLocation
             .L8(5).uleb(4).L32(10)
             // A range end.
             .L8(0)
             // Some extra data.
-            .L32(0xffffffff);
+            .L32(0xffff_ffff);
         size.set_const((&section.here() - &start - 12) as u64);
 
         let buf = section.get_contents().unwrap();
@@ -713,15 +715,15 @@ mod tests {
         let debug_loclists = DebugLocLists::new(&buf, LittleEndian);
         let loclists = LocationLists::new(debug_loc, debug_loclists).unwrap();
         let offset = LocationListsOffset((&first - &start) as usize);
-        let mut locations = loclists.locations(offset, 5, 0, 0x01000000).unwrap();
+        let mut locations = loclists.locations(offset, 5, 0, 0x0100_0000).unwrap();
 
         // A normal location.
         assert_eq!(
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x01010200,
-                    end: 0x01010300,
+                    begin: 0x0101_0200,
+                    end: 0x0101_0300,
                 },
                 data: Expression(EndianSlice::new(&[2, 0, 0, 0], LittleEndian)),
             }))
@@ -732,8 +734,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02010400,
-                    end: 0x02010500,
+                    begin: 0x0201_0400,
+                    end: 0x0201_0500,
                 },
                 data: Expression(EndianSlice::new(&[3, 0, 0, 0], LittleEndian)),
             }))
@@ -744,8 +746,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02010600,
-                    end: 0x02010600,
+                    begin: 0x0201_0600,
+                    end: 0x0201_0600,
                 },
                 data: Expression(EndianSlice::new(&[4, 0, 0, 0], LittleEndian)),
             }))
@@ -754,8 +756,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02010800,
-                    end: 0x02010900,
+                    begin: 0x0201_0800,
+                    end: 0x0201_0900,
                 },
                 data: Expression(EndianSlice::new(&[5, 0, 0, 0], LittleEndian)),
             }))
@@ -766,8 +768,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02010a00,
-                    end: 0x02010b00,
+                    begin: 0x0201_0a00,
+                    end: 0x0201_0b00,
                 },
                 data: Expression(EndianSlice::new(&[6, 0, 0, 0], LittleEndian)),
             }))
@@ -778,8 +780,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02010c00,
-                    end: 0x02010d00,
+                    begin: 0x0201_0c00,
+                    end: 0x0201_0d00,
                 },
                 data: Expression(EndianSlice::new(&[7, 0, 0, 0], LittleEndian)),
             }))
@@ -790,8 +792,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02000000,
-                    end: 0x02000001,
+                    begin: 0x0200_0000,
+                    end: 0x0200_0001,
                 },
                 data: Expression(EndianSlice::new(&[8, 0, 0, 0], LittleEndian)),
             }))
@@ -802,8 +804,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x00000000,
-                    end: 0xffffffff,
+                    begin: 0x0000_0000,
+                    end: 0xffff_ffff,
                 },
                 data: Expression(EndianSlice::new(&[9, 0, 0, 0], LittleEndian)),
             }))
@@ -826,7 +828,7 @@ mod tests {
 
         // An offset at the end of buf.
         let mut locations = loclists
-            .locations(LocationListsOffset(buf.len()), 5, 0, 0x01000000)
+            .locations(LocationListsOffset(buf.len()), 5, 0, 0x0100_0000)
             .unwrap();
         assert_eq!(locations.next(), Ok(None));
     }
@@ -844,7 +846,7 @@ mod tests {
             // A normal location.
             .L32(0x10200).L32(0x10300).L16(4).L32(2)
             // A base address selection followed by a normal location.
-            .L32(0xffffffff).L32(0x02000000)
+            .L32(0xffff_ffff).L32(0x0200_0000)
             .L32(0x10400).L32(0x10500).L16(4).L32(3)
             // An empty location range followed by a normal location.
             .L32(0x10600).L32(0x10600).L16(4).L32(4)
@@ -852,8 +854,8 @@ mod tests {
             // A location range that starts at 0.
             .L32(0).L32(1).L16(4).L32(6)
             // A location range that ends at -1.
-            .L32(0xffffffff).L32(0x00000000)
-            .L32(0).L32(0xffffffff).L16(4).L32(7)
+            .L32(0xffff_ffff).L32(0x0000_0000)
+            .L32(0).L32(0xffff_ffff).L16(4).L32(7)
             // A location list end.
             .L32(0).L32(0)
             // Some extra data.
@@ -865,15 +867,15 @@ mod tests {
         let loclists = LocationLists::new(debug_loc, debug_loclists).unwrap();
         let offset = LocationListsOffset((&first - &start) as usize);
         let version = 4;
-        let mut locations = loclists.locations(offset, version, 4, 0x01000000).unwrap();
+        let mut locations = loclists.locations(offset, version, 4, 0x0100_0000).unwrap();
 
         // A normal location.
         assert_eq!(
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x01010200,
-                    end: 0x01010300,
+                    begin: 0x0101_0200,
+                    end: 0x0101_0300,
                 },
                 data: Expression(EndianSlice::new(&[2, 0, 0, 0], LittleEndian)),
             }))
@@ -884,8 +886,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02010400,
-                    end: 0x02010500,
+                    begin: 0x0201_0400,
+                    end: 0x0201_0500,
                 },
                 data: Expression(EndianSlice::new(&[3, 0, 0, 0], LittleEndian)),
             }))
@@ -896,8 +898,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02010600,
-                    end: 0x02010600,
+                    begin: 0x0201_0600,
+                    end: 0x0201_0600,
                 },
                 data: Expression(EndianSlice::new(&[4, 0, 0, 0], LittleEndian)),
             }))
@@ -906,8 +908,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02010800,
-                    end: 0x02010900,
+                    begin: 0x0201_0800,
+                    end: 0x0201_0900,
                 },
                 data: Expression(EndianSlice::new(&[5, 0, 0, 0], LittleEndian)),
             }))
@@ -918,8 +920,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02000000,
-                    end: 0x02000001,
+                    begin: 0x0200_0000,
+                    end: 0x0200_0001,
                 },
                 data: Expression(EndianSlice::new(&[6, 0, 0, 0], LittleEndian)),
             }))
@@ -930,8 +932,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x00000000,
-                    end: 0xffffffff,
+                    begin: 0x0000_0000,
+                    end: 0xffff_ffff,
                 },
                 data: Expression(EndianSlice::new(&[7, 0, 0, 0], LittleEndian)),
             }))
@@ -942,7 +944,7 @@ mod tests {
 
         // An offset at the end of buf.
         let mut locations = loclists
-            .locations(LocationListsOffset(buf.len()), version, 4, 0x01000000)
+            .locations(LocationListsOffset(buf.len()), version, 4, 0x0100_0000)
             .unwrap();
         assert_eq!(locations.next(), Ok(None));
     }
@@ -960,7 +962,7 @@ mod tests {
             // A normal location.
             .L64(0x10200).L64(0x10300).L16(4).L32(2)
             // A base address selection followed by a normal location.
-            .L64(0xffffffffffffffff).L64(0x02000000)
+            .L64(0xffff_ffff_ffff_ffff).L64(0x0200_0000)
             .L64(0x10400).L64(0x10500).L16(4).L32(3)
             // An empty location range followed by a normal location.
             .L64(0x10600).L64(0x10600).L16(4).L32(4)
@@ -968,8 +970,8 @@ mod tests {
             // A location range that starts at 0.
             .L64(0).L64(1).L16(4).L32(6)
             // A location range that ends at -1.
-            .L64(0xffffffffffffffff).L64(0x00000000)
-            .L64(0).L64(0xffffffffffffffff).L16(4).L32(7)
+            .L64(0xffff_ffff_ffff_ffff).L64(0x0000_0000)
+            .L64(0).L64(0xffff_ffff_ffff_ffff).L16(4).L32(7)
             // A location list end.
             .L64(0).L64(0)
             // Some extra data.
@@ -981,15 +983,15 @@ mod tests {
         let loclists = LocationLists::new(debug_loc, debug_loclists).unwrap();
         let offset = LocationListsOffset((&first - &start) as usize);
         let version = 4;
-        let mut locations = loclists.locations(offset, version, 8, 0x01000000).unwrap();
+        let mut locations = loclists.locations(offset, version, 8, 0x0100_0000).unwrap();
 
         // A normal location.
         assert_eq!(
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x01010200,
-                    end: 0x01010300,
+                    begin: 0x0101_0200,
+                    end: 0x0101_0300,
                 },
                 data: Expression(EndianSlice::new(&[2, 0, 0, 0], LittleEndian)),
             }))
@@ -1000,8 +1002,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02010400,
-                    end: 0x02010500,
+                    begin: 0x0201_0400,
+                    end: 0x0201_0500,
                 },
                 data: Expression(EndianSlice::new(&[3, 0, 0, 0], LittleEndian)),
             }))
@@ -1012,8 +1014,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02010600,
-                    end: 0x02010600,
+                    begin: 0x0201_0600,
+                    end: 0x0201_0600,
                 },
                 data: Expression(EndianSlice::new(&[4, 0, 0, 0], LittleEndian)),
             }))
@@ -1022,8 +1024,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02010800,
-                    end: 0x02010900,
+                    begin: 0x0201_0800,
+                    end: 0x0201_0900,
                 },
                 data: Expression(EndianSlice::new(&[5, 0, 0, 0], LittleEndian)),
             }))
@@ -1034,8 +1036,8 @@ mod tests {
             locations.next(),
             Ok(Some(LocationListEntry {
                 range: Range {
-                    begin: 0x02000000,
-                    end: 0x02000001,
+                    begin: 0x0200_0000,
+                    end: 0x0200_0001,
                 },
                 data: Expression(EndianSlice::new(&[6, 0, 0, 0], LittleEndian)),
             }))
@@ -1047,7 +1049,7 @@ mod tests {
             Ok(Some(LocationListEntry {
                 range: Range {
                     begin: 0x0,
-                    end: 0xffffffffffffffff,
+                    end: 0xffff_ffff_ffff_ffff,
                 },
                 data: Expression(EndianSlice::new(&[7, 0, 0, 0], LittleEndian)),
             }))
@@ -1058,7 +1060,7 @@ mod tests {
 
         // An offset at the end of buf.
         let mut locations = loclists
-            .locations(LocationListsOffset(buf.len()), version, 8, 0x01000000)
+            .locations(LocationListsOffset(buf.len()), version, 8, 0x0100_0000)
             .unwrap();
         assert_eq!(locations.next(), Ok(None));
     }
@@ -1070,7 +1072,7 @@ mod tests {
             // An invalid location range.
             .L32(0x20000).L32(0x10000).L16(4).L32(1)
             // An invalid range after wrapping.
-            .L32(0x20000).L32(0xff010000).L16(4).L32(2);
+            .L32(0x20000).L32(0xff01_0000).L16(4).L32(2);
 
         let buf = section.get_contents().unwrap();
         let debug_loc = DebugLoc::new(&buf, LittleEndian);
@@ -1080,18 +1082,18 @@ mod tests {
 
         // An invalid location range.
         let mut locations = loclists
-            .locations(LocationListsOffset(0x0), version, 4, 0x01000000)
+            .locations(LocationListsOffset(0x0), version, 4, 0x0100_0000)
             .unwrap();
         assert_eq!(locations.next(), Err(Error::InvalidLocationAddressRange));
 
         // An invalid location range after wrapping.
         let mut locations = loclists
-            .locations(LocationListsOffset(14), version, 4, 0x01000000)
+            .locations(LocationListsOffset(14), version, 4, 0x0100_0000)
             .unwrap();
         assert_eq!(locations.next(), Err(Error::InvalidLocationAddressRange));
 
         // An invalid offset.
-        match loclists.locations(LocationListsOffset(buf.len() + 1), version, 4, 0x01000000) {
+        match loclists.locations(LocationListsOffset(buf.len() + 1), version, 4, 0x0100_0000) {
             Err(Error::UnexpectedEof) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }

@@ -39,6 +39,7 @@ struct ErrorWriter<W: Write + Send> {
 }
 
 impl<W: Write + Send> ErrorWriter<W> {
+    #[allow(clippy::needless_pass_by_value)]
     fn error(&self, s: String) {
         let mut lock = self.inner.lock().unwrap();
         writeln!(&mut lock.0, "DWARF error in {}: {}", self.path.display(), s).unwrap();
@@ -234,7 +235,7 @@ fn validate_info<W, R>(
 
         // Check intra-unit references
         for (from, to) in unit_refs {
-            if let Err(_) = ret.die_offsets.binary_search(&to) {
+            if ret.die_offsets.binary_search(&to).is_err() {
                 w.error(format!(
                     "Invalid intra-unit reference in unit {:#x} from DIE {:#x} to {:#x}",
                     unit.offset().0,
@@ -255,19 +256,21 @@ fn validate_info<W, R>(
         for &(from, to) in summary.global_die_references.iter() {
             let u = match processed_units.binary_search_by_key(&to, |v| v.offset) {
                 Ok(i) => &processed_units[i],
-                Err(i) => if i > 0 {
-                    &processed_units[i - 1]
-                } else {
-                    w.error(format!("Invalid cross-unit reference in unit {:#x} from DIE {:#x} to global DIE {:#x}: no unit found",
+                Err(i) => {
+                    if i > 0 {
+                        &processed_units[i - 1]
+                    } else {
+                        w.error(format!("Invalid cross-unit reference in unit {:#x} from DIE {:#x} to global DIE {:#x}: no unit found",
                                         summary.offset.0, from.0, to.0));
-                    continue;
-                },
+                        continue;
+                    }
+                }
             };
             if !u.internally_valid {
                 continue;
             }
             let to_offset = gimli::UnitOffset(to.0 - u.offset.0);
-            if let Err(_) = u.die_offsets.binary_search(&to_offset) {
+            if u.die_offsets.binary_search(&to_offset).is_err() {
                 w.error(format!("Invalid cross-unit reference in unit {:#x} from DIE {:#x} to global DIE {:#x}: unit at {:#x} contains no DIE {:#x}",
                                 summary.offset.0, from.0, to.0, u.offset.0, to_offset.0));
             }

@@ -160,7 +160,7 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    #[allow(new_ret_no_self)]
+    #[allow(clippy::new_ret_no_self)]
     fn new(program: IncompleteLineNumberProgram<R, Offset>) -> OneShotStateMachine<R, Offset> {
         let row = LineNumberRow::new(&program);
         let opcodes = OpcodesIter {
@@ -228,12 +228,12 @@ where
     /// or an error.
     pub fn run_to_address(
         &mut self,
-        addr: &u64,
+        addr: u64,
     ) -> Result<Option<(&LineNumberProgramHeader<R, Offset>, &LineNumberRow)>> {
         loop {
             match self.next_row() {
                 Ok(Some((_, row))) => {
-                    if row.address() == *addr {
+                    if row.address() == addr {
                         // Can't return 'row' directly here because of rust-lang/rust#21906.
                         break;
                     }
@@ -248,7 +248,7 @@ where
 }
 
 /// A parsed line number program opcode.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Opcode<R: Reader> {
     /// > ### 6.2.5.1 Special Opcodes
     /// >
@@ -560,7 +560,7 @@ impl<R: Reader> OpcodesIter<R> {
     ///
     /// Unfortunately, the `header` parameter means that this cannot be a
     /// `FallibleIterator`.
-    #[allow(inline_always)]
+    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn next_opcode(
         &mut self,
@@ -1360,6 +1360,7 @@ where
     /// println!("There are {} sequences in this line number program", sequences.len());
     /// # }
     /// ```
+    #[allow(clippy::type_complexity)]
     pub fn sequences(
         self,
     ) -> Result<(
@@ -1755,7 +1756,7 @@ mod tests {
     }
 
     const OPCODE_BASE: u8 = 13;
-    const STANDARD_OPCODE_LENGTHS: &'static [u8] = &[0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1];
+    const STANDARD_OPCODE_LENGTHS: &[u8] = &[0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1];
 
     fn make_test_header(
         buf: EndianSlice<LittleEndian>,
@@ -1967,7 +1968,7 @@ mod tests {
         test(
             constants::DW_LNE_set_address,
             [1, 2, 3, 4, 5, 6, 7, 8],
-            Opcode::SetAddress(578437695752307201),
+            Opcode::SetAddress(578_437_695_752_307_201),
         );
         test(
             constants::DW_LNE_set_discriminator,
@@ -2060,7 +2061,7 @@ mod tests {
 
         let initial_registers = new_registers();
         let opcode = Opcode::Special(16);
-        let expected_registers = initial_registers.clone();
+        let expected_registers = initial_registers;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
     }
@@ -2074,7 +2075,7 @@ mod tests {
 
         let opcode = Opcode::Special(13);
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.line -= 3;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
@@ -2088,7 +2089,7 @@ mod tests {
 
         let opcode = Opcode::Special(19);
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.line += 3;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
@@ -2102,7 +2103,7 @@ mod tests {
 
         let opcode = Opcode::Special(52);
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.address += 3;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
@@ -2116,7 +2117,7 @@ mod tests {
 
         let opcode = Opcode::Special(55);
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.address += 3;
         expected_registers.line += 3;
 
@@ -2132,7 +2133,7 @@ mod tests {
 
         let opcode = Opcode::Special(49);
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.address += 3;
         expected_registers.line -= 3;
 
@@ -2149,7 +2150,7 @@ mod tests {
         // -3 line advance.
         let opcode = Opcode::Special(13);
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         // Clamp at 0. No idea if this is the best way to handle this situation
         // or not...
         expected_registers.line = 0;
@@ -2167,7 +2168,7 @@ mod tests {
 
         let opcode = Opcode::Copy;
 
-        let expected_registers = initial_registers.clone();
+        let expected_registers = initial_registers;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
     }
@@ -2178,7 +2179,7 @@ mod tests {
         let initial_registers = new_registers();
         let opcode = Opcode::AdvancePc(42);
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.address += 42;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
@@ -2190,7 +2191,7 @@ mod tests {
         let initial_registers = new_registers();
         let opcode = Opcode::AdvanceLine(42);
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.line += 42;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
@@ -2203,7 +2204,7 @@ mod tests {
             let initial_registers = new_registers();
             let opcode = Opcode::SetFile(file_idx);
 
-            let mut expected_registers = initial_registers.clone();
+            let mut expected_registers = initial_registers;
             expected_registers.file = file_idx;
 
             assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
@@ -2222,7 +2223,7 @@ mod tests {
         // fingers and hope that one gets defined before
         // `LineNumberRow::file` gets called and handle the error at
         // that time if need be.
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.file = 100;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
@@ -2264,7 +2265,7 @@ mod tests {
         let initial_registers = new_registers();
         let opcode = Opcode::SetColumn(42);
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.column = 42;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
@@ -2276,7 +2277,7 @@ mod tests {
         let initial_registers = new_registers();
         let opcode = Opcode::NegateStatement;
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.is_stmt = !initial_registers.is_stmt;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
@@ -2291,7 +2292,7 @@ mod tests {
 
         let opcode = Opcode::SetBasicBlock;
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.basic_block = true;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
@@ -2303,7 +2304,7 @@ mod tests {
         let initial_registers = new_registers();
         let opcode = Opcode::ConstAddPc;
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.address += 20;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
@@ -2318,7 +2319,7 @@ mod tests {
 
         let opcode = Opcode::FixedAddPc(10);
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.address += 10;
         expected_registers.op_index = 0;
 
@@ -2334,7 +2335,7 @@ mod tests {
 
         let opcode = Opcode::SetPrologueEnd;
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.prologue_end = true;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
@@ -2346,7 +2347,7 @@ mod tests {
         let initial_registers = new_registers();
         let opcode = Opcode::SetIsa(1993);
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.isa = 1993;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
@@ -2357,7 +2358,7 @@ mod tests {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
         let initial_registers = new_registers();
         let opcode = Opcode::UnknownStandard0(constants::DwLns(111));
-        let expected_registers = initial_registers.clone();
+        let expected_registers = initial_registers;
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }
 
@@ -2366,7 +2367,7 @@ mod tests {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
         let initial_registers = new_registers();
         let opcode = Opcode::UnknownStandard1(constants::DwLns(111), 2);
-        let expected_registers = initial_registers.clone();
+        let expected_registers = initial_registers;
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }
 
@@ -2378,7 +2379,7 @@ mod tests {
             constants::DwLns(111),
             EndianSlice::new(&[2, 2, 2], LittleEndian),
         );
-        let expected_registers = initial_registers.clone();
+        let expected_registers = initial_registers;
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }
 
@@ -2388,7 +2389,7 @@ mod tests {
         let initial_registers = new_registers();
         let opcode = Opcode::EndSequence;
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.end_sequence = true;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
@@ -2400,7 +2401,7 @@ mod tests {
         let initial_registers = new_registers();
         let opcode = Opcode::SetAddress(3030);
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.address = 3030;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
@@ -2418,7 +2419,7 @@ mod tests {
             length: 0,
         };
 
-        let opcode = Opcode::DefineFile(file.clone());
+        let opcode = Opcode::DefineFile(file);
         let is_new_row = row.execute(opcode, &mut program);
 
         assert_eq!(is_new_row, false);
@@ -2431,7 +2432,7 @@ mod tests {
         let initial_registers = new_registers();
         let opcode = Opcode::SetDiscriminator(9);
 
-        let mut expected_registers = initial_registers.clone();
+        let mut expected_registers = initial_registers;
         expected_registers.discriminator = 9;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
@@ -2443,7 +2444,7 @@ mod tests {
         let initial_registers = new_registers();
         let opcode =
             Opcode::UnknownExtended(constants::DwLne(74), EndianSlice::new(&[], LittleEndian));
-        let expected_registers = initial_registers.clone();
+        let expected_registers = initial_registers;
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }
 

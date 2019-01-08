@@ -303,6 +303,7 @@ impl DebuggingInformationEntry {
     /// # Panics
     ///
     /// Panics if `parent` is invalid.
+    #[allow(clippy::new_ret_no_self)]
     fn new(
         entries: &mut Vec<DebuggingInformationEntry>,
         parent: Option<UnitEntryId>,
@@ -432,6 +433,7 @@ impl DebuggingInformationEntry {
     }
 
     /// Write the entry to the given sections.
+    #[allow(clippy::too_many_arguments)]
     fn write<W: Writer>(
         &self,
         w: &mut DebugInfo<W>,
@@ -766,6 +768,7 @@ impl AttributeValue {
     }
 
     /// Write the attribute value to the given sections.
+    #[allow(clippy::cyclomatic_complexity)]
     fn write<W: Writer>(
         &self,
         w: &mut DebugInfo<W>,
@@ -902,31 +905,31 @@ impl AttributeValue {
             }
             AttributeValue::Encoding(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                w.write_uleb128(val.0 as u64)?;
+                w.write_uleb128(u64::from(val.0))?;
             }
             AttributeValue::DecimalSign(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                w.write_uleb128(val.0 as u64)?;
+                w.write_uleb128(u64::from(val.0))?;
             }
             AttributeValue::Endianity(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                w.write_uleb128(val.0 as u64)?;
+                w.write_uleb128(u64::from(val.0))?;
             }
             AttributeValue::Accessibility(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                w.write_uleb128(val.0 as u64)?;
+                w.write_uleb128(u64::from(val.0))?;
             }
             AttributeValue::Visibility(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                w.write_uleb128(val.0 as u64)?;
+                w.write_uleb128(u64::from(val.0))?;
             }
             AttributeValue::Virtuality(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                w.write_uleb128(val.0 as u64)?;
+                w.write_uleb128(u64::from(val.0))?;
             }
             AttributeValue::Language(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                w.write_uleb128(val.0 as u64)?;
+                w.write_uleb128(u64::from(val.0))?;
             }
             AttributeValue::AddressClass(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
@@ -934,19 +937,19 @@ impl AttributeValue {
             }
             AttributeValue::IdentifierCase(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                w.write_uleb128(val.0 as u64)?;
+                w.write_uleb128(u64::from(val.0))?;
             }
             AttributeValue::CallingConvention(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                w.write_uleb128(val.0 as u64)?;
+                w.write_uleb128(u64::from(val.0))?;
             }
             AttributeValue::Inline(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                w.write_uleb128(val.0 as u64)?;
+                w.write_uleb128(u64::from(val.0))?;
             }
             AttributeValue::Ordering(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                w.write_uleb128(val.0 as u64)?;
+                w.write_uleb128(u64::from(val.0))?;
             }
             AttributeValue::FileIndex(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
@@ -1120,6 +1123,7 @@ mod convert {
 
     impl CompilationUnit {
         /// Create a compilation unit by reading the data in the given sections.
+        #[allow(clippy::too_many_arguments)]
         pub(crate) fn from<R: Reader<Offset = usize>>(
             from_unit: &read::CompilationUnitHeader<R>,
             unit_id: UnitId,
@@ -1209,7 +1213,7 @@ mod convert {
                         // This may point to a null entry, so we have to treat it differently.
                         entry.set_sibling(true);
                     } else {
-                        let attr = Attribute::from(context, from_attr, from_unit)?;
+                        let attr = Attribute::from(context, &from_attr, from_unit)?;
                         entry.set(attr.name, attr.value);
                     }
                 }
@@ -1237,7 +1241,7 @@ mod convert {
         /// Create an attribute by reading the data in the given sections.
         pub(crate) fn from<R: Reader<Offset = usize>>(
             context: &mut ConvertUnitContext<R>,
-            from: read::Attribute<R>,
+            from: &read::Attribute<R>,
             from_unit: &read::CompilationUnitHeader<R>,
         ) -> ConvertResult<Attribute> {
             let value = AttributeValue::from(context, from.value(), from_unit)?;
@@ -1346,6 +1350,7 @@ mod tests {
     use LittleEndian;
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_unit_table() {
         let mut strings = StringTable::default();
 
@@ -1457,7 +1462,8 @@ mod tests {
                 &mut debug_info,
                 &debug_line_offsets,
                 &debug_str_offsets,
-            ).unwrap();
+            )
+            .unwrap();
 
         println!("{:?}", debug_str);
         println!("{:?}", debug_info);
@@ -1601,7 +1607,8 @@ mod tests {
             &mut convert_line_programs,
             &mut convert_strings,
             &|address| Some(Address::Absolute(address)),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(convert_units.count(), units.count());
 
         for unit_id in 0..convert_units.count() {
@@ -1829,7 +1836,8 @@ mod tests {
                             &debug_str_offsets,
                             &mut unit_refs,
                             &mut debug_info_refs,
-                        ).unwrap();
+                        )
+                        .unwrap();
 
                         let spec = read::AttributeSpecification::new(*name, form, None);
                         let mut r = read::EndianSlice::new(debug_info.slice(), LittleEndian);
@@ -1855,7 +1863,7 @@ mod tests {
                         };
 
                         let convert_attr =
-                            Attribute::from(&mut context, read_attr, &from_comp_unit).unwrap();
+                            Attribute::from(&mut context, &read_attr, &from_comp_unit).unwrap();
                         assert_eq!(convert_attr, attr);
                     }
                 }
@@ -1864,6 +1872,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cyclomatic_complexity)]
     fn test_unit_ref() {
         let mut units = UnitTable::default();
         let unit_id1 = units.add(CompilationUnit::new(4, 8, Format::Dwarf32));
@@ -1928,7 +1937,8 @@ mod tests {
                 &mut debug_info,
                 &debug_line_offsets,
                 &debug_str_offsets,
-            ).unwrap();
+            )
+            .unwrap();
 
         println!("{:?}", debug_info);
         println!("{:?}", debug_abbrev);
@@ -2007,7 +2017,8 @@ mod tests {
             &mut convert_line_programs,
             &mut convert_strings,
             &|address| Some(Address::Absolute(address)),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(convert_units.count(), units.count());
 
         for unit_id in 0..convert_units.count() {
@@ -2083,7 +2094,7 @@ mod tests {
         }
 
         fn check_sibling<R: read::Reader<Offset = usize>>(
-            unit: read::CompilationUnitHeader<R>,
+            unit: &read::CompilationUnitHeader<R>,
             debug_abbrev: &read::DebugAbbrev<R>,
         ) {
             let abbrevs = unit.abbreviations(debug_abbrev).unwrap();
@@ -2118,7 +2129,8 @@ mod tests {
                 &mut debug_info,
                 &debug_line_offsets,
                 &debug_str_offsets,
-            ).unwrap();
+            )
+            .unwrap();
 
         println!("{:?}", debug_info);
         println!("{:?}", debug_abbrev);
@@ -2126,8 +2138,8 @@ mod tests {
         let read_debug_info = read::DebugInfo::new(debug_info.slice(), LittleEndian);
         let read_debug_abbrev = read::DebugAbbrev::new(debug_abbrev.slice(), LittleEndian);
         let mut read_units = read_debug_info.units();
-        check_sibling(read_units.next().unwrap().unwrap(), &read_debug_abbrev);
-        check_sibling(read_units.next().unwrap().unwrap(), &read_debug_abbrev);
+        check_sibling(&read_units.next().unwrap().unwrap(), &read_debug_abbrev);
+        check_sibling(&read_units.next().unwrap().unwrap(), &read_debug_abbrev);
     }
 
     #[test]
@@ -2174,11 +2186,13 @@ mod tests {
                             address_size,
                             Some(read::EndianSlice::new(b"comp_dir", LittleEndian)),
                             Some(read::EndianSlice::new(b"comp_name", LittleEndian)),
-                        ).unwrap();
+                        )
+                        .unwrap();
                     let (_, line_program_files) =
                         LineProgram::from(read_line_program, &|address| {
                             Some(Address::Absolute(address))
-                        }).unwrap();
+                        })
+                        .unwrap();
 
                     // Fake the unit.
                     let mut units = UnitTable::default();
@@ -2229,7 +2243,8 @@ mod tests {
                             &debug_str_offsets,
                             &mut unit_refs,
                             &mut debug_info_refs,
-                        ).unwrap();
+                        )
+                        .unwrap();
 
                         let spec = read::AttributeSpecification::new(*name, form, None);
                         let mut r = read::EndianSlice::new(debug_info.slice(), LittleEndian);
@@ -2255,7 +2270,7 @@ mod tests {
                         };
 
                         let convert_attr =
-                            Attribute::from(&mut context, read_attr, &from_comp_unit).unwrap();
+                            Attribute::from(&mut context, &read_attr, &from_comp_unit).unwrap();
                         assert_eq!(convert_attr, attr);
                     }
                 }

@@ -139,7 +139,8 @@ impl<Endian, T> Eq for EndianReader<Endian, T>
 where
     Endian: Endianity,
     T: CloneStableDeref<Target = [u8]> + Debug,
-{}
+{
+}
 
 // This is separated out from `EndianReader` so that we can avoid running afoul
 // of borrowck. We need to `read_slice(&mut self, ...) -> &[u8]` and then call
@@ -464,7 +465,7 @@ mod tests {
         EndianReader::new(bytes, NativeEndian)
     }
 
-    const BUF: &'static [u8] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
+    const BUF: &[u8] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
 
     #[test]
     fn test_reader_split() {
@@ -531,7 +532,7 @@ mod tests {
     fn indexing_out_of_bounds() {
         let mut reader = native_reader(BUF);
         reader.skip(2).unwrap();
-        reader[900];
+        let _ = reader[900];
     }
 
     #[test]
@@ -589,7 +590,7 @@ mod tests {
 
     // The rocket emoji (🚀 = [0xf0, 0x9f, 0x9a, 0x80]) but rotated left by one
     // to make it invalid UTF-8.
-    const BAD_UTF8: &'static [u8] = &[0x9f, 0x9a, 0x80, 0xf0];
+    const BAD_UTF8: &[u8] = &[0x9f, 0x9a, 0x80, 0xf0];
 
     #[test]
     fn to_string_err() {

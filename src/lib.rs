@@ -178,11 +178,11 @@
 // Allow clippy warnings when we aren't building with clippy.
 #![allow(unknown_lints)]
 // False positives with `fallible_iterator`.
-#![allow(should_implement_trait)]
+#![allow(clippy::should_implement_trait)]
 // Many false positives involving `continue`.
-#![allow(never_loop)]
+#![allow(clippy::never_loop)]
 // False positives when block expressions are used inside an assertion.
-#![allow(panic_params)]
+#![allow(clippy::panic_params)]
 #![no_std]
 #![cfg_attr(feature = "alloc", feature(alloc))]
 

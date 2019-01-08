@@ -486,28 +486,34 @@ pub(crate) fn parse_encoded_pointer<'bases, R: Reader>(
             let addr = parse_data(encoding, address_size, input)?;
             Ok(Pointer::new(encoding, addr))
         }
-        constants::DW_EH_PE_pcrel => if let Some(section_base) = bases.section {
-            let offset_from_section = input.offset_from(section);
-            let offset = parse_data(encoding, address_size, input)?;
-            let p = section_base
-                .wrapping_add(offset_from_section.into_u64())
-                .wrapping_add(offset);
-            Ok(Pointer::new(encoding, p))
-        } else {
-            Err(Error::PcRelativePointerButSectionBaseIsUndefined)
-        },
-        constants::DW_EH_PE_textrel => if let Some(text) = bases.text {
-            let offset = parse_data(encoding, address_size, input)?;
-            Ok(Pointer::new(encoding, text.wrapping_add(offset)))
-        } else {
-            Err(Error::TextRelativePointerButTextBaseIsUndefined)
-        },
-        constants::DW_EH_PE_datarel => if let Some(data) = bases.data {
-            let offset = parse_data(encoding, address_size, input)?;
-            Ok(Pointer::new(encoding, data.wrapping_add(offset)))
-        } else {
-            Err(Error::DataRelativePointerButDataBaseIsUndefined)
-        },
+        constants::DW_EH_PE_pcrel => {
+            if let Some(section_base) = bases.section {
+                let offset_from_section = input.offset_from(section);
+                let offset = parse_data(encoding, address_size, input)?;
+                let p = section_base
+                    .wrapping_add(offset_from_section.into_u64())
+                    .wrapping_add(offset);
+                Ok(Pointer::new(encoding, p))
+            } else {
+                Err(Error::PcRelativePointerButSectionBaseIsUndefined)
+            }
+        }
+        constants::DW_EH_PE_textrel => {
+            if let Some(text) = bases.text {
+                let offset = parse_data(encoding, address_size, input)?;
+                Ok(Pointer::new(encoding, text.wrapping_add(offset)))
+            } else {
+                Err(Error::TextRelativePointerButTextBaseIsUndefined)
+            }
+        }
+        constants::DW_EH_PE_datarel => {
+            if let Some(data) = bases.data {
+                let offset = parse_data(encoding, address_size, input)?;
+                Ok(Pointer::new(encoding, data.wrapping_add(offset)))
+            } else {
+                Err(Error::DataRelativePointerButDataBaseIsUndefined)
+            }
+        }
         constants::DW_EH_PE_funcrel => {
             let func = bases.func.borrow();
             if let Some(func) = *func {
@@ -547,7 +553,7 @@ mod tests {
 
     #[test]
     fn test_parse_initial_length_32_ok() {
-        let section = Section::with_endian(Endian::Little).L32(0x78563412);
+        let section = Section::with_endian(Endian::Little).L32(0x7856_3412);
         let buf = section.get_contents().unwrap();
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
@@ -555,7 +561,7 @@ mod tests {
             Ok((length, format)) => {
                 assert_eq!(input.len(), 0);
                 assert_eq!(format, Format::Dwarf32);
-                assert_eq!(0x78563412, length);
+                assert_eq!(0x7856_3412, length);
             }
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
@@ -565,9 +571,9 @@ mod tests {
     fn test_parse_initial_length_64_ok() {
         let section = Section::with_endian(Endian::Little)
             // Dwarf_64_INITIAL_UNIT_LENGTH
-            .L32(0xffffffff)
+            .L32(0xffff_ffff)
             // Actual length
-            .L64(0xffdebc9a78563412);
+            .L64(0xffde_bc9a_7856_3412);
         let buf = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&buf, LittleEndian);
 
@@ -576,7 +582,7 @@ mod tests {
             Ok((length, format)) => {
                 assert_eq!(input.len(), 0);
                 assert_eq!(format, Format::Dwarf64);
-                assert_eq!(0xffdebc9a78563412, length);
+                assert_eq!(0xffde_bc9a_7856_3412, length);
             }
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
@@ -590,7 +596,7 @@ mod tests {
 
     #[test]
     fn test_parse_initial_length_unknown_reserved_value() {
-        let section = Section::with_endian(Endian::Little).L32(0xfffffffe);
+        let section = Section::with_endian(Endian::Little).L32(0xffff_fffe);
         let buf = section.get_contents().unwrap();
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
@@ -615,9 +621,9 @@ mod tests {
     fn test_parse_initial_length_64_incomplete() {
         let section = Section::with_endian(Endian::Little)
             // Dwarf_64_INITIAL_UNIT_LENGTH
-            .L32(0xffffffff)
+            .L32(0xffff_ffff)
             // Actual length is not long enough.
-            .L32(0x78563412);
+            .L32(0x7856_3412);
         let buf = section.get_contents().unwrap();
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
@@ -629,14 +635,14 @@ mod tests {
 
     #[test]
     fn test_parse_offset_32() {
-        let section = Section::with_endian(Endian::Little).L32(0x01234567);
+        let section = Section::with_endian(Endian::Little).L32(0x0123_4567);
         let buf = section.get_contents().unwrap();
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
         match input.read_offset(Format::Dwarf32) {
             Ok(val) => {
                 assert_eq!(input.len(), 0);
-                assert_eq!(val, 0x01234567);
+                assert_eq!(val, 0x0123_4567);
             }
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -644,14 +650,14 @@ mod tests {
 
     #[test]
     fn test_parse_offset_64_small() {
-        let section = Section::with_endian(Endian::Little).L64(0x01234567);
+        let section = Section::with_endian(Endian::Little).L64(0x0123_4567);
         let buf = section.get_contents().unwrap();
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
         match input.read_offset(Format::Dwarf64) {
             Ok(val) => {
                 assert_eq!(input.len(), 0);
-                assert_eq!(val, 0x01234567);
+                assert_eq!(val, 0x0123_4567);
             }
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -660,14 +666,14 @@ mod tests {
     #[test]
     #[cfg(target_pointer_width = "64")]
     fn test_parse_offset_64_large() {
-        let section = Section::with_endian(Endian::Little).L64(0x0123456789abcdef);
+        let section = Section::with_endian(Endian::Little).L64(0x0123_4567_89ab_cdef);
         let buf = section.get_contents().unwrap();
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
         match input.read_offset(Format::Dwarf64) {
             Ok(val) => {
                 assert_eq!(input.len(), 0);
-                assert_eq!(val, 0x0123456789abcdef);
+                assert_eq!(val, 0x0123_4567_89ab_cdef);
             }
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -676,7 +682,7 @@ mod tests {
     #[test]
     #[cfg(target_pointer_width = "32")]
     fn test_parse_offset_64_large() {
-        let section = Section::with_endian(Endian::Little).L64(0x0123456789abcdef);
+        let section = Section::with_endian(Endian::Little).L64(0x0123_4567_89ab_cdef);
         let buf = section.get_contents().unwrap();
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
@@ -718,7 +724,7 @@ mod tests {
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
-            .L32(0xf00df00d)
+            .L32(0xf00d_f00d)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianSlice::new(&input, LittleEndian);
@@ -726,7 +732,7 @@ mod tests {
 
         assert_eq!(
             parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
-            Ok(Pointer::Direct(0xf00df00d))
+            Ok(Pointer::Direct(0xf00d_f00d))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
     }
@@ -902,7 +908,7 @@ mod tests {
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
-            .uleb(0x123456)
+            .uleb(0x12_3456)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianSlice::new(&input, LittleEndian);
@@ -910,7 +916,7 @@ mod tests {
 
         assert_eq!(
             parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
-            Ok(Pointer::Direct(0x123456))
+            Ok(Pointer::Direct(0x12_3456))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
     }
@@ -946,7 +952,7 @@ mod tests {
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
-            .L32(0x12345678)
+            .L32(0x1234_5678)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianSlice::new(&input, LittleEndian);
@@ -954,7 +960,7 @@ mod tests {
 
         assert_eq!(
             parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
-            Ok(Pointer::Direct(0x12345678))
+            Ok(Pointer::Direct(0x1234_5678))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
     }
@@ -968,7 +974,7 @@ mod tests {
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
-            .L64(0x1234567812345678)
+            .L64(0x1234_5678_1234_5678)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianSlice::new(&input, LittleEndian);
@@ -976,7 +982,7 @@ mod tests {
 
         assert_eq!(
             parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
-            Ok(Pointer::Direct(0x1234567812345678))
+            Ok(Pointer::Direct(0x1234_5678_1234_5678))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
     }
@@ -985,7 +991,7 @@ mod tests {
     fn test_parse_encoded_pointer_sleb128() {
         let encoding =
             constants::DwEhPe(constants::DW_EH_PE_textrel.0 | constants::DW_EH_PE_sleb128.0);
-        let bases = BaseAddresses::default().set_text(0x11111111);
+        let bases = BaseAddresses::default().set_text(0x1111_1111);
         let address_size = 4;
         let expected_rest = [1, 2, 3, 4];
 
@@ -998,7 +1004,7 @@ mod tests {
 
         assert_eq!(
             parse_encoded_pointer(encoding, &bases.eh_frame, address_size, &input, &mut rest),
-            Ok(Pointer::Direct(0x11110000))
+            Ok(Pointer::Direct(0x1111_0000))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
     }
@@ -1033,7 +1039,7 @@ mod tests {
         let bases = SectionBaseAddresses::default();
         let address_size = 4;
         let expected_rest = [1, 2, 3, 4];
-        let expected = 0x1111111 as i32;
+        let expected = 0x111_1111 as i32;
 
         let input = Section::with_endian(Endian::Little)
             .L32(expected as u32)
@@ -1056,7 +1062,7 @@ mod tests {
         let bases = SectionBaseAddresses::default();
         let address_size = 4;
         let expected_rest = [1, 2, 3, 4];
-        let expected = -0x11111112222222 as i64;
+        let expected = -0x11_1111_1222_2222 as i64;
 
         let input = Section::with_endian(Endian::Little)
             .L64(expected as u64)
@@ -1135,7 +1141,7 @@ mod tests {
         let address_size = 4;
 
         let input = Section::with_endian(Endian::Little)
-            .L32(0x12345678)
+            .L32(0x1234_5678)
             .append_bytes(&expected_rest);
         let input = input.get_contents().unwrap();
         let input = EndianSlice::new(&input, LittleEndian);
@@ -1143,7 +1149,7 @@ mod tests {
 
         assert_eq!(
             parse_encoded_pointer(encoding, &bases, address_size, &input, &mut rest),
-            Ok(Pointer::Indirect(0x12345678))
+            Ok(Pointer::Indirect(0x1234_5678))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
     }

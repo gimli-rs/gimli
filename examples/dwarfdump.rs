@@ -137,7 +137,7 @@ where
                             if ret.is_err() {
                                 lock.result = ret;
                             } else {
-                                lock.result = ret2.map_err(|x| Error::from(x));
+                                lock.result = ret2.map_err(Error::from);
                             }
                         }
                     }
@@ -518,7 +518,7 @@ where
         };
         let data_ref = (*arena.0.alloc(data)).borrow();
         let reader = gimli::EndianSlice::new(data_ref, endian);
-        let section = reader.clone();
+        let section = reader;
         let relocations = (*arena.1.alloc(relocations)).borrow();
         S::from(Relocate {
             relocations,
@@ -682,6 +682,7 @@ fn dump_eh_frame<R: Reader, W: Write>(
     }
 }
 
+#[allow(clippy::unneeded_field_pattern)]
 fn dump_cfi_instructions<R: Reader, W: Write>(
     w: &mut W,
     mut insns: gimli::CallFrameInstructionIter<R>,
@@ -872,7 +873,7 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
     }
 }
 
-#[allow(too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn dump_info<R: Reader>(
     debug_info: &gimli::DebugInfo<R>,
     debug_abbrev: &gimli::DebugAbbrev<R>,
@@ -937,7 +938,7 @@ fn dump_info<R: Reader>(
     parallel_output(16, units, process_unit)
 }
 
-#[allow(too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn dump_types<R: Reader, W: Write>(
     w: &mut W,
     debug_types: &gimli::DebugTypes<R>,
@@ -1020,7 +1021,7 @@ fn spaces(buf: &mut String, len: usize) -> &str {
     &buf[..len]
 }
 
-#[allow(too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn dump_entries<R: Reader, W: Write>(
     w: &mut W,
     offset: R::Offset,
@@ -1036,10 +1037,10 @@ fn dump_entries<R: Reader, W: Write>(
     flags: &Flags,
 ) -> Result<()> {
     let mut unit = Unit {
-        endian: endian,
-        format: format,
-        address_size: address_size,
-        version: version,
+        endian,
+        format,
+        address_size,
+        version,
         base_address: 0,
         line_program: None,
         comp_dir: None,
@@ -1093,7 +1094,8 @@ fn dump_entries<R: Reader, W: Write>(
                         unit.address_size,
                         unit.comp_dir.clone(),
                         unit.comp_name.clone(),
-                    ).ok(),
+                    )
+                    .ok(),
                 _ => None,
             }
         }
@@ -1162,11 +1164,13 @@ fn dump_attr_value<R: Reader, W: Write>(
                 gimli::DW_AT_data_member_location => {
                     writeln!(w, "{}", data)?;
                 }
-                _ => if data >= 0 {
-                    writeln!(w, "0x{:08x}", data)?;
-                } else {
-                    writeln!(w, "0x{:08x} ({})", data, data)?;
-                },
+                _ => {
+                    if data >= 0 {
+                        writeln!(w, "0x{:08x}", data)?;
+                    } else {
+                        writeln!(w, "0x{:08x} ({})", data, data)?;
+                    }
+                }
             };
         }
         gimli::AttributeValue::Udata(data) => {
@@ -1242,11 +1246,13 @@ fn dump_attr_value<R: Reader, W: Write>(
             dump_type_signature(w, signature, unit.endian)?;
             writeln!(w, " <type signature>")?;
         }
-        gimli::AttributeValue::DebugStrRef(offset) => if let Ok(s) = debug_str.get_str(offset) {
-            writeln!(w, "{}", s.to_string_lossy()?)?;
-        } else {
-            writeln!(w, "<GOFF=0x{:08x}>", offset.0)?;
-        },
+        gimli::AttributeValue::DebugStrRef(offset) => {
+            if let Ok(s) = debug_str.get_str(offset) {
+                writeln!(w, "{}", s.to_string_lossy()?)?;
+            } else {
+                writeln!(w, "<GOFF=0x{:08x}>", offset.0)?;
+            }
+        }
         gimli::AttributeValue::DebugStrRefSup(offset) => {
             writeln!(w, "<SUP_GOFF=0x{:08x}>", offset.0)?;
         }
@@ -1397,9 +1403,11 @@ fn dump_op<R: Reader, W: Write>(
                 write!(w, " type 0x{:08x}", base_type.0)?;
             }
         }
-        gimli::Operation::Pick { index } => if dwop == gimli::DW_OP_pick {
-            write!(w, " {}", index)?;
-        },
+        gimli::Operation::Pick { index } => {
+            if dwop == gimli::DW_OP_pick {
+                write!(w, " {}", index)?;
+            }
+        }
         gimli::Operation::PlusConstant { value } => {
             write!(w, " {}", value as i64)?;
         }
@@ -1560,11 +1568,11 @@ fn dump_loc_list<R: Reader, W: Write>(
     )?;
     for (i, raw) in raw_locations.iter().enumerate() {
         write!(w, "\t\t\t[{:2}]", i)?;
-        match raw {
-            &gimli::RawLocListEntry::BaseAddress { addr } => {
+        match *raw {
+            gimli::RawLocListEntry::BaseAddress { addr } => {
                 writeln!(w, "<new base address 0x{:08x}>", addr)?;
             }
-            &gimli::RawLocListEntry::OffsetPair {
+            gimli::RawLocListEntry::OffsetPair {
                 begin,
                 end,
                 ref data,
@@ -1580,12 +1588,12 @@ fn dump_loc_list<R: Reader, W: Write>(
                 dump_exprloc(w, data, unit)?;
                 writeln!(w)?;
             }
-            &gimli::RawLocListEntry::DefaultLocation { ref data } => {
+            gimli::RawLocListEntry::DefaultLocation { ref data } => {
                 write!(w, "<default location>")?;
                 dump_exprloc(w, data, unit)?;
                 writeln!(w)?;
             }
-            &gimli::RawLocListEntry::StartEnd {
+            gimli::RawLocListEntry::StartEnd {
                 begin,
                 end,
                 ref data,
@@ -1601,7 +1609,7 @@ fn dump_loc_list<R: Reader, W: Write>(
                 dump_exprloc(w, data, unit)?;
                 writeln!(w)?;
             }
-            &gimli::RawLocListEntry::StartLength {
+            gimli::RawLocListEntry::StartLength {
                 begin,
                 length,
                 ref data,
@@ -1648,11 +1656,11 @@ fn dump_range_list<R: Reader, W: Write>(
     )?;
     for (i, raw) in raw_ranges.iter().enumerate() {
         write!(w, "\t\t\t[{:2}] ", i)?;
-        match raw {
-            &gimli::RawRngListEntry::BaseAddress { addr } => {
+        match *raw {
+            gimli::RawRngListEntry::BaseAddress { addr } => {
                 writeln!(w, "<new base address 0x{:08x}>", addr)?;
             }
-            &gimli::RawRngListEntry::OffsetPair { begin, end } => {
+            gimli::RawRngListEntry::OffsetPair { begin, end } => {
                 let range = ranges.next()?.unwrap();
                 writeln!(
                     w,
@@ -1662,7 +1670,7 @@ fn dump_range_list<R: Reader, W: Write>(
                     begin, range.begin, end, range.end
                 )?;
             }
-            &gimli::RawRngListEntry::StartEnd { begin, end } => {
+            gimli::RawRngListEntry::StartEnd { begin, end } => {
                 let range = if begin == end {
                     gimli::Range { begin, end }
                 } else {
@@ -1676,7 +1684,7 @@ fn dump_range_list<R: Reader, W: Write>(
                     begin, range.begin, end, range.end
                 )?;
             }
-            &gimli::RawRngListEntry::StartLength { begin, length } => {
+            gimli::RawRngListEntry::StartLength { begin, length } => {
                 let range = ranges.next()?.unwrap();
                 writeln!(
                     w,

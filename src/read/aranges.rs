@@ -314,7 +314,7 @@ mod tests {
                 format: Format::Dwarf32,
                 length: 0x20,
                 version: 2,
-                offset: DebugInfoOffset(0x04030201),
+                offset: DebugInfoOffset(0x0403_0201),
                 address_size: 8,
                 segment_size: 4,
             }
@@ -339,8 +339,8 @@ mod tests {
             entry,
             Some(ArangeEntry {
                 segment: None,
-                address: 0x04030201,
-                length: 0x08070605,
+                address: 0x0403_0201,
+                length: 0x0807_0605,
                 unit_header_offset: header.offset,
             })
         );
@@ -373,9 +373,9 @@ mod tests {
         assert_eq!(
             entry,
             Some(ArangeEntry {
-                segment: Some(0x1817161514131211),
-                address: 0x04030201,
-                length: 0x08070605,
+                segment: Some(0x1817_1615_1413_1211),
+                address: 0x0403_0201,
+                length: 0x0807_0605,
                 unit_header_offset: header.offset,
             })
         );
@@ -409,8 +409,8 @@ mod tests {
             entry,
             Some(ArangeEntry {
                 segment: None,
-                address: 0x04030201,
-                length: 0x08070605,
+                address: 0x0403_0201,
+                length: 0x0807_0605,
                 unit_header_offset: header.offset,
             })
         );
