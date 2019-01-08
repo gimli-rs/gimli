@@ -869,7 +869,7 @@ where
     let units = dwarf.debug_info.units().collect::<Vec<_>>().unwrap();
     let process_unit =
         |unit: CompilationUnitHeader<R, R::Offset>, buf: &mut Vec<u8>| -> Result<()> {
-            let abbrevs = match unit.abbreviations(&dwarf.debug_abbrev) {
+            let abbrevs = match dwarf.abbreviations(&unit) {
                 Ok(abbrevs) => abbrevs,
                 Err(err) => {
                     writeln!(
@@ -923,7 +923,7 @@ fn dump_types<R: Reader, W: Write>(
 
     let mut iter = dwarf.debug_types.units();
     while let Some(unit) = iter.next()? {
-        let abbrevs = match unit.abbreviations(&dwarf.debug_abbrev) {
+        let abbrevs = match dwarf.type_abbreviations(&unit) {
             Ok(abbrevs) => abbrevs,
             Err(err) => {
                 writeln!(
@@ -1683,7 +1683,7 @@ fn dump_line_program<R: Reader, W: Write>(
     unit: &CompilationUnitHeader<R, R::Offset>,
     dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
-    let abbrevs = unit.abbreviations(&dwarf.debug_abbrev)?;
+    let abbrevs = dwarf.abbreviations(unit)?;
 
     let mut cursor = unit.entries(&abbrevs);
     cursor.next_dfs()?;

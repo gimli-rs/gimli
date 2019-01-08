@@ -1,5 +1,6 @@
 use read::{
-    DebugAbbrev, DebugInfo, DebugLine, DebugStr, DebugTypes, LocationLists, RangeLists, Reader,
+    Abbreviations, CompilationUnitHeader, DebugAbbrev, DebugInfo, DebugLine, DebugStr, DebugTypes,
+    LocationLists, RangeLists, Reader, Result, TypeUnitHeader,
 };
 
 /// All of the commonly used DWARF sections, and other common information.
@@ -28,4 +29,23 @@ pub struct Dwarf<R: Reader> {
 
     /// The range lists in the `.debug_ranges` and `.debug_rnglists` sections.
     pub ranges: RangeLists<R>,
+}
+
+impl<R: Reader> Dwarf<R> {
+    /// Parse the abbreviations for a compilation unit.
+    // TODO: provide caching of abbreviations
+    #[inline]
+    pub fn abbreviations(
+        &self,
+        unit: &CompilationUnitHeader<R, R::Offset>,
+    ) -> Result<Abbreviations> {
+        unit.abbreviations(&self.debug_abbrev)
+    }
+
+    /// Parse the abbreviations for a type unit.
+    // TODO: provide caching of abbreviations
+    #[inline]
+    pub fn type_abbreviations(&self, unit: &TypeUnitHeader<R, R::Offset>) -> Result<Abbreviations> {
+        unit.abbreviations(&self.debug_abbrev)
+    }
 }

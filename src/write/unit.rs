@@ -1132,7 +1132,7 @@ mod convert {
             let address_size = from_unit.address_size();
             let format = from_unit.format();
             let mut entries = Vec::new();
-            let abbreviations = from_unit.abbreviations(&dwarf.debug_abbrev)?;
+            let abbreviations = dwarf.abbreviations(from_unit)?;
             let mut from_tree = from_unit.entries_tree(&abbreviations, None)?;
             let from_root = from_tree.root()?;
             let mut line_program = None;
@@ -1480,7 +1480,7 @@ mod tests {
             assert_eq!(unit1.address_size(), read_unit1.address_size());
             assert_eq!(unit1.format(), read_unit1.format());
 
-            let abbrevs = read_unit1.abbreviations(&dwarf.debug_abbrev).unwrap();
+            let abbrevs = dwarf.abbreviations(&read_unit1).unwrap();
             let mut read_entries = read_unit1.entries(&abbrevs);
 
             let root = unit1.get(unit1.root());
@@ -1561,7 +1561,7 @@ mod tests {
             assert_eq!(unit2.address_size(), read_unit2.address_size());
             assert_eq!(unit2.format(), read_unit2.format());
 
-            let abbrevs = read_unit2.abbreviations(&dwarf.debug_abbrev).unwrap();
+            let abbrevs = dwarf.abbreviations(&read_unit2).unwrap();
             let mut read_entries = read_unit2.entries(&abbrevs);
 
             {
@@ -1582,7 +1582,7 @@ mod tests {
             assert_eq!(unit3.address_size(), read_unit3.address_size());
             assert_eq!(unit3.format(), read_unit3.format());
 
-            let abbrevs = read_unit3.abbreviations(&dwarf.debug_abbrev).unwrap();
+            let abbrevs = dwarf.abbreviations(&read_unit3).unwrap();
             let mut read_entries = read_unit3.entries(&abbrevs);
 
             {
@@ -1959,7 +1959,7 @@ mod tests {
             let read_unit1 = read_units.next().unwrap().unwrap();
             assert_eq!(read_unit1.offset(), debug_info_offsets.unit(unit_id1));
 
-            let abbrevs = read_unit1.abbreviations(&dwarf.debug_abbrev).unwrap();
+            let abbrevs = dwarf.abbreviations(&read_unit1).unwrap();
             let mut read_entries = read_unit1.entries(&abbrevs);
             {
                 let (_, _read_root) = read_entries.next_dfs().unwrap().unwrap();
@@ -1988,7 +1988,7 @@ mod tests {
             let read_unit2 = read_units.next().unwrap().unwrap();
             assert_eq!(read_unit2.offset(), debug_info_offsets.unit(unit_id2));
 
-            let abbrevs = read_unit2.abbreviations(&dwarf.debug_abbrev).unwrap();
+            let abbrevs = dwarf.abbreviations(&read_unit2).unwrap();
             let mut read_entries = read_unit2.entries(&abbrevs);
             {
                 let (_, _read_root) = read_entries.next_dfs().unwrap().unwrap();
