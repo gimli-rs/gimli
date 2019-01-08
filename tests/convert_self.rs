@@ -41,17 +41,19 @@ fn test_convert_debug_info() {
     let debug_str = read_section("debug_str");
     let debug_str = read::DebugStr::new(&debug_str, LittleEndian);
 
+    let dwarf = read::Dwarf {
+        debug_abbrev,
+        debug_info,
+        debug_line,
+        debug_str,
+        ..Default::default()
+    };
+
     let mut strings = write::StringTable::default();
     let mut line_programs = write::LineProgramTable::default();
-    let units = write::UnitTable::from(
-        &debug_abbrev,
-        &debug_info,
-        &debug_line,
-        &debug_str,
-        &mut line_programs,
-        &mut strings,
-        &|address| Some(Address::Absolute(address)),
-    )
+    let units = write::UnitTable::from(&dwarf, &mut line_programs, &mut strings, &|address| {
+        Some(Address::Absolute(address))
+    })
     .expect("Should convert compilation units");
     assert_eq!(units.count(), 23);
     let entries: usize = (0..units.count())
@@ -98,17 +100,19 @@ fn test_convert_debug_info() {
     let debug_line = read::DebugLine::new(debug_line_data, LittleEndian);
     let debug_str = read::DebugStr::new(debug_str_data, LittleEndian);
 
+    let dwarf = read::Dwarf {
+        debug_abbrev,
+        debug_info,
+        debug_line,
+        debug_str,
+        ..Default::default()
+    };
+
     let mut line_programs = write::LineProgramTable::default();
     let mut strings = write::StringTable::default();
-    let units = write::UnitTable::from(
-        &debug_abbrev,
-        &debug_info,
-        &debug_line,
-        &debug_str,
-        &mut line_programs,
-        &mut strings,
-        &|address| Some(Address::Absolute(address)),
-    )
+    let units = write::UnitTable::from(&dwarf, &mut line_programs, &mut strings, &|address| {
+        Some(Address::Absolute(address))
+    })
     .expect("Should convert compilation units");
     assert_eq!(units.count(), 23);
     let entries: usize = (0..units.count())

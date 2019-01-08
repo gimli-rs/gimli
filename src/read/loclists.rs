@@ -10,7 +10,7 @@ use read::{
 
 /// The `DebugLoc` struct represents the DWARF strings
 /// found in the `.debug_loc` section.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct DebugLoc<R: Reader> {
     pub(crate) debug_loc_section: R,
 }
@@ -52,7 +52,7 @@ impl<R: Reader> From<R> for DebugLoc<R> {
 
 /// The `DebugLocLists` struct represents the DWARF data
 /// found in the `.debug_loclists` section.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct DebugLocLists<R: Reader> {
     debug_loclists_section: R,
 }
@@ -101,6 +101,16 @@ struct LocListsHeader {
     offset_entry_count: u32,
 }
 
+impl Default for LocListsHeader {
+    fn default() -> Self {
+        LocListsHeader {
+            format: Format::Dwarf32,
+            address_size: 0,
+            offset_entry_count: 0,
+        }
+    }
+}
+
 impl LocListsHeader {
     /// Return the serialized size of the table header.
     #[inline]
@@ -133,7 +143,7 @@ fn parse_header<R: Reader>(input: &mut R) -> Result<LocListsHeader> {
 }
 
 /// The DWARF data found in `.debug_loc` and `.debug_loclists` sections.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct LocationLists<R: Reader> {
     debug_loc: DebugLoc<R>,
     debug_loclists: DebugLocLists<R>,
@@ -150,11 +160,7 @@ impl<R: Reader> LocationLists<R> {
     ) -> Result<LocationLists<R>> {
         let mut input = debug_loclists.debug_loclists_section.clone();
         let header = if input.is_empty() {
-            LocListsHeader {
-                format: Format::Dwarf32,
-                address_size: 0,
-                offset_entry_count: 0,
-            }
+            LocListsHeader::default()
         } else {
             parse_header(&mut input)?
         };

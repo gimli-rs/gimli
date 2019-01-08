@@ -89,7 +89,7 @@ impl<T: ReaderOffset> UnitOffset<T> {
 
 /// The `DebugInfo` struct represents the DWARF debugging information found in
 /// the `.debug_info` section.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct DebugInfo<R: Reader> {
     debug_info_section: R,
 }
@@ -2507,7 +2507,7 @@ fn parse_type_offset<R: Reader>(input: &mut R, format: Format) -> Result<UnitOff
 
 /// The `DebugTypes` struct represents the DWARF type information
 /// found in the `.debug_types` section.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct DebugTypes<R: Reader> {
     debug_types_section: R,
 }

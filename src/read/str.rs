@@ -4,7 +4,7 @@ use read::{EndianSlice, Reader, Result, Section};
 
 /// The `DebugStr` struct represents the DWARF strings
 /// found in the `.debug_str` section.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct DebugStr<R: Reader> {
     debug_str_section: R,
 }

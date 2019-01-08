@@ -148,15 +148,11 @@ where
     state.into_inner().unwrap().result
 }
 
-trait Reader: gimli::Reader<Offset = usize> + Send + Sync {
-    type SyncSendEndian: gimli::Endianity + Send + Sync;
-}
+trait Reader: gimli::Reader<Offset = usize> + Send + Sync {}
 
-impl<'input, Endian> Reader for gimli::EndianSlice<'input, Endian>
-where
-    Endian: gimli::Endianity + Send + Sync,
+impl<'input, Endian> Reader for gimli::EndianSlice<'input, Endian> where
+    Endian: gimli::Endianity + Send + Sync
 {
-    type SyncSendEndian = Endian;
 }
 
 type RelocationMap = HashMap<usize, object::Relocation>;
@@ -336,9 +332,7 @@ impl<'a, R: gimli::Reader<Offset = usize>> gimli::Reader for Relocate<'a, R> {
     }
 }
 
-impl<'a, R: Reader> Reader for Relocate<'a, R> {
-    type SyncSendEndian = R::SyncSendEndian;
-}
+impl<'a, R: Reader> Reader for Relocate<'a, R> {}
 
 #[derive(Default)]
 struct Flags {
@@ -527,24 +521,31 @@ where
         })
     }
 
-    // Variables representing sections of the file. The type of each is inferred from its use in the
-    // dump_* functions below.
-    let debug_abbrev = &load_section(&arena, file, endian);
-    let debug_aranges = &load_section(&arena, file, endian);
-    let debug_info = &load_section(&arena, file, endian);
-    let debug_line = &load_section(&arena, file, endian);
-    let debug_pubnames = &load_section(&arena, file, endian);
-    let debug_pubtypes = &load_section(&arena, file, endian);
-    let debug_str = &load_section(&arena, file, endian);
-    let debug_types = &load_section(&arena, file, endian);
+    // The type of each section variable is inferred from its use below.
+    let debug_abbrev = load_section(&arena, file, endian);
+    let debug_info = load_section(&arena, file, endian);
+    let debug_line = load_section(&arena, file, endian);
+    let debug_str = load_section(&arena, file, endian);
+    let debug_types = load_section(&arena, file, endian);
 
     let debug_loc = load_section(&arena, file, endian);
     let debug_loclists = load_section(&arena, file, endian);
-    let loclists = &gimli::LocationLists::new(debug_loc, debug_loclists)?;
+    let locations = gimli::LocationLists::new(debug_loc, debug_loclists)?;
 
     let debug_ranges = load_section(&arena, file, endian);
     let debug_rnglists = load_section(&arena, file, endian);
-    let rnglists = &gimli::RangeLists::new(debug_ranges, debug_rnglists)?;
+    let ranges = gimli::RangeLists::new(debug_ranges, debug_rnglists)?;
+
+    let dwarf = gimli::Dwarf {
+        endian,
+        debug_abbrev,
+        debug_info,
+        debug_line,
+        debug_str,
+        debug_types,
+        locations,
+        ranges,
+    };
 
     let out = io::stdout();
     if flags.eh_frame {
@@ -574,41 +575,25 @@ where
         dump_eh_frame(&mut BufWriter::new(out.lock()), &eh_frame, &register_name)?;
     }
     if flags.info {
-        dump_info(
-            debug_info,
-            debug_abbrev,
-            debug_line,
-            debug_str,
-            loclists,
-            rnglists,
-            endian,
-            flags,
-        )?;
-        dump_types(
-            &mut BufWriter::new(out.lock()),
-            debug_types,
-            debug_abbrev,
-            debug_line,
-            debug_str,
-            loclists,
-            rnglists,
-            endian,
-            flags,
-        )?;
+        dump_info(&dwarf, flags)?;
+        dump_types(&mut BufWriter::new(out.lock()), &dwarf, flags)?;
         writeln!(&mut out.lock())?;
     }
     let w = &mut BufWriter::new(out.lock());
     if flags.line {
-        dump_line(w, debug_line, debug_info, debug_abbrev, debug_str)?;
+        dump_line(w, &dwarf)?;
     }
     if flags.pubnames {
-        dump_pubnames(w, debug_pubnames, debug_info)?;
+        let debug_pubnames = &load_section(&arena, file, endian);
+        dump_pubnames(w, debug_pubnames, &dwarf.debug_info)?;
     }
     if flags.aranges {
-        dump_aranges(w, debug_aranges, debug_info)?;
+        let debug_aranges = &load_section(&arena, file, endian);
+        dump_aranges(w, debug_aranges, &dwarf.debug_info)?;
     }
     if flags.pubtypes {
-        dump_pubtypes(w, debug_pubtypes, debug_info)?;
+        let debug_pubtypes = &load_section(&arena, file, endian);
+        dump_pubtypes(w, debug_pubtypes, &dwarf.debug_info)?;
     }
     Ok(())
 }
@@ -874,23 +859,17 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn dump_info<R: Reader>(
-    debug_info: &gimli::DebugInfo<R>,
-    debug_abbrev: &gimli::DebugAbbrev<R>,
-    debug_line: &gimli::DebugLine<R>,
-    debug_str: &gimli::DebugStr<R>,
-    loclists: &gimli::LocationLists<R>,
-    rnglists: &gimli::RangeLists<R>,
-    endian: R::SyncSendEndian,
-    flags: &Flags,
-) -> Result<()> {
+fn dump_info<R: Reader>(dwarf: &gimli::Dwarf<R>, flags: &Flags) -> Result<()>
+where
+    R::Endian: Send + Sync,
+{
     let out = io::stdout();
     writeln!(&mut BufWriter::new(out.lock()), "\n.debug_info")?;
 
-    let units = debug_info.units().collect::<Vec<_>>().unwrap();
+    let units = dwarf.debug_info.units().collect::<Vec<_>>().unwrap();
     let process_unit =
         |unit: CompilationUnitHeader<R, R::Offset>, buf: &mut Vec<u8>| -> Result<()> {
-            let abbrevs = match unit.abbreviations(debug_abbrev) {
+            let abbrevs = match unit.abbreviations(&dwarf.debug_abbrev) {
                 Ok(abbrevs) => abbrevs,
                 Err(err) => {
                     writeln!(
@@ -909,11 +888,7 @@ fn dump_info<R: Reader>(
                 unit.address_size(),
                 unit.version(),
                 unit.format(),
-                debug_line,
-                debug_str,
-                loclists,
-                rnglists,
-                endian,
+                dwarf,
                 flags,
             );
             if let Err(err) = entries_result {
@@ -941,20 +916,14 @@ fn dump_info<R: Reader>(
 #[allow(clippy::too_many_arguments)]
 fn dump_types<R: Reader, W: Write>(
     w: &mut W,
-    debug_types: &gimli::DebugTypes<R>,
-    debug_abbrev: &gimli::DebugAbbrev<R>,
-    debug_line: &gimli::DebugLine<R>,
-    debug_str: &gimli::DebugStr<R>,
-    loclists: &gimli::LocationLists<R>,
-    rnglists: &gimli::RangeLists<R>,
-    endian: R::SyncSendEndian,
+    dwarf: &gimli::Dwarf<R>,
     flags: &Flags,
 ) -> Result<()> {
     writeln!(w, "\n.debug_types")?;
 
-    let mut iter = debug_types.units();
+    let mut iter = dwarf.debug_types.units();
     while let Some(unit) = iter.next()? {
-        let abbrevs = match unit.abbreviations(debug_abbrev) {
+        let abbrevs = match unit.abbreviations(&dwarf.debug_abbrev) {
             Ok(abbrevs) => abbrevs,
             Err(err) => {
                 writeln!(
@@ -968,7 +937,7 @@ fn dump_types<R: Reader, W: Write>(
 
         writeln!(w, "\nCU_HEADER:")?;
         write!(w, "  signature        = ")?;
-        dump_type_signature(w, unit.type_signature(), endian)?;
+        dump_type_signature(w, unit.type_signature(), dwarf.endian)?;
         writeln!(w)?;
         writeln!(
             w,
@@ -984,11 +953,7 @@ fn dump_types<R: Reader, W: Write>(
             unit.address_size(),
             unit.version(),
             unit.format(),
-            debug_line,
-            debug_str,
-            loclists,
-            rnglists,
-            endian,
+            dwarf,
             flags,
         );
         if let Err(err) = entries_result {
@@ -1004,7 +969,6 @@ fn dump_types<R: Reader, W: Write>(
 
 // TODO: most of this should be moved to the main library.
 struct Unit<R: Reader> {
-    endian: R::SyncSendEndian,
     format: gimli::Format,
     address_size: u8,
     version: u16,
@@ -1029,15 +993,10 @@ fn dump_entries<R: Reader, W: Write>(
     address_size: u8,
     version: u16,
     format: gimli::Format,
-    debug_line: &gimli::DebugLine<R>,
-    debug_str: &gimli::DebugStr<R>,
-    loclists: &gimli::LocationLists<R>,
-    rnglists: &gimli::RangeLists<R>,
-    endian: R::SyncSendEndian,
+    dwarf: &gimli::Dwarf<R>,
     flags: &Flags,
 ) -> Result<()> {
     let mut unit = Unit {
-        endian,
         format,
         address_size,
         version,
@@ -1083,12 +1042,13 @@ fn dump_entries<R: Reader, W: Write>(
             };
             unit.comp_dir = entry
                 .attr(gimli::DW_AT_comp_dir)?
-                .and_then(|attr| attr.string_value(debug_str));
+                .and_then(|attr| attr.string_value(&dwarf.debug_str));
             unit.comp_name = entry
                 .attr(gimli::DW_AT_name)?
-                .and_then(|attr| attr.string_value(debug_str));
+                .and_then(|attr| attr.string_value(&dwarf.debug_str));
             unit.line_program = match entry.attr_value(gimli::DW_AT_stmt_list)? {
-                Some(gimli::AttributeValue::DebugLineRef(offset)) => debug_line
+                Some(gimli::AttributeValue::DebugLineRef(offset)) => dwarf
+                    .debug_line
                     .program(
                         offset,
                         unit.address_size,
@@ -1112,7 +1072,7 @@ fn dump_entries<R: Reader, W: Write>(
             if flags.raw {
                 writeln!(w, "{:?}", attr.raw_value())?;
             } else {
-                match dump_attr_value(w, &attr, &unit, debug_str, loclists, rnglists) {
+                match dump_attr_value(w, &attr, &unit, dwarf) {
                     Ok(_) => (),
                     Err(ref err) => writeln!(
                         w,
@@ -1130,9 +1090,7 @@ fn dump_attr_value<R: Reader, W: Write>(
     w: &mut W,
     attr: &gimli::Attribute<R>,
     unit: &Unit<R>,
-    debug_str: &gimli::DebugStr<R>,
-    loclists: &gimli::LocationLists<R>,
-    rnglists: &gimli::RangeLists<R>,
+    dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     let value = attr.value();
     match value {
@@ -1233,21 +1191,21 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "0x{:08x}", offset)?;
         }
         gimli::AttributeValue::LocationListsRef(offset) => {
-            dump_loc_list(w, loclists, offset, unit)?;
+            dump_loc_list(w, &dwarf.locations, offset, unit)?;
         }
         gimli::AttributeValue::DebugMacinfoRef(gimli::DebugMacinfoOffset(offset)) => {
             writeln!(w, "{}", offset)?;
         }
         gimli::AttributeValue::RangeListsRef(offset) => {
             writeln!(w, "0x{:08x}", offset.0)?;
-            dump_range_list(w, rnglists, offset, unit)?;
+            dump_range_list(w, &dwarf.ranges, offset, unit)?;
         }
         gimli::AttributeValue::DebugTypesRef(signature) => {
-            dump_type_signature(w, signature, unit.endian)?;
+            dump_type_signature(w, signature, dwarf.endian)?;
             writeln!(w, " <type signature>")?;
         }
         gimli::AttributeValue::DebugStrRef(offset) => {
-            if let Ok(s) = debug_str.get_str(offset) {
+            if let Ok(s) = dwarf.debug_str.get_str(offset) {
                 writeln!(w, "{}", s.to_string_lossy()?)?;
             } else {
                 writeln!(w, "<GOFF=0x{:08x}>", offset.0)?;
@@ -1305,14 +1263,11 @@ fn dump_attr_value<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_type_signature<Endian, W: Write>(
+fn dump_type_signature<Endian: gimli::Endianity, W: Write>(
     w: &mut W,
     signature: gimli::DebugTypeSignature,
     endian: Endian,
-) -> Result<()>
-where
-    Endian: gimli::Endianity + Send + Sync,
-{
+) -> Result<()> {
     // Convert back to bytes so we can match libdwarf-dwarfdump output.
     let mut buf = [0; 8];
     endian.write_u64(&mut buf, signature.0);
@@ -1702,21 +1657,15 @@ fn dump_range_list<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_line<R: Reader, W: Write>(
-    w: &mut W,
-    debug_line: &gimli::DebugLine<R>,
-    debug_info: &gimli::DebugInfo<R>,
-    debug_abbrev: &gimli::DebugAbbrev<R>,
-    debug_str: &gimli::DebugStr<R>,
-) -> Result<()> {
-    let mut iter = debug_info.units();
+fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<()> {
+    let mut iter = dwarf.debug_info.units();
     while let Some(ref unit) = iter.next()? {
         writeln!(
             w,
             "\n.debug_line: line number info for unit at .debug_info offset 0x{:08x}",
             unit.offset().0
         )?;
-        match dump_line_program(w, unit, debug_line, debug_abbrev, debug_str) {
+        match dump_line_program(w, unit, dwarf) {
             Ok(_) => (),
             Err(Error::IoError) => return Err(Error::IoError),
             Err(err) => writeln!(
@@ -1732,11 +1681,9 @@ fn dump_line<R: Reader, W: Write>(
 fn dump_line_program<R: Reader, W: Write>(
     w: &mut W,
     unit: &CompilationUnitHeader<R, R::Offset>,
-    debug_line: &gimli::DebugLine<R>,
-    debug_abbrev: &gimli::DebugAbbrev<R>,
-    debug_str: &gimli::DebugStr<R>,
+    dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
-    let abbrevs = unit.abbreviations(debug_abbrev)?;
+    let abbrevs = unit.abbreviations(&dwarf.debug_abbrev)?;
 
     let mut cursor = unit.entries(&abbrevs);
     cursor.next_dfs()?;
@@ -1748,12 +1695,14 @@ fn dump_line_program<R: Reader, W: Write>(
     };
     let comp_dir = root
         .attr(gimli::DW_AT_comp_dir)?
-        .and_then(|attr| attr.string_value(debug_str));
+        .and_then(|attr| attr.string_value(&dwarf.debug_str));
     let comp_name = root
         .attr(gimli::DW_AT_name)?
-        .and_then(|attr| attr.string_value(debug_str));
+        .and_then(|attr| attr.string_value(&dwarf.debug_str));
 
-    let program = debug_line.program(offset, unit.address_size(), comp_dir, comp_name);
+    let program = dwarf
+        .debug_line
+        .program(offset, unit.address_size(), comp_dir, comp_name);
     if let Ok(program) = program {
         {
             let header = program.header();

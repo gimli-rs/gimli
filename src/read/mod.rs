@@ -11,6 +11,9 @@ use constants;
 mod cfi;
 pub use self::cfi::*;
 
+mod dwarf;
+pub use self::dwarf::*;
+
 mod endian_slice;
 pub use self::endian_slice::*;
 

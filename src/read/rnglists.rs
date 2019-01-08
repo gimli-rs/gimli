@@ -11,7 +11,7 @@ pub struct AddressIndex(pub u64);
 
 /// The `DebugRanges` struct represents the DWARF strings
 /// found in the `.debug_ranges` section.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct DebugRanges<R: Reader> {
     pub(crate) debug_ranges_section: R,
 }
@@ -55,7 +55,7 @@ impl<R: Reader> From<R> for DebugRanges<R> {
 
 /// The `DebugRngLists` struct represents the contents of the
 /// `.debug_rnglists` section.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct DebugRngLists<R: Reader> {
     debug_rnglists_section: R,
 }
@@ -105,6 +105,16 @@ struct RngListsHeader {
     offset_entry_count: u32,
 }
 
+impl Default for RngListsHeader {
+    fn default() -> Self {
+        RngListsHeader {
+            format: Format::Dwarf32,
+            address_size: 0,
+            offset_entry_count: 0,
+        }
+    }
+}
+
 impl RngListsHeader {
     /// Return the serialized size of the table header.
     #[inline]
@@ -137,7 +147,7 @@ fn parse_header<R: Reader>(input: &mut R) -> Result<RngListsHeader> {
 }
 
 /// The DWARF data found in `.debug_ranges` and `.debug_rnglists` sections.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct RangeLists<R: Reader> {
     debug_ranges: DebugRanges<R>,
     debug_rnglists: DebugRngLists<R>,
@@ -154,11 +164,7 @@ impl<R: Reader> RangeLists<R> {
     ) -> Result<RangeLists<R>> {
         let mut input = debug_rnglists.debug_rnglists_section.clone();
         let header = if input.is_empty() {
-            RngListsHeader {
-                format: Format::Dwarf32,
-                address_size: 0,
-                offset_entry_count: 0,
-            }
+            RngListsHeader::default()
         } else {
             parse_header(&mut input)?
         };
