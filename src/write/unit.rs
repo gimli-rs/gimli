@@ -1073,7 +1073,7 @@ mod convert {
             let mut units = Vec::new();
             let mut unit_entry_offsets = HashMap::new();
 
-            let mut from_units = dwarf.debug_info.units();
+            let mut from_units = dwarf.units();
             while let Some(ref from_unit) = from_units.next()? {
                 let unit_id = UnitId(units.len());
                 units.push(CompilationUnit::from(
@@ -1471,7 +1471,7 @@ mod tests {
             debug_str: read::DebugStr::new(debug_str.slice(), LittleEndian),
             ..Default::default()
         };
-        let mut read_units = dwarf.debug_info.units();
+        let mut read_units = dwarf.units();
 
         {
             let read_unit1 = read_units.next().unwrap().unwrap();
@@ -1942,7 +1942,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut read_units = dwarf.debug_info.units();
+        let mut read_units = dwarf.units();
         {
             let read_unit1 = read_units.next().unwrap().unwrap();
             assert_eq!(read_unit1.offset(), debug_info_offsets.unit(unit_id1));

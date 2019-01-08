@@ -1,6 +1,7 @@
 use read::{
-    Abbreviations, Attribute, AttributeValue, CompilationUnitHeader, DebugAbbrev, DebugInfo,
-    DebugLine, DebugStr, DebugTypes, LocationLists, RangeLists, Reader, Result, TypeUnitHeader,
+    Abbreviations, Attribute, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter,
+    DebugAbbrev, DebugInfo, DebugLine, DebugStr, DebugTypes, LocationLists, RangeLists, Reader,
+    Result, TypeUnitHeader, TypeUnitHeadersIter,
 };
 
 /// All of the commonly used DWARF sections, and other common information.
@@ -35,6 +36,25 @@ pub struct Dwarf<R: Reader> {
 }
 
 impl<R: Reader> Dwarf<R> {
+    /// Iterate the compilation- and partial-units in this
+    /// `.debug_info` section.
+    ///
+    /// Can be [used with
+    /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
+    #[inline]
+    pub fn units(&self) -> CompilationUnitHeadersIter<R> {
+        self.debug_info.units()
+    }
+
+    /// Iterate the type-units in this `.debug_types` section.
+    ///
+    /// Can be [used with
+    /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
+    #[inline]
+    pub fn type_units(&self) -> TypeUnitHeadersIter<R> {
+        self.debug_types.units()
+    }
+
     /// Parse the abbreviations for a compilation unit.
     // TODO: provide caching of abbreviations
     #[inline]

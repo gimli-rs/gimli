@@ -874,7 +874,7 @@ where
     let out = io::stdout();
     writeln!(&mut BufWriter::new(out.lock()), "\n.debug_info")?;
 
-    let units = dwarf.debug_info.units().collect::<Vec<_>>().unwrap();
+    let units = dwarf.units().collect::<Vec<_>>().unwrap();
     let process_unit =
         |unit: CompilationUnitHeader<R, R::Offset>, buf: &mut Vec<u8>| -> Result<()> {
             let abbrevs = match dwarf.abbreviations(&unit) {
@@ -929,7 +929,7 @@ fn dump_types<R: Reader, W: Write>(
 ) -> Result<()> {
     writeln!(w, "\n.debug_types")?;
 
-    let mut iter = dwarf.debug_types.units();
+    let mut iter = dwarf.type_units();
     while let Some(unit) = iter.next()? {
         let abbrevs = match dwarf.type_abbreviations(&unit) {
             Ok(abbrevs) => abbrevs,
@@ -1666,7 +1666,7 @@ fn dump_range_list<R: Reader, W: Write>(
 }
 
 fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<()> {
-    let mut iter = dwarf.debug_info.units();
+    let mut iter = dwarf.units();
     while let Some(ref unit) = iter.next()? {
         writeln!(
             w,
