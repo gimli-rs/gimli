@@ -521,6 +521,13 @@ where
         })
     }
 
+    let no_relocations = (*arena.1.alloc(RelocationMap::default())).borrow();
+    let no_reader = Relocate {
+        relocations: no_relocations,
+        section: Default::default(),
+        reader: Default::default(),
+    };
+
     // The type of each section variable is inferred from its use below.
     let debug_abbrev = load_section(&arena, file, endian);
     let debug_info = load_section(&arena, file, endian);
@@ -542,6 +549,7 @@ where
         debug_info,
         debug_line,
         debug_str,
+        debug_str_sup: no_reader.clone().into(),
         debug_types,
         locations,
         ranges,
@@ -1042,10 +1050,10 @@ fn dump_entries<R: Reader, W: Write>(
             };
             unit.comp_dir = entry
                 .attr(gimli::DW_AT_comp_dir)?
-                .and_then(|attr| attr.string_value(&dwarf.debug_str));
+                .and_then(|attr| dwarf.attr_string(&attr));
             unit.comp_name = entry
                 .attr(gimli::DW_AT_name)?
-                .and_then(|attr| attr.string_value(&dwarf.debug_str));
+                .and_then(|attr| dwarf.attr_string(&attr));
             unit.line_program = match entry.attr_value(gimli::DW_AT_stmt_list)? {
                 Some(gimli::AttributeValue::DebugLineRef(offset)) => dwarf
                     .debug_line
@@ -1695,10 +1703,10 @@ fn dump_line_program<R: Reader, W: Write>(
     };
     let comp_dir = root
         .attr(gimli::DW_AT_comp_dir)?
-        .and_then(|attr| attr.string_value(&dwarf.debug_str));
+        .and_then(|attr| dwarf.attr_string(&attr));
     let comp_name = root
         .attr(gimli::DW_AT_name)?
-        .and_then(|attr| attr.string_value(&dwarf.debug_str));
+        .and_then(|attr| dwarf.attr_string(&attr));
 
     let program = dwarf
         .debug_line

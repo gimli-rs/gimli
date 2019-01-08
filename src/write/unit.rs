@@ -1141,10 +1141,10 @@ mod convert {
                 let from_root = from_root.entry();
                 let comp_dir = from_root
                     .attr(constants::DW_AT_comp_dir)?
-                    .and_then(|attr| attr.string_value(&dwarf.debug_str));
+                    .and_then(|attr| dwarf.attr_string(&attr));
                 let comp_file = from_root
                     .attr(constants::DW_AT_name)?
-                    .and_then(|attr| attr.string_value(&dwarf.debug_str));
+                    .and_then(|attr| dwarf.attr_string(&attr));
                 if let Some(read::AttributeValue::DebugLineRef(offset)) =
                     from_root.attr_value(constants::DW_AT_stmt_list)?
                 {
@@ -1496,13 +1496,7 @@ mod tests {
                 };
                 assert_eq!(producer, b"root");
                 let read_producer = read_root.attr(constants::DW_AT_producer).unwrap().unwrap();
-                assert_eq!(
-                    read_producer
-                        .string_value(&dwarf.debug_str)
-                        .unwrap()
-                        .slice(),
-                    producer
-                );
+                assert_eq!(dwarf.attr_string(&read_producer).unwrap().slice(), producer);
             }
 
             let mut children = root.children().cloned();
@@ -1523,10 +1517,7 @@ mod tests {
                 let name = strings.get(name);
                 assert_eq!(name, b"child1");
                 let read_name = read_child.attr(constants::DW_AT_name).unwrap().unwrap();
-                assert_eq!(
-                    read_name.string_value(&dwarf.debug_str).unwrap().slice(),
-                    name
-                );
+                assert_eq!(dwarf.attr_string(&read_name).unwrap().slice(), name);
             }
 
             {
@@ -1545,10 +1536,7 @@ mod tests {
                 let name = strings.get(name);
                 assert_eq!(name, b"child2");
                 let read_name = read_child.attr(constants::DW_AT_name).unwrap().unwrap();
-                assert_eq!(
-                    read_name.string_value(&dwarf.debug_str).unwrap().slice(),
-                    name
-                );
+                assert_eq!(dwarf.attr_string(&read_name).unwrap().slice(), name);
             }
 
             assert!(read_entries.next_dfs().unwrap().is_none());

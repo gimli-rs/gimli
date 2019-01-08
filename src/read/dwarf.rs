@@ -1,6 +1,6 @@
 use read::{
-    Abbreviations, CompilationUnitHeader, DebugAbbrev, DebugInfo, DebugLine, DebugStr, DebugTypes,
-    LocationLists, RangeLists, Reader, Result, TypeUnitHeader,
+    Abbreviations, Attribute, AttributeValue, CompilationUnitHeader, DebugAbbrev, DebugInfo,
+    DebugLine, DebugStr, DebugTypes, LocationLists, RangeLists, Reader, Result, TypeUnitHeader,
 };
 
 /// All of the commonly used DWARF sections, and other common information.
@@ -20,6 +20,9 @@ pub struct Dwarf<R: Reader> {
 
     /// The `.debug_str` section.
     pub debug_str: DebugStr<R>,
+
+    /// The `.debug_str` section for a supplementary object file.
+    pub debug_str_sup: DebugStr<R>,
 
     /// The `.debug_types` section.
     pub debug_types: DebugTypes<R>,
@@ -47,5 +50,21 @@ impl<R: Reader> Dwarf<R> {
     #[inline]
     pub fn type_abbreviations(&self, unit: &TypeUnitHeader<R, R::Offset>) -> Result<Abbreviations> {
         unit.abbreviations(&self.debug_abbrev)
+    }
+
+    /// Try to return an attribute's value as a string slice.
+    ///
+    /// If the attribute's value is either an inline `DW_FORM_string` string,
+    /// or a `DW_FORM_strp` reference to an offset into the `.debug_str`
+    /// section, or a `DW_FORM_strp_sup` reference to an offset into a supplementary
+    /// object file, return the attribute's string value as `Some`. Other attribute
+    /// value forms are returned as `None`.
+    pub fn attr_string(&self, attr: &Attribute<R>) -> Option<R> {
+        match attr.value() {
+            AttributeValue::String(ref string) => Some(string.clone()),
+            AttributeValue::DebugStrRef(offset) => self.debug_str.get_str(offset).ok(),
+            AttributeValue::DebugStrRefSup(offset) => self.debug_str_sup.get_str(offset).ok(),
+            _ => None,
+        }
     }
 }
