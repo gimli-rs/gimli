@@ -866,7 +866,6 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn dump_info<R: Reader>(dwarf: &gimli::Dwarf<R, R::Endian>, flags: &Flags) -> Result<()>
 where
     R::Endian: Send + Sync,
@@ -921,7 +920,6 @@ where
     parallel_output(16, units, process_unit)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn dump_types<R: Reader, W: Write>(
     w: &mut W,
     dwarf: &gimli::Dwarf<R, R::Endian>,
