@@ -1690,30 +1690,15 @@ fn dump_line_program<R: Reader, W: Write>(
     dwarf: &gimli::Dwarf<R, R::Endian>,
 ) -> Result<()> {
     let abbrevs = dwarf.abbreviations(unit)?;
-
-    let mut cursor = unit.entries(&abbrevs);
-    cursor.next_dfs()?;
-
-    let root = cursor.current().ok_or(Error::MissingDIE)?;
-    let offset = match root.attr_value(gimli::DW_AT_stmt_list)? {
-        Some(gimli::AttributeValue::DebugLineRef(offset)) => offset,
-        _ => return Ok(()),
-    };
-    let comp_dir = root
-        .attr(gimli::DW_AT_comp_dir)?
-        .and_then(|attr| dwarf.attr_string(&attr));
-    let comp_name = root
-        .attr(gimli::DW_AT_name)?
-        .and_then(|attr| dwarf.attr_string(&attr));
-
-    let program = dwarf
-        .debug_line
-        .program(offset, unit.address_size(), comp_dir, comp_name);
-    if let Ok(program) = program {
+    if let Ok(Some(program)) = dwarf.line_program(unit, &abbrevs) {
         {
             let header = program.header();
             writeln!(w)?;
-            writeln!(w, "Offset:                             0x{:x}", offset.0)?;
+            writeln!(
+                w,
+                "Offset:                             0x{:x}",
+                header.offset().0
+            )?;
             writeln!(
                 w,
                 "Length:                             {}",

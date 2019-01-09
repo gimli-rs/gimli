@@ -1,7 +1,8 @@
+use constants;
 use read::{
     Abbreviations, Attribute, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter,
-    DebugAbbrev, DebugInfo, DebugLine, DebugStr, DebugTypes, LocationLists, RangeLists, Reader,
-    Result, TypeUnitHeader, TypeUnitHeadersIter,
+    DebugAbbrev, DebugInfo, DebugLine, DebugStr, DebugTypes, Error, IncompleteLineNumberProgram,
+    LocationLists, RangeLists, Reader, Result, TypeUnitHeader, TypeUnitHeadersIter,
 };
 use Endianity;
 
@@ -80,6 +81,31 @@ where
     #[inline]
     pub fn type_abbreviations(&self, unit: &TypeUnitHeader<R, R::Offset>) -> Result<Abbreviations> {
         unit.abbreviations(&self.debug_abbrev)
+    }
+
+    /// Return the line number program for a unit.
+    pub fn line_program(
+        &self,
+        unit: &CompilationUnitHeader<R, R::Offset>,
+        abbrevs: &Abbreviations,
+    ) -> Result<Option<IncompleteLineNumberProgram<R, R::Offset>>> {
+        let mut cursor = unit.entries(abbrevs);
+        cursor.next_dfs()?;
+        let root = cursor.current().ok_or(Error::MissingUnitDie)?;
+        let offset = match root.attr_value(constants::DW_AT_stmt_list)? {
+            Some(AttributeValue::DebugLineRef(offset)) => offset,
+            Some(_) => return Err(Error::UnsupportedAttributeForm),
+            None => return Ok(None),
+        };
+        let comp_dir = root
+            .attr(constants::DW_AT_comp_dir)?
+            .and_then(|attr| self.attr_string(&attr));
+        let comp_name = root
+            .attr(constants::DW_AT_name)?
+            .and_then(|attr| self.attr_string(&attr));
+        self.debug_line
+            .program(offset, unit.address_size(), comp_dir, comp_name)
+            .map(Option::Some)
     }
 
     /// Try to return an attribute's value as a string slice.
