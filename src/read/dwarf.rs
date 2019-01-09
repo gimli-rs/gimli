@@ -3,12 +3,18 @@ use read::{
     DebugAbbrev, DebugInfo, DebugLine, DebugStr, DebugTypes, LocationLists, RangeLists, Reader,
     Result, TypeUnitHeader, TypeUnitHeadersIter,
 };
+use Endianity;
 
 /// All of the commonly used DWARF sections, and other common information.
+// Endian is a type parameter so that we avoid invariance problems.
 #[derive(Debug, Default)]
-pub struct Dwarf<R: Reader> {
+pub struct Dwarf<R, Endian>
+where
+    R: Reader<Endian = Endian>,
+    Endian: Endianity,
+{
     /// The endianity of bytes that are read.
-    pub endian: R::Endian,
+    pub endian: Endian,
 
     /// The `.debug_abbrev` section.
     pub debug_abbrev: DebugAbbrev<R>,
@@ -35,7 +41,11 @@ pub struct Dwarf<R: Reader> {
     pub ranges: RangeLists<R>,
 }
 
-impl<R: Reader> Dwarf<R> {
+impl<R, Endian> Dwarf<R, Endian>
+where
+    R: Reader<Endian = Endian>,
+    Endian: Endianity,
+{
     /// Iterate the compilation- and partial-units in this
     /// `.debug_info` section.
     ///
@@ -85,6 +95,24 @@ impl<R: Reader> Dwarf<R> {
             AttributeValue::DebugStrRef(offset) => self.debug_str.get_str(offset).ok(),
             AttributeValue::DebugStrRefSup(offset) => self.debug_str_sup.get_str(offset).ok(),
             _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use read::EndianSlice;
+
+    /// Ensure that `Dwarf<R, Endian>` is covariant wrt R.
+    #[test]
+    fn test_dwarf_variance() {
+        /// This only needs to compile.
+        #[allow(dead_code)]
+        fn f<'a: 'b, 'b, E: Endianity>(
+            x: Dwarf<EndianSlice<'a, E>, E>,
+        ) -> Dwarf<EndianSlice<'b, E>, E> {
+            x
         }
     }
 }

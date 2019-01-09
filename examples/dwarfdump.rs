@@ -867,7 +867,7 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn dump_info<R: Reader>(dwarf: &gimli::Dwarf<R>, flags: &Flags) -> Result<()>
+fn dump_info<R: Reader>(dwarf: &gimli::Dwarf<R, R::Endian>, flags: &Flags) -> Result<()>
 where
     R::Endian: Send + Sync,
 {
@@ -924,7 +924,7 @@ where
 #[allow(clippy::too_many_arguments)]
 fn dump_types<R: Reader, W: Write>(
     w: &mut W,
-    dwarf: &gimli::Dwarf<R>,
+    dwarf: &gimli::Dwarf<R, R::Endian>,
     flags: &Flags,
 ) -> Result<()> {
     writeln!(w, "\n.debug_types")?;
@@ -1001,7 +1001,7 @@ fn dump_entries<R: Reader, W: Write>(
     address_size: u8,
     version: u16,
     format: gimli::Format,
-    dwarf: &gimli::Dwarf<R>,
+    dwarf: &gimli::Dwarf<R, R::Endian>,
     flags: &Flags,
 ) -> Result<()> {
     let mut unit = Unit {
@@ -1098,7 +1098,7 @@ fn dump_attr_value<R: Reader, W: Write>(
     w: &mut W,
     attr: &gimli::Attribute<R>,
     unit: &Unit<R>,
-    dwarf: &gimli::Dwarf<R>,
+    dwarf: &gimli::Dwarf<R, R::Endian>,
 ) -> Result<()> {
     let value = attr.value();
     match value {
@@ -1665,7 +1665,7 @@ fn dump_range_list<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<()> {
+fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R, R::Endian>) -> Result<()> {
     let mut iter = dwarf.units();
     while let Some(ref unit) = iter.next()? {
         writeln!(
@@ -1689,7 +1689,7 @@ fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<
 fn dump_line_program<R: Reader, W: Write>(
     w: &mut W,
     unit: &CompilationUnitHeader<R, R::Offset>,
-    dwarf: &gimli::Dwarf<R>,
+    dwarf: &gimli::Dwarf<R, R::Endian>,
 ) -> Result<()> {
     let abbrevs = dwarf.abbreviations(unit)?;
 
