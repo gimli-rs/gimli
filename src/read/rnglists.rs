@@ -1,6 +1,6 @@
 use fallible_iterator::FallibleIterator;
 
-use common::{Format, RangeListsOffset};
+use common::{DebugRngListsBase, DebugRngListsIndex, Format, RangeListsOffset};
 use constants;
 use endianity::Endianity;
 use read::{EndianSlice, Error, Reader, ReaderOffset, Result, Section};
@@ -12,7 +12,7 @@ pub struct AddressIndex(pub u64);
 /// The raw contents of the `.debug_ranges` section.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DebugRanges<R: Reader> {
-    pub(crate) debug_ranges_section: R,
+    pub(crate) section: R,
 }
 
 impl<'input, Endian> DebugRanges<EndianSlice<'input, Endian>>
@@ -33,8 +33,8 @@ where
     /// # let read_debug_ranges_section_somehow = || &buf;
     /// let debug_ranges = DebugRanges::new(read_debug_ranges_section_somehow(), LittleEndian);
     /// ```
-    pub fn new(debug_ranges_section: &'input [u8], endian: Endian) -> Self {
-        Self::from(EndianSlice::new(debug_ranges_section, endian))
+    pub fn new(section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianSlice::new(section, endian))
     }
 }
 
@@ -45,10 +45,8 @@ impl<R: Reader> Section<R> for DebugRanges<R> {
 }
 
 impl<R: Reader> From<R> for DebugRanges<R> {
-    fn from(debug_ranges_section: R) -> Self {
-        DebugRanges {
-            debug_ranges_section,
-        }
+    fn from(section: R) -> Self {
+        DebugRanges { section }
     }
 }
 
@@ -56,7 +54,7 @@ impl<R: Reader> From<R> for DebugRanges<R> {
 /// `.debug_rnglists` section.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DebugRngLists<R: Reader> {
-    debug_rnglists_section: R,
+    section: R,
 }
 
 impl<'input, Endian> DebugRngLists<EndianSlice<'input, Endian>>
@@ -78,8 +76,8 @@ where
     /// let debug_rnglists =
     ///     DebugRngLists::new(read_debug_rnglists_section_somehow(), LittleEndian);
     /// ```
-    pub fn new(debug_rnglists_section: &'input [u8], endian: Endian) -> Self {
-        Self::from(EndianSlice::new(debug_rnglists_section, endian))
+    pub fn new(section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianSlice::new(section, endian))
     }
 }
 
@@ -90,10 +88,8 @@ impl<R: Reader> Section<R> for DebugRngLists<R> {
 }
 
 impl<R: Reader> From<R> for DebugRngLists<R> {
-    fn from(debug_rnglists_section: R) -> Self {
-        DebugRngLists {
-            debug_rnglists_section,
-        }
+    fn from(section: R) -> Self {
+        DebugRngLists { section }
     }
 }
 
@@ -161,7 +157,7 @@ impl<R: Reader> RangeLists<R> {
         debug_ranges: DebugRanges<R>,
         debug_rnglists: DebugRngLists<R>,
     ) -> Result<RangeLists<R>> {
-        let mut input = debug_rnglists.debug_rnglists_section.clone();
+        let mut input = debug_rnglists.section.clone();
         let header = if input.is_empty() {
             RngListsHeader::default()
         } else {
@@ -214,14 +210,14 @@ impl<R: Reader> RangeLists<R> {
         address_size: u8,
     ) -> Result<RawRngListIter<R>> {
         if unit_version < 5 {
-            let mut input = self.debug_ranges.debug_ranges_section.clone();
+            let mut input = self.debug_ranges.section.clone();
             input.skip(offset.0)?;
             Ok(RawRngListIter::new(input, unit_version, address_size))
         } else {
             if offset.0 < R::Offset::from_u8(self.header.size()) {
                 return Err(Error::OffsetOutOfBounds);
             }
-            let mut input = self.debug_rnglists.debug_rnglists_section.clone();
+            let mut input = self.debug_rnglists.section.clone();
             input.skip(offset.0)?;
             Ok(RawRngListIter::new(
                 input,
@@ -229,6 +225,27 @@ impl<R: Reader> RangeLists<R> {
                 self.header.address_size,
             ))
         }
+    }
+
+    /// Returns the `.debug_rnglists` offset at the given `base` and `index`.
+    ///
+    /// The `base` must be the `DW_AT_rnglists_base` value from the compilation unit DIE.
+    /// This is an offset that points to the first entry following the header.
+    ///
+    /// The `index` is the value of a `DW_FORM_rnglistx` attribute.
+    pub fn get_offset(
+        &self,
+        base: DebugRngListsBase<R::Offset>,
+        index: DebugRngListsIndex<R::Offset>,
+    ) -> Result<RangeListsOffset<R::Offset>> {
+        let input = &mut self.debug_rnglists.section.clone();
+        input.skip(base.0)?;
+        input.skip(R::Offset::from_u64(
+            index.0.into_u64() * u64::from(self.header.format.word_size()),
+        )?)?;
+        input
+            .read_offset(self.header.format)
+            .map(|x| RangeListsOffset(base.0 + x))
     }
 }
 

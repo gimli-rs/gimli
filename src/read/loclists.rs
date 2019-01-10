@@ -1,6 +1,6 @@
 use fallible_iterator::FallibleIterator;
 
-use common::{Format, LocationListsOffset};
+use common::{DebugLocListsBase, DebugLocListsIndex, Format, LocationListsOffset};
 use constants;
 use endianity::Endianity;
 use read::{
@@ -11,7 +11,7 @@ use read::{
 /// The raw contents of the `.debug_loc` section.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DebugLoc<R: Reader> {
-    pub(crate) debug_loc_section: R,
+    pub(crate) section: R,
 }
 
 impl<'input, Endian> DebugLoc<EndianSlice<'input, Endian>>
@@ -32,8 +32,8 @@ where
     /// # let read_debug_loc_section_somehow = || &buf;
     /// let debug_loc = DebugLoc::new(read_debug_loc_section_somehow(), LittleEndian);
     /// ```
-    pub fn new(debug_loc_section: &'input [u8], endian: Endian) -> Self {
-        Self::from(EndianSlice::new(debug_loc_section, endian))
+    pub fn new(section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianSlice::new(section, endian))
     }
 }
 
@@ -44,8 +44,8 @@ impl<R: Reader> Section<R> for DebugLoc<R> {
 }
 
 impl<R: Reader> From<R> for DebugLoc<R> {
-    fn from(debug_loc_section: R) -> Self {
-        DebugLoc { debug_loc_section }
+    fn from(section: R) -> Self {
+        DebugLoc { section }
     }
 }
 
@@ -53,7 +53,7 @@ impl<R: Reader> From<R> for DebugLoc<R> {
 /// found in the `.debug_loclists` section.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DebugLocLists<R: Reader> {
-    debug_loclists_section: R,
+    section: R,
 }
 
 impl<'input, Endian> DebugLocLists<EndianSlice<'input, Endian>>
@@ -74,8 +74,8 @@ where
     /// # let read_debug_loclists_section_somehow = || &buf;
     /// let debug_loclists = DebugLocLists::new(read_debug_loclists_section_somehow(), LittleEndian);
     /// ```
-    pub fn new(debug_loclists_section: &'input [u8], endian: Endian) -> Self {
-        Self::from(EndianSlice::new(debug_loclists_section, endian))
+    pub fn new(section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianSlice::new(section, endian))
     }
 }
 
@@ -86,10 +86,8 @@ impl<R: Reader> Section<R> for DebugLocLists<R> {
 }
 
 impl<R: Reader> From<R> for DebugLocLists<R> {
-    fn from(debug_loclists_section: R) -> Self {
-        DebugLocLists {
-            debug_loclists_section,
-        }
+    fn from(section: R) -> Self {
+        DebugLocLists { section }
     }
 }
 
@@ -157,7 +155,7 @@ impl<R: Reader> LocationLists<R> {
         debug_loc: DebugLoc<R>,
         debug_loclists: DebugLocLists<R>,
     ) -> Result<LocationLists<R>> {
-        let mut input = debug_loclists.debug_loclists_section.clone();
+        let mut input = debug_loclists.section.clone();
         let header = if input.is_empty() {
             LocListsHeader::default()
         } else {
@@ -211,14 +209,14 @@ impl<R: Reader> LocationLists<R> {
         address_size: u8,
     ) -> Result<RawLocListIter<R>> {
         if unit_version < 5 {
-            let mut input = self.debug_loc.debug_loc_section.clone();
+            let mut input = self.debug_loc.section.clone();
             input.skip(offset.0)?;
             Ok(RawLocListIter::new(input, unit_version, address_size))
         } else {
             if offset.0 < R::Offset::from_u8(self.header.size()) {
                 return Err(Error::OffsetOutOfBounds);
             }
-            let mut input = self.debug_loclists.debug_loclists_section.clone();
+            let mut input = self.debug_loclists.section.clone();
             input.skip(offset.0)?;
             Ok(RawLocListIter::new(
                 input,
@@ -226,6 +224,27 @@ impl<R: Reader> LocationLists<R> {
                 self.header.address_size,
             ))
         }
+    }
+
+    /// Returns the `.debug_loclists` offset at the given `base` and `index`.
+    ///
+    /// The `base` must be the `DW_AT_loclists_base` value from the compilation unit DIE.
+    /// This is an offset that points to the first entry following the header.
+    ///
+    /// The `index` is the value of a `DW_FORM_loclistx` attribute.
+    pub fn get_offset(
+        &self,
+        base: DebugLocListsBase<R::Offset>,
+        index: DebugLocListsIndex<R::Offset>,
+    ) -> Result<LocationListsOffset<R::Offset>> {
+        let input = &mut self.debug_loclists.section.clone();
+        input.skip(base.0)?;
+        input.skip(R::Offset::from_u64(
+            index.0.into_u64() * u64::from(self.header.format.word_size()),
+        )?)?;
+        input
+            .read_offset(self.header.format)
+            .map(|x| LocationListsOffset(base.0 + x))
     }
 }
 
@@ -311,7 +330,7 @@ fn parse_data<R: Reader>(input: &mut R) -> Result<Expression<R>> {
 }
 
 impl<R: Reader> RawLocListEntry<R> {
-    /// Parse a range entry from `.debug_rnglists`
+    /// Parse a location list entry from `.debug_loclists`
     fn parse(input: &mut R, version: u16, address_size: u8) -> Result<Option<Self>> {
         if version < 5 {
             let range = RawRange::parse(input, address_size)?;

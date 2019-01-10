@@ -988,6 +988,8 @@ struct Unit<R: Reader> {
     comp_name: Option<R>,
     str_offsets_base: gimli::DebugStrOffsetsBase,
     addr_base: gimli::DebugAddrBase,
+    loclists_base: gimli::DebugLocListsBase,
+    rnglists_base: gimli::DebugRngListsBase,
 }
 
 fn spaces(buf: &mut String, len: usize) -> &str {
@@ -1019,6 +1021,8 @@ fn dump_entries<R: Reader, W: Write>(
         // Defaults to 0 for GNU extensions
         str_offsets_base: gimli::DebugStrOffsetsBase(0),
         addr_base: gimli::DebugAddrBase(0),
+        loclists_base: gimli::DebugLocListsBase(0),
+        rnglists_base: gimli::DebugRngListsBase(0),
     };
 
     let mut spaces_buf = String::new();
@@ -1082,6 +1086,16 @@ fn dump_entries<R: Reader, W: Write>(
                 entry.attr_value(gimli::DW_AT_addr_base)?
             {
                 unit.addr_base = base;
+            }
+            if let Some(gimli::AttributeValue::DebugLocListsBase(base)) =
+                entry.attr_value(gimli::DW_AT_loclists_base)?
+            {
+                unit.loclists_base = base;
+            }
+            if let Some(gimli::AttributeValue::DebugRngListsBase(base)) =
+                entry.attr_value(gimli::DW_AT_rnglists_base)?
+            {
+                unit.rnglists_base = base;
             }
         }
 
@@ -1227,10 +1241,26 @@ fn dump_attr_value<R: Reader, W: Write>(
         gimli::AttributeValue::LocationListsRef(offset) => {
             dump_loc_list(w, &dwarf.locations, offset, unit)?;
         }
+        gimli::AttributeValue::DebugLocListsBase(base) => {
+            writeln!(w, "<.debug_loclists+0x{:08x}>", base.0)?;
+        }
+        gimli::AttributeValue::DebugLocListsIndex(index) => {
+            let offset = dwarf.locations.get_offset(unit.loclists_base, index)?;
+            writeln!(w, "0x{:08x}", offset.0)?;
+            dump_loc_list(w, &dwarf.locations, offset, unit)?;
+        }
         gimli::AttributeValue::DebugMacinfoRef(gimli::DebugMacinfoOffset(offset)) => {
             writeln!(w, "{}", offset)?;
         }
         gimli::AttributeValue::RangeListsRef(offset) => {
+            writeln!(w, "0x{:08x}", offset.0)?;
+            dump_range_list(w, &dwarf.ranges, offset, unit)?;
+        }
+        gimli::AttributeValue::DebugRngListsBase(base) => {
+            writeln!(w, "<.debug_rnglists+0x{:08x}>", base.0)?;
+        }
+        gimli::AttributeValue::DebugRngListsIndex(index) => {
+            let offset = dwarf.ranges.get_offset(unit.rnglists_base, index)?;
             writeln!(w, "0x{:08x}", offset.0)?;
             dump_range_list(w, &dwarf.ranges, offset, unit)?;
         }

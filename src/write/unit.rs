@@ -3,9 +3,9 @@ use std::{slice, usize};
 use vec::Vec;
 
 use common::{
-    DebugAbbrevOffset, DebugAddrBase, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset,
-    DebugStrOffset, DebugStrOffsetsBase, DebugTypeSignature, Format, LocationListsOffset,
-    RangeListsOffset,
+    DebugAbbrevOffset, DebugAddrBase, DebugInfoOffset, DebugLineOffset, DebugLocListsBase,
+    DebugMacinfoOffset, DebugRngListsBase, DebugStrOffset, DebugStrOffsetsBase, DebugTypeSignature,
+    Format, LocationListsOffset, RangeListsOffset,
 };
 use constants;
 use write::{
@@ -1054,6 +1054,8 @@ mod convert {
         pub line_program_files: Vec<FileId>,
         pub str_offsets_base: DebugStrOffsetsBase<usize>,
         pub addr_base: DebugAddrBase<usize>,
+        pub loclists_base: DebugLocListsBase<usize>,
+        pub rnglists_base: DebugRngListsBase<usize>,
     }
 
     impl UnitTable {
@@ -1142,6 +1144,8 @@ mod convert {
             let mut line_program_files = Vec::new();
             let mut str_offsets_base = DebugStrOffsetsBase(0);
             let mut addr_base = DebugAddrBase(0);
+            let mut loclists_base = DebugLocListsBase(0);
+            let mut rnglists_base = DebugRngListsBase(0);
             {
                 let from_root = from_root.entry();
                 let comp_dir = from_root
@@ -1171,6 +1175,16 @@ mod convert {
                 {
                     addr_base = base;
                 }
+                if let Some(read::AttributeValue::DebugLocListsBase(base)) =
+                    from_root.attr_value(constants::DW_AT_loclists_base)?
+                {
+                    loclists_base = base;
+                }
+                if let Some(read::AttributeValue::DebugRngListsBase(base)) =
+                    from_root.attr_value(constants::DW_AT_rnglists_base)?
+                {
+                    rnglists_base = base;
+                }
             }
             let mut context = ConvertUnitContext {
                 dwarf,
@@ -1180,6 +1194,8 @@ mod convert {
                 line_program_files,
                 str_offsets_base,
                 addr_base,
+                loclists_base,
+                rnglists_base,
             };
             let root = DebuggingInformationEntry::from(
                 &mut context,
@@ -1328,7 +1344,31 @@ mod convert {
                 read::AttributeValue::LocationListsRef(val) => {
                     AttributeValue::LocationListsRef(val)
                 }
+                read::AttributeValue::DebugLocListsBase(_base) => {
+                    // We convert all location list indices to offsets,
+                    // so this is unneeded.
+                    return Ok(None);
+                }
+                read::AttributeValue::DebugLocListsIndex(index) => {
+                    let offset = context
+                        .dwarf
+                        .locations
+                        .get_offset(context.loclists_base, index)?;
+                    AttributeValue::LocationListsRef(offset)
+                }
                 read::AttributeValue::RangeListsRef(val) => AttributeValue::RangeListsRef(val),
+                read::AttributeValue::DebugRngListsBase(_base) => {
+                    // We convert all range list indices to offsets,
+                    // so this is unneeded.
+                    return Ok(None);
+                }
+                read::AttributeValue::DebugRngListsIndex(index) => {
+                    let offset = context
+                        .dwarf
+                        .ranges
+                        .get_offset(context.rnglists_base, index)?;
+                    AttributeValue::RangeListsRef(offset)
+                }
                 read::AttributeValue::DebugTypesRef(val) => AttributeValue::DebugTypesRef(val),
                 read::AttributeValue::DebugStrRef(offset) => {
                     let r = context.dwarf.debug_str.get_str(offset)?;
@@ -1900,6 +1940,8 @@ mod tests {
                             line_program_files: Vec::new(),
                             str_offsets_base: DebugStrOffsetsBase(0),
                             addr_base: DebugAddrBase(0),
+                            loclists_base: DebugLocListsBase(0),
+                            rnglists_base: DebugRngListsBase(0),
                         };
 
                         let convert_attr =
@@ -2317,6 +2359,8 @@ mod tests {
                             line_program_files: line_program_files.clone(),
                             str_offsets_base: DebugStrOffsetsBase(0),
                             addr_base: DebugAddrBase(0),
+                            loclists_base: DebugLocListsBase(0),
+                            rnglists_base: DebugRngListsBase(0),
                         };
 
                         let convert_attr =

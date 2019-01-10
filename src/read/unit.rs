@@ -7,7 +7,8 @@ use std::{u16, u8};
 
 use common::{
     DebugAbbrevOffset, DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineOffset,
-    DebugMacinfoOffset, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex,
+    DebugLocListsBase, DebugLocListsIndex, DebugMacinfoOffset, DebugRngListsBase,
+    DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex,
     DebugTypeSignature, DebugTypesOffset, Format, LocationListsOffset, RangeListsOffset,
 };
 use constants;
@@ -1017,11 +1018,23 @@ pub enum AttributeValue<R: Reader> {
     /// An offset into either the `.debug_loc` section or the `.debug_loclists` section.
     LocationListsRef(LocationListsOffset<R::Offset>),
 
+    /// An offset to a set of offsets in the `.debug_loclists` section.
+    DebugLocListsBase(DebugLocListsBase<R::Offset>),
+
+    /// An index into a set of offsets in the `.debug_loclists` section.
+    DebugLocListsIndex(DebugLocListsIndex<R::Offset>),
+
     /// An offset into the `.debug_macinfo` section.
     DebugMacinfoRef(DebugMacinfoOffset<R::Offset>),
 
     /// An offset into the `.debug_ranges` section.
     RangeListsRef(RangeListsOffset<R::Offset>),
+
+    /// An offset to a set of offsets in the `.debug_rnglists` section.
+    DebugRngListsBase(DebugRngListsBase<R::Offset>),
+
+    /// An index into a set of offsets in the `.debug_rnglists` section.
+    DebugRngListsIndex(DebugRngListsIndex<R::Offset>),
 
     /// A type signature.
     DebugTypesRef(DebugTypeSignature),
@@ -1163,17 +1176,26 @@ impl<R: Reader> Attribute<R> {
         macro_rules! flag {
             () => {};
         }
+        macro_rules! lineptr {
+            () => {
+                if let Some(offset) = self.offset_value() {
+                    return AttributeValue::DebugLineRef(DebugLineOffset(offset));
+                }
+            };
+        }
+        // This also covers `loclist` in DWARF version 5.
         macro_rules! loclistptr {
             () => {
+                // DebugLocListsIndex is also an allowed form in DWARF version 5.
                 if let Some(offset) = self.offset_value() {
                     return AttributeValue::LocationListsRef(LocationListsOffset(offset));
                 }
             };
         }
-        macro_rules! lineptr {
+        macro_rules! loclistsptr {
             () => {
                 if let Some(offset) = self.offset_value() {
-                    return AttributeValue::DebugLineRef(DebugLineOffset(offset));
+                    return AttributeValue::DebugLocListsBase(DebugLocListsBase(offset));
                 }
             };
         }
@@ -1184,15 +1206,24 @@ impl<R: Reader> Attribute<R> {
                 }
             };
         }
+        macro_rules! reference {
+            () => {};
+        }
+        // This also covers `rnglist` in DWARF version 5.
         macro_rules! rangelistptr {
             () => {
+                // DebugRngListsIndex is also an allowed form in DWARF version 5.
                 if let Some(offset) = self.offset_value() {
                     return AttributeValue::RangeListsRef(RangeListsOffset(offset));
                 }
             };
         }
-        macro_rules! reference {
-            () => {};
+        macro_rules! rnglistsptr {
+            () => {
+                if let Some(offset) = self.offset_value() {
+                    return AttributeValue::DebugRngListsBase(DebugRngListsBase(offset));
+                }
+            };
         }
         macro_rules! string {
             () => {};
@@ -1520,6 +1551,12 @@ impl<R: Reader> Attribute<R> {
             }
             constants::DW_AT_addr_base => {
                 addrptr!();
+            }
+            constants::DW_AT_rnglists_base => {
+                rnglistsptr!();
+            }
+            constants::DW_AT_loclists_base => {
+                loclistsptr!();
             }
             _ => {}
         }
@@ -1861,6 +1898,14 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
             constants::DW_FORM_addrx4 => {
                 let index = input.read_u32().map(R::Offset::from_u32)?;
                 AttributeValue::DebugAddrIndex(DebugAddrIndex(index))
+            }
+            constants::DW_FORM_loclistx => {
+                let index = input.read_uleb128().and_then(R::Offset::from_u64)?;
+                AttributeValue::DebugLocListsIndex(DebugLocListsIndex(index))
+            }
+            constants::DW_FORM_rnglistx => {
+                let index = input.read_uleb128().and_then(R::Offset::from_u64)?;
+                AttributeValue::DebugRngListsIndex(DebugRngListsIndex(index))
             }
             _ => {
                 return Err(Error::UnknownForm);

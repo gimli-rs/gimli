@@ -59,6 +59,14 @@ pub struct DebugLineOffset<T = usize>(pub T);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LocationListsOffset<T = usize>(pub T);
 
+/// An offset to a set of location list offsets in the `.debug_loclists` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugLocListsBase<T = usize>(pub T);
+
+/// An index into a set of location list offsets in the `.debug_loclists` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugLocListsIndex<T = usize>(pub T);
+
 /// An offset into the `.debug_macinfo` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugMacinfoOffset<T = usize>(pub T);
@@ -67,6 +75,14 @@ pub struct DebugMacinfoOffset<T = usize>(pub T);
 /// depending on the version of the unit the offset was contained in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RangeListsOffset<T = usize>(pub T);
+
+/// An offset to a set of range list offsets in the `.debug_rnglists` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugRngListsBase<T = usize>(pub T);
+
+/// An index into a set of range list offsets in the `.debug_rnglists` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugRngListsIndex<T = usize>(pub T);
 
 /// An offset into the `.debug_str` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
