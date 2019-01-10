@@ -1,7 +1,7 @@
 use constants;
 use read::{
     Abbreviations, Attribute, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter,
-    DebugAbbrev, DebugInfo, DebugLine, DebugStr, DebugStrOffsets, DebugTypes, Error,
+    DebugAbbrev, DebugAddr, DebugInfo, DebugLine, DebugStr, DebugStrOffsets, DebugTypes, Error,
     IncompleteLineNumberProgram, LocationLists, RangeLists, Reader, Result, TypeUnitHeader,
     TypeUnitHeadersIter,
 };
@@ -20,6 +20,9 @@ where
 
     /// The `.debug_abbrev` section.
     pub debug_abbrev: DebugAbbrev<R>,
+
+    /// The `.debug_addr` section.
+    pub debug_addr: DebugAddr<R>,
 
     /// The `.debug_info` section.
     pub debug_info: DebugInfo<R>,

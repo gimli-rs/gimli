@@ -3,8 +3,9 @@ use std::{slice, usize};
 use vec::Vec;
 
 use common::{
-    DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugStrOffset,
-    DebugStrOffsetsBase, DebugTypeSignature, Format, LocationListsOffset, RangeListsOffset,
+    DebugAbbrevOffset, DebugAddrBase, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset,
+    DebugStrOffset, DebugStrOffsetsBase, DebugTypeSignature, Format, LocationListsOffset,
+    RangeListsOffset,
 };
 use constants;
 use write::{
@@ -1052,6 +1053,7 @@ mod convert {
         pub line_program: Option<(DebugLineOffset, LineProgramId)>,
         pub line_program_files: Vec<FileId>,
         pub str_offsets_base: DebugStrOffsetsBase<usize>,
+        pub addr_base: DebugAddrBase<usize>,
     }
 
     impl UnitTable {
@@ -1139,6 +1141,7 @@ mod convert {
             let mut line_program = None;
             let mut line_program_files = Vec::new();
             let mut str_offsets_base = DebugStrOffsetsBase(0);
+            let mut addr_base = DebugAddrBase(0);
             {
                 let from_root = from_root.entry();
                 let comp_dir = from_root
@@ -1163,6 +1166,11 @@ mod convert {
                 {
                     str_offsets_base = base;
                 }
+                if let Some(read::AttributeValue::DebugAddrBase(base)) =
+                    from_root.attr_value(constants::DW_AT_addr_base)?
+                {
+                    addr_base = base;
+                }
             }
             let mut context = ConvertUnitContext {
                 dwarf,
@@ -1171,6 +1179,7 @@ mod convert {
                 line_program,
                 line_program_files,
                 str_offsets_base,
+                addr_base,
             };
             let root = DebuggingInformationEntry::from(
                 &mut context,
@@ -1280,6 +1289,22 @@ mod convert {
                 }
                 // TODO: it would be nice to preserve the flag form.
                 read::AttributeValue::Flag(val) => AttributeValue::Flag(val),
+                read::AttributeValue::DebugAddrBase(_base) => {
+                    // We convert all address indices to addresses,
+                    // so this is unneeded.
+                    return Ok(None);
+                }
+                read::AttributeValue::DebugAddrIndex(index) => {
+                    let val = context.dwarf.debug_addr.get_address(
+                        from_unit.address_size(),
+                        context.addr_base,
+                        index,
+                    )?;
+                    match (context.convert_address)(val) {
+                        Some(val) => AttributeValue::Address(val),
+                        None => return Err(ConvertError::InvalidAddress),
+                    }
+                }
                 read::AttributeValue::UnitRef(val) => {
                     AttributeValue::DebugInfoRef(val.to_debug_info_offset(from_unit))
                 }
@@ -1874,6 +1899,7 @@ mod tests {
                             line_program: None,
                             line_program_files: Vec::new(),
                             str_offsets_base: DebugStrOffsetsBase(0),
+                            addr_base: DebugAddrBase(0),
                         };
 
                         let convert_attr =
@@ -2290,6 +2316,7 @@ mod tests {
                             line_program: Some((line_program_offset, line_program_id)),
                             line_program_files: line_program_files.clone(),
                             str_offsets_base: DebugStrOffsetsBase(0),
+                            addr_base: DebugAddrBase(0),
                         };
 
                         let convert_attr =

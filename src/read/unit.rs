@@ -6,9 +6,9 @@ use std::ops::{Range, RangeFrom, RangeTo};
 use std::{u16, u8};
 
 use common::{
-    DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugStrOffset,
-    DebugStrOffsetsBase, DebugStrOffsetsIndex, DebugTypeSignature, DebugTypesOffset, Format,
-    LocationListsOffset, RangeListsOffset,
+    DebugAbbrevOffset, DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineOffset,
+    DebugMacinfoOffset, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex,
+    DebugTypeSignature, DebugTypesOffset, Format, LocationListsOffset, RangeListsOffset,
 };
 use constants;
 use endianity::Endianity;
@@ -995,6 +995,12 @@ pub enum AttributeValue<R: Reader> {
     /// depends on context.
     SecOffset(R::Offset),
 
+    /// An offset to a set of addresses in the `.debug_addr` section.
+    DebugAddrBase(DebugAddrBase<R::Offset>),
+
+    /// An index into a set of addresses in the `.debug_addr` section.
+    DebugAddrIndex(DebugAddrIndex<R::Offset>),
+
     /// An offset into the current compilation unit.
     UnitRef(UnitOffset<R::Offset>),
 
@@ -1124,6 +1130,13 @@ impl<R: Reader> Attribute<R> {
         // each name.
         macro_rules! address {
             () => {};
+        }
+        macro_rules! addrptr {
+            () => {
+                if let Some(offset) = self.offset_value() {
+                    return AttributeValue::DebugAddrBase(DebugAddrBase(offset));
+                }
+            };
         }
         macro_rules! block {
             () => {};
@@ -1505,6 +1518,9 @@ impl<R: Reader> Attribute<R> {
             constants::DW_AT_str_offsets_base => {
                 stroffsetsptr!();
             }
+            constants::DW_AT_addr_base => {
+                addrptr!();
+            }
             _ => {}
         }
         self.value.clone()
@@ -1828,6 +1844,23 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
             constants::DW_FORM_strx4 => {
                 let index = input.read_u32().map(R::Offset::from_u32)?;
                 AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
+            }
+            constants::DW_FORM_addrx | constants::DW_FORM_GNU_addr_index => {
+                let index = input.read_uleb128().and_then(R::Offset::from_u64)?;
+                AttributeValue::DebugAddrIndex(DebugAddrIndex(index))
+            }
+            constants::DW_FORM_addrx1 => {
+                let index = input.read_u8().map(R::Offset::from_u8)?;
+                AttributeValue::DebugAddrIndex(DebugAddrIndex(index))
+            }
+            constants::DW_FORM_addrx2 => {
+                let index = input.read_u16().map(R::Offset::from_u16)?;
+                AttributeValue::DebugAddrIndex(DebugAddrIndex(index))
+            }
+            // TODO: constants::DW_FORM_addrx3
+            constants::DW_FORM_addrx4 => {
+                let index = input.read_u32().map(R::Offset::from_u32)?;
+                AttributeValue::DebugAddrIndex(DebugAddrIndex(index))
             }
             _ => {
                 return Err(Error::UnknownForm);

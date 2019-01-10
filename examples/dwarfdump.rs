@@ -530,6 +530,7 @@ where
 
     // The type of each section variable is inferred from its use below.
     let debug_abbrev = load_section(&arena, file, endian);
+    let debug_addr = load_section(&arena, file, endian);
     let debug_info = load_section(&arena, file, endian);
     let debug_line = load_section(&arena, file, endian);
     let debug_str = load_section(&arena, file, endian);
@@ -547,6 +548,7 @@ where
     let dwarf = gimli::Dwarf {
         endian,
         debug_abbrev,
+        debug_addr,
         debug_info,
         debug_line,
         debug_str,
@@ -985,6 +987,7 @@ struct Unit<R: Reader> {
     comp_dir: Option<R>,
     comp_name: Option<R>,
     str_offsets_base: gimli::DebugStrOffsetsBase,
+    addr_base: gimli::DebugAddrBase,
 }
 
 fn spaces(buf: &mut String, len: usize) -> &str {
@@ -1015,6 +1018,7 @@ fn dump_entries<R: Reader, W: Write>(
         comp_name: None,
         // Defaults to 0 for GNU extensions
         str_offsets_base: gimli::DebugStrOffsetsBase(0),
+        addr_base: gimli::DebugAddrBase(0),
     };
 
     let mut spaces_buf = String::new();
@@ -1073,6 +1077,11 @@ fn dump_entries<R: Reader, W: Write>(
                 entry.attr_value(gimli::DW_AT_str_offsets_base)?
             {
                 unit.str_offsets_base = base;
+            }
+            if let Some(gimli::AttributeValue::DebugAddrBase(base)) =
+                entry.attr_value(gimli::DW_AT_addr_base)?
+            {
+                unit.addr_base = base;
             }
         }
 
@@ -1193,6 +1202,15 @@ fn dump_attr_value<R: Reader, W: Write>(
         }
         gimli::AttributeValue::SecOffset(offset) => {
             writeln!(w, "0x{:08x}", offset)?;
+        }
+        gimli::AttributeValue::DebugAddrBase(base) => {
+            writeln!(w, "<.debug_addr+0x{:08x}>", base.0)?;
+        }
+        gimli::AttributeValue::DebugAddrIndex(index) => {
+            let address = dwarf
+                .debug_addr
+                .get_address(unit.address_size, unit.addr_base, index)?;
+            writeln!(w, "0x{:08x}", address)?;
         }
         gimli::AttributeValue::UnitRef(gimli::UnitOffset(offset)) => {
             writeln!(w, "<0x{:08x}>", offset)?;

@@ -38,6 +38,14 @@ pub struct Register(pub u16);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugAbbrevOffset<T = usize>(pub T);
 
+/// An offset to a set of entries in the `.debug_addr` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugAddrBase<T = usize>(pub T);
+
+/// An index into a set of addresses in the `.debug_addr` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugAddrIndex<T = usize>(pub T);
+
 /// An offset into the `.debug_info` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct DebugInfoOffset<T = usize>(pub T);
