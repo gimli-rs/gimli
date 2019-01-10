@@ -9,7 +9,7 @@ use read::{EndianSlice, Error, Reader, ReaderOffset, Result, Section};
 
 /// The `DebugLine` struct contains the source location to instruction mapping
 /// found in the `.debug_line` section.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct DebugLine<R: Reader> {
     debug_line_section: R,
 }
@@ -71,7 +71,8 @@ impl<R: Reader> DebugLine<R> {
     ) -> Result<IncompleteLineNumberProgram<R, R::Offset>> {
         let input = &mut self.debug_line_section.clone();
         input.skip(offset.0)?;
-        let header = LineNumberProgramHeader::parse(input, address_size, comp_dir, comp_name)?;
+        let header =
+            LineNumberProgramHeader::parse(input, offset, address_size, comp_dir, comp_name)?;
         let program = IncompleteLineNumberProgram { header };
         Ok(program)
     }
@@ -1008,6 +1009,7 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
+    offset: DebugLineOffset<Offset>,
     unit_length: Offset,
 
     /// "A version number. This number is specific to the line number
@@ -1085,6 +1087,11 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
+    /// Return the offset of the line number program header in the `.debug_line` section.
+    pub fn offset(&self) -> DebugLineOffset<R::Offset> {
+        self.offset
+    }
+
     /// Return the length of the line number program and header, not including
     /// the length of the encoded length itself.
     pub fn unit_length(&self) -> R::Offset {
@@ -1221,6 +1228,7 @@ where
 
     fn parse(
         input: &mut R,
+        offset: DebugLineOffset<Offset>,
         address_size: u8,
         comp_dir: Option<R>,
         comp_name: Option<R>,
@@ -1292,6 +1300,7 @@ where
         });
 
         let header = LineNumberProgramHeader {
+            offset,
             unit_length,
             version,
             header_length,
@@ -1589,14 +1598,21 @@ mod tests {
         let comp_dir = EndianSlice::new(b"/comp_dir", LittleEndian);
         let comp_name = EndianSlice::new(b"/comp_name", LittleEndian);
 
-        let header = LineNumberProgramHeader::parse(rest, 4, Some(comp_dir), Some(comp_name))
-            .expect("should parse header ok");
+        let header = LineNumberProgramHeader::parse(
+            rest,
+            DebugLineOffset(0),
+            4,
+            Some(comp_dir),
+            Some(comp_name),
+        )
+        .expect("should parse header ok");
 
         assert_eq!(
             *rest,
             EndianSlice::new(&buf[buf.len() - 16..], LittleEndian)
         );
 
+        assert_eq!(header.offset, DebugLineOffset(0));
         assert_eq!(header.version, 4);
         assert_eq!(header.minimum_instruction_length(), 1);
         assert_eq!(header.maximum_operations_per_instruction(), 1);
@@ -1688,7 +1704,7 @@ mod tests {
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
 
-        match LineNumberProgramHeader::parse(input, 4, None, None) {
+        match LineNumberProgramHeader::parse(input, DebugLineOffset(0), 4, None, None) {
             Err(Error::UnexpectedEof) => return,
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
@@ -1749,7 +1765,7 @@ mod tests {
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
 
-        match LineNumberProgramHeader::parse(input, 4, None, None) {
+        match LineNumberProgramHeader::parse(input, DebugLineOffset(0), 4, None, None) {
             Err(Error::UnexpectedEof) => return,
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
@@ -1762,6 +1778,7 @@ mod tests {
         buf: EndianSlice<LittleEndian>,
     ) -> LineNumberProgramHeader<EndianSlice<LittleEndian>> {
         LineNumberProgramHeader {
+            offset: DebugLineOffset(0),
             opcode_base: OPCODE_BASE,
             address_size: 8,
             minimum_instruction_length: 1,

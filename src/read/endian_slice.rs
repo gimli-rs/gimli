@@ -12,7 +12,7 @@ use read::{Error, Reader, Result};
 /// A `&[u8]` slice with endianity metadata.
 ///
 /// This implements the `Reader` trait, which is used for all reading of DWARF sections.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EndianSlice<'input, Endian>
 where
     Endian: Endianity,

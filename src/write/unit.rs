@@ -1046,7 +1046,7 @@ mod convert {
     use write::{self, ConvertError, ConvertResult};
 
     pub(crate) struct ConvertUnitContext<'a, R: Reader<Offset = usize> + 'a> {
-        pub debug_str: &'a read::DebugStr<R>,
+        pub dwarf: &'a read::Dwarf<R, R::Endian>,
         pub strings: &'a mut write::StringTable,
         pub convert_address: &'a Fn(u64) -> Option<Address>,
         pub line_program: Option<(DebugLineOffset, LineProgramId)>,
@@ -1065,10 +1065,7 @@ mod convert {
         /// responsibility to determine the symbol and addend corresponding to the address
         /// and return `Address::Relative { symbol, addend }`.
         pub fn from<R: Reader<Offset = usize>>(
-            debug_abbrev: &read::DebugAbbrev<R>,
-            debug_info: &read::DebugInfo<R>,
-            debug_line: &read::DebugLine<R>,
-            debug_str: &read::DebugStr<R>,
+            dwarf: &read::Dwarf<R, R::Endian>,
             line_programs: &mut write::LineProgramTable,
             strings: &mut write::StringTable,
             convert_address: &Fn(u64) -> Option<Address>,
@@ -1076,16 +1073,14 @@ mod convert {
             let mut units = Vec::new();
             let mut unit_entry_offsets = HashMap::new();
 
-            let mut from_units = debug_info.units();
+            let mut from_units = dwarf.units();
             while let Some(ref from_unit) = from_units.next()? {
                 let unit_id = UnitId(units.len());
                 units.push(CompilationUnit::from(
                     from_unit,
                     unit_id,
                     &mut unit_entry_offsets,
-                    debug_abbrev,
-                    debug_line,
-                    debug_str,
+                    dwarf,
                     line_programs,
                     strings,
                     convert_address,
@@ -1128,9 +1123,7 @@ mod convert {
             from_unit: &read::CompilationUnitHeader<R>,
             unit_id: UnitId,
             unit_entry_offsets: &mut HashMap<DebugInfoOffset, (UnitId, UnitEntryId)>,
-            debug_abbrev: &read::DebugAbbrev<R>,
-            debug_line: &read::DebugLine<R>,
-            debug_str: &read::DebugStr<R>,
+            dwarf: &read::Dwarf<R, R::Endian>,
             line_programs: &mut write::LineProgramTable,
             strings: &mut write::StringTable,
             convert_address: &Fn(u64) -> Option<Address>,
@@ -1139,7 +1132,7 @@ mod convert {
             let address_size = from_unit.address_size();
             let format = from_unit.format();
             let mut entries = Vec::new();
-            let abbreviations = from_unit.abbreviations(debug_abbrev)?;
+            let abbreviations = dwarf.abbreviations(from_unit)?;
             let mut from_tree = from_unit.entries_tree(&abbreviations, None)?;
             let from_root = from_tree.root()?;
             let mut line_program = None;
@@ -1148,22 +1141,24 @@ mod convert {
                 let from_root = from_root.entry();
                 let comp_dir = from_root
                     .attr(constants::DW_AT_comp_dir)?
-                    .and_then(|attr| attr.string_value(debug_str));
+                    .and_then(|attr| dwarf.attr_string(&attr));
                 let comp_file = from_root
                     .attr(constants::DW_AT_name)?
-                    .and_then(|attr| attr.string_value(debug_str));
+                    .and_then(|attr| dwarf.attr_string(&attr));
                 if let Some(read::AttributeValue::DebugLineRef(offset)) =
                     from_root.attr_value(constants::DW_AT_stmt_list)?
                 {
                     let from_program =
-                        debug_line.program(offset, address_size, comp_dir, comp_file)?;
+                        dwarf
+                            .debug_line
+                            .program(offset, address_size, comp_dir, comp_file)?;
                     let (program, files) = LineProgram::from(from_program, convert_address)?;
                     line_program = Some((offset, line_programs.add(program)));
                     line_program_files = files;
                 }
             }
             let mut context = ConvertUnitContext {
-                debug_str,
+                dwarf,
                 strings,
                 convert_address,
                 line_program,
@@ -1304,7 +1299,7 @@ mod convert {
                 read::AttributeValue::RangeListsRef(val) => AttributeValue::RangeListsRef(val),
                 read::AttributeValue::DebugTypesRef(val) => AttributeValue::DebugTypesRef(val),
                 read::AttributeValue::DebugStrRef(offset) => {
-                    let r = context.debug_str.get_str(offset)?;
+                    let r = context.dwarf.debug_str.get_str(offset)?;
                     let id = context.strings.add(r.to_slice()?);
                     AttributeValue::StringRef(id)
                 }
@@ -1469,11 +1464,14 @@ mod tests {
         println!("{:?}", debug_info);
         println!("{:?}", debug_abbrev);
 
-        let read_debug_abbrev = read::DebugAbbrev::new(debug_abbrev.slice(), LittleEndian);
-        let read_debug_info = read::DebugInfo::new(debug_info.slice(), LittleEndian);
-        let read_debug_line = read::DebugLine::new(&[], LittleEndian);
-        let read_debug_str = read::DebugStr::new(debug_str.slice(), LittleEndian);
-        let mut read_units = read_debug_info.units();
+        let dwarf = read::Dwarf {
+            debug_abbrev: read::DebugAbbrev::new(debug_abbrev.slice(), LittleEndian),
+            debug_info: read::DebugInfo::new(debug_info.slice(), LittleEndian),
+            debug_line: read::DebugLine::new(&[], LittleEndian),
+            debug_str: read::DebugStr::new(debug_str.slice(), LittleEndian),
+            ..Default::default()
+        };
+        let mut read_units = dwarf.units();
 
         {
             let read_unit1 = read_units.next().unwrap().unwrap();
@@ -1482,7 +1480,7 @@ mod tests {
             assert_eq!(unit1.address_size(), read_unit1.address_size());
             assert_eq!(unit1.format(), read_unit1.format());
 
-            let abbrevs = read_unit1.abbreviations(&read_debug_abbrev).unwrap();
+            let abbrevs = dwarf.abbreviations(&read_unit1).unwrap();
             let mut read_entries = read_unit1.entries(&abbrevs);
 
             let root = unit1.get(unit1.root());
@@ -1498,10 +1496,7 @@ mod tests {
                 };
                 assert_eq!(producer, b"root");
                 let read_producer = read_root.attr(constants::DW_AT_producer).unwrap().unwrap();
-                assert_eq!(
-                    read_producer.string_value(&read_debug_str).unwrap().slice(),
-                    producer
-                );
+                assert_eq!(dwarf.attr_string(&read_producer).unwrap().slice(), producer);
             }
 
             let mut children = root.children().cloned();
@@ -1522,10 +1517,7 @@ mod tests {
                 let name = strings.get(name);
                 assert_eq!(name, b"child1");
                 let read_name = read_child.attr(constants::DW_AT_name).unwrap().unwrap();
-                assert_eq!(
-                    read_name.string_value(&read_debug_str).unwrap().slice(),
-                    name
-                );
+                assert_eq!(dwarf.attr_string(&read_name).unwrap().slice(), name);
             }
 
             {
@@ -1544,10 +1536,7 @@ mod tests {
                 let name = strings.get(name);
                 assert_eq!(name, b"child2");
                 let read_name = read_child.attr(constants::DW_AT_name).unwrap().unwrap();
-                assert_eq!(
-                    read_name.string_value(&read_debug_str).unwrap().slice(),
-                    name
-                );
+                assert_eq!(dwarf.attr_string(&read_name).unwrap().slice(), name);
             }
 
             assert!(read_entries.next_dfs().unwrap().is_none());
@@ -1560,7 +1549,7 @@ mod tests {
             assert_eq!(unit2.address_size(), read_unit2.address_size());
             assert_eq!(unit2.format(), read_unit2.format());
 
-            let abbrevs = read_unit2.abbreviations(&read_debug_abbrev).unwrap();
+            let abbrevs = dwarf.abbreviations(&read_unit2).unwrap();
             let mut read_entries = read_unit2.entries(&abbrevs);
 
             {
@@ -1581,7 +1570,7 @@ mod tests {
             assert_eq!(unit3.address_size(), read_unit3.address_size());
             assert_eq!(unit3.format(), read_unit3.format());
 
-            let abbrevs = read_unit3.abbreviations(&read_debug_abbrev).unwrap();
+            let abbrevs = dwarf.abbreviations(&read_unit3).unwrap();
             let mut read_entries = read_unit3.entries(&abbrevs);
 
             {
@@ -1600,10 +1589,7 @@ mod tests {
         let mut convert_line_programs = LineProgramTable::default();
         let mut convert_strings = StringTable::default();
         let convert_units = UnitTable::from(
-            &read_debug_abbrev,
-            &read_debug_info,
-            &read_debug_line,
-            &read_debug_str,
+            &dwarf,
             &mut convert_line_programs,
             &mut convert_strings,
             &|address| Some(Address::Absolute(address)),
@@ -1854,8 +1840,13 @@ mod tests {
                         };
                         assert_eq!(read_value, expect_value);
 
+                        let dwarf = read::Dwarf {
+                            debug_str: read_debug_str.clone(),
+                            ..Default::default()
+                        };
+
                         let mut context = convert::ConvertUnitContext {
-                            debug_str: &read_debug_str,
+                            dwarf: &dwarf,
                             strings: &mut strings,
                             convert_address: &|address| Some(Address::Absolute(address)),
                             line_program: None,
@@ -1943,16 +1934,20 @@ mod tests {
         println!("{:?}", debug_info);
         println!("{:?}", debug_abbrev);
 
-        let read_debug_abbrev = read::DebugAbbrev::new(debug_abbrev.slice(), LittleEndian);
-        let read_debug_info = read::DebugInfo::new(debug_info.slice(), LittleEndian);
-        let read_debug_line = read::DebugLine::new(&[], LittleEndian);
-        let read_debug_str = read::DebugStr::new(&[], LittleEndian);
-        let mut read_units = read_debug_info.units();
+        let dwarf = read::Dwarf {
+            debug_abbrev: read::DebugAbbrev::new(debug_abbrev.slice(), LittleEndian),
+            debug_info: read::DebugInfo::new(debug_info.slice(), LittleEndian),
+            debug_line: read::DebugLine::new(&[], LittleEndian),
+            debug_str: read::DebugStr::new(&[], LittleEndian),
+            ..Default::default()
+        };
+
+        let mut read_units = dwarf.units();
         {
             let read_unit1 = read_units.next().unwrap().unwrap();
             assert_eq!(read_unit1.offset(), debug_info_offsets.unit(unit_id1));
 
-            let abbrevs = read_unit1.abbreviations(&read_debug_abbrev).unwrap();
+            let abbrevs = dwarf.abbreviations(&read_unit1).unwrap();
             let mut read_entries = read_unit1.entries(&abbrevs);
             {
                 let (_, _read_root) = read_entries.next_dfs().unwrap().unwrap();
@@ -1981,7 +1976,7 @@ mod tests {
             let read_unit2 = read_units.next().unwrap().unwrap();
             assert_eq!(read_unit2.offset(), debug_info_offsets.unit(unit_id2));
 
-            let abbrevs = read_unit2.abbreviations(&read_debug_abbrev).unwrap();
+            let abbrevs = dwarf.abbreviations(&read_unit2).unwrap();
             let mut read_entries = read_unit2.entries(&abbrevs);
             {
                 let (_, _read_root) = read_entries.next_dfs().unwrap().unwrap();
@@ -2010,10 +2005,7 @@ mod tests {
         let mut convert_line_programs = LineProgramTable::default();
         let mut convert_strings = StringTable::default();
         let convert_units = UnitTable::from(
-            &read_debug_abbrev,
-            &read_debug_info,
-            &read_debug_line,
-            &read_debug_str,
+            &dwarf,
             &mut convert_line_programs,
             &mut convert_strings,
             &|address| Some(Address::Absolute(address)),
@@ -2261,8 +2253,13 @@ mod tests {
                         };
                         assert_eq!(read_value, expect_value);
 
+                        let dwarf = read::Dwarf {
+                            debug_str: read_debug_str.clone(),
+                            ..Default::default()
+                        };
+
                         let mut context = convert::ConvertUnitContext {
-                            debug_str: &read_debug_str,
+                            dwarf: &dwarf,
                             strings: &mut strings,
                             convert_address: &|address| Some(Address::Absolute(address)),
                             line_program: Some((line_program_offset, line_program_id)),

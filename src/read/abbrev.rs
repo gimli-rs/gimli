@@ -11,7 +11,7 @@ use read::{EndianSlice, Error, Reader, Result, Section, UnitHeader};
 /// The `DebugAbbrev` struct represents the abbreviations describing
 /// `DebuggingInformationEntry`s' attribute names and forms found in the
 /// `.debug_abbrev` section.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct DebugAbbrev<R: Reader> {
     debug_abbrev_section: R,
 }

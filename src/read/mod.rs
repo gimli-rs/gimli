@@ -11,6 +11,9 @@ use constants;
 mod cfi;
 pub use self::cfi::*;
 
+mod dwarf;
+pub use self::dwarf::*;
+
 mod endian_slice;
 pub use self::endian_slice::*;
 
@@ -203,6 +206,10 @@ pub enum Error {
     UnsupportedAddressIndex,
     /// Nonzero segment selector sizes aren't supported yet.
     UnsupportedSegmentSize,
+    /// A compilation unit or type unit is missing its top level DIE.
+    MissingUnitDie,
+    /// A DIE attribute used an unsupported form.
+    UnsupportedAttributeForm,
 }
 
 impl fmt::Display for Error {
@@ -335,6 +342,10 @@ impl Error {
             Error::UnsupportedUnitType => "The `DW_UT_*` value for this unit is not supported yet",
             Error::UnsupportedAddressIndex => "Ranges involving AddressIndex are not supported yet",
             Error::UnsupportedSegmentSize => "Nonzero segment size not supported yet",
+            Error::MissingUnitDie => {
+                "A compilation unit or type unit is missing its top level DIE."
+            }
+            Error::UnsupportedAttributeForm => "A DIE attribute used an unsupported form.",
         }
     }
 }
