@@ -7,7 +7,8 @@ use std::{u16, u8};
 
 use common::{
     DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugStrOffset,
-    DebugTypeSignature, DebugTypesOffset, Format, LocationListsOffset, RangeListsOffset,
+    DebugStrOffsetsBase, DebugStrOffsetsIndex, DebugTypeSignature, DebugTypesOffset, Format,
+    LocationListsOffset, RangeListsOffset,
 };
 use constants;
 use endianity::Endianity;
@@ -1025,6 +1026,12 @@ pub enum AttributeValue<R: Reader> {
     /// An offset into the `.debug_str` section of the supplementary object file.
     DebugStrRefSup(DebugStrOffset<R::Offset>),
 
+    /// An offset to a set of entries in the `.debug_str_offsets` section.
+    DebugStrOffsetsBase(DebugStrOffsetsBase<R::Offset>),
+
+    /// An index into a set of entries in the `.debug_str_offsets` section.
+    DebugStrOffsetsIndex(DebugStrOffsetsIndex<R::Offset>),
+
     /// A slice of bytes representing a string. Does not include a final null byte.
     /// Not guaranteed to be UTF-8 or anything like that.
     String(R),
@@ -1176,6 +1183,13 @@ impl<R: Reader> Attribute<R> {
         }
         macro_rules! string {
             () => {};
+        }
+        macro_rules! stroffsetsptr {
+            () => {
+                if let Some(offset) = self.offset_value() {
+                    return AttributeValue::DebugStrOffsetsBase(DebugStrOffsetsBase(offset));
+                }
+            };
         }
 
         // Perform the allowed class conversions for each attribute name.
@@ -1488,6 +1502,9 @@ impl<R: Reader> Attribute<R> {
             constants::DW_AT_linkage_name => {
                 string!();
             }
+            constants::DW_AT_str_offsets_base => {
+                stroffsetsptr!();
+            }
             _ => {}
         }
         self.value.clone()
@@ -1795,6 +1812,23 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 AttributeValue::DebugStrRefSup(DebugStrOffset(offset))
             }
             constants::DW_FORM_implicit_const => AttributeValue::Sdata(spec.implicit_const_value()),
+            constants::DW_FORM_strx | constants::DW_FORM_GNU_str_index => {
+                let index = input.read_uleb128().and_then(R::Offset::from_u64)?;
+                AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
+            }
+            constants::DW_FORM_strx1 => {
+                let index = input.read_u8().map(R::Offset::from_u8)?;
+                AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
+            }
+            constants::DW_FORM_strx2 => {
+                let index = input.read_u16().map(R::Offset::from_u16)?;
+                AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
+            }
+            // TODO: constants::DW_FORM_strx3
+            constants::DW_FORM_strx4 => {
+                let index = input.read_u32().map(R::Offset::from_u32)?;
+                AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
+            }
             _ => {
                 return Err(Error::UnknownForm);
             }

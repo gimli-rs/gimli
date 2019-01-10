@@ -533,6 +533,7 @@ where
     let debug_info = load_section(&arena, file, endian);
     let debug_line = load_section(&arena, file, endian);
     let debug_str = load_section(&arena, file, endian);
+    let debug_str_offsets = load_section(&arena, file, endian);
     let debug_types = load_section(&arena, file, endian);
 
     let debug_loc = load_section(&arena, file, endian);
@@ -549,6 +550,7 @@ where
         debug_info,
         debug_line,
         debug_str,
+        debug_str_offsets,
         debug_str_sup: no_reader.clone().into(),
         debug_types,
         locations,
@@ -982,6 +984,7 @@ struct Unit<R: Reader> {
     line_program: Option<gimli::IncompleteLineNumberProgram<R>>,
     comp_dir: Option<R>,
     comp_name: Option<R>,
+    str_offsets_base: gimli::DebugStrOffsetsBase,
 }
 
 fn spaces(buf: &mut String, len: usize) -> &str {
@@ -1010,6 +1013,8 @@ fn dump_entries<R: Reader, W: Write>(
         line_program: None,
         comp_dir: None,
         comp_name: None,
+        // Defaults to 0 for GNU extensions
+        str_offsets_base: gimli::DebugStrOffsetsBase(0),
     };
 
     let mut spaces_buf = String::new();
@@ -1063,6 +1068,11 @@ fn dump_entries<R: Reader, W: Write>(
                     )
                     .ok(),
                 _ => None,
+            };
+            if let Some(gimli::AttributeValue::DebugStrOffsetsBase(base)) =
+                entry.attr_value(gimli::DW_AT_str_offsets_base)?
+            {
+                unit.str_offsets_base = base;
             }
         }
 
@@ -1188,10 +1198,10 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "<0x{:08x}>", offset)?;
         }
         gimli::AttributeValue::DebugInfoRef(gimli::DebugInfoOffset(offset)) => {
-            writeln!(w, "<GOFF=0x{:08x}>", offset)?;
+            writeln!(w, "<.debug_info+0x{:08x}>", offset)?;
         }
         gimli::AttributeValue::DebugInfoRefSup(gimli::DebugInfoOffset(offset)) => {
-            writeln!(w, "<SUP_GOFF=0x{:08x}>", offset)?;
+            writeln!(w, "<.debug_info(sup)+0x{:08x}>", offset)?;
         }
         gimli::AttributeValue::DebugLineRef(gimli::DebugLineOffset(offset)) => {
             writeln!(w, "0x{:08x}", offset)?;
@@ -1214,11 +1224,26 @@ fn dump_attr_value<R: Reader, W: Write>(
             if let Ok(s) = dwarf.debug_str.get_str(offset) {
                 writeln!(w, "{}", s.to_string_lossy()?)?;
             } else {
-                writeln!(w, "<GOFF=0x{:08x}>", offset.0)?;
+                writeln!(w, "<.debug_str+0x{:08x}>", offset.0)?;
             }
         }
         gimli::AttributeValue::DebugStrRefSup(offset) => {
-            writeln!(w, "<SUP_GOFF=0x{:08x}>", offset.0)?;
+            writeln!(w, "<.debug_str(sup)+0x{:08x}>", offset.0)?;
+        }
+        gimli::AttributeValue::DebugStrOffsetsBase(base) => {
+            writeln!(w, "<.debug_str_offsets+0x{:08x}>", base.0)?;
+        }
+        gimli::AttributeValue::DebugStrOffsetsIndex(index) => {
+            let offset = dwarf.debug_str_offsets.get_str_offset(
+                unit.format,
+                unit.str_offsets_base,
+                index,
+            )?;
+            if let Ok(s) = dwarf.debug_str.get_str(offset) {
+                writeln!(w, "{}", s.to_string_lossy()?)?;
+            } else {
+                writeln!(w, "<.debug_str+0x{:08x}>", offset.0)?;
+            }
         }
         gimli::AttributeValue::String(s) => {
             writeln!(w, "{}", s.to_string_lossy()?)?;

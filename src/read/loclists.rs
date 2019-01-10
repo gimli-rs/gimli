@@ -8,8 +8,7 @@ use read::{
     Section,
 };
 
-/// The `DebugLoc` struct represents the DWARF strings
-/// found in the `.debug_loc` section.
+/// The raw contents of the `.debug_loc` section.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DebugLoc<R: Reader> {
     pub(crate) debug_loc_section: R,

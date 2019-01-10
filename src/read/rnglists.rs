@@ -9,8 +9,7 @@ use read::{EndianSlice, Error, Reader, ReaderOffset, Result, Section};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AddressIndex(pub u64);
 
-/// The `DebugRanges` struct represents the DWARF strings
-/// found in the `.debug_ranges` section.
+/// The raw contents of the `.debug_ranges` section.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DebugRanges<R: Reader> {
     pub(crate) debug_ranges_section: R,
