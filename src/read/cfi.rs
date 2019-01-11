@@ -1380,6 +1380,11 @@ where
         self.offset
     }
 
+     /// The size of addresses (in bytes) in this CIE.
+    pub fn address_size(&self) -> u8 {
+        self.address_size
+    }
+
     /// Iterate over this CIE's initial instructions.
     ///
     /// Can be [used with
@@ -1513,9 +1518,6 @@ where
     /// "The number of bytes of program instructions described by this entry."
     address_range: u64,
 
-    /// How large addresses are in this file.
-    address_size: u8,
-
     /// The parsed augmentation data, if we have any.
     augmentation: Option<AugmentationData>,
 
@@ -1584,7 +1586,6 @@ where
             initial_segment,
             initial_address,
             address_range,
-            address_size: section.address_size(),
             augmentation: aug_data,
             instructions: rest,
         };
@@ -1669,7 +1670,7 @@ where
     pub fn instructions(&self) -> CallFrameInstructionIter<R> {
         CallFrameInstructionIter {
             input: self.instructions.clone(),
-            address_size: self.address_size,
+            address_size: self.cie.address_size,
         }
     }
 
@@ -3808,7 +3809,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf32,
-            address_size: mem::size_of::<usize>() as u8,
             cie: cie.clone(),
             initial_segment: 0,
             initial_address: 0xfeed_beef,
@@ -3861,7 +3861,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf32,
-            address_size: mem::size_of::<usize>() as u8,
             cie: cie.clone(),
             initial_segment: 0xbadb_ad11,
             initial_address: 0xfeed_beef,
@@ -3914,7 +3913,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf64,
-            address_size: mem::size_of::<usize>() as u8,
             cie: cie.clone(),
             initial_segment: 0,
             initial_address: 0xfeed_beef,
@@ -4001,7 +3999,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf32,
-            address_size: mem::size_of::<usize>() as u8,
             cie: cie.clone(),
             initial_segment: 0,
             initial_address: 0xfeed_beef,
@@ -4093,7 +4090,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf32,
-            address_size: 8,
             cie: cie1.clone(),
             initial_segment: 0,
             initial_address: 0xfeed_beef,
@@ -4106,7 +4102,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf32,
-            address_size: 8,
             cie: cie2.clone(),
             initial_segment: 0,
             initial_address: 0xfeed_face,
@@ -5200,7 +5195,6 @@ mod tests {
         let fde = DebugFrameFde {
             offset: 0,
             format: Format::Dwarf64,
-            address_size: 8,
             length: 0,
             address_range: 0,
             augmentation: None,
@@ -5351,7 +5345,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf32,
-            address_size: 8,
             cie: cie.clone(),
             initial_segment: 0,
             initial_address: 0,
@@ -5530,7 +5523,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf32,
-            address_size: 4,
             cie: cie1.clone(),
             initial_segment: 0,
             initial_address: 0xfeed_beef,
@@ -5543,7 +5535,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf32,
-            address_size: 4,
             cie: cie2.clone(),
             initial_segment: 0,
             initial_address: 0xfeed_face,
@@ -5782,7 +5773,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf32,
-            address_size: mem::size_of::<usize>() as u8,
             cie: cie.clone(),
             initial_segment: 0,
             initial_address: 9,
@@ -5794,7 +5784,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf32,
-            address_size: mem::size_of::<usize>() as u8,
             cie: cie.clone(),
             initial_segment: 0,
             initial_address: 20,
@@ -5945,7 +5934,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf32,
-            address_size: mem::size_of::<usize>() as u8,
             cie: cie.clone(),
             initial_segment: 0,
             initial_address: 0xfeed_beef,
@@ -5993,7 +5981,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf64,
-            address_size: 8,
             cie: cie.clone(),
             initial_segment: 0,
             initial_address: 0xfeed_beef,
@@ -6208,7 +6195,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf32,
-            address_size: mem::size_of::<usize>() as u8,
             cie: cie.clone(),
             initial_segment: 0,
             initial_address: 0xfeed_face,
@@ -6246,7 +6232,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf32,
-            address_size: mem::size_of::<usize>() as u8,
             cie: cie.clone(),
             initial_segment: 0,
             initial_address: 0xfeed_face,
@@ -6285,7 +6270,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf32,
-            address_size: mem::size_of::<usize>() as u8,
             cie: cie.clone(),
             initial_segment: 0,
             initial_address: 0xfeed_face,
@@ -6328,7 +6312,6 @@ mod tests {
             offset: 0,
             length: 0,
             format: Format::Dwarf32,
-            address_size: mem::size_of::<usize>() as u8,
             cie: cie.clone(),
             initial_segment: 0,
             initial_address: 0xfeed_face,
