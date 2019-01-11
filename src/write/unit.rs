@@ -24,7 +24,7 @@ pub struct UnitEntryId(pub usize);
 /// The bytecode for a DWARF expression or location description.
 // TODO: this needs to be a `Vec<Op>` so we can handle relocations
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Expression(Vec<u8>);
+pub struct Expression(pub Vec<u8>);
 
 /// A table of compilations units that will be stored in a `.debug_info` section.
 #[derive(Debug, Default)]
