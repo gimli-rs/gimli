@@ -3361,7 +3361,6 @@ mod tests {
     trait CfiSectionMethods: GimliSectionMethods {
         fn cie<'aug, 'input, E, T>(
             self,
-            endian: Endian,
             augmentation: Option<&'aug str>,
             cie: &mut CommonInformationEntry<T, EndianSlice<'input, E>>,
         ) -> Self
@@ -3371,7 +3370,6 @@ mod tests {
             T::Offset: UnwindOffset;
         fn fde<'a, 'input, E, T, L>(
             self,
-            endian: Endian,
             cie_offset: L,
             fde: &mut FrameDescriptionEntry<T, EndianSlice<'input, E>>,
         ) -> Self
@@ -3385,7 +3383,6 @@ mod tests {
     impl CfiSectionMethods for Section {
         fn cie<'aug, 'input, E, T>(
             self,
-            endian: Endian,
             augmentation: Option<&'aug str>,
             cie: &mut CommonInformationEntry<T, EndianSlice<'input, E>>,
         ) -> Self
@@ -3400,16 +3397,10 @@ mod tests {
             let end = Label::new();
 
             let section = match cie.format {
-                Format::Dwarf32 => self
-                    .e32(endian, &length)
-                    .mark(&start)
-                    .e32(endian, 0xffff_ffff),
+                Format::Dwarf32 => self.D32(&length).mark(&start).D32(0xffff_ffff),
                 Format::Dwarf64 => {
-                    let section = self.e32(endian, 0xffff_ffff);
-                    section
-                        .e64(endian, &length)
-                        .mark(&start)
-                        .e64(endian, 0xffff_ffff_ffff_ffff)
+                    let section = self.D32(0xffff_ffff);
+                    section.D64(&length).mark(&start).D64(0xffff_ffff_ffff_ffff)
                 }
             };
 
@@ -3443,7 +3434,6 @@ mod tests {
 
         fn fde<'a, 'input, E, T, L>(
             self,
-            endian: Endian,
             cie_offset: L,
             fde: &mut FrameDescriptionEntry<T, EndianSlice<'input, E>>,
         ) -> Self
@@ -3462,35 +3452,30 @@ mod tests {
 
             let section = match T::cie_offset_encoding(fde.format) {
                 CieOffsetEncoding::U32 => {
-                    let section = self.e32(endian, &length).mark(&start);
+                    let section = self.D32(&length).mark(&start);
                     match cie_offset.to_labelornum() {
-                        LabelOrNum::Label(ref l) => section.e32(endian, l),
-                        LabelOrNum::Num(o) => section.e32(endian, o as u32),
+                        LabelOrNum::Label(ref l) => section.D32(l),
+                        LabelOrNum::Num(o) => section.D32(o as u32),
                     }
                 }
                 CieOffsetEncoding::U64 => {
-                    let section = self.e32(endian, 0xffff_ffff);
-                    section
-                        .e64(endian, &length)
-                        .mark(&start)
-                        .e64(endian, cie_offset)
+                    let section = self.D32(0xffff_ffff);
+                    section.D64(&length).mark(&start).D64(cie_offset)
                 }
             };
 
             let section = match fde.cie.segment_size {
                 0 => section,
-                4 => section.e32(endian, fde.initial_segment as u32),
-                8 => section.e64(endian, fde.initial_segment),
+                4 => section.D32(fde.initial_segment as u32),
+                8 => section.D64(fde.initial_segment),
                 x => panic!("Unsupported test segment size: {}", x),
             };
 
             let section = match fde.cie.address_size {
                 4 => section
-                    .e32(endian, fde.initial_address() as u32)
-                    .e32(endian, fde.len() as u32),
-                8 => section
-                    .e64(endian, fde.initial_address())
-                    .e64(endian, fde.len()),
+                    .D32(fde.initial_address() as u32)
+                    .D32(fde.len() as u32),
+                8 => section.D64(fde.initial_address()).D64(fde.len()),
                 x => panic!("Unsupported address size: {}", x),
             };
 
@@ -3513,11 +3498,11 @@ mod tests {
                     // Augmentation data length
                     let section = section.uleb(u64::from(fde.cie.address_size));
                     match fde.cie.address_size {
-                        4 => section.e32(endian, {
+                        4 => section.D32({
                             let x: u64 = lsda.into();
                             x as u32
                         }),
-                        8 => section.e64(endian, {
+                        8 => section.D64({
                             let x: u64 = lsda.into();
                             x
                         }),
@@ -3615,7 +3600,7 @@ mod tests {
             phantom: PhantomData,
         };
 
-        let section = Section::with_endian(Endian::Little).cie(Endian::Little, None, &mut cie);
+        let section = Section::with_endian(Endian::Little).cie(None, &mut cie);
         assert_parse_cie::<LittleEndian>(section, 4, Err(Error::UnknownVersion(99)));
     }
 
@@ -3676,7 +3661,7 @@ mod tests {
         };
 
         let section = Section::with_endian(Endian::Little)
-            .cie(Endian::Little, None, &mut cie)
+            .cie(None, &mut cie)
             .append_bytes(&expected_rest);
 
         assert_parse_cie(
@@ -3721,7 +3706,7 @@ mod tests {
             phantom: PhantomData,
         };
 
-        let section = Section::with_endian(Endian::Little).cie(Endian::Little, None, &mut cie);
+        let section = Section::with_endian(Endian::Little).cie(None, &mut cie);
 
         let mut contents = section.get_contents().unwrap();
 
@@ -3818,7 +3803,7 @@ mod tests {
         };
 
         let section = Section::with_endian(Endian::Little)
-            .fde(Endian::Little, cie_offset, &mut fde)
+            .fde(cie_offset, &mut fde)
             .append_bytes(&expected_rest);
 
         let section = section.get_contents().unwrap();
@@ -3870,7 +3855,7 @@ mod tests {
         };
 
         let section = Section::with_endian(Endian::Little)
-            .fde(Endian::Little, cie_offset, &mut fde)
+            .fde(cie_offset, &mut fde)
             .append_bytes(&expected_rest);
 
         let section = section.get_contents().unwrap();
@@ -3922,7 +3907,7 @@ mod tests {
         };
 
         let section = Section::with_endian(Endian::Little)
-            .fde(Endian::Little, cie_offset, &mut fde)
+            .fde(cie_offset, &mut fde)
             .append_bytes(&expected_rest);
 
         let section = section.get_contents().unwrap();
@@ -3961,7 +3946,7 @@ mod tests {
         };
 
         let section = Section::with_endian(Endian::Big)
-            .cie(Endian::Big, None, &mut cie)
+            .cie(None, &mut cie)
             .append_bytes(&expected_rest);
         let section = section.get_contents().unwrap();
         let rest = &mut EndianSlice::new(&section, BigEndian);
@@ -4008,7 +3993,7 @@ mod tests {
         };
 
         let section = Section::with_endian(Endian::Big)
-            .fde(Endian::Big, cie_offset, &mut fde)
+            .fde(cie_offset, &mut fde)
             .append_bytes(&expected_rest);
 
         let section = section.get_contents().unwrap();
@@ -4082,9 +4067,9 @@ mod tests {
         // with all the CIEs always having he correct length.
         let section = Section::with_endian(Endian::Big)
             .mark(&cie1_location)
-            .cie(Endian::Big, None, &mut cie1)
+            .cie(None, &mut cie1)
             .mark(&cie2_location)
-            .cie(Endian::Big, None, &mut cie2);
+            .cie(None, &mut cie2);
 
         let mut fde1 = DebugFrameFde {
             offset: 0,
@@ -4110,11 +4095,9 @@ mod tests {
             instructions: EndianSlice::new(&expected_instrs4, BigEndian),
         };
 
-        let section = section.fde(Endian::Big, &cie1_location, &mut fde1).fde(
-            Endian::Big,
-            &cie2_location,
-            &mut fde2,
-        );
+        let section = section
+            .fde(&cie1_location, &mut fde1)
+            .fde(&cie2_location, &mut fde2);
 
         section.start().set_const(0);
 
@@ -4188,7 +4171,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little)
             .append_bytes(&filler)
             .mark(&cie_location)
-            .cie(Endian::Little, None, &mut cie)
+            .cie(None, &mut cie)
             .append_bytes(&filler);
 
         section.start().set_const(0);
@@ -5515,9 +5498,9 @@ mod tests {
         // with all the CIEs always having he correct length.
         let section = Section::with_endian(Endian::Big)
             .mark(&cie1_location)
-            .cie(Endian::Big, None, &mut cie1)
+            .cie(None, &mut cie1)
             .mark(&cie2_location)
-            .cie(Endian::Big, None, &mut cie2);
+            .cie(None, &mut cie2);
 
         let mut fde1 = DebugFrameFde {
             offset: 0,
@@ -5543,11 +5526,9 @@ mod tests {
             instructions: EndianSlice::new(&instrs4, BigEndian),
         };
 
-        let section = section.fde(Endian::Big, &cie1_location, &mut fde1).fde(
-            Endian::Big,
-            &cie2_location,
-            &mut fde2,
-        );
+        let section = section
+            .fde(&cie1_location, &mut fde1)
+            .fde(&cie2_location, &mut fde2);
         section.start().set_const(0);
 
         let contents = section.get_contents().unwrap();
@@ -5766,7 +5747,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little)
             .append_repeated(0, 16)
             .mark(&start_of_cie)
-            .cie(Endian::Little, None, &mut cie)
+            .cie(None, &mut cie)
             .mark(&end_of_cie);
 
         let mut fde1 = EhFrameFde {
@@ -5798,17 +5779,9 @@ mod tests {
         let section = section
             // +4 for the FDE length before the CIE offset.
             .mark(&start_of_fde1)
-            .fde(
-                Endian::Little,
-                (&start_of_fde1 - &start_of_cie + 4) as u64,
-                &mut fde1,
-            )
+            .fde((&start_of_fde1 - &start_of_cie + 4) as u64, &mut fde1)
             .mark(&start_of_fde2)
-            .fde(
-                Endian::Little,
-                (&start_of_fde2 - &start_of_cie + 4) as u64,
-                &mut fde2,
-            );
+            .fde((&start_of_fde2 - &start_of_cie + 4) as u64, &mut fde2);
 
         section.start().set_const(0);
         let section = section.get_contents().unwrap();
@@ -5927,7 +5900,7 @@ mod tests {
         let section = Section::with_endian(Endian::Little)
             .append_repeated(0, 16)
             .mark(&start_of_cie)
-            .cie(Endian::Little, None, &mut cie)
+            .cie(None, &mut cie)
             .mark(&end_of_cie);
 
         let mut fde = EhFrameFde {
@@ -5944,11 +5917,7 @@ mod tests {
 
         let section = section
             // +4 for the FDE length before the CIE offset.
-            .fde(
-                Endian::Little,
-                (&end_of_cie - &start_of_cie + 4) as u64,
-                &mut fde,
-            );
+            .fde((&end_of_cie - &start_of_cie + 4) as u64, &mut fde);
 
         section.start().set_const(0);
         let section = section.get_contents().unwrap();
@@ -5990,9 +5959,9 @@ mod tests {
         };
 
         let section = Section::with_endian(Endian::Little)
-            .cie(Endian::Little, None, &mut cie)
+            .cie(None, &mut cie)
             .mark(&end_of_cie)
-            .fde(Endian::Little, 99_999_999_999_999, &mut fde);
+            .fde(99_999_999_999_999, &mut fde);
 
         section.start().set_const(0);
         let section = section.get_contents().unwrap();
@@ -6206,7 +6175,7 @@ mod tests {
         let rest = [1, 2, 3, 4];
 
         let section = Section::with_endian(Endian::Little)
-            .fde(Endian::Little, cie_offset, &mut fde)
+            .fde(cie_offset, &mut fde)
             .append_bytes(&rest)
             .get_contents()
             .unwrap();
@@ -6243,7 +6212,7 @@ mod tests {
         let rest = [1, 2, 3, 4];
 
         let section = Section::with_endian(Endian::Little)
-            .fde(Endian::Little, cie_offset, &mut fde)
+            .fde(cie_offset, &mut fde)
             .append_bytes(&rest)
             .get_contents()
             .unwrap();
@@ -6283,7 +6252,7 @@ mod tests {
         let rest = [1, 2, 3, 4];
 
         let section = Section::with_endian(Endian::Little)
-            .fde(Endian::Little, cie_offset, &mut fde)
+            .fde(cie_offset, &mut fde)
             .append_bytes(&rest)
             .get_contents()
             .unwrap();
@@ -6326,7 +6295,7 @@ mod tests {
 
         let section = Section::with_endian(Endian::Little)
             .append_repeated(10, 10)
-            .fde(Endian::Little, cie_offset, &mut fde)
+            .fde(cie_offset, &mut fde)
             .append_bytes(&rest)
             .get_contents()
             .unwrap();
