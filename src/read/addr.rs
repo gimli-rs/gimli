@@ -51,3 +51,52 @@ impl<R: Reader> From<R> for DebugAddr<R> {
         DebugAddr { section }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    extern crate test_assembler;
+
+    use self::test_assembler::{Endian, Label, LabelMaker, Section};
+    use super::*;
+    use read::EndianSlice;
+    use test_util::GimliSectionMethods;
+    use {Format, LittleEndian};
+
+    #[test]
+    fn test_get_address() {
+        for format in [Format::Dwarf32, Format::Dwarf64].iter().cloned() {
+            for address_size in [4, 8].iter().cloned() {
+                let zero = Label::new();
+                let length = Label::new();
+                let start = Label::new();
+                let first = Label::new();
+                let end = Label::new();
+                let mut section = Section::with_endian(Endian::Little)
+                    .mark(&zero)
+                    .initial_length(format, &length, &start)
+                    .D16(5)
+                    .D8(address_size)
+                    .D8(0)
+                    .mark(&first);
+                for i in 0..20 {
+                    section = section.word(address_size, 1000 + i);
+                }
+                section = section.mark(&end);
+                length.set_const((&end - &start) as u64);
+
+                let section = section.get_contents().unwrap();
+                let debug_addr = DebugAddr::from(EndianSlice::new(&section, LittleEndian));
+                let base = DebugAddrBase((&first - &zero) as usize);
+
+                assert_eq!(
+                    debug_addr.get_address(address_size, base, DebugAddrIndex(0)),
+                    Ok(1000)
+                );
+                assert_eq!(
+                    debug_addr.get_address(address_size, base, DebugAddrIndex(19)),
+                    Ok(1019)
+                );
+            }
+        }
+    }
+}

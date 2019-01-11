@@ -1122,4 +1122,43 @@ mod tests {
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
     }
+
+    #[test]
+    fn test_get_offset() {
+        for format in [Format::Dwarf32, Format::Dwarf64].iter().cloned() {
+            let zero = Label::new();
+            let length = Label::new();
+            let start = Label::new();
+            let first = Label::new();
+            let end = Label::new();
+            let mut section = Section::with_endian(Endian::Little)
+                .mark(&zero)
+                .initial_length(format, &length, &start)
+                .D16(5)
+                .D8(4)
+                .D8(0)
+                .D32(20)
+                .mark(&first);
+            for i in 0..20 {
+                section = section.word(format.word_size(), 1000 + i);
+            }
+            section = section.mark(&end);
+            length.set_const((&end - &start) as u64);
+            let section = section.get_contents().unwrap();
+
+            let debug_loc = DebugLoc::from(EndianSlice::new(&[], LittleEndian));
+            let debug_loclists = DebugLocLists::from(EndianSlice::new(&section, LittleEndian));
+            let locations = LocationLists::new(debug_loc, debug_loclists).unwrap();
+
+            let base = DebugLocListsBase((&first - &zero) as usize);
+            assert_eq!(
+                locations.get_offset(base, DebugLocListsIndex(0)),
+                Ok(LocationListsOffset(base.0 + 1000))
+            );
+            assert_eq!(
+                locations.get_offset(base, DebugLocListsIndex(19)),
+                Ok(LocationListsOffset(base.0 + 1019))
+            );
+        }
+    }
 }
