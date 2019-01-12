@@ -1380,6 +1380,11 @@ where
         self.offset
     }
 
+     /// The size of addresses (in bytes) in this CIE.
+    pub fn address_size(&self) -> u8 {
+        self.address_size
+    }
+
     /// Iterate over this CIE's initial instructions.
     ///
     /// Can be [used with
@@ -1387,6 +1392,7 @@ where
     pub fn instructions(&self) -> CallFrameInstructionIter<R> {
         CallFrameInstructionIter {
             input: self.initial_instructions.clone(),
+            address_size: self.address_size,
         }
     }
 
@@ -1664,6 +1670,7 @@ where
     pub fn instructions(&self) -> CallFrameInstructionIter<R> {
         CallFrameInstructionIter {
             input: self.instructions.clone(),
+            address_size: self.cie.address_size,
         }
     }
 
@@ -3084,7 +3091,7 @@ const CFI_INSTRUCTION_HIGH_BITS_MASK: u8 = 0b1100_0000;
 const CFI_INSTRUCTION_LOW_BITS_MASK: u8 = !CFI_INSTRUCTION_HIGH_BITS_MASK;
 
 impl<R: Reader> CallFrameInstruction<R> {
-    fn parse(input: &mut R) -> Result<CallFrameInstruction<R>> {
+    fn parse(input: &mut R, address_size: u8) -> Result<CallFrameInstruction<R>> {
         let instruction = input.read_u8()?;
         let high_bits = instruction & CFI_INSTRUCTION_HIGH_BITS_MASK;
 
@@ -3116,7 +3123,7 @@ impl<R: Reader> CallFrameInstruction<R> {
             constants::DW_CFA_nop => Ok(CallFrameInstruction::Nop),
 
             constants::DW_CFA_set_loc => {
-                let address = input.read_uleb128()?;
+                let address = input.read_address(address_size)?;
                 Ok(CallFrameInstruction::SetLoc { address })
             }
 
@@ -3280,6 +3287,7 @@ impl<R: Reader> CallFrameInstruction<R> {
 #[derive(Clone, Debug)]
 pub struct CallFrameInstructionIter<R: Reader> {
     input: R,
+    address_size: u8,
 }
 
 impl<R: Reader> CallFrameInstructionIter<R> {
@@ -3289,7 +3297,7 @@ impl<R: Reader> CallFrameInstructionIter<R> {
             return Ok(None);
         }
 
-        match CallFrameInstruction::parse(&mut self.input) {
+        match CallFrameInstruction::parse(&mut self.input, self.address_size) {
             Ok(instruction) => Ok(Some(instruction)),
             Err(e) => {
                 self.input.empty();
@@ -4204,7 +4212,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::AdvanceLoc {
                 delta: u32::from(expected_delta),
             })
@@ -4224,7 +4232,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::Offset {
                 register: Register(expected_reg.into()),
                 factored_offset: expected_offset,
@@ -4243,7 +4251,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::Restore {
                 register: Register(expected_reg.into()),
             })
@@ -4260,7 +4268,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::Nop)
         );
         assert_eq!(*input, EndianSlice::new(&expected_rest, LittleEndian));
@@ -4272,12 +4280,12 @@ mod tests {
         let expected_addr = 0xdead_beef;
         let section = Section::with_endian(Endian::Little)
             .D8(constants::DW_CFA_set_loc.0)
-            .uleb(expected_addr)
+            .L64(expected_addr)
             .append_bytes(&expected_rest);
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::SetLoc {
                 address: expected_addr,
             })
@@ -4296,7 +4304,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::AdvanceLoc {
                 delta: u32::from(expected_delta),
             })
@@ -4315,7 +4323,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::AdvanceLoc {
                 delta: u32::from(expected_delta),
             })
@@ -4334,7 +4342,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::AdvanceLoc {
                 delta: expected_delta,
             })
@@ -4355,7 +4363,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::Offset {
                 register: Register(expected_reg),
                 factored_offset: expected_offset,
@@ -4375,7 +4383,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::Restore {
                 register: Register(expected_reg),
             })
@@ -4394,7 +4402,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::Undefined {
                 register: Register(expected_reg),
             })
@@ -4413,7 +4421,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::SameValue {
                 register: Register(expected_reg),
             })
@@ -4434,7 +4442,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::Register {
                 dest_register: Register(expected_dest_reg),
                 src_register: Register(expected_src_reg),
@@ -4452,7 +4460,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::RememberState)
         );
         assert_eq!(*input, EndianSlice::new(&expected_rest, LittleEndian));
@@ -4467,7 +4475,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::RestoreState)
         );
         assert_eq!(*input, EndianSlice::new(&expected_rest, LittleEndian));
@@ -4486,7 +4494,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::DefCfa {
                 register: Register(expected_reg),
                 offset: expected_offset,
@@ -4506,7 +4514,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::DefCfaRegister {
                 register: Register(expected_reg),
             })
@@ -4525,7 +4533,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::DefCfaOffset {
                 offset: expected_offset,
             })
@@ -4555,7 +4563,7 @@ mod tests {
         let input = &mut EndianSlice::new(&contents, LittleEndian);
 
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::DefCfaExpression {
                 expression: Expression(EndianSlice::new(&expected_expr, LittleEndian)),
             })
@@ -4587,7 +4595,7 @@ mod tests {
         let input = &mut EndianSlice::new(&contents, LittleEndian);
 
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::Expression {
                 register: Register(expected_reg),
                 expression: Expression(EndianSlice::new(&expected_expr, LittleEndian)),
@@ -4609,7 +4617,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::OffsetExtendedSf {
                 register: Register(expected_reg),
                 factored_offset: expected_offset,
@@ -4631,7 +4639,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::DefCfaSf {
                 register: Register(expected_reg),
                 factored_offset: expected_offset,
@@ -4651,7 +4659,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::DefCfaOffsetSf {
                 factored_offset: expected_offset,
             })
@@ -4672,7 +4680,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::ValOffset {
                 register: Register(expected_reg),
                 factored_offset: expected_offset,
@@ -4694,7 +4702,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::ValOffsetSf {
                 register: Register(expected_reg),
                 factored_offset: expected_offset,
@@ -4727,7 +4735,7 @@ mod tests {
         let input = &mut EndianSlice::new(&contents, LittleEndian);
 
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Ok(CallFrameInstruction::ValExpression {
                 register: Register(expected_reg),
                 expression: Expression(EndianSlice::new(&expected_expr, LittleEndian)),
@@ -4746,7 +4754,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input),
+            CallFrameInstruction::parse(input, 8),
             Err(Error::UnknownCallFrameInstruction(unknown_instr))
         );
     }
@@ -4774,7 +4782,7 @@ mod tests {
         length.set_const((&end - &start) as u64);
         let contents = section.get_contents().unwrap();
         let input = EndianSlice::new(&contents, BigEndian);
-        let mut iter = CallFrameInstructionIter { input };
+        let mut iter = CallFrameInstructionIter { input, address_size: 8 };
 
         assert_eq!(
             iter.next(),
@@ -4801,7 +4809,7 @@ mod tests {
 
         let contents = section.get_contents().unwrap();
         let input = EndianSlice::new(&contents, BigEndian);
-        let mut iter = CallFrameInstructionIter { input };
+        let mut iter = CallFrameInstructionIter { input, address_size: 8 };
 
         assert_eq!(iter.next(), Err(Error::UnexpectedEof));
         assert_eq!(iter.next(), Ok(None));
@@ -5299,7 +5307,7 @@ mod tests {
             format: Format::Dwarf32,
             version: 4,
             augmentation: None,
-            address_size: 4,
+            address_size: 8,
             segment_size: 0,
             code_alignment_factor: 1,
             data_alignment_factor: 1,
@@ -5475,7 +5483,7 @@ mod tests {
             format: Format::Dwarf32,
             version: 4,
             augmentation: None,
-            address_size: 4,
+            address_size: 8,
             segment_size: 0,
             code_alignment_factor: 1,
             data_alignment_factor: 1,
