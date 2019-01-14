@@ -1236,7 +1236,7 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "0x{:08x}", offset)?;
         }
         gimli::AttributeValue::LocationListsRef(offset) => {
-            dump_loc_list(w, &dwarf.locations, offset, unit)?;
+            dump_loc_list(w, offset, unit, dwarf)?;
         }
         gimli::AttributeValue::DebugLocListsBase(base) => {
             writeln!(w, "<.debug_loclists+0x{:08x}>", base.0)?;
@@ -1244,7 +1244,7 @@ fn dump_attr_value<R: Reader, W: Write>(
         gimli::AttributeValue::DebugLocListsIndex(index) => {
             let offset = dwarf.locations.get_offset(unit.loclists_base, index)?;
             writeln!(w, "0x{:08x}", offset.0)?;
-            dump_loc_list(w, &dwarf.locations, offset, unit)?;
+            dump_loc_list(w, offset, unit, dwarf)?;
         }
         gimli::AttributeValue::DebugMacinfoRef(gimli::DebugMacinfoOffset(offset)) => {
             writeln!(w, "{}", offset)?;
@@ -1582,14 +1582,22 @@ fn dump_op<R: Reader, W: Write>(
 
 fn dump_loc_list<R: Reader, W: Write>(
     w: &mut W,
-    loclists: &gimli::LocationLists<R>,
     offset: gimli::LocationListsOffset<R::Offset>,
     unit: &Unit<R>,
+    dwarf: &gimli::Dwarf<R, R::Endian>,
 ) -> Result<()> {
-    let raw_locations = loclists.raw_locations(offset, unit.version, unit.address_size)?;
+    let raw_locations = dwarf
+        .locations
+        .raw_locations(offset, unit.version, unit.address_size)?;
     let raw_locations: Vec<_> = raw_locations.collect()?;
-    let mut locations =
-        loclists.locations(offset, unit.version, unit.address_size, unit.base_address)?;
+    let mut locations = dwarf.locations.locations(
+        offset,
+        unit.version,
+        unit.address_size,
+        unit.base_address,
+        &dwarf.debug_addr,
+        unit.addr_base,
+    )?;
 
     writeln!(
         w,
@@ -1602,6 +1610,57 @@ fn dump_loc_list<R: Reader, W: Write>(
         match *raw {
             gimli::RawLocListEntry::BaseAddress { addr } => {
                 writeln!(w, "<new base address 0x{:08x}>", addr)?;
+            }
+            gimli::RawLocListEntry::BaseAddressx { addr } => {
+                let addr_val =
+                    dwarf
+                        .debug_addr
+                        .get_address(unit.address_size, unit.addr_base, addr)?;
+                writeln!(w, "<new base addressx [{}]0x{:08x}>", addr.0, addr_val)?;
+            }
+            gimli::RawLocListEntry::StartxEndx {
+                begin,
+                end,
+                ref data,
+            } => {
+                let begin_val =
+                    dwarf
+                        .debug_addr
+                        .get_address(unit.address_size, unit.addr_base, begin)?;
+                let end_val =
+                    dwarf
+                        .debug_addr
+                        .get_address(unit.address_size, unit.addr_base, end)?;
+                let location = locations.next()?.unwrap();
+                write!(
+                    w,
+                    "<startx-endx \
+                     low-off: [{}]0x{:08x} addr 0x{:08x} \
+                     high-off: [{}]0x{:08x} addr 0x{:08x}>",
+                    begin.0, begin_val, location.range.begin, end.0, end_val, location.range.end
+                )?;
+                dump_exprloc(w, data, unit)?;
+                writeln!(w)?;
+            }
+            gimli::RawLocListEntry::StartxLength {
+                begin,
+                length,
+                ref data,
+            } => {
+                let begin_val =
+                    dwarf
+                        .debug_addr
+                        .get_address(unit.address_size, unit.addr_base, begin)?;
+                let location = locations.next()?.unwrap();
+                write!(
+                    w,
+                    "<start-length \
+                     low-off: [{}]0x{:08x} addr 0x{:08x} \
+                     high-off: 0x{:08x} addr 0x{:08x}>",
+                    begin.0, begin_val, location.range.begin, length, location.range.end
+                )?;
+                dump_exprloc(w, data, unit)?;
+                writeln!(w)?;
             }
             gimli::RawLocListEntry::OffsetPair {
                 begin,
@@ -1655,9 +1714,6 @@ fn dump_loc_list<R: Reader, W: Write>(
                 )?;
                 dump_exprloc(w, data, unit)?;
                 writeln!(w)?;
-            }
-            _ => {
-                panic!("AddressIndex not handled, should already have errored out");
             }
         };
     }

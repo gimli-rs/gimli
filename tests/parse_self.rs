@@ -1,9 +1,9 @@
 extern crate gimli;
 
 use gimli::{
-    AttributeValue, DebugAbbrev, DebugAranges, DebugInfo, DebugLine, DebugLoc, DebugLocLists,
-    DebugPubNames, DebugPubTypes, DebugRanges, DebugRngLists, DebugStr, Expression, Format,
-    LittleEndian, LocationLists, Operation, RangeLists, Reader,
+    AttributeValue, DebugAbbrev, DebugAddr, DebugAddrBase, DebugAranges, DebugInfo, DebugLine,
+    DebugLoc, DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges, DebugRngLists, DebugStr,
+    EndianSlice, Expression, Format, LittleEndian, LocationLists, Operation, RangeLists, Reader,
 };
 use std::collections::hash_map::HashMap;
 use std::env;
@@ -177,6 +177,9 @@ fn test_parse_self_debug_loc() {
     let debug_abbrev = read_section("debug_abbrev");
     let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
+    let debug_addr = DebugAddr::from(EndianSlice::new(&[], LittleEndian));
+    let debug_addr_base = DebugAddrBase(0);
+
     let debug_loc = read_section("debug_loc");
     let debug_loc = DebugLoc::new(&debug_loc, LittleEndian);
     let debug_loclists = DebugLocLists::new(&[], LittleEndian);
@@ -209,7 +212,14 @@ fn test_parse_self_debug_loc() {
             while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
                 if let AttributeValue::LocationListsRef(offset) = attr.value() {
                     let mut locs = loclists
-                        .locations(offset, unit.version(), unit.address_size(), low_pc)
+                        .locations(
+                            offset,
+                            unit.version(),
+                            unit.address_size(),
+                            low_pc,
+                            &debug_addr,
+                            debug_addr_base,
+                        )
                         .expect("Should parse locations OK");
                     while let Some(loc) = locs.next().expect("Should parse next location") {
                         assert!(loc.range.begin <= loc.range.end);
