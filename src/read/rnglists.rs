@@ -1,13 +1,11 @@
 use fallible_iterator::FallibleIterator;
 
-use common::{DebugRngListsBase, DebugRngListsIndex, Format, RangeListsOffset};
+use common::{
+    DebugAddrBase, DebugAddrIndex, DebugRngListsBase, DebugRngListsIndex, Format, RangeListsOffset,
+};
 use constants;
 use endianity::Endianity;
-use read::{EndianSlice, Error, Reader, ReaderOffset, Result, Section};
-
-/// An offset into the `.debug_addr` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct AddressIndex(pub u64);
+use read::{DebugAddr, EndianSlice, Error, Reader, ReaderOffset, Result, Section};
 
 /// The raw contents of the `.debug_ranges` section.
 #[derive(Debug, Default, Clone, Copy)]
@@ -186,10 +184,14 @@ impl<R: Reader> RangeLists<R> {
         unit_version: u16,
         address_size: u8,
         base_address: u64,
+        debug_addr: &DebugAddr<R>,
+        debug_addr_base: DebugAddrBase<R::Offset>,
     ) -> Result<RngListIter<R>> {
         Ok(RngListIter::new(
             self.raw_ranges(offset, unit_version, address_size)?,
             base_address,
+            debug_addr.clone(),
+            debug_addr_base,
         ))
     }
 
@@ -262,7 +264,7 @@ pub struct RawRngListIter<R: Reader> {
 
 /// A raw entry in .debug_rnglists
 #[derive(Clone, Debug)]
-pub enum RawRngListEntry {
+pub enum RawRngListEntry<T> {
     /// DW_RLE_base_address
     BaseAddress {
         /// base address
@@ -271,19 +273,19 @@ pub enum RawRngListEntry {
     /// DW_RLE_base_addressx
     BaseAddressx {
         /// base address
-        addr: AddressIndex,
+        addr: DebugAddrIndex<T>,
     },
     /// DW_RLE_startx_endx
     StartxEndx {
         /// start of range
-        begin: AddressIndex,
+        begin: DebugAddrIndex<T>,
         /// end of range
-        end: AddressIndex,
+        end: DebugAddrIndex<T>,
     },
     /// DW_RLE_startx_length
     StartxLength {
         /// start of range
-        begin: AddressIndex,
+        begin: DebugAddrIndex<T>,
         /// length of range
         length: u64,
     },
@@ -310,9 +312,13 @@ pub enum RawRngListEntry {
     },
 }
 
-impl RawRngListEntry {
+impl<T: ReaderOffset> RawRngListEntry<T> {
     /// Parse a range entry from `.debug_rnglists`
-    fn parse<R: Reader>(input: &mut R, version: u16, address_size: u8) -> Result<Option<Self>> {
+    fn parse<R: Reader<Offset = T>>(
+        input: &mut R,
+        version: u16,
+        address_size: u8,
+    ) -> Result<Option<Self>> {
         if version < 5 {
             let range = RawRange::parse(input, address_size)?;
             return Ok(if range.is_end() {
@@ -329,14 +335,14 @@ impl RawRngListEntry {
         Ok(match constants::DwRle(input.read_u8()?) {
             constants::DW_RLE_end_of_list => None,
             constants::DW_RLE_base_addressx => Some(RawRngListEntry::BaseAddressx {
-                addr: AddressIndex(input.read_uleb128()?),
+                addr: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
             }),
             constants::DW_RLE_startx_endx => Some(RawRngListEntry::StartxEndx {
-                begin: AddressIndex(input.read_uleb128()?),
-                end: AddressIndex(input.read_uleb128()?),
+                begin: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
+                end: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
             }),
             constants::DW_RLE_startx_length => Some(RawRngListEntry::StartxLength {
-                begin: AddressIndex(input.read_uleb128()?),
+                begin: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
                 length: input.read_uleb128()?,
             }),
             constants::DW_RLE_offset_pair => Some(RawRngListEntry::OffsetPair {
@@ -372,7 +378,7 @@ impl<R: Reader> RawRngListIter<R> {
     }
 
     /// Advance the iterator to the next range.
-    pub fn next(&mut self) -> Result<Option<RawRngListEntry>> {
+    pub fn next(&mut self) -> Result<Option<RawRngListEntry<R::Offset>>> {
         if self.input.is_empty() {
             return Ok(None);
         }
@@ -393,7 +399,7 @@ impl<R: Reader> RawRngListIter<R> {
 }
 
 impl<R: Reader> FallibleIterator for RawRngListIter<R> {
-    type Item = RawRngListEntry;
+    type Item = RawRngListEntry<R::Offset>;
     type Error = Error;
 
     fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
@@ -410,12 +416,30 @@ impl<R: Reader> FallibleIterator for RawRngListIter<R> {
 pub struct RngListIter<R: Reader> {
     raw: RawRngListIter<R>,
     base_address: u64,
+    debug_addr: DebugAddr<R>,
+    debug_addr_base: DebugAddrBase<R::Offset>,
 }
 
 impl<R: Reader> RngListIter<R> {
     /// Construct a `RngListIter`.
-    fn new(raw: RawRngListIter<R>, base_address: u64) -> RngListIter<R> {
-        RngListIter { raw, base_address }
+    fn new(
+        raw: RawRngListIter<R>,
+        base_address: u64,
+        debug_addr: DebugAddr<R>,
+        debug_addr_base: DebugAddrBase<R::Offset>,
+    ) -> RngListIter<R> {
+        RngListIter {
+            raw,
+            base_address,
+            debug_addr,
+            debug_addr_base,
+        }
+    }
+
+    #[inline]
+    fn get_address(&self, index: DebugAddrIndex<R::Offset>) -> Result<u64> {
+        self.debug_addr
+            .get_address(self.raw.address_size, self.debug_addr_base, index)
     }
 
     /// Advance the iterator to the next range.
@@ -431,6 +455,20 @@ impl<R: Reader> RngListIter<R> {
                     self.base_address = addr;
                     continue;
                 }
+                RawRngListEntry::BaseAddressx { addr } => {
+                    self.base_address = self.get_address(addr)?;
+                    continue;
+                }
+                RawRngListEntry::StartxEndx { begin, end } => {
+                    let begin = self.get_address(begin)?;
+                    let end = self.get_address(end)?;
+                    Range { begin, end }
+                }
+                RawRngListEntry::StartxLength { begin, length } => {
+                    let begin = self.get_address(begin)?;
+                    let end = begin + length;
+                    Range { begin, end }
+                }
                 RawRngListEntry::OffsetPair { begin, end } => {
                     let mut range = Range { begin, end };
                     range.add_base_address(self.base_address, self.raw.address_size);
@@ -441,10 +479,6 @@ impl<R: Reader> RngListIter<R> {
                     begin,
                     end: begin + length,
                 },
-                _ => {
-                    // We don't support AddressIndex-based entries yet
-                    return Err(Error::UnsupportedAddressIndex);
-                }
             };
 
             if range.begin > range.end {
@@ -536,6 +570,15 @@ mod tests {
 
     #[test]
     fn test_rnglists_32() {
+        let section = Section::with_endian(Endian::Little)
+            .L32(0x0300_0000)
+            .L32(0x0301_0300)
+            .L32(0x0301_0400)
+            .L32(0x0301_0500);
+        let buf = section.get_contents().unwrap();
+        let debug_addr = &DebugAddr::from(EndianSlice::new(&buf, LittleEndian));
+        let debug_addr_base = DebugAddrBase(0);
+
         let start = Label::new();
         let first = Label::new();
         let size = Label::new();
@@ -568,6 +611,13 @@ mod tests {
             // An OffsetPair that ends at -1.
             .L8(5).L32(0)
             .L8(4).uleb(0).uleb(0xffff_ffff)
+            // A BaseAddressx + OffsetPair
+            .L8(1).uleb(0)
+            .L8(4).uleb(0x10100).uleb(0x10200)
+            // A StartxEndx
+            .L8(2).uleb(1).uleb(2)
+            // A StartxLength
+            .L8(3).uleb(3).uleb(0x100)
             // A range end.
             .L8(0)
             // Some extra data.
@@ -579,7 +629,9 @@ mod tests {
         let debug_rnglists = DebugRngLists::new(&buf, LittleEndian);
         let rnglists = RangeLists::new(debug_ranges, debug_rnglists).unwrap();
         let offset = RangeListsOffset((&first - &start) as usize);
-        let mut ranges = rnglists.ranges(offset, 5, 0, 0x0100_0000).unwrap();
+        let mut ranges = rnglists
+            .ranges(offset, 5, 0, 0x0100_0000, debug_addr, debug_addr_base)
+            .unwrap();
 
         // A normal range.
         assert_eq!(
@@ -660,18 +712,61 @@ mod tests {
             }))
         );
 
+        // A BaseAddressx + OffsetPair
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x0301_0100,
+                end: 0x0301_0200,
+            }))
+        );
+
+        // A StartxEndx
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x0301_0300,
+                end: 0x0301_0400,
+            }))
+        );
+
+        // A StartxLength
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x0301_0500,
+                end: 0x0301_0600,
+            }))
+        );
+
         // A range end.
         assert_eq!(ranges.next(), Ok(None));
 
         // An offset at the end of buf.
         let mut ranges = rnglists
-            .ranges(RangeListsOffset(buf.len()), 5, 0, 0x0100_0000)
+            .ranges(
+                RangeListsOffset(buf.len()),
+                5,
+                0,
+                0x0100_0000,
+                debug_addr,
+                debug_addr_base,
+            )
             .unwrap();
         assert_eq!(ranges.next(), Ok(None));
     }
 
     #[test]
     fn test_rnglists_64() {
+        let section = Section::with_endian(Endian::Little)
+            .L64(0x0300_0000)
+            .L64(0x0301_0300)
+            .L64(0x0301_0400)
+            .L64(0x0301_0500);
+        let buf = section.get_contents().unwrap();
+        let debug_addr = &DebugAddr::from(EndianSlice::new(&buf, LittleEndian));
+        let debug_addr_base = DebugAddrBase(0);
+
         let start = Label::new();
         let first = Label::new();
         let size = Label::new();
@@ -705,6 +800,13 @@ mod tests {
             // An OffsetPair that ends at -1.
             .L8(5).L64(0)
             .L8(4).uleb(0).uleb(0xffff_ffff)
+            // A BaseAddressx + OffsetPair
+            .L8(1).uleb(0)
+            .L8(4).uleb(0x10100).uleb(0x10200)
+            // A StartxEndx
+            .L8(2).uleb(1).uleb(2)
+            // A StartxLength
+            .L8(3).uleb(3).uleb(0x100)
             // A range end.
             .L8(0)
             // Some extra data.
@@ -716,7 +818,9 @@ mod tests {
         let debug_rnglists = DebugRngLists::new(&buf, LittleEndian);
         let rnglists = RangeLists::new(debug_ranges, debug_rnglists).unwrap();
         let offset = RangeListsOffset((&first - &start) as usize);
-        let mut ranges = rnglists.ranges(offset, 5, 0, 0x0100_0000).unwrap();
+        let mut ranges = rnglists
+            .ranges(offset, 5, 0, 0x0100_0000, debug_addr, debug_addr_base)
+            .unwrap();
 
         // A normal range.
         assert_eq!(
@@ -797,12 +901,46 @@ mod tests {
             }))
         );
 
+        // A BaseAddressx + OffsetPair
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x0301_0100,
+                end: 0x0301_0200,
+            }))
+        );
+
+        // A StartxEndx
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x0301_0300,
+                end: 0x0301_0400,
+            }))
+        );
+
+        // A StartxLength
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x0301_0500,
+                end: 0x0301_0600,
+            }))
+        );
+
         // A range end.
         assert_eq!(ranges.next(), Ok(None));
 
         // An offset at the end of buf.
         let mut ranges = rnglists
-            .ranges(RangeListsOffset(buf.len()), 5, 0, 0x0100_0000)
+            .ranges(
+                RangeListsOffset(buf.len()),
+                5,
+                0,
+                0x0100_0000,
+                debug_addr,
+                debug_addr_base,
+            )
             .unwrap();
         assert_eq!(ranges.next(), Ok(None));
     }
@@ -873,7 +1011,11 @@ mod tests {
         let rnglists = RangeLists::new(debug_ranges, debug_rnglists).unwrap();
         let offset = RangeListsOffset((&first - &start) as usize);
         let version = 4;
-        let mut ranges = rnglists.ranges(offset, version, 4, 0x0100_0000).unwrap();
+        let debug_addr = &DebugAddr::from(EndianSlice::new(&[], LittleEndian));
+        let debug_addr_base = DebugAddrBase(0);
+        let mut ranges = rnglists
+            .ranges(offset, version, 4, 0x0100_0000, debug_addr, debug_addr_base)
+            .unwrap();
 
         // A normal range.
         assert_eq!(
@@ -932,7 +1074,14 @@ mod tests {
 
         // An offset at the end of buf.
         let mut ranges = rnglists
-            .ranges(RangeListsOffset(buf.len()), version, 4, 0x0100_0000)
+            .ranges(
+                RangeListsOffset(buf.len()),
+                version,
+                4,
+                0x0100_0000,
+                debug_addr,
+                debug_addr_base,
+            )
             .unwrap();
         assert_eq!(ranges.next(), Ok(None));
     }
@@ -971,7 +1120,11 @@ mod tests {
         let rnglists = RangeLists::new(debug_ranges, debug_rnglists).unwrap();
         let offset = RangeListsOffset((&first - &start) as usize);
         let version = 4;
-        let mut ranges = rnglists.ranges(offset, version, 8, 0x0100_0000).unwrap();
+        let debug_addr = &DebugAddr::from(EndianSlice::new(&[], LittleEndian));
+        let debug_addr_base = DebugAddrBase(0);
+        let mut ranges = rnglists
+            .ranges(offset, version, 8, 0x0100_0000, debug_addr, debug_addr_base)
+            .unwrap();
 
         // A normal range.
         assert_eq!(
@@ -1030,7 +1183,14 @@ mod tests {
 
         // An offset at the end of buf.
         let mut ranges = rnglists
-            .ranges(RangeListsOffset(buf.len()), version, 8, 0x0100_0000)
+            .ranges(
+                RangeListsOffset(buf.len()),
+                version,
+                8,
+                0x0100_0000,
+                debug_addr,
+                debug_addr_base,
+            )
             .unwrap();
         assert_eq!(ranges.next(), Ok(None));
     }
@@ -1049,21 +1209,44 @@ mod tests {
         let debug_rnglists = DebugRngLists::new(&[], LittleEndian);
         let rnglists = RangeLists::new(debug_ranges, debug_rnglists).unwrap();
         let version = 4;
+        let debug_addr = &DebugAddr::from(EndianSlice::new(&[], LittleEndian));
+        let debug_addr_base = DebugAddrBase(0);
 
         // An invalid range.
         let mut ranges = rnglists
-            .ranges(RangeListsOffset(0x0), version, 4, 0x0100_0000)
+            .ranges(
+                RangeListsOffset(0x0),
+                version,
+                4,
+                0x0100_0000,
+                debug_addr,
+                debug_addr_base,
+            )
             .unwrap();
         assert_eq!(ranges.next(), Err(Error::InvalidAddressRange));
 
         // An invalid range after wrapping.
         let mut ranges = rnglists
-            .ranges(RangeListsOffset(0x8), version, 4, 0x0100_0000)
+            .ranges(
+                RangeListsOffset(0x8),
+                version,
+                4,
+                0x0100_0000,
+                debug_addr,
+                debug_addr_base,
+            )
             .unwrap();
         assert_eq!(ranges.next(), Err(Error::InvalidAddressRange));
 
         // An invalid offset.
-        match rnglists.ranges(RangeListsOffset(buf.len() + 1), version, 4, 0x0100_0000) {
+        match rnglists.ranges(
+            RangeListsOffset(buf.len() + 1),
+            version,
+            4,
+            0x0100_0000,
+            debug_addr,
+            debug_addr_base,
+        ) {
             Err(Error::UnexpectedEof) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }

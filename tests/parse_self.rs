@@ -239,6 +239,9 @@ fn test_parse_self_debug_ranges() {
     let debug_abbrev = read_section("debug_abbrev");
     let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
+    let debug_addr = DebugAddr::from(EndianSlice::new(&[], LittleEndian));
+    let debug_addr_base = DebugAddrBase(0);
+
     let debug_ranges = read_section("debug_ranges");
     let debug_ranges = DebugRanges::new(&debug_ranges, LittleEndian);
     let debug_rnglists = DebugRngLists::new(&[], LittleEndian);
@@ -271,7 +274,14 @@ fn test_parse_self_debug_ranges() {
             while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
                 if let AttributeValue::RangeListsRef(offset) = attr.value() {
                     let mut ranges = rnglists
-                        .ranges(offset, unit.version(), unit.address_size(), low_pc)
+                        .ranges(
+                            offset,
+                            unit.version(),
+                            unit.address_size(),
+                            low_pc,
+                            &debug_addr,
+                            debug_addr_base,
+                        )
                         .expect("Should parse ranges OK");
                     while let Some(range) = ranges.next().expect("Should parse next range") {
                         assert!(range.begin <= range.end);

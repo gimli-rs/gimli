@@ -294,6 +294,9 @@ fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
     let debug_abbrev = read_section("debug_abbrev");
     let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
+    let debug_addr = DebugAddr::from(EndianSlice::new(&[], LittleEndian));
+    let debug_addr_base = DebugAddrBase(0);
+
     let debug_ranges = read_section("debug_ranges");
     let debug_ranges = DebugRanges::new(&debug_ranges, LittleEndian);
     let debug_rnglists = DebugRngLists::new(&[], LittleEndian);
@@ -336,7 +339,14 @@ fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
     b.iter(|| {
         for &(offset, version, address_size, base_address) in &*offsets {
             let mut ranges = rnglists
-                .ranges(offset, version, address_size, base_address)
+                .ranges(
+                    offset,
+                    version,
+                    address_size,
+                    base_address,
+                    &debug_addr,
+                    debug_addr_base,
+                )
                 .expect("Should parse ranges OK");
             while let Some(range) = ranges.next().expect("Should parse next range") {
                 test::black_box(range);
