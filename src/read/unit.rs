@@ -3511,6 +3511,38 @@ mod tests {
                 AttributeValue::Data8(([8, 7, 6, 5, 4, 3, 2, 1], endian)),
                 AttributeValue::Udata(0x0102_0304_0506_0708),
             ),
+            (
+                4,
+                constants::DW_AT_str_offsets_base,
+                constants::DW_FORM_sec_offset,
+                data4,
+                AttributeValue::SecOffset(0x0102_0304),
+                AttributeValue::DebugStrOffsetsBase(DebugStrOffsetsBase(0x0102_0304)),
+            ),
+            (
+                4,
+                constants::DW_AT_addr_base,
+                constants::DW_FORM_sec_offset,
+                data4,
+                AttributeValue::SecOffset(0x0102_0304),
+                AttributeValue::DebugAddrBase(DebugAddrBase(0x0102_0304)),
+            ),
+            (
+                4,
+                constants::DW_AT_rnglists_base,
+                constants::DW_FORM_sec_offset,
+                data4,
+                AttributeValue::SecOffset(0x0102_0304),
+                AttributeValue::DebugRngListsBase(DebugRngListsBase(0x0102_0304)),
+            ),
+            (
+                4,
+                constants::DW_AT_loclists_base,
+                constants::DW_FORM_sec_offset,
+                data4,
+                AttributeValue::SecOffset(0x0102_0304),
+                AttributeValue::DebugLocListsBase(DebugLocListsBase(0x0102_0304)),
+            ),
         ];
 
         for test in tests.iter() {
@@ -4024,6 +4056,138 @@ mod tests {
         let form = constants::DW_FORM_GNU_strp_alt;
         let value = AttributeValue::DebugStrRefSup(DebugStrOffset(0x0807_0605_0403_0201));
         test_parse_attribute(&buf, 8, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_strx() {
+        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        let bytes_written = {
+            let mut writable = &mut buf[..];
+            leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
+        };
+
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_strx;
+        let value = AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(4097));
+        test_parse_attribute(&buf, bytes_written, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_strx1() {
+        let buf = [0x01, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_strx1;
+        let value = AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(0x01));
+        test_parse_attribute(&buf, 1, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_strx2() {
+        let buf = [0x01, 0x02, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_strx2;
+        let value = AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(0x0201));
+        test_parse_attribute(&buf, 2, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_strx3() {
+        let buf = [0x01, 0x02, 0x03, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_strx3;
+        let value = AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(0x03_0201));
+        test_parse_attribute(&buf, 3, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_strx4() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_strx4;
+        let value = AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(0x0403_0201));
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_addrx() {
+        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        let bytes_written = {
+            let mut writable = &mut buf[..];
+            leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
+        };
+
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_addrx;
+        let value = AttributeValue::DebugAddrIndex(DebugAddrIndex(4097));
+        test_parse_attribute(&buf, bytes_written, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_addrx1() {
+        let buf = [0x01, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_addrx1;
+        let value = AttributeValue::DebugAddrIndex(DebugAddrIndex(0x01));
+        test_parse_attribute(&buf, 1, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_addrx2() {
+        let buf = [0x01, 0x02, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_addrx2;
+        let value = AttributeValue::DebugAddrIndex(DebugAddrIndex(0x0201));
+        test_parse_attribute(&buf, 2, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_addrx3() {
+        let buf = [0x01, 0x02, 0x03, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_addrx3;
+        let value = AttributeValue::DebugAddrIndex(DebugAddrIndex(0x03_0201));
+        test_parse_attribute(&buf, 3, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_addrx4() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_addrx4;
+        let value = AttributeValue::DebugAddrIndex(DebugAddrIndex(0x0403_0201));
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_loclistx() {
+        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        let bytes_written = {
+            let mut writable = &mut buf[..];
+            leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
+        };
+
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_loclistx;
+        let value = AttributeValue::DebugLocListsIndex(DebugLocListsIndex(4097));
+        test_parse_attribute(&buf, bytes_written, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_rnglistx() {
+        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        let bytes_written = {
+            let mut writable = &mut buf[..];
+            leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
+        };
+
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_rnglistx;
+        let value = AttributeValue::DebugRngListsIndex(DebugRngListsIndex(4097));
+        test_parse_attribute(&buf, bytes_written, &unit, form, value);
     }
 
     #[test]
