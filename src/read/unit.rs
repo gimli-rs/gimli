@@ -1877,7 +1877,10 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 let index = input.read_u16().map(R::Offset::from_u16)?;
                 AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
             }
-            // TODO: constants::DW_FORM_strx3
+            constants::DW_FORM_strx3 => {
+                let index = input.read_uint(3).and_then(R::Offset::from_u64)?;
+                AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
+            }
             constants::DW_FORM_strx4 => {
                 let index = input.read_u32().map(R::Offset::from_u32)?;
                 AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
@@ -1894,7 +1897,10 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 let index = input.read_u16().map(R::Offset::from_u16)?;
                 AttributeValue::DebugAddrIndex(DebugAddrIndex(index))
             }
-            // TODO: constants::DW_FORM_addrx3
+            constants::DW_FORM_addrx3 => {
+                let index = input.read_uint(3).and_then(R::Offset::from_u64)?;
+                AttributeValue::DebugAddrIndex(DebugAddrIndex(index))
+            }
             constants::DW_FORM_addrx4 => {
                 let index = input.read_u32().map(R::Offset::from_u32)?;
                 AttributeValue::DebugAddrIndex(DebugAddrIndex(index))
