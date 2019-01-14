@@ -324,11 +324,8 @@ impl<'a, R: gimli::Reader<Offset = usize>> gimli::Reader for Relocate<'a, R> {
     }
 
     #[inline]
-    fn read_u8_array<A>(&mut self) -> gimli::Result<A>
-    where
-        A: Sized + Default + AsMut<[u8]>,
-    {
-        self.reader.read_u8_array()
+    fn read_slice(&mut self, buf: &mut [u8]) -> gimli::Result<()> {
+        self.reader.read_slice(buf)
     }
 }
 
