@@ -1536,6 +1536,12 @@ fn dump_op<R: Reader, W: Write>(
         gimli::Operation::Address { address } => {
             write!(w, " 0x{:08x}", address)?;
         }
+        gimli::Operation::AddressIndex { index } => {
+            write!(w, " 0x{:08x}", index.0)?;
+        }
+        gimli::Operation::ConstantIndex { index } => {
+            write!(w, " 0x{:08x}", index.0)?;
+        }
         gimli::Operation::TypedLiteral { base_type, value } => {
             write!(w, " type 0x{:08x} contents 0x", base_type.0)?;
             for byte in value.to_slice()?.iter() {

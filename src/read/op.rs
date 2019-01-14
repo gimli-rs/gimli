@@ -3,7 +3,7 @@
 use std::mem;
 use vec::Vec;
 
-use common::{DebugInfoOffset, Format, Register};
+use common::{DebugAddrIndex, DebugInfoOffset, Format, Register};
 use constants;
 use read::{Error, Reader, ReaderOffset, Result, UnitOffset, Value, ValueType};
 
@@ -206,8 +206,22 @@ where
     /// Represents `DW_OP_addr`.
     /// Relocate the address if needed, and push it on the stack.
     Address {
-        /// The offfset to add.
+        /// The offset to add.
         address: u64,
+    },
+    /// Represents `DW_OP_addrx`.
+    /// Read the address at the given index in `.debug_addr, relocate the address if needed,
+    /// and push it on the stack.
+    AddressIndex {
+        /// The index of the address in `.debug_addr`.
+        index: DebugAddrIndex<Offset>,
+    },
+    /// Represents `DW_OP_constx`.
+    /// Read the address at the given index in `.debug_addr, and push it on the stack.
+    /// Do not relocate the address.
+    ConstantIndex {
+        /// The index of the address in `.debug_addr`.
+        index: DebugAddrIndex<Offset>,
     },
     /// Represents `DW_OP_const_type`.
     /// Interpret the value bytes as a constant of a given type, and push it on the stack.
@@ -667,6 +681,18 @@ where
                     byte_offset,
                 })
             }
+            constants::DW_OP_addrx => {
+                let index = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
+                Ok(Operation::AddressIndex {
+                    index: DebugAddrIndex(index),
+                })
+            }
+            constants::DW_OP_constx => {
+                let index = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
+                Ok(Operation::ConstantIndex {
+                    index: DebugAddrIndex(index),
+                })
+            }
             constants::DW_OP_entry_value | constants::DW_OP_GNU_entry_value => {
                 let len = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
                 let expression = bytes.split(len)?;
@@ -752,6 +778,7 @@ enum EvaluationWaiting<R: Reader> {
     EntryValue,
     ParameterRef,
     RelocatedAddress,
+    IndexedAddress,
     TypedLiteral { value: R },
     Convert,
     Reinterpret,
@@ -820,6 +847,17 @@ pub enum EvaluationResult<R: Reader> {
     /// Once the caller determines what value to provide it should resume the
     /// `Evaluation` by calling `Evaluation::resume_with_relocated_address`.
     RequiresRelocatedAddress(u64),
+    /// The `Evaluation` needs an address from the `.debug_addr` section.
+    /// This address may also need to be relocated.
+    /// Once the caller determines what value to provide it should resume the
+    /// `Evaluation` by calling `Evaluation::resume_with_indexed_address`.
+    RequiresIndexedAddress {
+        /// The index of the address in the `.debug_addr` section,
+        /// relative to the `DW_AT_addr_base` of the compilation unit.
+        index: DebugAddrIndex<R::Offset>,
+        /// Whether the address also needs to be relocated.
+        relocate: bool,
+    },
     /// The `Evaluation` needs the `ValueType` for the base type DIE at
     /// the give unit offset.  Once the caller determines what value to provide it
     /// should resume the `Evaluation` by calling
@@ -1307,6 +1345,26 @@ impl<R: Reader> Evaluation<R> {
                 ));
             }
 
+            Operation::AddressIndex { index } => {
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::IndexedAddress,
+                    EvaluationResult::RequiresIndexedAddress {
+                        index,
+                        relocate: true,
+                    },
+                ));
+            }
+
+            Operation::ConstantIndex { index } => {
+                return Ok(OperationEvaluationResult::Waiting(
+                    EvaluationWaiting::IndexedAddress,
+                    EvaluationResult::RequiresIndexedAddress {
+                        index,
+                        relocate: false,
+                    },
+                ));
+            }
+
             Operation::Piece {
                 size_in_bits,
                 bit_offset,
@@ -1584,6 +1642,28 @@ impl<R: Reader> Evaluation<R> {
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_relocated_address` without a preceding `EvaluationResult::RequiresRelocatedAddress`"
+            ),
+        };
+
+        self.evaluate_internal()
+    }
+
+    /// Resume the `Evaluation` with the provided indexed `address`.  This will use the
+    /// provided indexed address for the operation that required it, and continue evaluating
+    /// opcodes until the evaluation is completed, reaches an error, or needs
+    /// more information again.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` did not previously stop with
+    /// `EvaluationResult::RequiresIndexedAddress`.
+    pub fn resume_with_indexed_address(&mut self, address: u64) -> Result<EvaluationResult<R>> {
+        match self.state {
+            EvaluationState::Error(err) => return Err(err),
+            EvaluationState::Waiting(EvaluationWaiting::IndexedAddress) => {
+                self.push(Value::Generic(address));
+            }
+            _ => panic!(
+                "Called `Evaluation::resume_with_indexed_address` without a preceding `EvaluationResult::RequiresIndexedAddress`"
             ),
         };
 
@@ -2241,6 +2321,23 @@ mod tests {
                         register: Register::from_u64(*value).unwrap(),
                     },
                 ));
+            }
+
+            if *value <= (!0u32).into() {
+                inputs.extend(&[
+                    (
+                        constants::DW_OP_addrx,
+                        Operation::AddressIndex {
+                            index: DebugAddrIndex(*value as usize),
+                        },
+                    ),
+                    (
+                        constants::DW_OP_constx,
+                        Operation::ConstantIndex {
+                            index: DebugAddrIndex(*value as usize),
+                        },
+                    ),
+                ]);
             }
 
             // FIXME
@@ -3165,6 +3262,18 @@ mod tests {
             Op(DW_OP_ne),
             Op(DW_OP_bra), Branch(fail),
 
+            Op(DW_OP_addrx), Uleb(0x10),
+            Op(DW_OP_deref),
+            Op(DW_OP_const4u), U32(0x4040),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
+
+            Op(DW_OP_constx), Uleb(17),
+            Op(DW_OP_form_tls_address),
+            Op(DW_OP_constu), Uleb(!27),
+            Op(DW_OP_ne),
+            Op(DW_OP_bra), Branch(fail),
+
             // Success.
             Op(DW_OP_lit0),
             Op(DW_OP_nop),
@@ -3213,6 +3322,13 @@ mod tests {
                         EvaluationResult::RequiresTls(slot) => eval.resume_with_tls(!slot)?,
                         EvaluationResult::RequiresRelocatedAddress(address) => {
                             eval.resume_with_relocated_address(address)?
+                        }
+                        EvaluationResult::RequiresIndexedAddress { index, relocate } => {
+                            if relocate {
+                                eval.resume_with_indexed_address(0x1000 + index.0 as u64)?
+                            } else {
+                                eval.resume_with_indexed_address(10 + index.0 as u64)?
+                            }
                         }
                         _ => panic!(),
                     };
