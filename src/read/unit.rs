@@ -6,7 +6,9 @@ use std::ops::{Range, RangeFrom, RangeTo};
 use std::{u16, u8};
 
 use common::{
-    DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugStrOffset,
+    DebugAbbrevOffset, DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineOffset,
+    DebugLocListsBase, DebugLocListsIndex, DebugMacinfoOffset, DebugRngListsBase,
+    DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex,
     DebugTypeSignature, DebugTypesOffset, Format, LocationListsOffset, RangeListsOffset,
 };
 use constants;
@@ -994,6 +996,12 @@ pub enum AttributeValue<R: Reader> {
     /// depends on context.
     SecOffset(R::Offset),
 
+    /// An offset to a set of addresses in the `.debug_addr` section.
+    DebugAddrBase(DebugAddrBase<R::Offset>),
+
+    /// An index into a set of addresses in the `.debug_addr` section.
+    DebugAddrIndex(DebugAddrIndex<R::Offset>),
+
     /// An offset into the current compilation unit.
     UnitRef(UnitOffset<R::Offset>),
 
@@ -1010,11 +1018,23 @@ pub enum AttributeValue<R: Reader> {
     /// An offset into either the `.debug_loc` section or the `.debug_loclists` section.
     LocationListsRef(LocationListsOffset<R::Offset>),
 
+    /// An offset to a set of offsets in the `.debug_loclists` section.
+    DebugLocListsBase(DebugLocListsBase<R::Offset>),
+
+    /// An index into a set of offsets in the `.debug_loclists` section.
+    DebugLocListsIndex(DebugLocListsIndex<R::Offset>),
+
     /// An offset into the `.debug_macinfo` section.
     DebugMacinfoRef(DebugMacinfoOffset<R::Offset>),
 
     /// An offset into the `.debug_ranges` section.
     RangeListsRef(RangeListsOffset<R::Offset>),
+
+    /// An offset to a set of offsets in the `.debug_rnglists` section.
+    DebugRngListsBase(DebugRngListsBase<R::Offset>),
+
+    /// An index into a set of offsets in the `.debug_rnglists` section.
+    DebugRngListsIndex(DebugRngListsIndex<R::Offset>),
 
     /// A type signature.
     DebugTypesRef(DebugTypeSignature),
@@ -1024,6 +1044,12 @@ pub enum AttributeValue<R: Reader> {
 
     /// An offset into the `.debug_str` section of the supplementary object file.
     DebugStrRefSup(DebugStrOffset<R::Offset>),
+
+    /// An offset to a set of entries in the `.debug_str_offsets` section.
+    DebugStrOffsetsBase(DebugStrOffsetsBase<R::Offset>),
+
+    /// An index into a set of entries in the `.debug_str_offsets` section.
+    DebugStrOffsetsIndex(DebugStrOffsetsIndex<R::Offset>),
 
     /// A slice of bytes representing a string. Does not include a final null byte.
     /// Not guaranteed to be UTF-8 or anything like that.
@@ -1118,6 +1144,13 @@ impl<R: Reader> Attribute<R> {
         macro_rules! address {
             () => {};
         }
+        macro_rules! addrptr {
+            () => {
+                if let Some(offset) = self.offset_value() {
+                    return AttributeValue::DebugAddrBase(DebugAddrBase(offset));
+                }
+            };
+        }
         macro_rules! block {
             () => {};
         }
@@ -1143,17 +1176,26 @@ impl<R: Reader> Attribute<R> {
         macro_rules! flag {
             () => {};
         }
+        macro_rules! lineptr {
+            () => {
+                if let Some(offset) = self.offset_value() {
+                    return AttributeValue::DebugLineRef(DebugLineOffset(offset));
+                }
+            };
+        }
+        // This also covers `loclist` in DWARF version 5.
         macro_rules! loclistptr {
             () => {
+                // DebugLocListsIndex is also an allowed form in DWARF version 5.
                 if let Some(offset) = self.offset_value() {
                     return AttributeValue::LocationListsRef(LocationListsOffset(offset));
                 }
             };
         }
-        macro_rules! lineptr {
+        macro_rules! loclistsptr {
             () => {
                 if let Some(offset) = self.offset_value() {
-                    return AttributeValue::DebugLineRef(DebugLineOffset(offset));
+                    return AttributeValue::DebugLocListsBase(DebugLocListsBase(offset));
                 }
             };
         }
@@ -1164,18 +1206,34 @@ impl<R: Reader> Attribute<R> {
                 }
             };
         }
+        macro_rules! reference {
+            () => {};
+        }
+        // This also covers `rnglist` in DWARF version 5.
         macro_rules! rangelistptr {
             () => {
+                // DebugRngListsIndex is also an allowed form in DWARF version 5.
                 if let Some(offset) = self.offset_value() {
                     return AttributeValue::RangeListsRef(RangeListsOffset(offset));
                 }
             };
         }
-        macro_rules! reference {
-            () => {};
+        macro_rules! rnglistsptr {
+            () => {
+                if let Some(offset) = self.offset_value() {
+                    return AttributeValue::DebugRngListsBase(DebugRngListsBase(offset));
+                }
+            };
         }
         macro_rules! string {
             () => {};
+        }
+        macro_rules! stroffsetsptr {
+            () => {
+                if let Some(offset) = self.offset_value() {
+                    return AttributeValue::DebugStrOffsetsBase(DebugStrOffsetsBase(offset));
+                }
+            };
         }
 
         // Perform the allowed class conversions for each attribute name.
@@ -1488,6 +1546,18 @@ impl<R: Reader> Attribute<R> {
             constants::DW_AT_linkage_name => {
                 string!();
             }
+            constants::DW_AT_str_offsets_base => {
+                stroffsetsptr!();
+            }
+            constants::DW_AT_addr_base => {
+                addrptr!();
+            }
+            constants::DW_AT_rnglists_base => {
+                rnglistsptr!();
+            }
+            constants::DW_AT_loclists_base => {
+                loclistsptr!();
+            }
             _ => {}
         }
         self.value.clone()
@@ -1795,6 +1865,54 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 AttributeValue::DebugStrRefSup(DebugStrOffset(offset))
             }
             constants::DW_FORM_implicit_const => AttributeValue::Sdata(spec.implicit_const_value()),
+            constants::DW_FORM_strx | constants::DW_FORM_GNU_str_index => {
+                let index = input.read_uleb128().and_then(R::Offset::from_u64)?;
+                AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
+            }
+            constants::DW_FORM_strx1 => {
+                let index = input.read_u8().map(R::Offset::from_u8)?;
+                AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
+            }
+            constants::DW_FORM_strx2 => {
+                let index = input.read_u16().map(R::Offset::from_u16)?;
+                AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
+            }
+            constants::DW_FORM_strx3 => {
+                let index = input.read_uint(3).and_then(R::Offset::from_u64)?;
+                AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
+            }
+            constants::DW_FORM_strx4 => {
+                let index = input.read_u32().map(R::Offset::from_u32)?;
+                AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
+            }
+            constants::DW_FORM_addrx | constants::DW_FORM_GNU_addr_index => {
+                let index = input.read_uleb128().and_then(R::Offset::from_u64)?;
+                AttributeValue::DebugAddrIndex(DebugAddrIndex(index))
+            }
+            constants::DW_FORM_addrx1 => {
+                let index = input.read_u8().map(R::Offset::from_u8)?;
+                AttributeValue::DebugAddrIndex(DebugAddrIndex(index))
+            }
+            constants::DW_FORM_addrx2 => {
+                let index = input.read_u16().map(R::Offset::from_u16)?;
+                AttributeValue::DebugAddrIndex(DebugAddrIndex(index))
+            }
+            constants::DW_FORM_addrx3 => {
+                let index = input.read_uint(3).and_then(R::Offset::from_u64)?;
+                AttributeValue::DebugAddrIndex(DebugAddrIndex(index))
+            }
+            constants::DW_FORM_addrx4 => {
+                let index = input.read_u32().map(R::Offset::from_u32)?;
+                AttributeValue::DebugAddrIndex(DebugAddrIndex(index))
+            }
+            constants::DW_FORM_loclistx => {
+                let index = input.read_uleb128().and_then(R::Offset::from_u64)?;
+                AttributeValue::DebugLocListsIndex(DebugLocListsIndex(index))
+            }
+            constants::DW_FORM_rnglistx => {
+                let index = input.read_uleb128().and_then(R::Offset::from_u64)?;
+                AttributeValue::DebugRngListsIndex(DebugRngListsIndex(index))
+            }
             _ => {
                 return Err(Error::UnknownForm);
             }
@@ -3393,6 +3511,38 @@ mod tests {
                 AttributeValue::Data8(([8, 7, 6, 5, 4, 3, 2, 1], endian)),
                 AttributeValue::Udata(0x0102_0304_0506_0708),
             ),
+            (
+                4,
+                constants::DW_AT_str_offsets_base,
+                constants::DW_FORM_sec_offset,
+                data4,
+                AttributeValue::SecOffset(0x0102_0304),
+                AttributeValue::DebugStrOffsetsBase(DebugStrOffsetsBase(0x0102_0304)),
+            ),
+            (
+                4,
+                constants::DW_AT_addr_base,
+                constants::DW_FORM_sec_offset,
+                data4,
+                AttributeValue::SecOffset(0x0102_0304),
+                AttributeValue::DebugAddrBase(DebugAddrBase(0x0102_0304)),
+            ),
+            (
+                4,
+                constants::DW_AT_rnglists_base,
+                constants::DW_FORM_sec_offset,
+                data4,
+                AttributeValue::SecOffset(0x0102_0304),
+                AttributeValue::DebugRngListsBase(DebugRngListsBase(0x0102_0304)),
+            ),
+            (
+                4,
+                constants::DW_AT_loclists_base,
+                constants::DW_FORM_sec_offset,
+                data4,
+                AttributeValue::SecOffset(0x0102_0304),
+                AttributeValue::DebugLocListsBase(DebugLocListsBase(0x0102_0304)),
+            ),
         ];
 
         for test in tests.iter() {
@@ -3906,6 +4056,138 @@ mod tests {
         let form = constants::DW_FORM_GNU_strp_alt;
         let value = AttributeValue::DebugStrRefSup(DebugStrOffset(0x0807_0605_0403_0201));
         test_parse_attribute(&buf, 8, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_strx() {
+        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        let bytes_written = {
+            let mut writable = &mut buf[..];
+            leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
+        };
+
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_strx;
+        let value = AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(4097));
+        test_parse_attribute(&buf, bytes_written, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_strx1() {
+        let buf = [0x01, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_strx1;
+        let value = AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(0x01));
+        test_parse_attribute(&buf, 1, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_strx2() {
+        let buf = [0x01, 0x02, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_strx2;
+        let value = AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(0x0201));
+        test_parse_attribute(&buf, 2, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_strx3() {
+        let buf = [0x01, 0x02, 0x03, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_strx3;
+        let value = AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(0x03_0201));
+        test_parse_attribute(&buf, 3, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_strx4() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_strx4;
+        let value = AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(0x0403_0201));
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_addrx() {
+        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        let bytes_written = {
+            let mut writable = &mut buf[..];
+            leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
+        };
+
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_addrx;
+        let value = AttributeValue::DebugAddrIndex(DebugAddrIndex(4097));
+        test_parse_attribute(&buf, bytes_written, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_addrx1() {
+        let buf = [0x01, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_addrx1;
+        let value = AttributeValue::DebugAddrIndex(DebugAddrIndex(0x01));
+        test_parse_attribute(&buf, 1, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_addrx2() {
+        let buf = [0x01, 0x02, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_addrx2;
+        let value = AttributeValue::DebugAddrIndex(DebugAddrIndex(0x0201));
+        test_parse_attribute(&buf, 2, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_addrx3() {
+        let buf = [0x01, 0x02, 0x03, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_addrx3;
+        let value = AttributeValue::DebugAddrIndex(DebugAddrIndex(0x03_0201));
+        test_parse_attribute(&buf, 3, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_addrx4() {
+        let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
+        let unit = test_parse_attribute_unit(4, Format::Dwarf64, LittleEndian);
+        let form = constants::DW_FORM_addrx4;
+        let value = AttributeValue::DebugAddrIndex(DebugAddrIndex(0x0403_0201));
+        test_parse_attribute(&buf, 4, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_loclistx() {
+        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        let bytes_written = {
+            let mut writable = &mut buf[..];
+            leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
+        };
+
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_loclistx;
+        let value = AttributeValue::DebugLocListsIndex(DebugLocListsIndex(4097));
+        test_parse_attribute(&buf, bytes_written, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_rnglistx() {
+        let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        let bytes_written = {
+            let mut writable = &mut buf[..];
+            leb128::write::unsigned(&mut writable, 4097).expect("should write ok")
+        };
+
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_rnglistx;
+        let value = AttributeValue::DebugRngListsIndex(DebugRngListsIndex(4097));
+        test_parse_attribute(&buf, bytes_written, &unit, form, value);
     }
 
     #[test]

@@ -261,10 +261,19 @@ pub trait Reader: Debug + Clone {
     /// Does not advance the reader.
     fn to_string_lossy(&self) -> Result<Cow<str>>;
 
+    /// Read exactly `buf.len()` bytes into `buf`.
+    fn read_slice(&mut self, buf: &mut [u8]) -> Result<()>;
+
     /// Read a u8 array.
+    #[inline]
     fn read_u8_array<A>(&mut self) -> Result<A>
     where
-        A: Sized + Default + AsMut<[u8]>;
+        A: Sized + Default + AsMut<[u8]>,
+    {
+        let mut val = Default::default();
+        self.read_slice(<A as AsMut<[u8]>>::as_mut(&mut val))?;
+        Ok(val)
+    }
 
     /// Return true if the number of bytes remaining is zero.
     #[inline]
@@ -340,6 +349,18 @@ pub trait Reader: Debug + Clone {
     fn read_f64(&mut self) -> Result<f64> {
         let a: [u8; 8] = self.read_u8_array()?;
         Ok(self.endian().read_f64(&a))
+    }
+
+    /// Read an unsigned n-bytes integer u64.
+    ///
+    /// # Panics
+    ///
+    /// Panics when nbytes < 1 or nbytes > 8
+    #[inline]
+    fn read_uint(&mut self, n: usize) -> Result<u64> {
+        let mut buf = [0; 8];
+        self.read_slice(&mut buf[..n])?;
+        Ok(self.endian().read_uint(&buf[..n]))
     }
 
     /// Read a null-terminated slice, and return it (excluding the null).

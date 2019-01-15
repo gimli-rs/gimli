@@ -4,7 +4,6 @@ use borrow::Cow;
 use rc::Rc;
 use stable_deref_trait::CloneStableDeref;
 use std::fmt::Debug;
-use std::mem;
 use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 use std::slice;
 use std::str;
@@ -441,15 +440,10 @@ where
     }
 
     #[inline]
-    fn read_u8_array<A>(&mut self) -> Result<A>
-    where
-        A: Sized + Default + AsMut<[u8]>,
-    {
-        let len = mem::size_of::<A>();
-        let slice = self.range.read_slice(len)?;
-        let mut val = Default::default();
-        <A as AsMut<[u8]>>::as_mut(&mut val).clone_from_slice(slice);
-        Ok(val)
+    fn read_slice(&mut self, buf: &mut [u8]) -> Result<()> {
+        let slice = self.range.read_slice(buf.len())?;
+        buf.clone_from_slice(slice);
+        Ok(())
     }
 }
 

@@ -38,6 +38,14 @@ pub struct Register(pub u16);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugAbbrevOffset<T = usize>(pub T);
 
+/// An offset to a set of entries in the `.debug_addr` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugAddrBase<T = usize>(pub T);
+
+/// An index into a set of addresses in the `.debug_addr` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugAddrIndex<T = usize>(pub T);
+
 /// An offset into the `.debug_info` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct DebugInfoOffset<T = usize>(pub T);
@@ -51,6 +59,14 @@ pub struct DebugLineOffset<T = usize>(pub T);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LocationListsOffset<T = usize>(pub T);
 
+/// An offset to a set of location list offsets in the `.debug_loclists` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugLocListsBase<T = usize>(pub T);
+
+/// An index into a set of location list offsets in the `.debug_loclists` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugLocListsIndex<T = usize>(pub T);
+
 /// An offset into the `.debug_macinfo` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugMacinfoOffset<T = usize>(pub T);
@@ -60,9 +76,25 @@ pub struct DebugMacinfoOffset<T = usize>(pub T);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RangeListsOffset<T = usize>(pub T);
 
+/// An offset to a set of range list offsets in the `.debug_rnglists` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugRngListsBase<T = usize>(pub T);
+
+/// An index into a set of range list offsets in the `.debug_rnglists` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugRngListsIndex<T = usize>(pub T);
+
 /// An offset into the `.debug_str` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DebugStrOffset<T = usize>(pub T);
+
+/// An offset to a set of entries in the `.debug_str_offsets` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugStrOffsetsBase<T = usize>(pub T);
+
+/// An index into a set of entries in the `.debug_str_offsets` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugStrOffsetsIndex<T = usize>(pub T);
 
 /// An offset into the `.debug_types` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -1,7 +1,6 @@
 //! Working with byte slices that have an associated endianity.
 
 use borrow::Cow;
-use std::mem;
 use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 use std::str;
 use string::String;
@@ -286,15 +285,10 @@ where
     }
 
     #[inline]
-    fn read_u8_array<A>(&mut self) -> Result<A>
-    where
-        A: Sized + Default + AsMut<[u8]>,
-    {
-        let len = mem::size_of::<A>();
-        let slice = self.read_slice(len)?;
-        let mut val = Default::default();
-        <A as AsMut<[u8]>>::as_mut(&mut val).clone_from_slice(slice);
-        Ok(val)
+    fn read_slice(&mut self, buf: &mut [u8]) -> Result<()> {
+        let slice = self.read_slice(buf.len())?;
+        buf.clone_from_slice(slice);
+        Ok(())
     }
 }
 

@@ -3,8 +3,9 @@ use std::{slice, usize};
 use vec::Vec;
 
 use common::{
-    DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugStrOffset,
-    DebugTypeSignature, Format, LocationListsOffset, RangeListsOffset,
+    DebugAbbrevOffset, DebugAddrBase, DebugInfoOffset, DebugLineOffset, DebugLocListsBase,
+    DebugMacinfoOffset, DebugRngListsBase, DebugStrOffset, DebugStrOffsetsBase, DebugTypeSignature,
+    Format, LocationListsOffset, RangeListsOffset,
 };
 use constants;
 use write::{
@@ -1051,6 +1052,10 @@ mod convert {
         pub convert_address: &'a Fn(u64) -> Option<Address>,
         pub line_program: Option<(DebugLineOffset, LineProgramId)>,
         pub line_program_files: Vec<FileId>,
+        pub str_offsets_base: DebugStrOffsetsBase<usize>,
+        pub addr_base: DebugAddrBase<usize>,
+        pub loclists_base: DebugLocListsBase<usize>,
+        pub rnglists_base: DebugRngListsBase<usize>,
     }
 
     impl UnitTable {
@@ -1137,6 +1142,10 @@ mod convert {
             let from_root = from_tree.root()?;
             let mut line_program = None;
             let mut line_program_files = Vec::new();
+            let mut str_offsets_base = DebugStrOffsetsBase(0);
+            let mut addr_base = DebugAddrBase(0);
+            let mut loclists_base = DebugLocListsBase(0);
+            let mut rnglists_base = DebugRngListsBase(0);
             {
                 let from_root = from_root.entry();
                 let comp_dir = from_root
@@ -1156,6 +1165,26 @@ mod convert {
                     line_program = Some((offset, line_programs.add(program)));
                     line_program_files = files;
                 }
+                if let Some(read::AttributeValue::DebugStrOffsetsBase(base)) =
+                    from_root.attr_value(constants::DW_AT_str_offsets_base)?
+                {
+                    str_offsets_base = base;
+                }
+                if let Some(read::AttributeValue::DebugAddrBase(base)) =
+                    from_root.attr_value(constants::DW_AT_addr_base)?
+                {
+                    addr_base = base;
+                }
+                if let Some(read::AttributeValue::DebugLocListsBase(base)) =
+                    from_root.attr_value(constants::DW_AT_loclists_base)?
+                {
+                    loclists_base = base;
+                }
+                if let Some(read::AttributeValue::DebugRngListsBase(base)) =
+                    from_root.attr_value(constants::DW_AT_rnglists_base)?
+                {
+                    rnglists_base = base;
+                }
             }
             let mut context = ConvertUnitContext {
                 dwarf,
@@ -1163,6 +1192,10 @@ mod convert {
                 convert_address,
                 line_program,
                 line_program_files,
+                str_offsets_base,
+                addr_base,
+                loclists_base,
+                rnglists_base,
             };
             let root = DebuggingInformationEntry::from(
                 &mut context,
@@ -1207,8 +1240,7 @@ mod convert {
                     if from_attr.name() == constants::DW_AT_sibling {
                         // This may point to a null entry, so we have to treat it differently.
                         entry.set_sibling(true);
-                    } else {
-                        let attr = Attribute::from(context, &from_attr, from_unit)?;
+                    } else if let Some(attr) = Attribute::from(context, &from_attr, from_unit)? {
                         entry.set(attr.name, attr.value);
                     }
                 }
@@ -1238,12 +1270,12 @@ mod convert {
             context: &mut ConvertUnitContext<R>,
             from: &read::Attribute<R>,
             from_unit: &read::CompilationUnitHeader<R>,
-        ) -> ConvertResult<Attribute> {
+        ) -> ConvertResult<Option<Attribute>> {
             let value = AttributeValue::from(context, from.value(), from_unit)?;
-            Ok(Attribute {
+            Ok(value.map(|value| Attribute {
                 name: from.name(),
                 value,
-            })
+            }))
         }
     }
 
@@ -1253,7 +1285,7 @@ mod convert {
             context: &mut ConvertUnitContext<R>,
             from: read::AttributeValue<R>,
             from_unit: &read::CompilationUnitHeader<R>,
-        ) -> ConvertResult<AttributeValue> {
+        ) -> ConvertResult<Option<AttributeValue>> {
             let to = match from {
                 read::AttributeValue::Addr(val) => match (context.convert_address)(val) {
                     Some(val) => AttributeValue::Address(val),
@@ -1273,6 +1305,22 @@ mod convert {
                 }
                 // TODO: it would be nice to preserve the flag form.
                 read::AttributeValue::Flag(val) => AttributeValue::Flag(val),
+                read::AttributeValue::DebugAddrBase(_base) => {
+                    // We convert all address indices to addresses,
+                    // so this is unneeded.
+                    return Ok(None);
+                }
+                read::AttributeValue::DebugAddrIndex(index) => {
+                    let val = context.dwarf.debug_addr.get_address(
+                        from_unit.address_size(),
+                        context.addr_base,
+                        index,
+                    )?;
+                    match (context.convert_address)(val) {
+                        Some(val) => AttributeValue::Address(val),
+                        None => return Err(ConvertError::InvalidAddress),
+                    }
+                }
                 read::AttributeValue::UnitRef(val) => {
                     AttributeValue::DebugInfoRef(val.to_debug_info_offset(from_unit))
                 }
@@ -1296,7 +1344,31 @@ mod convert {
                 read::AttributeValue::LocationListsRef(val) => {
                     AttributeValue::LocationListsRef(val)
                 }
+                read::AttributeValue::DebugLocListsBase(_base) => {
+                    // We convert all location list indices to offsets,
+                    // so this is unneeded.
+                    return Ok(None);
+                }
+                read::AttributeValue::DebugLocListsIndex(index) => {
+                    let offset = context
+                        .dwarf
+                        .locations
+                        .get_offset(context.loclists_base, index)?;
+                    AttributeValue::LocationListsRef(offset)
+                }
                 read::AttributeValue::RangeListsRef(val) => AttributeValue::RangeListsRef(val),
+                read::AttributeValue::DebugRngListsBase(_base) => {
+                    // We convert all range list indices to offsets,
+                    // so this is unneeded.
+                    return Ok(None);
+                }
+                read::AttributeValue::DebugRngListsIndex(index) => {
+                    let offset = context
+                        .dwarf
+                        .ranges
+                        .get_offset(context.rnglists_base, index)?;
+                    AttributeValue::RangeListsRef(offset)
+                }
                 read::AttributeValue::DebugTypesRef(val) => AttributeValue::DebugTypesRef(val),
                 read::AttributeValue::DebugStrRef(offset) => {
                     let r = context.dwarf.debug_str.get_str(offset)?;
@@ -1304,6 +1376,21 @@ mod convert {
                     AttributeValue::StringRef(id)
                 }
                 read::AttributeValue::DebugStrRefSup(val) => AttributeValue::DebugStrRefSup(val),
+                read::AttributeValue::DebugStrOffsetsBase(_base) => {
+                    // We convert all string offsets to `.debug_str` references,
+                    // so this is unneeded.
+                    return Ok(None);
+                }
+                read::AttributeValue::DebugStrOffsetsIndex(index) => {
+                    let offset = context.dwarf.debug_str_offsets.get_str_offset(
+                        from_unit.format(),
+                        context.str_offsets_base,
+                        index,
+                    )?;
+                    let r = context.dwarf.debug_str.get_str(offset)?;
+                    let id = context.strings.add(r.to_slice()?);
+                    AttributeValue::StringRef(id)
+                }
                 read::AttributeValue::String(r) => AttributeValue::String(r.to_slice()?.into()),
                 read::AttributeValue::Encoding(val) => AttributeValue::Encoding(val),
                 read::AttributeValue::DecimalSign(val) => AttributeValue::DecimalSign(val),
@@ -1330,7 +1417,7 @@ mod convert {
                     return Err(ConvertError::InvalidAttributeValue);
                 }
             };
-            Ok(to)
+            Ok(Some(to))
         }
     }
 }
@@ -1851,10 +1938,16 @@ mod tests {
                             convert_address: &|address| Some(Address::Absolute(address)),
                             line_program: None,
                             line_program_files: Vec::new(),
+                            str_offsets_base: DebugStrOffsetsBase(0),
+                            addr_base: DebugAddrBase(0),
+                            loclists_base: DebugLocListsBase(0),
+                            rnglists_base: DebugRngListsBase(0),
                         };
 
                         let convert_attr =
-                            Attribute::from(&mut context, &read_attr, &from_comp_unit).unwrap();
+                            Attribute::from(&mut context, &read_attr, &from_comp_unit)
+                                .unwrap()
+                                .unwrap();
                         assert_eq!(convert_attr, attr);
                     }
                 }
@@ -2264,10 +2357,16 @@ mod tests {
                             convert_address: &|address| Some(Address::Absolute(address)),
                             line_program: Some((line_program_offset, line_program_id)),
                             line_program_files: line_program_files.clone(),
+                            str_offsets_base: DebugStrOffsetsBase(0),
+                            addr_base: DebugAddrBase(0),
+                            loclists_base: DebugLocListsBase(0),
+                            rnglists_base: DebugRngListsBase(0),
                         };
 
                         let convert_attr =
-                            Attribute::from(&mut context, &read_attr, &from_comp_unit).unwrap();
+                            Attribute::from(&mut context, &read_attr, &from_comp_unit)
+                                .unwrap()
+                                .unwrap();
                         assert_eq!(convert_attr, attr);
                     }
                 }

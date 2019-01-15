@@ -1,8 +1,9 @@
 use constants;
 use read::{
     Abbreviations, Attribute, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter,
-    DebugAbbrev, DebugInfo, DebugLine, DebugStr, DebugTypes, Error, IncompleteLineNumberProgram,
-    LocationLists, RangeLists, Reader, Result, TypeUnitHeader, TypeUnitHeadersIter,
+    DebugAbbrev, DebugAddr, DebugInfo, DebugLine, DebugStr, DebugStrOffsets, DebugTypes, Error,
+    IncompleteLineNumberProgram, LocationLists, RangeLists, Reader, Result, TypeUnitHeader,
+    TypeUnitHeadersIter,
 };
 use Endianity;
 
@@ -20,6 +21,9 @@ where
     /// The `.debug_abbrev` section.
     pub debug_abbrev: DebugAbbrev<R>,
 
+    /// The `.debug_addr` section.
+    pub debug_addr: DebugAddr<R>,
+
     /// The `.debug_info` section.
     pub debug_info: DebugInfo<R>,
 
@@ -28,6 +32,9 @@ where
 
     /// The `.debug_str` section.
     pub debug_str: DebugStr<R>,
+
+    /// The `.debug_str_offsets` section.
+    pub debug_str_offsets: DebugStrOffsets<R>,
 
     /// The `.debug_str` section for a supplementary object file.
     pub debug_str_sup: DebugStr<R>,

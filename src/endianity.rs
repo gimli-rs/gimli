@@ -57,6 +57,20 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
         }
     }
 
+    /// Read an unsigned n-bytes integer u64.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `buf.len() < 1` or `buf.len() > 8`.
+    #[inline]
+    fn read_uint(&mut self, buf: &[u8]) -> u64 {
+        if self.is_big_endian() {
+            byteorder::BigEndian::read_uint(buf, buf.len())
+        } else {
+            byteorder::LittleEndian::read_uint(buf, buf.len())
+        }
+    }
+
     /// Reads a signed 16 bit integer from `buf`.
     ///
     /// # Panics

@@ -8,6 +8,9 @@ use std::{error, io};
 use common::Register;
 use constants;
 
+mod addr;
+pub use self::addr::*;
+
 mod cfi;
 pub use self::cfi::*;
 
