@@ -190,9 +190,12 @@ fn bench_parsing_line_number_program_opcodes(b: &mut test::Bencher) {
             .expect("Should parse line number program header");
         let header = program.header();
 
-        let mut opcodes = header.opcodes();
-        while let Some(opcode) = opcodes.next_opcode(header).expect("Should parse opcode") {
-            test::black_box(opcode);
+        let mut instructions = header.instructions();
+        while let Some(instruction) = instructions
+            .next_instruction(header)
+            .expect("Should parse instruction")
+        {
+            test::black_box(instruction);
         }
     });
 }

@@ -1962,10 +1962,10 @@ fn dump_line_program<R: Reader, W: Write>(
             }
 
             writeln!(w)?;
-            writeln!(w, "Line Number Statements:")?;
-            let mut opcodes = header.opcodes();
-            while let Some(opcode) = opcodes.next_opcode(header)? {
-                writeln!(w, "  {}", opcode)?;
+            writeln!(w, "Line Number Instructions:")?;
+            let mut instructions = header.instructions();
+            while let Some(instruction) = instructions.next_instruction(header)? {
+                writeln!(w, "  {}", instruction)?;
             }
 
             writeln!(w)?;
