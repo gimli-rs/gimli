@@ -47,7 +47,7 @@ impl<R: Reader> DebugLine<R> {
     /// compilation unit.
     ///
     /// ```rust,no_run
-    /// use gimli::{DebugLine, DebugLineOffset, IncompleteLineNumberProgram, EndianSlice, LittleEndian};
+    /// use gimli::{DebugLine, DebugLineOffset, IncompleteLineProgram, EndianSlice, LittleEndian};
     ///
     /// # let buf = [];
     /// # let read_debug_line_section_somehow = || &buf;
@@ -68,12 +68,11 @@ impl<R: Reader> DebugLine<R> {
         address_size: u8,
         comp_dir: Option<R>,
         comp_name: Option<R>,
-    ) -> Result<IncompleteLineNumberProgram<R, R::Offset>> {
+    ) -> Result<IncompleteLineProgram<R, R::Offset>> {
         let input = &mut self.debug_line_section.clone();
         input.skip(offset.0)?;
-        let header =
-            LineNumberProgramHeader::parse(input, offset, address_size, comp_dir, comp_name)?;
-        let program = IncompleteLineNumberProgram { header };
+        let header = LineProgramHeader::parse(input, offset, address_size, comp_dir, comp_name)?;
+        let program = IncompleteLineProgram { header };
         Ok(program)
     }
 }
@@ -90,26 +89,30 @@ impl<R: Reader> From<R> for DebugLine<R> {
     }
 }
 
-/// A `LineNumberProgram` provides access to a `LineNumberProgramHeader` and
+/// Deprecated. `LineNumberProgram` has been renamed to `LineProgram`.
+#[deprecated(note = "LineNumberProgram has been renamed to LineProgram, use that instead.")]
+pub type LineNumberProgram<R, Offset> = LineProgram<R, Offset>;
+
+/// A `LineProgram` provides access to a `LineProgramHeader` and
 /// a way to add files to the files table if necessary. Gimli consumers should
 /// never need to use or see this trait.
-pub trait LineNumberProgram<R, Offset = usize>
+pub trait LineProgram<R, Offset = usize>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    /// Get a reference to the held `LineNumberProgramHeader`.
-    fn header(&self) -> &LineNumberProgramHeader<R, Offset>;
+    /// Get a reference to the held `LineProgramHeader`.
+    fn header(&self) -> &LineProgramHeader<R, Offset>;
     /// Add a file to the file table if necessary.
     fn add_file(&mut self, file: FileEntry<R>);
 }
 
-impl<R, Offset> LineNumberProgram<R, Offset> for IncompleteLineNumberProgram<R, Offset>
+impl<R, Offset> LineProgram<R, Offset> for IncompleteLineProgram<R, Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    fn header(&self) -> &LineNumberProgramHeader<R, Offset> {
+    fn header(&self) -> &LineProgramHeader<R, Offset> {
         &self.header
     }
     fn add_file(&mut self, file: FileEntry<R>) {
@@ -117,13 +120,12 @@ where
     }
 }
 
-impl<'program, R, Offset> LineNumberProgram<R, Offset>
-    for &'program CompleteLineNumberProgram<R, Offset>
+impl<'program, R, Offset> LineProgram<R, Offset> for &'program CompleteLineProgram<R, Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    fn header(&self) -> &LineNumberProgramHeader<R, Offset> {
+    fn header(&self) -> &LineProgramHeader<R, Offset> {
         &self.header
     }
     fn add_file(&mut self, _: FileEntry<R>) {
@@ -131,126 +133,109 @@ where
     }
 }
 
-/// Executes a `LineNumberProgram` to recreate the matrix mapping to and from
-/// instructions to source locations.
+/// Deprecated. `StateMachine` has been renamed to `LineRows`.
+#[deprecated(note = "StateMachine has been renamed to LineRows, use that instead.")]
+pub type StateMachine<R, Program, Offset> = LineRows<R, Program, Offset>;
+
+/// Executes a `LineProgram` to iterate over the rows in the matrix of line number information.
 ///
 /// "The hypothetical machine used by a consumer of the line number information
 /// to expand the byte-coded instruction stream into a matrix of line number
 /// information." -- Section 6.2.1
 #[derive(Debug, Clone)]
-pub struct StateMachine<R, Program, Offset = usize>
+pub struct LineRows<R, Program, Offset = usize>
 where
-    Program: LineNumberProgram<R, Offset>,
+    Program: LineProgram<R, Offset>,
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
     program: Program,
-    row: LineNumberRow,
-    opcodes: OpcodesIter<R>,
+    row: LineRow,
+    instructions: LineInstructions<R>,
 }
 
-type OneShotStateMachine<R, Offset = usize> =
-    StateMachine<R, IncompleteLineNumberProgram<R, Offset>, Offset>;
+type OneShotLineRows<R, Offset = usize> = LineRows<R, IncompleteLineProgram<R, Offset>, Offset>;
 
-type ResumedStateMachine<'program, R, Offset = usize> =
-    StateMachine<R, &'program CompleteLineNumberProgram<R, Offset>, Offset>;
+type ResumedLineRows<'program, R, Offset = usize> =
+    LineRows<R, &'program CompleteLineProgram<R, Offset>, Offset>;
 
-impl<R, Program, Offset> StateMachine<R, Program, Offset>
+impl<R, Program, Offset> LineRows<R, Program, Offset>
 where
-    Program: LineNumberProgram<R, Offset>,
+    Program: LineProgram<R, Offset>,
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
     #[allow(clippy::new_ret_no_self)]
-    fn new(program: IncompleteLineNumberProgram<R, Offset>) -> OneShotStateMachine<R, Offset> {
-        let row = LineNumberRow::new(&program);
-        let opcodes = OpcodesIter {
+    fn new(program: IncompleteLineProgram<R, Offset>) -> OneShotLineRows<R, Offset> {
+        let row = LineRow::new(program.header());
+        let instructions = LineInstructions {
             input: program.header().program_buf.clone(),
         };
-        StateMachine {
+        LineRows {
             program,
             row,
-            opcodes,
+            instructions,
         }
     }
 
     fn resume<'program>(
-        program: &'program CompleteLineNumberProgram<R, Offset>,
-        sequence: &LineNumberSequence<R>,
-    ) -> ResumedStateMachine<'program, R, Offset> {
-        let row = LineNumberRow::new(&program);
-        let opcodes = sequence.opcodes.clone();
-        StateMachine {
+        program: &'program CompleteLineProgram<R, Offset>,
+        sequence: &LineSequence<R>,
+    ) -> ResumedLineRows<'program, R, Offset> {
+        let row = LineRow::new(program.header());
+        let instructions = sequence.instructions.clone();
+        LineRows {
             program,
             row,
-            opcodes,
+            instructions,
         }
     }
 
     /// Get a reference to the header for this state machine's line number
     /// program.
-    pub fn header(&self) -> &LineNumberProgramHeader<R, Offset> {
+    #[inline]
+    pub fn header(&self) -> &LineProgramHeader<R, Offset> {
         self.program.header()
     }
 
-    /// Parse and execute the next opcodes in the line number program until
+    /// Parse and execute the next instructions in the line number program until
     /// another row in the line number matrix is computed.
     ///
     /// The freshly computed row is returned as `Ok(Some((header, row)))`.
     /// If the matrix is complete, and there are no more new rows in the line
     /// number matrix, then `Ok(None)` is returned. If there was an error parsing
-    /// an opcode, then `Err(e)` is returned.
+    /// an instruction, then `Err(e)` is returned.
     ///
     /// Unfortunately, the references mean that this cannot be a
     /// `FallibleIterator`.
-    pub fn next_row(
-        &mut self,
-    ) -> Result<Option<(&LineNumberProgramHeader<R, Offset>, &LineNumberRow)>> {
+    pub fn next_row(&mut self) -> Result<Option<(&LineProgramHeader<R, Offset>, &LineRow)>> {
         // Perform any reset that was required after copying the previous row.
-        self.row.reset(&self.program);
+        self.row.reset(self.program.header());
 
         loop {
             // Split the borrow here, rather than calling `self.header()`.
-            match self.opcodes.next_opcode(self.program.header()) {
+            match self.instructions.next_instruction(self.program.header()) {
                 Err(err) => return Err(err),
                 Ok(None) => return Ok(None),
-                Ok(Some(opcode)) => {
-                    if self.row.execute(opcode, &mut self.program) {
+                Ok(Some(instruction)) => {
+                    if self.row.execute(instruction, &mut self.program) {
                         return Ok(Some((self.header(), &self.row)));
                     }
-                    // Fall through, parse the next opcode, and see if that
+                    // Fall through, parse the next instruction, and see if that
                     // yields a row.
                 }
             }
         }
     }
-
-    /// Parse and execute opcodes until we reach a row matching `addr`, the end of the program,
-    /// or an error.
-    pub fn run_to_address(
-        &mut self,
-        addr: u64,
-    ) -> Result<Option<(&LineNumberProgramHeader<R, Offset>, &LineNumberRow)>> {
-        loop {
-            match self.next_row() {
-                Ok(Some((_, row))) => {
-                    if row.address() == addr {
-                        // Can't return 'row' directly here because of rust-lang/rust#21906.
-                        break;
-                    }
-                }
-                Ok(None) => return Ok(None),
-                Err(err) => return Err(err),
-            }
-        }
-
-        Ok(Some((self.header(), &self.row)))
-    }
 }
 
-/// A parsed line number program opcode.
+/// Deprecated. `Opcode` has been renamed to `LineInstruction`.
+#[deprecated(note = "Opcode has been renamed to LineInstruction, use that instead.")]
+pub type Opcode<R> = LineInstruction<R>;
+
+/// A parsed line number program instruction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Opcode<R: Reader> {
+pub enum LineInstruction<R: Reader> {
     /// > ### 6.2.5.1 Special Opcodes
     /// >
     /// > Each ubyte special opcode has the following effect on the state machine:
@@ -276,15 +261,15 @@ pub enum Opcode<R: Reader> {
     /// > op_index registers.
     Special(u8),
 
-    /// "[`Opcode::Copy`] appends a row to the matrix using the current values of the state
-    /// machine registers. Then it sets the discriminator register to 0, and
-    /// sets the basic_block, prologue_end and epilogue_begin registers to
-    /// “false.”"
+    /// "[`LineInstruction::Copy`] appends a row to the matrix using the current
+    /// values of the state machine registers. Then it sets the discriminator
+    /// register to 0, and sets the basic_block, prologue_end and epilogue_begin
+    /// registers to “false.”"
     Copy,
 
     /// "The DW_LNS_advance_pc opcode takes a single unsigned LEB128 operand as
     /// the operation advance and modifies the address and op_index registers
-    /// [the same as `Opcode::Special`]"
+    /// [the same as `LineInstruction::Special`]"
     AdvancePc(u64),
 
     /// "The DW_LNS_advance_line opcode takes a single signed LEB128 operand and
@@ -328,10 +313,10 @@ pub enum Opcode<R: Reader> {
     /// > operand by the minimum_instruction_length field of the header.
     FixedAddPc(u16),
 
-    /// "[`Opcode::SetPrologueEnd`] sets the prologue_end register to “true”."
+    /// "[`LineInstruction::SetPrologueEnd`] sets the prologue_end register to “true”."
     SetPrologueEnd,
 
-    /// "[`Opcode::SetEpilogueBegin`] sets the epilogue_begin register to
+    /// "[`LineInstruction::SetEpilogueBegin`] sets the epilogue_begin register to
     /// “true”."
     SetEpilogueBegin,
 
@@ -348,7 +333,7 @@ pub enum Opcode<R: Reader> {
     /// An unknown standard opcode with multiple operands.
     UnknownStandardN(constants::DwLns, R),
 
-    /// > [`Opcode::EndSequence`] sets the end_sequence register of the state
+    /// > [`LineInstruction::EndSequence`] sets the end_sequence register of the state
     /// > machine to “true” and appends a row to the matrix using the current
     /// > values of the state-machine registers. Then it resets the registers to
     /// > the initial values specified above (see Section 6.2.2). Every line
@@ -380,11 +365,11 @@ pub enum Opcode<R: Reader> {
     UnknownExtended(constants::DwLne, R),
 }
 
-impl<R: Reader> Opcode<R> {
+impl<R: Reader> LineInstruction<R> {
     fn parse<'header>(
-        header: &'header LineNumberProgramHeader<R, R::Offset>,
+        header: &'header LineProgramHeader<R, R::Offset>,
         input: &mut R,
-    ) -> Result<Opcode<R>>
+    ) -> Result<LineInstruction<R>>
     where
         R: 'header,
     {
@@ -395,70 +380,70 @@ impl<R: Reader> Opcode<R> {
             let opcode = instr_rest.read_u8()?;
 
             match constants::DwLne(opcode) {
-                constants::DW_LNE_end_sequence => Ok(Opcode::EndSequence),
+                constants::DW_LNE_end_sequence => Ok(LineInstruction::EndSequence),
 
                 constants::DW_LNE_set_address => {
                     let address = instr_rest.read_address(header.address_size)?;
-                    Ok(Opcode::SetAddress(address))
+                    Ok(LineInstruction::SetAddress(address))
                 }
 
                 constants::DW_LNE_define_file => {
                     let path_name = instr_rest.read_null_terminated_slice()?;
                     let entry = FileEntry::parse(&mut instr_rest, path_name)?;
-                    Ok(Opcode::DefineFile(entry))
+                    Ok(LineInstruction::DefineFile(entry))
                 }
 
                 constants::DW_LNE_set_discriminator => {
                     let discriminator = instr_rest.read_uleb128()?;
-                    Ok(Opcode::SetDiscriminator(discriminator))
+                    Ok(LineInstruction::SetDiscriminator(discriminator))
                 }
 
-                otherwise => Ok(Opcode::UnknownExtended(otherwise, instr_rest)),
+                otherwise => Ok(LineInstruction::UnknownExtended(otherwise, instr_rest)),
             }
         } else if opcode >= header.opcode_base {
-            Ok(Opcode::Special(opcode))
+            Ok(LineInstruction::Special(opcode))
         } else {
             match constants::DwLns(opcode) {
-                constants::DW_LNS_copy => Ok(Opcode::Copy),
+                constants::DW_LNS_copy => Ok(LineInstruction::Copy),
 
                 constants::DW_LNS_advance_pc => {
                     let advance = input.read_uleb128()?;
-                    Ok(Opcode::AdvancePc(advance))
+                    Ok(LineInstruction::AdvancePc(advance))
                 }
 
                 constants::DW_LNS_advance_line => {
                     let increment = input.read_sleb128()?;
-                    Ok(Opcode::AdvanceLine(increment))
+                    Ok(LineInstruction::AdvanceLine(increment))
                 }
 
                 constants::DW_LNS_set_file => {
                     let file = input.read_uleb128()?;
-                    Ok(Opcode::SetFile(file))
+                    Ok(LineInstruction::SetFile(file))
                 }
 
                 constants::DW_LNS_set_column => {
                     let column = input.read_uleb128()?;
-                    Ok(Opcode::SetColumn(column))
+                    Ok(LineInstruction::SetColumn(column))
                 }
 
-                constants::DW_LNS_negate_stmt => Ok(Opcode::NegateStatement),
+                constants::DW_LNS_negate_stmt => Ok(LineInstruction::NegateStatement),
 
-                constants::DW_LNS_set_basic_block => Ok(Opcode::SetBasicBlock),
+                constants::DW_LNS_set_basic_block => Ok(LineInstruction::SetBasicBlock),
 
-                constants::DW_LNS_const_add_pc => Ok(Opcode::ConstAddPc),
+                constants::DW_LNS_const_add_pc => Ok(LineInstruction::ConstAddPc),
 
                 constants::DW_LNS_fixed_advance_pc => {
                     let advance = input.read_u16()?;
-                    Ok(Opcode::FixedAddPc(advance))
+                    Ok(LineInstruction::FixedAddPc(advance))
                 }
 
-                constants::DW_LNS_set_prologue_end => Ok(Opcode::SetPrologueEnd),
+                constants::DW_LNS_set_prologue_end => Ok(LineInstruction::SetPrologueEnd),
 
-                constants::DW_LNS_set_epilogue_begin => Ok(Opcode::SetEpilogueBegin),
+                constants::DW_LNS_set_epilogue_begin => Ok(LineInstruction::SetEpilogueBegin),
 
                 constants::DW_LNS_set_isa => {
                     let isa = input.read_uleb128()?;
-                    Ok(Opcode::SetIsa(isa))
+                    Ok(LineInstruction::SetIsa(isa))
                 }
 
                 otherwise => {
@@ -466,10 +451,10 @@ impl<R: Reader> Opcode<R> {
                     opcode_lengths.skip(R::Offset::from_u8(opcode - 1))?;
                     let num_args = opcode_lengths.read_u8()? as usize;
                     match num_args {
-                        0 => Ok(Opcode::UnknownStandard0(otherwise)),
+                        0 => Ok(LineInstruction::UnknownStandard0(otherwise)),
                         1 => {
                             let arg = input.read_uleb128()?;
-                            Ok(Opcode::UnknownStandard1(otherwise, arg))
+                            Ok(LineInstruction::UnknownStandard1(otherwise, arg))
                         }
                         _ => {
                             let mut args = input.clone();
@@ -478,7 +463,7 @@ impl<R: Reader> Opcode<R> {
                             }
                             let len = input.offset_from(&args);
                             args.truncate(len)?;
-                            Ok(Opcode::UnknownStandardN(otherwise, args))
+                            Ok(LineInstruction::UnknownStandardN(otherwise, args))
                         }
                     }
                 }
@@ -487,74 +472,82 @@ impl<R: Reader> Opcode<R> {
     }
 }
 
-impl<R: Reader> fmt::Display for Opcode<R> {
+impl<R: Reader> fmt::Display for LineInstruction<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         match *self {
-            Opcode::Special(opcode) => write!(f, "Special opcode {}", opcode),
-            Opcode::Copy => write!(f, "{}", constants::DW_LNS_copy),
-            Opcode::AdvancePc(advance) => {
+            LineInstruction::Special(opcode) => write!(f, "Special opcode {}", opcode),
+            LineInstruction::Copy => write!(f, "{}", constants::DW_LNS_copy),
+            LineInstruction::AdvancePc(advance) => {
                 write!(f, "{} by {}", constants::DW_LNS_advance_pc, advance)
             }
-            Opcode::AdvanceLine(increment) => {
+            LineInstruction::AdvanceLine(increment) => {
                 write!(f, "{} by {}", constants::DW_LNS_advance_line, increment)
             }
-            Opcode::SetFile(file) => write!(f, "{} to {}", constants::DW_LNS_set_file, file),
-            Opcode::SetColumn(column) => {
+            LineInstruction::SetFile(file) => {
+                write!(f, "{} to {}", constants::DW_LNS_set_file, file)
+            }
+            LineInstruction::SetColumn(column) => {
                 write!(f, "{} to {}", constants::DW_LNS_set_column, column)
             }
-            Opcode::NegateStatement => write!(f, "{}", constants::DW_LNS_negate_stmt),
-            Opcode::SetBasicBlock => write!(f, "{}", constants::DW_LNS_set_basic_block),
-            Opcode::ConstAddPc => write!(f, "{}", constants::DW_LNS_const_add_pc),
-            Opcode::FixedAddPc(advance) => {
+            LineInstruction::NegateStatement => write!(f, "{}", constants::DW_LNS_negate_stmt),
+            LineInstruction::SetBasicBlock => write!(f, "{}", constants::DW_LNS_set_basic_block),
+            LineInstruction::ConstAddPc => write!(f, "{}", constants::DW_LNS_const_add_pc),
+            LineInstruction::FixedAddPc(advance) => {
                 write!(f, "{} by {}", constants::DW_LNS_fixed_advance_pc, advance)
             }
-            Opcode::SetPrologueEnd => write!(f, "{}", constants::DW_LNS_set_prologue_end),
-            Opcode::SetEpilogueBegin => write!(f, "{}", constants::DW_LNS_set_epilogue_begin),
-            Opcode::SetIsa(isa) => write!(f, "{} to {}", constants::DW_LNS_set_isa, isa),
-            Opcode::UnknownStandard0(opcode) => write!(f, "Unknown {}", opcode),
-            Opcode::UnknownStandard1(opcode, arg) => {
+            LineInstruction::SetPrologueEnd => write!(f, "{}", constants::DW_LNS_set_prologue_end),
+            LineInstruction::SetEpilogueBegin => {
+                write!(f, "{}", constants::DW_LNS_set_epilogue_begin)
+            }
+            LineInstruction::SetIsa(isa) => write!(f, "{} to {}", constants::DW_LNS_set_isa, isa),
+            LineInstruction::UnknownStandard0(opcode) => write!(f, "Unknown {}", opcode),
+            LineInstruction::UnknownStandard1(opcode, arg) => {
                 write!(f, "Unknown {} with operand {}", opcode, arg)
             }
-            Opcode::UnknownStandardN(opcode, ref args) => {
+            LineInstruction::UnknownStandardN(opcode, ref args) => {
                 write!(f, "Unknown {} with operands {:?}", opcode, args)
             }
-            Opcode::EndSequence => write!(f, "{}", constants::DW_LNE_end_sequence),
-            Opcode::SetAddress(address) => {
+            LineInstruction::EndSequence => write!(f, "{}", constants::DW_LNE_end_sequence),
+            LineInstruction::SetAddress(address) => {
                 write!(f, "{} to {}", constants::DW_LNE_set_address, address)
             }
-            Opcode::DefineFile(_) => write!(f, "{}", constants::DW_LNE_define_file),
-            Opcode::SetDiscriminator(discr) => {
+            LineInstruction::DefineFile(_) => write!(f, "{}", constants::DW_LNE_define_file),
+            LineInstruction::SetDiscriminator(discr) => {
                 write!(f, "{} to {}", constants::DW_LNE_set_discriminator, discr)
             }
-            Opcode::UnknownExtended(opcode, _) => write!(f, "Unknown {}", opcode),
+            LineInstruction::UnknownExtended(opcode, _) => write!(f, "Unknown {}", opcode),
         }
     }
 }
 
-/// An iterator yielding parsed opcodes.
+/// Deprecated. `OpcodesIter` has been renamed to `LineInstructions`.
+#[deprecated(note = "OpcodesIter has been renamed to LineInstructions, use that instead.")]
+pub type OpcodesIter<R> = LineInstructions<R>;
+
+/// An iterator yielding parsed instructions.
 ///
 /// See
-/// [`LineNumberProgramHeader::opcodes`](./struct.LineNumberProgramHeader.html#method.opcodes)
+/// [`LineProgramHeader::instructions`](./struct.LineProgramHeader.html#method.instructions)
 /// for more details.
 #[derive(Clone, Debug)]
-pub struct OpcodesIter<R: Reader> {
+pub struct LineInstructions<R: Reader> {
     input: R,
 }
 
-impl<R: Reader> OpcodesIter<R> {
-    fn remove_trailing(&self, other: &OpcodesIter<R>) -> Result<OpcodesIter<R>> {
+impl<R: Reader> LineInstructions<R> {
+    fn remove_trailing(&self, other: &LineInstructions<R>) -> Result<LineInstructions<R>> {
         let offset = other.input.offset_from(&self.input);
         let mut input = self.input.clone();
         input.truncate(offset)?;
-        Ok(OpcodesIter { input })
+        Ok(LineInstructions { input })
     }
 }
 
-impl<R: Reader> OpcodesIter<R> {
-    /// Advance the iterator and return the next opcode.
+impl<R: Reader> LineInstructions<R> {
+    /// Advance the iterator and return the next instruction.
     ///
-    /// Returns the newly parsed opcode as `Ok(Some(opcode))`. Returns
-    /// `Ok(None)` when iteration is complete and all opcodes have already been
+    /// Returns the newly parsed instruction as `Ok(Some(instruction))`. Returns
+    /// `Ok(None)` when iteration is complete and all instructions have already been
     /// parsed and yielded. If an error occurs while parsing the next attribute,
     /// then this error is returned as `Err(e)`, and all subsequent calls return
     /// `Ok(None)`.
@@ -563,16 +556,16 @@ impl<R: Reader> OpcodesIter<R> {
     /// `FallibleIterator`.
     #[allow(clippy::inline_always)]
     #[inline(always)]
-    pub fn next_opcode(
+    pub fn next_instruction(
         &mut self,
-        header: &LineNumberProgramHeader<R, R::Offset>,
-    ) -> Result<Option<Opcode<R>>> {
+        header: &LineProgramHeader<R, R::Offset>,
+    ) -> Result<Option<LineInstruction<R>>> {
         if self.input.is_empty() {
             return Ok(None);
         }
 
-        match Opcode::parse(header, &mut self.input) {
-            Ok(opcode) => Ok(Some(opcode)),
+        match LineInstruction::parse(header, &mut self.input) {
+            Ok(instruction) => Ok(Some(instruction)),
             Err(e) => {
                 self.input.empty();
                 Err(e)
@@ -581,186 +574,15 @@ impl<R: Reader> OpcodesIter<R> {
     }
 }
 
+/// Deprecated. `LineNumberRow` has been renamed to `LineRow`.
+#[deprecated(note = "LineNumberRow has been renamed to LineRow, use that instead.")]
+pub type LineNumberRow = LineRow;
+
 /// A row in the line number program's resulting matrix.
+///
+/// Each row is a copy of the registers of the state machine, as defined in section 6.2.2.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LineNumberRow {
-    registers: StateMachineRegisters,
-}
-
-impl LineNumberRow {
-    /// Create a line number row in the initial state for the given program.
-    pub fn new<R, Program>(program: &Program) -> Self
-    where
-        Program: LineNumberProgram<R, R::Offset>,
-        R: Reader,
-    {
-        let default_is_stmt = program.header().default_is_stmt;
-        LineNumberRow {
-            registers: StateMachineRegisters::new(default_is_stmt),
-        }
-    }
-
-    /// "The program-counter value corresponding to a machine instruction
-    /// generated by the compiler."
-    #[inline]
-    pub fn address(&self) -> u64 {
-        self.registers.address
-    }
-
-    /// > An unsigned integer representing the index of an operation within a VLIW
-    /// > instruction. The index of the first operation is 0. For non-VLIW
-    /// > architectures, this register will always be 0.
-    /// >
-    /// > The address and op_index registers, taken together, form an operation
-    /// > pointer that can reference any individual operation with the
-    /// > instruction stream.
-    #[inline]
-    pub fn op_index(&self) -> u64 {
-        self.registers.op_index
-    }
-
-    /// "An unsigned integer indicating the identity of the source file
-    /// corresponding to a machine instruction."
-    #[inline]
-    pub fn file_index(&self) -> u64 {
-        self.registers.file
-    }
-
-    /// The source file corresponding to the current machine instruction.
-    #[inline]
-    pub fn file<'header, R: Reader>(
-        &self,
-        header: &'header LineNumberProgramHeader<R, R::Offset>,
-    ) -> Option<&'header FileEntry<R>> {
-        header.file(self.registers.file)
-    }
-
-    /// "An unsigned integer indicating a source line number. Lines are numbered
-    /// beginning at 1. The compiler may emit the value 0 in cases where an
-    /// instruction cannot be attributed to any source line."
-    #[inline]
-    pub fn line(&self) -> Option<u64> {
-        if self.registers.line == 0 {
-            None
-        } else {
-            Some(self.registers.line)
-        }
-    }
-
-    /// "An unsigned integer indicating a column number within a source
-    /// line. Columns are numbered beginning at 1. The value 0 is reserved to
-    /// indicate that a statement begins at the “left edge” of the line."
-    #[inline]
-    pub fn column(&self) -> ColumnType {
-        if self.registers.column == 0 {
-            ColumnType::LeftEdge
-        } else {
-            ColumnType::Column(self.registers.column)
-        }
-    }
-
-    /// "A boolean indicating that the current instruction is a recommended
-    /// breakpoint location. A recommended breakpoint location is intended to
-    /// “represent” a line, a statement and/or a semantically distinct subpart
-    /// of a statement."
-    #[inline]
-    pub fn is_stmt(&self) -> bool {
-        self.registers.is_stmt
-    }
-
-    /// "A boolean indicating that the current instruction is the beginning of a
-    /// basic block."
-    #[inline]
-    pub fn basic_block(&self) -> bool {
-        self.registers.basic_block
-    }
-
-    /// "A boolean indicating that the current address is that of the first byte
-    /// after the end of a sequence of target machine instructions. end_sequence
-    /// terminates a sequence of lines; therefore other information in the same
-    /// row is not meaningful."
-    #[inline]
-    pub fn end_sequence(&self) -> bool {
-        self.registers.end_sequence
-    }
-
-    /// "A boolean indicating that the current address is one (of possibly many)
-    /// where execution should be suspended for an entry breakpoint of a
-    /// function."
-    #[inline]
-    pub fn prologue_end(&self) -> bool {
-        self.registers.prologue_end
-    }
-
-    /// "A boolean indicating that the current address is one (of possibly many)
-    /// where execution should be suspended for an exit breakpoint of a
-    /// function."
-    #[inline]
-    pub fn epilogue_begin(&self) -> bool {
-        self.registers.epilogue_begin
-    }
-
-    /// Tag for the current instruction set architecture.
-    ///
-    /// > An unsigned integer whose value encodes the applicable instruction set
-    /// > architecture for the current instruction.
-    /// >
-    /// > The encoding of instruction sets should be shared by all users of a
-    /// > given architecture. It is recommended that this encoding be defined by
-    /// > the ABI authoring committee for each architecture.
-    #[inline]
-    pub fn isa(&self) -> u64 {
-        self.registers.isa
-    }
-
-    /// "An unsigned integer identifying the block to which the current
-    /// instruction belongs. Discriminator values are assigned arbitrarily by
-    /// the DWARF producer and serve to distinguish among multiple blocks that
-    /// may all be associated with the same source file, line, and column. Where
-    /// only one block exists for a given source position, the discriminator
-    /// value should be zero."
-    #[inline]
-    pub fn discriminator(&self) -> u64 {
-        self.registers.discriminator
-    }
-
-    /// Execute the given opcode, and return true if a new row in the
-    /// line number matrix needs to be generated.
-    ///
-    /// Unknown opcodes are treated as no-ops.
-    #[inline]
-    pub fn execute<R, Program>(&mut self, opcode: Opcode<R>, program: &mut Program) -> bool
-    where
-        Program: LineNumberProgram<R, R::Offset>,
-        R: Reader,
-    {
-        self.registers.execute(opcode, program)
-    }
-
-    /// Perform any reset that was required after copying the previous row.
-    #[inline]
-    pub fn reset<R, Program>(&mut self, program: &Program)
-    where
-        Program: LineNumberProgram<R, R::Offset>,
-        R: Reader,
-    {
-        self.registers.reset(program.header().default_is_stmt);
-    }
-}
-
-/// The type of column that a row is referring to.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ColumnType {
-    /// The `LeftEdge` means that the statement begins at the start of the new
-    /// line.
-    LeftEdge,
-    /// A column number, whose range begins at 1.
-    Column(u64),
-}
-
-/// The registers for a state machine, as defined in section 6.2.2.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct StateMachineRegisters {
+pub struct LineRow {
     address: u64,
     op_index: u64,
     file: u64,
@@ -775,9 +597,11 @@ struct StateMachineRegisters {
     discriminator: u64,
 }
 
-impl StateMachineRegisters {
-    fn new(default_is_stmt: bool) -> Self {
-        StateMachineRegisters {
+impl LineRow {
+    /// Create a line number row in the initial state for the given program.
+    pub fn new<R: Reader>(header: &LineProgramHeader<R, R::Offset>) -> Self {
+        let default_is_stmt = header.default_is_stmt;
+        LineRow {
             // "At the beginning of each sequence within a line number program, the
             // state of the registers is:" -- Section 6.2.2
             address: 0,
@@ -800,6 +624,258 @@ impl StateMachineRegisters {
         }
     }
 
+    /// "The program-counter value corresponding to a machine instruction
+    /// generated by the compiler."
+    #[inline]
+    pub fn address(&self) -> u64 {
+        self.address
+    }
+
+    /// > An unsigned integer representing the index of an operation within a VLIW
+    /// > instruction. The index of the first operation is 0. For non-VLIW
+    /// > architectures, this register will always be 0.
+    /// >
+    /// > The address and op_index registers, taken together, form an operation
+    /// > pointer that can reference any individual operation with the
+    /// > instruction stream.
+    #[inline]
+    pub fn op_index(&self) -> u64 {
+        self.op_index
+    }
+
+    /// "An unsigned integer indicating the identity of the source file
+    /// corresponding to a machine instruction."
+    #[inline]
+    pub fn file_index(&self) -> u64 {
+        self.file
+    }
+
+    /// The source file corresponding to the current machine instruction.
+    #[inline]
+    pub fn file<'header, R: Reader>(
+        &self,
+        header: &'header LineProgramHeader<R, R::Offset>,
+    ) -> Option<&'header FileEntry<R>> {
+        header.file(self.file)
+    }
+
+    /// "An unsigned integer indicating a source line number. Lines are numbered
+    /// beginning at 1. The compiler may emit the value 0 in cases where an
+    /// instruction cannot be attributed to any source line."
+    #[inline]
+    pub fn line(&self) -> Option<u64> {
+        if self.line == 0 {
+            None
+        } else {
+            Some(self.line)
+        }
+    }
+
+    /// "An unsigned integer indicating a column number within a source
+    /// line. Columns are numbered beginning at 1. The value 0 is reserved to
+    /// indicate that a statement begins at the “left edge” of the line."
+    #[inline]
+    pub fn column(&self) -> ColumnType {
+        if self.column == 0 {
+            ColumnType::LeftEdge
+        } else {
+            ColumnType::Column(self.column)
+        }
+    }
+
+    /// "A boolean indicating that the current instruction is a recommended
+    /// breakpoint location. A recommended breakpoint location is intended to
+    /// “represent” a line, a statement and/or a semantically distinct subpart
+    /// of a statement."
+    #[inline]
+    pub fn is_stmt(&self) -> bool {
+        self.is_stmt
+    }
+
+    /// "A boolean indicating that the current instruction is the beginning of a
+    /// basic block."
+    #[inline]
+    pub fn basic_block(&self) -> bool {
+        self.basic_block
+    }
+
+    /// "A boolean indicating that the current address is that of the first byte
+    /// after the end of a sequence of target machine instructions. end_sequence
+    /// terminates a sequence of lines; therefore other information in the same
+    /// row is not meaningful."
+    #[inline]
+    pub fn end_sequence(&self) -> bool {
+        self.end_sequence
+    }
+
+    /// "A boolean indicating that the current address is one (of possibly many)
+    /// where execution should be suspended for an entry breakpoint of a
+    /// function."
+    #[inline]
+    pub fn prologue_end(&self) -> bool {
+        self.prologue_end
+    }
+
+    /// "A boolean indicating that the current address is one (of possibly many)
+    /// where execution should be suspended for an exit breakpoint of a
+    /// function."
+    #[inline]
+    pub fn epilogue_begin(&self) -> bool {
+        self.epilogue_begin
+    }
+
+    /// Tag for the current instruction set architecture.
+    ///
+    /// > An unsigned integer whose value encodes the applicable instruction set
+    /// > architecture for the current instruction.
+    /// >
+    /// > The encoding of instruction sets should be shared by all users of a
+    /// > given architecture. It is recommended that this encoding be defined by
+    /// > the ABI authoring committee for each architecture.
+    #[inline]
+    pub fn isa(&self) -> u64 {
+        self.isa
+    }
+
+    /// "An unsigned integer identifying the block to which the current
+    /// instruction belongs. Discriminator values are assigned arbitrarily by
+    /// the DWARF producer and serve to distinguish among multiple blocks that
+    /// may all be associated with the same source file, line, and column. Where
+    /// only one block exists for a given source position, the discriminator
+    /// value should be zero."
+    #[inline]
+    pub fn discriminator(&self) -> u64 {
+        self.discriminator
+    }
+
+    /// Execute the given instruction, and return true if a new row in the
+    /// line number matrix needs to be generated.
+    ///
+    /// Unknown opcodes are treated as no-ops.
+    #[inline]
+    pub fn execute<R, Program>(
+        &mut self,
+        instruction: LineInstruction<R>,
+        program: &mut Program,
+    ) -> bool
+    where
+        Program: LineProgram<R, R::Offset>,
+        R: Reader,
+    {
+        match instruction {
+            LineInstruction::Special(opcode) => {
+                self.exec_special_opcode(opcode, program.header());
+                true
+            }
+
+            LineInstruction::Copy => true,
+
+            LineInstruction::AdvancePc(operation_advance) => {
+                self.apply_operation_advance(operation_advance, program.header());
+                false
+            }
+
+            LineInstruction::AdvanceLine(line_increment) => {
+                self.apply_line_advance(line_increment);
+                false
+            }
+
+            LineInstruction::SetFile(file) => {
+                self.file = file;
+                false
+            }
+
+            LineInstruction::SetColumn(column) => {
+                self.column = column;
+                false
+            }
+
+            LineInstruction::NegateStatement => {
+                self.is_stmt = !self.is_stmt;
+                false
+            }
+
+            LineInstruction::SetBasicBlock => {
+                self.basic_block = true;
+                false
+            }
+
+            LineInstruction::ConstAddPc => {
+                let adjusted = self.adjust_opcode(255, program.header());
+                let operation_advance = adjusted / program.header().line_range;
+                self.apply_operation_advance(u64::from(operation_advance), program.header());
+                false
+            }
+
+            LineInstruction::FixedAddPc(operand) => {
+                self.address += u64::from(operand);
+                self.op_index = 0;
+                false
+            }
+
+            LineInstruction::SetPrologueEnd => {
+                self.prologue_end = true;
+                false
+            }
+
+            LineInstruction::SetEpilogueBegin => {
+                self.epilogue_begin = true;
+                false
+            }
+
+            LineInstruction::SetIsa(isa) => {
+                self.isa = isa;
+                false
+            }
+
+            LineInstruction::EndSequence => {
+                self.end_sequence = true;
+                true
+            }
+
+            LineInstruction::SetAddress(address) => {
+                self.address = address;
+                self.op_index = 0;
+                false
+            }
+
+            LineInstruction::DefineFile(entry) => {
+                program.add_file(entry);
+                false
+            }
+
+            LineInstruction::SetDiscriminator(discriminator) => {
+                self.discriminator = discriminator;
+                false
+            }
+
+            // Compatibility with future opcodes.
+            LineInstruction::UnknownStandard0(_)
+            | LineInstruction::UnknownStandard1(_, _)
+            | LineInstruction::UnknownStandardN(_, _)
+            | LineInstruction::UnknownExtended(_, _) => false,
+        }
+    }
+
+    /// Perform any reset that was required after copying the previous row.
+    #[inline]
+    pub fn reset<R: Reader>(&mut self, header: &LineProgramHeader<R, R::Offset>) {
+        if self.end_sequence {
+            // Previous instruction was EndSequence, so reset everything
+            // as specified in Section 6.2.5.3.
+            *self = Self::new(header);
+        } else {
+            // Previous instruction was one of:
+            // - Special - specified in Section 6.2.5.1, steps 4-7
+            // - Copy - specified in Section 6.2.5.2
+            // The reset behaviour is the same in both cases.
+            self.discriminator = 0;
+            self.basic_block = false;
+            self.prologue_end = false;
+            self.epilogue_begin = false;
+        }
+    }
+
     /// Step 1 of section 6.2.5.1
     fn apply_line_advance(&mut self, line_increment: i64) {
         if line_increment < 0 {
@@ -818,7 +894,7 @@ impl StateMachineRegisters {
     fn apply_operation_advance<R: Reader>(
         &mut self,
         operation_advance: u64,
-        header: &LineNumberProgramHeader<R, R::Offset>,
+        header: &LineProgramHeader<R, R::Offset>,
     ) {
         let minimum_instruction_length = u64::from(header.minimum_instruction_length);
         let maximum_operations_per_instruction =
@@ -836,11 +912,7 @@ impl StateMachineRegisters {
     }
 
     #[inline]
-    fn adjust_opcode<R: Reader>(
-        &self,
-        opcode: u8,
-        header: &LineNumberProgramHeader<R, R::Offset>,
-    ) -> u8 {
+    fn adjust_opcode<R: Reader>(&self, opcode: u8, header: &LineProgramHeader<R, R::Offset>) -> u8 {
         opcode - header.opcode_base
     }
 
@@ -848,7 +920,7 @@ impl StateMachineRegisters {
     fn exec_special_opcode<R: Reader>(
         &mut self,
         opcode: u8,
-        header: &LineNumberProgramHeader<R, R::Offset>,
+        header: &LineProgramHeader<R, R::Offset>,
     ) {
         let adjusted_opcode = self.adjust_opcode(opcode, header);
 
@@ -863,148 +935,46 @@ impl StateMachineRegisters {
         // Step 2
         self.apply_operation_advance(u64::from(operation_advance), header);
     }
-
-    /// Execute the given opcode, and return true if a new row in the
-    /// line number matrix needs to be generated.
-    ///
-    /// Unknown opcodes are treated as no-ops.
-    fn execute<R, Program>(&mut self, opcode: Opcode<R>, program: &mut Program) -> bool
-    where
-        Program: LineNumberProgram<R, R::Offset>,
-        R: Reader,
-    {
-        match opcode {
-            Opcode::Special(opcode) => {
-                self.exec_special_opcode(opcode, program.header());
-                true
-            }
-
-            Opcode::Copy => true,
-
-            Opcode::AdvancePc(operation_advance) => {
-                self.apply_operation_advance(operation_advance, program.header());
-                false
-            }
-
-            Opcode::AdvanceLine(line_increment) => {
-                self.apply_line_advance(line_increment);
-                false
-            }
-
-            Opcode::SetFile(file) => {
-                self.file = file;
-                false
-            }
-
-            Opcode::SetColumn(column) => {
-                self.column = column;
-                false
-            }
-
-            Opcode::NegateStatement => {
-                self.is_stmt = !self.is_stmt;
-                false
-            }
-
-            Opcode::SetBasicBlock => {
-                self.basic_block = true;
-                false
-            }
-
-            Opcode::ConstAddPc => {
-                let adjusted = self.adjust_opcode(255, program.header());
-                let operation_advance = adjusted / program.header().line_range;
-                self.apply_operation_advance(u64::from(operation_advance), program.header());
-                false
-            }
-
-            Opcode::FixedAddPc(operand) => {
-                self.address += u64::from(operand);
-                self.op_index = 0;
-                false
-            }
-
-            Opcode::SetPrologueEnd => {
-                self.prologue_end = true;
-                false
-            }
-
-            Opcode::SetEpilogueBegin => {
-                self.epilogue_begin = true;
-                false
-            }
-
-            Opcode::SetIsa(isa) => {
-                self.isa = isa;
-                false
-            }
-
-            Opcode::EndSequence => {
-                self.end_sequence = true;
-                true
-            }
-
-            Opcode::SetAddress(address) => {
-                self.address = address;
-                self.op_index = 0;
-                false
-            }
-
-            Opcode::DefineFile(entry) => {
-                program.add_file(entry);
-                false
-            }
-
-            Opcode::SetDiscriminator(discriminator) => {
-                self.discriminator = discriminator;
-                false
-            }
-
-            // Compatibility with future opcodes.
-            Opcode::UnknownStandard0(_)
-            | Opcode::UnknownStandard1(_, _)
-            | Opcode::UnknownStandardN(_, _)
-            | Opcode::UnknownExtended(_, _) => false,
-        }
-    }
-
-    /// Perform any reset that was required after copying the previous row.
-    fn reset(&mut self, default_is_stmt: bool) {
-        if self.end_sequence {
-            // Previous opcode was EndSequence, so reset everything
-            // as specified in Section 6.2.5.3.
-            *self = Self::new(default_is_stmt);
-        } else {
-            // Previous opcode was one of:
-            // - Special - specified in Section 6.2.5.1, steps 4-7
-            // - Copy - specified in Section 6.2.5.2
-            // The reset behaviour is the same in both cases.
-            self.discriminator = 0;
-            self.basic_block = false;
-            self.prologue_end = false;
-            self.epilogue_begin = false;
-        }
-    }
 }
+
+/// The type of column that a row is referring to.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ColumnType {
+    /// The `LeftEdge` means that the statement begins at the start of the new
+    /// line.
+    LeftEdge,
+    /// A column number, whose range begins at 1.
+    Column(u64),
+}
+
+/// Deprecated. `LineNumberSequence` has been renamed to `LineSequence`.
+#[deprecated(note = "LineNumberSequence has been renamed to LineSequence, use that instead.")]
+pub type LineNumberSequence<R> = LineSequence<R>;
 
 /// A sequence within a line number program.  A sequence, as defined in section
 /// 6.2.5 of the standard, is a linear subset of a line number program within
 /// which addresses are monotonically increasing.
 #[derive(Clone, Debug)]
-pub struct LineNumberSequence<R: Reader> {
+pub struct LineSequence<R: Reader> {
     /// The first address that is covered by this sequence within the line number
     /// program.
     pub start: u64,
     /// The first address that is *not* covered by this sequence within the line
     /// number program.
     pub end: u64,
-    opcodes: OpcodesIter<R>,
+    instructions: LineInstructions<R>,
 }
+
+/// Deprecated. `LineNumberProgramHeader` has been renamed to `LineProgramHeader`.
+#[deprecated(
+    note = "LineNumberProgramHeader has been renamed to LineProgramHeader, use that instead."
+)]
+pub type LineNumberProgramHeader<R, Offset> = LineProgramHeader<R, Offset>;
 
 /// A header for a line number program in the `.debug_line` section, as defined
 /// in section 6.2.4 of the standard.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LineNumberProgramHeader<R, Offset = usize>
+pub struct LineProgramHeader<R, Offset = usize>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
@@ -1082,7 +1052,7 @@ where
     comp_name: Option<FileEntry<R>>,
 }
 
-impl<R, Offset> LineNumberProgramHeader<R, Offset>
+impl<R, Offset> LineProgramHeader<R, Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
@@ -1119,7 +1089,7 @@ where
         self.format
     }
 
-    /// Get the minimum instruction length any opcode in this header's line
+    /// Get the minimum instruction length any instruction in this header's line
     /// program may have.
     pub fn minimum_instruction_length(&self) -> u8 {
         self.minimum_instruction_length
@@ -1152,7 +1122,8 @@ where
         self.opcode_base
     }
 
-    /// The byte lengths of each standard opcode in this header's line program.
+    /// An array of `u8` that specifies the number of LEB128 operands for
+    /// each of the standard opcodes.
     pub fn standard_opcode_lengths(&self) -> &R {
         &self.standard_opcode_lengths
     }
@@ -1201,9 +1172,9 @@ where
     ///
     /// ```
     /// # fn foo() {
-    /// use gimli::{LineNumberProgramHeader, EndianSlice, NativeEndian};
+    /// use gimli::{LineProgramHeader, EndianSlice, NativeEndian};
     ///
-    /// fn get_line_number_program_header<'a>() -> LineNumberProgramHeader<EndianSlice<'a, NativeEndian>> {
+    /// fn get_line_number_program_header<'a>() -> LineProgramHeader<EndianSlice<'a, NativeEndian>> {
     ///     // Get a line number program header from some offset in a
     ///     // `.debug_line` section...
     /// #   unimplemented!()
@@ -1218,10 +1189,10 @@ where
         self.program_buf.clone()
     }
 
-    /// Iterate over the opcodes in this header's line number program, parsing
+    /// Iterate over the instructions in this header's line number program, parsing
     /// them as we go.
-    pub fn opcodes(&self) -> OpcodesIter<R> {
-        OpcodesIter {
+    pub fn instructions(&self) -> LineInstructions<R> {
+        LineInstructions {
             input: self.program_buf.clone(),
         }
     }
@@ -1232,7 +1203,7 @@ where
         address_size: u8,
         comp_dir: Option<R>,
         comp_name: Option<R>,
-    ) -> Result<LineNumberProgramHeader<R, Offset>> {
+    ) -> Result<LineProgramHeader<R, Offset>> {
         let (unit_length, format) = input.read_initial_length()?;
         let rest = &mut input.split(unit_length)?;
 
@@ -1299,7 +1270,7 @@ where
             length: 0,
         });
 
-        let header = LineNumberProgramHeader {
+        let header = LineProgramHeader {
             offset,
             unit_length,
             version,
@@ -1323,42 +1294,48 @@ where
     }
 }
 
+/// Deprecated. `IncompleteLineNumberProgram` has been renamed to `IncompleteLineProgram`.
+#[deprecated(
+    note = "IncompleteLineNumberProgram has been renamed to IncompleteLineProgram, use that instead."
+)]
+pub type IncompleteLineNumberProgram<R, Offset> = IncompleteLineProgram<R, Offset>;
+
 /// A line number program that has not been run to completion.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IncompleteLineNumberProgram<R, Offset = usize>
+pub struct IncompleteLineProgram<R, Offset = usize>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    header: LineNumberProgramHeader<R, Offset>,
+    header: LineProgramHeader<R, Offset>,
 }
 
-impl<R, Offset> IncompleteLineNumberProgram<R, Offset>
+impl<R, Offset> IncompleteLineProgram<R, Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    /// Retrieve the `LineNumberProgramHeader` for this program.
-    pub fn header(&self) -> &LineNumberProgramHeader<R, Offset> {
+    /// Retrieve the `LineProgramHeader` for this program.
+    pub fn header(&self) -> &LineProgramHeader<R, Offset> {
         &self.header
     }
 
-    /// Construct a new `StateMachine` for executing line programs and
-    /// generating the line information matrix.
-    pub fn rows(self) -> OneShotStateMachine<R, Offset> {
-        OneShotStateMachine::new(self)
+    /// Construct a new `LineRows` for executing this program to iterate
+    /// over rows in the line information matrix.
+    pub fn rows(self) -> OneShotLineRows<R, Offset> {
+        OneShotLineRows::new(self)
     }
 
-    /// Execute the line number program, completing the `IncompleteLineNumberProgram`
-    /// into a `CompleteLineNumberProgram` and producing an array of sequences within
+    /// Execute the line number program, completing the `IncompleteLineProgram`
+    /// into a `CompleteLineProgram` and producing an array of sequences within
     /// the line number program that can later be used with
-    /// `CompleteLineNumberProgram::resume_from`.
+    /// `CompleteLineProgram::resume_from`.
     ///
     /// ```
     /// # fn foo() {
-    /// use gimli::{IncompleteLineNumberProgram, EndianSlice, NativeEndian};
+    /// use gimli::{IncompleteLineProgram, EndianSlice, NativeEndian};
     ///
-    /// fn get_line_number_program<'a>() -> IncompleteLineNumberProgram<EndianSlice<'a, NativeEndian>> {
+    /// fn get_line_number_program<'a>() -> IncompleteLineProgram<EndianSlice<'a, NativeEndian>> {
     ///     // Get a line number program from some offset in a
     ///     // `.debug_line` section...
     /// #   unimplemented!()
@@ -1370,23 +1347,18 @@ where
     /// # }
     /// ```
     #[allow(clippy::type_complexity)]
-    pub fn sequences(
-        self,
-    ) -> Result<(
-        CompleteLineNumberProgram<R, Offset>,
-        Vec<LineNumberSequence<R>>,
-    )> {
+    pub fn sequences(self) -> Result<(CompleteLineProgram<R, Offset>, Vec<LineSequence<R>>)> {
         let mut sequences = Vec::new();
-        let mut state_machine = self.rows();
-        let mut opcodes = state_machine.opcodes.clone();
+        let mut rows = self.rows();
+        let mut instructions = rows.instructions.clone();
         let mut sequence_start_addr = None;
         loop {
             let sequence_end_addr;
-            if state_machine.next_row()?.is_none() {
+            if rows.next_row()?.is_none() {
                 break;
             }
 
-            let row = &state_machine.row;
+            let row = &rows.row;
             if row.end_sequence() {
                 sequence_end_addr = row.address();
             } else if sequence_start_addr.is_none() {
@@ -1397,53 +1369,59 @@ where
             }
 
             // We just finished a sequence.
-            sequences.push(LineNumberSequence {
-                // In theory one could have multiple DW_LNE_end_sequence opcodes
+            sequences.push(LineSequence {
+                // In theory one could have multiple DW_LNE_end_sequence instructions
                 // in a row.
                 start: sequence_start_addr.unwrap_or(0),
                 end: sequence_end_addr,
-                opcodes: opcodes.remove_trailing(&state_machine.opcodes)?,
+                instructions: instructions.remove_trailing(&rows.instructions)?,
             });
             sequence_start_addr = None;
-            opcodes = state_machine.opcodes.clone();
+            instructions = rows.instructions.clone();
         }
 
-        let program = CompleteLineNumberProgram {
-            header: state_machine.program.header,
+        let program = CompleteLineProgram {
+            header: rows.program.header,
         };
         Ok((program, sequences))
     }
 }
 
+/// Deprecated. `CompleteLineNumberProgram` has been renamed to `CompleteLineProgram`.
+#[deprecated(
+    note = "CompleteLineNumberProgram has been renamed to CompleteLineProgram, use that instead."
+)]
+pub type CompleteLineNumberProgram<R, Offset> = CompleteLineProgram<R, Offset>;
+
 /// A line number program that has previously been run to completion.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CompleteLineNumberProgram<R, Offset = usize>
+pub struct CompleteLineProgram<R, Offset = usize>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    header: LineNumberProgramHeader<R, Offset>,
+    header: LineProgramHeader<R, Offset>,
 }
 
-impl<R, Offset> CompleteLineNumberProgram<R, Offset>
+impl<R, Offset> CompleteLineProgram<R, Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    /// Retrieve the `LineNumberProgramHeader` for this program.
-    pub fn header(&self) -> &LineNumberProgramHeader<R, Offset> {
+    /// Retrieve the `LineProgramHeader` for this program.
+    pub fn header(&self) -> &LineProgramHeader<R, Offset> {
         &self.header
     }
 
-    /// Construct a new `StateMachine` for executing the subset of the line
+    /// Construct a new `LineRows` for executing the subset of the line
     /// number program identified by 'sequence' and  generating the line information
     /// matrix.
     ///
     /// ```
     /// # fn foo() {
-    /// use gimli::{IncompleteLineNumberProgram, EndianSlice, NativeEndian};
+    /// use gimli::{IncompleteLineProgram, EndianSlice, NativeEndian};
     ///
-    /// fn get_line_number_program<'a>() -> IncompleteLineNumberProgram<EndianSlice<'a, NativeEndian>> {
+    /// fn get_line_number_program<'a>() -> IncompleteLineProgram<EndianSlice<'a, NativeEndian>> {
     ///     // Get a line number program from some offset in a
     ///     // `.debug_line` section...
     /// #   unimplemented!()
@@ -1458,13 +1436,13 @@ where
     /// ```
     pub fn resume_from<'program>(
         &'program self,
-        sequence: &LineNumberSequence<R>,
-    ) -> ResumedStateMachine<'program, R, Offset> {
-        ResumedStateMachine::resume(self, sequence)
+        sequence: &LineSequence<R>,
+    ) -> ResumedLineRows<'program, R, Offset> {
+        ResumedLineRows::resume(self, sequence)
     }
 }
 
-/// An entry in the `LineNumberProgramHeader`'s `file_names` set.
+/// An entry in the `LineProgramHeader`'s `file_names` set.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct FileEntry<R: Reader> {
     path_name: R,
@@ -1516,7 +1494,7 @@ impl<R: Reader> FileEntry<R> {
     /// Get this file's directory.
     ///
     /// A directory index of 0 corresponds to the compilation unit directory.
-    pub fn directory(&self, header: &LineNumberProgramHeader<R, R::Offset>) -> Option<R> {
+    pub fn directory(&self, header: &LineProgramHeader<R, R::Offset>) -> Option<R> {
         header.directory(self.directory_index)
     }
 
@@ -1598,14 +1576,9 @@ mod tests {
         let comp_dir = EndianSlice::new(b"/comp_dir", LittleEndian);
         let comp_name = EndianSlice::new(b"/comp_name", LittleEndian);
 
-        let header = LineNumberProgramHeader::parse(
-            rest,
-            DebugLineOffset(0),
-            4,
-            Some(comp_dir),
-            Some(comp_name),
-        )
-        .expect("should parse header ok");
+        let header =
+            LineProgramHeader::parse(rest, DebugLineOffset(0), 4, Some(comp_dir), Some(comp_name))
+                .expect("should parse header ok");
 
         assert_eq!(
             *rest,
@@ -1704,7 +1677,7 @@ mod tests {
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
 
-        match LineNumberProgramHeader::parse(input, DebugLineOffset(0), 4, None, None) {
+        match LineProgramHeader::parse(input, DebugLineOffset(0), 4, None, None) {
             Err(Error::UnexpectedEof) => return,
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
@@ -1765,7 +1738,7 @@ mod tests {
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
 
-        match LineNumberProgramHeader::parse(input, DebugLineOffset(0), 4, None, None) {
+        match LineProgramHeader::parse(input, DebugLineOffset(0), 4, None, None) {
             Err(Error::UnexpectedEof) => return,
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
@@ -1776,8 +1749,8 @@ mod tests {
 
     fn make_test_header(
         buf: EndianSlice<LittleEndian>,
-    ) -> LineNumberProgramHeader<EndianSlice<LittleEndian>> {
-        LineNumberProgramHeader {
+    ) -> LineProgramHeader<EndianSlice<LittleEndian>> {
+        LineProgramHeader {
             offset: DebugLineOffset(0),
             opcode_base: OPCODE_BASE,
             address_size: 8,
@@ -1814,8 +1787,8 @@ mod tests {
 
     fn make_test_program(
         buf: EndianSlice<LittleEndian>,
-    ) -> IncompleteLineNumberProgram<EndianSlice<LittleEndian>> {
-        IncompleteLineNumberProgram {
+    ) -> IncompleteLineProgram<EndianSlice<LittleEndian>> {
+        IncompleteLineProgram {
             header: make_test_header(buf),
         }
     }
@@ -1828,10 +1801,11 @@ mod tests {
             let header = make_test_header(input);
 
             let mut rest = input;
-            let opcode = Opcode::parse(&header, &mut rest).expect("Should parse the opcode OK");
+            let opcode =
+                LineInstruction::parse(&header, &mut rest).expect("Should parse the opcode OK");
 
             assert_eq!(*rest, *input.range_from(1..));
-            assert_eq!(opcode, Opcode::Special(i));
+            assert_eq!(opcode, LineInstruction::Special(i));
         }
     }
 
@@ -1840,7 +1814,7 @@ mod tests {
         fn test<Operands>(
             raw: constants::DwLns,
             operands: Operands,
-            expected: Opcode<EndianSlice<LittleEndian>>,
+            expected: LineInstruction<EndianSlice<LittleEndian>>,
         ) where
             Operands: AsRef<[u8]>,
         {
@@ -1855,34 +1829,59 @@ mod tests {
             let header = make_test_header(input);
 
             let mut rest = input;
-            let opcode = Opcode::parse(&header, &mut rest).expect("Should parse the opcode OK");
+            let opcode =
+                LineInstruction::parse(&header, &mut rest).expect("Should parse the opcode OK");
 
             assert_eq!(opcode, expected);
             assert_eq!(*rest, expected_rest);
         }
 
-        test(constants::DW_LNS_copy, [], Opcode::Copy);
-        test(constants::DW_LNS_advance_pc, [42], Opcode::AdvancePc(42));
-        test(constants::DW_LNS_advance_line, [9], Opcode::AdvanceLine(9));
-        test(constants::DW_LNS_set_file, [7], Opcode::SetFile(7));
-        test(constants::DW_LNS_set_column, [1], Opcode::SetColumn(1));
-        test(constants::DW_LNS_negate_stmt, [], Opcode::NegateStatement);
-        test(constants::DW_LNS_set_basic_block, [], Opcode::SetBasicBlock);
-        test(constants::DW_LNS_const_add_pc, [], Opcode::ConstAddPc);
+        test(constants::DW_LNS_copy, [], LineInstruction::Copy);
+        test(
+            constants::DW_LNS_advance_pc,
+            [42],
+            LineInstruction::AdvancePc(42),
+        );
+        test(
+            constants::DW_LNS_advance_line,
+            [9],
+            LineInstruction::AdvanceLine(9),
+        );
+        test(constants::DW_LNS_set_file, [7], LineInstruction::SetFile(7));
+        test(
+            constants::DW_LNS_set_column,
+            [1],
+            LineInstruction::SetColumn(1),
+        );
+        test(
+            constants::DW_LNS_negate_stmt,
+            [],
+            LineInstruction::NegateStatement,
+        );
+        test(
+            constants::DW_LNS_set_basic_block,
+            [],
+            LineInstruction::SetBasicBlock,
+        );
+        test(
+            constants::DW_LNS_const_add_pc,
+            [],
+            LineInstruction::ConstAddPc,
+        );
         test(
             constants::DW_LNS_fixed_advance_pc,
             [42, 0],
-            Opcode::FixedAddPc(42),
+            LineInstruction::FixedAddPc(42),
         );
         test(
             constants::DW_LNS_set_prologue_end,
             [],
-            Opcode::SetPrologueEnd,
+            LineInstruction::SetPrologueEnd,
         );
         test(
             constants::DW_LNS_set_isa,
             [57 + 0x80, 100],
-            Opcode::SetIsa(12857),
+            LineInstruction::SetIsa(12857),
         );
     }
 
@@ -1898,11 +1897,12 @@ mod tests {
         header.standard_opcode_lengths = EndianSlice::new(&standard_opcode_lengths, LittleEndian);
 
         let mut rest = input;
-        let opcode = Opcode::parse(&header, &mut rest).expect("Should parse the opcode OK");
+        let opcode =
+            LineInstruction::parse(&header, &mut rest).expect("Should parse the opcode OK");
 
         assert_eq!(
             opcode,
-            Opcode::UnknownStandard0(constants::DwLns(OPCODE_BASE))
+            LineInstruction::UnknownStandard0(constants::DwLns(OPCODE_BASE))
         );
         assert_eq!(*rest, *input.range_from(1..));
     }
@@ -1919,11 +1919,12 @@ mod tests {
         header.standard_opcode_lengths = EndianSlice::new(&standard_opcode_lengths, LittleEndian);
 
         let mut rest = input;
-        let opcode = Opcode::parse(&header, &mut rest).expect("Should parse the opcode OK");
+        let opcode =
+            LineInstruction::parse(&header, &mut rest).expect("Should parse the opcode OK");
 
         assert_eq!(
             opcode,
-            Opcode::UnknownStandard1(constants::DwLns(OPCODE_BASE), 1)
+            LineInstruction::UnknownStandard1(constants::DwLns(OPCODE_BASE), 1)
         );
         assert_eq!(*rest, *input.range_from(2..));
     }
@@ -1941,11 +1942,12 @@ mod tests {
         header.standard_opcode_lengths = EndianSlice::new(&standard_opcode_lengths, LittleEndian);
 
         let mut rest = input;
-        let opcode = Opcode::parse(&header, &mut rest).expect("Should parse the opcode OK");
+        let opcode =
+            LineInstruction::parse(&header, &mut rest).expect("Should parse the opcode OK");
 
         assert_eq!(
             opcode,
-            Opcode::UnknownStandardN(constants::DwLns(OPCODE_BASE), args)
+            LineInstruction::UnknownStandardN(constants::DwLns(OPCODE_BASE), args)
         );
         assert_eq!(*rest, []);
     }
@@ -1955,7 +1957,7 @@ mod tests {
         fn test<Operands>(
             raw: constants::DwLne,
             operands: Operands,
-            expected: Opcode<EndianSlice<LittleEndian>>,
+            expected: LineInstruction<EndianSlice<LittleEndian>>,
         ) where
             Operands: AsRef<[u8]>,
         {
@@ -1975,22 +1977,27 @@ mod tests {
             let header = make_test_header(input);
 
             let mut rest = input;
-            let opcode = Opcode::parse(&header, &mut rest).expect("Should parse the opcode OK");
+            let opcode =
+                LineInstruction::parse(&header, &mut rest).expect("Should parse the opcode OK");
 
             assert_eq!(opcode, expected);
             assert_eq!(*rest, expected_rest);
         }
 
-        test(constants::DW_LNE_end_sequence, [], Opcode::EndSequence);
+        test(
+            constants::DW_LNE_end_sequence,
+            [],
+            LineInstruction::EndSequence,
+        );
         test(
             constants::DW_LNE_set_address,
             [1, 2, 3, 4, 5, 6, 7, 8],
-            Opcode::SetAddress(578_437_695_752_307_201),
+            LineInstruction::SetAddress(578_437_695_752_307_201),
         );
         test(
             constants::DW_LNE_set_discriminator,
             [42],
-            Opcode::SetDiscriminator(42),
+            LineInstruction::SetDiscriminator(42),
         );
 
         let mut file = Vec::new();
@@ -2007,7 +2014,7 @@ mod tests {
         test(
             constants::DW_LNE_define_file,
             file,
-            Opcode::DefineFile(FileEntry {
+            LineInstruction::DefineFile(FileEntry {
                 path_name: EndianSlice::new(b"foo.c", LittleEndian),
                 directory_index: 0,
                 last_modification: 1,
@@ -2021,7 +2028,7 @@ mod tests {
         test(
             opcode,
             operands,
-            Opcode::UnknownExtended(opcode, EndianSlice::new(&operands, LittleEndian)),
+            LineInstruction::UnknownExtended(opcode, EndianSlice::new(&operands, LittleEndian)),
         );
     }
 
@@ -2048,36 +2055,26 @@ mod tests {
         assert_eq!(file.directory(&header), None);
     }
 
-    fn new_registers() -> StateMachineRegisters {
-        let mut regs = StateMachineRegisters::default();
-        regs.reset(true);
-        regs
-    }
-
     fn assert_exec_opcode<'input>(
-        header: LineNumberProgramHeader<EndianSlice<'input, LittleEndian>>,
-        initial_registers: StateMachineRegisters,
-        opcode: Opcode<EndianSlice<'input, LittleEndian>>,
-        expected_registers: StateMachineRegisters,
+        header: LineProgramHeader<EndianSlice<'input, LittleEndian>>,
+        mut registers: LineRow,
+        opcode: LineInstruction<EndianSlice<'input, LittleEndian>>,
+        expected_registers: LineRow,
         expect_new_row: bool,
     ) {
-        let mut program = IncompleteLineNumberProgram { header };
-        let mut row = LineNumberRow {
-            registers: initial_registers,
-        };
-
-        let is_new_row = row.execute(opcode, &mut program);
+        let mut program = IncompleteLineProgram { header };
+        let is_new_row = registers.execute(opcode, &mut program);
 
         assert_eq!(is_new_row, expect_new_row);
-        assert_eq!(row.registers, expected_registers);
+        assert_eq!(registers, expected_registers);
     }
 
     #[test]
     fn test_exec_special_noop() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
 
-        let initial_registers = new_registers();
-        let opcode = Opcode::Special(16);
+        let initial_registers = LineRow::new(&header);
+        let opcode = LineInstruction::Special(16);
         let expected_registers = initial_registers;
 
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, true);
@@ -2087,10 +2084,10 @@ mod tests {
     fn test_exec_special_negative_line_advance() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
 
-        let mut initial_registers = new_registers();
+        let mut initial_registers = LineRow::new(&header);
         initial_registers.line = 10;
 
-        let opcode = Opcode::Special(13);
+        let opcode = LineInstruction::Special(13);
 
         let mut expected_registers = initial_registers;
         expected_registers.line -= 3;
@@ -2102,9 +2099,9 @@ mod tests {
     fn test_exec_special_positive_line_advance() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
 
-        let initial_registers = new_registers();
+        let initial_registers = LineRow::new(&header);
 
-        let opcode = Opcode::Special(19);
+        let opcode = LineInstruction::Special(19);
 
         let mut expected_registers = initial_registers;
         expected_registers.line += 3;
@@ -2116,9 +2113,9 @@ mod tests {
     fn test_exec_special_positive_address_advance() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
 
-        let initial_registers = new_registers();
+        let initial_registers = LineRow::new(&header);
 
-        let opcode = Opcode::Special(52);
+        let opcode = LineInstruction::Special(52);
 
         let mut expected_registers = initial_registers;
         expected_registers.address += 3;
@@ -2130,9 +2127,9 @@ mod tests {
     fn test_exec_special_positive_address_and_line_advance() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
 
-        let initial_registers = new_registers();
+        let initial_registers = LineRow::new(&header);
 
-        let opcode = Opcode::Special(55);
+        let opcode = LineInstruction::Special(55);
 
         let mut expected_registers = initial_registers;
         expected_registers.address += 3;
@@ -2145,10 +2142,10 @@ mod tests {
     fn test_exec_special_positive_address_and_negative_line_advance() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
 
-        let mut initial_registers = new_registers();
+        let mut initial_registers = LineRow::new(&header);
         initial_registers.line = 10;
 
-        let opcode = Opcode::Special(49);
+        let opcode = LineInstruction::Special(49);
 
         let mut expected_registers = initial_registers;
         expected_registers.address += 3;
@@ -2161,11 +2158,11 @@ mod tests {
     fn test_exec_special_line_underflow() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
 
-        let mut initial_registers = new_registers();
+        let mut initial_registers = LineRow::new(&header);
         initial_registers.line = 2;
 
         // -3 line advance.
-        let opcode = Opcode::Special(13);
+        let opcode = LineInstruction::Special(13);
 
         let mut expected_registers = initial_registers;
         // Clamp at 0. No idea if this is the best way to handle this situation
@@ -2179,11 +2176,11 @@ mod tests {
     fn test_exec_copy() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
 
-        let mut initial_registers = new_registers();
+        let mut initial_registers = LineRow::new(&header);
         initial_registers.address = 1337;
         initial_registers.line = 42;
 
-        let opcode = Opcode::Copy;
+        let opcode = LineInstruction::Copy;
 
         let expected_registers = initial_registers;
 
@@ -2193,8 +2190,8 @@ mod tests {
     #[test]
     fn test_exec_advance_pc() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-        let initial_registers = new_registers();
-        let opcode = Opcode::AdvancePc(42);
+        let initial_registers = LineRow::new(&header);
+        let opcode = LineInstruction::AdvancePc(42);
 
         let mut expected_registers = initial_registers;
         expected_registers.address += 42;
@@ -2205,8 +2202,8 @@ mod tests {
     #[test]
     fn test_exec_advance_line() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-        let initial_registers = new_registers();
-        let opcode = Opcode::AdvanceLine(42);
+        let initial_registers = LineRow::new(&header);
+        let opcode = LineInstruction::AdvanceLine(42);
 
         let mut expected_registers = initial_registers;
         expected_registers.line += 42;
@@ -2218,8 +2215,8 @@ mod tests {
     fn test_exec_set_file_in_bounds() {
         for file_idx in 1..3 {
             let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-            let initial_registers = new_registers();
-            let opcode = Opcode::SetFile(file_idx);
+            let initial_registers = LineRow::new(&header);
+            let opcode = LineInstruction::SetFile(file_idx);
 
             let mut expected_registers = initial_registers;
             expected_registers.file = file_idx;
@@ -2231,14 +2228,14 @@ mod tests {
     #[test]
     fn test_exec_set_file_out_of_bounds() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-        let initial_registers = new_registers();
-        let opcode = Opcode::SetFile(100);
+        let initial_registers = LineRow::new(&header);
+        let opcode = LineInstruction::SetFile(100);
 
         // The spec doesn't say anything about rejecting input programs
         // that set the file register out of bounds of the actual number
         // of files that have been defined. Instead, we cross our
         // fingers and hope that one gets defined before
-        // `LineNumberRow::file` gets called and handle the error at
+        // `LineRow::file` gets called and handle the error at
         // that time if need be.
         let mut expected_registers = initial_registers;
         expected_registers.file = 100;
@@ -2254,11 +2251,9 @@ mod tests {
 
         for file_idx in &out_of_bounds_indices[..] {
             let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-            let mut regs = new_registers();
+            let mut row = LineRow::new(&header);
 
-            regs.file = *file_idx;
-
-            let row = LineNumberRow { registers: regs };
+            row.file = *file_idx;
 
             assert_eq!(row.file(&header), None);
         }
@@ -2267,11 +2262,9 @@ mod tests {
     #[test]
     fn test_file_entry_file_index_in_bounds() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-        let mut regs = new_registers();
+        let mut row = LineRow::new(&header);
 
-        regs.file = 2;
-
-        let row = LineNumberRow { registers: regs };
+        row.file = 2;
 
         assert_eq!(row.file(&header), Some(&header.file_names()[1]));
     }
@@ -2279,8 +2272,8 @@ mod tests {
     #[test]
     fn test_exec_set_column() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-        let initial_registers = new_registers();
-        let opcode = Opcode::SetColumn(42);
+        let initial_registers = LineRow::new(&header);
+        let opcode = LineInstruction::SetColumn(42);
 
         let mut expected_registers = initial_registers;
         expected_registers.column = 42;
@@ -2291,8 +2284,8 @@ mod tests {
     #[test]
     fn test_exec_negate_statement() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-        let initial_registers = new_registers();
-        let opcode = Opcode::NegateStatement;
+        let initial_registers = LineRow::new(&header);
+        let opcode = LineInstruction::NegateStatement;
 
         let mut expected_registers = initial_registers;
         expected_registers.is_stmt = !initial_registers.is_stmt;
@@ -2304,10 +2297,10 @@ mod tests {
     fn test_exec_set_basic_block() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
 
-        let mut initial_registers = new_registers();
+        let mut initial_registers = LineRow::new(&header);
         initial_registers.basic_block = false;
 
-        let opcode = Opcode::SetBasicBlock;
+        let opcode = LineInstruction::SetBasicBlock;
 
         let mut expected_registers = initial_registers;
         expected_registers.basic_block = true;
@@ -2318,8 +2311,8 @@ mod tests {
     #[test]
     fn test_exec_const_add_pc() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-        let initial_registers = new_registers();
-        let opcode = Opcode::ConstAddPc;
+        let initial_registers = LineRow::new(&header);
+        let opcode = LineInstruction::ConstAddPc;
 
         let mut expected_registers = initial_registers;
         expected_registers.address += 20;
@@ -2331,10 +2324,10 @@ mod tests {
     fn test_exec_fixed_add_pc() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
 
-        let mut initial_registers = new_registers();
+        let mut initial_registers = LineRow::new(&header);
         initial_registers.op_index = 1;
 
-        let opcode = Opcode::FixedAddPc(10);
+        let opcode = LineInstruction::FixedAddPc(10);
 
         let mut expected_registers = initial_registers;
         expected_registers.address += 10;
@@ -2347,10 +2340,10 @@ mod tests {
     fn test_exec_set_prologue_end() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
 
-        let mut initial_registers = new_registers();
+        let mut initial_registers = LineRow::new(&header);
         initial_registers.prologue_end = false;
 
-        let opcode = Opcode::SetPrologueEnd;
+        let opcode = LineInstruction::SetPrologueEnd;
 
         let mut expected_registers = initial_registers;
         expected_registers.prologue_end = true;
@@ -2361,8 +2354,8 @@ mod tests {
     #[test]
     fn test_exec_set_isa() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-        let initial_registers = new_registers();
-        let opcode = Opcode::SetIsa(1993);
+        let initial_registers = LineRow::new(&header);
+        let opcode = LineInstruction::SetIsa(1993);
 
         let mut expected_registers = initial_registers;
         expected_registers.isa = 1993;
@@ -2373,8 +2366,8 @@ mod tests {
     #[test]
     fn test_exec_unknown_standard_0() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-        let initial_registers = new_registers();
-        let opcode = Opcode::UnknownStandard0(constants::DwLns(111));
+        let initial_registers = LineRow::new(&header);
+        let opcode = LineInstruction::UnknownStandard0(constants::DwLns(111));
         let expected_registers = initial_registers;
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }
@@ -2382,8 +2375,8 @@ mod tests {
     #[test]
     fn test_exec_unknown_standard_1() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-        let initial_registers = new_registers();
-        let opcode = Opcode::UnknownStandard1(constants::DwLns(111), 2);
+        let initial_registers = LineRow::new(&header);
+        let opcode = LineInstruction::UnknownStandard1(constants::DwLns(111), 2);
         let expected_registers = initial_registers;
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }
@@ -2391,8 +2384,8 @@ mod tests {
     #[test]
     fn test_exec_unknown_standard_n() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-        let initial_registers = new_registers();
-        let opcode = Opcode::UnknownStandardN(
+        let initial_registers = LineRow::new(&header);
+        let opcode = LineInstruction::UnknownStandardN(
             constants::DwLns(111),
             EndianSlice::new(&[2, 2, 2], LittleEndian),
         );
@@ -2403,8 +2396,8 @@ mod tests {
     #[test]
     fn test_exec_end_sequence() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-        let initial_registers = new_registers();
-        let opcode = Opcode::EndSequence;
+        let initial_registers = LineRow::new(&header);
+        let opcode = LineInstruction::EndSequence;
 
         let mut expected_registers = initial_registers;
         expected_registers.end_sequence = true;
@@ -2415,8 +2408,8 @@ mod tests {
     #[test]
     fn test_exec_set_address() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-        let initial_registers = new_registers();
-        let opcode = Opcode::SetAddress(3030);
+        let initial_registers = LineRow::new(&header);
+        let opcode = LineInstruction::SetAddress(3030);
 
         let mut expected_registers = initial_registers;
         expected_registers.address = 3030;
@@ -2427,7 +2420,7 @@ mod tests {
     #[test]
     fn test_exec_define_file() {
         let mut program = make_test_program(EndianSlice::new(&[], LittleEndian));
-        let mut row = LineNumberRow::new(&program);
+        let mut row = LineRow::new(program.header());
 
         let file = FileEntry {
             path_name: EndianSlice::new(b"test.cpp", LittleEndian),
@@ -2436,7 +2429,7 @@ mod tests {
             length: 0,
         };
 
-        let opcode = Opcode::DefineFile(file);
+        let opcode = LineInstruction::DefineFile(file);
         let is_new_row = row.execute(opcode, &mut program);
 
         assert_eq!(is_new_row, false);
@@ -2446,8 +2439,8 @@ mod tests {
     #[test]
     fn test_exec_set_discriminator() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-        let initial_registers = new_registers();
-        let opcode = Opcode::SetDiscriminator(9);
+        let initial_registers = LineRow::new(&header);
+        let opcode = LineInstruction::SetDiscriminator(9);
 
         let mut expected_registers = initial_registers;
         expected_registers.discriminator = 9;
@@ -2458,21 +2451,23 @@ mod tests {
     #[test]
     fn test_exec_unknown_extended() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-        let initial_registers = new_registers();
-        let opcode =
-            Opcode::UnknownExtended(constants::DwLne(74), EndianSlice::new(&[], LittleEndian));
+        let initial_registers = LineRow::new(&header);
+        let opcode = LineInstruction::UnknownExtended(
+            constants::DwLne(74),
+            EndianSlice::new(&[], LittleEndian),
+        );
         let expected_registers = initial_registers;
         assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }
 
-    /// Ensure that `StateMachine<R,P>` is covariant wrt R.
+    /// Ensure that `LineRows<R,P>` is covariant wrt R.
     /// This only needs to compile.
     #[allow(dead_code, unreachable_code, unused_variables)]
-    fn test_statemachine_variance<'a, 'b>(_: &'a [u8], _: &'b [u8])
+    fn test_line_rows_variance<'a, 'b>(_: &'a [u8], _: &'b [u8])
     where
         'a: 'b,
     {
-        let a: &OneShotStateMachine<EndianSlice<'a, LittleEndian>> = unimplemented!();
-        let _: &OneShotStateMachine<EndianSlice<'b, LittleEndian>> = a;
+        let a: &OneShotLineRows<EndianSlice<'a, LittleEndian>> = unimplemented!();
+        let _: &OneShotLineRows<EndianSlice<'b, LittleEndian>> = a;
     }
 }

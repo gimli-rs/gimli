@@ -980,7 +980,7 @@ struct Unit<R: Reader> {
     address_size: u8,
     version: u16,
     base_address: u64,
-    line_program: Option<gimli::IncompleteLineNumberProgram<R>>,
+    line_program: Option<gimli::IncompleteLineProgram<R>>,
     comp_dir: Option<R>,
     comp_name: Option<R>,
     str_offsets_base: gimli::DebugStrOffsetsBase,
@@ -1962,10 +1962,10 @@ fn dump_line_program<R: Reader, W: Write>(
             }
 
             writeln!(w)?;
-            writeln!(w, "Line Number Statements:")?;
-            let mut opcodes = header.opcodes();
-            while let Some(opcode) = opcodes.next_opcode(header)? {
-                writeln!(w, "  {}", opcode)?;
+            writeln!(w, "Line Number Instructions:")?;
+            let mut instructions = header.instructions();
+            while let Some(instruction) = instructions.next_instruction(header)? {
+                writeln!(w, "  {}", instruction)?;
             }
 
             writeln!(w)?;

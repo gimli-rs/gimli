@@ -820,7 +820,7 @@ mod convert {
         ///
         /// Return the program and a mapping from file index to `FileId`.
         pub fn from<R: Reader<Offset = usize>>(
-            mut from_program: read::IncompleteLineNumberProgram<R, R::Offset>,
+            mut from_program: read::IncompleteLineProgram<R, R::Offset>,
             convert_address: &Fn(u64) -> Option<Address>,
         ) -> ConvertResult<(LineProgram, Vec<FileId>)> {
             // Create mappings in case the source has duplicate files or directories.
@@ -895,12 +895,12 @@ mod convert {
 
             // We can't use the `from_program.rows()` because that wouldn't let
             // us preserve address relocations.
-            let mut from_row = read::LineNumberRow::new(&from_program);
-            let mut opcodes = from_program.header().opcodes();
+            let mut from_row = read::LineRow::new(from_program.header());
+            let mut instructions = from_program.header().instructions();
             let mut address = None;
-            while let Some(opcode) = opcodes.next_opcode(from_program.header())? {
-                match opcode {
-                    read::Opcode::SetAddress(val) => {
+            while let Some(instruction) = instructions.next_instruction(from_program.header())? {
+                match instruction {
+                    read::LineInstruction::SetAddress(val) => {
                         if program.in_sequence() {
                             return Err(ConvertError::UnsupportedLineInstruction);
                         }
@@ -908,13 +908,13 @@ mod convert {
                             Some(val) => address = Some(val),
                             None => return Err(ConvertError::InvalidAddress),
                         }
-                        from_row.execute(read::Opcode::SetAddress(0), &mut from_program);
+                        from_row.execute(read::LineInstruction::SetAddress(0), &mut from_program);
                     }
-                    read::Opcode::DefineFile(_) => {
+                    read::LineInstruction::DefineFile(_) => {
                         return Err(ConvertError::UnsupportedLineInstruction);
                     }
                     _ => {
-                        if from_row.execute(opcode, &mut from_program) {
+                        if from_row.execute(instruction, &mut from_program) {
                             if !program.in_sequence() {
                                 program.begin_sequence(address);
                                 address = None;
@@ -944,7 +944,7 @@ mod convert {
                                 program.row().isa = from_row.isa();
                                 program.generate_row();
                             }
-                            from_row.reset(&from_program);
+                            from_row.reset(from_program.header());
                         }
                     }
                 };
@@ -1355,49 +1355,64 @@ mod tests {
                     for &(ref inst, ref expect_inst) in &[
                         (
                             LineInstruction::Special(OPCODE_BASE),
-                            read::Opcode::Special(OPCODE_BASE),
+                            read::LineInstruction::Special(OPCODE_BASE),
                         ),
-                        (LineInstruction::Special(255), read::Opcode::Special(255)),
-                        (LineInstruction::Copy, read::Opcode::Copy),
+                        (
+                            LineInstruction::Special(255),
+                            read::LineInstruction::Special(255),
+                        ),
+                        (LineInstruction::Copy, read::LineInstruction::Copy),
                         (
                             LineInstruction::AdvancePc(0x12),
-                            read::Opcode::AdvancePc(0x12),
+                            read::LineInstruction::AdvancePc(0x12),
                         ),
                         (
                             LineInstruction::AdvanceLine(0x12),
-                            read::Opcode::AdvanceLine(0x12),
+                            read::LineInstruction::AdvanceLine(0x12),
                         ),
                         (
                             LineInstruction::SetFile(file_id),
-                            read::Opcode::SetFile(file_id.raw()),
+                            read::LineInstruction::SetFile(file_id.raw()),
                         ),
                         (
                             LineInstruction::SetColumn(0x12),
-                            read::Opcode::SetColumn(0x12),
+                            read::LineInstruction::SetColumn(0x12),
                         ),
                         (
                             LineInstruction::NegateStatement,
-                            read::Opcode::NegateStatement,
+                            read::LineInstruction::NegateStatement,
                         ),
-                        (LineInstruction::SetBasicBlock, read::Opcode::SetBasicBlock),
-                        (LineInstruction::ConstAddPc, read::Opcode::ConstAddPc),
+                        (
+                            LineInstruction::SetBasicBlock,
+                            read::LineInstruction::SetBasicBlock,
+                        ),
+                        (
+                            LineInstruction::ConstAddPc,
+                            read::LineInstruction::ConstAddPc,
+                        ),
                         (
                             LineInstruction::SetPrologueEnd,
-                            read::Opcode::SetPrologueEnd,
+                            read::LineInstruction::SetPrologueEnd,
                         ),
                         (
                             LineInstruction::SetEpilogueBegin,
-                            read::Opcode::SetEpilogueBegin,
+                            read::LineInstruction::SetEpilogueBegin,
                         ),
-                        (LineInstruction::SetIsa(0x12), read::Opcode::SetIsa(0x12)),
-                        (LineInstruction::EndSequence, read::Opcode::EndSequence),
+                        (
+                            LineInstruction::SetIsa(0x12),
+                            read::LineInstruction::SetIsa(0x12),
+                        ),
+                        (
+                            LineInstruction::EndSequence,
+                            read::LineInstruction::EndSequence,
+                        ),
                         (
                             LineInstruction::SetAddress(Address::Absolute(0x12)),
-                            read::Opcode::SetAddress(0x12),
+                            read::LineInstruction::SetAddress(0x12),
                         ),
                         (
                             LineInstruction::SetDiscriminator(0x12),
-                            read::Opcode::SetDiscriminator(0x12),
+                            read::LineInstruction::SetDiscriminator(0x12),
                         ),
                     ][..]
                     {
@@ -1420,12 +1435,12 @@ mod tests {
                             )
                             .unwrap();
                         let read_header = read_program.header();
-                        let mut read_insts = read_header.opcodes();
+                        let mut read_insts = read_header.instructions();
                         assert_eq!(
                             *expect_inst,
-                            read_insts.next_opcode(read_header).unwrap().unwrap()
+                            read_insts.next_instruction(read_header).unwrap().unwrap()
                         );
-                        assert_eq!(None, read_insts.next_opcode(read_header).unwrap());
+                        assert_eq!(None, read_insts.next_instruction(read_header).unwrap());
                     }
                 }
             }

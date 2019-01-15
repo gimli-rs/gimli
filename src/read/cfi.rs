@@ -1380,7 +1380,7 @@ where
         self.offset
     }
 
-     /// The size of addresses (in bytes) in this CIE.
+    /// The size of addresses (in bytes) in this CIE.
     pub fn address_size(&self) -> u8 {
         self.address_size
     }
@@ -4765,7 +4765,10 @@ mod tests {
         length.set_const((&end - &start) as u64);
         let contents = section.get_contents().unwrap();
         let input = EndianSlice::new(&contents, BigEndian);
-        let mut iter = CallFrameInstructionIter { input, address_size: 8 };
+        let mut iter = CallFrameInstructionIter {
+            input,
+            address_size: 8,
+        };
 
         assert_eq!(
             iter.next(),
@@ -4792,7 +4795,10 @@ mod tests {
 
         let contents = section.get_contents().unwrap();
         let input = EndianSlice::new(&contents, BigEndian);
-        let mut iter = CallFrameInstructionIter { input, address_size: 8 };
+        let mut iter = CallFrameInstructionIter {
+            input,
+            address_size: 8,
+        };
 
         assert_eq!(iter.next(), Err(Error::UnexpectedEof));
         assert_eq!(iter.next(), Ok(None));

@@ -2,7 +2,7 @@ use constants;
 use read::{
     Abbreviations, Attribute, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter,
     DebugAbbrev, DebugAddr, DebugInfo, DebugLine, DebugStr, DebugStrOffsets, DebugTypes, Error,
-    IncompleteLineNumberProgram, LocationLists, RangeLists, Reader, Result, TypeUnitHeader,
+    IncompleteLineProgram, LocationLists, RangeLists, Reader, Result, TypeUnitHeader,
     TypeUnitHeadersIter,
 };
 use Endianity;
@@ -95,7 +95,7 @@ where
         &self,
         unit: &CompilationUnitHeader<R, R::Offset>,
         abbrevs: &Abbreviations,
-    ) -> Result<Option<IncompleteLineNumberProgram<R, R::Offset>>> {
+    ) -> Result<Option<IncompleteLineProgram<R, R::Offset>>> {
         let mut cursor = unit.entries(abbrevs);
         cursor.next_dfs()?;
         let root = cursor.current().ok_or(Error::MissingUnitDie)?;
