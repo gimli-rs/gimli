@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn test_get_str_offset() {
-        for format in [Format::Dwarf32, Format::Dwarf64].iter().cloned() {
+        for format in vec![Format::Dwarf32, Format::Dwarf64] {
             let zero = Label::new();
             let length = Label::new();
             let start = Label::new();

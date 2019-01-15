@@ -64,8 +64,8 @@ mod tests {
 
     #[test]
     fn test_get_address() {
-        for format in [Format::Dwarf32, Format::Dwarf64].iter().cloned() {
-            for address_size in [4, 8].iter().cloned() {
+        for format in vec![Format::Dwarf32, Format::Dwarf64] {
+            for address_size in vec![4, 8] {
                 let zero = Label::new();
                 let length = Label::new();
                 let start = Label::new();

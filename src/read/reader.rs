@@ -261,7 +261,7 @@ pub trait Reader: Debug + Clone {
     /// Does not advance the reader.
     fn to_string_lossy(&self) -> Result<Cow<str>>;
 
-    /// Read a u8 slice.
+    /// Read exactly `buf.len()` bytes into `buf`.
     fn read_slice(&mut self, buf: &mut [u8]) -> Result<()>;
 
     /// Read a u8 array.
