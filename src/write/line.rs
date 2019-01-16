@@ -53,7 +53,7 @@ impl LineProgramTable {
         for program in &self.programs {
             offsets.push(program.write(debug_line)?);
         }
-        Ok(DebugLineOffsets { programs: offsets })
+        Ok(DebugLineOffsets { offsets })
     }
 }
 
@@ -743,71 +743,12 @@ pub struct FileInfo {
     pub length: u64,
 }
 
-/// A writable `.debug_line` section.
-#[derive(Debug)]
-pub struct DebugLine<W: Writer>(pub W);
+define_section!(DebugLine, DebugLineOffset, "A writable `.debug_line` section.");
 
-impl<W: Writer> DebugLine<W> {
-    /// Return the offset of the next write.
-    pub fn offset(&self) -> DebugLineOffset {
-        DebugLineOffset(self.len())
-    }
-}
-
-impl<W: Writer> From<W> for DebugLine<W> {
-    #[inline]
-    fn from(w: W) -> Self {
-        DebugLine(w)
-    }
-}
-
-impl<W: Writer> Deref for DebugLine<W> {
-    type Target = W;
-
-    #[inline]
-    fn deref(&self) -> &W {
-        &self.0
-    }
-}
-
-impl<W: Writer> DerefMut for DebugLine<W> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut W {
-        &mut self.0
-    }
-}
-
-impl<W: Writer> Section<W> for DebugLine<W> {
-    #[inline]
-    fn id() -> SectionId {
-        SectionId::DebugLine
-    }
-}
-
-/// The section offsets of all line number programs within a `.debug_line` section.
-#[derive(Debug, Default)]
-pub struct DebugLineOffsets {
-    // We know ids start at 0.
-    programs: Vec<DebugLineOffset>,
-}
-
-impl DebugLineOffsets {
-    /// Get the `.debug_line` offset of a line number program.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `id` is invalid.
-    #[inline]
-    pub fn get(&self, id: LineProgramId) -> DebugLineOffset {
-        self.programs[id.0]
-    }
-
-    /// Return the number of line number program offsets.
-    #[inline]
-    pub fn count(&self) -> usize {
-        self.programs.len()
-    }
-}
+define_offsets!(
+    DebugLineOffsets: LineProgramId => DebugLineOffset,
+    "The section offsets of all line number programs within a `.debug_line` section."
+);
 
 #[cfg(feature = "read")]
 mod convert {
