@@ -41,19 +41,32 @@ fn test_convert_debug_info() {
     let debug_str = read_section("debug_str");
     let debug_str = read::DebugStr::new(&debug_str, LittleEndian);
 
+    let debug_ranges = read_section("debug_ranges");
+    let debug_ranges = read::DebugRanges::new(&debug_ranges, LittleEndian);
+
+    let debug_rnglists = read::DebugRngLists::new(&[], LittleEndian);
+
+    let ranges = gimli::RangeLists::new(debug_ranges, debug_rnglists).unwrap();
+
     let dwarf = read::Dwarf {
         debug_abbrev,
         debug_info,
         debug_line,
         debug_str,
+        ranges,
         ..Default::default()
     };
 
     let mut strings = write::StringTable::default();
     let mut line_programs = write::LineProgramTable::default();
-    let units = write::UnitTable::from(&dwarf, &mut line_programs, &mut strings, &|address| {
-        Some(Address::Absolute(address))
-    })
+    let mut ranges = write::RangeListTable::default();
+    let units = write::UnitTable::from(
+        &dwarf,
+        &mut line_programs,
+        &mut strings,
+        &mut ranges,
+        &|address| Some(Address::Absolute(address)),
+    )
     .expect("Should convert compilation units");
     assert_eq!(units.count(), 23);
     let entries: usize = (0..units.count())
@@ -79,6 +92,24 @@ fn test_convert_debug_info() {
     assert_eq!(debug_str_offsets.count(), 3921);
     assert_eq!(debug_str_data.len(), 144_731);
 
+    let mut write_debug_ranges = write::DebugRanges::from(EndianVec::new(LittleEndian));
+    let mut write_debug_rnglists = write::DebugRngLists::from(EndianVec::new(LittleEndian));
+    let range_list_offsets = ranges
+        .write(
+            &mut write_debug_ranges,
+            &mut write_debug_rnglists,
+            dwarf.debug_info.units().next().unwrap().unwrap().format(),
+            dwarf.debug_info.units().next().unwrap().unwrap().version(),
+            dwarf
+                .debug_info
+                .units()
+                .next()
+                .unwrap()
+                .unwrap()
+                .address_size(),
+        )
+        .expect("Should write ranges");
+
     let mut write_debug_abbrev = write::DebugAbbrev::from(EndianVec::new(LittleEndian));
     let mut write_debug_info = write::DebugInfo::from(EndianVec::new(LittleEndian));
     units
@@ -86,33 +117,46 @@ fn test_convert_debug_info() {
             &mut write_debug_abbrev,
             &mut write_debug_info,
             &debug_line_offsets,
+            &range_list_offsets,
             &debug_str_offsets,
         )
         .expect("Should write units");
     let debug_info_data = write_debug_info.slice();
     let debug_abbrev_data = write_debug_abbrev.slice();
+    let debug_ranges_data = write_debug_ranges.slice();
     assert_eq!(debug_info_data.len(), 394_930);
     assert_eq!(debug_abbrev_data.len(), 1282);
+    assert_eq!(debug_ranges_data.len(), 155_712);
 
     // Convert new sections
     let debug_abbrev = read::DebugAbbrev::new(debug_abbrev_data, LittleEndian);
     let debug_info = read::DebugInfo::new(debug_info_data, LittleEndian);
     let debug_line = read::DebugLine::new(debug_line_data, LittleEndian);
     let debug_str = read::DebugStr::new(debug_str_data, LittleEndian);
+    let debug_ranges = read::DebugRanges::new(debug_ranges_data, LittleEndian);
+    let debug_rnglists = read::DebugRngLists::new(&[], LittleEndian);
+
+    let ranges = gimli::RangeLists::new(debug_ranges, debug_rnglists).unwrap();
 
     let dwarf = read::Dwarf {
         debug_abbrev,
         debug_info,
         debug_line,
         debug_str,
+        ranges,
         ..Default::default()
     };
 
     let mut line_programs = write::LineProgramTable::default();
     let mut strings = write::StringTable::default();
-    let units = write::UnitTable::from(&dwarf, &mut line_programs, &mut strings, &|address| {
-        Some(Address::Absolute(address))
-    })
+    let mut ranges = write::RangeListTable::default();
+    let units = write::UnitTable::from(
+        &dwarf,
+        &mut line_programs,
+        &mut strings,
+        &mut ranges,
+        &|address| Some(Address::Absolute(address)),
+    )
     .expect("Should convert compilation units");
     assert_eq!(units.count(), 23);
     let entries: usize = (0..units.count())

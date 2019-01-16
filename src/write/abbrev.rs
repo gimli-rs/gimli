@@ -99,7 +99,11 @@ impl AttributeSpecification {
     }
 }
 
-define_section!(DebugAbbrev, DebugAbbrevOffset, "A writable `.debug_abbrev` section.");
+define_section!(
+    DebugAbbrev,
+    DebugAbbrevOffset,
+    "A writable `.debug_abbrev` section."
+);
 
 #[cfg(test)]
 mod tests {

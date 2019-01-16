@@ -97,6 +97,9 @@ pub use self::str::*;
 mod unit;
 pub use self::unit::*;
 
+mod range;
+pub use self::range::*;
+
 /// An error that occurred when writing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
@@ -204,7 +207,7 @@ pub trait Section<W: Writer>: From<W> + DerefMut<Target = W> {
 }
 
 /// An address.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Address {
     /// An absolute address that does not require relocation.
     Absolute(u64),

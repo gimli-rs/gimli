@@ -743,7 +743,11 @@ pub struct FileInfo {
     pub length: u64,
 }
 
-define_section!(DebugLine, DebugLineOffset, "A writable `.debug_line` section.");
+define_section!(
+    DebugLine,
+    DebugLineOffset,
+    "A writable `.debug_line` section."
+);
 
 define_offsets!(
     DebugLineOffsets: LineProgramId => DebugLineOffset,
