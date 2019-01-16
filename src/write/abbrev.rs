@@ -99,46 +99,7 @@ impl AttributeSpecification {
     }
 }
 
-/// A writable `.debug_abbrev` section.
-#[derive(Debug)]
-pub struct DebugAbbrev<W: Writer>(pub W);
-
-impl<W: Writer> DebugAbbrev<W> {
-    /// Return the offset of the next write.
-    pub fn offset(&self) -> DebugAbbrevOffset {
-        DebugAbbrevOffset(self.len())
-    }
-}
-
-impl<W: Writer> From<W> for DebugAbbrev<W> {
-    #[inline]
-    fn from(w: W) -> Self {
-        DebugAbbrev(w)
-    }
-}
-
-impl<W: Writer> Deref for DebugAbbrev<W> {
-    type Target = W;
-
-    #[inline]
-    fn deref(&self) -> &W {
-        &self.0
-    }
-}
-
-impl<W: Writer> DerefMut for DebugAbbrev<W> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut W {
-        &mut self.0
-    }
-}
-
-impl<W: Writer> Section<W> for DebugAbbrev<W> {
-    #[inline]
-    fn id() -> SectionId {
-        SectionId::DebugAbbrev
-    }
-}
+define_section!(DebugAbbrev, DebugAbbrevOffset, "A writable `.debug_abbrev` section.");
 
 #[cfg(test)]
 mod tests {

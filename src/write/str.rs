@@ -76,75 +76,16 @@ impl StringTable {
             w.write_u8(0)?;
         }
 
-        Ok(DebugStrOffsets { strings: offsets })
+        Ok(DebugStrOffsets { offsets })
     }
 }
 
-/// A writable `.debug_str` section.
-#[derive(Debug)]
-pub struct DebugStr<W: Writer>(pub W);
+define_section!(DebugStr, DebugStrOffset, "A writable `.debug_str` section.");
 
-impl<W: Writer> DebugStr<W> {
-    /// Return the offset of the next write.
-    pub fn offset(&self) -> DebugStrOffset {
-        DebugStrOffset(self.len())
-    }
-}
-
-impl<W: Writer> From<W> for DebugStr<W> {
-    #[inline]
-    fn from(w: W) -> Self {
-        DebugStr(w)
-    }
-}
-
-impl<W: Writer> Deref for DebugStr<W> {
-    type Target = W;
-
-    #[inline]
-    fn deref(&self) -> &W {
-        &self.0
-    }
-}
-
-impl<W: Writer> DerefMut for DebugStr<W> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut W {
-        &mut self.0
-    }
-}
-
-impl<W: Writer> Section<W> for DebugStr<W> {
-    #[inline]
-    fn id() -> SectionId {
-        SectionId::DebugStr
-    }
-}
-
-/// The section offsets of all strings within a `.debug_str` section.
-#[derive(Debug, Default)]
-pub struct DebugStrOffsets {
-    // We know ids start at 0.
-    strings: Vec<DebugStrOffset>,
-}
-
-impl DebugStrOffsets {
-    /// Get the `.debug_str` offset of a string.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `id` is invalid.
-    #[inline]
-    pub fn get(&self, id: StringId) -> DebugStrOffset {
-        self.strings[id.0]
-    }
-
-    /// Return the number of string offsets.
-    #[inline]
-    pub fn count(&self) -> usize {
-        self.strings.len()
-    }
-}
+define_offsets!(
+    DebugStrOffsets: StringId => DebugStrOffset,
+    "The section offsets of all strings within a `.debug_str` section."
+);
 
 #[cfg(test)]
 mod tests {

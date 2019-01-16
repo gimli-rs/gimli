@@ -11,6 +11,80 @@ pub use self::endian_vec::*;
 mod writer;
 pub use self::writer::*;
 
+macro_rules! define_section {
+    ($name:ident, $offset:ident, $docs:expr) => {
+        #[doc=$docs]
+        #[derive(Debug)]
+        pub struct $name<W: Writer>(pub W);
+
+        impl<W: Writer> $name<W> {
+            /// Return the offset of the next write.
+            pub fn offset(&self) -> $offset {
+                $offset(self.len())
+            }
+        }
+
+        impl<W: Writer> From<W> for $name<W> {
+            #[inline]
+            fn from(w: W) -> Self {
+                $name(w)
+            }
+        }
+
+        impl<W: Writer> Deref for $name<W> {
+            type Target = W;
+
+            #[inline]
+            fn deref(&self) -> &W {
+                &self.0
+            }
+        }
+
+        impl<W: Writer> DerefMut for $name<W> {
+            #[inline]
+            fn deref_mut(&mut self) -> &mut W {
+                &mut self.0
+            }
+        }
+
+        impl<W: Writer> Section<W> for $name<W> {
+            #[inline]
+            fn id() -> SectionId {
+                SectionId::$name
+            }
+        }
+    };
+}
+
+macro_rules! define_offsets {
+    ($offsets:ident: $id:ident => $offset:ident, $off_doc:expr) => {
+        #[doc=$off_doc]
+        #[derive(Debug, Default)]
+        pub struct $offsets {
+            // We know ids start at 0.
+            offsets: Vec<$offset>,
+        }
+
+        impl $offsets {
+            /// Get the offset
+            ///
+            /// # Panics
+            ///
+            /// Panics if `id` is invalid.
+            #[inline]
+            pub fn get(&self, id: $id) -> $offset {
+                self.offsets[id.0]
+            }
+
+            /// Return the number of offsets.
+            #[inline]
+            pub fn count(&self) -> usize {
+                self.offsets.len()
+            }
+        }
+    };
+}
+
 mod abbrev;
 pub use self::abbrev::*;
 

@@ -964,46 +964,7 @@ impl AttributeValue {
     }
 }
 
-/// A writable `.debug_info` section.
-#[derive(Debug)]
-pub struct DebugInfo<W: Writer>(pub W);
-
-impl<W: Writer> DebugInfo<W> {
-    /// Return the offset of the next write.
-    pub fn offset(&self) -> DebugInfoOffset {
-        DebugInfoOffset(self.len())
-    }
-}
-
-impl<W: Writer> From<W> for DebugInfo<W> {
-    #[inline]
-    fn from(w: W) -> Self {
-        DebugInfo(w)
-    }
-}
-
-impl<W: Writer> Deref for DebugInfo<W> {
-    type Target = W;
-
-    #[inline]
-    fn deref(&self) -> &W {
-        &self.0
-    }
-}
-
-impl<W: Writer> DerefMut for DebugInfo<W> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut W {
-        &mut self.0
-    }
-}
-
-impl<W: Writer> Section<W> for DebugInfo<W> {
-    #[inline]
-    fn id() -> SectionId {
-        SectionId::DebugInfo
-    }
-}
+define_section!(DebugInfo, DebugInfoOffset, "A writable `.debug_info` section.");
 
 /// The section offsets of all elements within a `.debug_info` section.
 #[derive(Debug, Default)]
