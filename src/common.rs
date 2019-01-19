@@ -71,6 +71,10 @@ pub struct DebugInfoOffset<T = usize>(pub T);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DebugLineOffset<T = usize>(pub T);
 
+/// An offset into the `.debug_line_str` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugLineStrOffset<T = usize>(pub T);
+
 /// An offset into either the `.debug_loc` section or the `.debug_loclists` section,
 /// depending on the version of the unit the offset was contained in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

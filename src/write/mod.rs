@@ -164,6 +164,8 @@ pub enum SectionId {
     DebugInfo,
     /// The `.debug_line` section.
     DebugLine,
+    /// The `.debug_line_str` section.
+    DebugLineStr,
     /// The `.debug_loc` section.
     DebugLoc,
     /// The `.debug_loclists` section.
@@ -187,6 +189,7 @@ impl SectionId {
             SectionId::DebugAbbrev => ".debug_abbrev",
             SectionId::DebugRanges => ".debug_ranges",
             SectionId::DebugLine => ".debug_line",
+            SectionId::DebugLineStr => ".debug_line_str",
             SectionId::DebugLoc => ".debug_loc",
             SectionId::DebugLocLists => ".debug_loclists",
             SectionId::DebugRngLists => ".debug_rnglists",

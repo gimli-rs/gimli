@@ -3,9 +3,9 @@ use std::{slice, usize};
 use vec::Vec;
 
 use common::{
-    DebugAbbrevOffset, DebugAddrBase, DebugInfoOffset, DebugLineOffset, DebugLocListsBase,
-    DebugMacinfoOffset, DebugRngListsBase, DebugStrOffset, DebugStrOffsetsBase, DebugTypeSignature,
-    Encoding, Format, LocationListsOffset,
+    DebugAbbrevOffset, DebugAddrBase, DebugInfoOffset, DebugLineOffset, DebugLineStrOffset,
+    DebugLocListsBase, DebugMacinfoOffset, DebugRngListsBase, DebugStrOffset, DebugStrOffsetsBase,
+    DebugTypeSignature, Encoding, Format, LocationListsOffset,
 };
 use constants;
 use write::{
@@ -668,7 +668,7 @@ pub enum AttributeValue {
     /// `.debug_types` sections is implemented.
     DebugTypesRef(DebugTypeSignature),
 
-    /// A reference to a string.
+    /// A reference to a string in the `.debug_str` section.
     StringRef(StringId),
 
     /// An offset into the `.debug_str` section of the supplementary object file.
@@ -677,6 +677,13 @@ pub enum AttributeValue {
     /// This variant will be removed from the API once support for writing
     /// supplementary object files is implemented.
     DebugStrRefSup(DebugStrOffset),
+
+    /// A reference to a string in the `.debug_line_str` section.
+    ///
+    /// It is the user's responsibility to ensure the offset is valid.
+    /// This variant will be removed from the API once support for writing
+    /// `.debug_line_str` sections is implemented.
+    DebugLineStrRef(DebugLineStrOffset),
 
     /// A slice of bytes representing a string. Must not include null bytes.
     /// Not guaranteed to be UTF-8 or anything like that.
@@ -778,6 +785,7 @@ impl AttributeValue {
             AttributeValue::DebugTypesRef(_) => constants::DW_FORM_ref_sig8,
             AttributeValue::StringRef(_) => constants::DW_FORM_strp,
             AttributeValue::DebugStrRefSup(_) => constants::DW_FORM_strp_sup,
+            AttributeValue::DebugLineStrRef(_) => constants::DW_FORM_line_strp,
             AttributeValue::String(_) => constants::DW_FORM_string,
             AttributeValue::Encoding(_)
             | AttributeValue::DecimalSign(_)
@@ -948,6 +956,10 @@ impl AttributeValue {
             AttributeValue::DebugStrRefSup(val) => {
                 debug_assert_form!(constants::DW_FORM_strp_sup);
                 w.write_word(val.0 as u64, unit.format().word_size())?;
+            }
+            AttributeValue::DebugLineStrRef(val) => {
+                debug_assert_form!(constants::DW_FORM_line_strp);
+                w.write_offset(val.0, SectionId::DebugLineStr, unit.format().word_size())?;
             }
             AttributeValue::String(ref val) => {
                 debug_assert_form!(constants::DW_FORM_string);
@@ -1430,6 +1442,7 @@ mod convert {
                     let id = context.strings.add(r.to_slice()?);
                     AttributeValue::StringRef(id)
                 }
+                read::AttributeValue::DebugLineStrRef(val) => AttributeValue::DebugLineStrRef(val),
                 read::AttributeValue::String(r) => AttributeValue::String(r.to_slice()?.into()),
                 read::AttributeValue::Encoding(val) => AttributeValue::Encoding(val),
                 read::AttributeValue::DecimalSign(val) => AttributeValue::DecimalSign(val),
@@ -2134,6 +2147,7 @@ mod tests {
             debug_abbrev: read::DebugAbbrev::new(debug_abbrev.slice(), LittleEndian),
             debug_info: read::DebugInfo::new(debug_info.slice(), LittleEndian),
             debug_line: read::DebugLine::new(&[], LittleEndian),
+            debug_line_str: read::DebugLineStr::from(read::EndianSlice::new(&[], LittleEndian)),
             debug_str: read::DebugStr::new(&[], LittleEndian),
             ..Default::default()
         };

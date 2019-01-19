@@ -7,9 +7,10 @@ use std::{u16, u8};
 
 use common::{
     DebugAbbrevOffset, DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineOffset,
-    DebugLocListsBase, DebugLocListsIndex, DebugMacinfoOffset, DebugRngListsBase,
-    DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex,
-    DebugTypeSignature, DebugTypesOffset, Encoding, Format, LocationListsOffset, RangeListsOffset,
+    DebugLineStrOffset, DebugLocListsBase, DebugLocListsIndex, DebugMacinfoOffset,
+    DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
+    DebugStrOffsetsIndex, DebugTypeSignature, DebugTypesOffset, Encoding, Format,
+    LocationListsOffset, RangeListsOffset,
 };
 use constants;
 use endianity::Endianity;
@@ -1062,6 +1063,9 @@ pub enum AttributeValue<R: Reader> {
     /// An index into a set of entries in the `.debug_str_offsets` section.
     DebugStrOffsetsIndex(DebugStrOffsetsIndex<R::Offset>),
 
+    /// An offset into the `.debug_line_str` section.
+    DebugLineStrRef(DebugLineStrOffset<R::Offset>),
+
     /// A slice of bytes representing a string. Does not include a final null byte.
     /// Not guaranteed to be UTF-8 or anything like that.
     String(R),
@@ -1662,6 +1666,9 @@ impl<R: Reader> Attribute<R> {
     /// or a `DW_FORM_strp` reference to an offset into the `.debug_str`
     /// section, return the attribute's string value as `Some`. Other attribute
     /// value forms are returned as `None`.
+    ///
+    /// Warning: this function does not handle all possible string forms.
+    /// Use `Dwarf::attr_string` instead.
     pub fn string_value(&self, debug_str: &DebugStr<R>) -> Option<R> {
         match self.value {
             AttributeValue::String(ref string) => Some(string.clone()),
@@ -1677,6 +1684,9 @@ impl<R: Reader> Attribute<R> {
     /// section, or a `DW_FORM_strp_sup` reference to an offset into a supplementary
     /// object file, return the attribute's string value as `Some`. Other attribute
     /// value forms are returned as `None`.
+    ///
+    /// Warning: this function does not handle all possible string forms.
+    /// Use `Dwarf::attr_string` instead.
     pub fn string_value_sup(
         &self,
         debug_str: &DebugStr<R>,
@@ -1888,6 +1898,10 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
             constants::DW_FORM_strp_sup | constants::DW_FORM_GNU_strp_alt => {
                 let offset = input.read_offset(unit.format())?;
                 AttributeValue::DebugStrRefSup(DebugStrOffset(offset))
+            }
+            constants::DW_FORM_line_strp => {
+                let offset = input.read_offset(unit.format())?;
+                AttributeValue::DebugLineStrRef(DebugLineStrOffset(offset))
             }
             constants::DW_FORM_implicit_const => AttributeValue::Sdata(spec.implicit_const_value()),
             constants::DW_FORM_strx | constants::DW_FORM_GNU_str_index => {

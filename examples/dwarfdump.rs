@@ -530,6 +530,7 @@ where
     let debug_addr = load_section(&arena, file, endian);
     let debug_info = load_section(&arena, file, endian);
     let debug_line = load_section(&arena, file, endian);
+    let debug_line_str = load_section(&arena, file, endian);
     let debug_str = load_section(&arena, file, endian);
     let debug_str_offsets = load_section(&arena, file, endian);
     let debug_types = load_section(&arena, file, endian);
@@ -548,6 +549,7 @@ where
         debug_addr,
         debug_info,
         debug_line,
+        debug_line_str,
         debug_str,
         debug_str_offsets,
         debug_str_sup: no_reader.clone().into(),
@@ -1279,6 +1281,13 @@ fn dump_attr_value<R: Reader, W: Write>(
                 writeln!(w, "{}", s.to_string_lossy()?)?;
             } else {
                 writeln!(w, "<.debug_str+0x{:08x}>", offset.0)?;
+            }
+        }
+        gimli::AttributeValue::DebugLineStrRef(offset) => {
+            if let Ok(s) = dwarf.debug_line_str.get_str(offset) {
+                writeln!(w, "{}", s.to_string_lossy()?)?;
+            } else {
+                writeln!(w, "<.debug_line_str=0x{:08x}>", offset.0)?;
             }
         }
         gimli::AttributeValue::String(s) => {
