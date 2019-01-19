@@ -2,7 +2,7 @@ use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
 use vec::Vec;
 
-use common::DebugStrOffset;
+use common::{DebugLineStrOffset, DebugStrOffset};
 use write::{Result, Section, SectionId, Writer};
 
 // Requirements:
@@ -97,6 +97,29 @@ define_section!(DebugStr, DebugStrOffset, "A writable `.debug_str` section.");
 define_offsets!(
     DebugStrOffsets: StringId => DebugStrOffset,
     "The section offsets of all strings within a `.debug_str` section."
+);
+
+/// An identifier for a string in a `LineStringTable`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LineStringId(usize);
+
+define_string_table!(
+    LineStringTable,
+    LineStringId,
+    DebugLineStr,
+    DebugLineStrOffsets,
+    "A table of strings that will be stored in a `.debug_line_str` section."
+);
+
+define_section!(
+    DebugLineStr,
+    DebugLineStrOffset,
+    "A writable `.debug_line_str` section."
+);
+
+define_offsets!(
+    DebugLineStrOffsets: LineStringId => DebugLineStrOffset,
+    "The section offsets of all strings within a `.debug_line_str` section."
 );
 
 #[cfg(test)]

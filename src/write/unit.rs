@@ -3,15 +3,16 @@ use std::{slice, usize};
 use vec::Vec;
 
 use common::{
-    DebugAbbrevOffset, DebugAddrBase, DebugInfoOffset, DebugLineOffset, DebugLineStrOffset,
-    DebugLocListsBase, DebugMacinfoOffset, DebugRngListsBase, DebugStrOffset, DebugStrOffsetsBase,
-    DebugTypeSignature, Encoding, Format, LocationListsOffset,
+    DebugAbbrevOffset, DebugAddrBase, DebugInfoOffset, DebugLineOffset, DebugLocListsBase,
+    DebugMacinfoOffset, DebugRngListsBase, DebugStrOffset, DebugStrOffsetsBase, DebugTypeSignature,
+    Encoding, Format, LocationListsOffset,
 };
 use constants;
 use write::{
     Abbreviation, AbbreviationTable, Address, AttributeSpecification, DebugAbbrev,
-    DebugLineOffsets, DebugStrOffsets, Error, FileId, LineProgram, LineProgramId, RangeList,
-    RangeListId, RangeListOffsets, Result, Section, SectionId, StringId, Writer,
+    DebugLineOffsets, DebugLineStrOffsets, DebugStrOffsets, Error, FileId, LineProgram,
+    LineProgramId, LineStringId, RangeList, RangeListId, RangeListOffsets, Result, Section,
+    SectionId, StringId, Writer,
 };
 
 /// An identifier for a unit in a `UnitTable`.
@@ -81,6 +82,7 @@ impl UnitTable {
         debug_abbrev: &mut DebugAbbrev<W>,
         debug_info: &mut DebugInfo<W>,
         line_programs: &DebugLineOffsets,
+        line_strings: &DebugLineStrOffsets,
         range_lists: &RangeListOffsets,
         strings: &DebugStrOffsets,
     ) -> Result<DebugInfoOffsets> {
@@ -96,6 +98,7 @@ impl UnitTable {
                 abbrev_offset,
                 &mut abbrevs,
                 line_programs,
+                line_strings,
                 strings,
                 range_lists,
                 &mut debug_info_refs,
@@ -221,6 +224,7 @@ impl CompilationUnit {
         abbrev_offset: DebugAbbrevOffset,
         abbrevs: &mut AbbreviationTable,
         line_programs: &DebugLineOffsets,
+        line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
         range_lists: &RangeListOffsets,
         debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
@@ -261,6 +265,7 @@ impl CompilationUnit {
             &mut offsets,
             abbrevs,
             line_programs,
+            line_strings,
             strings,
             range_lists,
             &mut unit_refs,
@@ -446,6 +451,7 @@ impl DebuggingInformationEntry {
         offsets: &mut UnitOffsets,
         abbrevs: &mut AbbreviationTable,
         line_programs: &DebugLineOffsets,
+        line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
         range_lists: &RangeListOffsets,
         unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
@@ -468,6 +474,7 @@ impl DebuggingInformationEntry {
                 w,
                 unit,
                 line_programs,
+                line_strings,
                 strings,
                 range_lists,
                 unit_refs,
@@ -483,6 +490,7 @@ impl DebuggingInformationEntry {
                     offsets,
                     abbrevs,
                     line_programs,
+                    line_strings,
                     strings,
                     range_lists,
                     unit_refs,
@@ -544,6 +552,7 @@ impl Attribute {
         w: &mut DebugInfo<W>,
         unit: &CompilationUnit,
         line_programs: &DebugLineOffsets,
+        line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
         range_lists: &RangeListOffsets,
         unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
@@ -553,6 +562,7 @@ impl Attribute {
             w,
             unit,
             line_programs,
+            line_strings,
             strings,
             range_lists,
             unit_refs,
@@ -679,11 +689,7 @@ pub enum AttributeValue {
     DebugStrRefSup(DebugStrOffset),
 
     /// A reference to a string in the `.debug_line_str` section.
-    ///
-    /// It is the user's responsibility to ensure the offset is valid.
-    /// This variant will be removed from the API once support for writing
-    /// `.debug_line_str` sections is implemented.
-    DebugLineStrRef(DebugLineStrOffset),
+    LineStringRef(LineStringId),
 
     /// A slice of bytes representing a string. Must not include null bytes.
     /// Not guaranteed to be UTF-8 or anything like that.
@@ -785,7 +791,7 @@ impl AttributeValue {
             AttributeValue::DebugTypesRef(_) => constants::DW_FORM_ref_sig8,
             AttributeValue::StringRef(_) => constants::DW_FORM_strp,
             AttributeValue::DebugStrRefSup(_) => constants::DW_FORM_strp_sup,
-            AttributeValue::DebugLineStrRef(_) => constants::DW_FORM_line_strp,
+            AttributeValue::LineStringRef(_) => constants::DW_FORM_line_strp,
             AttributeValue::String(_) => constants::DW_FORM_string,
             AttributeValue::Encoding(_)
             | AttributeValue::DecimalSign(_)
@@ -816,6 +822,7 @@ impl AttributeValue {
         w: &mut DebugInfo<W>,
         unit: &CompilationUnit,
         line_programs: &DebugLineOffsets,
+        line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
         range_lists: &RangeListOffsets,
         unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
@@ -957,9 +964,13 @@ impl AttributeValue {
                 debug_assert_form!(constants::DW_FORM_strp_sup);
                 w.write_word(val.0 as u64, unit.format().word_size())?;
             }
-            AttributeValue::DebugLineStrRef(val) => {
+            AttributeValue::LineStringRef(val) => {
                 debug_assert_form!(constants::DW_FORM_line_strp);
-                w.write_offset(val.0, SectionId::DebugLineStr, unit.format().word_size())?;
+                w.write_offset(
+                    line_strings.get(val).0,
+                    SectionId::DebugLineStr,
+                    unit.format().word_size(),
+                )?;
             }
             AttributeValue::String(ref val) => {
                 debug_assert_form!(constants::DW_FORM_string);
@@ -1075,6 +1086,7 @@ mod convert {
 
     pub(crate) struct ConvertUnitContext<'a, R: Reader<Offset = usize> + 'a> {
         pub dwarf: &'a read::Dwarf<R, R::Endian>,
+        pub line_strings: &'a mut write::LineStringTable,
         pub strings: &'a mut write::StringTable,
         pub ranges: &'a mut write::RangeListTable,
         pub convert_address: &'a Fn(u64) -> Option<Address>,
@@ -1089,8 +1101,8 @@ mod convert {
     impl UnitTable {
         /// Create a compilation unit table by reading the data in the given sections.
         ///
-        /// This also updates the given string table with the strings that are read
-        /// from the `debug_str` section.
+        /// This also updates the given tables with the values that are referenced from
+        /// attributes in this section.
         ///
         /// `convert_address` is a function to convert read addresses into the `Address`
         /// type. For non-relocatable addresses, this function may simply return
@@ -1100,6 +1112,7 @@ mod convert {
         pub fn from<R: Reader<Offset = usize>>(
             dwarf: &read::Dwarf<R, R::Endian>,
             line_programs: &mut write::LineProgramTable,
+            line_strings: &mut write::LineStringTable,
             strings: &mut write::StringTable,
             ranges: &mut write::RangeListTable,
             convert_address: &Fn(u64) -> Option<Address>,
@@ -1116,6 +1129,7 @@ mod convert {
                     &mut unit_entry_offsets,
                     dwarf,
                     line_programs,
+                    line_strings,
                     strings,
                     ranges,
                     convert_address,
@@ -1160,6 +1174,7 @@ mod convert {
             unit_entry_offsets: &mut HashMap<DebugInfoOffset, (UnitId, UnitEntryId)>,
             dwarf: &read::Dwarf<R, R::Endian>,
             line_programs: &mut write::LineProgramTable,
+            line_strings: &mut write::LineStringTable,
             strings: &mut write::StringTable,
             ranges: &mut write::RangeListTable,
             convert_address: &Fn(u64) -> Option<Address>,
@@ -1219,6 +1234,7 @@ mod convert {
             }
             let mut context = ConvertUnitContext {
                 dwarf,
+                line_strings,
                 strings,
                 ranges,
                 convert_address,
@@ -1442,7 +1458,11 @@ mod convert {
                     let id = context.strings.add(r.to_slice()?);
                     AttributeValue::StringRef(id)
                 }
-                read::AttributeValue::DebugLineStrRef(val) => AttributeValue::DebugLineStrRef(val),
+                read::AttributeValue::DebugLineStrRef(offset) => {
+                    let r = context.dwarf.debug_line_str.get_str(offset)?;
+                    let id = context.line_strings.add(r.to_slice()?);
+                    AttributeValue::LineStringRef(id)
+                }
                 read::AttributeValue::String(r) => AttributeValue::String(r.to_slice()?.into()),
                 read::AttributeValue::Encoding(val) => AttributeValue::Encoding(val),
                 read::AttributeValue::DecimalSign(val) => AttributeValue::DecimalSign(val),
@@ -1481,8 +1501,8 @@ mod tests {
     use read;
     use std::mem;
     use write::{
-        DebugLine, DebugRanges, DebugRngLists, DebugStr, EndianVec, LineProgramTable, Range,
-        RangeListOffsets, RangeListTable, StringTable,
+        DebugLine, DebugLineStr, DebugRanges, DebugRngLists, DebugStr, EndianVec, LineProgramTable,
+        LineStringTable, Range, RangeListOffsets, RangeListTable, StringTable,
     };
     use LittleEndian;
 
@@ -1599,6 +1619,7 @@ mod tests {
         }
 
         let debug_line_offsets = DebugLineOffsets::default();
+        let debug_line_str_offsets = DebugLineStrOffsets::default();
         let range_list_offsets = RangeListOffsets::default();
 
         let mut debug_str = DebugStr::from(EndianVec::new(LittleEndian));
@@ -1611,6 +1632,7 @@ mod tests {
                 &mut debug_abbrev,
                 &mut debug_info,
                 &debug_line_offsets,
+                &debug_line_str_offsets,
                 &range_list_offsets,
                 &debug_str_offsets,
             )
@@ -1743,11 +1765,13 @@ mod tests {
         assert!(read_units.next().unwrap().is_none());
 
         let mut convert_line_programs = LineProgramTable::default();
+        let mut convert_line_strings = LineStringTable::default();
         let mut convert_strings = StringTable::default();
         let mut convert_ranges = RangeListTable::default();
         let convert_units = UnitTable::from(
             &dwarf,
             &mut convert_line_programs,
+            &mut convert_line_strings,
             &mut convert_strings,
             &mut convert_ranges,
             &|address| Some(Address::Absolute(address)),
@@ -1788,6 +1812,15 @@ mod tests {
         let mut debug_str = DebugStr::from(EndianVec::new(LittleEndian));
         let debug_str_offsets = strings.write(&mut debug_str).unwrap();
         let read_debug_str = read::DebugStr::new(debug_str.slice(), LittleEndian);
+
+        let mut line_strings = LineStringTable::default();
+        line_strings.add("line string one");
+        let line_string_id = line_strings.add("line string two");
+        let mut debug_line_str = DebugLineStr::from(EndianVec::new(LittleEndian));
+        let debug_line_str_offsets = line_strings.write(&mut debug_line_str).unwrap();
+        let read_debug_line_str =
+            read::DebugLineStr::from(read::EndianSlice::new(debug_line_str.slice(), LittleEndian));
+
         let data = vec![1, 2, 3, 4];
         let read_data = read::EndianSlice::new(&[1, 2, 3, 4], LittleEndian);
 
@@ -1926,6 +1959,13 @@ mod tests {
                         ),
                         (
                             constants::DW_AT_name,
+                            AttributeValue::LineStringRef(line_string_id),
+                            read::AttributeValue::DebugLineStrRef(
+                                debug_line_str_offsets.get(line_string_id),
+                            ),
+                        ),
+                        (
+                            constants::DW_AT_name,
                             AttributeValue::String(data.clone()),
                             read::AttributeValue::String(read_data),
                         ),
@@ -2005,6 +2045,7 @@ mod tests {
                             &mut debug_info,
                             &unit,
                             &debug_line_offsets,
+                            &debug_line_str_offsets,
                             &debug_str_offsets,
                             &range_list_offsets,
                             &mut unit_refs,
@@ -2029,6 +2070,7 @@ mod tests {
 
                         let dwarf = read::Dwarf {
                             debug_str: read_debug_str.clone(),
+                            debug_line_str: read_debug_line_str.clone(),
                             ranges: read::RangeLists::new(
                                 read_debug_ranges.clone(),
                                 read_debug_rnglists,
@@ -2039,6 +2081,7 @@ mod tests {
 
                         let mut context = convert::ConvertUnitContext {
                             dwarf: &dwarf,
+                            line_strings: &mut line_strings,
                             strings: &mut strings,
                             ranges: &mut ranges,
                             convert_address: &|address| Some(Address::Absolute(address)),
@@ -2126,6 +2169,7 @@ mod tests {
         }
 
         let debug_line_offsets = DebugLineOffsets::default();
+        let debug_line_str_offsets = DebugLineStrOffsets::default();
         let debug_str_offsets = DebugStrOffsets::default();
         let range_list_offsets = RangeListOffsets::default();
         let mut debug_info = DebugInfo::from(EndianVec::new(LittleEndian));
@@ -2135,6 +2179,7 @@ mod tests {
                 &mut debug_abbrev,
                 &mut debug_info,
                 &debug_line_offsets,
+                &debug_line_str_offsets,
                 &range_list_offsets,
                 &debug_str_offsets,
             )
@@ -2213,11 +2258,13 @@ mod tests {
         }
 
         let mut convert_line_programs = LineProgramTable::default();
+        let mut convert_line_strings = LineStringTable::default();
         let mut convert_strings = StringTable::default();
         let mut convert_ranges = RangeListTable::default();
         let convert_units = UnitTable::from(
             &dwarf,
             &mut convert_line_programs,
+            &mut convert_line_strings,
             &mut convert_strings,
             &mut convert_ranges,
             &|address| Some(Address::Absolute(address)),
@@ -2329,6 +2376,7 @@ mod tests {
         add_children(&mut units, unit_id2);
 
         let debug_line_offsets = DebugLineOffsets::default();
+        let debug_line_str_offsets = DebugLineStrOffsets::default();
         let debug_str_offsets = DebugStrOffsets::default();
         let range_list_offsets = RangeListOffsets::default();
         let mut debug_info = DebugInfo::from(EndianVec::new(LittleEndian));
@@ -2338,6 +2386,7 @@ mod tests {
                 &mut debug_abbrev,
                 &mut debug_info,
                 &debug_line_offsets,
+                &debug_line_str_offsets,
                 &range_list_offsets,
                 &debug_str_offsets,
             )
@@ -2355,12 +2404,6 @@ mod tests {
 
     #[test]
     fn test_line_ref() {
-        let mut strings = StringTable::default();
-        let mut ranges = RangeListTable::default();
-        let mut debug_str = DebugStr::from(EndianVec::new(LittleEndian));
-        let debug_str_offsets = strings.write(&mut debug_str).unwrap();
-        let read_debug_str = read::DebugStr::new(debug_str.slice(), LittleEndian);
-
         // TODO: version 5
         for &version in &[2, 3, 4] {
             for &address_size in &[4, 8] {
@@ -2433,6 +2476,12 @@ mod tests {
                         ),
                     ][..]
                     {
+                        let mut ranges = RangeListTable::default();
+                        let mut strings = StringTable::default();
+                        let debug_str_offsets = DebugStrOffsets::default();
+                        let mut line_strings = LineStringTable::default();
+                        let debug_line_str_offsets = DebugLineStrOffsets::default();
+
                         let form = value.form(encoding).unwrap();
                         let attr = Attribute {
                             name: *name,
@@ -2447,6 +2496,7 @@ mod tests {
                             &mut debug_info,
                             &unit,
                             &debug_line_offsets,
+                            &debug_line_str_offsets,
                             &debug_str_offsets,
                             &range_list_offsets,
                             &mut unit_refs,
@@ -2469,13 +2519,10 @@ mod tests {
                         };
                         assert_eq!(read_value, expect_value);
 
-                        let dwarf = read::Dwarf {
-                            debug_str: read_debug_str.clone(),
-                            ..Default::default()
-                        };
-
+                        let dwarf = read::Dwarf::default();
                         let mut context = convert::ConvertUnitContext {
                             dwarf: &dwarf,
+                            line_strings: &mut line_strings,
                             strings: &mut strings,
                             ranges: &mut ranges,
                             convert_address: &|address| Some(Address::Absolute(address)),

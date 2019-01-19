@@ -57,12 +57,14 @@ fn test_convert_debug_info() {
         ..Default::default()
     };
 
-    let mut strings = write::StringTable::default();
     let mut line_programs = write::LineProgramTable::default();
+    let mut line_strings = write::LineStringTable::default();
+    let mut strings = write::StringTable::default();
     let mut ranges = write::RangeListTable::default();
     let units = write::UnitTable::from(
         &dwarf,
         &mut line_programs,
+        &mut line_strings,
         &mut strings,
         &mut ranges,
         &|address| Some(Address::Absolute(address)),
@@ -73,6 +75,7 @@ fn test_convert_debug_info() {
         .map(|id| units.get(write::UnitId(id)).count())
         .sum();
     assert_eq!(entries, 29_560);
+    assert_eq!(line_strings.count(), 0);
     assert_eq!(strings.count(), 3921);
 
     // Write to new sections
@@ -104,11 +107,13 @@ fn test_convert_debug_info() {
 
     let mut write_debug_abbrev = write::DebugAbbrev::from(EndianVec::new(LittleEndian));
     let mut write_debug_info = write::DebugInfo::from(EndianVec::new(LittleEndian));
+    let debug_line_str_offsets = write::DebugLineStrOffsets::default();
     units
         .write(
             &mut write_debug_abbrev,
             &mut write_debug_info,
             &debug_line_offsets,
+            &debug_line_str_offsets,
             &range_list_offsets,
             &debug_str_offsets,
         )
@@ -140,11 +145,13 @@ fn test_convert_debug_info() {
     };
 
     let mut line_programs = write::LineProgramTable::default();
+    let mut line_strings = write::LineStringTable::default();
     let mut strings = write::StringTable::default();
     let mut ranges = write::RangeListTable::default();
     let units = write::UnitTable::from(
         &dwarf,
         &mut line_programs,
+        &mut line_strings,
         &mut strings,
         &mut ranges,
         &|address| Some(Address::Absolute(address)),
