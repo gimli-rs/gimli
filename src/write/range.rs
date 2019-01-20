@@ -2,7 +2,7 @@ use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
 use vec::Vec;
 
-use common::{Format, RangeListsOffset};
+use common::{Encoding, RangeListsOffset};
 use write::{Address, Error, Result, Section, SectionId, Writer};
 
 define_section!(
@@ -58,20 +58,18 @@ impl RangeListTable {
         &self,
         w_ranges: &mut DebugRanges<W>,
         w_rnglists: &mut DebugRngLists<W>,
-        format: Format,
-        version: u16,
-        address_size: u8,
+        encoding: Encoding,
     ) -> Result<RangeListOffsets> {
-        match version {
+        match encoding.version {
             2...4 => Ok(RangeListOffsets {
-                debug_ranges: self.write_ranges(w_ranges, address_size)?,
+                debug_ranges: self.write_ranges(w_ranges, encoding.address_size)?,
                 debug_rnglists: DebugRngListsOffsets::default(),
             }),
             5 => Ok(RangeListOffsets {
                 debug_ranges: DebugRangesOffsets::default(),
-                debug_rnglists: self.write_rnglists(w_rnglists, format, version, address_size)?,
+                debug_rnglists: self.write_rnglists(w_rnglists, encoding)?,
             }),
-            _ => Err(Error::UnsupportedVersion(version)),
+            _ => Err(Error::UnsupportedVersion(encoding.version)),
         }
     }
 
@@ -98,21 +96,19 @@ impl RangeListTable {
     fn write_rnglists<W: Writer>(
         &self,
         w: &mut DebugRngLists<W>,
-        format: Format,
-        version: u16,
-        address_size: u8,
+        encoding: Encoding,
     ) -> Result<DebugRngListsOffsets> {
         let mut offsets = Vec::new();
 
-        if version != 5 {
+        if encoding.version != 5 {
             return Err(Error::NeedVersion(5));
         }
 
-        let length_offset = w.write_initial_length(format)?;
+        let length_offset = w.write_initial_length(encoding.format)?;
         let length_base = w.len();
 
-        w.write_u16(version)?;
-        w.write_u8(address_size)?;
+        w.write_u16(encoding.version)?;
+        w.write_u8(encoding.address_size)?;
         w.write_u8(0)?; // segment_selector_size
         w.write_u32(0)?; // offset_entry_count (when set to zero DW_FORM_rnglistx can't be used, see section 7.28)
                          // FIXME implement DW_FORM_rnglistx writing and implement the offset entry list
@@ -121,15 +117,15 @@ impl RangeListTable {
             offsets.push(w.offset());
             for range in &range_list.0 {
                 w.write_u8(::constants::DW_RLE_start_end.0)?;
-                w.write_address(range.begin, address_size)?;
-                w.write_address(range.end, address_size)?;
+                w.write_address(range.begin, encoding.address_size)?;
+                w.write_address(range.end, encoding.address_size)?;
             }
 
             w.write_u8(::constants::DW_RLE_end_of_list.0)?;
         }
 
         let length = (w.len() - length_base) as u64;
-        w.write_initial_length_at(length_offset, length, format)?;
+        w.write_initial_length_at(length_offset, length, encoding.format)?;
 
         Ok(DebugRngListsOffsets { offsets })
     }

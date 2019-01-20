@@ -3,7 +3,7 @@
 use std::mem;
 use vec::Vec;
 
-use common::{DebugAddrIndex, DebugInfoOffset, Format, Register};
+use common::{DebugAddrIndex, DebugInfoOffset, Encoding, Register};
 use constants;
 use read::{Error, Reader, ReaderOffset, Result, UnitOffset, Value, ValueType};
 
@@ -364,22 +364,17 @@ where
     /// `bytes` points to a the operation to decode.  It should point into
     /// the same array as `bytecode`, which should be the entire
     /// expression.
-    pub fn parse(
-        bytes: &mut R,
-        bytecode: &R,
-        address_size: u8,
-        format: Format,
-    ) -> Result<Operation<R, Offset>> {
+    pub fn parse(bytes: &mut R, bytecode: &R, encoding: Encoding) -> Result<Operation<R, Offset>> {
         let opcode = bytes.read_u8()?;
         let name = constants::DwOp(opcode);
         match name {
             constants::DW_OP_addr => {
-                let address = bytes.read_address(address_size)?;
+                let address = bytes.read_address(encoding.address_size)?;
                 Ok(Operation::Address { address })
             }
             constants::DW_OP_deref => Ok(Operation::Deref {
                 base_type: generic_type(),
-                size: address_size,
+                size: encoding.address_size,
                 space: false,
             }),
             constants::DW_OP_const1u => {
@@ -449,7 +444,7 @@ where
             constants::DW_OP_rot => Ok(Operation::Rot),
             constants::DW_OP_xderef => Ok(Operation::Deref {
                 base_type: generic_type(),
-                size: address_size,
+                size: encoding.address_size,
                 space: true,
             }),
             constants::DW_OP_abs => Ok(Operation::Abs),
@@ -650,7 +645,7 @@ where
                 })
             }
             constants::DW_OP_call_ref => {
-                let value = bytes.read_offset(format)?;
+                let value = bytes.read_offset(encoding.format)?;
                 Ok(Operation::Call {
                     offset: DieReference::DebugInfoRef(DebugInfoOffset(value)),
                 })
@@ -674,7 +669,7 @@ where
             }
             constants::DW_OP_stack_value => Ok(Operation::StackValue),
             constants::DW_OP_implicit_pointer | constants::DW_OP_GNU_implicit_pointer => {
-                let value = bytes.read_offset(format)?;
+                let value = bytes.read_offset(encoding.format)?;
                 let byte_offset = bytes.read_sleb128()?;
                 Ok(Operation::ImplicitPointer {
                     value: DebugInfoOffset(value),
@@ -872,7 +867,7 @@ pub struct Expression<R: Reader>(pub R);
 impl<R: Reader> Expression<R> {
     /// Create an evaluation for this expression.
     ///
-    /// The `address_size` and `format` are determined by the
+    /// The `encoding` is determined by the
     /// [`CompilationUnitHeader`](struct.CompilationUnitHeader.html) or
     /// [`TypeUnitHeader`](struct.TypeUnitHeader.html) that this expression
     /// relates to.
@@ -885,12 +880,12 @@ impl<R: Reader> Expression<R> {
     /// # let unit = debug_info.units().next().unwrap().unwrap();
     /// # let bytecode = gimli::EndianSlice::new(&[], endian);
     /// let expression = gimli::Expression(bytecode);
-    /// let mut eval = expression.evaluation(unit.address_size(), unit.format());
+    /// let mut eval = expression.evaluation(unit.encoding());
     /// let mut result = eval.evaluate().unwrap();
     /// ```
     #[inline]
-    pub fn evaluation(self, address_size: u8, format: Format) -> Evaluation<R> {
-        Evaluation::new(self.0, address_size, format)
+    pub fn evaluation(self, encoding: Encoding) -> Evaluation<R> {
+        Evaluation::new(self.0, encoding)
     }
 }
 
@@ -916,12 +911,11 @@ impl<R: Reader> Expression<R> {
 /// ```rust,no_run
 /// use gimli::{EndianSlice, Evaluation, EvaluationResult, Format, LittleEndian, Value};
 /// # let bytecode = EndianSlice::new(&[], LittleEndian);
-/// # let address_size = 8;
-/// # let format = Format::Dwarf64;
+/// # let encoding = unimplemented!();
 /// # let get_register_value = |_, _| Value::Generic(42);
 /// # let get_frame_base = || 0xdeadbeef;
 ///
-/// let mut eval = Evaluation::new(bytecode, address_size, format);
+/// let mut eval = Evaluation::new(bytecode, encoding);
 /// let mut result = eval.evaluate().unwrap();
 /// while result != EvaluationResult::Complete {
 ///   match result {
@@ -943,8 +937,7 @@ impl<R: Reader> Expression<R> {
 #[derive(Debug)]
 pub struct Evaluation<R: Reader> {
     bytecode: R,
-    address_size: u8,
-    format: Format,
+    encoding: Encoding,
     object_address: Option<u64>,
     max_iterations: Option<u32>,
     iteration: u32,
@@ -973,20 +966,19 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// The new evaluator is created without an initial value, without
     /// an object address, and without a maximum number of iterations.
-    pub fn new(bytecode: R, address_size: u8, format: Format) -> Evaluation<R> {
+    pub fn new(bytecode: R, encoding: Encoding) -> Evaluation<R> {
         let pc = bytecode.clone();
         Evaluation {
             bytecode,
-            address_size,
-            format,
+            encoding,
             object_address: None,
             max_iterations: None,
             iteration: 0,
             state: EvaluationState::Start(None),
-            addr_mask: if address_size == 8 {
+            addr_mask: if encoding.address_size == 8 {
                 !0u64
             } else {
-                (1 << (8 * u64::from(address_size))) - 1
+                (1 << (8 * u64::from(encoding.address_size))) - 1
             },
             stack: Vec::new(),
             expression_stack: Vec::new(),
@@ -1050,8 +1042,7 @@ impl<R: Reader> Evaluation<R> {
 
     #[allow(clippy::cyclomatic_complexity)]
     fn evaluate_one_operation(&mut self) -> Result<OperationEvaluationResult<R>> {
-        let operation =
-            Operation::parse(&mut self.pc, &self.bytecode, self.address_size, self.format)?;
+        let operation = Operation::parse(&mut self.pc, &self.bytecode, self.encoding)?;
 
         match operation {
             Operation::Deref {
@@ -1748,12 +1739,7 @@ impl<R: Reader> Evaluation<R> {
                     } else {
                         // If there are more operations, then the next operation must
                         // be a Piece.
-                        match Operation::parse(
-                            &mut self.pc,
-                            &self.bytecode,
-                            self.address_size,
-                            self.format,
-                        )? {
+                        match Operation::parse(&mut self.pc, &self.bytecode, self.encoding)? {
                             Operation::Piece {
                                 size_in_bits,
                                 bit_offset,
@@ -1802,12 +1788,29 @@ mod tests {
 
     use self::test_assembler::{Endian, Section};
     use super::*;
+    use common::Format;
     use constants;
     use endianity::LittleEndian;
     use leb128;
     use read::{EndianSlice, Error, Result, UnitOffset};
     use std::usize;
     use test_util::GimliSectionMethods;
+
+    fn encoding4() -> Encoding {
+        Encoding {
+            format: Format::Dwarf32,
+            version: 4,
+            address_size: 4,
+        }
+    }
+
+    fn encoding8() -> Encoding {
+        Encoding {
+            format: Format::Dwarf64,
+            version: 4,
+            address_size: 8,
+        }
+    }
 
     #[test]
     fn test_compute_pc() {
@@ -1835,12 +1838,11 @@ mod tests {
     fn check_op_parse_simple<'input>(
         input: &'input [u8],
         expect: &Operation<EndianSlice<'input, LittleEndian>>,
-        address_size: u8,
-        format: Format,
+        encoding: Encoding,
     ) {
         let buf = EndianSlice::new(input, LittleEndian);
         let mut pc = buf;
-        let value = Operation::parse(&mut pc, &buf, address_size, format);
+        let value = Operation::parse(&mut pc, &buf, encoding);
         match value {
             Ok(val) => {
                 assert_eq!(val, *expect);
@@ -1850,10 +1852,10 @@ mod tests {
         }
     }
 
-    fn check_op_parse_failure(input: &[u8], expect: Error, address_size: u8, format: Format) {
+    fn check_op_parse_failure(input: &[u8], expect: Error, encoding: Encoding) {
         let buf = EndianSlice::new(input, LittleEndian);
         let mut pc = buf;
-        match Operation::parse(&mut pc, &buf, address_size, format) {
+        match Operation::parse(&mut pc, &buf, encoding) {
             Err(x) => {
                 assert_eq!(x, expect);
             }
@@ -1865,8 +1867,7 @@ mod tests {
     fn check_op_parse<F>(
         input: F,
         expect: &Operation<EndianSlice<LittleEndian>>,
-        address_size: u8,
-        format: Format,
+        encoding: Encoding,
     ) where
         F: Fn(Section) -> Section,
     {
@@ -1874,16 +1875,15 @@ mod tests {
             .get_contents()
             .unwrap();
         for i in 1..input.len() {
-            check_op_parse_failure(&input[..i], Error::UnexpectedEof, address_size, format);
+            check_op_parse_failure(&input[..i], Error::UnexpectedEof, encoding);
         }
-        check_op_parse_simple(&input, expect, address_size, format);
+        check_op_parse_simple(&input, expect, encoding);
     }
 
     #[test]
     fn test_op_parse_onebyte() {
         // Doesn't matter for this test.
-        let address_size = 4;
-        let format = Format::Dwarf32;
+        let encoding = encoding4();
 
         // Test all single-byte opcodes.
         #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -1892,7 +1892,7 @@ mod tests {
                 constants::DW_OP_deref,
                 Operation::Deref {
                     base_type: generic_type(),
-                    size: address_size,
+                    size: encoding.address_size,
                     space: false,
                 },
             ),
@@ -1905,7 +1905,7 @@ mod tests {
                 constants::DW_OP_xderef,
                 Operation::Deref {
                     base_type: generic_type(),
-                    size: address_size,
+                    size: encoding.address_size,
                     space: true,
                 },
             ),
@@ -2002,19 +2002,18 @@ mod tests {
         ];
 
         let input = [];
-        check_op_parse_failure(&input[..], Error::UnexpectedEof, address_size, format);
+        check_op_parse_failure(&input[..], Error::UnexpectedEof, encoding);
 
         for item in inputs.iter() {
             let (opcode, ref result) = *item;
-            check_op_parse(|s| s.D8(opcode.0), result, address_size, format);
+            check_op_parse(|s| s.D8(opcode.0), result, encoding);
         }
     }
 
     #[test]
     fn test_op_parse_twobyte() {
         // Doesn't matter for this test.
-        let address_size = 4;
-        let format = Format::Dwarf32;
+        let encoding = encoding4();
 
         let inputs = [
             (
@@ -2052,15 +2051,14 @@ mod tests {
 
         for item in inputs.iter() {
             let (opcode, arg, ref result) = *item;
-            check_op_parse(|s| s.D8(opcode.0).D8(arg), result, address_size, format);
+            check_op_parse(|s| s.D8(opcode.0).D8(arg), result, encoding);
         }
     }
 
     #[test]
     fn test_op_parse_threebyte() {
         // Doesn't matter for this test.
-        let address_size = 4;
-        let format = Format::Dwarf32;
+        let encoding = encoding4();
 
         // While bra and skip are 3-byte opcodes, they aren't tested here,
         // but rather specially in their own function.
@@ -2088,15 +2086,18 @@ mod tests {
 
         for item in inputs.iter() {
             let (opcode, arg, ref result) = *item;
-            check_op_parse(|s| s.D8(opcode.0).L16(arg), result, address_size, format);
+            check_op_parse(|s| s.D8(opcode.0).L16(arg), result, encoding);
         }
     }
 
     #[test]
     fn test_op_parse_branches() {
         // Doesn't matter for this test.
-        const ADDRESS_SIZE: u8 = 4;
-        const FORMAT: Format = Format::Dwarf32;
+        const ENCODING: Encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 4,
+            address_size: 4,
+        };
 
         let inputs = [constants::DW_OP_bra, constants::DW_OP_skip];
 
@@ -2115,7 +2116,7 @@ mod tests {
                 }
             };
 
-            check_op_parse(|s| s.append_bytes(input), &expect, ADDRESS_SIZE, FORMAT);
+            check_op_parse(|s| s.append_bytes(input), &expect, ENCODING);
         }
 
         for opcode in inputs.iter() {
@@ -2135,13 +2136,12 @@ mod tests {
 
             // Invalid branches.
             let input = [opcode.0, 2, 0];
-            check_op_parse_failure(&input[..], Error::BadBranchTarget(5), ADDRESS_SIZE, FORMAT);
+            check_op_parse_failure(&input[..], Error::BadBranchTarget(5), ENCODING);
             let input = [opcode.0, 0xfc, 0xff];
             check_op_parse_failure(
                 &input[..],
                 Error::BadBranchTarget(usize::MAX as u64),
-                ADDRESS_SIZE,
-                FORMAT,
+                ENCODING,
             );
         }
     }
@@ -2149,8 +2149,7 @@ mod tests {
     #[test]
     fn test_op_parse_fivebyte() {
         // There are some tests here that depend on address size.
-        let address_size = 4;
-        let format = Format::Dwarf32;
+        let encoding = encoding4();
 
         let inputs = [
             (
@@ -2190,7 +2189,7 @@ mod tests {
 
         for item in inputs.iter() {
             let (op, arg, ref expect) = *item;
-            check_op_parse(|s| s.D8(op.0).L32(arg), expect, address_size, format);
+            check_op_parse(|s| s.D8(op.0).L32(arg), expect, encoding);
         }
     }
 
@@ -2198,8 +2197,7 @@ mod tests {
     #[cfg(target_pointer_width = "64")]
     fn test_op_parse_ninebyte() {
         // There are some tests here that depend on address size.
-        let address_size = 8;
-        let format = Format::Dwarf64;
+        let encoding = encoding8();
 
         let inputs = [
             (
@@ -2234,15 +2232,14 @@ mod tests {
 
         for item in inputs.iter() {
             let (op, arg, ref expect) = *item;
-            check_op_parse(|s| s.D8(op.0).L64(arg), expect, address_size, format);
+            check_op_parse(|s| s.D8(op.0).L64(arg), expect, encoding);
         }
     }
 
     #[test]
     fn test_op_parse_sleb() {
         // Doesn't matter for this test.
-        let address_size = 4;
-        let format = Format::Dwarf32;
+        let encoding = encoding4();
 
         let values = [
             -1i64,
@@ -2282,7 +2279,7 @@ mod tests {
 
             for item in inputs.iter() {
                 let (op, ref expect) = *item;
-                check_op_parse(|s| s.D8(op).sleb(*value), expect, address_size, format);
+                check_op_parse(|s| s.D8(op).sleb(*value), expect, encoding);
             }
         }
     }
@@ -2290,8 +2287,7 @@ mod tests {
     #[test]
     fn test_op_parse_uleb() {
         // Doesn't matter for this test.
-        let address_size = 4;
-        let format = Format::Dwarf32;
+        let encoding = encoding4();
 
         let values = [
             0,
@@ -2358,7 +2354,7 @@ mod tests {
                     .uleb(*value)
                     .get_contents()
                     .unwrap();
-                check_op_parse_simple(&input, expect, address_size, format);
+                check_op_parse_simple(&input, expect, encoding);
             }
         }
     }
@@ -2366,8 +2362,7 @@ mod tests {
     #[test]
     fn test_op_parse_bregx() {
         // Doesn't matter for this test.
-        let address_size = 4;
-        let format = Format::Dwarf32;
+        let encoding = encoding4();
 
         let uvalues = [0, 1, 0x100, !0u16];
         let svalues = [
@@ -2391,8 +2386,7 @@ mod tests {
                         offset: *v2,
                         base_type: UnitOffset(0),
                     },
-                    address_size,
-                    format,
+                    encoding,
                 );
             }
         }
@@ -2401,8 +2395,7 @@ mod tests {
     #[test]
     fn test_op_parse_bit_piece() {
         // Doesn't matter for this test.
-        let address_size = 4;
-        let format = Format::Dwarf32;
+        let encoding = encoding4();
 
         let values = [0, 1, 0x100, 0x1eee_eeee, 0x7fff_ffff_ffff_ffff, !0u64];
 
@@ -2420,8 +2413,7 @@ mod tests {
                         size_in_bits: *v1,
                         bit_offset: Some(*v2),
                     },
-                    address_size,
-                    format,
+                    encoding,
                 );
             }
         }
@@ -2430,8 +2422,7 @@ mod tests {
     #[test]
     fn test_op_parse_implicit_value() {
         // Doesn't matter for this test.
-        let address_size = 4;
-        let format = Format::Dwarf32;
+        let encoding = encoding4();
 
         let data = b"hello";
 
@@ -2444,16 +2435,14 @@ mod tests {
             &Operation::ImplicitValue {
                 data: EndianSlice::new(&data[..], LittleEndian),
             },
-            address_size,
-            format,
+            encoding,
         );
     }
 
     #[test]
     fn test_op_parse_const_type() {
         // Doesn't matter for this test.
-        let address_size = 4;
-        let format = Format::Dwarf32;
+        let encoding = encoding4();
 
         let data = b"hello";
 
@@ -2468,8 +2457,7 @@ mod tests {
                 base_type: UnitOffset(100),
                 value: EndianSlice::new(&data[..], LittleEndian),
             },
-            address_size,
-            format,
+            encoding,
         );
         check_op_parse(
             |s| {
@@ -2482,16 +2470,14 @@ mod tests {
                 base_type: UnitOffset(100),
                 value: EndianSlice::new(&data[..], LittleEndian),
             },
-            address_size,
-            format,
+            encoding,
         );
     }
 
     #[test]
     fn test_op_parse_regval_type() {
         // Doesn't matter for this test.
-        let address_size = 4;
-        let format = Format::Dwarf32;
+        let encoding = encoding4();
 
         check_op_parse(
             |s| s.D8(constants::DW_OP_regval_type.0).uleb(1).uleb(100),
@@ -2500,8 +2486,7 @@ mod tests {
                 offset: 0,
                 base_type: UnitOffset(100),
             },
-            address_size,
-            format,
+            encoding,
         );
         check_op_parse(
             |s| s.D8(constants::DW_OP_GNU_regval_type.0).uleb(1).uleb(100),
@@ -2510,16 +2495,14 @@ mod tests {
                 offset: 0,
                 base_type: UnitOffset(100),
             },
-            address_size,
-            format,
+            encoding,
         );
     }
 
     #[test]
     fn test_op_parse_deref_type() {
         // Doesn't matter for this test.
-        let address_size = 4;
-        let format = Format::Dwarf32;
+        let encoding = encoding4();
 
         check_op_parse(
             |s| s.D8(constants::DW_OP_deref_type.0).D8(8).uleb(100),
@@ -2528,8 +2511,7 @@ mod tests {
                 size: 8,
                 space: false,
             },
-            address_size,
-            format,
+            encoding,
         );
         check_op_parse(
             |s| s.D8(constants::DW_OP_GNU_deref_type.0).D8(8).uleb(100),
@@ -2538,8 +2520,7 @@ mod tests {
                 size: 8,
                 space: false,
             },
-            address_size,
-            format,
+            encoding,
         );
         check_op_parse(
             |s| s.D8(constants::DW_OP_xderef_type.0).D8(8).uleb(100),
@@ -2548,56 +2529,49 @@ mod tests {
                 size: 8,
                 space: true,
             },
-            address_size,
-            format,
+            encoding,
         );
     }
 
     #[test]
     fn test_op_convert() {
         // Doesn't matter for this test.
-        let address_size = 4;
-        let format = Format::Dwarf32;
+        let encoding = encoding4();
 
         check_op_parse(
             |s| s.D8(constants::DW_OP_convert.0).uleb(100),
             &Operation::Convert {
                 base_type: UnitOffset(100),
             },
-            address_size,
-            format,
+            encoding,
         );
         check_op_parse(
             |s| s.D8(constants::DW_OP_GNU_convert.0).uleb(100),
             &Operation::Convert {
                 base_type: UnitOffset(100),
             },
-            address_size,
-            format,
+            encoding,
         );
     }
 
     #[test]
     fn test_op_reinterpret() {
         // Doesn't matter for this test.
-        let address_size = 4;
-        let format = Format::Dwarf32;
+        let encoding = encoding4();
 
         check_op_parse(
             |s| s.D8(constants::DW_OP_reinterpret.0).uleb(100),
             &Operation::Reinterpret {
                 base_type: UnitOffset(100),
             },
-            address_size,
-            format,
+            encoding,
         );
         check_op_parse(
             |s| s.D8(constants::DW_OP_GNU_reinterpret.0).uleb(100),
             &Operation::Reinterpret {
                 base_type: UnitOffset(100),
             },
-            address_size,
-            format,
+            encoding,
         );
     }
 
@@ -2613,8 +2587,7 @@ mod tests {
                     value: DebugInfoOffset(0x1234_5678),
                     byte_offset: 0x123,
                 },
-                4,
-                Format::Dwarf32,
+                encoding4(),
             );
 
             check_op_parse(
@@ -2623,8 +2596,7 @@ mod tests {
                     value: DebugInfoOffset(0x1234_5678),
                     byte_offset: 0x123,
                 },
-                8,
-                Format::Dwarf64,
+                encoding8(),
             );
         }
     }
@@ -2641,8 +2613,7 @@ mod tests {
                 &Operation::EntryValue {
                     expression: EndianSlice::new(&data[..], LittleEndian),
                 },
-                4,
-                Format::Dwarf32,
+                encoding4(),
             );
         }
     }
@@ -2654,8 +2625,7 @@ mod tests {
             &Operation::ParameterRef {
                 offset: UnitOffset(0x1234_5678),
             },
-            4,
-            Format::Dwarf32,
+            encoding4(),
         )
     }
 
@@ -2737,8 +2707,7 @@ mod tests {
     fn check_eval_with_args<F>(
         program: &[AssemblerEntry],
         expect: Result<&[Piece<EndianSlice<LittleEndian>>]>,
-        address_size: u8,
-        format: Format,
+        encoding: Encoding,
         object_address: Option<u64>,
         initial_value: Option<u64>,
         max_iterations: Option<u32>,
@@ -2752,7 +2721,7 @@ mod tests {
         let bytes = assemble(program);
         let bytes = EndianSlice::new(&bytes, LittleEndian);
 
-        let mut eval = Evaluation::new(bytes, address_size, format);
+        let mut eval = Evaluation::new(bytes, encoding);
 
         if let Some(val) = object_address {
             eval.set_object_address(val);
@@ -2787,19 +2756,11 @@ mod tests {
     fn check_eval(
         program: &[AssemblerEntry],
         expect: Result<&[Piece<EndianSlice<LittleEndian>>]>,
-        address_size: u8,
-        format: Format,
+        encoding: Encoding,
     ) {
-        check_eval_with_args(
-            program,
-            expect,
-            address_size,
-            format,
-            None,
-            None,
-            None,
-            |_, result| Ok(result),
-        );
+        check_eval_with_args(program, expect, encoding, None, None, None, |_, result| {
+            Ok(result)
+        });
     }
 
     #[test]
@@ -2970,7 +2931,7 @@ mod tests {
             },
         }];
 
-        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+        check_eval(&program, Ok(&result), encoding4());
     }
 
     #[test]
@@ -3045,7 +3006,7 @@ mod tests {
             },
         }];
 
-        check_eval(&program, Ok(&result), 8, Format::Dwarf64);
+        check_eval(&program, Ok(&result), encoding8());
     }
 
     #[test]
@@ -3112,7 +3073,7 @@ mod tests {
             },
         }];
 
-        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+        check_eval(&program, Ok(&result), encoding4());
     }
 
     #[test]
@@ -3150,7 +3111,7 @@ mod tests {
             },
         }];
 
-        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+        check_eval(&program, Ok(&result), encoding4());
     }
 
     #[test]
@@ -3188,8 +3149,7 @@ mod tests {
         check_eval_with_args(
             &program,
             Ok(&result),
-            4,
-            Format::Dwarf32,
+            encoding4(),
             None,
             None,
             None,
@@ -3297,8 +3257,7 @@ mod tests {
         check_eval_with_args(
             &program,
             Ok(&result),
-            4,
-            Format::Dwarf32,
+            encoding4(),
             None,
             None,
             None,
@@ -3361,13 +3320,12 @@ mod tests {
                 },
             }];
 
-            check_eval(&program[..1], Ok(&ok_result), 4, Format::Dwarf32);
+            check_eval(&program[..1], Ok(&ok_result), encoding4());
 
             check_eval(
                 &program,
                 Err(Error::InvalidExpressionTerminator(1)),
-                4,
-                Format::Dwarf32,
+                encoding4(),
             );
         }
 
@@ -3384,7 +3342,7 @@ mod tests {
             },
         }];
 
-        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+        check_eval(&program, Ok(&result), encoding4());
     }
 
     #[test]
@@ -3415,8 +3373,7 @@ mod tests {
         check_eval_with_args(
             &program,
             Ok(&result),
-            8,
-            Format::Dwarf64,
+            encoding8(),
             None,
             None,
             None,
@@ -3451,8 +3408,7 @@ mod tests {
         check_eval_with_args(
             &program,
             Ok(&result),
-            8,
-            Format::Dwarf64,
+            encoding8(),
             None,
             None,
             None,
@@ -3476,8 +3432,7 @@ mod tests {
         check_eval_with_args(
             &program,
             Err(Error::InvalidPushObjectAddress),
-            4,
-            Format::Dwarf32,
+            encoding4(),
             None,
             None,
             None,
@@ -3502,8 +3457,7 @@ mod tests {
         check_eval_with_args(
             &program,
             Ok(&result),
-            8,
-            Format::Dwarf64,
+            encoding8(),
             Some(0xff),
             None,
             None,
@@ -3526,8 +3480,7 @@ mod tests {
         check_eval_with_args(
             &program,
             Ok(&result),
-            8,
-            Format::Dwarf64,
+            encoding8(),
             None,
             Some(0x1234_5678),
             None,
@@ -3547,12 +3500,7 @@ mod tests {
             Op(DW_OP_stack_value)
         ];
 
-        check_eval(
-            &program,
-            Err(Error::NotEnoughStackItems),
-            4,
-            Format::Dwarf32,
-        );
+        check_eval(&program, Err(Error::NotEnoughStackItems), encoding4());
     }
 
     #[test]
@@ -3582,8 +3530,7 @@ mod tests {
         check_eval_with_args(
             &program,
             Ok(&result),
-            4,
-            Format::Dwarf32,
+            encoding4(),
             None,
             None,
             None,
@@ -3626,8 +3573,7 @@ mod tests {
         check_eval_with_args(
             &program,
             Ok(&result),
-            4,
-            Format::Dwarf32,
+            encoding4(),
             None,
             None,
             None,
@@ -3690,7 +3636,7 @@ mod tests {
             },
         ];
 
-        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+        check_eval(&program, Ok(&result), encoding4());
 
         // Example from DWARF 2.6.1.3 (but hacked since dealing with fbreg
         // in the tests is a pain).
@@ -3728,8 +3674,7 @@ mod tests {
         check_eval_with_args(
             &program,
             Ok(&result),
-            4,
-            Format::Dwarf32,
+            encoding4(),
             None,
             None,
             None,
@@ -3763,7 +3708,7 @@ mod tests {
             },
         }];
 
-        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+        check_eval(&program, Ok(&result), encoding4());
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
@@ -3788,7 +3733,7 @@ mod tests {
             },
         ];
 
-        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+        check_eval(&program, Ok(&result), encoding4());
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
@@ -3801,7 +3746,7 @@ mod tests {
             location: Location::Address { address: 7 },
         }];
 
-        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+        check_eval(&program, Ok(&result), encoding4());
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
@@ -3817,7 +3762,7 @@ mod tests {
             },
         }];
 
-        check_eval(&program, Ok(&result), 4, Format::Dwarf32);
+        check_eval(&program, Ok(&result), encoding4());
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
@@ -3826,7 +3771,7 @@ mod tests {
             Op(DW_OP_reg4),
         ];
 
-        check_eval(&program, Err(Error::InvalidPiece), 4, Format::Dwarf32);
+        check_eval(&program, Err(Error::InvalidPiece), encoding4());
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
@@ -3835,7 +3780,7 @@ mod tests {
             Op(DW_OP_lit0),
         ];
 
-        check_eval(&program, Err(Error::InvalidPiece), 4, Format::Dwarf32);
+        check_eval(&program, Err(Error::InvalidPiece), encoding4());
     }
 
     #[test]
@@ -3854,8 +3799,7 @@ mod tests {
         check_eval_with_args(
             &program,
             Err(Error::TooManyIterations),
-            4,
-            Format::Dwarf32,
+            encoding4(),
             None,
             None,
             Some(150),
@@ -3936,8 +3880,7 @@ mod tests {
             check_eval_with_args(
                 program,
                 Ok(&result),
-                4,
-                Format::Dwarf32,
+                encoding4(),
                 None,
                 None,
                 None,

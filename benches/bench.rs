@@ -6,7 +6,7 @@ extern crate test;
 use gimli::{
     AttributeValue, DebugAbbrev, DebugAddr, DebugAddrBase, DebugAranges, DebugInfo, DebugLine,
     DebugLineOffset, DebugLoc, DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges,
-    DebugRngLists, EndianSlice, EntriesTreeNode, Expression, Format, LittleEndian, LocationLists,
+    DebugRngLists, Encoding, EndianSlice, EntriesTreeNode, Expression, LittleEndian, LocationLists,
     Operation, RangeLists, Reader, ReaderOffset,
 };
 use std::env;
@@ -264,23 +264,16 @@ fn bench_parsing_debug_loc(b: &mut test::Bencher) {
             let mut attrs = entry.attrs();
             while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
                 if let gimli::AttributeValue::LocationListsRef(offset) = attr.value() {
-                    offsets.push((offset, unit.version(), unit.address_size(), low_pc));
+                    offsets.push((offset, unit.encoding(), low_pc));
                 }
             }
         }
     }
 
     b.iter(|| {
-        for &(offset, version, address_size, base_address) in &*offsets {
+        for &(offset, encoding, base_address) in &*offsets {
             let mut locs = loclists
-                .locations(
-                    offset,
-                    version,
-                    address_size,
-                    base_address,
-                    &debug_addr,
-                    debug_addr_base,
-                )
+                .locations(offset, encoding, base_address, &debug_addr, debug_addr_base)
                 .expect("Should parse locations OK");
             while let Some(loc) = locs.next().expect("Should parse next location") {
                 test::black_box(loc);
@@ -333,23 +326,16 @@ fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
             let mut attrs = entry.attrs();
             while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
                 if let gimli::AttributeValue::RangeListsRef(offset) = attr.value() {
-                    offsets.push((offset, unit.version(), unit.address_size(), low_pc));
+                    offsets.push((offset, unit.encoding(), low_pc));
                 }
             }
         }
     }
 
     b.iter(|| {
-        for &(offset, version, address_size, base_address) in &*offsets {
+        for &(offset, encoding, base_address) in &*offsets {
             let mut ranges = rnglists
-                .ranges(
-                    offset,
-                    version,
-                    address_size,
-                    base_address,
-                    &debug_addr,
-                    debug_addr_base,
-                )
+                .ranges(offset, encoding, base_address, &debug_addr, debug_addr_base)
                 .expect("Should parse ranges OK");
             while let Some(range) = ranges.next().expect("Should parse next range") {
                 test::black_box(range);
@@ -361,7 +347,7 @@ fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
 fn debug_info_expressions<R: Reader>(
     debug_info: &DebugInfo<R>,
     debug_abbrev: &DebugAbbrev<R>,
-) -> Vec<(Expression<R>, u8, Format)> {
+) -> Vec<(Expression<R>, Encoding)> {
     let mut expressions = Vec::new();
 
     let mut iter = debug_info.units();
@@ -375,7 +361,7 @@ fn debug_info_expressions<R: Reader>(
             let mut attrs = entry.attrs();
             while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
                 if let AttributeValue::Exprloc(expression) = attr.value() {
-                    expressions.push((expression, unit.address_size(), unit.format()));
+                    expressions.push((expression, unit.encoding()));
                 }
             }
         }
@@ -395,11 +381,10 @@ fn bench_parsing_debug_info_expressions(b: &mut test::Bencher) {
     let expressions = debug_info_expressions(&debug_info, &debug_abbrev);
 
     b.iter(|| {
-        for &(expression, address_size, format) in &*expressions {
+        for &(expression, encoding) in &*expressions {
             let mut pc = expression.0;
             while !pc.is_empty() {
-                Operation::parse(&mut pc, &expression.0, address_size, format)
-                    .expect("Should parse operation");
+                Operation::parse(&mut pc, &expression.0, encoding).expect("Should parse operation");
             }
         }
     });
@@ -416,8 +401,8 @@ fn bench_evaluating_debug_info_expressions(b: &mut test::Bencher) {
     let expressions = debug_info_expressions(&debug_info, &debug_abbrev);
 
     b.iter(|| {
-        for &(expression, address_size, format) in &*expressions {
-            let mut eval = expression.evaluation(address_size, format);
+        for &(expression, encoding) in &*expressions {
+            let mut eval = expression.evaluation(encoding);
             eval.set_initial_value(0);
             let result = eval.evaluate().expect("Should evaluate expression");
             test::black_box(result);
@@ -430,7 +415,7 @@ fn debug_loc_expressions<R: Reader>(
     debug_abbrev: &DebugAbbrev<R>,
     debug_addr: &DebugAddr<R>,
     loclists: &LocationLists<R>,
-) -> Vec<(Expression<R>, u8, Format)> {
+) -> Vec<(Expression<R>, Encoding)> {
     let debug_addr_base = DebugAddrBase(R::Offset::from_u8(0));
 
     let mut expressions = Vec::new();
@@ -462,17 +447,10 @@ fn debug_loc_expressions<R: Reader>(
             while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
                 if let gimli::AttributeValue::LocationListsRef(offset) = attr.value() {
                     let mut locs = loclists
-                        .locations(
-                            offset,
-                            unit.version(),
-                            unit.address_size(),
-                            low_pc,
-                            debug_addr,
-                            debug_addr_base,
-                        )
+                        .locations(offset, unit.encoding(), low_pc, debug_addr, debug_addr_base)
                         .expect("Should parse locations OK");
                     while let Some(loc) = locs.next().expect("Should parse next location") {
-                        expressions.push((loc.data, unit.address_size(), unit.format()));
+                        expressions.push((loc.data, unit.encoding()));
                     }
                 }
             }
@@ -500,11 +478,10 @@ fn bench_parsing_debug_loc_expressions(b: &mut test::Bencher) {
     let expressions = debug_loc_expressions(&debug_info, &debug_abbrev, &debug_addr, &loclists);
 
     b.iter(|| {
-        for &(expression, address_size, format) in &*expressions {
+        for &(expression, encoding) in &*expressions {
             let mut pc = expression.0;
             while !pc.is_empty() {
-                Operation::parse(&mut pc, &expression.0, address_size, format)
-                    .expect("Should parse operation");
+                Operation::parse(&mut pc, &expression.0, encoding).expect("Should parse operation");
             }
         }
     });
@@ -528,8 +505,8 @@ fn bench_evaluating_debug_loc_expressions(b: &mut test::Bencher) {
     let expressions = debug_loc_expressions(&debug_info, &debug_abbrev, &debug_addr, &loclists);
 
     b.iter(|| {
-        for &(expression, address_size, format) in &*expressions {
-            let mut eval = expression.evaluation(address_size, format);
+        for &(expression, encoding) in &*expressions {
+            let mut eval = expression.evaluation(encoding);
             eval.set_initial_value(0);
             let result = eval.evaluate().expect("Should evaluate expression");
             test::black_box(result);

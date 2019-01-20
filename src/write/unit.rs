@@ -5,7 +5,7 @@ use vec::Vec;
 use common::{
     DebugAbbrevOffset, DebugAddrBase, DebugInfoOffset, DebugLineOffset, DebugLocListsBase,
     DebugMacinfoOffset, DebugRngListsBase, DebugStrOffset, DebugStrOffsetsBase, DebugTypeSignature,
-    Format, LocationListsOffset,
+    Encoding, Format, LocationListsOffset,
 };
 use constants;
 use write::{
@@ -117,11 +117,7 @@ impl UnitTable {
 /// A compilation unit's debugging information.
 #[derive(Debug)]
 pub struct CompilationUnit {
-    /// DWARF version, not necessarily unit version.
-    version: u16,
-    address_size: u8,
-    // TODO: this should be automatic
-    format: Format,
+    encoding: Encoding,
     /// All entries in this unit. The order is unrelated to the tree order.
     // Requirements:
     // - entries form a tree
@@ -137,35 +133,39 @@ pub struct CompilationUnit {
 
 impl CompilationUnit {
     /// Create a new `CompilationUnit`.
-    pub fn new(version: u16, address_size: u8, format: Format) -> Self {
+    pub fn new(encoding: Encoding) -> Self {
         let mut entries = Vec::new();
         let root =
             DebuggingInformationEntry::new(&mut entries, None, constants::DW_TAG_compile_unit);
         CompilationUnit {
-            version,
-            address_size,
-            format,
+            encoding,
             entries,
             root,
         }
     }
 
+    /// Return the encoding parameters for this unit.
+    #[inline]
+    pub fn encoding(&self) -> Encoding {
+        self.encoding
+    }
+
     /// Return the DWARF version for this unit.
     #[inline]
     pub fn version(&self) -> u16 {
-        self.version
+        self.encoding.version
     }
 
     /// Return the address size in bytes for this unit.
     #[inline]
     pub fn address_size(&self) -> u8 {
-        self.address_size
+        self.encoding.address_size
     }
 
     /// Return the DWARF format for this unit.
     #[inline]
     pub fn format(&self) -> Format {
-        self.format
+        self.encoding.format
     }
 
     /// Return the number of `DebuggingInformationEntry`s created for this unit.
@@ -232,27 +232,27 @@ impl CompilationUnit {
         };
         let mut unit_refs = Vec::new();
 
-        let length_offset = w.write_initial_length(self.format)?;
+        let length_offset = w.write_initial_length(self.format())?;
         let length_base = w.len();
 
-        w.write_u16(self.version)?;
-        if 2 <= self.version && self.version <= 4 {
+        w.write_u16(self.version())?;
+        if 2 <= self.version() && self.version() <= 4 {
             w.write_offset(
                 abbrev_offset.0,
                 SectionId::DebugAbbrev,
-                self.format.word_size(),
+                self.format().word_size(),
             )?;
-            w.write_u8(self.address_size)?;
-        } else if self.version == 5 {
+            w.write_u8(self.address_size())?;
+        } else if self.version() == 5 {
             w.write_u8(constants::DW_UT_compile.0)?;
-            w.write_u8(self.address_size)?;
+            w.write_u8(self.address_size())?;
             w.write_offset(
                 abbrev_offset.0,
                 SectionId::DebugAbbrev,
-                self.format.word_size(),
+                self.format().word_size(),
             )?;
         } else {
-            return Err(Error::UnsupportedVersion(self.version));
+            return Err(Error::UnsupportedVersion(self.version()));
         }
 
         self.entries[self.root.0].write(
@@ -268,7 +268,7 @@ impl CompilationUnit {
         )?;
 
         let length = (w.len() - length_base) as u64;
-        w.write_initial_length_at(length_offset, length, self.format)?;
+        w.write_initial_length_at(length_offset, length, self.format())?;
 
         for (offset, entry) in unit_refs {
             let entry_offset = offsets.entry(entry).0;
@@ -277,7 +277,7 @@ impl CompilationUnit {
             w.write_word_at(
                 offset.0,
                 (entry_offset - offsets.unit.0) as u64,
-                self.format.word_size(),
+                self.format().word_size(),
             )?;
         }
 
@@ -452,12 +452,12 @@ impl DebuggingInformationEntry {
         debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
     ) -> Result<()> {
         offsets.entries[self.id.0] = w.offset();
-        let code = abbrevs.add(self.abbreviation(unit.format)?);
+        let code = abbrevs.add(self.abbreviation(unit.format())?);
         w.write_uleb128(code)?;
 
         let sibling_offset = if self.sibling && !self.children.is_empty() {
             let offset = w.offset();
-            w.write_word(0, unit.format.word_size())?;
+            w.write_word(0, unit.format().word_size())?;
             Some(offset)
         } else {
             None
@@ -496,7 +496,7 @@ impl DebuggingInformationEntry {
         if let Some(offset) = sibling_offset {
             let next_offset = (w.offset().0 - offsets.unit.0) as u64;
             // This does not need relocation.
-            w.write_word_at(offset.0, next_offset, unit.format.word_size())?;
+            w.write_word_at(offset.0, next_offset, unit.format().word_size())?;
         }
         Ok(())
     }
@@ -800,13 +800,13 @@ impl AttributeValue {
     ) -> Result<()> {
         macro_rules! debug_assert_form {
             ($form:expr) => {
-                debug_assert_eq!(self.form(unit.format).unwrap(), $form)
+                debug_assert_eq!(self.form(unit.format()).unwrap(), $form)
             };
         }
         match *self {
             AttributeValue::Address(val) => {
                 debug_assert_form!(constants::DW_FORM_addr);
-                w.write_address(val, unit.address_size)?;
+                w.write_address(val, unit.address_size())?;
             }
             AttributeValue::Block(ref val) => {
                 debug_assert_form!(constants::DW_FORM_block);
@@ -850,63 +850,63 @@ impl AttributeValue {
                 debug_assert_form!(constants::DW_FORM_flag_present);
             }
             AttributeValue::ThisUnitEntryRef(id) => {
-                match unit.format {
+                match unit.format() {
                     Format::Dwarf32 => debug_assert_form!(constants::DW_FORM_ref4),
                     Format::Dwarf64 => debug_assert_form!(constants::DW_FORM_ref8),
                 }
                 unit_refs.push((w.offset(), id));
-                w.write_word(0, unit.format.word_size())?;
+                w.write_word(0, unit.format().word_size())?;
             }
             AttributeValue::AnyUnitEntryRef(id) => {
                 debug_assert_form!(constants::DW_FORM_ref_addr);
-                let size = if unit.version == 2 {
-                    unit.address_size
+                let size = if unit.version() == 2 {
+                    unit.address_size()
                 } else {
-                    unit.format.word_size()
+                    unit.format().word_size()
                 };
                 debug_info_refs.push((w.offset(), id, size));
                 w.write_word(0, size)?;
             }
             AttributeValue::DebugInfoRefSup(val) => {
-                match unit.format {
+                match unit.format() {
                     Format::Dwarf32 => debug_assert_form!(constants::DW_FORM_ref_sup4),
                     Format::Dwarf64 => debug_assert_form!(constants::DW_FORM_ref_sup8),
                 }
-                w.write_word(val.0 as u64, unit.format.word_size())?;
+                w.write_word(val.0 as u64, unit.format().word_size())?;
             }
             AttributeValue::LineProgramRef(val) => {
                 debug_assert_form!(constants::DW_FORM_sec_offset);
                 w.write_offset(
                     line_programs.get(val).0,
                     SectionId::DebugLine,
-                    unit.format.word_size(),
+                    unit.format().word_size(),
                 )?;
             }
             AttributeValue::LocationListsRef(val) => {
                 debug_assert_form!(constants::DW_FORM_sec_offset);
-                if unit.version >= 5 {
-                    w.write_offset(val.0, SectionId::DebugLocLists, unit.format.word_size())?;
+                if unit.version() >= 5 {
+                    w.write_offset(val.0, SectionId::DebugLocLists, unit.format().word_size())?;
                 } else {
-                    w.write_offset(val.0, SectionId::DebugLoc, unit.format.word_size())?;
+                    w.write_offset(val.0, SectionId::DebugLoc, unit.format().word_size())?;
                 }
             }
             AttributeValue::DebugMacinfoRef(val) => {
                 debug_assert_form!(constants::DW_FORM_sec_offset);
-                w.write_offset(val.0, SectionId::DebugMacinfo, unit.format.word_size())?;
+                w.write_offset(val.0, SectionId::DebugMacinfo, unit.format().word_size())?;
             }
             AttributeValue::RangeListRef(val) => {
                 debug_assert_form!(constants::DW_FORM_sec_offset);
-                if unit.version >= 5 {
+                if unit.version() >= 5 {
                     w.write_offset(
                         range_lists.debug_rnglists.get(val).0,
                         SectionId::DebugRngLists,
-                        unit.format.word_size(),
+                        unit.format().word_size(),
                     )?;
                 } else {
                     w.write_offset(
                         range_lists.debug_ranges.get(val).0,
                         SectionId::DebugRanges,
-                        unit.format.word_size(),
+                        unit.format().word_size(),
                     )?;
                 }
             }
@@ -919,12 +919,12 @@ impl AttributeValue {
                 w.write_offset(
                     strings.get(val).0,
                     SectionId::DebugStr,
-                    unit.format.word_size(),
+                    unit.format().word_size(),
                 )?;
             }
             AttributeValue::DebugStrRefSup(val) => {
                 debug_assert_form!(constants::DW_FORM_strp_sup);
-                w.write_word(val.0 as u64, unit.format.word_size())?;
+                w.write_word(val.0 as u64, unit.format().word_size())?;
             }
             AttributeValue::String(ref val) => {
                 debug_assert_form!(constants::DW_FORM_string);
@@ -1129,9 +1129,7 @@ mod convert {
             ranges: &mut write::RangeListTable,
             convert_address: &Fn(u64) -> Option<Address>,
         ) -> ConvertResult<CompilationUnit> {
-            let version = from_unit.version();
-            let address_size = from_unit.address_size();
-            let format = from_unit.format();
+            let encoding = from_unit.encoding();
             let mut entries = Vec::new();
             let abbreviations = dwarf.abbreviations(from_unit)?;
             let mut from_tree = from_unit.entries_tree(&abbreviations, None)?;
@@ -1153,10 +1151,12 @@ mod convert {
                 if let Some(read::AttributeValue::DebugLineRef(offset)) =
                     from_root.attr_value(constants::DW_AT_stmt_list)?
                 {
-                    let from_program =
-                        dwarf
-                            .debug_line
-                            .program(offset, address_size, comp_dir, comp_file)?;
+                    let from_program = dwarf.debug_line.program(
+                        offset,
+                        encoding.address_size,
+                        comp_dir,
+                        comp_file,
+                    )?;
                     let (program, files) = LineProgram::from(from_program, convert_address)?;
                     line_program = Some((offset, line_programs.add(program)));
                     line_program_files = files;
@@ -1204,9 +1204,7 @@ mod convert {
                 unit_entry_offsets,
             )?;
             Ok(CompilationUnit {
-                version,
-                address_size,
-                format,
+                encoding,
                 entries,
                 root,
             })
@@ -1357,8 +1355,7 @@ mod convert {
                     let base_address = 0; // FIXME get from DW_AT_low_pc attribute in the DW_TAG_compile_unit entry
                     let iter = context.dwarf.ranges.ranges(
                         val,
-                        from_unit.version(),
-                        from_unit.address_size(),
+                        from_unit.encoding(),
                         base_address,
                         &context.dwarf.debug_addr,
                         context.addr_base,
@@ -1380,8 +1377,7 @@ mod convert {
                         .get_offset(context.rnglists_base, index)?;
                     let iter = context.dwarf.ranges.ranges(
                         offset,
-                        from_unit.version(),
-                        from_unit.address_size(),
+                        from_unit.encoding(),
                         base_address,
                         &context.dwarf.debug_addr,
                         context.addr_base,
@@ -1461,9 +1457,21 @@ mod tests {
         let mut strings = StringTable::default();
 
         let mut units = UnitTable::default();
-        let unit1 = units.add(CompilationUnit::new(4, 8, Format::Dwarf32));
-        let unit2 = units.add(CompilationUnit::new(2, 4, Format::Dwarf64));
-        let unit3 = units.add(CompilationUnit::new(5, 4, Format::Dwarf32));
+        let unit1 = units.add(CompilationUnit::new(Encoding {
+            version: 4,
+            address_size: 8,
+            format: Format::Dwarf32,
+        }));
+        let unit2 = units.add(CompilationUnit::new(Encoding {
+            version: 2,
+            address_size: 4,
+            format: Format::Dwarf64,
+        }));
+        let unit3 = units.add(CompilationUnit::new(Encoding {
+            version: 5,
+            address_size: 4,
+            format: Format::Dwarf32,
+        }));
         assert_eq!(units.count(), 3);
         {
             let unit1 = units.get_mut(unit1);
@@ -1751,16 +1759,16 @@ mod tests {
         for &version in &[2, 3, 4, 5] {
             for &address_size in &[4, 8] {
                 for &format in &[Format::Dwarf32, Format::Dwarf64] {
+                    let encoding = Encoding {
+                        format,
+                        version,
+                        address_size,
+                    };
+
                     let mut debug_ranges = DebugRanges::from(EndianVec::new(LittleEndian));
                     let mut debug_rnglists = DebugRngLists::from(EndianVec::new(LittleEndian));
                     let range_list_offsets = ranges
-                        .write(
-                            &mut debug_ranges,
-                            &mut debug_rnglists,
-                            format,
-                            version,
-                            address_size,
-                        )
+                        .write(&mut debug_ranges, &mut debug_rnglists, encoding)
                         .unwrap();
                     let read_debug_ranges =
                         read::DebugRanges::new(debug_ranges.slice(), LittleEndian);
@@ -1768,14 +1776,17 @@ mod tests {
                         read::DebugRngLists::new(debug_rnglists.slice(), LittleEndian);
 
                     let mut units = UnitTable::default();
-                    let unit = units.add(CompilationUnit::new(version, address_size, format));
+                    let unit = units.add(CompilationUnit::new(encoding));
                     let unit = units.get(unit);
-                    let from_unit = read::UnitHeader::new(
-                        0,
-                        version,
-                        DebugAbbrevOffset(0),
-                        address_size,
+                    let encoding = Encoding {
                         format,
+                        version,
+                        address_size,
+                    };
+                    let from_unit = read::UnitHeader::new(
+                        encoding,
+                        0,
+                        DebugAbbrevOffset(0),
                         read::EndianSlice::new(&[], LittleEndian),
                     );
                     let from_comp_unit =
@@ -2019,9 +2030,17 @@ mod tests {
     #[allow(clippy::cyclomatic_complexity)]
     fn test_unit_ref() {
         let mut units = UnitTable::default();
-        let unit_id1 = units.add(CompilationUnit::new(4, 8, Format::Dwarf32));
+        let unit_id1 = units.add(CompilationUnit::new(Encoding {
+            version: 4,
+            address_size: 8,
+            format: Format::Dwarf32,
+        }));
         assert_eq!(unit_id1, UnitId(0));
-        let unit_id2 = units.add(CompilationUnit::new(2, 4, Format::Dwarf64));
+        let unit_id2 = units.add(CompilationUnit::new(Encoding {
+            version: 2,
+            address_size: 4,
+            format: Format::Dwarf64,
+        }));
         assert_eq!(unit_id2, UnitId(1));
         // These will be the same for children in both units.
         let child_id1 = UnitEntryId(1);
@@ -2262,10 +2281,15 @@ mod tests {
             assert_eq!(sibling2, None);
         }
 
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 4,
+            address_size: 8,
+        };
         let mut units = UnitTable::default();
-        let unit_id1 = units.add(CompilationUnit::new(4, 8, Format::Dwarf32));
+        let unit_id1 = units.add(CompilationUnit::new(encoding));
         add_children(&mut units, unit_id1);
-        let unit_id2 = units.add(CompilationUnit::new(4, 8, Format::Dwarf32));
+        let unit_id2 = units.add(CompilationUnit::new(encoding));
         add_children(&mut units, unit_id2);
 
         let debug_line_offsets = DebugLineOffsets::default();
@@ -2305,21 +2329,17 @@ mod tests {
         for &version in &[2, 3, 4] {
             for &address_size in &[4, 8] {
                 for &format in &[Format::Dwarf32, Format::Dwarf64] {
+                    let encoding = Encoding {
+                        format,
+                        version,
+                        address_size,
+                    };
+
                     // Create a line program table with two programs.
                     // We'll test with a reference to the second program.
                     let mut line_programs = LineProgramTable::default();
-                    let mut line_program = LineProgram::new(
-                        version,
-                        address_size,
-                        format,
-                        1,
-                        1,
-                        -5,
-                        14,
-                        b"comp_dir",
-                        b"comp_name",
-                        None,
-                    );
+                    let mut line_program =
+                        LineProgram::new(encoding, 1, 1, -5, 14, b"comp_dir", b"comp_name", None);
                     line_programs.add(line_program.clone());
                     let dir = line_program.default_directory();
                     let file1 = line_program.add_file(b"file1", dir, None);
@@ -2348,14 +2368,12 @@ mod tests {
 
                     // Fake the unit.
                     let mut units = UnitTable::default();
-                    let unit = units.add(CompilationUnit::new(version, address_size, format));
+                    let unit = units.add(CompilationUnit::new(encoding));
                     let unit = units.get(unit);
                     let from_unit = read::UnitHeader::new(
+                        encoding,
                         0,
-                        version,
                         DebugAbbrevOffset(0),
-                        address_size,
-                        format,
                         read::EndianSlice::new(&[], LittleEndian),
                     );
                     let from_comp_unit =

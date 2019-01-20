@@ -2,7 +2,7 @@ use std::fmt;
 use std::result;
 use vec::Vec;
 
-use common::{DebugLineOffset, Format};
+use common::{DebugLineOffset, Encoding, Format};
 use constants;
 use endianity::Endianity;
 use read::{EndianSlice, Error, Reader, ReaderOffset, Result, Section};
@@ -383,7 +383,7 @@ impl<R: Reader> LineInstruction<R> {
                 constants::DW_LNE_end_sequence => Ok(LineInstruction::EndSequence),
 
                 constants::DW_LNE_set_address => {
-                    let address = instr_rest.read_address(header.address_size)?;
+                    let address = instr_rest.read_address(header.address_size())?;
                     Ok(LineInstruction::SetAddress(address))
                 }
 
@@ -979,12 +979,9 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
+    encoding: Encoding,
     offset: DebugLineOffset<Offset>,
     unit_length: Offset,
-
-    /// "A version number. This number is specific to the line number
-    /// information and is independent of the DWARF version number."
-    version: u16,
 
     header_length: Offset,
 
@@ -1036,14 +1033,8 @@ where
     /// contexts."
     file_names: Vec<FileEntry<R>>,
 
-    /// Whether this line program is encoded in the 32- or 64-bit DWARF format.
-    format: Format,
-
     /// The encoded line program instructions.
     program_buf: R,
-
-    /// The size of an address on the debuggee architecture, in bytes.
-    address_size: u8,
 
     /// The `DW_AT_comp_dir` value from the compilation unit.
     comp_dir: Option<R>,
@@ -1068,9 +1059,14 @@ where
         self.unit_length
     }
 
+    /// Return the encoding parameters for this header's line program.
+    pub fn encoding(&self) -> Encoding {
+        self.encoding
+    }
+
     /// Get the version of this header's line program.
     pub fn version(&self) -> u16 {
-        self.version
+        self.encoding.version
     }
 
     /// Get the length of the encoded line number program header, not including
@@ -1081,12 +1077,12 @@ where
 
     /// Get the size in bytes of a target machine address.
     pub fn address_size(&self) -> u8 {
-        self.address_size
+        self.encoding.address_size
     }
 
     /// Whether this line program is encoded in 64- or 32-bit DWARF.
     pub fn format(&self) -> Format {
-        self.format
+        self.encoding.format
     }
 
     /// Get the minimum instruction length any instruction in this header's line
@@ -1270,10 +1266,15 @@ where
             length: 0,
         });
 
+        let encoding = Encoding {
+            format,
+            version,
+            address_size,
+        };
         let header = LineProgramHeader {
+            encoding,
             offset,
             unit_length,
-            version,
             header_length,
             minimum_instruction_length,
             maximum_operations_per_instruction,
@@ -1284,9 +1285,7 @@ where
             standard_opcode_lengths,
             include_directories,
             file_names,
-            format,
             program_buf,
-            address_size,
             comp_dir,
             comp_name,
         };
@@ -1586,7 +1585,7 @@ mod tests {
         );
 
         assert_eq!(header.offset, DebugLineOffset(0));
-        assert_eq!(header.version, 4);
+        assert_eq!(header.version(), 4);
         assert_eq!(header.minimum_instruction_length(), 1);
         assert_eq!(header.maximum_operations_per_instruction(), 1);
         assert_eq!(header.default_is_stmt(), true);
@@ -1750,15 +1749,19 @@ mod tests {
     fn make_test_header(
         buf: EndianSlice<LittleEndian>,
     ) -> LineProgramHeader<EndianSlice<LittleEndian>> {
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 4,
+            address_size: 8,
+        };
         LineProgramHeader {
+            encoding,
             offset: DebugLineOffset(0),
             opcode_base: OPCODE_BASE,
-            address_size: 8,
             minimum_instruction_length: 1,
             maximum_operations_per_instruction: 1,
             default_is_stmt: true,
             program_buf: buf,
-            version: 4,
             header_length: 1,
             file_names: vec![
                 FileEntry {
@@ -1774,7 +1777,6 @@ mod tests {
                     length: 0,
                 },
             ],
-            format: Format::Dwarf32,
             line_base: -3,
             unit_length: 1,
             standard_opcode_lengths: EndianSlice::new(STANDARD_OPCODE_LENGTHS, LittleEndian),
