@@ -415,11 +415,11 @@ impl DebuggingInformationEntry {
     }
 
     /// Return the type abbreviation for this DIE.
-    fn abbreviation(&self, format: Format) -> Result<Abbreviation> {
+    fn abbreviation(&self, encoding: Encoding) -> Result<Abbreviation> {
         let mut attrs = Vec::new();
 
         if self.sibling && !self.children.is_empty() {
-            let form = match format {
+            let form = match encoding.format {
                 Format::Dwarf32 => constants::DW_FORM_ref4,
                 Format::Dwarf64 => constants::DW_FORM_ref8,
             };
@@ -427,7 +427,7 @@ impl DebuggingInformationEntry {
         }
 
         for attr in &self.attrs {
-            attrs.push(attr.specification(format)?);
+            attrs.push(attr.specification(encoding)?);
         }
 
         Ok(Abbreviation::new(
@@ -452,7 +452,7 @@ impl DebuggingInformationEntry {
         debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
     ) -> Result<()> {
         offsets.entries[self.id.0] = w.offset();
-        let code = abbrevs.add(self.abbreviation(unit.format())?);
+        let code = abbrevs.add(self.abbreviation(unit.encoding())?);
         w.write_uleb128(code)?;
 
         let sibling_offset = if self.sibling && !self.children.is_empty() {
@@ -530,10 +530,10 @@ impl Attribute {
     }
 
     /// Return the type specification for this attribute.
-    fn specification(&self, format: Format) -> Result<AttributeSpecification> {
+    fn specification(&self, encoding: Encoding) -> Result<AttributeSpecification> {
         Ok(AttributeSpecification::new(
             self.name,
-            self.value.form(format)?,
+            self.value.form(encoding)?,
         ))
     }
 
@@ -725,7 +725,7 @@ pub enum AttributeValue {
 
 impl AttributeValue {
     /// Return the form that will be used to encode this value.
-    pub fn form(&self, format: Format) -> Result<constants::DwForm> {
+    pub fn form(&self, encoding: Encoding) -> Result<constants::DwForm> {
         // TODO: missing forms:
         // - DW_FORM_indirect
         // - DW_FORM_implicit_const
@@ -749,7 +749,7 @@ impl AttributeValue {
             AttributeValue::ThisUnitEntryRef(_) => {
                 // Using a fixed size format lets us write a placeholder before we know
                 // the value.
-                match format {
+                match encoding.format {
                     Format::Dwarf32 => constants::DW_FORM_ref4,
                     Format::Dwarf64 => constants::DW_FORM_ref8,
                 }
@@ -757,7 +757,7 @@ impl AttributeValue {
             AttributeValue::AnyUnitEntryRef(_) => constants::DW_FORM_ref_addr,
             AttributeValue::DebugInfoRefSup(_) => {
                 // TODO: should this depend on the size of supplementary section?
-                match format {
+                match encoding.format {
                     Format::Dwarf32 => constants::DW_FORM_ref_sup4,
                     Format::Dwarf64 => constants::DW_FORM_ref_sup8,
                 }
@@ -765,7 +765,16 @@ impl AttributeValue {
             AttributeValue::LineProgramRef(_)
             | AttributeValue::LocationListsRef(_)
             | AttributeValue::DebugMacinfoRef(_)
-            | AttributeValue::RangeListRef(_) => constants::DW_FORM_sec_offset,
+            | AttributeValue::RangeListRef(_) => {
+                if encoding.version == 2 || encoding.version == 3 {
+                    match encoding.format {
+                        Format::Dwarf32 => constants::DW_FORM_data4,
+                        Format::Dwarf64 => constants::DW_FORM_data8,
+                    }
+                } else {
+                    constants::DW_FORM_sec_offset
+                }
+            }
             AttributeValue::DebugTypesRef(_) => constants::DW_FORM_ref_sig8,
             AttributeValue::StringRef(_) => constants::DW_FORM_strp,
             AttributeValue::DebugStrRefSup(_) => constants::DW_FORM_strp_sup,
@@ -806,7 +815,7 @@ impl AttributeValue {
     ) -> Result<()> {
         macro_rules! debug_assert_form {
             ($form:expr) => {
-                debug_assert_eq!(self.form(unit.format()).unwrap(), $form)
+                debug_assert_eq!(self.form(unit.encoding()).unwrap(), $form)
             };
         }
         match *self {
@@ -881,7 +890,9 @@ impl AttributeValue {
                 w.write_word(val.0 as u64, unit.format().word_size())?;
             }
             AttributeValue::LineProgramRef(val) => {
-                debug_assert_form!(constants::DW_FORM_sec_offset);
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_sec_offset);
+                }
                 w.write_offset(
                     line_programs.get(val).0,
                     SectionId::DebugLine,
@@ -889,7 +900,9 @@ impl AttributeValue {
                 )?;
             }
             AttributeValue::LocationListsRef(val) => {
-                debug_assert_form!(constants::DW_FORM_sec_offset);
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_sec_offset);
+                }
                 if unit.version() >= 5 {
                     w.write_offset(val.0, SectionId::DebugLocLists, unit.format().word_size())?;
                 } else {
@@ -897,11 +910,15 @@ impl AttributeValue {
                 }
             }
             AttributeValue::DebugMacinfoRef(val) => {
-                debug_assert_form!(constants::DW_FORM_sec_offset);
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_sec_offset);
+                }
                 w.write_offset(val.0, SectionId::DebugMacinfo, unit.format().word_size())?;
             }
             AttributeValue::RangeListRef(val) => {
-                debug_assert_form!(constants::DW_FORM_sec_offset);
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_sec_offset);
+                }
                 if unit.version() >= 5 {
                     w.write_offset(
                         range_lists.debug_rnglists.get(val).0,
@@ -1961,7 +1978,7 @@ mod tests {
                         ),
                     ][..]
                     {
-                        let form = value.form(format).unwrap();
+                        let form = value.form(encoding).unwrap();
                         let attr = Attribute {
                             name: *name,
                             value: value.clone(),
@@ -2402,7 +2419,7 @@ mod tests {
                         ),
                     ][..]
                     {
-                        let form = value.form(format).unwrap();
+                        let form = value.form(encoding).unwrap();
                         let attr = Attribute {
                             name: *name,
                             value: value.clone(),

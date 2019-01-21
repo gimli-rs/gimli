@@ -1633,14 +1633,13 @@ impl<R: Reader> Attribute<R> {
     }
 
     /// Try to convert this attribute's value to an offset.
-    ///
-    /// Offsets will be `Data` in DWARF version 2/3, and `SecOffset` otherwise.
     pub fn offset_value(&self) -> Option<R::Offset> {
-        match self.value {
-            AttributeValue::Data4(data) => Some(R::Offset::from_u32(data)),
-            AttributeValue::Data8(data) => R::Offset::from_u64(data).ok(),
-            AttributeValue::SecOffset(offset) => Some(offset),
-            _ => None,
+        // While offsets will be DW_FORM_data4/8 in DWARF version 2/3,
+        // these have already been converted to `SecOffset.
+        if let AttributeValue::SecOffset(offset) = self.value {
+            Some(offset)
+        } else {
+            None
         }
     }
 
@@ -1714,6 +1713,27 @@ fn length_uleb128_value<R: Reader>(input: &mut R) -> Result<R> {
     input.split(len)
 }
 
+// Return true if the given `name` can be a section offset in DWARF version 2/3.
+// This is required to correctly handle relocations.
+fn allow_section_offset(name: constants::DwAt) -> bool {
+    match name {
+        constants::DW_AT_location
+        | constants::DW_AT_stmt_list
+        | constants::DW_AT_string_length
+        | constants::DW_AT_return_addr
+        | constants::DW_AT_start_scope
+        | constants::DW_AT_data_member_location
+        | constants::DW_AT_frame_base
+        | constants::DW_AT_macro_info
+        | constants::DW_AT_segment
+        | constants::DW_AT_static_link
+        | constants::DW_AT_use_location
+        | constants::DW_AT_vtable_elem_location
+        | constants::DW_AT_ranges => true,
+        _ => false,
+    }
+}
+
 pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
     input: &mut R,
     unit: &'unit UnitHeader<R, R::Offset>,
@@ -1759,13 +1779,12 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
             }
             constants::DW_FORM_data4 => {
                 // DWARF version 2/3 may use DW_FORM_data4/8 for section offsets.
-                // Generally we can defer interpretation of these until
-                // `AttributeValue::value()`, but this is ambiguous for
-                // `DW_AT_data_member_location`.
-                if (unit.version() == 2 || unit.version() == 3)
-                    && spec.name() == constants::DW_AT_data_member_location
+                // Ensure we handle relocations here.
+                if unit.format() == Format::Dwarf32
+                    && (unit.version() == 2 || unit.version() == 3)
+                    && allow_section_offset(spec.name())
                 {
-                    let offset = input.read_u32().map(R::Offset::from_u32)?;
+                    let offset = input.read_offset(unit.format())?;
                     AttributeValue::SecOffset(offset)
                 } else {
                     let data = input.read_u32()?;
@@ -1774,13 +1793,12 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
             }
             constants::DW_FORM_data8 => {
                 // DWARF version 2/3 may use DW_FORM_data4/8 for section offsets.
-                // Generally we can defer interpretation of these until
-                // `AttributeValue::value()`, but this is ambiguous for
-                // `DW_AT_data_member_location`.
-                if (unit.version() == 2 || unit.version() == 3)
-                    && spec.name() == constants::DW_AT_data_member_location
+                // Ensure we handle relocations here.
+                if unit.format() == Format::Dwarf64
+                    && (unit.version() == 2 || unit.version() == 3)
+                    && allow_section_offset(spec.name())
                 {
-                    let offset = input.read_u64().and_then(R::Offset::from_u64)?;
+                    let offset = input.read_offset(unit.format())?;
                     AttributeValue::SecOffset(offset)
                 } else {
                     let data = input.read_u64()?;
@@ -3505,6 +3523,7 @@ mod tests {
 
         let tests = [
             (
+                Format::Dwarf32,
                 2,
                 constants::DW_AT_data_member_location,
                 constants::DW_FORM_block,
@@ -3513,6 +3532,7 @@ mod tests {
                 AttributeValue::Exprloc(Expression(EndianSlice::new(block_data, endian))),
             ),
             (
+                Format::Dwarf32,
                 2,
                 constants::DW_AT_data_member_location,
                 constants::DW_FORM_data4,
@@ -3521,6 +3541,16 @@ mod tests {
                 AttributeValue::LocationListsRef(LocationListsOffset(0x0102_0304)),
             ),
             (
+                Format::Dwarf64,
+                2,
+                constants::DW_AT_data_member_location,
+                constants::DW_FORM_data4,
+                data4,
+                AttributeValue::Data4(0x0102_0304),
+                AttributeValue::Udata(0x0102_0304),
+            ),
+            (
+                Format::Dwarf32,
                 4,
                 constants::DW_AT_data_member_location,
                 constants::DW_FORM_data4,
@@ -3528,8 +3558,18 @@ mod tests {
                 AttributeValue::Data4(0x0102_0304),
                 AttributeValue::Udata(0x0102_0304),
             ),
+            (
+                Format::Dwarf32,
+                2,
+                constants::DW_AT_data_member_location,
+                constants::DW_FORM_data8,
+                data8,
+                AttributeValue::Data8(0x0102_0304_0506_0708),
+                AttributeValue::Udata(0x0102_0304_0506_0708),
+            ),
             #[cfg(target_pointer_width = "64")]
             (
+                Format::Dwarf64,
                 2,
                 constants::DW_AT_data_member_location,
                 constants::DW_FORM_data8,
@@ -3538,6 +3578,7 @@ mod tests {
                 AttributeValue::LocationListsRef(LocationListsOffset(0x0102_0304_0506_0708)),
             ),
             (
+                Format::Dwarf64,
                 4,
                 constants::DW_AT_data_member_location,
                 constants::DW_FORM_data8,
@@ -3546,6 +3587,7 @@ mod tests {
                 AttributeValue::Udata(0x0102_0304_0506_0708),
             ),
             (
+                Format::Dwarf32,
                 4,
                 constants::DW_AT_str_offsets_base,
                 constants::DW_FORM_sec_offset,
@@ -3554,6 +3596,7 @@ mod tests {
                 AttributeValue::DebugStrOffsetsBase(DebugStrOffsetsBase(0x0102_0304)),
             ),
             (
+                Format::Dwarf32,
                 4,
                 constants::DW_AT_addr_base,
                 constants::DW_FORM_sec_offset,
@@ -3562,6 +3605,7 @@ mod tests {
                 AttributeValue::DebugAddrBase(DebugAddrBase(0x0102_0304)),
             ),
             (
+                Format::Dwarf32,
                 4,
                 constants::DW_AT_rnglists_base,
                 constants::DW_FORM_sec_offset,
@@ -3570,6 +3614,7 @@ mod tests {
                 AttributeValue::DebugRngListsBase(DebugRngListsBase(0x0102_0304)),
             ),
             (
+                Format::Dwarf32,
                 4,
                 constants::DW_AT_loclists_base,
                 constants::DW_FORM_sec_offset,
@@ -3580,7 +3625,8 @@ mod tests {
         ];
 
         for test in tests.iter() {
-            let (version, name, form, mut input, expect_raw, expect_value) = *test;
+            let (format, version, name, form, mut input, expect_raw, expect_value) = *test;
+            unit.encoding.format = format;
             unit.encoding.version = version;
             let spec = vec![AttributeSpecification::new(name, form, None)];
             let attribute = parse_attribute(&mut input, &unit, &spec[..])
