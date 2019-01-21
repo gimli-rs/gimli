@@ -575,28 +575,34 @@ pub enum AttributeValue {
     /// From section 7 of the standard: "Depending on context, it may be a
     /// signed integer, an unsigned integer, a floating-point constant, or
     /// anything else."
-    Data1([u8; 1]),
+    Data1(u8),
 
     /// A two byte constant data value. How to interpret the bytes depends on context.
     ///
+    /// This value will be converted to the target endian before writing.
+    ///
     /// From section 7 of the standard: "Depending on context, it may be a
     /// signed integer, an unsigned integer, a floating-point constant, or
     /// anything else."
-    Data2([u8; 2]),
+    Data2(u16),
 
     /// A four byte constant data value. How to interpret the bytes depends on context.
     ///
-    /// From section 7 of the standard: "Depending on context, it may be a
-    /// signed integer, an unsigned integer, a floating-point constant, or
-    /// anything else."
-    Data4([u8; 4]),
-
-    /// An eight byte constant data value. How to interpret the bytes depends on context.
+    /// This value will be converted to the target endian before writing.
     ///
     /// From section 7 of the standard: "Depending on context, it may be a
     /// signed integer, an unsigned integer, a floating-point constant, or
     /// anything else."
-    Data8([u8; 8]),
+    Data4(u32),
+
+    /// An eight byte constant data value. How to interpret the bytes depends on context.
+    ///
+    /// This value will be converted to the target endian before writing.
+    ///
+    /// From section 7 of the standard: "Depending on context, it may be a
+    /// signed integer, an unsigned integer, a floating-point constant, or
+    /// anything else."
+    Data8(u64),
 
     /// A signed integer constant.
     Sdata(i64),
@@ -813,21 +819,21 @@ impl AttributeValue {
                 w.write_uleb128(val.len() as u64)?;
                 w.write(&val)?;
             }
-            AttributeValue::Data1(ref val) => {
+            AttributeValue::Data1(val) => {
                 debug_assert_form!(constants::DW_FORM_data1);
-                w.write(val)?;
+                w.write_u8(val)?;
             }
-            AttributeValue::Data2(ref val) => {
+            AttributeValue::Data2(val) => {
                 debug_assert_form!(constants::DW_FORM_data2);
-                w.write(val)?;
+                w.write_u16(val)?;
             }
-            AttributeValue::Data4(ref val) => {
+            AttributeValue::Data4(val) => {
                 debug_assert_form!(constants::DW_FORM_data4);
-                w.write(val)?;
+                w.write_u32(val)?;
             }
-            AttributeValue::Data8(ref val) => {
+            AttributeValue::Data8(val) => {
                 debug_assert_form!(constants::DW_FORM_data8);
-                w.write(val)?;
+                w.write_u64(val)?;
             }
             AttributeValue::Sdata(val) => {
                 debug_assert_form!(constants::DW_FORM_sdata);
@@ -1288,10 +1294,9 @@ mod convert {
                 },
                 read::AttributeValue::Block(r) => AttributeValue::Block(r.to_slice()?.into()),
                 read::AttributeValue::Data1(val) => AttributeValue::Data1(val),
-                // TODO: do we need to handle endian?
-                read::AttributeValue::Data2((val, _endian)) => AttributeValue::Data2(val),
-                read::AttributeValue::Data4((val, _endian)) => AttributeValue::Data4(val),
-                read::AttributeValue::Data8((val, _endian)) => AttributeValue::Data8(val),
+                read::AttributeValue::Data2(val) => AttributeValue::Data2(val),
+                read::AttributeValue::Data4(val) => AttributeValue::Data4(val),
+                read::AttributeValue::Data8(val) => AttributeValue::Data8(val),
                 read::AttributeValue::Sdata(val) => AttributeValue::Sdata(val),
                 read::AttributeValue::Udata(val) => AttributeValue::Udata(val),
                 // TODO: addresses and offsets in expressions need special handling.
@@ -1805,23 +1810,23 @@ mod tests {
                         ),
                         (
                             constants::DW_AT_name,
-                            AttributeValue::Data1([1]),
-                            read::AttributeValue::Data1([1]),
+                            AttributeValue::Data1(0x12),
+                            read::AttributeValue::Data1(0x12),
                         ),
                         (
                             constants::DW_AT_name,
-                            AttributeValue::Data2([1, 2]),
-                            read::AttributeValue::Data2(([1, 2], LittleEndian)),
+                            AttributeValue::Data2(0x1234),
+                            read::AttributeValue::Data2(0x1234),
                         ),
                         (
                             constants::DW_AT_name,
-                            AttributeValue::Data4([1, 2, 3, 4]),
-                            read::AttributeValue::Data4(([1, 2, 3, 4], LittleEndian)),
+                            AttributeValue::Data4(0x1234),
+                            read::AttributeValue::Data4(0x1234),
                         ),
                         (
                             constants::DW_AT_name,
-                            AttributeValue::Data8([1, 2, 3, 4, 5, 6, 7, 8]),
-                            read::AttributeValue::Data8(([1, 2, 3, 4, 5, 6, 7, 8], LittleEndian)),
+                            AttributeValue::Data8(0x1234),
+                            read::AttributeValue::Data8(0x1234),
                         ),
                         (
                             constants::DW_AT_name,
