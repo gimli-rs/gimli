@@ -958,28 +958,37 @@ pub enum AttributeValue<R: Reader> {
     /// From section 7 of the standard: "Depending on context, it may be a
     /// signed integer, an unsigned integer, a floating-point constant, or
     /// anything else."
-    Data1([u8; 1]),
+    Data1(u8),
 
     /// A two byte constant data value. How to interpret the bytes depends on context.
     ///
+    /// These bytes have been converted from `R::Endian`. This may need to be reversed
+    /// if this was not required.
+    ///
     /// From section 7 of the standard: "Depending on context, it may be a
     /// signed integer, an unsigned integer, a floating-point constant, or
     /// anything else."
-    Data2(([u8; 2], R::Endian)),
+    Data2(u16),
 
     /// A four byte constant data value. How to interpret the bytes depends on context.
     ///
-    /// From section 7 of the standard: "Depending on context, it may be a
-    /// signed integer, an unsigned integer, a floating-point constant, or
-    /// anything else."
-    Data4(([u8; 4], R::Endian)),
-
-    /// An eight byte constant data value. How to interpret the bytes depends on context.
+    /// These bytes have been converted from `R::Endian`. This may need to be reversed
+    /// if this was not required.
     ///
     /// From section 7 of the standard: "Depending on context, it may be a
     /// signed integer, an unsigned integer, a floating-point constant, or
     /// anything else."
-    Data8(([u8; 8], R::Endian)),
+    Data4(u32),
+
+    /// An eight byte constant data value. How to interpret the bytes depends on context.
+    ///
+    /// These bytes have been converted from `R::Endian`. This may need to be reversed
+    /// if this was not required.
+    ///
+    /// From section 7 of the standard: "Depending on context, it may be a
+    /// signed integer, an unsigned integer, a floating-point constant, or
+    /// anything else."
+    Data8(u64),
 
     /// A signed integer constant.
     Sdata(i64),
@@ -1588,10 +1597,10 @@ impl<R: Reader> Attribute<R> {
     /// Try to convert this attribute's value to an unsigned integer.
     pub fn udata_value(&self) -> Option<u64> {
         Some(match self.value {
-            AttributeValue::Data1(ref data) => u64::from(data[0]),
-            AttributeValue::Data2((ref data, endian)) => u64::from(endian.read_u16(data)),
-            AttributeValue::Data4((ref data, endian)) => u64::from(endian.read_u32(data)),
-            AttributeValue::Data8((ref data, endian)) => endian.read_u64(data),
+            AttributeValue::Data1(data) => u64::from(data),
+            AttributeValue::Data2(data) => u64::from(data),
+            AttributeValue::Data4(data) => u64::from(data),
+            AttributeValue::Data8(data) => data,
             AttributeValue::Udata(data) => data,
             AttributeValue::Sdata(data) => {
                 if data < 0 {
@@ -1607,10 +1616,10 @@ impl<R: Reader> Attribute<R> {
     /// Try to convert this attribute's value to a signed integer.
     pub fn sdata_value(&self) -> Option<i64> {
         Some(match self.value {
-            AttributeValue::Data1(ref data) => i64::from(data[0] as i8),
-            AttributeValue::Data2((ref data, endian)) => i64::from(endian.read_u16(data) as i16),
-            AttributeValue::Data4((ref data, endian)) => i64::from(endian.read_u32(data) as i32),
-            AttributeValue::Data8((ref data, endian)) => endian.read_u64(data) as i64,
+            AttributeValue::Data1(data) => i64::from(data as i8),
+            AttributeValue::Data2(data) => i64::from(data as i16),
+            AttributeValue::Data4(data) => i64::from(data as i32),
+            AttributeValue::Data8(data) => data as i64,
             AttributeValue::Sdata(data) => data,
             AttributeValue::Udata(data) => {
                 if data > i64::max_value() as u64 {
@@ -1624,18 +1633,13 @@ impl<R: Reader> Attribute<R> {
     }
 
     /// Try to convert this attribute's value to an offset.
-    ///
-    /// Offsets will be `Data` in DWARF version 2/3, and `SecOffset` otherwise.
     pub fn offset_value(&self) -> Option<R::Offset> {
-        match self.value {
-            AttributeValue::Data4((ref data, endian)) => {
-                Some(R::Offset::from_u32(endian.read_u32(data)))
-            }
-            AttributeValue::Data8((ref data, endian)) => {
-                R::Offset::from_u64(endian.read_u64(data)).ok()
-            }
-            AttributeValue::SecOffset(offset) => Some(offset),
-            _ => None,
+        // While offsets will be DW_FORM_data4/8 in DWARF version 2/3,
+        // these have already been converted to `SecOffset.
+        if let AttributeValue::SecOffset(offset) = self.value {
+            Some(offset)
+        } else {
+            None
         }
     }
 
@@ -1709,6 +1713,27 @@ fn length_uleb128_value<R: Reader>(input: &mut R) -> Result<R> {
     input.split(len)
 }
 
+// Return true if the given `name` can be a section offset in DWARF version 2/3.
+// This is required to correctly handle relocations.
+fn allow_section_offset(name: constants::DwAt) -> bool {
+    match name {
+        constants::DW_AT_location
+        | constants::DW_AT_stmt_list
+        | constants::DW_AT_string_length
+        | constants::DW_AT_return_addr
+        | constants::DW_AT_start_scope
+        | constants::DW_AT_data_member_location
+        | constants::DW_AT_frame_base
+        | constants::DW_AT_macro_info
+        | constants::DW_AT_segment
+        | constants::DW_AT_static_link
+        | constants::DW_AT_use_location
+        | constants::DW_AT_vtable_elem_location
+        | constants::DW_AT_ranges => true,
+        _ => false,
+    }
+}
+
 pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
     input: &mut R,
     unit: &'unit UnitHeader<R, R::Offset>,
@@ -1745,41 +1770,39 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 AttributeValue::Block(block)
             }
             constants::DW_FORM_data1 => {
-                let data = input.read_u8_array()?;
+                let data = input.read_u8()?;
                 AttributeValue::Data1(data)
             }
             constants::DW_FORM_data2 => {
-                let data = input.read_u8_array()?;
-                AttributeValue::Data2((data, input.endian()))
+                let data = input.read_u16()?;
+                AttributeValue::Data2(data)
             }
             constants::DW_FORM_data4 => {
                 // DWARF version 2/3 may use DW_FORM_data4/8 for section offsets.
-                // Generally we can defer interpretation of these until
-                // `AttributeValue::value()`, but this is ambiguous for
-                // `DW_AT_data_member_location`.
-                if (unit.version() == 2 || unit.version() == 3)
-                    && spec.name() == constants::DW_AT_data_member_location
+                // Ensure we handle relocations here.
+                if unit.format() == Format::Dwarf32
+                    && (unit.version() == 2 || unit.version() == 3)
+                    && allow_section_offset(spec.name())
                 {
-                    let offset = input.read_u32().map(R::Offset::from_u32)?;
+                    let offset = input.read_offset(unit.format())?;
                     AttributeValue::SecOffset(offset)
                 } else {
-                    let data = input.read_u8_array()?;
-                    AttributeValue::Data4((data, input.endian()))
+                    let data = input.read_u32()?;
+                    AttributeValue::Data4(data)
                 }
             }
             constants::DW_FORM_data8 => {
                 // DWARF version 2/3 may use DW_FORM_data4/8 for section offsets.
-                // Generally we can defer interpretation of these until
-                // `AttributeValue::value()`, but this is ambiguous for
-                // `DW_AT_data_member_location`.
-                if (unit.version() == 2 || unit.version() == 3)
-                    && spec.name() == constants::DW_AT_data_member_location
+                // Ensure we handle relocations here.
+                if unit.format() == Format::Dwarf64
+                    && (unit.version() == 2 || unit.version() == 3)
+                    && allow_section_offset(spec.name())
                 {
-                    let offset = input.read_u64().and_then(R::Offset::from_u64)?;
+                    let offset = input.read_offset(unit.format())?;
                     AttributeValue::SecOffset(offset)
                 } else {
-                    let data = input.read_u8_array()?;
-                    AttributeValue::Data8((data, input.endian()))
+                    let data = input.read_u64()?;
+                    AttributeValue::Data8(data)
                 }
             }
             constants::DW_FORM_udata => {
@@ -3500,6 +3523,7 @@ mod tests {
 
         let tests = [
             (
+                Format::Dwarf32,
                 2,
                 constants::DW_AT_data_member_location,
                 constants::DW_FORM_block,
@@ -3508,6 +3532,7 @@ mod tests {
                 AttributeValue::Exprloc(Expression(EndianSlice::new(block_data, endian))),
             ),
             (
+                Format::Dwarf32,
                 2,
                 constants::DW_AT_data_member_location,
                 constants::DW_FORM_data4,
@@ -3516,15 +3541,35 @@ mod tests {
                 AttributeValue::LocationListsRef(LocationListsOffset(0x0102_0304)),
             ),
             (
+                Format::Dwarf64,
+                2,
+                constants::DW_AT_data_member_location,
+                constants::DW_FORM_data4,
+                data4,
+                AttributeValue::Data4(0x0102_0304),
+                AttributeValue::Udata(0x0102_0304),
+            ),
+            (
+                Format::Dwarf32,
                 4,
                 constants::DW_AT_data_member_location,
                 constants::DW_FORM_data4,
                 data4,
-                AttributeValue::Data4(([4, 3, 2, 1], endian)),
+                AttributeValue::Data4(0x0102_0304),
                 AttributeValue::Udata(0x0102_0304),
+            ),
+            (
+                Format::Dwarf32,
+                2,
+                constants::DW_AT_data_member_location,
+                constants::DW_FORM_data8,
+                data8,
+                AttributeValue::Data8(0x0102_0304_0506_0708),
+                AttributeValue::Udata(0x0102_0304_0506_0708),
             ),
             #[cfg(target_pointer_width = "64")]
             (
+                Format::Dwarf64,
                 2,
                 constants::DW_AT_data_member_location,
                 constants::DW_FORM_data8,
@@ -3533,14 +3578,16 @@ mod tests {
                 AttributeValue::LocationListsRef(LocationListsOffset(0x0102_0304_0506_0708)),
             ),
             (
+                Format::Dwarf64,
                 4,
                 constants::DW_AT_data_member_location,
                 constants::DW_FORM_data8,
                 data8,
-                AttributeValue::Data8(([8, 7, 6, 5, 4, 3, 2, 1], endian)),
+                AttributeValue::Data8(0x0102_0304_0506_0708),
                 AttributeValue::Udata(0x0102_0304_0506_0708),
             ),
             (
+                Format::Dwarf32,
                 4,
                 constants::DW_AT_str_offsets_base,
                 constants::DW_FORM_sec_offset,
@@ -3549,6 +3596,7 @@ mod tests {
                 AttributeValue::DebugStrOffsetsBase(DebugStrOffsetsBase(0x0102_0304)),
             ),
             (
+                Format::Dwarf32,
                 4,
                 constants::DW_AT_addr_base,
                 constants::DW_FORM_sec_offset,
@@ -3557,6 +3605,7 @@ mod tests {
                 AttributeValue::DebugAddrBase(DebugAddrBase(0x0102_0304)),
             ),
             (
+                Format::Dwarf32,
                 4,
                 constants::DW_AT_rnglists_base,
                 constants::DW_FORM_sec_offset,
@@ -3565,6 +3614,7 @@ mod tests {
                 AttributeValue::DebugRngListsBase(DebugRngListsBase(0x0102_0304)),
             ),
             (
+                Format::Dwarf32,
                 4,
                 constants::DW_AT_loclists_base,
                 constants::DW_FORM_sec_offset,
@@ -3575,7 +3625,8 @@ mod tests {
         ];
 
         for test in tests.iter() {
-            let (version, name, form, mut input, expect_raw, expect_value) = *test;
+            let (format, version, name, form, mut input, expect_raw, expect_value) = *test;
+            unit.encoding.format = format;
             unit.encoding.version = version;
             let spec = vec![AttributeSpecification::new(name, form, None)];
             let attribute = parse_attribute(&mut input, &unit, &spec[..])
@@ -3588,42 +3639,33 @@ mod tests {
 
     #[test]
     fn test_attribute_udata_sdata_value() {
-        let endian = LittleEndian;
         #[allow(clippy::type_complexity)]
         let tests: &[(
             AttributeValue<EndianSlice<LittleEndian>>,
             Option<u64>,
             Option<i64>,
         )] = &[
-            (AttributeValue::Data1([1]), Some(1), Some(1)),
+            (AttributeValue::Data1(1), Some(1), Some(1)),
             (
-                AttributeValue::Data1([255]),
+                AttributeValue::Data1(std::u8::MAX),
                 Some(u64::from(std::u8::MAX)),
                 Some(-1),
             ),
-            (AttributeValue::Data2(([1, 0], endian)), Some(1), Some(1)),
+            (AttributeValue::Data2(1), Some(1), Some(1)),
             (
-                AttributeValue::Data2(([255; 2], endian)),
+                AttributeValue::Data2(std::u16::MAX),
                 Some(u64::from(std::u16::MAX)),
                 Some(-1),
             ),
+            (AttributeValue::Data4(1), Some(1), Some(1)),
             (
-                AttributeValue::Data4(([1, 0, 0, 0], endian)),
-                Some(1),
-                Some(1),
-            ),
-            (
-                AttributeValue::Data4(([255; 4], endian)),
+                AttributeValue::Data4(std::u32::MAX),
                 Some(u64::from(std::u32::MAX)),
                 Some(-1),
             ),
+            (AttributeValue::Data8(1), Some(1), Some(1)),
             (
-                AttributeValue::Data8(([1, 0, 0, 0, 0, 0, 0, 0], endian)),
-                Some(1),
-                Some(1),
-            ),
-            (
-                AttributeValue::Data8(([255; 8], endian)),
+                AttributeValue::Data8(std::u64::MAX),
                 Some(std::u64::MAX),
                 Some(-1),
             ),
@@ -3764,7 +3806,7 @@ mod tests {
         let buf = [0x03];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_data1;
-        let value = AttributeValue::Data1([0x03]);
+        let value = AttributeValue::Data1(0x03);
         test_parse_attribute(&buf, 1, &unit, form, value);
     }
 
@@ -3773,7 +3815,7 @@ mod tests {
         let buf = [0x02, 0x01, 0x0];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_data2;
-        let value = AttributeValue::Data2(([0x02, 0x01], LittleEndian));
+        let value = AttributeValue::Data2(0x0102);
         test_parse_attribute(&buf, 2, &unit, form, value);
     }
 
@@ -3782,7 +3824,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_data4;
-        let value = AttributeValue::Data4(([0x01, 0x02, 0x03, 0x04], LittleEndian));
+        let value = AttributeValue::Data4(0x0403_0201);
         test_parse_attribute(&buf, 4, &unit, form, value);
     }
 
@@ -3791,10 +3833,7 @@ mod tests {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x99, 0x99];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_data8;
-        let value = AttributeValue::Data8((
-            [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08],
-            LittleEndian,
-        ));
+        let value = AttributeValue::Data8(0x0807_0605_0403_0201);
         test_parse_attribute(&buf, 8, &unit, form, value);
     }
 
