@@ -369,7 +369,7 @@ impl Value {
             // It's unclear if these should implicity convert to a signed value.
             // For now, we don't support them.
             Value::U8(_) | Value::U16(_) | Value::U32(_) | Value::U64(_) => {
-                return Err(Error::UnsupportedTypeOperation)
+                return Err(Error::UnsupportedTypeOperation);
             }
         };
         Ok(value)
@@ -666,7 +666,7 @@ impl Value {
             // It's unclear if signed values should implicity convert to an unsigned value.
             // For now, we don't support them.
             Value::I8(_) | Value::I16(_) | Value::I32(_) | Value::I64(_) => {
-                return Err(Error::UnsupportedTypeOperation)
+                return Err(Error::UnsupportedTypeOperation);
             }
             _ => return Err(Error::IntegralTypeRequired),
         };
@@ -739,7 +739,7 @@ impl Value {
             // It's unclear if unsigned values should implicity convert to a signed value.
             // For now, we don't support them.
             Value::U8(_) | Value::U16(_) | Value::U32(_) | Value::U64(_) => {
-                return Err(Error::UnsupportedTypeOperation)
+                return Err(Error::UnsupportedTypeOperation);
             }
             _ => return Err(Error::IntegralTypeRequired),
         };
