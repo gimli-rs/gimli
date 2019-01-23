@@ -2,7 +2,7 @@ use indexmap::{IndexMap, IndexSet};
 use std::ops::{Deref, DerefMut};
 use vec::Vec;
 
-use common::{DebugLineOffset, Format};
+use common::{DebugLineOffset, Encoding, Format};
 use constants;
 use leb128;
 use write::{Address, Error, Result, Section, SectionId, Writer};
@@ -75,12 +75,7 @@ const OPCODE_BASE: u8 = 13;
 /// A line number program.
 #[derive(Debug, Clone)]
 pub struct LineProgram {
-    /// DWARF version, not necessarily section version.
-    version: u16,
-    /// The size in bytes of a target machine address.
-    address_size: u8,
-    // TODO: this should be automatic
-    format: Format,
+    encoding: Encoding,
     /// The minimum size in bytes of a target machine instruction.
     /// All instruction lengths must be a multiple of this size.
     minimum_instruction_length: u8,
@@ -136,9 +131,7 @@ impl LineProgram {
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::new_ret_no_self)]
     pub fn new(
-        version: u16,
-        address_size: u8,
-        format: Format,
+        encoding: Encoding,
         minimum_instruction_length: u8,
         maximum_operations_per_instruction: u8,
         line_base: i8,
@@ -152,9 +145,7 @@ impl LineProgram {
         assert!(line_base <= 0);
         assert!(line_base + line_range as i8 > 0);
         let mut program = LineProgram {
-            version,
-            address_size,
-            format,
+            encoding,
             minimum_instruction_length,
             maximum_operations_per_instruction,
             line_base,
@@ -162,7 +153,7 @@ impl LineProgram {
             directories: IndexSet::new(),
             files: IndexMap::new(),
             prev_row: LineRow::initial_state(),
-            row: LineRow::new(version),
+            row: LineRow::new(encoding.version),
             instructions: Vec::new(),
             in_sequence: false,
         };
@@ -173,7 +164,7 @@ impl LineProgram {
         // For DWARF version >= 5, file index 0 is comp_name.
         // For version <= 4, file index 0 is invalid. We potentially could
         // add comp_name as index 1, but don't in case it is unused.
-        if version >= 5 {
+        if encoding.version >= 5 {
             program.add_file(comp_file, dir, comp_file_info);
         }
         program
@@ -182,19 +173,19 @@ impl LineProgram {
     /// Return the DWARF version for this line program.
     #[inline]
     pub fn version(&self) -> u16 {
-        self.version
+        self.encoding.version
     }
 
     /// Return the address size in bytes for this line program.
     #[inline]
     pub fn address_size(&self) -> u8 {
-        self.address_size
+        self.encoding.address_size
     }
 
     /// Return the DWARF format for this line program.
     #[inline]
     pub fn format(&self) -> Format {
-        self.format
+        self.encoding.format
     }
 
     /// Return the id for the working directory of the compilation unit.
@@ -268,7 +259,7 @@ impl LineProgram {
             entry.or_insert(FileInfo::default());
             index
         };
-        FileId::new(index, self.version)
+        FileId::new(index, self.version())
     }
 
     /// Get a reference to a file entry.
@@ -278,7 +269,7 @@ impl LineProgram {
     /// Panics if `id` is invalid.
     pub fn get_file(&self, id: FileId) -> (&[u8], DirectoryId) {
         self.files
-            .get_index(id.index(self.version))
+            .get_index(id.index(self.version()))
             .map(|entry| ((entry.0).0.as_slice(), (entry.0).1))
             .unwrap()
     }
@@ -290,7 +281,7 @@ impl LineProgram {
     /// Panics if `id` is invalid.
     pub fn get_file_info(&self, id: FileId) -> &FileInfo {
         self.files
-            .get_index(id.index(self.version))
+            .get_index(id.index(self.version()))
             .map(|entry| entry.1)
             .unwrap()
     }
@@ -302,7 +293,7 @@ impl LineProgram {
     /// Panics if `id` is invalid.
     pub fn get_file_info_mut(&mut self, id: FileId) -> &mut FileInfo {
         self.files
-            .get_index_mut(id.index(self.version))
+            .get_index_mut(id.index(self.encoding.version))
             .map(|entry| entry.1)
             .unwrap()
     }
@@ -338,7 +329,7 @@ impl LineProgram {
         }
         self.instructions.push(LineInstruction::EndSequence);
         self.prev_row = LineRow::initial_state();
-        self.row = LineRow::new(self.version);
+        self.row = LineRow::new(self.version());
     }
 
     /// Return true if a sequence has begun.
@@ -477,20 +468,20 @@ impl LineProgram {
     pub fn write<W: Writer>(&self, w: &mut DebugLine<W>) -> Result<DebugLineOffset> {
         let offset = w.offset();
 
-        let length_offset = w.write_initial_length(self.format)?;
+        let length_offset = w.write_initial_length(self.format())?;
         let length_base = w.len();
 
-        if self.version < 2 || self.version > 4 {
-            return Err(Error::UnsupportedVersion(self.version));
+        if self.version() < 2 || self.version() > 4 {
+            return Err(Error::UnsupportedVersion(self.version()));
         }
-        w.write_u16(self.version)?;
+        w.write_u16(self.version())?;
 
         let header_length_offset = w.len();
-        w.write_word(0, self.format.word_size())?;
+        w.write_word(0, self.format().word_size())?;
         let header_length_base = w.len();
 
         w.write_u8(self.minimum_instruction_length)?;
-        if self.version >= 4 {
+        if self.version() >= 4 {
             w.write_u8(self.maximum_operations_per_instruction)?;
         } else if self.maximum_operations_per_instruction != 1 {
             return Err(Error::NeedVersion(4));
@@ -501,7 +492,7 @@ impl LineProgram {
         w.write_u8(OPCODE_BASE)?;
         w.write(&[0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1])?;
 
-        let dir_base = if self.version <= 4 { 1 } else { 0 };
+        let dir_base = if self.version() <= 4 { 1 } else { 0 };
         for dir in self.directories.iter().skip(dir_base) {
             w.write(dir)?;
             w.write_u8(0)?;
@@ -518,14 +509,18 @@ impl LineProgram {
         w.write_u8(0)?;
 
         let header_length = (w.len() - header_length_base) as u64;
-        w.write_word_at(header_length_offset, header_length, self.format.word_size())?;
+        w.write_word_at(
+            header_length_offset,
+            header_length,
+            self.format().word_size(),
+        )?;
 
         for instruction in &self.instructions {
-            instruction.write(w, self.address_size)?;
+            instruction.write(w, self.address_size())?;
         }
 
         let length = (w.len() - length_base) as u64;
-        w.write_initial_length_at(length_offset, length, self.format)?;
+        w.write_initial_length_at(length_offset, length, self.format())?;
 
         Ok(offset)
     }
@@ -794,9 +789,7 @@ mod convert {
                     return Err(ConvertError::InvalidLineBase);
                 }
                 let mut program = LineProgram::new(
-                    from_header.version(),
-                    from_header.address_size(),
-                    from_header.format(),
+                    from_header.encoding(),
                     from_header.minimum_instruction_length(),
                     from_header.maximum_operations_per_instruction(),
                     from_header.line_base(),
@@ -910,14 +903,24 @@ mod tests {
     fn test_line_program_table() {
         let mut programs = LineProgramTable::default();
 
+        let encoding = Encoding {
+            version: 4,
+            address_size: 8,
+            format: Format::Dwarf32,
+        };
         let dir1 = &b"dir1"[..];
         let file1 = &b"file1"[..];
-        let program1 = LineProgram::new(4, 8, Format::Dwarf32, 4, 2, -5, 14, dir1, file1, None);
+        let program1 = LineProgram::new(encoding, 4, 2, -5, 14, dir1, file1, None);
         let program_id1 = programs.add(program1);
 
+        let encoding = Encoding {
+            version: 2,
+            address_size: 4,
+            format: Format::Dwarf64,
+        };
         let dir2 = &b"dir2"[..];
         let file2 = &b"file2"[..];
-        let program2 = LineProgram::new(2, 4, Format::Dwarf64, 1, 1, -3, 12, dir2, file2, None);
+        let program2 = LineProgram::new(encoding, 1, 1, -3, 12, dir2, file2, None);
         let program_id2 = programs.add(program2);
         {
             let program2 = programs.get_mut(program_id2);
@@ -996,21 +999,16 @@ mod tests {
         for &version in &[2, 3, 4] {
             for &address_size in &[4, 8] {
                 for &format in &[Format::Dwarf32, Format::Dwarf64] {
+                    let encoding = Encoding {
+                        format,
+                        version,
+                        address_size,
+                    };
                     let line_base = -5;
                     let line_range = 14;
                     let neg_line_base = (-line_base) as u8;
-                    let mut program = LineProgram::new(
-                        version,
-                        address_size,
-                        format,
-                        1,
-                        1,
-                        line_base,
-                        line_range,
-                        dir1,
-                        file1,
-                        None,
-                    );
+                    let mut program =
+                        LineProgram::new(encoding, 1, 1, line_base, line_range, dir1, file1, None);
                     let dir_id = program.default_directory();
                     program.add_file(file1, dir_id, None);
                     let file_id = program.add_file(file2, dir_id, None);
@@ -1282,18 +1280,12 @@ mod tests {
         for &version in &[2, 3, 4] {
             for &address_size in &[4, 8] {
                 for &format in &[Format::Dwarf32, Format::Dwarf64] {
-                    let mut program = LineProgram::new(
+                    let encoding = Encoding {
+                        format,
                         version,
                         address_size,
-                        format,
-                        1,
-                        1,
-                        -5,
-                        14,
-                        dir1,
-                        file1,
-                        None,
-                    );
+                    };
+                    let mut program = LineProgram::new(encoding, 1, 1, -5, 14, dir1, file1, None);
                     let dir_id = program.default_directory();
                     let file_id = program.add_file(file1, dir_id, None);
 
@@ -1396,6 +1388,12 @@ mod tests {
     #[test]
     #[allow(clippy::useless_vec)]
     fn test_advance() {
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 4,
+            address_size: 8,
+        };
+
         let dir1 = &b"dir1"[..];
         let file1 = &b"file1"[..];
 
@@ -1407,9 +1405,7 @@ mod tests {
                 for line_base in vec![-5, 0] {
                     for line_range in vec![10, 20] {
                         let mut program = LineProgram::new(
-                            4,
-                            8,
-                            Format::Dwarf32,
+                            encoding,
                             minimum_instruction_length,
                             maximum_operations_per_instruction,
                             line_base,

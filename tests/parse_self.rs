@@ -3,7 +3,7 @@ extern crate gimli;
 use gimli::{
     AttributeValue, DebugAbbrev, DebugAddr, DebugAddrBase, DebugAranges, DebugInfo, DebugLine,
     DebugLoc, DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges, DebugRngLists, DebugStr,
-    EndianSlice, Expression, Format, LittleEndian, LocationLists, Operation, RangeLists, Reader,
+    Encoding, EndianSlice, Expression, LittleEndian, LocationLists, Operation, RangeLists, Reader,
 };
 use std::collections::hash_map::HashMap;
 use std::env;
@@ -29,14 +29,14 @@ fn read_section(section: &str) -> Vec<u8> {
     buf
 }
 
-fn parse_expression<R: Reader>(expr: Expression<R>, address_size: u8, format: Format) {
+fn parse_expression<R: Reader>(expr: Expression<R>, encoding: Encoding) {
     let mut pc = expr.0.clone();
     while !pc.is_empty() {
-        Operation::parse(&mut pc, &expr.0, address_size, format).expect("Should parse operation");
+        Operation::parse(&mut pc, &expr.0, encoding).expect("Should parse operation");
     }
 
     // Also attempt to evaluate some of it.
-    let mut eval = expr.evaluation(address_size, format);
+    let mut eval = expr.evaluation(encoding);
     eval.set_initial_value(0);
     eval.evaluate().expect("Should evaluate expression");
 }
@@ -59,7 +59,7 @@ fn impl_parse_self_debug_info<R: gimli::Reader>(
             let mut attrs = entry.attrs();
             while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
                 if let AttributeValue::Exprloc(expression) = attr.value() {
-                    parse_expression(expression, unit.address_size(), unit.format());
+                    parse_expression(expression, unit.encoding());
                 }
             }
         }
@@ -214,8 +214,7 @@ fn test_parse_self_debug_loc() {
                     let mut locs = loclists
                         .locations(
                             offset,
-                            unit.version(),
-                            unit.address_size(),
+                            unit.encoding(),
                             low_pc,
                             &debug_addr,
                             debug_addr_base,
@@ -223,7 +222,7 @@ fn test_parse_self_debug_loc() {
                         .expect("Should parse locations OK");
                     while let Some(loc) = locs.next().expect("Should parse next location") {
                         assert!(loc.range.begin <= loc.range.end);
-                        parse_expression(loc.data, unit.address_size(), unit.format());
+                        parse_expression(loc.data, unit.encoding());
                     }
                 }
             }
@@ -276,8 +275,7 @@ fn test_parse_self_debug_ranges() {
                     let mut ranges = rnglists
                         .ranges(
                             offset,
-                            unit.version(),
-                            unit.address_size(),
+                            unit.encoding(),
                             low_pc,
                             &debug_addr,
                             debug_addr_base,

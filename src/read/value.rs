@@ -906,7 +906,7 @@ impl Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{DebugAbbrevOffset, Format};
+    use common::{DebugAbbrevOffset, Encoding, Format};
     use endianity::LittleEndian;
     use read::{
         Abbreviation, AttributeSpecification, DebuggingInformationEntry, EndianSlice, UnitHeader,
@@ -916,12 +916,15 @@ mod tests {
     #[test]
     #[cfg_attr(rustfmt, rustfmt_skip)]
     fn valuetype_from_encoding() {
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 4,
+            address_size: 4,
+        };
         let unit = UnitHeader::new(
+            encoding,
             7,
-            4,
             DebugAbbrevOffset(0),
-            4,
-            Format::Dwarf32,
             EndianSlice::new(&[], LittleEndian),
         );
 

@@ -27,6 +27,23 @@ impl Format {
     }
 }
 
+/// Encoding parameters that are commonly used for multiple DWARF sections.
+///
+/// This is intended to be small enough to pass by value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Encoding {
+    /// Whether the DWARF format is 32- or 64-bit.
+    pub format: Format,
+
+    /// The DWARF version of the header.
+    pub version: u16,
+
+    /// The size of an address.
+    pub address_size: u8,
+    // The size of a segment selector.
+    // TODO: pub segment_size: u8,
+}
+
 /// A DWARF register number.
 ///
 /// The meaning of this value is ABI dependent. This is generally encoded as

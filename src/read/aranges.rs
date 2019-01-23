@@ -2,18 +2,16 @@ use fallible_iterator::FallibleIterator;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 
-use common::{DebugInfoOffset, Format};
+use common::{DebugInfoOffset, Encoding};
 use endianity::Endianity;
 use read::lookup::{DebugLookup, LookupEntryIter, LookupParser};
 use read::{parse_debug_info_offset, EndianSlice, Error, Reader, ReaderOffset, Result, Section};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ArangeHeader<T = usize> {
-    format: Format,
+    encoding: Encoding,
     length: T,
-    version: u16,
     offset: DebugInfoOffset<T>,
-    address_size: u8,
     segment_size: u8,
 }
 
@@ -116,14 +114,18 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
         };
         rest.skip(R::Offset::from_u8(padding))?;
 
+        let encoding = Encoding {
+            format,
+            version,
+            address_size,
+            // TODO: segment_size
+        };
         Ok((
             rest,
             ArangeHeader {
-                format,
+                encoding,
                 length,
-                version,
                 offset,
-                address_size,
                 segment_size,
             },
         ))
@@ -131,7 +133,7 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
 
     /// Parse a single arange. Return `None` for the null arange, `Some` for an actual arange.
     fn parse_entry(input: &mut R, header: &Self::Header) -> Result<Option<Self::Entry>> {
-        let address_size = header.address_size;
+        let address_size = header.encoding.address_size;
         let segment_size = header.segment_size; // May be zero!
 
         let tuple_length = R::Offset::from_u8(2 * address_size + segment_size);
@@ -311,11 +313,13 @@ mod tests {
         assert_eq!(
             header,
             ArangeHeader {
-                format: Format::Dwarf32,
+                encoding: Encoding {
+                    format: Format::Dwarf32,
+                    version: 2,
+                    address_size: 8,
+                },
                 length: 0x20,
-                version: 2,
                 offset: DebugInfoOffset(0x0403_0201),
-                address_size: 8,
                 segment_size: 4,
             }
         );
@@ -324,11 +328,13 @@ mod tests {
     #[test]
     fn test_parse_entry_ok() {
         let header = ArangeHeader {
-            format: Format::Dwarf32,
+            encoding: Encoding {
+                format: Format::Dwarf32,
+                version: 2,
+                address_size: 4,
+            },
             length: 0,
-            version: 2,
             offset: DebugInfoOffset(0),
-            address_size: 4,
             segment_size: 0,
         };
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
@@ -349,11 +355,13 @@ mod tests {
     #[test]
     fn test_parse_entry_segment() {
         let header = ArangeHeader {
-            format: Format::Dwarf32,
+            encoding: Encoding {
+                format: Format::Dwarf32,
+                version: 2,
+                address_size: 4,
+            },
             length: 0,
-            version: 2,
             offset: DebugInfoOffset(0),
-            address_size: 4,
             segment_size: 8,
         };
         #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -384,11 +392,13 @@ mod tests {
     #[test]
     fn test_parse_entry_zero() {
         let header = ArangeHeader {
-            format: Format::Dwarf32,
+            encoding: Encoding {
+                format: Format::Dwarf32,
+                version: 2,
+                address_size: 4,
+            },
             length: 0,
-            version: 2,
             offset: DebugInfoOffset(0),
-            address_size: 4,
             segment_size: 0,
         };
         #[cfg_attr(rustfmt, rustfmt_skip)]

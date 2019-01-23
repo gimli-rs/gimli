@@ -1,7 +1,7 @@
 use fallible_iterator::FallibleIterator;
 
 use common::{
-    DebugAddrBase, DebugAddrIndex, DebugLocListsBase, DebugLocListsIndex, Format,
+    DebugAddrBase, DebugAddrIndex, DebugLocListsBase, DebugLocListsIndex, Encoding, Format,
     LocationListsOffset,
 };
 use constants;
@@ -96,16 +96,18 @@ impl<R: Reader> From<R> for DebugLocLists<R> {
 
 #[derive(Debug, Clone, Copy)]
 struct LocListsHeader {
-    format: Format,
-    address_size: u8,
+    encoding: Encoding,
     offset_entry_count: u32,
 }
 
 impl Default for LocListsHeader {
     fn default() -> Self {
         LocListsHeader {
-            format: Format::Dwarf32,
-            address_size: 0,
+            encoding: Encoding {
+                format: Format::Dwarf32,
+                version: 5,
+                address_size: 0,
+            },
             offset_entry_count: 0,
         }
     }
@@ -116,7 +118,7 @@ impl LocListsHeader {
     #[inline]
     fn size(self) -> u8 {
         // initial_length + version + address_size + segment_selector_size + offset_entry_count
-        self.format.initial_length_size() + 2 + 1 + 1 + 4
+        self.encoding.format.initial_length_size() + 2 + 1 + 1 + 4
     }
 }
 
@@ -135,9 +137,14 @@ fn parse_header<R: Reader>(input: &mut R) -> Result<LocListsHeader> {
         return Err(Error::UnsupportedSegmentSize);
     }
     let offset_entry_count = input.read_u32()?;
-    Ok(LocListsHeader {
+
+    let encoding = Encoding {
         format,
+        version,
         address_size,
+    };
+    Ok(LocListsHeader {
+        encoding,
         offset_entry_count,
     })
 }
@@ -171,9 +178,14 @@ impl<R: Reader> LocationLists<R> {
         })
     }
 
+    /// Return the encoding parameters for the location lists in the `.debug_loclists` section.
+    pub fn encoding(&self) -> Encoding {
+        self.header.encoding
+    }
+
     /// Iterate over the `LocationListEntry`s starting at the given offset.
     ///
-    /// The `unit_version` and `address_size` must match the compilation unit that the
+    /// The `unit_encoding` must match the compilation unit that the
     /// offset was contained in.
     ///
     /// The `base_address` should be obtained from the `DW_AT_low_pc` attribute in the
@@ -185,14 +197,13 @@ impl<R: Reader> LocationLists<R> {
     pub fn locations(
         &self,
         offset: LocationListsOffset<R::Offset>,
-        unit_version: u16,
-        address_size: u8,
+        unit_encoding: Encoding,
         base_address: u64,
         debug_addr: &DebugAddr<R>,
         debug_addr_base: DebugAddrBase<R::Offset>,
     ) -> Result<LocListIter<R>> {
         Ok(LocListIter::new(
-            self.raw_locations(offset, unit_version, address_size)?,
+            self.raw_locations(offset, unit_encoding)?,
             base_address,
             debug_addr.clone(),
             debug_addr_base,
@@ -201,7 +212,7 @@ impl<R: Reader> LocationLists<R> {
 
     /// Iterate over the raw `LocationListEntry`s starting at the given offset.
     ///
-    /// The `unit_version` and `address_size` must match the compilation unit that the
+    /// The `unit_encoding` must match the compilation unit that the
     /// offset was contained in.
     ///
     /// This iterator does not perform any processing of the location entries,
@@ -212,24 +223,19 @@ impl<R: Reader> LocationLists<R> {
     pub fn raw_locations(
         &self,
         offset: LocationListsOffset<R::Offset>,
-        unit_version: u16,
-        address_size: u8,
+        unit_encoding: Encoding,
     ) -> Result<RawLocListIter<R>> {
-        if unit_version < 5 {
+        if unit_encoding.version < 5 {
             let mut input = self.debug_loc.section.clone();
             input.skip(offset.0)?;
-            Ok(RawLocListIter::new(input, unit_version, address_size))
+            Ok(RawLocListIter::new(input, unit_encoding))
         } else {
             if offset.0 < R::Offset::from_u8(self.header.size()) {
                 return Err(Error::OffsetOutOfBounds);
             }
             let mut input = self.debug_loclists.section.clone();
             input.skip(offset.0)?;
-            Ok(RawLocListIter::new(
-                input,
-                unit_version,
-                self.header.address_size,
-            ))
+            Ok(RawLocListIter::new(input, self.header.encoding))
         }
     }
 
@@ -244,13 +250,14 @@ impl<R: Reader> LocationLists<R> {
         base: DebugLocListsBase<R::Offset>,
         index: DebugLocListsIndex<R::Offset>,
     ) -> Result<LocationListsOffset<R::Offset>> {
+        let format = self.header.encoding.format;
         let input = &mut self.debug_loclists.section.clone();
         input.skip(base.0)?;
         input.skip(R::Offset::from_u64(
-            index.0.into_u64() * u64::from(self.header.format.word_size()),
+            index.0.into_u64() * u64::from(format.word_size()),
         )?)?;
         input
-            .read_offset(self.header.format)
+            .read_offset(format)
             .map(|x| LocationListsOffset(base.0 + x))
     }
 }
@@ -262,8 +269,7 @@ impl<R: Reader> LocationLists<R> {
 #[derive(Debug)]
 pub struct RawLocListIter<R: Reader> {
     input: R,
-    version: u16,
-    address_size: u8,
+    encoding: Encoding,
 }
 
 /// A raw entry in .debug_loclists.
@@ -338,12 +344,12 @@ fn parse_data<R: Reader>(input: &mut R) -> Result<Expression<R>> {
 
 impl<R: Reader> RawLocListEntry<R> {
     /// Parse a location list entry from `.debug_loclists`
-    fn parse(input: &mut R, version: u16, address_size: u8) -> Result<Option<Self>> {
-        if version < 5 {
-            let range = RawRange::parse(input, address_size)?;
+    fn parse(input: &mut R, encoding: Encoding) -> Result<Option<Self>> {
+        if encoding.version < 5 {
+            let range = RawRange::parse(input, encoding.address_size)?;
             return Ok(if range.is_end() {
                 None
-            } else if range.is_base_address(address_size) {
+            } else if range.is_base_address(encoding.address_size) {
                 Some(RawLocListEntry::BaseAddress { addr: range.end })
             } else {
                 let len = R::Offset::from_u16(input.read_u16()?);
@@ -379,15 +385,15 @@ impl<R: Reader> RawLocListEntry<R> {
                 data: parse_data(input)?,
             }),
             constants::DW_LLE_base_address => Some(RawLocListEntry::BaseAddress {
-                addr: input.read_address(address_size)?,
+                addr: input.read_address(encoding.address_size)?,
             }),
             constants::DW_LLE_start_end => Some(RawLocListEntry::StartEnd {
-                begin: input.read_address(address_size)?,
-                end: input.read_address(address_size)?,
+                begin: input.read_address(encoding.address_size)?,
+                end: input.read_address(encoding.address_size)?,
                 data: parse_data(input)?,
             }),
             constants::DW_LLE_start_length => Some(RawLocListEntry::StartLength {
-                begin: input.read_address(address_size)?,
+                begin: input.read_address(encoding.address_size)?,
                 length: input.read_uleb128()?,
                 data: parse_data(input)?,
             }),
@@ -400,12 +406,8 @@ impl<R: Reader> RawLocListEntry<R> {
 
 impl<R: Reader> RawLocListIter<R> {
     /// Construct a `RawLocListIter`.
-    pub fn new(input: R, version: u16, address_size: u8) -> RawLocListIter<R> {
-        RawLocListIter {
-            input,
-            version,
-            address_size,
-        }
+    pub fn new(input: R, encoding: Encoding) -> RawLocListIter<R> {
+        RawLocListIter { input, encoding }
     }
 
     /// Advance the iterator to the next location.
@@ -414,7 +416,7 @@ impl<R: Reader> RawLocListIter<R> {
             return Ok(None);
         }
 
-        match RawLocListEntry::parse(&mut self.input, self.version, self.address_size) {
+        match RawLocListEntry::parse(&mut self.input, self.encoding) {
             Ok(entry) => {
                 if entry.is_none() {
                     self.input.empty();
@@ -470,7 +472,7 @@ impl<R: Reader> LocListIter<R> {
     #[inline]
     fn get_address(&self, index: DebugAddrIndex<R::Offset>) -> Result<u64> {
         self.debug_addr
-            .get_address(self.raw.address_size, self.debug_addr_base, index)
+            .get_address(self.raw.encoding.address_size, self.debug_addr_base, index)
     }
 
     /// Advance the iterator to the next location.
@@ -513,7 +515,7 @@ impl<R: Reader> LocListIter<R> {
                 ),
                 RawLocListEntry::OffsetPair { begin, end, data } => {
                     let mut range = Range { begin, end };
-                    range.add_base_address(self.base_address, self.raw.address_size);
+                    range.add_base_address(self.base_address, self.raw.encoding.address_size);
                     (range, data)
                 }
                 RawLocListEntry::StartEnd { begin, end, data } => (Range { begin, end }, data),
@@ -630,8 +632,13 @@ mod tests {
         let debug_loclists = DebugLocLists::new(&buf, LittleEndian);
         let loclists = LocationLists::new(debug_loc, debug_loclists).unwrap();
         let offset = LocationListsOffset((&first - &start) as usize);
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 5,
+            address_size: 0,
+        };
         let mut locations = loclists
-            .locations(offset, 5, 0, 0x0100_0000, debug_addr, debug_addr_base)
+            .locations(offset, encoding, 0x0100_0000, debug_addr, debug_addr_base)
             .unwrap();
 
         // A normal location.
@@ -783,8 +790,7 @@ mod tests {
         let mut locations = loclists
             .locations(
                 LocationListsOffset(buf.len()),
-                5,
-                0,
+                encoding,
                 0x0100_0000,
                 debug_addr,
                 debug_addr_base,
@@ -855,8 +861,13 @@ mod tests {
         let debug_loclists = DebugLocLists::new(&buf, LittleEndian);
         let loclists = LocationLists::new(debug_loc, debug_loclists).unwrap();
         let offset = LocationListsOffset((&first - &start) as usize);
+        let encoding = Encoding {
+            format: Format::Dwarf64,
+            version: 5,
+            address_size: 0,
+        };
         let mut locations = loclists
-            .locations(offset, 5, 0, 0x0100_0000, debug_addr, debug_addr_base)
+            .locations(offset, encoding, 0x0100_0000, debug_addr, debug_addr_base)
             .unwrap();
 
         // A normal location.
@@ -1008,8 +1019,7 @@ mod tests {
         let mut locations = loclists
             .locations(
                 LocationListsOffset(buf.len()),
-                5,
-                0,
+                encoding,
                 0x0100_0000,
                 debug_addr,
                 debug_addr_base,
@@ -1051,11 +1061,15 @@ mod tests {
         let debug_loclists = DebugLocLists::new(&[], LittleEndian);
         let loclists = LocationLists::new(debug_loc, debug_loclists).unwrap();
         let offset = LocationListsOffset((&first - &start) as usize);
-        let version = 4;
         let debug_addr = &DebugAddr::from(EndianSlice::new(&[], LittleEndian));
         let debug_addr_base = DebugAddrBase(0);
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 4,
+            address_size: 4,
+        };
         let mut locations = loclists
-            .locations(offset, version, 4, 0x0100_0000, debug_addr, debug_addr_base)
+            .locations(offset, encoding, 0x0100_0000, debug_addr, debug_addr_base)
             .unwrap();
 
         // A normal location.
@@ -1135,8 +1149,7 @@ mod tests {
         let mut locations = loclists
             .locations(
                 LocationListsOffset(buf.len()),
-                version,
-                4,
+                encoding,
                 0x0100_0000,
                 debug_addr,
                 debug_addr_base,
@@ -1178,11 +1191,15 @@ mod tests {
         let debug_loclists = DebugLocLists::new(&[], LittleEndian);
         let loclists = LocationLists::new(debug_loc, debug_loclists).unwrap();
         let offset = LocationListsOffset((&first - &start) as usize);
-        let version = 4;
         let debug_addr = &DebugAddr::from(EndianSlice::new(&[], LittleEndian));
         let debug_addr_base = DebugAddrBase(0);
+        let encoding = Encoding {
+            format: Format::Dwarf64,
+            version: 4,
+            address_size: 8,
+        };
         let mut locations = loclists
-            .locations(offset, version, 8, 0x0100_0000, debug_addr, debug_addr_base)
+            .locations(offset, encoding, 0x0100_0000, debug_addr, debug_addr_base)
             .unwrap();
 
         // A normal location.
@@ -1262,8 +1279,7 @@ mod tests {
         let mut locations = loclists
             .locations(
                 LocationListsOffset(buf.len()),
-                version,
-                8,
+                encoding,
                 0x0100_0000,
                 debug_addr,
                 debug_addr_base,
@@ -1285,16 +1301,19 @@ mod tests {
         let debug_loc = DebugLoc::new(&buf, LittleEndian);
         let debug_loclists = DebugLocLists::new(&[], LittleEndian);
         let loclists = LocationLists::new(debug_loc, debug_loclists).unwrap();
-        let version = 4;
         let debug_addr = &DebugAddr::from(EndianSlice::new(&[], LittleEndian));
         let debug_addr_base = DebugAddrBase(0);
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 4,
+            address_size: 4,
+        };
 
         // An invalid location range.
         let mut locations = loclists
             .locations(
                 LocationListsOffset(0x0),
-                version,
-                4,
+                encoding,
                 0x0100_0000,
                 debug_addr,
                 debug_addr_base,
@@ -1306,8 +1325,7 @@ mod tests {
         let mut locations = loclists
             .locations(
                 LocationListsOffset(14),
-                version,
-                4,
+                encoding,
                 0x0100_0000,
                 debug_addr,
                 debug_addr_base,
@@ -1318,8 +1336,7 @@ mod tests {
         // An invalid offset.
         match loclists.locations(
             LocationListsOffset(buf.len() + 1),
-            version,
-            4,
+            encoding,
             0x0100_0000,
             debug_addr,
             debug_addr_base,

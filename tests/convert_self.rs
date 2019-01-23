@@ -98,15 +98,7 @@ fn test_convert_debug_info() {
         .write(
             &mut write_debug_ranges,
             &mut write_debug_rnglists,
-            dwarf.debug_info.units().next().unwrap().unwrap().format(),
-            dwarf.debug_info.units().next().unwrap().unwrap().version(),
-            dwarf
-                .debug_info
-                .units()
-                .next()
-                .unwrap()
-                .unwrap()
-                .address_size(),
+            dwarf.debug_info.units().next().unwrap().unwrap().encoding(),
         )
         .expect("Should write ranges");
 

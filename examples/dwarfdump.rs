@@ -893,9 +893,7 @@ where
                 buf,
                 unit.offset().0,
                 unit.entries(&abbrevs),
-                unit.address_size(),
-                unit.version(),
-                unit.format(),
+                unit.encoding(),
                 dwarf,
                 flags,
             );
@@ -957,9 +955,7 @@ fn dump_types<R: Reader, W: Write>(
             w,
             unit.offset().0,
             unit.entries(&abbrevs),
-            unit.address_size(),
-            unit.version(),
-            unit.format(),
+            unit.encoding(),
             dwarf,
             flags,
         );
@@ -976,9 +972,7 @@ fn dump_types<R: Reader, W: Write>(
 
 // TODO: most of this should be moved to the main library.
 struct Unit<R: Reader> {
-    format: gimli::Format,
-    address_size: u8,
-    version: u16,
+    encoding: gimli::Encoding,
     base_address: u64,
     line_program: Option<gimli::IncompleteLineProgram<R>>,
     comp_dir: Option<R>,
@@ -1001,16 +995,12 @@ fn dump_entries<R: Reader, W: Write>(
     w: &mut W,
     offset: R::Offset,
     mut entries: gimli::EntriesCursor<R>,
-    address_size: u8,
-    version: u16,
-    format: gimli::Format,
+    encoding: gimli::Encoding,
     dwarf: &gimli::Dwarf<R, R::Endian>,
     flags: &Flags,
 ) -> Result<()> {
     let mut unit = Unit {
-        format,
-        address_size,
-        version,
+        encoding,
         base_address: 0,
         line_program: None,
         comp_dir: None,
@@ -1067,7 +1057,7 @@ fn dump_entries<R: Reader, W: Write>(
                     .debug_line
                     .program(
                         offset,
-                        unit.address_size,
+                        unit.encoding.address_size,
                         unit.comp_dir.clone(),
                         unit.comp_name.clone(),
                     )
@@ -1218,9 +1208,10 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "<.debug_addr+0x{:08x}>", base.0)?;
         }
         gimli::AttributeValue::DebugAddrIndex(index) => {
-            let address = dwarf
-                .debug_addr
-                .get_address(unit.address_size, unit.addr_base, index)?;
+            let address =
+                dwarf
+                    .debug_addr
+                    .get_address(unit.encoding.address_size, unit.addr_base, index)?;
             writeln!(w, "0x{:08x}", address)?;
         }
         gimli::AttributeValue::UnitRef(gimli::UnitOffset(offset)) => {
@@ -1280,7 +1271,7 @@ fn dump_attr_value<R: Reader, W: Write>(
         }
         gimli::AttributeValue::DebugStrOffsetsIndex(index) => {
             let offset = dwarf.debug_str_offsets.get_str_offset(
-                unit.format,
+                unit.encoding.format,
                 unit.str_offsets_base,
                 index,
             )?;
@@ -1393,7 +1384,7 @@ fn dump_exprloc<R: Reader, W: Write>(
     while pc.len() != 0 {
         let mut op_pc = pc.clone();
         let dwop = gimli::DwOp(op_pc.read_u8()?);
-        match gimli::Operation::parse(&mut pc, &data.0, unit.address_size, unit.format) {
+        match gimli::Operation::parse(&mut pc, &data.0, unit.encoding) {
             Ok(op) => {
                 if space {
                     write!(w, " ")?;
@@ -1592,14 +1583,11 @@ fn dump_loc_list<R: Reader, W: Write>(
     unit: &Unit<R>,
     dwarf: &gimli::Dwarf<R, R::Endian>,
 ) -> Result<()> {
-    let raw_locations = dwarf
-        .locations
-        .raw_locations(offset, unit.version, unit.address_size)?;
+    let raw_locations = dwarf.locations.raw_locations(offset, unit.encoding)?;
     let raw_locations: Vec<_> = raw_locations.collect()?;
     let mut locations = dwarf.locations.locations(
         offset,
-        unit.version,
-        unit.address_size,
+        unit.encoding,
         unit.base_address,
         &dwarf.debug_addr,
         unit.addr_base,
@@ -1618,10 +1606,11 @@ fn dump_loc_list<R: Reader, W: Write>(
                 writeln!(w, "<new base address 0x{:08x}>", addr)?;
             }
             gimli::RawLocListEntry::BaseAddressx { addr } => {
-                let addr_val =
-                    dwarf
-                        .debug_addr
-                        .get_address(unit.address_size, unit.addr_base, addr)?;
+                let addr_val = dwarf.debug_addr.get_address(
+                    unit.encoding.address_size,
+                    unit.addr_base,
+                    addr,
+                )?;
                 writeln!(w, "<new base addressx [{}]0x{:08x}>", addr.0, addr_val)?;
             }
             gimli::RawLocListEntry::StartxEndx {
@@ -1629,14 +1618,16 @@ fn dump_loc_list<R: Reader, W: Write>(
                 end,
                 ref data,
             } => {
-                let begin_val =
-                    dwarf
-                        .debug_addr
-                        .get_address(unit.address_size, unit.addr_base, begin)?;
-                let end_val =
-                    dwarf
-                        .debug_addr
-                        .get_address(unit.address_size, unit.addr_base, end)?;
+                let begin_val = dwarf.debug_addr.get_address(
+                    unit.encoding.address_size,
+                    unit.addr_base,
+                    begin,
+                )?;
+                let end_val = dwarf.debug_addr.get_address(
+                    unit.encoding.address_size,
+                    unit.addr_base,
+                    end,
+                )?;
                 let location = locations.next()?.unwrap();
                 write!(
                     w,
@@ -1653,10 +1644,11 @@ fn dump_loc_list<R: Reader, W: Write>(
                 length,
                 ref data,
             } => {
-                let begin_val =
-                    dwarf
-                        .debug_addr
-                        .get_address(unit.address_size, unit.addr_base, begin)?;
+                let begin_val = dwarf.debug_addr.get_address(
+                    unit.encoding.address_size,
+                    unit.addr_base,
+                    begin,
+                )?;
                 let location = locations.next()?.unwrap();
                 write!(
                     w,
@@ -1732,14 +1724,11 @@ fn dump_range_list<R: Reader, W: Write>(
     unit: &Unit<R>,
     dwarf: &gimli::Dwarf<R, R::Endian>,
 ) -> Result<()> {
-    let raw_ranges = dwarf
-        .ranges
-        .raw_ranges(offset, unit.version, unit.address_size)?;
+    let raw_ranges = dwarf.ranges.raw_ranges(offset, unit.encoding)?;
     let raw_ranges: Vec<_> = raw_ranges.collect()?;
     let mut ranges = dwarf.ranges.ranges(
         offset,
-        unit.version,
-        unit.address_size,
+        unit.encoding,
         unit.base_address,
         &dwarf.debug_addr,
         unit.addr_base,
@@ -1748,7 +1737,7 @@ fn dump_range_list<R: Reader, W: Write>(
         w,
         "\t\tranges: {} at {} offset {} (0x{:08x})",
         raw_ranges.len(),
-        if unit.version < 5 {
+        if unit.encoding.version < 5 {
             ".debug_ranges"
         } else {
             ".debug_rnglists"
@@ -1763,21 +1752,24 @@ fn dump_range_list<R: Reader, W: Write>(
                 writeln!(w, "<new base address 0x{:08x}>", addr)?;
             }
             gimli::RawRngListEntry::BaseAddressx { addr } => {
-                let addr_val =
-                    dwarf
-                        .debug_addr
-                        .get_address(unit.address_size, unit.addr_base, addr)?;
+                let addr_val = dwarf.debug_addr.get_address(
+                    unit.encoding.address_size,
+                    unit.addr_base,
+                    addr,
+                )?;
                 writeln!(w, "<new base addressx [{}]0x{:08x}>", addr.0, addr_val)?;
             }
             gimli::RawRngListEntry::StartxEndx { begin, end } => {
-                let begin_val =
-                    dwarf
-                        .debug_addr
-                        .get_address(unit.address_size, unit.addr_base, begin)?;
-                let end_val =
-                    dwarf
-                        .debug_addr
-                        .get_address(unit.address_size, unit.addr_base, end)?;
+                let begin_val = dwarf.debug_addr.get_address(
+                    unit.encoding.address_size,
+                    unit.addr_base,
+                    begin,
+                )?;
+                let end_val = dwarf.debug_addr.get_address(
+                    unit.encoding.address_size,
+                    unit.addr_base,
+                    end,
+                )?;
                 let range = if begin_val == end_val {
                     gimli::Range {
                         begin: begin_val,
@@ -1795,10 +1787,11 @@ fn dump_range_list<R: Reader, W: Write>(
                 )?;
             }
             gimli::RawRngListEntry::StartxLength { begin, length } => {
-                let begin_val =
-                    dwarf
-                        .debug_addr
-                        .get_address(unit.address_size, unit.addr_base, begin)?;
+                let begin_val = dwarf.debug_addr.get_address(
+                    unit.encoding.address_size,
+                    unit.addr_base,
+                    begin,
+                )?;
                 let range = ranges.next()?.unwrap();
                 writeln!(
                     w,
