@@ -1579,6 +1579,81 @@ impl<R: Reader> Attribute<R> {
     }
 
     /// Try to convert this attribute's value to a u8.
+    #[inline]
+    pub fn u8_value(&self) -> Option<u8> {
+        self.value.u8_value()
+    }
+
+    /// Try to convert this attribute's value to a u16.
+    #[inline]
+    pub fn u16_value(&self) -> Option<u16> {
+        self.value.u16_value()
+    }
+
+    /// Try to convert this attribute's value to an unsigned integer.
+    #[inline]
+    pub fn udata_value(&self) -> Option<u64> {
+        self.value.udata_value()
+    }
+
+    /// Try to convert this attribute's value to a signed integer.
+    #[inline]
+    pub fn sdata_value(&self) -> Option<i64> {
+        self.value.sdata_value()
+    }
+
+    /// Try to convert this attribute's value to an offset.
+    #[inline]
+    pub fn offset_value(&self) -> Option<R::Offset> {
+        self.value.offset_value()
+    }
+
+    /// Try to convert this attribute's value to an expression or location buffer.
+    ///
+    /// Expressions and locations may be `DW_FORM_block*` or `DW_FORM_exprloc`.
+    /// The standard doesn't mention `DW_FORM_block*` as a possible form, but
+    /// it is encountered in practice.
+    #[inline]
+    fn exprloc_value(&self) -> Option<Expression<R>> {
+        self.value.exprloc_value()
+    }
+
+    /// Try to return this attribute's value as a string slice.
+    ///
+    /// If this attribute's value is either an inline `DW_FORM_string` string,
+    /// or a `DW_FORM_strp` reference to an offset into the `.debug_str`
+    /// section, return the attribute's string value as `Some`. Other attribute
+    /// value forms are returned as `None`.
+    ///
+    /// Warning: this function does not handle all possible string forms.
+    /// Use `Dwarf::attr_string` instead.
+    #[inline]
+    pub fn string_value(&self, debug_str: &DebugStr<R>) -> Option<R> {
+        self.value.string_value(debug_str)
+    }
+
+    /// Try to return this attribute's value as a string slice.
+    ///
+    /// If this attribute's value is either an inline `DW_FORM_string` string,
+    /// or a `DW_FORM_strp` reference to an offset into the `.debug_str`
+    /// section, or a `DW_FORM_strp_sup` reference to an offset into a supplementary
+    /// object file, return the attribute's string value as `Some`. Other attribute
+    /// value forms are returned as `None`.
+    ///
+    /// Warning: this function does not handle all possible string forms.
+    /// Use `Dwarf::attr_string` instead.
+    #[inline]
+    pub fn string_value_sup(
+        &self,
+        debug_str: &DebugStr<R>,
+        debug_str_sup: Option<&DebugStr<R>>,
+    ) -> Option<R> {
+        self.value.string_value_sup(debug_str, debug_str_sup)
+    }
+}
+
+impl<R: Reader> AttributeValue<R> {
+    /// Try to convert this attribute's value to a u8.
     pub fn u8_value(&self) -> Option<u8> {
         if let Some(value) = self.udata_value() {
             if value <= u64::from(u8::MAX) {
@@ -1600,7 +1675,7 @@ impl<R: Reader> Attribute<R> {
 
     /// Try to convert this attribute's value to an unsigned integer.
     pub fn udata_value(&self) -> Option<u64> {
-        Some(match self.value {
+        Some(match *self {
             AttributeValue::Data1(data) => u64::from(data),
             AttributeValue::Data2(data) => u64::from(data),
             AttributeValue::Data4(data) => u64::from(data),
@@ -1619,7 +1694,7 @@ impl<R: Reader> Attribute<R> {
 
     /// Try to convert this attribute's value to a signed integer.
     pub fn sdata_value(&self) -> Option<i64> {
-        Some(match self.value {
+        Some(match *self {
             AttributeValue::Data1(data) => i64::from(data as i8),
             AttributeValue::Data2(data) => i64::from(data as i16),
             AttributeValue::Data4(data) => i64::from(data as i32),
@@ -1640,7 +1715,7 @@ impl<R: Reader> Attribute<R> {
     pub fn offset_value(&self) -> Option<R::Offset> {
         // While offsets will be DW_FORM_data4/8 in DWARF version 2/3,
         // these have already been converted to `SecOffset.
-        if let AttributeValue::SecOffset(offset) = self.value {
+        if let AttributeValue::SecOffset(offset) = *self {
             Some(offset)
         } else {
             None
@@ -1653,7 +1728,7 @@ impl<R: Reader> Attribute<R> {
     /// The standard doesn't mention `DW_FORM_block*` as a possible form, but
     /// it is encountered in practice.
     fn exprloc_value(&self) -> Option<Expression<R>> {
-        Some(match self.value {
+        Some(match *self {
             AttributeValue::Block(ref data) => Expression(data.clone()),
             AttributeValue::Exprloc(ref data) => data.clone(),
             _ => return None,
@@ -1670,7 +1745,7 @@ impl<R: Reader> Attribute<R> {
     /// Warning: this function does not handle all possible string forms.
     /// Use `Dwarf::attr_string` instead.
     pub fn string_value(&self, debug_str: &DebugStr<R>) -> Option<R> {
-        match self.value {
+        match *self {
             AttributeValue::String(ref string) => Some(string.clone()),
             AttributeValue::DebugStrRef(offset) => debug_str.get_str(offset).ok(),
             _ => None,
@@ -1692,7 +1767,7 @@ impl<R: Reader> Attribute<R> {
         debug_str: &DebugStr<R>,
         debug_str_sup: Option<&DebugStr<R>>,
     ) -> Option<R> {
-        match self.value {
+        match *self {
             AttributeValue::String(ref string) => Some(string.clone()),
             AttributeValue::DebugStrRef(offset) => debug_str.get_str(offset).ok(),
             AttributeValue::DebugStrRefSup(offset) => {
