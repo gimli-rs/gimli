@@ -2,8 +2,8 @@ extern crate gimli;
 
 use gimli::{
     AttributeValue, DebugAbbrev, DebugAddr, DebugAddrBase, DebugAranges, DebugInfo, DebugLine,
-    DebugLoc, DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges, DebugRngLists, DebugStr,
-    Encoding, EndianSlice, Expression, LittleEndian, LocationLists, Operation, RangeLists, Reader,
+    DebugLoc, DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges, DebugRngLists, Encoding,
+    EndianSlice, Expression, LittleEndian, LocationLists, Operation, RangeLists, Reader,
 };
 use std::collections::hash_map::HashMap;
 use std::env;
@@ -103,9 +103,6 @@ fn test_parse_self_debug_line() {
     let debug_line = read_section("debug_line");
     let debug_line = DebugLine::new(&debug_line, LittleEndian);
 
-    let debug_str = read_section("debug_str");
-    let debug_str = DebugStr::new(&debug_str, LittleEndian);
-
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
         let abbrevs = unit
@@ -118,13 +115,11 @@ fn test_parse_self_debug_line() {
         let unit_entry = cursor.current().expect("Should have a root entry");
 
         let comp_dir = unit_entry
-            .attr(gimli::DW_AT_comp_dir)
-            .expect("Should parse comp_dir attribute")
-            .and_then(|attr| attr.string_value(&debug_str));
+            .attr_value(gimli::DW_AT_comp_dir)
+            .expect("Should parse comp_dir attribute");
         let comp_name = unit_entry
-            .attr(gimli::DW_AT_name)
-            .expect("Should parse name attribute")
-            .and_then(|attr| attr.string_value(&debug_str));
+            .attr_value(gimli::DW_AT_name)
+            .expect("Should parse name attribute");
 
         if let Some(AttributeValue::DebugLineRef(offset)) = unit_entry
             .attr_value(gimli::DW_AT_stmt_list)

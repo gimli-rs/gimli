@@ -1192,12 +1192,8 @@ mod convert {
             let mut rnglists_base = DebugRngListsBase(0);
             {
                 let from_root = from_root.entry();
-                let comp_dir = from_root
-                    .attr(constants::DW_AT_comp_dir)?
-                    .and_then(|attr| dwarf.attr_string(&attr));
-                let comp_file = from_root
-                    .attr(constants::DW_AT_name)?
-                    .and_then(|attr| dwarf.attr_string(&attr));
+                let comp_dir = from_root.attr_value(constants::DW_AT_comp_dir)?;
+                let comp_file = from_root.attr_value(constants::DW_AT_name)?;
                 if let Some(read::AttributeValue::DebugLineRef(offset)) =
                     from_root.attr_value(constants::DW_AT_stmt_list)?
                 {
@@ -1207,7 +1203,7 @@ mod convert {
                         comp_dir,
                         comp_file,
                     )?;
-                    let (program, files) = LineProgram::from(from_program, convert_address)?;
+                    let (program, files) = LineProgram::from(from_program, dwarf, convert_address)?;
                     line_program = Some((offset, line_programs.add(program)));
                     line_program_files = files;
                 }
@@ -1673,8 +1669,11 @@ mod tests {
                     otherwise => panic!("unexpected {:?}", otherwise),
                 };
                 assert_eq!(producer, b"root");
-                let read_producer = read_root.attr(constants::DW_AT_producer).unwrap().unwrap();
-                assert_eq!(dwarf.attr_string(&read_producer).unwrap().slice(), producer);
+                let read_producer = read_root
+                    .attr_value(constants::DW_AT_producer)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(dwarf.attr_string(read_producer).unwrap().slice(), producer);
             }
 
             let mut children = root.children().cloned();
@@ -1694,8 +1693,11 @@ mod tests {
                 };
                 let name = strings.get(name);
                 assert_eq!(name, b"child1");
-                let read_name = read_child.attr(constants::DW_AT_name).unwrap().unwrap();
-                assert_eq!(dwarf.attr_string(&read_name).unwrap().slice(), name);
+                let read_name = read_child
+                    .attr_value(constants::DW_AT_name)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(dwarf.attr_string(read_name).unwrap().slice(), name);
             }
 
             {
@@ -1713,8 +1715,11 @@ mod tests {
                 };
                 let name = strings.get(name);
                 assert_eq!(name, b"child2");
-                let read_name = read_child.attr(constants::DW_AT_name).unwrap().unwrap();
-                assert_eq!(dwarf.attr_string(&read_name).unwrap().slice(), name);
+                let read_name = read_child
+                    .attr_value(constants::DW_AT_name)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(dwarf.attr_string(read_name).unwrap().slice(), name);
             }
 
             assert!(read_entries.next_dfs().unwrap().is_none());
@@ -2435,12 +2440,19 @@ mod tests {
                         .program(
                             line_program_offset,
                             address_size,
-                            Some(read::EndianSlice::new(b"comp_dir", LittleEndian)),
-                            Some(read::EndianSlice::new(b"comp_name", LittleEndian)),
+                            Some(read::AttributeValue::String(read::EndianSlice::new(
+                                b"comp_dir",
+                                LittleEndian,
+                            ))),
+                            Some(read::AttributeValue::String(read::EndianSlice::new(
+                                b"comp_name",
+                                LittleEndian,
+                            ))),
                         )
                         .unwrap();
+                    let dwarf = read::Dwarf::default();
                     let (_, line_program_files) =
-                        LineProgram::from(read_line_program, &|address| {
+                        LineProgram::from(read_line_program, &dwarf, &|address| {
                             Some(Address::Absolute(address))
                         })
                         .unwrap();
@@ -2519,7 +2531,6 @@ mod tests {
                         };
                         assert_eq!(read_value, expect_value);
 
-                        let dwarf = read::Dwarf::default();
                         let mut context = convert::ConvertUnitContext {
                             dwarf: &dwarf,
                             line_strings: &mut line_strings,

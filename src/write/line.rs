@@ -503,8 +503,8 @@ impl LineProgram {
             w.write(file)?;
             w.write_u8(0)?;
             w.write_uleb128(dir.0 as u64)?;
-            w.write_uleb128(info.last_modification)?;
-            w.write_uleb128(info.length)?;
+            w.write_uleb128(info.timestamp)?;
+            w.write_uleb128(info.size)?;
         }
         w.write_u8(0)?;
 
@@ -733,9 +733,9 @@ pub use self::id::*;
 pub struct FileInfo {
     /// The implementation defined timestamp of the last modification of the file,
     /// or 0 if not available.
-    pub last_modification: u64,
+    pub timestamp: u64,
     /// The size of the file in bytes, or 0 if not available.
-    pub length: u64,
+    pub size: u64,
 }
 
 define_section!(
@@ -761,6 +761,7 @@ mod convert {
         /// Return the program and a mapping from file index to `FileId`.
         pub fn from<R: Reader<Offset = usize>>(
             mut from_program: read::IncompleteLineProgram<R, R::Offset>,
+            dwarf: &read::Dwarf<R, R::Endian>,
             convert_address: &Fn(u64) -> Option<Address>,
         ) -> ConvertResult<(LineProgram, Vec<FileId>)> {
             // Create mappings in case the source has duplicate files or directories.
@@ -773,16 +774,18 @@ mod convert {
                 let comp_dir = from_header
                     .directory(0)
                     .ok_or(ConvertError::MissingCompilationDirectory)?;
+                let comp_dir = dwarf.attr_string(comp_dir)?;
 
                 let comp_file = from_header
                     .file(0)
                     .ok_or(ConvertError::MissingCompilationFile)?;
+                let comp_path = dwarf.attr_string(comp_file.path_name())?;
                 if comp_file.directory_index() != 0 {
                     return Err(ConvertError::InvalidDirectoryIndex);
                 }
                 let comp_file_info = FileInfo {
-                    last_modification: comp_file.last_modification(),
-                    length: comp_file.length(),
+                    timestamp: comp_file.timestamp(),
+                    size: comp_file.size(),
                 };
 
                 if from_header.line_base() > 0 {
@@ -795,7 +798,7 @@ mod convert {
                     from_header.line_base(),
                     from_header.line_range(),
                     &*comp_dir.to_slice()?,
-                    &*comp_file.path_name().to_slice()?,
+                    &*comp_path.to_slice()?,
                     Some(comp_file_info),
                 );
 
@@ -808,24 +811,22 @@ mod convert {
                 }
 
                 for from_dir in from_header.include_directories() {
+                    let from_dir = dwarf.attr_string(from_dir.clone())?;
                     dirs.push(program.add_directory(&*from_dir.to_slice()?));
                 }
 
                 for from_file in from_header.file_names() {
+                    let from_path = dwarf.attr_string(from_file.path_name())?;
                     let from_dir = from_file.directory_index();
                     if from_dir >= dirs.len() as u64 {
                         return Err(ConvertError::InvalidDirectoryIndex);
                     }
                     let from_dir = dirs[from_dir as usize];
                     let from_info = Some(FileInfo {
-                        last_modification: from_file.last_modification(),
-                        length: from_file.length(),
+                        timestamp: from_file.timestamp(),
+                        size: from_file.size(),
                     });
-                    files.push(program.add_file(
-                        &*from_file.path_name().to_slice()?,
-                        from_dir,
-                        from_info,
-                    ));
+                    files.push(program.add_file(&*from_path.to_slice()?, from_dir, from_info));
                 }
 
                 program
@@ -933,14 +934,14 @@ mod tests {
 
             let file3 = &b"file3"[..];
             let file3_info = FileInfo {
-                last_modification: 1,
-                length: 2,
+                timestamp: 1,
+                size: 2,
             };
             let file3_id = program2.add_file(file3, dir3_id, Some(file3_info));
             assert_eq!((file3, dir3_id), program2.get_file(file3_id));
             assert_eq!(file3_info, *program2.get_file_info(file3_id));
 
-            program2.get_file_info_mut(file3_id).length = 3;
+            program2.get_file_info_mut(file3_id).size = 3;
             assert_ne!(file3_info, *program2.get_file_info(file3_id));
             assert_eq!(file3_id, program2.add_file(file3, dir3_id, None));
             assert_ne!(file3_info, *program2.get_file_info(file3_id));
@@ -962,26 +963,39 @@ mod tests {
             .program(
                 debug_line_offsets.get(program_id1),
                 8,
-                Some(read::EndianSlice::new(dir1, LittleEndian)),
-                Some(read::EndianSlice::new(file1, LittleEndian)),
+                Some(read::AttributeValue::String(read::EndianSlice::new(
+                    dir1,
+                    LittleEndian,
+                ))),
+                Some(read::AttributeValue::String(read::EndianSlice::new(
+                    file1,
+                    LittleEndian,
+                ))),
             )
             .unwrap();
         let read_program2 = read_debug_line
             .program(
                 debug_line_offsets.get(program_id2),
                 4,
-                Some(read::EndianSlice::new(dir2, LittleEndian)),
-                Some(read::EndianSlice::new(file2, LittleEndian)),
+                Some(read::AttributeValue::String(read::EndianSlice::new(
+                    dir2,
+                    LittleEndian,
+                ))),
+                Some(read::AttributeValue::String(read::EndianSlice::new(
+                    file2,
+                    LittleEndian,
+                ))),
             )
             .unwrap();
 
+        let dwarf = read::Dwarf::default();
         let convert_address = &|address| Some(Address::Absolute(address));
         for (program_id, read_program) in
             vec![(program_id1, read_program1), (program_id2, read_program2)]
         {
             let program = programs.get(program_id);
             let (convert_program, _convert_files) =
-                LineProgram::from(read_program, convert_address).unwrap();
+                LineProgram::from(read_program, &dwarf, convert_address).unwrap();
             assert_eq!(convert_program.version(), program.version());
             assert_eq!(convert_program.address_size(), program.address_size());
             assert_eq!(convert_program.format(), program.format());
@@ -1254,13 +1268,20 @@ mod tests {
                             .program(
                                 debug_line_offsets.get(program_id),
                                 address_size,
-                                Some(read::EndianSlice::new(dir1, LittleEndian)),
-                                Some(read::EndianSlice::new(file1, LittleEndian)),
+                                Some(read::AttributeValue::String(read::EndianSlice::new(
+                                    dir1,
+                                    LittleEndian,
+                                ))),
+                                Some(read::AttributeValue::String(read::EndianSlice::new(
+                                    file1,
+                                    LittleEndian,
+                                ))),
                             )
                             .unwrap();
 
+                        let dwarf = read::Dwarf::default();
                         let (convert_program, _convert_files) =
-                            LineProgram::from(read_program, convert_address).unwrap();
+                            LineProgram::from(read_program, &dwarf, convert_address).unwrap();
                         assert_eq!(
                             &convert_program.instructions[base_instructions.len()..],
                             &test.1[..]
@@ -1367,8 +1388,14 @@ mod tests {
                             .program(
                                 debug_line_offsets.get(program_id),
                                 address_size,
-                                Some(read::EndianSlice::new(dir1, LittleEndian)),
-                                Some(read::EndianSlice::new(file1, LittleEndian)),
+                                Some(read::AttributeValue::String(read::EndianSlice::new(
+                                    dir1,
+                                    LittleEndian,
+                                ))),
+                                Some(read::AttributeValue::String(read::EndianSlice::new(
+                                    file1,
+                                    LittleEndian,
+                                ))),
                             )
                             .unwrap();
                         let read_header = read_program.header();
@@ -1443,8 +1470,14 @@ mod tests {
                             .program(
                                 debug_line_offsets.get(program_id),
                                 8,
-                                Some(read::EndianSlice::new(dir1, LittleEndian)),
-                                Some(read::EndianSlice::new(file1, LittleEndian)),
+                                Some(read::AttributeValue::String(read::EndianSlice::new(
+                                    dir1,
+                                    LittleEndian,
+                                ))),
+                                Some(read::AttributeValue::String(read::EndianSlice::new(
+                                    file1,
+                                    LittleEndian,
+                                ))),
                             )
                             .unwrap();
 

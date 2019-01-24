@@ -876,7 +876,10 @@ where
 
     /// Find the first attribute in this entry which has the given name,
     /// and return its raw value. Returns `Ok(None)` if no attribute is found.
-    pub fn attr_value_raw(&self, name: constants::DwAt) -> Result<Option<AttributeValue<R>>> {
+    pub fn attr_value_raw(
+        &self,
+        name: constants::DwAt,
+    ) -> Result<Option<AttributeValue<R, R::Offset>>> {
         self.attr(name)
             .map(|attr| attr.map(|attr| attr.raw_value()))
     }
@@ -884,7 +887,10 @@ where
     /// Find the first attribute in this entry which has the given name,
     /// and return its normalized value.  Returns `Ok(None)` if no
     /// attribute is found.
-    pub fn attr_value(&self, name: constants::DwAt) -> Result<Option<AttributeValue<R>>> {
+    pub fn attr_value(
+        &self,
+        name: constants::DwAt,
+    ) -> Result<Option<AttributeValue<R, R::Offset>>> {
         self.attr(name).map(|attr| attr.map(|attr| attr.value()))
     }
 
@@ -947,7 +953,11 @@ where
 // for their data.  This gives better code generation in `parse_attribute`.
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AttributeValue<R: Reader> {
+pub enum AttributeValue<R, Offset = usize>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
     /// "Refers to some location in the address space of the described program."
     Addr(u64),
 
@@ -1006,65 +1016,65 @@ pub enum AttributeValue<R: Reader> {
 
     /// An offset into another section. Which section this is an offset into
     /// depends on context.
-    SecOffset(R::Offset),
+    SecOffset(Offset),
 
     /// An offset to a set of addresses in the `.debug_addr` section.
-    DebugAddrBase(DebugAddrBase<R::Offset>),
+    DebugAddrBase(DebugAddrBase<Offset>),
 
     /// An index into a set of addresses in the `.debug_addr` section.
-    DebugAddrIndex(DebugAddrIndex<R::Offset>),
+    DebugAddrIndex(DebugAddrIndex<Offset>),
 
     /// An offset into the current compilation unit.
-    UnitRef(UnitOffset<R::Offset>),
+    UnitRef(UnitOffset<Offset>),
 
     /// An offset into the current `.debug_info` section, but possibly a
     /// different compilation unit from the current one.
-    DebugInfoRef(DebugInfoOffset<R::Offset>),
+    DebugInfoRef(DebugInfoOffset<Offset>),
 
     /// An offset into the `.debug_info` section of the supplementary object file.
-    DebugInfoRefSup(DebugInfoOffset<R::Offset>),
+    DebugInfoRefSup(DebugInfoOffset<Offset>),
 
     /// An offset into the `.debug_line` section.
-    DebugLineRef(DebugLineOffset<R::Offset>),
+    DebugLineRef(DebugLineOffset<Offset>),
 
     /// An offset into either the `.debug_loc` section or the `.debug_loclists` section.
-    LocationListsRef(LocationListsOffset<R::Offset>),
+    LocationListsRef(LocationListsOffset<Offset>),
 
     /// An offset to a set of offsets in the `.debug_loclists` section.
-    DebugLocListsBase(DebugLocListsBase<R::Offset>),
+    DebugLocListsBase(DebugLocListsBase<Offset>),
 
     /// An index into a set of offsets in the `.debug_loclists` section.
-    DebugLocListsIndex(DebugLocListsIndex<R::Offset>),
+    DebugLocListsIndex(DebugLocListsIndex<Offset>),
 
     /// An offset into the `.debug_macinfo` section.
-    DebugMacinfoRef(DebugMacinfoOffset<R::Offset>),
+    DebugMacinfoRef(DebugMacinfoOffset<Offset>),
 
     /// An offset into the `.debug_ranges` section.
-    RangeListsRef(RangeListsOffset<R::Offset>),
+    RangeListsRef(RangeListsOffset<Offset>),
 
     /// An offset to a set of offsets in the `.debug_rnglists` section.
-    DebugRngListsBase(DebugRngListsBase<R::Offset>),
+    DebugRngListsBase(DebugRngListsBase<Offset>),
 
     /// An index into a set of offsets in the `.debug_rnglists` section.
-    DebugRngListsIndex(DebugRngListsIndex<R::Offset>),
+    DebugRngListsIndex(DebugRngListsIndex<Offset>),
 
     /// A type signature.
     DebugTypesRef(DebugTypeSignature),
 
     /// An offset into the `.debug_str` section.
-    DebugStrRef(DebugStrOffset<R::Offset>),
+    DebugStrRef(DebugStrOffset<Offset>),
 
     /// An offset into the `.debug_str` section of the supplementary object file.
-    DebugStrRefSup(DebugStrOffset<R::Offset>),
+    DebugStrRefSup(DebugStrOffset<Offset>),
 
     /// An offset to a set of entries in the `.debug_str_offsets` section.
-    DebugStrOffsetsBase(DebugStrOffsetsBase<R::Offset>),
+    DebugStrOffsetsBase(DebugStrOffsetsBase<Offset>),
 
     /// An index into a set of entries in the `.debug_str_offsets` section.
-    DebugStrOffsetsIndex(DebugStrOffsetsIndex<R::Offset>),
+    DebugStrOffsetsIndex(DebugStrOffsetsIndex<Offset>),
 
     /// An offset into the `.debug_line_str` section.
-    DebugLineStrRef(DebugLineStrOffset<R::Offset>),
+    DebugLineStrRef(DebugLineStrOffset<Offset>),
 
     /// A slice of bytes representing a string. Does not include a final null byte.
     /// Not guaranteed to be UTF-8 or anything like that.
@@ -1116,7 +1126,7 @@ pub enum AttributeValue<R: Reader> {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Attribute<R: Reader> {
     name: constants::DwAt,
-    value: AttributeValue<R>,
+    value: AttributeValue<R, R::Offset>,
 }
 
 impl<R: Reader> Attribute<R> {
@@ -1126,7 +1136,7 @@ impl<R: Reader> Attribute<R> {
     }
 
     /// Get this attribute's raw value.
-    pub fn raw_value(&self) -> AttributeValue<R> {
+    pub fn raw_value(&self) -> AttributeValue<R, R::Offset> {
         self.value.clone()
     }
 
@@ -1140,7 +1150,7 @@ impl<R: Reader> Attribute<R> {
     /// See "Figure 20. Attribute encodings" and "Figure 21. Attribute form encodings".
     #[allow(clippy::cyclomatic_complexity)]
     #[allow(clippy::match_same_arms)]
-    pub fn value(&self) -> AttributeValue<R> {
+    pub fn value(&self) -> AttributeValue<R, R::Offset> {
         // Figure 20 shows the possible attribute classes for each name.
         // Figure 21 shows the possible attribute classes for each form.
         // For each attribute name, we need to match on the form, and
@@ -1652,7 +1662,11 @@ impl<R: Reader> Attribute<R> {
     }
 }
 
-impl<R: Reader> AttributeValue<R> {
+impl<R, Offset> AttributeValue<R, Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
     /// Try to convert this attribute's value to a u8.
     pub fn u8_value(&self) -> Option<u8> {
         if let Some(value) = self.udata_value() {
@@ -1889,6 +1903,10 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
                     let data = input.read_u64()?;
                     AttributeValue::Data8(data)
                 }
+            }
+            constants::DW_FORM_data16 => {
+                let block = input.split(R::Offset::from_u8(16))?;
+                AttributeValue::Block(block)
             }
             constants::DW_FORM_udata => {
                 let data = input.read_uleb128()?;

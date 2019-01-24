@@ -213,6 +213,10 @@ pub enum Error {
     MissingUnitDie,
     /// A DIE attribute used an unsupported form.
     UnsupportedAttributeForm,
+    /// Missing DW_LNCT_path in file entry format.
+    MissingFileEntryFormatPath,
+    /// Expected an attribute value to be a string form.
+    ExpectedStringAttributeValue,
 }
 
 impl fmt::Display for Error {
@@ -349,6 +353,10 @@ impl Error {
                 "A compilation unit or type unit is missing its top level DIE."
             }
             Error::UnsupportedAttributeForm => "A DIE attribute used an unsupported form.",
+            Error::MissingFileEntryFormatPath => "Missing DW_LNCT_path in file entry format.",
+            Error::ExpectedStringAttributeValue => {
+                "Expected an attribute value to be a string form."
+            }
         }
     }
 }
