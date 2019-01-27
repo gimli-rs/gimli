@@ -79,13 +79,7 @@ fn test_convert_debug_info() {
     assert_eq!(strings.count(), 3921);
 
     // Write to new sections
-    let mut write_debug_line = write::DebugLine::from(EndianVec::new(LittleEndian));
-    let debug_line_offsets = line_programs
-        .write(&mut write_debug_line)
-        .expect("Should write line programs");
-    let debug_line_data = write_debug_line.slice();
-    assert_eq!(debug_line_offsets.count(), 23);
-    assert_eq!(debug_line_data.len(), 105_797);
+    let debug_line_str_offsets = write::DebugLineStrOffsets::default();
 
     let mut write_debug_str = write::DebugStr::from(EndianVec::new(LittleEndian));
     let debug_str_offsets = strings
@@ -94,6 +88,18 @@ fn test_convert_debug_info() {
     let debug_str_data = write_debug_str.slice();
     assert_eq!(debug_str_offsets.count(), 3921);
     assert_eq!(debug_str_data.len(), 144_731);
+
+    let mut write_debug_line = write::DebugLine::from(EndianVec::new(LittleEndian));
+    let debug_line_offsets = line_programs
+        .write(
+            &mut write_debug_line,
+            &debug_line_str_offsets,
+            &debug_str_offsets,
+        )
+        .expect("Should write line programs");
+    let debug_line_data = write_debug_line.slice();
+    assert_eq!(debug_line_offsets.count(), 23);
+    assert_eq!(debug_line_data.len(), 105_797);
 
     let mut write_debug_ranges = write::DebugRanges::from(EndianVec::new(LittleEndian));
     let mut write_debug_rnglists = write::DebugRngLists::from(EndianVec::new(LittleEndian));
@@ -107,7 +113,6 @@ fn test_convert_debug_info() {
 
     let mut write_debug_abbrev = write::DebugAbbrev::from(EndianVec::new(LittleEndian));
     let mut write_debug_info = write::DebugInfo::from(EndianVec::new(LittleEndian));
-    let debug_line_str_offsets = write::DebugLineStrOffsets::default();
     units
         .write(
             &mut write_debug_abbrev,

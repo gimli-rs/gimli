@@ -1203,7 +1203,13 @@ mod convert {
                         comp_dir,
                         comp_file,
                     )?;
-                    let (program, files) = LineProgram::from(from_program, dwarf, convert_address)?;
+                    let (program, files) = LineProgram::from(
+                        from_program,
+                        dwarf,
+                        line_strings,
+                        strings,
+                        convert_address,
+                    )?;
                     line_program = Some((offset, line_programs.add(program)));
                     line_program_files = files;
                 }
@@ -1498,7 +1504,7 @@ mod tests {
     use std::mem;
     use write::{
         DebugLine, DebugLineStr, DebugRanges, DebugRngLists, DebugStr, EndianVec, LineProgramTable,
-        LineStringTable, Range, RangeListOffsets, RangeListTable, StringTable,
+        LineString, LineStringTable, Range, RangeListOffsets, RangeListTable, StringTable,
     };
     use LittleEndian;
 
@@ -2421,18 +2427,32 @@ mod tests {
                     // Create a line program table with two programs.
                     // We'll test with a reference to the second program.
                     let mut line_programs = LineProgramTable::default();
-                    let mut line_program =
-                        LineProgram::new(encoding, 1, 1, -5, 14, b"comp_dir", b"comp_name", None);
+                    let mut line_program = LineProgram::new(
+                        encoding,
+                        1,
+                        1,
+                        -5,
+                        14,
+                        LineString::String(b"comp_dir".to_vec()),
+                        LineString::String(b"comp_name".to_vec()),
+                        None,
+                    );
                     line_programs.add(line_program.clone());
                     let dir = line_program.default_directory();
-                    let file1 = line_program.add_file(b"file1", dir, None);
-                    let file2 = line_program.add_file(b"file2", dir, None);
+                    let file1 =
+                        line_program.add_file(LineString::String(b"file1".to_vec()), dir, None);
+                    let file2 =
+                        line_program.add_file(LineString::String(b"file2".to_vec()), dir, None);
                     let line_program_id = line_programs.add(line_program);
 
                     // Write, read, and convert the line programs, so that we have the info
                     // required to convert the attributes.
+                    let line_strings = DebugLineStrOffsets::default();
+                    let strings = DebugStrOffsets::default();
                     let mut debug_line = DebugLine::from(EndianVec::new(LittleEndian));
-                    let debug_line_offsets = line_programs.write(&mut debug_line).unwrap();
+                    let debug_line_offsets = line_programs
+                        .write(&mut debug_line, &line_strings, &strings)
+                        .unwrap();
                     let line_program_offset = debug_line_offsets.get(line_program_id);
                     let read_debug_line = read::DebugLine::new(debug_line.slice(), LittleEndian);
                     let read_line_program = read_debug_line
@@ -2450,11 +2470,16 @@ mod tests {
                         )
                         .unwrap();
                     let dwarf = read::Dwarf::default();
-                    let (_, line_program_files) =
-                        LineProgram::from(read_line_program, &dwarf, &|address| {
-                            Some(Address::Absolute(address))
-                        })
-                        .unwrap();
+                    let mut convert_line_strings = LineStringTable::default();
+                    let mut convert_strings = StringTable::default();
+                    let (_, line_program_files) = LineProgram::from(
+                        read_line_program,
+                        &dwarf,
+                        &mut convert_line_strings,
+                        &mut convert_strings,
+                        &|address| Some(Address::Absolute(address)),
+                    )
+                    .unwrap();
 
                     // Fake the unit.
                     let mut units = UnitTable::default();
