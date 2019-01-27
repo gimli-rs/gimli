@@ -2409,8 +2409,7 @@ mod tests {
 
     #[test]
     fn test_line_ref() {
-        // TODO: version 5
-        for &version in &[2, 3, 4] {
+        for &version in &[2, 3, 4, 5] {
             for &address_size in &[4, 8] {
                 for &format in &[Format::Dwarf32, Format::Dwarf64] {
                     let encoding = Encoding {

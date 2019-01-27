@@ -1185,6 +1185,30 @@ where
         &self.file_name_entry_format[..]
     }
 
+    /// Return true if the file entries may have valid timestamps.
+    ///
+    /// Only returns false if we definitely know that all timestamp fields
+    /// are invalid.
+    pub fn file_has_timestamp(&self) -> bool {
+        self.encoding.version <= 4
+            || self
+                .file_name_entry_format
+                .iter()
+                .any(|x| x.content_type == constants::DW_LNCT_timestamp)
+    }
+
+    /// Return true if the file entries may have valid sizes.
+    ///
+    /// Only returns false if we definitely know that all size fields
+    /// are invalid.
+    pub fn file_has_size(&self) -> bool {
+        self.encoding.version <= 4
+            || self
+                .file_name_entry_format
+                .iter()
+                .any(|x| x.content_type == constants::DW_LNCT_size)
+    }
+
     /// Return true if the file name entry format contains an MD5 field.
     pub fn file_has_md5(&self) -> bool {
         self.file_name_entry_format

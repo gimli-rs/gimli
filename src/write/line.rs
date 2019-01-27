@@ -106,6 +106,26 @@ pub struct LineProgram {
     /// of the compilation unit.
     files: IndexMap<(Vec<u8>, DirectoryId), FileInfo>,
 
+    /// True if the file entries may have valid timestamps.
+    ///
+    /// Entries may still have a timestamp of 0 even if this is set.
+    /// For version <= 4, this is ignored.
+    /// For version 5, this controls whether to emit `DW_LNCT_timestamp`.
+    pub file_has_timestamp: bool,
+
+    /// True if the file entries may have valid sizes.
+    ///
+    /// Entries may still have a size of 0 even if this is set.
+    /// For version <= 4, this is ignored.
+    /// For version 5, this controls whether to emit `DW_LNCT_size`.
+    pub file_has_size: bool,
+
+    /// True if the file entries have valid MD5 checksums.
+    ///
+    /// For version <= 4, this is ignored.
+    /// For version 5, this controls whether to emit `DW_LNCT_MD5`.
+    pub file_has_md5: bool,
+
     prev_row: LineRow,
     row: LineRow,
     // TODO: this probably should be either rows or sequences instead
@@ -156,6 +176,9 @@ impl LineProgram {
             row: LineRow::new(encoding.version),
             instructions: Vec::new(),
             in_sequence: false,
+            file_has_timestamp: false,
+            file_has_size: false,
+            file_has_md5: false,
         };
         // For all DWARF versions, directory index 0 is comp_dir.
         // For version <= 4, the entry is implicit. We still add
@@ -471,10 +494,16 @@ impl LineProgram {
         let length_offset = w.write_initial_length(self.format())?;
         let length_base = w.len();
 
-        if self.version() < 2 || self.version() > 4 {
+        if self.version() < 2 || self.version() > 5 {
             return Err(Error::UnsupportedVersion(self.version()));
         }
         w.write_u16(self.version())?;
+
+        if self.version() >= 5 {
+            w.write_u8(self.address_size())?;
+            // Segment selector size.
+            w.write_u8(0)?;
+        }
 
         let header_length_offset = w.len();
         w.write_word(0, self.format().word_size())?;
@@ -492,21 +521,77 @@ impl LineProgram {
         w.write_u8(OPCODE_BASE)?;
         w.write(&[0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1])?;
 
-        let dir_base = if self.version() <= 4 { 1 } else { 0 };
-        for dir in self.directories.iter().skip(dir_base) {
-            w.write(dir)?;
+        if self.version() <= 4 {
+            // The first directory is stored as DW_AT_comp_dir.
+            for dir in self.directories.iter().skip(1) {
+                w.write(dir)?;
+                w.write_u8(0)?;
+            }
             w.write_u8(0)?;
-        }
-        w.write_u8(0)?;
 
-        for ((file, dir), info) in self.files.iter() {
-            w.write(file)?;
+            for ((file, dir), info) in self.files.iter() {
+                w.write(file)?;
+                w.write_u8(0)?;
+                w.write_uleb128(dir.0 as u64)?;
+                w.write_uleb128(info.timestamp)?;
+                w.write_uleb128(info.size)?;
+            }
             w.write_u8(0)?;
-            w.write_uleb128(dir.0 as u64)?;
-            w.write_uleb128(info.timestamp)?;
-            w.write_uleb128(info.size)?;
+        } else {
+            // Directory entry formats (only ever 1).
+            w.write_u8(1)?;
+            w.write_uleb128(u64::from(constants::DW_LNCT_path.0))?;
+            // TODO: support other forms
+            w.write_uleb128(u64::from(constants::DW_FORM_string.0))?;
+
+            // Directory entries.
+            w.write_uleb128(self.directories.len() as u64)?;
+            for dir in self.directories.iter() {
+                w.write(dir)?;
+                w.write_u8(0)?;
+            }
+
+            // File name entry formats.
+            let count = 2
+                + if self.file_has_timestamp { 1 } else { 0 }
+                + if self.file_has_size { 1 } else { 0 }
+                + if self.file_has_md5 { 1 } else { 0 };
+            w.write_u8(count)?;
+            w.write_uleb128(u64::from(constants::DW_LNCT_path.0))?;
+            // TODO: support other forms
+            w.write_uleb128(u64::from(constants::DW_FORM_string.0))?;
+            w.write_uleb128(u64::from(constants::DW_LNCT_directory_index.0))?;
+            w.write_uleb128(u64::from(constants::DW_FORM_udata.0))?;
+            if self.file_has_timestamp {
+                w.write_uleb128(u64::from(constants::DW_LNCT_timestamp.0))?;
+                w.write_uleb128(u64::from(constants::DW_FORM_udata.0))?;
+            }
+            if self.file_has_size {
+                w.write_uleb128(u64::from(constants::DW_LNCT_size.0))?;
+                w.write_uleb128(u64::from(constants::DW_FORM_udata.0))?;
+            }
+            if self.file_has_md5 {
+                w.write_uleb128(u64::from(constants::DW_LNCT_MD5.0))?;
+                w.write_uleb128(u64::from(constants::DW_FORM_data16.0))?;
+            }
+
+            // File name entries.
+            w.write_uleb128(self.files.len() as u64)?;
+            for ((file, dir), info) in self.files.iter() {
+                w.write(file)?;
+                w.write_u8(0)?;
+                w.write_uleb128(dir.0 as u64)?;
+                if self.file_has_timestamp {
+                    w.write_uleb128(info.timestamp)?;
+                }
+                if self.file_has_size {
+                    w.write_uleb128(info.size)?;
+                }
+                if self.file_has_md5 {
+                    w.write(&info.md5)?;
+                }
+            }
         }
-        w.write_u8(0)?;
 
         let header_length = (w.len() - header_length_base) as u64;
         w.write_word_at(
@@ -734,8 +819,14 @@ pub struct FileInfo {
     /// The implementation defined timestamp of the last modification of the file,
     /// or 0 if not available.
     pub timestamp: u64,
+
     /// The size of the file in bytes, or 0 if not available.
     pub size: u64,
+
+    /// A 16-byte MD5 digest of the file contents.
+    ///
+    /// Only used if version >= 5 and `LineProgram::file_has_md5` is `true`.
+    pub md5: [u8; 16],
 }
 
 define_section!(
@@ -786,6 +877,7 @@ mod convert {
                 let comp_file_info = FileInfo {
                     timestamp: comp_file.timestamp(),
                     size: comp_file.size(),
+                    md5: *comp_file.md5(),
                 };
 
                 if from_header.line_base() > 0 {
@@ -815,6 +907,9 @@ mod convert {
                     dirs.push(program.add_directory(&*from_dir.to_slice()?));
                 }
 
+                program.file_has_timestamp = from_header.file_has_timestamp();
+                program.file_has_size = from_header.file_has_size();
+                program.file_has_md5 = from_header.file_has_md5();
                 for from_file in from_header.file_names() {
                     let from_path = dwarf.attr_string(from_file.path_name())?;
                     let from_dir = from_file.directory_index();
@@ -825,6 +920,7 @@ mod convert {
                     let from_info = Some(FileInfo {
                         timestamp: from_file.timestamp(),
                         size: from_file.size(),
+                        md5: *from_file.md5(),
                     });
                     files.push(program.add_file(&*from_path.to_slice()?, from_dir, from_info));
                 }
@@ -902,103 +998,108 @@ mod tests {
 
     #[test]
     fn test_line_program_table() {
-        let mut programs = LineProgramTable::default();
-
-        let encoding = Encoding {
-            version: 4,
-            address_size: 8,
-            format: Format::Dwarf32,
-        };
         let dir1 = &b"dir1"[..];
         let file1 = &b"file1"[..];
-        let program1 = LineProgram::new(encoding, 4, 2, -5, 14, dir1, file1, None);
-        let program_id1 = programs.add(program1);
-
-        let encoding = Encoding {
-            version: 2,
-            address_size: 4,
-            format: Format::Dwarf64,
-        };
         let dir2 = &b"dir2"[..];
         let file2 = &b"file2"[..];
-        let program2 = LineProgram::new(encoding, 1, 1, -3, 12, dir2, file2, None);
-        let program_id2 = programs.add(program2);
-        {
-            let program2 = programs.get_mut(program_id2);
-            assert_eq!(dir2, program2.get_directory(program2.default_directory()));
 
-            let dir3 = &b"dir3"[..];
-            let dir3_id = program2.add_directory(dir3);
-            assert_eq!(dir3, program2.get_directory(dir3_id));
-            assert_eq!(dir3_id, program2.add_directory(dir3));
+        let mut programs = LineProgramTable::default();
+        let mut program_ids = Vec::new();
+        for &version in &[2, 3, 4, 5] {
+            for &address_size in &[4, 8] {
+                for &format in &[Format::Dwarf32, Format::Dwarf64] {
+                    let encoding = Encoding {
+                        format,
+                        version,
+                        address_size,
+                    };
+                    let program = LineProgram::new(encoding, 1, 1, -5, 14, dir1, file1, None);
+                    let program_id = programs.add(program);
 
-            let file3 = &b"file3"[..];
-            let file3_info = FileInfo {
-                timestamp: 1,
-                size: 2,
-            };
-            let file3_id = program2.add_file(file3, dir3_id, Some(file3_info));
-            assert_eq!((file3, dir3_id), program2.get_file(file3_id));
-            assert_eq!(file3_info, *program2.get_file_info(file3_id));
+                    {
+                        let program = programs.get_mut(program_id);
+                        assert_eq!(dir1, program.get_directory(program.default_directory()));
+                        program.file_has_timestamp = true;
+                        program.file_has_size = true;
+                        if encoding.version >= 5 {
+                            program.file_has_md5 = true;
+                        }
 
-            program2.get_file_info_mut(file3_id).size = 3;
-            assert_ne!(file3_info, *program2.get_file_info(file3_id));
-            assert_eq!(file3_id, program2.add_file(file3, dir3_id, None));
-            assert_ne!(file3_info, *program2.get_file_info(file3_id));
-            assert_eq!(
-                file3_id,
-                program2.add_file(file3, dir3_id, Some(file3_info))
-            );
-            assert_eq!(file3_info, *program2.get_file_info(file3_id));
+                        let dir_id = program.add_directory(dir2);
+                        assert_eq!(dir2, program.get_directory(dir_id));
+                        assert_eq!(dir_id, program.add_directory(dir2));
+
+                        let file_info = FileInfo {
+                            timestamp: 1,
+                            size: 2,
+                            md5: if encoding.version >= 5 {
+                                [3; 16]
+                            } else {
+                                [0; 16]
+                            },
+                        };
+                        let file_id = program.add_file(file2, dir_id, Some(file_info));
+                        assert_eq!((file2, dir_id), program.get_file(file_id));
+                        assert_eq!(file_info, *program.get_file_info(file_id));
+
+                        program.get_file_info_mut(file_id).size = 3;
+                        assert_ne!(file_info, *program.get_file_info(file_id));
+                        assert_eq!(file_id, program.add_file(file2, dir_id, None));
+                        assert_ne!(file_info, *program.get_file_info(file_id));
+                        assert_eq!(file_id, program.add_file(file2, dir_id, Some(file_info)));
+                        assert_eq!(file_info, *program.get_file_info(file_id));
+
+                        program_ids.push((program_id, file_id, encoding));
+                    }
+                }
+            }
         }
 
-        assert_eq!(programs.count(), 2);
+        assert_eq!(programs.count(), program_ids.len());
 
         let mut debug_line = DebugLine::from(EndianVec::new(LittleEndian));
         let debug_line_offsets = programs.write(&mut debug_line).unwrap();
-        assert_eq!(debug_line_offsets.count(), 2);
+        assert_eq!(debug_line_offsets.count(), program_ids.len());
 
         let read_debug_line = read::DebugLine::new(debug_line.slice(), LittleEndian);
-        let read_program1 = read_debug_line
-            .program(
-                debug_line_offsets.get(program_id1),
-                8,
-                Some(read::AttributeValue::String(read::EndianSlice::new(
-                    dir1,
-                    LittleEndian,
-                ))),
-                Some(read::AttributeValue::String(read::EndianSlice::new(
-                    file1,
-                    LittleEndian,
-                ))),
-            )
-            .unwrap();
-        let read_program2 = read_debug_line
-            .program(
-                debug_line_offsets.get(program_id2),
-                4,
-                Some(read::AttributeValue::String(read::EndianSlice::new(
-                    dir2,
-                    LittleEndian,
-                ))),
-                Some(read::AttributeValue::String(read::EndianSlice::new(
-                    file2,
-                    LittleEndian,
-                ))),
-            )
-            .unwrap();
 
         let dwarf = read::Dwarf::default();
         let convert_address = &|address| Some(Address::Absolute(address));
-        for (program_id, read_program) in
-            vec![(program_id1, read_program1), (program_id2, read_program2)]
-        {
-            let program = programs.get(program_id);
-            let (convert_program, _convert_files) =
+        for (program_id, file_id, encoding) in program_ids.iter() {
+            let read_program = read_debug_line
+                .program(
+                    debug_line_offsets.get(*program_id),
+                    encoding.address_size,
+                    Some(read::AttributeValue::String(read::EndianSlice::new(
+                        dir1,
+                        LittleEndian,
+                    ))),
+                    Some(read::AttributeValue::String(read::EndianSlice::new(
+                        file1,
+                        LittleEndian,
+                    ))),
+                )
+                .unwrap();
+
+            let program = programs.get(*program_id);
+            let (convert_program, convert_files) =
                 LineProgram::from(read_program, &dwarf, convert_address).unwrap();
             assert_eq!(convert_program.version(), program.version());
             assert_eq!(convert_program.address_size(), program.address_size());
             assert_eq!(convert_program.format(), program.format());
+
+            let convert_file_id = convert_files[file_id.index(encoding.version)];
+            let (file, dir) = program.get_file(*file_id);
+            let (convert_file, convert_dir) = convert_program.get_file(convert_file_id);
+            assert_eq!(file, convert_file);
+            assert_eq!(
+                program.get_directory(dir),
+                convert_program.get_directory(convert_dir)
+            );
+            assert_eq!(
+                program.get_file_info(*file_id),
+                convert_program.get_file_info(convert_file_id)
+            );
         }
     }
 
@@ -1009,8 +1110,7 @@ mod tests {
         let file2 = &b"file2"[..];
         let convert_address = &|address| Some(Address::Absolute(address));
 
-        // TODO: version 5
-        for &version in &[2, 3, 4] {
+        for &version in &[2, 3, 4, 5] {
             for &address_size in &[4, 8] {
                 for &format in &[Format::Dwarf32, Format::Dwarf64] {
                     let encoding = Encoding {
@@ -1297,8 +1397,7 @@ mod tests {
         let dir1 = &b"dir1"[..];
         let file1 = &b"file1"[..];
 
-        // TODO: version 5
-        for &version in &[2, 3, 4] {
+        for &version in &[2, 3, 4, 5] {
             for &address_size in &[4, 8] {
                 for &format in &[Format::Dwarf32, Format::Dwarf64] {
                     let encoding = Encoding {
