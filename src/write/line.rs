@@ -155,7 +155,12 @@ impl LineProgram {
     /// # Panics
     ///
     /// Panics if `line_base` > 0.
+    ///
     /// Panics if `line_base` + `line_range` <= 0.
+    ///
+    /// Panics if `comp_dir` is empty or contains a null byte.
+    ///
+    /// Panics if `comp_file` is empty or contains a null byte.
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::new_ret_no_self)]
     pub fn new(
@@ -234,9 +239,10 @@ impl LineProgram {
     ///
     /// # Panics
     ///
-    /// Panics if `directory` contains a null byte.
+    /// Panics if `directory` is empty or contains a null byte.
     pub fn add_directory(&mut self, directory: LineString) -> DirectoryId {
         if let LineString::String(ref val) = directory {
+            assert!(!val.is_empty());
             assert!(!val.contains(&0));
         }
         let (index, _) = self.directories.insert_full(directory);
@@ -268,7 +274,7 @@ impl LineProgram {
     ///
     /// # Panics
     ///
-    /// Panics if 'file' contain a null byte.
+    /// Panics if 'file' is empty or contains a null byte.
     pub fn add_file(
         &mut self,
         file: LineString,
@@ -276,6 +282,7 @@ impl LineProgram {
         info: Option<FileInfo>,
     ) -> FileId {
         if let LineString::String(ref val) = file {
+            assert!(!val.is_empty());
             assert!(!val.contains(&0));
         }
 
