@@ -121,6 +121,8 @@ pub enum Error {
     InvalidAddress,
     /// A requested feature requires a different DWARF version.
     NeedVersion(u16),
+    /// Strings in line number program have mismatched forms.
+    LineStringFormMismatch,
 }
 
 impl fmt::Display for Error {
@@ -146,6 +148,9 @@ impl fmt::Display for Error {
                 "A requested feature requires a DWARF version {}.",
                 version
             ),
+            Error::LineStringFormMismatch => {
+                write!(f, "Strings in line number program have mismatched forms.",)
+            }
         }
     }
 }
@@ -164,6 +169,8 @@ pub enum SectionId {
     DebugInfo,
     /// The `.debug_line` section.
     DebugLine,
+    /// The `.debug_line_str` section.
+    DebugLineStr,
     /// The `.debug_loc` section.
     DebugLoc,
     /// The `.debug_loclists` section.
@@ -187,6 +194,7 @@ impl SectionId {
             SectionId::DebugAbbrev => ".debug_abbrev",
             SectionId::DebugRanges => ".debug_ranges",
             SectionId::DebugLine => ".debug_line",
+            SectionId::DebugLineStr => ".debug_line_str",
             SectionId::DebugLoc => ".debug_loc",
             SectionId::DebugLocLists => ".debug_loclists",
             SectionId::DebugRngLists => ".debug_rnglists",
@@ -249,6 +257,8 @@ mod convert {
         MissingCompilationFile,
         /// Writing this line number instruction is not implemented yet.
         UnsupportedLineInstruction,
+        /// Writing this form of line string is not implemented yet.
+        UnsupportedLineStringForm,
         /// A `.debug_line` file index is invalid.
         InvalidFileIndex,
         /// A `.debug_line` directory index is invalid.
@@ -287,6 +297,10 @@ mod convert {
                 UnsupportedLineInstruction => write!(
                     f,
                     "Writing this line number instruction is not implemented yet."
+                ),
+                UnsupportedLineStringForm => write!(
+                    f,
+                    "Writing this form of line string is not implemented yet."
                 ),
                 InvalidFileIndex => write!(f, "A `.debug_line` file index is invalid."),
                 InvalidDirectoryIndex => write!(f, "A `.debug_line` directory index is invalid."),

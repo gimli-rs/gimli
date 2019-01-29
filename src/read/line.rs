@@ -2,10 +2,12 @@ use std::fmt;
 use std::result;
 use vec::Vec;
 
-use common::{DebugLineOffset, Encoding, Format};
+use common::{
+    DebugLineOffset, DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsIndex, Encoding, Format,
+};
 use constants;
 use endianity::Endianity;
-use read::{EndianSlice, Error, Reader, ReaderOffset, Result, Section};
+use read::{AttributeValue, EndianSlice, Error, Reader, ReaderOffset, Result, Section};
 
 /// The `DebugLine` struct contains the source location to instruction mapping
 /// found in the `.debug_line` section.
@@ -66,8 +68,8 @@ impl<R: Reader> DebugLine<R> {
         &self,
         offset: DebugLineOffset<R::Offset>,
         address_size: u8,
-        comp_dir: Option<R>,
-        comp_name: Option<R>,
+        comp_dir: Option<AttributeValue<R, R::Offset>>,
+        comp_name: Option<AttributeValue<R, R::Offset>>,
     ) -> Result<IncompleteLineProgram<R, R::Offset>> {
         let input = &mut self.debug_line_section.clone();
         input.skip(offset.0)?;
@@ -104,7 +106,7 @@ where
     /// Get a reference to the held `LineProgramHeader`.
     fn header(&self) -> &LineProgramHeader<R, Offset>;
     /// Add a file to the file table if necessary.
-    fn add_file(&mut self, file: FileEntry<R>);
+    fn add_file(&mut self, file: FileEntry<R, Offset>);
 }
 
 impl<R, Offset> LineProgram<R, Offset> for IncompleteLineProgram<R, Offset>
@@ -115,7 +117,7 @@ where
     fn header(&self) -> &LineProgramHeader<R, Offset> {
         &self.header
     }
-    fn add_file(&mut self, file: FileEntry<R>) {
+    fn add_file(&mut self, file: FileEntry<R, Offset>) {
         self.header.file_names.push(file);
     }
 }
@@ -128,7 +130,7 @@ where
     fn header(&self) -> &LineProgramHeader<R, Offset> {
         &self.header
     }
-    fn add_file(&mut self, _: FileEntry<R>) {
+    fn add_file(&mut self, _: FileEntry<R, Offset>) {
         // Nop. Our file table is already complete.
     }
 }
@@ -231,11 +233,15 @@ where
 
 /// Deprecated. `Opcode` has been renamed to `LineInstruction`.
 #[deprecated(note = "Opcode has been renamed to LineInstruction, use that instead.")]
-pub type Opcode<R> = LineInstruction<R>;
+pub type Opcode<R> = LineInstruction<R, <R as Reader>::Offset>;
 
 /// A parsed line number program instruction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LineInstruction<R: Reader> {
+pub enum LineInstruction<R, Offset = usize>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
     /// > ### 6.2.5.1 Special Opcodes
     /// >
     /// > Each ubyte special opcode has the following effect on the state machine:
@@ -354,7 +360,7 @@ pub enum LineInstruction<R: Reader> {
 
     /// Defines a new source file in the line number program and appends it to
     /// the line number program header's list of source files.
-    DefineFile(FileEntry<R>),
+    DefineFile(FileEntry<R, Offset>),
 
     /// "The DW_LNE_set_discriminator opcode takes a single parameter, an
     /// unsigned LEB128 integer. It sets the discriminator register to the new
@@ -365,11 +371,15 @@ pub enum LineInstruction<R: Reader> {
     UnknownExtended(constants::DwLne, R),
 }
 
-impl<R: Reader> LineInstruction<R> {
+impl<R, Offset> LineInstruction<R, Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
     fn parse<'header>(
         header: &'header LineProgramHeader<R, R::Offset>,
         input: &mut R,
-    ) -> Result<LineInstruction<R>>
+    ) -> Result<LineInstruction<R, R::Offset>>
     where
         R: 'header,
     {
@@ -388,9 +398,16 @@ impl<R: Reader> LineInstruction<R> {
                 }
 
                 constants::DW_LNE_define_file => {
-                    let path_name = instr_rest.read_null_terminated_slice()?;
-                    let entry = FileEntry::parse(&mut instr_rest, path_name)?;
-                    Ok(LineInstruction::DefineFile(entry))
+                    if header.version() <= 4 {
+                        let path_name = instr_rest.read_null_terminated_slice()?;
+                        let entry = FileEntry::parse(&mut instr_rest, path_name)?;
+                        Ok(LineInstruction::DefineFile(entry))
+                    } else {
+                        Ok(LineInstruction::UnknownExtended(
+                            constants::DW_LNE_define_file,
+                            instr_rest,
+                        ))
+                    }
                 }
 
                 constants::DW_LNE_set_discriminator => {
@@ -472,7 +489,11 @@ impl<R: Reader> LineInstruction<R> {
     }
 }
 
-impl<R: Reader> fmt::Display for LineInstruction<R> {
+impl<R, Offset> fmt::Display for LineInstruction<R, Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         match *self {
             LineInstruction::Special(opcode) => write!(f, "Special opcode {}", opcode),
@@ -559,7 +580,7 @@ impl<R: Reader> LineInstructions<R> {
     pub fn next_instruction(
         &mut self,
         header: &LineProgramHeader<R, R::Offset>,
-    ) -> Result<Option<LineInstruction<R>>> {
+    ) -> Result<Option<LineInstruction<R, R::Offset>>> {
         if self.input.is_empty() {
             return Ok(None);
         }
@@ -655,7 +676,7 @@ impl LineRow {
     pub fn file<'header, R: Reader>(
         &self,
         header: &'header LineProgramHeader<R, R::Offset>,
-    ) -> Option<&'header FileEntry<R>> {
+    ) -> Option<&'header FileEntry<R, R::Offset>> {
         header.file(self.file)
     }
 
@@ -755,7 +776,7 @@ impl LineRow {
     #[inline]
     pub fn execute<R, Program>(
         &mut self,
-        instruction: LineInstruction<R>,
+        instruction: LineInstruction<R, R::Offset>,
         program: &mut Program,
     ) -> bool
     where
@@ -1018,6 +1039,9 @@ where
     /// whose value is `opcode_base - 1`."
     standard_opcode_lengths: R,
 
+    /// "A sequence of directory entry format descriptions."
+    directory_entry_format: Vec<FileEntryFormat>,
+
     /// > Entries in this sequence describe each path that was searched for
     /// > included source files in this compilation. (The paths include those
     /// > directories specified explicitly by the user for the compiler to search
@@ -1026,21 +1050,24 @@ where
     /// > of the compilation.
     /// >
     /// > The last entry is followed by a single null byte.
-    include_directories: Vec<R>,
+    include_directories: Vec<AttributeValue<R, Offset>>,
+
+    /// "A sequence of file entry format descriptions."
+    file_name_entry_format: Vec<FileEntryFormat>,
 
     /// "Entries in this sequence describe source files that contribute to the
     /// line number information for this compilation unit or is used in other
     /// contexts."
-    file_names: Vec<FileEntry<R>>,
+    file_names: Vec<FileEntry<R, Offset>>,
 
     /// The encoded line program instructions.
     program_buf: R,
 
-    /// The `DW_AT_comp_dir` value from the compilation unit.
-    comp_dir: Option<R>,
+    /// The current directory of the compilation.
+    comp_dir: Option<AttributeValue<R, Offset>>,
 
-    /// The `DW_AT_name` value from the compilation unit.
-    comp_name: Option<FileEntry<R>>,
+    /// The primary source file.
+    comp_file: Option<FileEntry<R, Offset>>,
 }
 
 impl<R, Offset> LineProgramHeader<R, Offset>
@@ -1124,28 +1151,73 @@ where
         &self.standard_opcode_lengths
     }
 
+    /// Get the format of a directory entry.
+    pub fn directory_entry_format(&self) -> &[FileEntryFormat] {
+        &self.directory_entry_format[..]
+    }
+
     /// Get the set of include directories for this header's line program.
     ///
-    /// The compilation's current directory is not included in the return value,
-    /// but is implicitly considered to be in the set per spec.
-    pub fn include_directories(&self) -> &[R] {
+    /// For DWARF version <= 4, the compilation's current directory is not included
+    /// in the return value, but is implicitly considered to be in the set per spec.
+    pub fn include_directories(&self) -> &[AttributeValue<R, Offset>] {
         &self.include_directories[..]
     }
 
     /// The include directory with the given directory index.
     ///
     /// A directory index of 0 corresponds to the compilation unit directory.
-    pub fn directory(&self, directory: u64) -> Option<R> {
-        if directory == 0 {
-            self.comp_dir.clone()
+    pub fn directory(&self, directory: u64) -> Option<AttributeValue<R, Offset>> {
+        if self.encoding.version <= 4 {
+            if directory == 0 {
+                self.comp_dir.clone()
+            } else {
+                let directory = directory as usize - 1;
+                self.include_directories.get(directory).cloned()
+            }
         } else {
-            let directory = directory as usize - 1;
-            self.include_directories.get(directory).cloned()
+            self.include_directories.get(directory as usize).cloned()
         }
     }
 
+    /// Get the format of a file name entry.
+    pub fn file_name_entry_format(&self) -> &[FileEntryFormat] {
+        &self.file_name_entry_format[..]
+    }
+
+    /// Return true if the file entries may have valid timestamps.
+    ///
+    /// Only returns false if we definitely know that all timestamp fields
+    /// are invalid.
+    pub fn file_has_timestamp(&self) -> bool {
+        self.encoding.version <= 4
+            || self
+                .file_name_entry_format
+                .iter()
+                .any(|x| x.content_type == constants::DW_LNCT_timestamp)
+    }
+
+    /// Return true if the file entries may have valid sizes.
+    ///
+    /// Only returns false if we definitely know that all size fields
+    /// are invalid.
+    pub fn file_has_size(&self) -> bool {
+        self.encoding.version <= 4
+            || self
+                .file_name_entry_format
+                .iter()
+                .any(|x| x.content_type == constants::DW_LNCT_size)
+    }
+
+    /// Return true if the file name entry format contains an MD5 field.
+    pub fn file_has_md5(&self) -> bool {
+        self.file_name_entry_format
+            .iter()
+            .any(|x| x.content_type == constants::DW_LNCT_MD5)
+    }
+
     /// Get the list of source files that appear in this header's line program.
-    pub fn file_names(&self) -> &[FileEntry<R>] {
+    pub fn file_names(&self) -> &[FileEntry<R, Offset>] {
         &self.file_names[..]
     }
 
@@ -1154,12 +1226,16 @@ where
     /// A file index of 0 corresponds to the compilation unit file.
     /// Note that a file index of 0 is invalid for DWARF version <= 4,
     /// but we support it anyway.
-    pub fn file(&self, file: u64) -> Option<&FileEntry<R>> {
-        if file == 0 {
-            self.comp_name.as_ref()
+    pub fn file(&self, file: u64) -> Option<&FileEntry<R, Offset>> {
+        if self.encoding.version <= 4 {
+            if file == 0 {
+                self.comp_file.as_ref()
+            } else {
+                let file = file as usize - 1;
+                self.file_names.get(file)
+            }
         } else {
-            let file = file as usize - 1;
-            self.file_names.get(file)
+            self.file_names.get(file as usize)
         }
     }
 
@@ -1196,17 +1272,31 @@ where
     fn parse(
         input: &mut R,
         offset: DebugLineOffset<Offset>,
-        address_size: u8,
-        comp_dir: Option<R>,
-        comp_name: Option<R>,
+        mut address_size: u8,
+        mut comp_dir: Option<AttributeValue<R, Offset>>,
+        comp_name: Option<AttributeValue<R, Offset>>,
     ) -> Result<LineProgramHeader<R, Offset>> {
         let (unit_length, format) = input.read_initial_length()?;
         let rest = &mut input.split(unit_length)?;
 
         let version = rest.read_u16()?;
-        if version < 2 || version > 4 {
+        if version < 2 || version > 5 {
             return Err(Error::UnknownVersion(u64::from(version)));
         }
+
+        if version >= 5 {
+            address_size = rest.read_u8()?;
+            let segment_selector_size = rest.read_u8()?;
+            if segment_selector_size != 0 {
+                return Err(Error::UnsupportedSegmentSize);
+            }
+        }
+
+        let encoding = Encoding {
+            format,
+            version,
+            address_size,
+        };
 
         let header_length = rest.read_length(format)?;
 
@@ -1241,36 +1331,59 @@ where
         let standard_opcode_count = R::Offset::from_u8(opcode_base - 1);
         let standard_opcode_lengths = rest.split(standard_opcode_count)?;
 
+        let directory_entry_format;
         let mut include_directories = Vec::new();
-        loop {
-            let directory = rest.read_null_terminated_slice()?;
-            if directory.is_empty() {
-                break;
+        if version <= 4 {
+            directory_entry_format = Vec::new();
+            loop {
+                let directory = rest.read_null_terminated_slice()?;
+                if directory.is_empty() {
+                    break;
+                }
+                include_directories.push(AttributeValue::String(directory));
             }
-            include_directories.push(directory);
+        } else {
+            comp_dir = None;
+            directory_entry_format = FileEntryFormat::parse(rest)?;
+            let count = rest.read_uleb128()?;
+            for _ in 0..count {
+                include_directories.push(parse_directory_v5(
+                    rest,
+                    encoding,
+                    &directory_entry_format,
+                )?);
+            }
         }
 
+        let comp_file;
+        let file_name_entry_format;
         let mut file_names = Vec::new();
-        loop {
-            let path_name = rest.read_null_terminated_slice()?;
-            if path_name.is_empty() {
-                break;
+        if version <= 4 {
+            comp_file = comp_name.map(|name| FileEntry {
+                path_name: name,
+                directory_index: 0,
+                timestamp: 0,
+                size: 0,
+                md5: [0; 16],
+            });
+
+            file_name_entry_format = Vec::new();
+            loop {
+                let path_name = rest.read_null_terminated_slice()?;
+                if path_name.is_empty() {
+                    break;
+                }
+                file_names.push(FileEntry::parse(rest, path_name)?);
             }
-            file_names.push(FileEntry::parse(rest, path_name)?);
+        } else {
+            comp_file = None;
+            file_name_entry_format = FileEntryFormat::parse(rest)?;
+            let count = rest.read_uleb128()?;
+            for _ in 0..count {
+                file_names.push(parse_file_v5(rest, encoding, &file_name_entry_format)?);
+            }
         }
 
-        let comp_name = comp_name.map(|name| FileEntry {
-            path_name: name,
-            directory_index: 0,
-            last_modification: 0,
-            length: 0,
-        });
-
-        let encoding = Encoding {
-            format,
-            version,
-            address_size,
-        };
         let header = LineProgramHeader {
             encoding,
             offset,
@@ -1283,11 +1396,13 @@ where
             line_range,
             opcode_base,
             standard_opcode_lengths,
+            directory_entry_format,
             include_directories,
+            file_name_entry_format,
             file_names,
             program_buf,
             comp_dir,
-            comp_name,
+            comp_file,
         };
         Ok(header)
     }
@@ -1443,24 +1558,35 @@ where
 
 /// An entry in the `LineProgramHeader`'s `file_names` set.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct FileEntry<R: Reader> {
-    path_name: R,
+pub struct FileEntry<R, Offset = usize>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
+    path_name: AttributeValue<R, Offset>,
     directory_index: u64,
-    last_modification: u64,
-    length: u64,
+    timestamp: u64,
+    size: u64,
+    md5: [u8; 16],
 }
 
-impl<R: Reader> FileEntry<R> {
-    fn parse(input: &mut R, path_name: R) -> Result<FileEntry<R>> {
+impl<R, Offset> FileEntry<R, Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
+    // version 2-4
+    fn parse(input: &mut R, path_name: R) -> Result<FileEntry<R, Offset>> {
         let directory_index = input.read_uleb128()?;
-        let last_modification = input.read_uleb128()?;
-        let length = input.read_uleb128()?;
+        let timestamp = input.read_uleb128()?;
+        let size = input.read_uleb128()?;
 
         let entry = FileEntry {
-            path_name,
+            path_name: AttributeValue::String(path_name),
             directory_index,
-            last_modification,
-            length,
+            timestamp,
+            size,
+            md5: [0; 16],
         };
 
         Ok(entry)
@@ -1471,7 +1597,7 @@ impl<R: Reader> FileEntry<R> {
     /// > name, the file is located relative to either the compilation directory
     /// > (as specified by the DW_AT_comp_dir attribute given in the compilation
     /// > unit) or one of the directories in the include_directories section.
-    pub fn path_name(&self) -> R {
+    pub fn path_name(&self) -> AttributeValue<R, Offset> {
         self.path_name.clone()
     }
 
@@ -1493,30 +1619,269 @@ impl<R: Reader> FileEntry<R> {
     /// Get this file's directory.
     ///
     /// A directory index of 0 corresponds to the compilation unit directory.
-    pub fn directory(&self, header: &LineProgramHeader<R, R::Offset>) -> Option<R> {
+    pub fn directory(
+        &self,
+        header: &LineProgramHeader<R, R::Offset>,
+    ) -> Option<AttributeValue<R, Offset>> {
         header.directory(self.directory_index)
+    }
+
+    /// The implementation-defined time of last modification of the file,
+    /// or 0 if not available.
+    pub fn timestamp(&self) -> u64 {
+        self.timestamp
     }
 
     /// "An unsigned LEB128 number representing the time of last modification of
     /// the file, or 0 if not available."
+    // Terminology changed in DWARF version 5.
+    #[doc(hidden)]
     pub fn last_modification(&self) -> u64 {
-        self.last_modification
+        self.timestamp
+    }
+
+    /// The size of the file in bytes, or 0 if not available.
+    pub fn size(&self) -> u64 {
+        self.size
     }
 
     /// "An unsigned LEB128 number representing the length in bytes of the file,
     /// or 0 if not available."
+    // Terminology changed in DWARF version 5.
+    #[doc(hidden)]
     pub fn length(&self) -> u64 {
-        self.length
+        self.size
     }
+
+    /// A 16-byte MD5 digest of the file contents.
+    ///
+    /// Only valid if `LineProgramHeader::file_has_md5` returns `true`.
+    pub fn md5(&self) -> &[u8; 16] {
+        &self.md5
+    }
+}
+
+/// The format of a compononent of an include directory or file name entry.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct FileEntryFormat {
+    /// The type of information that is represented by the component.
+    pub content_type: constants::DwLnct,
+
+    /// The encoding form of the component value.
+    pub form: constants::DwForm,
+}
+
+impl FileEntryFormat {
+    fn parse<R: Reader>(input: &mut R) -> Result<Vec<FileEntryFormat>> {
+        let format_count = input.read_u8()? as usize;
+        let mut format = Vec::with_capacity(format_count);
+        let mut path_count = 0;
+        for _ in 0..format_count {
+            let content_type = input.read_uleb128()?;
+            let content_type = if content_type > u64::from(u16::max_value()) {
+                constants::DwLnct(u16::max_value())
+            } else {
+                constants::DwLnct(content_type as u16)
+            };
+            if content_type == constants::DW_LNCT_path {
+                path_count += 1;
+            }
+
+            let form = constants::DwForm(input.read_uleb128()?);
+
+            format.push(FileEntryFormat { content_type, form });
+        }
+        if path_count != 1 {
+            return Err(Error::MissingFileEntryFormatPath);
+        }
+        Ok(format)
+    }
+}
+
+fn parse_directory_v5<R: Reader>(
+    input: &mut R,
+    encoding: Encoding,
+    formats: &[FileEntryFormat],
+) -> Result<AttributeValue<R, R::Offset>> {
+    let mut path_name = None;
+
+    for format in formats {
+        let value = parse_attribute(input, encoding, format.form)?;
+        if format.content_type == constants::DW_LNCT_path {
+            path_name = Some(value);
+        }
+    }
+
+    Ok(path_name.unwrap())
+}
+
+fn parse_file_v5<R: Reader>(
+    input: &mut R,
+    encoding: Encoding,
+    formats: &[FileEntryFormat],
+) -> Result<FileEntry<R, R::Offset>> {
+    let mut path_name = None;
+    let mut directory_index = 0;
+    let mut timestamp = 0;
+    let mut size = 0;
+    let mut md5 = [0; 16];
+
+    for format in formats {
+        let value = parse_attribute(input, encoding, format.form)?;
+        match format.content_type {
+            constants::DW_LNCT_path => path_name = Some(value),
+            constants::DW_LNCT_directory_index => {
+                if let Some(value) = value.udata_value() {
+                    directory_index = value;
+                }
+            }
+            constants::DW_LNCT_timestamp => {
+                if let Some(value) = value.udata_value() {
+                    timestamp = value;
+                }
+            }
+            constants::DW_LNCT_size => {
+                if let Some(value) = value.udata_value() {
+                    size = value;
+                }
+            }
+            constants::DW_LNCT_MD5 => {
+                if let AttributeValue::Block(mut value) = value {
+                    if value.len().into_u64() == 16 {
+                        md5 = value.read_u8_array()?;
+                    }
+                }
+            }
+            // Ignore unknown content types.
+            _ => {}
+        }
+    }
+
+    Ok(FileEntry {
+        path_name: path_name.unwrap(),
+        directory_index,
+        timestamp,
+        size,
+        md5,
+    })
+}
+
+// TODO: this should be shared with unit::parse_attribute(), but that is hard to do.
+fn parse_attribute<R: Reader>(
+    input: &mut R,
+    encoding: Encoding,
+    form: constants::DwForm,
+) -> Result<AttributeValue<R, R::Offset>> {
+    Ok(match form {
+        constants::DW_FORM_block1 => {
+            let len = input.read_u8().map(R::Offset::from_u8)?;
+            let block = input.split(len)?;
+            AttributeValue::Block(block)
+        }
+        constants::DW_FORM_block2 => {
+            let len = input.read_u16().map(R::Offset::from_u16)?;
+            let block = input.split(len)?;
+            AttributeValue::Block(block)
+        }
+        constants::DW_FORM_block4 => {
+            let len = input.read_u32().map(R::Offset::from_u32)?;
+            let block = input.split(len)?;
+            AttributeValue::Block(block)
+        }
+        constants::DW_FORM_block => {
+            let len = input.read_uleb128().and_then(R::Offset::from_u64)?;
+            let block = input.split(len)?;
+            AttributeValue::Block(block)
+        }
+        constants::DW_FORM_data1 => {
+            let data = input.read_u8()?;
+            AttributeValue::Data1(data)
+        }
+        constants::DW_FORM_data2 => {
+            let data = input.read_u16()?;
+            AttributeValue::Data2(data)
+        }
+        constants::DW_FORM_data4 => {
+            let data = input.read_u32()?;
+            AttributeValue::Data4(data)
+        }
+        constants::DW_FORM_data8 => {
+            let data = input.read_u64()?;
+            AttributeValue::Data8(data)
+        }
+        constants::DW_FORM_data16 => {
+            let block = input.split(R::Offset::from_u8(16))?;
+            AttributeValue::Block(block)
+        }
+        constants::DW_FORM_udata => {
+            let data = input.read_uleb128()?;
+            AttributeValue::Udata(data)
+        }
+        constants::DW_FORM_sdata => {
+            let data = input.read_sleb128()?;
+            AttributeValue::Sdata(data)
+        }
+        constants::DW_FORM_flag => {
+            let present = input.read_u8()?;
+            AttributeValue::Flag(present != 0)
+        }
+        constants::DW_FORM_sec_offset => {
+            let offset = input.read_offset(encoding.format)?;
+            AttributeValue::SecOffset(offset)
+        }
+        constants::DW_FORM_string => {
+            let string = input.read_null_terminated_slice()?;
+            AttributeValue::String(string)
+        }
+        constants::DW_FORM_strp => {
+            let offset = input.read_offset(encoding.format)?;
+            AttributeValue::DebugStrRef(DebugStrOffset(offset))
+        }
+        constants::DW_FORM_strp_sup | constants::DW_FORM_GNU_strp_alt => {
+            let offset = input.read_offset(encoding.format)?;
+            AttributeValue::DebugStrRefSup(DebugStrOffset(offset))
+        }
+        constants::DW_FORM_line_strp => {
+            let offset = input.read_offset(encoding.format)?;
+            AttributeValue::DebugLineStrRef(DebugLineStrOffset(offset))
+        }
+        constants::DW_FORM_strx | constants::DW_FORM_GNU_str_index => {
+            let index = input.read_uleb128().and_then(R::Offset::from_u64)?;
+            AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
+        }
+        constants::DW_FORM_strx1 => {
+            let index = input.read_u8().map(R::Offset::from_u8)?;
+            AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
+        }
+        constants::DW_FORM_strx2 => {
+            let index = input.read_u16().map(R::Offset::from_u16)?;
+            AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
+        }
+        constants::DW_FORM_strx3 => {
+            let index = input.read_uint(3).and_then(R::Offset::from_u64)?;
+            AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
+        }
+        constants::DW_FORM_strx4 => {
+            let index = input.read_u32().map(R::Offset::from_u32)?;
+            AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
+        }
+        _ => {
+            return Err(Error::UnknownForm);
+        }
+    })
 }
 
 #[cfg(test)]
 mod tests {
+    extern crate test_assembler;
+
+    use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
     use constants;
     use endianity::LittleEndian;
     use read::{EndianSlice, Error};
     use std::u8;
+    use test_util::GimliSectionMethods;
 
     #[test]
     fn test_parse_debug_line_32_ok() {
@@ -1572,8 +1937,8 @@ mod tests {
         ];
 
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
-        let comp_dir = EndianSlice::new(b"/comp_dir", LittleEndian);
-        let comp_name = EndianSlice::new(b"/comp_name", LittleEndian);
+        let comp_dir = AttributeValue::String(EndianSlice::new(b"/comp_dir", LittleEndian));
+        let comp_name = AttributeValue::String(EndianSlice::new(b"/comp_name", LittleEndian));
 
         let header =
             LineProgramHeader::parse(rest, DebugLineOffset(0), 4, Some(comp_dir), Some(comp_name))
@@ -1599,23 +1964,25 @@ mod tests {
         assert_eq!(header.standard_opcode_lengths().slice(), &expected_lengths);
 
         let expected_include_directories = [
-            EndianSlice::new(b"/inc", LittleEndian),
-            EndianSlice::new(b"/inc2", LittleEndian),
+            AttributeValue::String(EndianSlice::new(b"/inc", LittleEndian)),
+            AttributeValue::String(EndianSlice::new(b"/inc2", LittleEndian)),
         ];
         assert_eq!(header.include_directories(), &expected_include_directories);
 
         let expected_file_names = [
             FileEntry {
-                path_name: EndianSlice::new(b"foo.rs", LittleEndian),
+                path_name: AttributeValue::String(EndianSlice::new(b"foo.rs", LittleEndian)),
                 directory_index: 0,
-                last_modification: 0,
-                length: 0,
+                timestamp: 0,
+                size: 0,
+                md5: [0; 16],
             },
             FileEntry {
-                path_name: EndianSlice::new(b"bar.h", LittleEndian),
+                path_name: AttributeValue::String(EndianSlice::new(b"bar.h", LittleEndian)),
                 directory_index: 1,
-                last_modification: 0,
-                length: 0,
+                timestamp: 0,
+                size: 0,
+                md5: [0; 16],
             },
         ];
         assert_eq!(&*header.file_names(), &expected_file_names);
@@ -1765,25 +2132,29 @@ mod tests {
             header_length: 1,
             file_names: vec![
                 FileEntry {
-                    path_name: EndianSlice::new(b"foo.c", LittleEndian),
+                    path_name: AttributeValue::String(EndianSlice::new(b"foo.c", LittleEndian)),
                     directory_index: 0,
-                    last_modification: 0,
-                    length: 0,
+                    timestamp: 0,
+                    size: 0,
+                    md5: [0; 16],
                 },
                 FileEntry {
-                    path_name: EndianSlice::new(b"bar.rs", LittleEndian),
+                    path_name: AttributeValue::String(EndianSlice::new(b"bar.rs", LittleEndian)),
                     directory_index: 0,
-                    last_modification: 0,
-                    length: 0,
+                    timestamp: 0,
+                    size: 0,
+                    md5: [0; 16],
                 },
             ],
             line_base: -3,
+            line_range: 12,
             unit_length: 1,
             standard_opcode_lengths: EndianSlice::new(STANDARD_OPCODE_LENGTHS, LittleEndian),
             include_directories: vec![],
-            line_range: 12,
+            directory_entry_format: vec![],
+            file_name_entry_format: vec![],
             comp_dir: None,
-            comp_name: None,
+            comp_file: None,
         }
     }
 
@@ -2017,10 +2388,11 @@ mod tests {
             constants::DW_LNE_define_file,
             file,
             LineInstruction::DefineFile(FileEntry {
-                path_name: EndianSlice::new(b"foo.c", LittleEndian),
+                path_name: AttributeValue::String(EndianSlice::new(b"foo.c", LittleEndian)),
                 directory_index: 0,
-                last_modification: 1,
-                length: 2,
+                timestamp: 1,
+                size: 2,
+                md5: [0; 16],
             }),
         );
 
@@ -2039,15 +2411,16 @@ mod tests {
         let path_name = [b'f', b'o', b'o', b'.', b'r', b's', 0];
 
         let mut file = FileEntry {
-            path_name: EndianSlice::new(&path_name, LittleEndian),
+            path_name: AttributeValue::String(EndianSlice::new(&path_name, LittleEndian)),
             directory_index: 1,
-            last_modification: 0,
-            length: 0,
+            timestamp: 0,
+            size: 0,
+            md5: [0; 16],
         };
 
         let mut header = make_test_header(EndianSlice::new(&[], LittleEndian));
 
-        let dir = EndianSlice::new(b"dir", LittleEndian);
+        let dir = AttributeValue::String(EndianSlice::new(b"dir", LittleEndian));
         header.include_directories.push(dir);
 
         assert_eq!(file.directory(&header), Some(dir));
@@ -2425,10 +2798,11 @@ mod tests {
         let mut row = LineRow::new(program.header());
 
         let file = FileEntry {
-            path_name: EndianSlice::new(b"test.cpp", LittleEndian),
+            path_name: AttributeValue::String(EndianSlice::new(b"test.cpp", LittleEndian)),
             directory_index: 0,
-            last_modification: 0,
-            length: 0,
+            timestamp: 0,
+            size: 0,
+            md5: [0; 16],
         };
 
         let opcode = LineInstruction::DefineFile(file);
@@ -2471,5 +2845,147 @@ mod tests {
     {
         let a: &OneShotLineRows<EndianSlice<'a, LittleEndian>> = unimplemented!();
         let _: &OneShotLineRows<EndianSlice<'b, LittleEndian>> = a;
+    }
+
+    #[test]
+    fn test_parse_debug_line_v5_ok() {
+        let expected_lengths = &[1, 2];
+        let expected_program = &[0, 1, 2, 3, 4];
+        let expected_rest = &[5, 6, 7, 8, 9];
+        let expected_include_directories = [
+            AttributeValue::String(EndianSlice::new(b"dir1", LittleEndian)),
+            AttributeValue::String(EndianSlice::new(b"dir2", LittleEndian)),
+        ];
+        let expected_file_names = [
+            FileEntry {
+                path_name: AttributeValue::String(EndianSlice::new(b"file1", LittleEndian)),
+                directory_index: 0,
+                timestamp: 0,
+                size: 0,
+                md5: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+            },
+            FileEntry {
+                path_name: AttributeValue::String(EndianSlice::new(b"file2", LittleEndian)),
+                directory_index: 1,
+                timestamp: 0,
+                size: 0,
+                md5: [
+                    11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+                ],
+            },
+        ];
+
+        for format in vec![Format::Dwarf32, Format::Dwarf64] {
+            let length = Label::new();
+            let header_length = Label::new();
+            let start = Label::new();
+            let header_start = Label::new();
+            let end = Label::new();
+            let header_end = Label::new();
+            let mut section = Section::with_endian(Endian::Little)
+                .initial_length(format, &length, &start)
+                .D16(5)
+                // Address size.
+                .D8(4)
+                // Segment selector size.
+                .D8(0)
+                .word_label(format.word_size(), &header_length)
+                .mark(&header_start)
+                // Minimum instruction length.
+                .D8(1)
+                // Maximum operations per byte.
+                .D8(1)
+                // Default is_stmt.
+                .D8(1)
+                // Line base.
+                .D8(0)
+                // Line range.
+                .D8(1)
+                // Opcode base.
+                .D8(expected_lengths.len() as u8 + 1)
+                // Standard opcode lengths for opcodes 1 .. opcode base - 1.
+                .append_bytes(expected_lengths)
+                // Directory entry format count.
+                .D8(1)
+                .uleb(constants::DW_LNCT_path.0 as u64)
+                .uleb(constants::DW_FORM_string.0 as u64)
+                // Directory count.
+                .D8(2)
+                .append_bytes(b"dir1\0")
+                .append_bytes(b"dir2\0")
+                // File entry format count.
+                .D8(3)
+                .uleb(constants::DW_LNCT_path.0 as u64)
+                .uleb(constants::DW_FORM_string.0 as u64)
+                .uleb(constants::DW_LNCT_directory_index.0 as u64)
+                .uleb(constants::DW_FORM_data1.0 as u64)
+                .uleb(constants::DW_LNCT_MD5.0 as u64)
+                .uleb(constants::DW_FORM_data16.0 as u64)
+                // File count.
+                .D8(2)
+                .append_bytes(b"file1\0")
+                .D8(0)
+                .append_bytes(&expected_file_names[0].md5)
+                .append_bytes(b"file2\0")
+                .D8(1)
+                .append_bytes(&expected_file_names[1].md5)
+                .mark(&header_end)
+                // Dummy line program data.
+                .append_bytes(expected_program)
+                .mark(&end)
+                // Dummy trailing data.
+                .append_bytes(expected_rest);
+            length.set_const((&end - &start) as u64);
+            header_length.set_const((&header_end - &header_start) as u64);
+            let section = section.get_contents().unwrap();
+
+            let input = &mut EndianSlice::new(&section, LittleEndian);
+
+            let header = LineProgramHeader::parse(input, DebugLineOffset(0), 0, None, None)
+                .expect("should parse header ok");
+            println!("{:?}", header);
+
+            assert_eq!(header.raw_program_buf().slice(), expected_program);
+            assert_eq!(input.slice(), expected_rest);
+
+            assert_eq!(header.offset, DebugLineOffset(0));
+            assert_eq!(header.version(), 5);
+            assert_eq!(header.address_size(), 4);
+            assert_eq!(header.minimum_instruction_length(), 1);
+            assert_eq!(header.maximum_operations_per_instruction(), 1);
+            assert_eq!(header.default_is_stmt(), true);
+            assert_eq!(header.line_base(), 0);
+            assert_eq!(header.line_range(), 1);
+            assert_eq!(header.opcode_base(), expected_lengths.len() as u8 + 1);
+            assert_eq!(header.standard_opcode_lengths().slice(), expected_lengths);
+            assert_eq!(
+                header.directory_entry_format(),
+                &[FileEntryFormat {
+                    content_type: constants::DW_LNCT_path,
+                    form: constants::DW_FORM_string,
+                }]
+            );
+            assert_eq!(header.include_directories(), expected_include_directories);
+            assert_eq!(header.directory(0), Some(expected_include_directories[0]));
+            assert_eq!(
+                header.file_name_entry_format(),
+                &[
+                    FileEntryFormat {
+                        content_type: constants::DW_LNCT_path,
+                        form: constants::DW_FORM_string,
+                    },
+                    FileEntryFormat {
+                        content_type: constants::DW_LNCT_directory_index,
+                        form: constants::DW_FORM_data1,
+                    },
+                    FileEntryFormat {
+                        content_type: constants::DW_LNCT_MD5,
+                        form: constants::DW_FORM_data16,
+                    }
+                ]
+            );
+            assert_eq!(header.file_names(), expected_file_names);
+            assert_eq!(header.file(0), Some(&expected_file_names[0]));
+        }
     }
 }

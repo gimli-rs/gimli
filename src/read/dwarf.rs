@@ -1,7 +1,7 @@
 use constants;
 use read::{
-    Abbreviations, Attribute, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter,
-    DebugAbbrev, DebugAddr, DebugInfo, DebugLine, DebugStr, DebugStrOffsets, DebugTypes, Error,
+    Abbreviations, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter, DebugAbbrev,
+    DebugAddr, DebugInfo, DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes, Error,
     IncompleteLineProgram, LocationLists, RangeLists, Reader, Result, TypeUnitHeader,
     TypeUnitHeadersIter,
 };
@@ -29,6 +29,9 @@ where
 
     /// The `.debug_line` section.
     pub debug_line: DebugLine<R>,
+
+    /// The `.debug_line_str` section.
+    pub debug_line_str: DebugLineStr<R>,
 
     /// The `.debug_str` section.
     pub debug_str: DebugStr<R>,
@@ -104,30 +107,34 @@ where
             Some(_) => return Err(Error::UnsupportedAttributeForm),
             None => return Ok(None),
         };
-        let comp_dir = root
-            .attr(constants::DW_AT_comp_dir)?
-            .and_then(|attr| self.attr_string(&attr));
-        let comp_name = root
-            .attr(constants::DW_AT_name)?
-            .and_then(|attr| self.attr_string(&attr));
+        let comp_dir = root.attr_value(constants::DW_AT_comp_dir)?;
+        let comp_name = root.attr_value(constants::DW_AT_name)?;
         self.debug_line
             .program(offset, unit.address_size(), comp_dir, comp_name)
             .map(Option::Some)
     }
 
-    /// Try to return an attribute's value as a string slice.
+    /// Try to return an attribute value as a string slice.
     ///
-    /// If the attribute's value is either an inline `DW_FORM_string` string,
-    /// or a `DW_FORM_strp` reference to an offset into the `.debug_str`
-    /// section, or a `DW_FORM_strp_sup` reference to an offset into a supplementary
-    /// object file, return the attribute's string value as `Some`. Other attribute
-    /// value forms are returned as `None`.
-    pub fn attr_string(&self, attr: &Attribute<R>) -> Option<R> {
-        match attr.value() {
-            AttributeValue::String(ref string) => Some(string.clone()),
-            AttributeValue::DebugStrRef(offset) => self.debug_str.get_str(offset).ok(),
-            AttributeValue::DebugStrRefSup(offset) => self.debug_str_sup.get_str(offset).ok(),
-            _ => None,
+    /// If the attribute value is one of:
+    ///
+    /// - an inline `DW_FORM_string` string
+    /// - a `DW_FORM_strp` reference to an offset into the `.debug_str` section
+    /// - a `DW_FORM_strp_sup` reference to an offset into a supplementary
+    /// object file
+    /// - a `DW_FORM_line_strp` reference to an offset into the `.debug_line_str`
+    /// section
+    ///
+    /// then return the attribute's string value. Returns an error if the attribute
+    /// value does not have a string form, or if a string form has an invalid value.
+    // TODO: handle `DW_FORM_strx`, but that requires knowing the DebugStrOffsetsBase
+    pub fn attr_string(&self, attr: AttributeValue<R, R::Offset>) -> Result<R> {
+        match attr {
+            AttributeValue::String(string) => Ok(string),
+            AttributeValue::DebugStrRef(offset) => self.debug_str.get_str(offset),
+            AttributeValue::DebugStrRefSup(offset) => self.debug_str_sup.get_str(offset),
+            AttributeValue::DebugLineStrRef(offset) => self.debug_line_str.get_str(offset),
+            _ => Err(Error::ExpectedStringAttributeValue),
         }
     }
 }

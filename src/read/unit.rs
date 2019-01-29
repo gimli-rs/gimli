@@ -7,9 +7,10 @@ use std::{u16, u8};
 
 use common::{
     DebugAbbrevOffset, DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineOffset,
-    DebugLocListsBase, DebugLocListsIndex, DebugMacinfoOffset, DebugRngListsBase,
-    DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex,
-    DebugTypeSignature, DebugTypesOffset, Encoding, Format, LocationListsOffset, RangeListsOffset,
+    DebugLineStrOffset, DebugLocListsBase, DebugLocListsIndex, DebugMacinfoOffset,
+    DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
+    DebugStrOffsetsIndex, DebugTypeSignature, DebugTypesOffset, Encoding, Format,
+    LocationListsOffset, RangeListsOffset,
 };
 use constants;
 use endianity::Endianity;
@@ -875,7 +876,10 @@ where
 
     /// Find the first attribute in this entry which has the given name,
     /// and return its raw value. Returns `Ok(None)` if no attribute is found.
-    pub fn attr_value_raw(&self, name: constants::DwAt) -> Result<Option<AttributeValue<R>>> {
+    pub fn attr_value_raw(
+        &self,
+        name: constants::DwAt,
+    ) -> Result<Option<AttributeValue<R, R::Offset>>> {
         self.attr(name)
             .map(|attr| attr.map(|attr| attr.raw_value()))
     }
@@ -883,7 +887,10 @@ where
     /// Find the first attribute in this entry which has the given name,
     /// and return its normalized value.  Returns `Ok(None)` if no
     /// attribute is found.
-    pub fn attr_value(&self, name: constants::DwAt) -> Result<Option<AttributeValue<R>>> {
+    pub fn attr_value(
+        &self,
+        name: constants::DwAt,
+    ) -> Result<Option<AttributeValue<R, R::Offset>>> {
         self.attr(name).map(|attr| attr.map(|attr| attr.value()))
     }
 
@@ -946,7 +953,11 @@ where
 // for their data.  This gives better code generation in `parse_attribute`.
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AttributeValue<R: Reader> {
+pub enum AttributeValue<R, Offset = usize>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
     /// "Refers to some location in the address space of the described program."
     Addr(u64),
 
@@ -1005,62 +1016,65 @@ pub enum AttributeValue<R: Reader> {
 
     /// An offset into another section. Which section this is an offset into
     /// depends on context.
-    SecOffset(R::Offset),
+    SecOffset(Offset),
 
     /// An offset to a set of addresses in the `.debug_addr` section.
-    DebugAddrBase(DebugAddrBase<R::Offset>),
+    DebugAddrBase(DebugAddrBase<Offset>),
 
     /// An index into a set of addresses in the `.debug_addr` section.
-    DebugAddrIndex(DebugAddrIndex<R::Offset>),
+    DebugAddrIndex(DebugAddrIndex<Offset>),
 
     /// An offset into the current compilation unit.
-    UnitRef(UnitOffset<R::Offset>),
+    UnitRef(UnitOffset<Offset>),
 
     /// An offset into the current `.debug_info` section, but possibly a
     /// different compilation unit from the current one.
-    DebugInfoRef(DebugInfoOffset<R::Offset>),
+    DebugInfoRef(DebugInfoOffset<Offset>),
 
     /// An offset into the `.debug_info` section of the supplementary object file.
-    DebugInfoRefSup(DebugInfoOffset<R::Offset>),
+    DebugInfoRefSup(DebugInfoOffset<Offset>),
 
     /// An offset into the `.debug_line` section.
-    DebugLineRef(DebugLineOffset<R::Offset>),
+    DebugLineRef(DebugLineOffset<Offset>),
 
     /// An offset into either the `.debug_loc` section or the `.debug_loclists` section.
-    LocationListsRef(LocationListsOffset<R::Offset>),
+    LocationListsRef(LocationListsOffset<Offset>),
 
     /// An offset to a set of offsets in the `.debug_loclists` section.
-    DebugLocListsBase(DebugLocListsBase<R::Offset>),
+    DebugLocListsBase(DebugLocListsBase<Offset>),
 
     /// An index into a set of offsets in the `.debug_loclists` section.
-    DebugLocListsIndex(DebugLocListsIndex<R::Offset>),
+    DebugLocListsIndex(DebugLocListsIndex<Offset>),
 
     /// An offset into the `.debug_macinfo` section.
-    DebugMacinfoRef(DebugMacinfoOffset<R::Offset>),
+    DebugMacinfoRef(DebugMacinfoOffset<Offset>),
 
     /// An offset into the `.debug_ranges` section.
-    RangeListsRef(RangeListsOffset<R::Offset>),
+    RangeListsRef(RangeListsOffset<Offset>),
 
     /// An offset to a set of offsets in the `.debug_rnglists` section.
-    DebugRngListsBase(DebugRngListsBase<R::Offset>),
+    DebugRngListsBase(DebugRngListsBase<Offset>),
 
     /// An index into a set of offsets in the `.debug_rnglists` section.
-    DebugRngListsIndex(DebugRngListsIndex<R::Offset>),
+    DebugRngListsIndex(DebugRngListsIndex<Offset>),
 
     /// A type signature.
     DebugTypesRef(DebugTypeSignature),
 
     /// An offset into the `.debug_str` section.
-    DebugStrRef(DebugStrOffset<R::Offset>),
+    DebugStrRef(DebugStrOffset<Offset>),
 
     /// An offset into the `.debug_str` section of the supplementary object file.
-    DebugStrRefSup(DebugStrOffset<R::Offset>),
+    DebugStrRefSup(DebugStrOffset<Offset>),
 
     /// An offset to a set of entries in the `.debug_str_offsets` section.
-    DebugStrOffsetsBase(DebugStrOffsetsBase<R::Offset>),
+    DebugStrOffsetsBase(DebugStrOffsetsBase<Offset>),
 
     /// An index into a set of entries in the `.debug_str_offsets` section.
-    DebugStrOffsetsIndex(DebugStrOffsetsIndex<R::Offset>),
+    DebugStrOffsetsIndex(DebugStrOffsetsIndex<Offset>),
+
+    /// An offset into the `.debug_line_str` section.
+    DebugLineStrRef(DebugLineStrOffset<Offset>),
 
     /// A slice of bytes representing a string. Does not include a final null byte.
     /// Not guaranteed to be UTF-8 or anything like that.
@@ -1112,7 +1126,7 @@ pub enum AttributeValue<R: Reader> {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Attribute<R: Reader> {
     name: constants::DwAt,
-    value: AttributeValue<R>,
+    value: AttributeValue<R, R::Offset>,
 }
 
 impl<R: Reader> Attribute<R> {
@@ -1122,7 +1136,7 @@ impl<R: Reader> Attribute<R> {
     }
 
     /// Get this attribute's raw value.
-    pub fn raw_value(&self) -> AttributeValue<R> {
+    pub fn raw_value(&self) -> AttributeValue<R, R::Offset> {
         self.value.clone()
     }
 
@@ -1136,7 +1150,7 @@ impl<R: Reader> Attribute<R> {
     /// See "Figure 20. Attribute encodings" and "Figure 21. Attribute form encodings".
     #[allow(clippy::cyclomatic_complexity)]
     #[allow(clippy::match_same_arms)]
-    pub fn value(&self) -> AttributeValue<R> {
+    pub fn value(&self) -> AttributeValue<R, R::Offset> {
         // Figure 20 shows the possible attribute classes for each name.
         // Figure 21 shows the possible attribute classes for each form.
         // For each attribute name, we need to match on the form, and
@@ -1575,6 +1589,85 @@ impl<R: Reader> Attribute<R> {
     }
 
     /// Try to convert this attribute's value to a u8.
+    #[inline]
+    pub fn u8_value(&self) -> Option<u8> {
+        self.value.u8_value()
+    }
+
+    /// Try to convert this attribute's value to a u16.
+    #[inline]
+    pub fn u16_value(&self) -> Option<u16> {
+        self.value.u16_value()
+    }
+
+    /// Try to convert this attribute's value to an unsigned integer.
+    #[inline]
+    pub fn udata_value(&self) -> Option<u64> {
+        self.value.udata_value()
+    }
+
+    /// Try to convert this attribute's value to a signed integer.
+    #[inline]
+    pub fn sdata_value(&self) -> Option<i64> {
+        self.value.sdata_value()
+    }
+
+    /// Try to convert this attribute's value to an offset.
+    #[inline]
+    pub fn offset_value(&self) -> Option<R::Offset> {
+        self.value.offset_value()
+    }
+
+    /// Try to convert this attribute's value to an expression or location buffer.
+    ///
+    /// Expressions and locations may be `DW_FORM_block*` or `DW_FORM_exprloc`.
+    /// The standard doesn't mention `DW_FORM_block*` as a possible form, but
+    /// it is encountered in practice.
+    #[inline]
+    fn exprloc_value(&self) -> Option<Expression<R>> {
+        self.value.exprloc_value()
+    }
+
+    /// Try to return this attribute's value as a string slice.
+    ///
+    /// If this attribute's value is either an inline `DW_FORM_string` string,
+    /// or a `DW_FORM_strp` reference to an offset into the `.debug_str`
+    /// section, return the attribute's string value as `Some`. Other attribute
+    /// value forms are returned as `None`.
+    ///
+    /// Warning: this function does not handle all possible string forms.
+    /// Use `Dwarf::attr_string` instead.
+    #[inline]
+    pub fn string_value(&self, debug_str: &DebugStr<R>) -> Option<R> {
+        self.value.string_value(debug_str)
+    }
+
+    /// Try to return this attribute's value as a string slice.
+    ///
+    /// If this attribute's value is either an inline `DW_FORM_string` string,
+    /// or a `DW_FORM_strp` reference to an offset into the `.debug_str`
+    /// section, or a `DW_FORM_strp_sup` reference to an offset into a supplementary
+    /// object file, return the attribute's string value as `Some`. Other attribute
+    /// value forms are returned as `None`.
+    ///
+    /// Warning: this function does not handle all possible string forms.
+    /// Use `Dwarf::attr_string` instead.
+    #[inline]
+    pub fn string_value_sup(
+        &self,
+        debug_str: &DebugStr<R>,
+        debug_str_sup: Option<&DebugStr<R>>,
+    ) -> Option<R> {
+        self.value.string_value_sup(debug_str, debug_str_sup)
+    }
+}
+
+impl<R, Offset> AttributeValue<R, Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
+    /// Try to convert this attribute's value to a u8.
     pub fn u8_value(&self) -> Option<u8> {
         if let Some(value) = self.udata_value() {
             if value <= u64::from(u8::MAX) {
@@ -1596,7 +1689,7 @@ impl<R: Reader> Attribute<R> {
 
     /// Try to convert this attribute's value to an unsigned integer.
     pub fn udata_value(&self) -> Option<u64> {
-        Some(match self.value {
+        Some(match *self {
             AttributeValue::Data1(data) => u64::from(data),
             AttributeValue::Data2(data) => u64::from(data),
             AttributeValue::Data4(data) => u64::from(data),
@@ -1615,7 +1708,7 @@ impl<R: Reader> Attribute<R> {
 
     /// Try to convert this attribute's value to a signed integer.
     pub fn sdata_value(&self) -> Option<i64> {
-        Some(match self.value {
+        Some(match *self {
             AttributeValue::Data1(data) => i64::from(data as i8),
             AttributeValue::Data2(data) => i64::from(data as i16),
             AttributeValue::Data4(data) => i64::from(data as i32),
@@ -1636,7 +1729,7 @@ impl<R: Reader> Attribute<R> {
     pub fn offset_value(&self) -> Option<R::Offset> {
         // While offsets will be DW_FORM_data4/8 in DWARF version 2/3,
         // these have already been converted to `SecOffset.
-        if let AttributeValue::SecOffset(offset) = self.value {
+        if let AttributeValue::SecOffset(offset) = *self {
             Some(offset)
         } else {
             None
@@ -1649,7 +1742,7 @@ impl<R: Reader> Attribute<R> {
     /// The standard doesn't mention `DW_FORM_block*` as a possible form, but
     /// it is encountered in practice.
     fn exprloc_value(&self) -> Option<Expression<R>> {
-        Some(match self.value {
+        Some(match *self {
             AttributeValue::Block(ref data) => Expression(data.clone()),
             AttributeValue::Exprloc(ref data) => data.clone(),
             _ => return None,
@@ -1662,8 +1755,11 @@ impl<R: Reader> Attribute<R> {
     /// or a `DW_FORM_strp` reference to an offset into the `.debug_str`
     /// section, return the attribute's string value as `Some`. Other attribute
     /// value forms are returned as `None`.
+    ///
+    /// Warning: this function does not handle all possible string forms.
+    /// Use `Dwarf::attr_string` instead.
     pub fn string_value(&self, debug_str: &DebugStr<R>) -> Option<R> {
-        match self.value {
+        match *self {
             AttributeValue::String(ref string) => Some(string.clone()),
             AttributeValue::DebugStrRef(offset) => debug_str.get_str(offset).ok(),
             _ => None,
@@ -1677,12 +1773,15 @@ impl<R: Reader> Attribute<R> {
     /// section, or a `DW_FORM_strp_sup` reference to an offset into a supplementary
     /// object file, return the attribute's string value as `Some`. Other attribute
     /// value forms are returned as `None`.
+    ///
+    /// Warning: this function does not handle all possible string forms.
+    /// Use `Dwarf::attr_string` instead.
     pub fn string_value_sup(
         &self,
         debug_str: &DebugStr<R>,
         debug_str_sup: Option<&DebugStr<R>>,
     ) -> Option<R> {
-        match self.value {
+        match *self {
             AttributeValue::String(ref string) => Some(string.clone()),
             AttributeValue::DebugStrRef(offset) => debug_str.get_str(offset).ok(),
             AttributeValue::DebugStrRefSup(offset) => {
@@ -1805,6 +1904,10 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
                     AttributeValue::Data8(data)
                 }
             }
+            constants::DW_FORM_data16 => {
+                let block = input.split(R::Offset::from_u8(16))?;
+                AttributeValue::Block(block)
+            }
             constants::DW_FORM_udata => {
                 let data = input.read_uleb128()?;
                 AttributeValue::Udata(data)
@@ -1888,6 +1991,10 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
             constants::DW_FORM_strp_sup | constants::DW_FORM_GNU_strp_alt => {
                 let offset = input.read_offset(unit.format())?;
                 AttributeValue::DebugStrRefSup(DebugStrOffset(offset))
+            }
+            constants::DW_FORM_line_strp => {
+                let offset = input.read_offset(unit.format())?;
+                AttributeValue::DebugLineStrRef(DebugLineStrOffset(offset))
             }
             constants::DW_FORM_implicit_const => AttributeValue::Sdata(spec.implicit_const_value()),
             constants::DW_FORM_strx | constants::DW_FORM_GNU_str_index => {

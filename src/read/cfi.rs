@@ -228,7 +228,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     pub fn lookup(&self, address: u64, bases: &BaseAddresses) -> Result<Pointer> {
         let size = match self.hdr.table_enc.format() {
             constants::DW_EH_PE_uleb128 | constants::DW_EH_PE_sleb128 => {
-                return Err(Error::VariableLengthSearchTable)
+                return Err(Error::VariableLengthSearchTable);
             }
             constants::DW_EH_PE_sdata2 | constants::DW_EH_PE_udata2 => 2,
             constants::DW_EH_PE_sdata4 | constants::DW_EH_PE_udata4 => 4,

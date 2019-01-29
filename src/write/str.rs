@@ -2,14 +2,9 @@ use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
 use vec::Vec;
 
-use common::DebugStrOffset;
+use common::{DebugLineStrOffset, DebugStrOffset};
 use write::{Result, Section, SectionId, Writer};
 
-/// An identifier for a string in a `StringTable.`
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct StringId(usize);
-
-/// A table of strings that will be stored in a `.debug_str` section.
 // Requirements:
 // - values are `[u8]`, null bytes are not allowed
 // - insertion returns a fixed id
@@ -27,64 +22,104 @@ pub struct StringId(usize);
 // - calculate offsets as we add values, and use that as the id.
 //   This would avoid the need for DebugStrOffsets but would make it
 //   hard to implement `get`.
-#[derive(Debug, Default)]
-pub struct StringTable {
-    strings: IndexSet<Vec<u8>>,
-}
-
-impl StringTable {
-    /// Add a string to the string table and return its id.
-    ///
-    /// If the string already exists, then return the id of the existing string.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `bytes` contains a null byte.
-    pub fn add<T>(&mut self, bytes: T) -> StringId
-    where
-        T: Into<Vec<u8>>,
-    {
-        let bytes = bytes.into();
-        assert!(!bytes.contains(&0));
-        let (index, _) = self.strings.insert_full(bytes);
-        StringId(index)
-    }
-
-    /// Return the number of strings in the table.
-    #[inline]
-    pub fn count(&self) -> usize {
-        self.strings.len()
-    }
-
-    /// Get a reference to a string in the table.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `id` is invalid.
-    pub fn get(&self, id: StringId) -> &[u8] {
-        self.strings.get_index(id.0).map(Vec::as_slice).unwrap()
-    }
-
-    /// Write the string table to the `.debug_str` section.
-    ///
-    /// Returns the offsets at which the strings are written.
-    pub fn write<W: Writer>(&self, w: &mut DebugStr<W>) -> Result<DebugStrOffsets> {
-        let mut offsets = Vec::new();
-        for bytes in self.strings.iter() {
-            offsets.push(w.offset());
-            w.write(bytes)?;
-            w.write_u8(0)?;
+macro_rules! define_string_table {
+    ($name:ident, $id:ident, $section:ident, $offsets:ident, $docs:expr) => {
+        #[doc=$docs]
+        #[derive(Debug, Default)]
+        pub struct $name {
+            strings: IndexSet<Vec<u8>>,
         }
 
-        Ok(DebugStrOffsets { offsets })
-    }
+        impl $name {
+            /// Add a string to the string table and return its id.
+            ///
+            /// If the string already exists, then return the id of the existing string.
+            ///
+            /// # Panics
+            ///
+            /// Panics if `bytes` contains a null byte.
+            pub fn add<T>(&mut self, bytes: T) -> $id
+            where
+                T: Into<Vec<u8>>,
+            {
+                let bytes = bytes.into();
+                assert!(!bytes.contains(&0));
+                let (index, _) = self.strings.insert_full(bytes);
+                $id(index)
+            }
+
+            /// Return the number of strings in the table.
+            #[inline]
+            pub fn count(&self) -> usize {
+                self.strings.len()
+            }
+
+            /// Get a reference to a string in the table.
+            ///
+            /// # Panics
+            ///
+            /// Panics if `id` is invalid.
+            pub fn get(&self, id: $id) -> &[u8] {
+                self.strings.get_index(id.0).map(Vec::as_slice).unwrap()
+            }
+
+            /// Write the string table to the `.debug_str` section.
+            ///
+            /// Returns the offsets at which the strings are written.
+            pub fn write<W: Writer>(&self, w: &mut $section<W>) -> Result<$offsets> {
+                let mut offsets = Vec::new();
+                for bytes in self.strings.iter() {
+                    offsets.push(w.offset());
+                    w.write(bytes)?;
+                    w.write_u8(0)?;
+                }
+
+                Ok($offsets { offsets })
+            }
+        }
+    };
 }
+
+/// An identifier for a string in a `StringTable`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StringId(usize);
+
+define_string_table!(
+    StringTable,
+    StringId,
+    DebugStr,
+    DebugStrOffsets,
+    "A table of strings that will be stored in a `.debug_str` section."
+);
 
 define_section!(DebugStr, DebugStrOffset, "A writable `.debug_str` section.");
 
 define_offsets!(
     DebugStrOffsets: StringId => DebugStrOffset,
     "The section offsets of all strings within a `.debug_str` section."
+);
+
+/// An identifier for a string in a `LineStringTable`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LineStringId(usize);
+
+define_string_table!(
+    LineStringTable,
+    LineStringId,
+    DebugLineStr,
+    DebugLineStrOffsets,
+    "A table of strings that will be stored in a `.debug_line_str` section."
+);
+
+define_section!(
+    DebugLineStr,
+    DebugLineStrOffset,
+    "A writable `.debug_line_str` section."
+);
+
+define_offsets!(
+    DebugLineStrOffsets: LineStringId => DebugLineStrOffset,
+    "The section offsets of all strings within a `.debug_line_str` section."
 );
 
 #[cfg(test)]

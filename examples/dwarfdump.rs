@@ -530,6 +530,7 @@ where
     let debug_addr = load_section(&arena, file, endian);
     let debug_info = load_section(&arena, file, endian);
     let debug_line = load_section(&arena, file, endian);
+    let debug_line_str = load_section(&arena, file, endian);
     let debug_str = load_section(&arena, file, endian);
     let debug_str_offsets = load_section(&arena, file, endian);
     let debug_types = load_section(&arena, file, endian);
@@ -548,6 +549,7 @@ where
         debug_addr,
         debug_info,
         debug_line,
+        debug_line_str,
         debug_str,
         debug_str_offsets,
         debug_str_sup: no_reader.clone().into(),
@@ -975,8 +977,8 @@ struct Unit<R: Reader> {
     encoding: gimli::Encoding,
     base_address: u64,
     line_program: Option<gimli::IncompleteLineProgram<R>>,
-    comp_dir: Option<R>,
-    comp_name: Option<R>,
+    comp_dir: Option<gimli::AttributeValue<R>>,
+    comp_name: Option<gimli::AttributeValue<R>>,
     str_offsets_base: gimli::DebugStrOffsetsBase,
     addr_base: gimli::DebugAddrBase,
     loclists_base: gimli::DebugLocListsBase,
@@ -1046,12 +1048,8 @@ fn dump_entries<R: Reader, W: Write>(
                 Some(gimli::AttributeValue::Addr(address)) => address,
                 _ => 0,
             };
-            unit.comp_dir = entry
-                .attr(gimli::DW_AT_comp_dir)?
-                .and_then(|attr| dwarf.attr_string(&attr));
-            unit.comp_name = entry
-                .attr(gimli::DW_AT_name)?
-                .and_then(|attr| dwarf.attr_string(&attr));
+            unit.comp_dir = entry.attr_value(gimli::DW_AT_comp_dir)?;
+            unit.comp_name = entry.attr_value(gimli::DW_AT_name)?;
             unit.line_program = match entry.attr_value(gimli::DW_AT_stmt_list)? {
                 Some(gimli::AttributeValue::DebugLineRef(offset)) => dwarf
                     .debug_line
@@ -1281,6 +1279,13 @@ fn dump_attr_value<R: Reader, W: Write>(
                 writeln!(w, "<.debug_str+0x{:08x}>", offset.0)?;
             }
         }
+        gimli::AttributeValue::DebugLineStrRef(offset) => {
+            if let Ok(s) = dwarf.debug_line_str.get_str(offset) {
+                writeln!(w, "{}", s.to_string_lossy()?)?;
+            } else {
+                writeln!(w, "<.debug_line_str=0x{:08x}>", offset.0)?;
+            }
+        }
         gimli::AttributeValue::String(s) => {
             writeln!(w, "{}", s.to_string_lossy()?)?;
         }
@@ -1322,7 +1327,7 @@ fn dump_attr_value<R: Reader, W: Write>(
         }
         gimli::AttributeValue::FileIndex(value) => {
             write!(w, "0x{:08x}", value)?;
-            dump_file_index(w, value, unit)?;
+            dump_file_index(w, value, unit, dwarf)?;
             writeln!(w)?;
         }
     }
@@ -1345,7 +1350,12 @@ fn dump_type_signature<Endian: gimli::Endianity, W: Write>(
     Ok(())
 }
 
-fn dump_file_index<R: Reader, W: Write>(w: &mut W, file: u64, unit: &Unit<R>) -> Result<()> {
+fn dump_file_index<R: Reader, W: Write>(
+    w: &mut W,
+    file: u64,
+    unit: &Unit<R>,
+    dwarf: &gimli::Dwarf<R, R::Endian>,
+) -> Result<()> {
     if file == 0 {
         return Ok(());
     }
@@ -1362,15 +1372,24 @@ fn dump_file_index<R: Reader, W: Write>(w: &mut W, file: u64, unit: &Unit<R>) ->
     };
     write!(w, " ")?;
     if let Some(directory) = file.directory(header) {
+        let directory = dwarf.attr_string(directory)?;
         let directory = directory.to_string_lossy()?;
         if !directory.starts_with('/') {
             if let Some(ref comp_dir) = unit.comp_dir {
-                write!(w, "{}/", comp_dir.to_string_lossy()?)?;
+                write!(
+                    w,
+                    "{}/",
+                    dwarf.attr_string(comp_dir.clone())?.to_string_lossy()?
+                )?;
             }
         }
         write!(w, "{}/", directory)?;
     }
-    write!(w, "{}", file.path_name().to_string_lossy()?)?;
+    write!(
+        w,
+        "{}",
+        dwarf.attr_string(file.path_name())?.to_string_lossy()?
+    )?;
     Ok(())
 }
 
@@ -1888,6 +1907,11 @@ fn dump_line_program<R: Reader, W: Write>(
             )?;
             writeln!(
                 w,
+                "Address size:                       {}",
+                header.address_size()
+            )?;
+            writeln!(
+                w,
                 "Prologue length:                    {}",
                 header.header_length()
             )?;
@@ -1930,27 +1954,48 @@ fn dump_line_program<R: Reader, W: Write>(
                 .iter()
                 .enumerate()
             {
-                writeln!(w, "  Opcode {} as {} args", i + 1, length)?;
+                writeln!(w, "  Opcode {} has {} args", i + 1, length)?;
             }
 
+            let base = if header.version() >= 5 { 0 } else { 1 };
             writeln!(w)?;
             writeln!(w, "The Directory Table:")?;
             for (i, dir) in header.include_directories().iter().enumerate() {
-                writeln!(w, "  {} {}", i + 1, dir.to_string_lossy()?)?;
+                writeln!(
+                    w,
+                    "  {} {}",
+                    base + i,
+                    dwarf.attr_string(dir.clone())?.to_string_lossy()?
+                )?;
             }
 
             writeln!(w)?;
             writeln!(w, "The File Name Table")?;
-            writeln!(w, "  Entry\tDir\tTime\tSize\tName")?;
+            write!(w, "  Entry\tDir\tTime\tSize")?;
+            if header.file_has_md5() {
+                write!(w, "\tMD5\t\t\t\t")?;
+            }
+            writeln!(w, "\tName")?;
             for (i, file) in header.file_names().iter().enumerate() {
+                write!(
+                    w,
+                    "  {}\t{}\t{}\t{}",
+                    base + i,
+                    file.directory_index(),
+                    file.timestamp(),
+                    file.size(),
+                )?;
+                if header.file_has_md5() {
+                    let md5 = file.md5();
+                    write!(w, "\t")?;
+                    for i in 0..16 {
+                        write!(w, "{:02X}", md5[i])?;
+                    }
+                }
                 writeln!(
                     w,
-                    "  {}\t{}\t{}\t{}\t{}",
-                    i + 1,
-                    file.directory_index(),
-                    file.last_modification(),
-                    file.length(),
-                    file.path_name().to_string_lossy()?
+                    "\t{}",
+                    dwarf.attr_string(file.path_name())?.to_string_lossy()?
                 )?;
             }
 
@@ -2002,11 +2047,15 @@ fn dump_line_program<R: Reader, W: Write>(
                         write!(
                             w,
                             " uri: \"{}/{}\"",
-                            directory.to_string_lossy()?,
-                            file.path_name().to_string_lossy()?
+                            dwarf.attr_string(directory)?.to_string_lossy()?,
+                            dwarf.attr_string(file.path_name())?.to_string_lossy()?
                         )?;
                     } else {
-                        write!(w, " uri: \"{}\"", file.path_name().to_string_lossy()?)?;
+                        write!(
+                            w,
+                            " uri: \"{}\"",
+                            dwarf.attr_string(file.path_name())?.to_string_lossy()?
+                        )?;
                     }
                 }
             }

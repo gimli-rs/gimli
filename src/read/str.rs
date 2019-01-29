@@ -1,4 +1,4 @@
-use common::{DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex};
+use common::{DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex};
 use endianity::Endianity;
 use read::{EndianSlice, Reader, ReaderOffset, Result, Section};
 use Format;
@@ -112,6 +112,34 @@ impl<R: Reader> Section<R> for DebugStrOffsets<R> {
 impl<R: Reader> From<R> for DebugStrOffsets<R> {
     fn from(section: R) -> Self {
         DebugStrOffsets { section }
+    }
+}
+
+/// The `DebugLineStr` struct represents the DWARF strings
+/// found in the `.debug_line_str` section.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct DebugLineStr<R: Reader> {
+    section: R,
+}
+
+impl<R: Reader> DebugLineStr<R> {
+    /// Lookup a string from the `.debug_line_str` section by DebugLineStrOffset.
+    pub fn get_str(&self, offset: DebugLineStrOffset<R::Offset>) -> Result<R> {
+        let input = &mut self.section.clone();
+        input.skip(offset.0)?;
+        input.read_null_terminated_slice()
+    }
+}
+
+impl<R: Reader> Section<R> for DebugLineStr<R> {
+    fn section_name() -> &'static str {
+        ".debug_line_str"
+    }
+}
+
+impl<R: Reader> From<R> for DebugLineStr<R> {
+    fn from(section: R) -> Self {
+        DebugLineStr { section }
     }
 }
 
