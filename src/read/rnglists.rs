@@ -272,6 +272,13 @@ pub struct RawRngListIter<R: Reader> {
 /// A raw entry in .debug_rnglists
 #[derive(Clone, Debug)]
 pub enum RawRngListEntry<T> {
+    /// A range from DWARF version <= 4.
+    AddressOrOffsetPair {
+        /// Start of range. May be an address or an offset.
+        begin: u64,
+        /// End of range. May be an address or an offset.
+        end: u64,
+    },
     /// DW_RLE_base_address
     BaseAddress {
         /// base address
@@ -329,7 +336,7 @@ impl<T: ReaderOffset> RawRngListEntry<T> {
             } else if range.is_base_address(encoding.address_size) {
                 Some(RawRngListEntry::BaseAddress { addr: range.end })
             } else {
-                Some(RawRngListEntry::OffsetPair {
+                Some(RawRngListEntry::AddressOrOffsetPair {
                     begin: range.begin,
                     end: range.end,
                 })
@@ -468,7 +475,8 @@ impl<R: Reader> RngListIter<R> {
                     let end = begin + length;
                     Range { begin, end }
                 }
-                RawRngListEntry::OffsetPair { begin, end } => {
+                RawRngListEntry::AddressOrOffsetPair { begin, end }
+                | RawRngListEntry::OffsetPair { begin, end } => {
                     let mut range = Range { begin, end };
                     range.add_base_address(self.base_address, self.raw.encoding.address_size);
                     range
