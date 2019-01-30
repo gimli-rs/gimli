@@ -1767,6 +1767,16 @@ fn dump_range_list<R: Reader, W: Write>(
     for (i, raw) in raw_ranges.iter().enumerate() {
         write!(w, "\t\t\t[{:2}] ", i)?;
         match *raw {
+            gimli::RawRngListEntry::AddressOrOffsetPair { begin, end } => {
+                let range = ranges.next()?.unwrap();
+                writeln!(
+                    w,
+                    "<address pair \
+                     low-off: 0x{:08x} addr 0x{:08x} \
+                     high-off: 0x{:08x} addr 0x{:08x}>",
+                    begin, range.begin, end, range.end
+                )?;
+            }
             gimli::RawRngListEntry::BaseAddress { addr } => {
                 writeln!(w, "<new base address 0x{:08x}>", addr)?;
             }

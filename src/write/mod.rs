@@ -123,6 +123,8 @@ pub enum Error {
     NeedVersion(u16),
     /// Strings in line number program have mismatched forms.
     LineStringFormMismatch,
+    /// The range is empty or otherwise invalid.
+    InvalidRange,
 }
 
 impl fmt::Display for Error {
@@ -149,8 +151,9 @@ impl fmt::Display for Error {
                 version
             ),
             Error::LineStringFormMismatch => {
-                write!(f, "Strings in line number program have mismatched forms.",)
+                write!(f, "Strings in line number program have mismatched forms.")
             }
+            Error::InvalidRange => write!(f, "The range is empty or otherwise invalid."),
         }
     }
 }
@@ -238,6 +241,8 @@ mod convert {
     use super::*;
     use read;
 
+    pub(crate) use super::unit::convert::*;
+
     /// An error that occurred when converting a read value into a write value.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum ConvertError {
@@ -267,6 +272,8 @@ mod convert {
         InvalidLineBase,
         /// A `.debug_line` reference is invalid.
         InvalidLineRef,
+        /// Invalid relative address in a range list.
+        InvalidRangeRelativeAddress,
     }
 
     impl fmt::Display for ConvertError {
@@ -306,6 +313,9 @@ mod convert {
                 InvalidDirectoryIndex => write!(f, "A `.debug_line` directory index is invalid."),
                 InvalidLineBase => write!(f, "A `.debug_line` line base is invalid."),
                 InvalidLineRef => write!(f, "A `.debug_line` reference is invalid."),
+                InvalidRangeRelativeAddress => {
+                    write!(f, "Invalid relative address in a range list.")
+                }
             }
         }
     }
