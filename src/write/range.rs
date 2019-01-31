@@ -17,68 +17,51 @@ define_section!(
 );
 
 define_offsets!(
-    DebugRangesOffsets: RangeListId => RangeListsOffset,
-    "The section offsets of all ranges within a `.debug_ranges` section."
-);
-
-define_offsets!(
-    DebugRngListsOffsets: RangeListId => RangeListsOffset,
-    "The section offsets of all ranges within a `.debug_rnglists` section."
+    RangeListOffsets: RangeListId => RangeListsOffset,
+    "The section offsets of a series of range lists within the `.debug_ranges` or `.debug_rnglists` sections."
 );
 
 /// An identifier for a range list in a `RangeListTable`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RangeListId(pub usize);
 
-/// A table of ranges that will be stored in a `.debug_ranges` or `.debug_rnglists` section.
+/// A table of range lists that will be stored in a `.debug_ranges` or `.debug_rnglists` section.
 #[derive(Debug, Default)]
 pub struct RangeListTable {
     ranges: IndexSet<RangeList>,
 }
 
-/// Offsets into the `.debug_ranges` or `.debug_rnglists` section.
-#[derive(Debug, Default)]
-pub struct RangeListOffsets {
-    /// Offsets into the `.debug_ranges` section.
-    pub debug_ranges: DebugRangesOffsets,
-
-    /// Offsets into the `.debug_rnglists` section.
-    pub debug_rnglists: DebugRngListsOffsets,
-}
-
 impl RangeListTable {
-    /// Add a range to the table.
+    /// Add a range list to the table.
     pub fn add(&mut self, range_list: RangeList) -> RangeListId {
         let (id, _) = self.ranges.insert_full(range_list);
         RangeListId(id)
     }
 
-    /// Write the range table to the appropriate section for the given DWARF version.
-    pub fn write<W: Writer>(
+    /// Write the range list table to the appropriate section for the given DWARF version.
+    pub(crate) fn write<W: Writer>(
         &self,
-        w_ranges: &mut DebugRanges<W>,
-        w_rnglists: &mut DebugRngLists<W>,
+        debug_ranges: &mut DebugRanges<W>,
+        debug_rnglists: &mut DebugRngLists<W>,
         encoding: Encoding,
     ) -> Result<RangeListOffsets> {
+        if self.ranges.is_empty() {
+            return Ok(RangeListOffsets::default());
+        }
+
         match encoding.version {
-            2...4 => Ok(RangeListOffsets {
-                debug_ranges: self.write_ranges(w_ranges, encoding.address_size)?,
-                debug_rnglists: DebugRngListsOffsets::default(),
-            }),
-            5 => Ok(RangeListOffsets {
-                debug_ranges: DebugRangesOffsets::default(),
-                debug_rnglists: self.write_rnglists(w_rnglists, encoding)?,
-            }),
+            2...4 => self.write_ranges(debug_ranges, encoding.address_size),
+            5 => self.write_rnglists(debug_rnglists, encoding),
             _ => Err(Error::UnsupportedVersion(encoding.version)),
         }
     }
 
-    /// Write the range table to the `.debug_ranges` section.
+    /// Write the range list table to the `.debug_ranges` section.
     fn write_ranges<W: Writer>(
         &self,
         w: &mut DebugRanges<W>,
         address_size: u8,
-    ) -> Result<DebugRangesOffsets> {
+    ) -> Result<RangeListOffsets> {
         let mut offsets = Vec::new();
         for range_list in self.ranges.iter() {
             offsets.push(w.offset());
@@ -125,15 +108,15 @@ impl RangeListTable {
             w.write_word(0, address_size)?;
             w.write_word(0, address_size)?;
         }
-        Ok(DebugRangesOffsets { offsets })
+        Ok(RangeListOffsets { offsets })
     }
 
-    /// Write the range table to the `.debug_rnglists` section.
+    /// Write the range list table to the `.debug_rnglists` section.
     fn write_rnglists<W: Writer>(
         &self,
         w: &mut DebugRngLists<W>,
         encoding: Encoding,
-    ) -> Result<DebugRngListsOffsets> {
+    ) -> Result<RangeListOffsets> {
         let mut offsets = Vec::new();
 
         if encoding.version != 5 {
@@ -181,11 +164,11 @@ impl RangeListTable {
         let length = (w.len() - length_base) as u64;
         w.write_initial_length_at(length_offset, length, encoding.format)?;
 
-        Ok(DebugRngListsOffsets { offsets })
+        Ok(RangeListOffsets { offsets })
     }
 }
 
-/// A range list that will be stored in the `.debug_ranges` section.
+/// A range list that will be stored in a `.debug_ranges` or `.debug_rnglists` section.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct RangeList(pub Vec<Range>);
 
@@ -382,12 +365,7 @@ mod tests {
                     let read_debug_rnglists =
                         read::DebugRngLists::new(debug_rnglists.slice(), LittleEndian);
                     let read_ranges = read::RangeLists::new(read_debug_ranges, read_debug_rnglists);
-                    // FIXME: range_list_offsets.get()
-                    let offset = if encoding.version <= 4 {
-                        range_list_offsets.debug_ranges.get(range_list_id)
-                    } else {
-                        range_list_offsets.debug_rnglists.get(range_list_id)
-                    };
+                    let offset = range_list_offsets.get(range_list_id);
                     let read_range_list = read_ranges.raw_ranges(offset, encoding).unwrap();
 
                     let dwarf = read::Dwarf {

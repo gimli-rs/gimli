@@ -60,13 +60,11 @@ fn test_convert_debug_info() {
     let mut line_programs = write::LineProgramTable::default();
     let mut line_strings = write::LineStringTable::default();
     let mut strings = write::StringTable::default();
-    let mut ranges = write::RangeListTable::default();
     let units = write::UnitTable::from(
         &dwarf,
         &mut line_programs,
         &mut line_strings,
         &mut strings,
-        &mut ranges,
         &|address| Some(Address::Absolute(address)),
     )
     .expect("Should convert compilation units");
@@ -101,25 +99,18 @@ fn test_convert_debug_info() {
     assert_eq!(debug_line_offsets.count(), 23);
     assert_eq!(debug_line_data.len(), 105_797);
 
-    let mut write_debug_ranges = write::DebugRanges::from(EndianVec::new(LittleEndian));
-    let mut write_debug_rnglists = write::DebugRngLists::from(EndianVec::new(LittleEndian));
-    let range_list_offsets = ranges
-        .write(
-            &mut write_debug_ranges,
-            &mut write_debug_rnglists,
-            dwarf.debug_info.units().next().unwrap().unwrap().encoding(),
-        )
-        .expect("Should write ranges");
-
     let mut write_debug_abbrev = write::DebugAbbrev::from(EndianVec::new(LittleEndian));
     let mut write_debug_info = write::DebugInfo::from(EndianVec::new(LittleEndian));
+    let mut write_debug_ranges = write::DebugRanges::from(EndianVec::new(LittleEndian));
+    let mut write_debug_rnglists = write::DebugRngLists::from(EndianVec::new(LittleEndian));
     units
         .write(
             &mut write_debug_abbrev,
             &mut write_debug_info,
+            &mut write_debug_ranges,
+            &mut write_debug_rnglists,
             &debug_line_offsets,
             &debug_line_str_offsets,
-            &range_list_offsets,
             &debug_str_offsets,
         )
         .expect("Should write units");
@@ -152,13 +143,11 @@ fn test_convert_debug_info() {
     let mut line_programs = write::LineProgramTable::default();
     let mut line_strings = write::LineStringTable::default();
     let mut strings = write::StringTable::default();
-    let mut ranges = write::RangeListTable::default();
     let units = write::UnitTable::from(
         &dwarf,
         &mut line_programs,
         &mut line_strings,
         &mut strings,
-        &mut ranges,
         &|address| Some(Address::Absolute(address)),
     )
     .expect("Should convert compilation units");
