@@ -46,7 +46,7 @@ fn test_convert_debug_info() {
 
     let debug_rnglists = read::DebugRngLists::new(&[], LittleEndian);
 
-    let ranges = gimli::RangeLists::new(debug_ranges, debug_rnglists).unwrap();
+    let ranges = gimli::RangeLists::new(debug_ranges, debug_rnglists);
 
     let dwarf = read::Dwarf {
         debug_abbrev,
@@ -138,7 +138,7 @@ fn test_convert_debug_info() {
     let debug_ranges = read::DebugRanges::new(debug_ranges_data, LittleEndian);
     let debug_rnglists = read::DebugRngLists::new(&[], LittleEndian);
 
-    let ranges = gimli::RangeLists::new(debug_ranges, debug_rnglists).unwrap();
+    let ranges = gimli::RangeLists::new(debug_ranges, debug_rnglists);
 
     let dwarf = read::Dwarf {
         debug_abbrev,

@@ -381,8 +381,7 @@ mod tests {
                         read::DebugRanges::new(debug_ranges.slice(), LittleEndian);
                     let read_debug_rnglists =
                         read::DebugRngLists::new(debug_rnglists.slice(), LittleEndian);
-                    let read_ranges =
-                        read::RangeLists::new(read_debug_ranges, read_debug_rnglists).unwrap();
+                    let read_ranges = read::RangeLists::new(read_debug_ranges, read_debug_rnglists);
                     // FIXME: range_list_offsets.get()
                     let offset = if encoding.version <= 4 {
                         range_list_offsets.debug_ranges.get(range_list_id)

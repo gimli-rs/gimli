@@ -1408,10 +1408,11 @@ pub(crate) mod convert {
                     return Ok(None);
                 }
                 read::AttributeValue::DebugLocListsIndex(index) => {
-                    let offset = context
-                        .dwarf
-                        .locations
-                        .get_offset(context.loclists_base, index)?;
+                    let offset = context.dwarf.locations.get_offset(
+                        from_unit.encoding(),
+                        context.loclists_base,
+                        index,
+                    )?;
                     AttributeValue::LocationListsRef(offset)
                 }
                 read::AttributeValue::RangeListsRef(val) => {
@@ -1426,10 +1427,11 @@ pub(crate) mod convert {
                     return Ok(None);
                 }
                 read::AttributeValue::DebugRngListsIndex(index) => {
-                    let offset = context
-                        .dwarf
-                        .ranges
-                        .get_offset(context.rnglists_base, index)?;
+                    let offset = context.dwarf.ranges.get_offset(
+                        from_unit.encoding(),
+                        context.rnglists_base,
+                        index,
+                    )?;
                     let iter = context
                         .dwarf
                         .ranges
@@ -2082,8 +2084,7 @@ mod tests {
                         let dwarf = read::Dwarf {
                             debug_str: read_debug_str.clone(),
                             debug_line_str: read_debug_line_str.clone(),
-                            ranges: read::RangeLists::new(read_debug_ranges, read_debug_rnglists)
-                                .unwrap(),
+                            ranges: read::RangeLists::new(read_debug_ranges, read_debug_rnglists),
                             ..Default::default()
                         };
 
