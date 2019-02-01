@@ -544,7 +544,6 @@ where
     let ranges = gimli::RangeLists::new(debug_ranges, debug_rnglists);
 
     let dwarf = gimli::Dwarf {
-        endian,
         debug_abbrev,
         debug_addr,
         debug_info,
@@ -869,7 +868,7 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
     }
 }
 
-fn dump_info<R: Reader>(dwarf: &gimli::Dwarf<R, R::Endian>, flags: &Flags) -> Result<()>
+fn dump_info<R: Reader>(dwarf: &gimli::Dwarf<R>, flags: &Flags) -> Result<()>
 where
     R::Endian: Send + Sync,
 {
@@ -923,7 +922,7 @@ where
 
 fn dump_types<R: Reader, W: Write>(
     w: &mut W,
-    dwarf: &gimli::Dwarf<R, R::Endian>,
+    dwarf: &gimli::Dwarf<R>,
     flags: &Flags,
 ) -> Result<()> {
     writeln!(w, "\n.debug_types")?;
@@ -944,7 +943,7 @@ fn dump_types<R: Reader, W: Write>(
 
         writeln!(w, "\nCU_HEADER:")?;
         write!(w, "  signature        = ")?;
-        dump_type_signature(w, unit.type_signature(), dwarf.endian)?;
+        dump_type_signature(w, unit.type_signature())?;
         writeln!(w)?;
         writeln!(
             w,
@@ -998,7 +997,7 @@ fn dump_entries<R: Reader, W: Write>(
     offset: R::Offset,
     mut entries: gimli::EntriesCursor<R>,
     encoding: gimli::Encoding,
-    dwarf: &gimli::Dwarf<R, R::Endian>,
+    dwarf: &gimli::Dwarf<R>,
     flags: &Flags,
 ) -> Result<()> {
     let mut unit = Unit {
@@ -1114,7 +1113,7 @@ fn dump_attr_value<R: Reader, W: Write>(
     w: &mut W,
     attr: &gimli::Attribute<R>,
     unit: &Unit<R>,
-    dwarf: &gimli::Dwarf<R, R::Endian>,
+    dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     let value = attr.value();
     match value {
@@ -1255,7 +1254,7 @@ fn dump_attr_value<R: Reader, W: Write>(
             dump_range_list(w, offset, unit, dwarf)?;
         }
         gimli::AttributeValue::DebugTypesRef(signature) => {
-            dump_type_signature(w, signature, dwarf.endian)?;
+            dump_type_signature(w, signature)?;
             writeln!(w, " <type signature>")?;
         }
         gimli::AttributeValue::DebugStrRef(offset) => {
@@ -1339,18 +1338,8 @@ fn dump_attr_value<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_type_signature<Endian: gimli::Endianity, W: Write>(
-    w: &mut W,
-    signature: gimli::DebugTypeSignature,
-    endian: Endian,
-) -> Result<()> {
-    // Convert back to bytes so we can match libdwarf-dwarfdump output.
-    let mut buf = [0; 8];
-    endian.write_u64(&mut buf, signature.0);
-    write!(w, "0x")?;
-    for byte in &buf {
-        write!(w, "{:02x}", byte)?;
-    }
+fn dump_type_signature<W: Write>(w: &mut W, signature: gimli::DebugTypeSignature) -> Result<()> {
+    write!(w, "0x{:016x}", signature.0)?;
     Ok(())
 }
 
@@ -1358,7 +1347,7 @@ fn dump_file_index<R: Reader, W: Write>(
     w: &mut W,
     file: u64,
     unit: &Unit<R>,
-    dwarf: &gimli::Dwarf<R, R::Endian>,
+    dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     if file == 0 {
         return Ok(());
@@ -1604,7 +1593,7 @@ fn dump_loc_list<R: Reader, W: Write>(
     w: &mut W,
     offset: gimli::LocationListsOffset<R::Offset>,
     unit: &Unit<R>,
-    dwarf: &gimli::Dwarf<R, R::Endian>,
+    dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     let raw_locations = dwarf.locations.raw_locations(offset, unit.encoding)?;
     let raw_locations: Vec<_> = raw_locations.collect()?;
@@ -1745,7 +1734,7 @@ fn dump_range_list<R: Reader, W: Write>(
     w: &mut W,
     offset: gimli::RangeListsOffset<R::Offset>,
     unit: &Unit<R>,
-    dwarf: &gimli::Dwarf<R, R::Endian>,
+    dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     let raw_ranges = dwarf.ranges.raw_ranges(offset, unit.encoding)?;
     let raw_ranges: Vec<_> = raw_ranges.collect()?;
@@ -1873,7 +1862,7 @@ fn dump_range_list<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R, R::Endian>) -> Result<()> {
+fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<()> {
     let mut iter = dwarf.units();
     while let Some(ref unit) = iter.next()? {
         writeln!(
@@ -1897,7 +1886,7 @@ fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R, R::Endian>)
 fn dump_line_program<R: Reader, W: Write>(
     w: &mut W,
     unit: &CompilationUnitHeader<R, R::Offset>,
-    dwarf: &gimli::Dwarf<R, R::Endian>,
+    dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     let abbrevs = dwarf.abbreviations(unit)?;
     if let Ok(Some(program)) = dwarf.line_program(unit, &abbrevs) {

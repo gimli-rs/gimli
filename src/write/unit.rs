@@ -1091,7 +1091,7 @@ pub(crate) mod convert {
     use write::{self, ConvertError, ConvertResult};
 
     pub(crate) struct ConvertUnitContext<'a, R: Reader<Offset = usize> + 'a> {
-        pub dwarf: &'a read::Dwarf<R, R::Endian>,
+        pub dwarf: &'a read::Dwarf<R>,
         pub line_strings: &'a mut write::LineStringTable,
         pub strings: &'a mut write::StringTable,
         pub ranges: &'a mut write::RangeListTable,
@@ -1118,7 +1118,7 @@ pub(crate) mod convert {
         /// responsibility to determine the symbol and addend corresponding to the address
         /// and return `Address::Relative { symbol, addend }`.
         pub fn from<R: Reader<Offset = usize>>(
-            dwarf: &read::Dwarf<R, R::Endian>,
+            dwarf: &read::Dwarf<R>,
             line_programs: &mut write::LineProgramTable,
             line_strings: &mut write::LineStringTable,
             strings: &mut write::StringTable,
@@ -1178,7 +1178,7 @@ pub(crate) mod convert {
             from_unit: &read::CompilationUnitHeader<R>,
             unit_id: UnitId,
             unit_entry_offsets: &mut HashMap<DebugInfoOffset, (UnitId, UnitEntryId)>,
-            dwarf: &read::Dwarf<R, R::Endian>,
+            dwarf: &read::Dwarf<R>,
             line_programs: &mut write::LineProgramTable,
             line_strings: &mut write::LineStringTable,
             strings: &mut write::StringTable,
