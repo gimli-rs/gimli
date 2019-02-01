@@ -115,6 +115,7 @@ impl Default for LocListsHeader {
 
 impl LocListsHeader {
     /// Return the serialized size of the table header.
+    #[allow(dead_code)]
     #[inline]
     fn size(self) -> u8 {
         // initial_length + version + address_size + segment_selector_size + offset_entry_count
@@ -122,6 +123,8 @@ impl LocListsHeader {
     }
 }
 
+// TODO: add an iterator over headers in the .debug_loclists section
+#[allow(dead_code)]
 fn parse_header<R: Reader>(input: &mut R) -> Result<LocListsHeader> {
     let (length, format) = input.read_initial_length()?;
     input.truncate(length)?;
@@ -154,33 +157,16 @@ fn parse_header<R: Reader>(input: &mut R) -> Result<LocListsHeader> {
 pub struct LocationLists<R: Reader> {
     debug_loc: DebugLoc<R>,
     debug_loclists: DebugLocLists<R>,
-    header: LocListsHeader,
 }
 
 impl<R: Reader> LocationLists<R> {
     /// Construct a new `LocationLists` instance from the data in the `.debug_loc` and
     /// `.debug_loclists` sections.
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(
-        debug_loc: DebugLoc<R>,
-        debug_loclists: DebugLocLists<R>,
-    ) -> Result<LocationLists<R>> {
-        let mut input = debug_loclists.section.clone();
-        let header = if input.is_empty() {
-            LocListsHeader::default()
-        } else {
-            parse_header(&mut input)?
-        };
-        Ok(LocationLists {
+    pub fn new(debug_loc: DebugLoc<R>, debug_loclists: DebugLocLists<R>) -> LocationLists<R> {
+        LocationLists {
             debug_loc,
             debug_loclists,
-            header,
-        })
-    }
-
-    /// Return the encoding parameters for the location lists in the `.debug_loclists` section.
-    pub fn encoding(&self) -> Encoding {
-        self.header.encoding
+        }
     }
 
     /// Iterate over the `LocationListEntry`s starting at the given offset.
@@ -225,18 +211,13 @@ impl<R: Reader> LocationLists<R> {
         offset: LocationListsOffset<R::Offset>,
         unit_encoding: Encoding,
     ) -> Result<RawLocListIter<R>> {
-        if unit_encoding.version < 5 {
-            let mut input = self.debug_loc.section.clone();
-            input.skip(offset.0)?;
-            Ok(RawLocListIter::new(input, unit_encoding))
+        let mut input = if unit_encoding.version <= 4 {
+            self.debug_loc.section.clone()
         } else {
-            if offset.0 < R::Offset::from_u8(self.header.size()) {
-                return Err(Error::OffsetOutOfBounds);
-            }
-            let mut input = self.debug_loclists.section.clone();
-            input.skip(offset.0)?;
-            Ok(RawLocListIter::new(input, self.header.encoding))
-        }
+            self.debug_loclists.section.clone()
+        };
+        input.skip(offset.0)?;
+        Ok(RawLocListIter::new(input, unit_encoding))
     }
 
     /// Returns the `.debug_loclists` offset at the given `base` and `index`.
@@ -247,10 +228,11 @@ impl<R: Reader> LocationLists<R> {
     /// The `index` is the value of a `DW_FORM_loclistx` attribute.
     pub fn get_offset(
         &self,
+        unit_encoding: Encoding,
         base: DebugLocListsBase<R::Offset>,
         index: DebugLocListsIndex<R::Offset>,
     ) -> Result<LocationListsOffset<R::Offset>> {
-        let format = self.header.encoding.format;
+        let format = unit_encoding.format;
         let input = &mut self.debug_loclists.section.clone();
         input.skip(base.0)?;
         input.skip(R::Offset::from_u64(
@@ -573,6 +555,12 @@ mod tests {
 
     #[test]
     fn test_loclists_32() {
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 5,
+            address_size: 4,
+        };
+
         let section = Section::with_endian(Endian::Little)
             .L32(0x0300_0000)
             .L32(0x0301_0300)
@@ -590,8 +578,8 @@ mod tests {
             // Header
             .mark(&start)
             .L32(&size)
-            .L16(5)
-            .L8(4)
+            .L16(encoding.version)
+            .L8(encoding.address_size)
             .L8(0)
             .L32(0)
             .mark(&first)
@@ -630,13 +618,8 @@ mod tests {
         let buf = section.get_contents().unwrap();
         let debug_loc = DebugLoc::new(&[], LittleEndian);
         let debug_loclists = DebugLocLists::new(&buf, LittleEndian);
-        let loclists = LocationLists::new(debug_loc, debug_loclists).unwrap();
+        let loclists = LocationLists::new(debug_loc, debug_loclists);
         let offset = LocationListsOffset((&first - &start) as usize);
-        let encoding = Encoding {
-            format: Format::Dwarf32,
-            version: 5,
-            address_size: 0,
-        };
         let mut locations = loclists
             .locations(offset, encoding, 0x0100_0000, debug_addr, debug_addr_base)
             .unwrap();
@@ -801,6 +784,12 @@ mod tests {
 
     #[test]
     fn test_loclists_64() {
+        let encoding = Encoding {
+            format: Format::Dwarf64,
+            version: 5,
+            address_size: 8,
+        };
+
         let section = Section::with_endian(Endian::Little)
             .L64(0x0300_0000)
             .L64(0x0301_0300)
@@ -819,8 +808,8 @@ mod tests {
             .mark(&start)
             .L32(0xffff_ffff)
             .L64(&size)
-            .L16(5)
-            .L8(8)
+            .L16(encoding.version)
+            .L8(encoding.address_size)
             .L8(0)
             .L32(0)
             .mark(&first)
@@ -859,13 +848,8 @@ mod tests {
         let buf = section.get_contents().unwrap();
         let debug_loc = DebugLoc::new(&[], LittleEndian);
         let debug_loclists = DebugLocLists::new(&buf, LittleEndian);
-        let loclists = LocationLists::new(debug_loc, debug_loclists).unwrap();
+        let loclists = LocationLists::new(debug_loc, debug_loclists);
         let offset = LocationListsOffset((&first - &start) as usize);
-        let encoding = Encoding {
-            format: Format::Dwarf64,
-            version: 5,
-            address_size: 0,
-        };
         let mut locations = loclists
             .locations(offset, encoding, 0x0100_0000, debug_addr, debug_addr_base)
             .unwrap();
@@ -1059,7 +1043,7 @@ mod tests {
         let buf = section.get_contents().unwrap();
         let debug_loc = DebugLoc::new(&buf, LittleEndian);
         let debug_loclists = DebugLocLists::new(&[], LittleEndian);
-        let loclists = LocationLists::new(debug_loc, debug_loclists).unwrap();
+        let loclists = LocationLists::new(debug_loc, debug_loclists);
         let offset = LocationListsOffset((&first - &start) as usize);
         let debug_addr = &DebugAddr::from(EndianSlice::new(&[], LittleEndian));
         let debug_addr_base = DebugAddrBase(0);
@@ -1189,7 +1173,7 @@ mod tests {
         let buf = section.get_contents().unwrap();
         let debug_loc = DebugLoc::new(&buf, LittleEndian);
         let debug_loclists = DebugLocLists::new(&[], LittleEndian);
-        let loclists = LocationLists::new(debug_loc, debug_loclists).unwrap();
+        let loclists = LocationLists::new(debug_loc, debug_loclists);
         let offset = LocationListsOffset((&first - &start) as usize);
         let debug_addr = &DebugAddr::from(EndianSlice::new(&[], LittleEndian));
         let debug_addr_base = DebugAddrBase(0);
@@ -1300,7 +1284,7 @@ mod tests {
         let buf = section.get_contents().unwrap();
         let debug_loc = DebugLoc::new(&buf, LittleEndian);
         let debug_loclists = DebugLocLists::new(&[], LittleEndian);
-        let loclists = LocationLists::new(debug_loc, debug_loclists).unwrap();
+        let loclists = LocationLists::new(debug_loc, debug_loclists);
         let debug_addr = &DebugAddr::from(EndianSlice::new(&[], LittleEndian));
         let debug_addr_base = DebugAddrBase(0);
         let encoding = Encoding {
@@ -1349,6 +1333,12 @@ mod tests {
     #[test]
     fn test_get_offset() {
         for format in vec![Format::Dwarf32, Format::Dwarf64] {
+            let encoding = Encoding {
+                format,
+                version: 5,
+                address_size: 4,
+            };
+
             let zero = Label::new();
             let length = Label::new();
             let start = Label::new();
@@ -1357,8 +1347,8 @@ mod tests {
             let mut section = Section::with_endian(Endian::Little)
                 .mark(&zero)
                 .initial_length(format, &length, &start)
-                .D16(5)
-                .D8(4)
+                .D16(encoding.version)
+                .D8(encoding.address_size)
                 .D8(0)
                 .D32(20)
                 .mark(&first);
@@ -1371,15 +1361,15 @@ mod tests {
 
             let debug_loc = DebugLoc::from(EndianSlice::new(&[], LittleEndian));
             let debug_loclists = DebugLocLists::from(EndianSlice::new(&section, LittleEndian));
-            let locations = LocationLists::new(debug_loc, debug_loclists).unwrap();
+            let locations = LocationLists::new(debug_loc, debug_loclists);
 
             let base = DebugLocListsBase((&first - &zero) as usize);
             assert_eq!(
-                locations.get_offset(base, DebugLocListsIndex(0)),
+                locations.get_offset(encoding, base, DebugLocListsIndex(0)),
                 Ok(LocationListsOffset(base.0 + 1000))
             );
             assert_eq!(
-                locations.get_offset(base, DebugLocListsIndex(19)),
+                locations.get_offset(encoding, base, DebugLocListsIndex(19)),
                 Ok(LocationListsOffset(base.0 + 1019))
             );
         }

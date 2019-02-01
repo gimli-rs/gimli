@@ -234,7 +234,7 @@ fn bench_parsing_debug_loc(b: &mut test::Bencher) {
     let debug_loc = read_section("debug_loc");
     let debug_loc = DebugLoc::new(&debug_loc, LittleEndian);
     let debug_loclists = DebugLocLists::new(&[], LittleEndian);
-    let loclists = LocationLists::new(debug_loc, debug_loclists).expect("Should parse loclists");
+    let loclists = LocationLists::new(debug_loc, debug_loclists);
 
     let mut offsets = Vec::new();
 
@@ -296,7 +296,7 @@ fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
     let debug_ranges = read_section("debug_ranges");
     let debug_ranges = DebugRanges::new(&debug_ranges, LittleEndian);
     let debug_rnglists = DebugRngLists::new(&[], LittleEndian);
-    let rnglists = RangeLists::new(debug_ranges, debug_rnglists).expect("Should parse rnglists");
+    let rnglists = RangeLists::new(debug_ranges, debug_rnglists);
 
     let mut offsets = Vec::new();
 
@@ -473,7 +473,7 @@ fn bench_parsing_debug_loc_expressions(b: &mut test::Bencher) {
     let debug_loc = read_section("debug_loc");
     let debug_loc = DebugLoc::new(&debug_loc, LittleEndian);
     let debug_loclists = DebugLocLists::new(&[], LittleEndian);
-    let loclists = LocationLists::new(debug_loc, debug_loclists).expect("Should parse loclists");
+    let loclists = LocationLists::new(debug_loc, debug_loclists);
 
     let expressions = debug_loc_expressions(&debug_info, &debug_abbrev, &debug_addr, &loclists);
 
@@ -500,7 +500,7 @@ fn bench_evaluating_debug_loc_expressions(b: &mut test::Bencher) {
     let debug_loc = read_section("debug_loc");
     let debug_loc = DebugLoc::new(&debug_loc, LittleEndian);
     let debug_loclists = DebugLocLists::new(&[], LittleEndian);
-    let loclists = LocationLists::new(debug_loc, debug_loclists).expect("Should parse loclists");
+    let loclists = LocationLists::new(debug_loc, debug_loclists);
 
     let expressions = debug_loc_expressions(&debug_info, &debug_abbrev, &debug_addr, &loclists);
 

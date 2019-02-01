@@ -537,11 +537,11 @@ where
 
     let debug_loc = load_section(&arena, file, endian);
     let debug_loclists = load_section(&arena, file, endian);
-    let locations = gimli::LocationLists::new(debug_loc, debug_loclists)?;
+    let locations = gimli::LocationLists::new(debug_loc, debug_loclists);
 
     let debug_ranges = load_section(&arena, file, endian);
     let debug_rnglists = load_section(&arena, file, endian);
-    let ranges = gimli::RangeLists::new(debug_ranges, debug_rnglists)?;
+    let ranges = gimli::RangeLists::new(debug_ranges, debug_rnglists);
 
     let dwarf = gimli::Dwarf {
         endian,
@@ -1231,7 +1231,9 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "<.debug_loclists+0x{:08x}>", base.0)?;
         }
         gimli::AttributeValue::DebugLocListsIndex(index) => {
-            let offset = dwarf.locations.get_offset(unit.loclists_base, index)?;
+            let offset = dwarf
+                .locations
+                .get_offset(unit.encoding, unit.loclists_base, index)?;
             writeln!(w, "0x{:08x}", offset.0)?;
             dump_loc_list(w, offset, unit, dwarf)?;
         }
@@ -1246,7 +1248,9 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "<.debug_rnglists+0x{:08x}>", base.0)?;
         }
         gimli::AttributeValue::DebugRngListsIndex(index) => {
-            let offset = dwarf.ranges.get_offset(unit.rnglists_base, index)?;
+            let offset = dwarf
+                .ranges
+                .get_offset(unit.encoding, unit.rnglists_base, index)?;
             writeln!(w, "0x{:08x}", offset.0)?;
             dump_range_list(w, offset, unit, dwarf)?;
         }
