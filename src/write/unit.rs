@@ -1671,8 +1671,8 @@ mod tests {
             assert_eq!(unit1.address_size(), read_unit1.address_size());
             assert_eq!(unit1.format(), read_unit1.format());
 
-            let abbrevs = dwarf.abbreviations(&read_unit1).unwrap();
-            let mut read_entries = read_unit1.entries(&abbrevs);
+            let read_unit1 = read::DwarfUnit::new(&dwarf, read_unit1.header()).unwrap();
+            let mut read_entries = read_unit1.entries();
 
             let root = unit1.get(unit1.root());
             {
@@ -1690,7 +1690,13 @@ mod tests {
                     .attr_value(constants::DW_AT_producer)
                     .unwrap()
                     .unwrap();
-                assert_eq!(dwarf.attr_string(read_producer).unwrap().slice(), producer);
+                assert_eq!(
+                    dwarf
+                        .attr_string(&read_unit1, read_producer)
+                        .unwrap()
+                        .slice(),
+                    producer
+                );
             }
 
             let mut children = root.children().cloned();
@@ -1714,7 +1720,10 @@ mod tests {
                     .attr_value(constants::DW_AT_name)
                     .unwrap()
                     .unwrap();
-                assert_eq!(dwarf.attr_string(read_name).unwrap().slice(), name);
+                assert_eq!(
+                    dwarf.attr_string(&read_unit1, read_name).unwrap().slice(),
+                    name
+                );
             }
 
             {
@@ -1736,7 +1745,10 @@ mod tests {
                     .attr_value(constants::DW_AT_name)
                     .unwrap()
                     .unwrap();
-                assert_eq!(dwarf.attr_string(read_name).unwrap().slice(), name);
+                assert_eq!(
+                    dwarf.attr_string(&read_unit1, read_name).unwrap().slice(),
+                    name
+                );
             }
 
             assert!(read_entries.next_dfs().unwrap().is_none());

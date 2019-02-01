@@ -232,6 +232,11 @@ where
         CompilationUnitHeader { header, offset }
     }
 
+    /// Return the `UnitHeader` containing common unit header fields.
+    pub fn header(self) -> UnitHeader<R, Offset> {
+        self.header
+    }
+
     /// Return the serialized size of the compilation unit header for the given
     /// DWARF format.
     pub fn size_of_header(format: Format) -> usize {
@@ -2897,6 +2902,11 @@ where
             type_signature,
             type_offset,
         }
+    }
+
+    /// Return the `UnitHeader` containing common unit fields.
+    pub fn header(self) -> UnitHeader<R, Offset> {
+        self.header
     }
 
     /// Return the serialized size of the type-unit header for the given
