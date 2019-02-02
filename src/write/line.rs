@@ -822,9 +822,13 @@ pub enum LineString {
 
 impl LineString {
     /// Create a `LineString` using the normal form for the given encoding.
-    pub fn new(val: &[u8], encoding: Encoding, line_strings: &mut LineStringTable) -> Self {
+    pub fn new<T>(val: T, encoding: Encoding, line_strings: &mut LineStringTable) -> Self
+    where
+        T: Into<Vec<u8>>,
+    {
+        let val = val.into();
         if encoding.version <= 4 {
-            LineString::String(val.to_vec())
+            LineString::String(val)
         } else {
             LineString::LineStringRef(line_strings.add(val))
         }
