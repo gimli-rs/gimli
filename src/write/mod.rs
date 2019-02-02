@@ -4,6 +4,7 @@ use std::error;
 use std::fmt;
 use std::ops::DerefMut;
 use std::result;
+use std::sync::atomic;
 
 mod endian_vec;
 pub use self::endian_vec::*;
@@ -56,16 +57,44 @@ macro_rules! define_section {
     };
 }
 
+macro_rules! define_id {
+    ($name:ident, $docs:expr) => {
+        #[doc=$docs]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub struct $name {
+            base_id: BaseId,
+            index: usize,
+        }
+
+        impl $name {
+            #[inline]
+            fn new(base_id: BaseId, index: usize) -> Self {
+                $name { base_id, index }
+            }
+        }
+    };
+}
+
 macro_rules! define_offsets {
     ($offsets:ident: $id:ident => $offset:ident, $off_doc:expr) => {
         #[doc=$off_doc]
-        #[derive(Debug, Default)]
+        #[derive(Debug)]
         pub struct $offsets {
+            base_id: BaseId,
             // We know ids start at 0.
             offsets: Vec<$offset>,
         }
 
         impl $offsets {
+            /// Return an empty list of offsets.
+            #[inline]
+            pub fn none() -> Self {
+                $offsets {
+                    base_id: BaseId::default(),
+                    offsets: Vec::new(),
+                }
+            }
+
             /// Get the offset
             ///
             /// # Panics
@@ -73,7 +102,8 @@ macro_rules! define_offsets {
             /// Panics if `id` is invalid.
             #[inline]
             pub fn get(&self, id: $id) -> $offset {
-                self.offsets[id.0]
+                assert_eq!(self.base_id, id.base_id);
+                self.offsets[id.index]
             }
 
             /// Return the number of offsets.
@@ -234,6 +264,17 @@ pub enum Address {
         /// This will typically be used as the addend in a relocation.
         addend: i64,
     },
+}
+
+static BASE_ID: atomic::AtomicUsize = atomic::ATOMIC_USIZE_INIT;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct BaseId(usize);
+
+impl Default for BaseId {
+    fn default() -> Self {
+        BaseId(BASE_ID.fetch_add(1, atomic::Ordering::Relaxed))
+    }
 }
 
 #[cfg(feature = "read")]
