@@ -206,6 +206,12 @@ impl LineProgram {
         program
     }
 
+    /// Return the encoding parameters for this line program.
+    #[inline]
+    pub fn encoding(&self) -> Encoding {
+        self.encoding
+    }
+
     /// Return the DWARF version for this line program.
     #[inline]
     pub fn version(&self) -> u16 {
