@@ -544,7 +544,6 @@ where
     let ranges = gimli::RangeLists::new(debug_ranges, debug_rnglists);
 
     let dwarf = gimli::Dwarf {
-        endian,
         debug_abbrev,
         debug_addr,
         debug_info,
@@ -869,7 +868,7 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
     }
 }
 
-fn dump_info<R: Reader>(dwarf: &gimli::Dwarf<R, R::Endian>, flags: &Flags) -> Result<()>
+fn dump_info<R: Reader>(dwarf: &gimli::Dwarf<R>, flags: &Flags) -> Result<()>
 where
     R::Endian: Send + Sync,
 {
@@ -879,26 +878,20 @@ where
     let units = dwarf.units().collect::<Vec<_>>().unwrap();
     let process_unit =
         |unit: CompilationUnitHeader<R, R::Offset>, buf: &mut Vec<u8>| -> Result<()> {
-            let abbrevs = match dwarf.abbreviations(&unit) {
-                Ok(abbrevs) => abbrevs,
+            let offset = unit.offset().0;
+            let unit = match gimli::DwarfUnit::new(dwarf, unit.header()) {
+                Ok(unit) => unit,
                 Err(err) => {
                     writeln!(
                         buf,
-                        "Failed to parse abbreviations: {}",
+                        "Failed to parse unit root entry: {}",
                         error::Error::description(&err)
                     )?;
                     return Ok(());
                 }
             };
 
-            let entries_result = dump_entries(
-                buf,
-                unit.offset().0,
-                unit.entries(&abbrevs),
-                unit.encoding(),
-                dwarf,
-                flags,
-            );
+            let entries_result = dump_entries(buf, offset, unit, dwarf, flags);
             if let Err(err) = entries_result {
                 writeln!(
                     buf,
@@ -923,28 +916,16 @@ where
 
 fn dump_types<R: Reader, W: Write>(
     w: &mut W,
-    dwarf: &gimli::Dwarf<R, R::Endian>,
+    dwarf: &gimli::Dwarf<R>,
     flags: &Flags,
 ) -> Result<()> {
     writeln!(w, "\n.debug_types")?;
 
     let mut iter = dwarf.type_units();
     while let Some(unit) = iter.next()? {
-        let abbrevs = match dwarf.type_abbreviations(&unit) {
-            Ok(abbrevs) => abbrevs,
-            Err(err) => {
-                writeln!(
-                    w,
-                    "Failed to parse abbreviations: {}",
-                    error::Error::description(&err)
-                )?;
-                continue;
-            }
-        };
-
         writeln!(w, "\nCU_HEADER:")?;
         write!(w, "  signature        = ")?;
-        dump_type_signature(w, unit.type_signature(), dwarf.endian)?;
+        dump_type_signature(w, unit.type_signature())?;
         writeln!(w)?;
         writeln!(
             w,
@@ -953,14 +934,19 @@ fn dump_types<R: Reader, W: Write>(
             unit.type_offset().0
         )?;
 
-        let entries_result = dump_entries(
-            w,
-            unit.offset().0,
-            unit.entries(&abbrevs),
-            unit.encoding(),
-            dwarf,
-            flags,
-        );
+        let offset = unit.offset().0;
+        let unit = match gimli::DwarfUnit::new(dwarf, unit.header()) {
+            Ok(unit) => unit,
+            Err(err) => {
+                writeln!(
+                    w,
+                    "Failed to parse unit root entry: {}",
+                    error::Error::description(&err)
+                )?;
+                return Ok(());
+            }
+        };
+        let entries_result = dump_entries(w, offset, unit, dwarf, flags);
         if let Err(err) = entries_result {
             writeln!(
                 w,
@@ -972,19 +958,6 @@ fn dump_types<R: Reader, W: Write>(
     Ok(())
 }
 
-// TODO: most of this should be moved to the main library.
-struct Unit<R: Reader> {
-    encoding: gimli::Encoding,
-    base_address: u64,
-    line_program: Option<gimli::IncompleteLineProgram<R>>,
-    comp_dir: Option<gimli::AttributeValue<R>>,
-    comp_name: Option<gimli::AttributeValue<R>>,
-    str_offsets_base: gimli::DebugStrOffsetsBase,
-    addr_base: gimli::DebugAddrBase,
-    loclists_base: gimli::DebugLocListsBase,
-    rnglists_base: gimli::DebugRngListsBase,
-}
-
 fn spaces(buf: &mut String, len: usize) -> &str {
     while buf.len() < len {
         buf.push(' ');
@@ -992,32 +965,18 @@ fn spaces(buf: &mut String, len: usize) -> &str {
     &buf[..len]
 }
 
-#[allow(clippy::too_many_arguments)]
 fn dump_entries<R: Reader, W: Write>(
     w: &mut W,
     offset: R::Offset,
-    mut entries: gimli::EntriesCursor<R>,
-    encoding: gimli::Encoding,
-    dwarf: &gimli::Dwarf<R, R::Endian>,
+    unit: gimli::DwarfUnit<R>,
+    dwarf: &gimli::Dwarf<R>,
     flags: &Flags,
 ) -> Result<()> {
-    let mut unit = Unit {
-        encoding,
-        base_address: 0,
-        line_program: None,
-        comp_dir: None,
-        comp_name: None,
-        // Defaults to 0 for GNU extensions
-        str_offsets_base: gimli::DebugStrOffsetsBase(0),
-        addr_base: gimli::DebugAddrBase(0),
-        loclists_base: gimli::DebugLocListsBase(0),
-        rnglists_base: gimli::DebugRngListsBase(0),
-    };
-
     let mut spaces_buf = String::new();
 
     let mut print_local = true;
     let mut depth = 0;
+    let mut entries = unit.entries();
     while let Some((delta_depth, entry)) = entries.next_dfs()? {
         depth += delta_depth;
         assert!(depth >= 0);
@@ -1042,47 +1001,6 @@ fn dump_entries<R: Reader, W: Write>(
             spaces(&mut spaces_buf, indent),
             entry.tag()
         )?;
-
-        if entry.tag() == gimli::DW_TAG_compile_unit || entry.tag() == gimli::DW_TAG_type_unit {
-            unit.base_address = match entry.attr_value(gimli::DW_AT_low_pc)? {
-                Some(gimli::AttributeValue::Addr(address)) => address,
-                _ => 0,
-            };
-            unit.comp_dir = entry.attr_value(gimli::DW_AT_comp_dir)?;
-            unit.comp_name = entry.attr_value(gimli::DW_AT_name)?;
-            unit.line_program = match entry.attr_value(gimli::DW_AT_stmt_list)? {
-                Some(gimli::AttributeValue::DebugLineRef(offset)) => dwarf
-                    .debug_line
-                    .program(
-                        offset,
-                        unit.encoding.address_size,
-                        unit.comp_dir.clone(),
-                        unit.comp_name.clone(),
-                    )
-                    .ok(),
-                _ => None,
-            };
-            if let Some(gimli::AttributeValue::DebugStrOffsetsBase(base)) =
-                entry.attr_value(gimli::DW_AT_str_offsets_base)?
-            {
-                unit.str_offsets_base = base;
-            }
-            if let Some(gimli::AttributeValue::DebugAddrBase(base)) =
-                entry.attr_value(gimli::DW_AT_addr_base)?
-            {
-                unit.addr_base = base;
-            }
-            if let Some(gimli::AttributeValue::DebugLocListsBase(base)) =
-                entry.attr_value(gimli::DW_AT_loclists_base)?
-            {
-                unit.loclists_base = base;
-            }
-            if let Some(gimli::AttributeValue::DebugRngListsBase(base)) =
-                entry.attr_value(gimli::DW_AT_rnglists_base)?
-            {
-                unit.rnglists_base = base;
-            }
-        }
 
         let mut attrs = entry.attrs();
         while let Some(attr) = attrs.next()? {
@@ -1113,8 +1031,8 @@ fn dump_entries<R: Reader, W: Write>(
 fn dump_attr_value<R: Reader, W: Write>(
     w: &mut W,
     attr: &gimli::Attribute<R>,
-    unit: &Unit<R>,
-    dwarf: &gimli::Dwarf<R, R::Endian>,
+    unit: &gimli::DwarfUnit<R>,
+    dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     let value = attr.value();
     match value {
@@ -1206,10 +1124,7 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "<.debug_addr+0x{:08x}>", base.0)?;
         }
         gimli::AttributeValue::DebugAddrIndex(index) => {
-            let address =
-                dwarf
-                    .debug_addr
-                    .get_address(unit.encoding.address_size, unit.addr_base, index)?;
+            let address = dwarf.address(unit, index)?;
             writeln!(w, "0x{:08x}", address)?;
         }
         gimli::AttributeValue::UnitRef(gimli::UnitOffset(offset)) => {
@@ -1225,15 +1140,14 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "0x{:08x}", offset)?;
         }
         gimli::AttributeValue::LocationListsRef(offset) => {
+            writeln!(w, "0x{:08x}", offset.0)?;
             dump_loc_list(w, offset, unit, dwarf)?;
         }
         gimli::AttributeValue::DebugLocListsBase(base) => {
             writeln!(w, "<.debug_loclists+0x{:08x}>", base.0)?;
         }
         gimli::AttributeValue::DebugLocListsIndex(index) => {
-            let offset = dwarf
-                .locations
-                .get_offset(unit.encoding, unit.loclists_base, index)?;
+            let offset = dwarf.locations_offset(unit, index)?;
             writeln!(w, "0x{:08x}", offset.0)?;
             dump_loc_list(w, offset, unit, dwarf)?;
         }
@@ -1248,14 +1162,12 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "<.debug_rnglists+0x{:08x}>", base.0)?;
         }
         gimli::AttributeValue::DebugRngListsIndex(index) => {
-            let offset = dwarf
-                .ranges
-                .get_offset(unit.encoding, unit.rnglists_base, index)?;
+            let offset = dwarf.ranges_offset(unit, index)?;
             writeln!(w, "0x{:08x}", offset.0)?;
             dump_range_list(w, offset, unit, dwarf)?;
         }
         gimli::AttributeValue::DebugTypesRef(signature) => {
-            dump_type_signature(w, signature, dwarf.endian)?;
+            dump_type_signature(w, signature)?;
             writeln!(w, " <type signature>")?;
         }
         gimli::AttributeValue::DebugStrRef(offset) => {
@@ -1273,7 +1185,7 @@ fn dump_attr_value<R: Reader, W: Write>(
         }
         gimli::AttributeValue::DebugStrOffsetsIndex(index) => {
             let offset = dwarf.debug_str_offsets.get_str_offset(
-                unit.encoding.format,
+                unit.encoding().format,
                 unit.str_offsets_base,
                 index,
             )?;
@@ -1339,26 +1251,16 @@ fn dump_attr_value<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_type_signature<Endian: gimli::Endianity, W: Write>(
-    w: &mut W,
-    signature: gimli::DebugTypeSignature,
-    endian: Endian,
-) -> Result<()> {
-    // Convert back to bytes so we can match libdwarf-dwarfdump output.
-    let mut buf = [0; 8];
-    endian.write_u64(&mut buf, signature.0);
-    write!(w, "0x")?;
-    for byte in &buf {
-        write!(w, "{:02x}", byte)?;
-    }
+fn dump_type_signature<W: Write>(w: &mut W, signature: gimli::DebugTypeSignature) -> Result<()> {
+    write!(w, "0x{:016x}", signature.0)?;
     Ok(())
 }
 
 fn dump_file_index<R: Reader, W: Write>(
     w: &mut W,
     file: u64,
-    unit: &Unit<R>,
-    dwarf: &gimli::Dwarf<R, R::Endian>,
+    unit: &gimli::DwarfUnit<R>,
+    dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     if file == 0 {
         return Ok(());
@@ -1376,14 +1278,16 @@ fn dump_file_index<R: Reader, W: Write>(
     };
     write!(w, " ")?;
     if let Some(directory) = file.directory(header) {
-        let directory = dwarf.attr_string(directory)?;
+        let directory = dwarf.attr_string(unit, directory)?;
         let directory = directory.to_string_lossy()?;
         if !directory.starts_with('/') {
             if let Some(ref comp_dir) = unit.comp_dir {
                 write!(
                     w,
                     "{}/",
-                    dwarf.attr_string(comp_dir.clone())?.to_string_lossy()?
+                    dwarf
+                        .attr_string(unit, comp_dir.clone())?
+                        .to_string_lossy()?
                 )?;
             }
         }
@@ -1392,7 +1296,9 @@ fn dump_file_index<R: Reader, W: Write>(
     write!(
         w,
         "{}",
-        dwarf.attr_string(file.path_name())?.to_string_lossy()?
+        dwarf
+            .attr_string(unit, file.path_name())?
+            .to_string_lossy()?
     )?;
     Ok(())
 }
@@ -1400,14 +1306,14 @@ fn dump_file_index<R: Reader, W: Write>(
 fn dump_exprloc<R: Reader, W: Write>(
     w: &mut W,
     data: &gimli::Expression<R>,
-    unit: &Unit<R>,
+    unit: &gimli::DwarfUnit<R>,
 ) -> Result<()> {
     let mut pc = data.0.clone();
     let mut space = false;
     while pc.len() != 0 {
         let mut op_pc = pc.clone();
         let dwop = gimli::DwOp(op_pc.read_u8()?);
-        match gimli::Operation::parse(&mut pc, &data.0, unit.encoding) {
+        match gimli::Operation::parse(&mut pc, &data.0, unit.encoding()) {
             Ok(op) => {
                 if space {
                     write!(w, " ")?;
@@ -1603,19 +1509,12 @@ fn dump_op<R: Reader, W: Write>(
 fn dump_loc_list<R: Reader, W: Write>(
     w: &mut W,
     offset: gimli::LocationListsOffset<R::Offset>,
-    unit: &Unit<R>,
-    dwarf: &gimli::Dwarf<R, R::Endian>,
+    unit: &gimli::DwarfUnit<R>,
+    dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
-    let raw_locations = dwarf.locations.raw_locations(offset, unit.encoding)?;
+    let raw_locations = dwarf.locations.raw_locations(offset, unit.encoding())?;
     let raw_locations: Vec<_> = raw_locations.collect()?;
-    let mut locations = dwarf.locations.locations(
-        offset,
-        unit.encoding,
-        unit.base_address,
-        &dwarf.debug_addr,
-        unit.addr_base,
-    )?;
-
+    let mut locations = dwarf.locations(unit, offset)?;
     writeln!(
         w,
         "<loclist at offset 0x{:08x} with {} entries follows>",
@@ -1629,11 +1528,7 @@ fn dump_loc_list<R: Reader, W: Write>(
                 writeln!(w, "<new base address 0x{:08x}>", addr)?;
             }
             gimli::RawLocListEntry::BaseAddressx { addr } => {
-                let addr_val = dwarf.debug_addr.get_address(
-                    unit.encoding.address_size,
-                    unit.addr_base,
-                    addr,
-                )?;
+                let addr_val = dwarf.address(unit, addr)?;
                 writeln!(w, "<new base addressx [{}]0x{:08x}>", addr.0, addr_val)?;
             }
             gimli::RawLocListEntry::StartxEndx {
@@ -1641,16 +1536,8 @@ fn dump_loc_list<R: Reader, W: Write>(
                 end,
                 ref data,
             } => {
-                let begin_val = dwarf.debug_addr.get_address(
-                    unit.encoding.address_size,
-                    unit.addr_base,
-                    begin,
-                )?;
-                let end_val = dwarf.debug_addr.get_address(
-                    unit.encoding.address_size,
-                    unit.addr_base,
-                    end,
-                )?;
+                let begin_val = dwarf.address(unit, begin)?;
+                let end_val = dwarf.address(unit, end)?;
                 let location = locations.next()?.unwrap();
                 write!(
                     w,
@@ -1667,11 +1554,7 @@ fn dump_loc_list<R: Reader, W: Write>(
                 length,
                 ref data,
             } => {
-                let begin_val = dwarf.debug_addr.get_address(
-                    unit.encoding.address_size,
-                    unit.addr_base,
-                    begin,
-                )?;
+                let begin_val = dwarf.address(unit, begin)?;
                 let location = locations.next()?.unwrap();
                 write!(
                     w,
@@ -1744,23 +1627,17 @@ fn dump_loc_list<R: Reader, W: Write>(
 fn dump_range_list<R: Reader, W: Write>(
     w: &mut W,
     offset: gimli::RangeListsOffset<R::Offset>,
-    unit: &Unit<R>,
-    dwarf: &gimli::Dwarf<R, R::Endian>,
+    unit: &gimli::DwarfUnit<R>,
+    dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
-    let raw_ranges = dwarf.ranges.raw_ranges(offset, unit.encoding)?;
+    let raw_ranges = dwarf.ranges.raw_ranges(offset, unit.encoding())?;
     let raw_ranges: Vec<_> = raw_ranges.collect()?;
-    let mut ranges = dwarf.ranges.ranges(
-        offset,
-        unit.encoding,
-        unit.base_address,
-        &dwarf.debug_addr,
-        unit.addr_base,
-    )?;
+    let mut ranges = dwarf.ranges(unit, offset)?;
     writeln!(
         w,
         "\t\tranges: {} at {} offset {} (0x{:08x})",
         raw_ranges.len(),
-        if unit.encoding.version < 5 {
+        if unit.encoding().version < 5 {
             ".debug_ranges"
         } else {
             ".debug_rnglists"
@@ -1785,24 +1662,12 @@ fn dump_range_list<R: Reader, W: Write>(
                 writeln!(w, "<new base address 0x{:08x}>", addr)?;
             }
             gimli::RawRngListEntry::BaseAddressx { addr } => {
-                let addr_val = dwarf.debug_addr.get_address(
-                    unit.encoding.address_size,
-                    unit.addr_base,
-                    addr,
-                )?;
+                let addr_val = dwarf.address(unit, addr)?;
                 writeln!(w, "<new base addressx [{}]0x{:08x}>", addr.0, addr_val)?;
             }
             gimli::RawRngListEntry::StartxEndx { begin, end } => {
-                let begin_val = dwarf.debug_addr.get_address(
-                    unit.encoding.address_size,
-                    unit.addr_base,
-                    begin,
-                )?;
-                let end_val = dwarf.debug_addr.get_address(
-                    unit.encoding.address_size,
-                    unit.addr_base,
-                    end,
-                )?;
+                let begin_val = dwarf.address(unit, begin)?;
+                let end_val = dwarf.address(unit, end)?;
                 let range = if begin_val == end_val {
                     gimli::Range {
                         begin: begin_val,
@@ -1820,11 +1685,7 @@ fn dump_range_list<R: Reader, W: Write>(
                 )?;
             }
             gimli::RawRngListEntry::StartxLength { begin, length } => {
-                let begin_val = dwarf.debug_addr.get_address(
-                    unit.encoding.address_size,
-                    unit.addr_base,
-                    begin,
-                )?;
+                let begin_val = dwarf.address(unit, begin)?;
                 let range = ranges.next()?.unwrap();
                 writeln!(
                     w,
@@ -1873,15 +1734,26 @@ fn dump_range_list<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R, R::Endian>) -> Result<()> {
+fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<()> {
     let mut iter = dwarf.units();
-    while let Some(ref unit) = iter.next()? {
+    while let Some(unit) = iter.next()? {
         writeln!(
             w,
             "\n.debug_line: line number info for unit at .debug_info offset 0x{:08x}",
             unit.offset().0
         )?;
-        match dump_line_program(w, unit, dwarf) {
+        let unit = match gimli::DwarfUnit::new(dwarf, unit.header()) {
+            Ok(unit) => unit,
+            Err(err) => {
+                writeln!(
+                    w,
+                    "Failed to parse unit root entry: {}",
+                    error::Error::description(&err)
+                )?;
+                return Ok(());
+            }
+        };
+        match dump_line_program(w, &unit, dwarf) {
             Ok(_) => (),
             Err(Error::IoError) => return Err(Error::IoError),
             Err(err) => writeln!(
@@ -1896,11 +1768,10 @@ fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R, R::Endian>)
 
 fn dump_line_program<R: Reader, W: Write>(
     w: &mut W,
-    unit: &CompilationUnitHeader<R, R::Offset>,
-    dwarf: &gimli::Dwarf<R, R::Endian>,
+    unit: &gimli::DwarfUnit<R>,
+    dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
-    let abbrevs = dwarf.abbreviations(unit)?;
-    if let Ok(Some(program)) = dwarf.line_program(unit, &abbrevs) {
+    if let Some(program) = unit.line_program.clone() {
         {
             let header = program.header();
             writeln!(w)?;
@@ -1979,7 +1850,7 @@ fn dump_line_program<R: Reader, W: Write>(
                     w,
                     "  {} {}",
                     base + i,
-                    dwarf.attr_string(dir.clone())?.to_string_lossy()?
+                    dwarf.attr_string(unit, dir.clone())?.to_string_lossy()?
                 )?;
             }
 
@@ -2009,7 +1880,9 @@ fn dump_line_program<R: Reader, W: Write>(
                 writeln!(
                     w,
                     "\t{}",
-                    dwarf.attr_string(file.path_name())?.to_string_lossy()?
+                    dwarf
+                        .attr_string(unit, file.path_name())?
+                        .to_string_lossy()?
                 )?;
             }
 
@@ -2061,14 +1934,18 @@ fn dump_line_program<R: Reader, W: Write>(
                         write!(
                             w,
                             " uri: \"{}/{}\"",
-                            dwarf.attr_string(directory)?.to_string_lossy()?,
-                            dwarf.attr_string(file.path_name())?.to_string_lossy()?
+                            dwarf.attr_string(unit, directory)?.to_string_lossy()?,
+                            dwarf
+                                .attr_string(unit, file.path_name())?
+                                .to_string_lossy()?
                         )?;
                     } else {
                         write!(
                             w,
                             " uri: \"{}\"",
-                            dwarf.attr_string(file.path_name())?.to_string_lossy()?
+                            dwarf
+                                .attr_string(unit, file.path_name())?
+                                .to_string_lossy()?
                         )?;
                     }
                 }
