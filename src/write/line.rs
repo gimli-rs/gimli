@@ -38,7 +38,7 @@ impl LineProgramTable {
     /// Panics if `id` is invalid.
     #[inline]
     pub fn get(&self, id: LineProgramId) -> &LineProgram {
-        assert_eq!(self.base_id, id.base_id);
+        debug_assert_eq!(self.base_id, id.base_id);
         &self.programs[id.index]
     }
 
@@ -49,7 +49,7 @@ impl LineProgramTable {
     /// Panics if `id` is invalid.
     #[inline]
     pub fn get_mut(&mut self, id: LineProgramId) -> &mut LineProgram {
-        assert_eq!(self.base_id, id.base_id);
+        debug_assert_eq!(self.base_id, id.base_id);
         &mut self.programs[id.index]
     }
 

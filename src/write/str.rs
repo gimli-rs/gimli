@@ -61,7 +61,7 @@ macro_rules! define_string_table {
             ///
             /// Panics if `id` is invalid.
             pub fn get(&self, id: $id) -> &[u8] {
-                assert_eq!(self.base_id, id.base_id);
+                debug_assert_eq!(self.base_id, id.base_id);
                 self.strings.get_index(id.index).map(Vec::as_slice).unwrap()
             }
 

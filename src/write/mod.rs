@@ -4,7 +4,6 @@ use std::error;
 use std::fmt;
 use std::ops::DerefMut;
 use std::result;
-use std::sync::atomic;
 
 mod endian_vec;
 pub use self::endian_vec::*;
@@ -102,7 +101,7 @@ macro_rules! define_offsets {
             /// Panics if `id` is invalid.
             #[inline]
             pub fn get(&self, id: $id) -> $offset {
-                assert_eq!(self.base_id, id.base_id);
+                debug_assert_eq!(self.base_id, id.base_id);
                 self.offsets[id.index]
             }
 
@@ -266,13 +265,19 @@ pub enum Address {
     },
 }
 
-static BASE_ID: atomic::AtomicUsize = atomic::ATOMIC_USIZE_INIT;
+// This type is only used in debug assertions.
+#[cfg(not(debug_assertions))]
+type BaseId = ();
 
+#[cfg(debug_assertions)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct BaseId(usize);
 
+#[cfg(debug_assertions)]
 impl Default for BaseId {
     fn default() -> Self {
+        use std::sync::atomic;
+        static BASE_ID: atomic::AtomicUsize = atomic::ATOMIC_USIZE_INIT;
         BaseId(BASE_ID.fetch_add(1, atomic::Ordering::Relaxed))
     }
 }

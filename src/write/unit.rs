@@ -71,7 +71,7 @@ impl UnitTable {
     /// Panics if `id` is invalid.
     #[inline]
     pub fn get(&self, id: UnitId) -> &CompilationUnit {
-        assert_eq!(self.base_id, id.base_id);
+        debug_assert_eq!(self.base_id, id.base_id);
         &self.units[id.index]
     }
 
@@ -82,7 +82,7 @@ impl UnitTable {
     /// Panics if `id` is invalid.
     #[inline]
     pub fn get_mut(&mut self, id: UnitId) -> &mut CompilationUnit {
-        assert_eq!(self.base_id, id.base_id);
+        debug_assert_eq!(self.base_id, id.base_id);
         &mut self.units[id.index]
     }
 
@@ -224,7 +224,7 @@ impl CompilationUnit {
     /// Panics if `parent` is invalid.
     #[inline]
     pub fn add(&mut self, parent: UnitEntryId, tag: constants::DwTag) -> UnitEntryId {
-        assert_eq!(self.base_id, parent.base_id);
+        debug_assert_eq!(self.base_id, parent.base_id);
         DebuggingInformationEntry::new(self.base_id, &mut self.entries, Some(parent), tag)
     }
 
@@ -235,7 +235,7 @@ impl CompilationUnit {
     /// Panics if `id` is invalid.
     #[inline]
     pub fn get(&self, id: UnitEntryId) -> &DebuggingInformationEntry {
-        assert_eq!(self.base_id, id.base_id);
+        debug_assert_eq!(self.base_id, id.base_id);
         &self.entries[id.index]
     }
 
@@ -246,7 +246,7 @@ impl CompilationUnit {
     /// Panics if `id` is invalid.
     #[inline]
     pub fn get_mut(&mut self, id: UnitEntryId) -> &mut DebuggingInformationEntry {
-        assert_eq!(self.base_id, id.base_id);
+        debug_assert_eq!(self.base_id, id.base_id);
         &mut self.entries[id.index]
     }
 
@@ -369,7 +369,7 @@ impl DebuggingInformationEntry {
             children: Vec::new(),
         });
         if let Some(parent) = parent {
-            assert_eq!(base_id, parent.base_id);
+            debug_assert_eq!(base_id, parent.base_id);
             assert_ne!(parent, id);
             entries[parent.index].children.push(id);
         }
@@ -1089,14 +1089,14 @@ impl DebugInfoOffsets {
     /// Get the `.debug_info` section offset for the given unit.
     #[inline]
     pub fn unit(&self, unit: UnitId) -> DebugInfoOffset {
-        assert_eq!(self.base_id, unit.base_id);
+        debug_assert_eq!(self.base_id, unit.base_id);
         self.units[unit.index].unit
     }
 
     /// Get the `.debug_info` section offset for the given entry.
     #[inline]
     pub fn entry(&self, unit: UnitId, entry: UnitEntryId) -> DebugInfoOffset {
-        assert_eq!(self.base_id, unit.base_id);
+        debug_assert_eq!(self.base_id, unit.base_id);
         self.units[unit.index].entry(entry)
     }
 }
@@ -1112,7 +1112,7 @@ struct UnitOffsets {
 impl UnitOffsets {
     #[inline]
     fn entry(&self, entry: UnitEntryId) -> DebugInfoOffset {
-        assert_eq!(self.base_id, entry.base_id);
+        debug_assert_eq!(self.base_id, entry.base_id);
         self.entries[entry.index]
     }
 }
