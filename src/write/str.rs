@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use vec::Vec;
 
 use common::{DebugLineStrOffset, DebugStrOffset};
-use write::{Result, Section, SectionId, Writer};
+use write::{BaseId, Result, Section, SectionId, Writer};
 
 // Requirements:
 // - values are `[u8]`, null bytes are not allowed
@@ -27,6 +27,7 @@ macro_rules! define_string_table {
         #[doc=$docs]
         #[derive(Debug, Default)]
         pub struct $name {
+            base_id: BaseId,
             strings: IndexSet<Vec<u8>>,
         }
 
@@ -45,7 +46,7 @@ macro_rules! define_string_table {
                 let bytes = bytes.into();
                 assert!(!bytes.contains(&0));
                 let (index, _) = self.strings.insert_full(bytes);
-                $id(index)
+                $id::new(self.base_id, index)
             }
 
             /// Return the number of strings in the table.
@@ -60,7 +61,8 @@ macro_rules! define_string_table {
             ///
             /// Panics if `id` is invalid.
             pub fn get(&self, id: $id) -> &[u8] {
-                self.strings.get_index(id.0).map(Vec::as_slice).unwrap()
+                debug_assert_eq!(self.base_id, id.base_id);
+                self.strings.get_index(id.index).map(Vec::as_slice).unwrap()
             }
 
             /// Write the string table to the `.debug_str` section.
@@ -74,15 +76,16 @@ macro_rules! define_string_table {
                     w.write_u8(0)?;
                 }
 
-                Ok($offsets { offsets })
+                Ok($offsets {
+                    base_id: self.base_id,
+                    offsets,
+                })
             }
         }
     };
 }
 
-/// An identifier for a string in a `StringTable`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct StringId(usize);
+define_id!(StringId, "An identifier for a string in a `StringTable`.");
 
 define_string_table!(
     StringTable,
@@ -99,9 +102,10 @@ define_offsets!(
     "The section offsets of all strings within a `.debug_str` section."
 );
 
-/// An identifier for a string in a `LineStringTable`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct LineStringId(usize);
+define_id!(
+    LineStringId,
+    "An identifier for a string in a `LineStringTable`."
+);
 
 define_string_table!(
     LineStringTable,

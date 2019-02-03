@@ -70,14 +70,14 @@ fn test_convert_debug_info() {
     .expect("Should convert compilation units");
     assert_eq!(units.count(), 23);
     let entries: usize = (0..units.count())
-        .map(|id| units.get(write::UnitId(id)).count())
+        .map(|i| units.get(units.id(i)).count())
         .sum();
     assert_eq!(entries, 29_560);
     assert_eq!(line_strings.count(), 0);
     assert_eq!(strings.count(), 3921);
 
     // Write to new sections
-    let debug_line_str_offsets = write::DebugLineStrOffsets::default();
+    let debug_line_str_offsets = write::DebugLineStrOffsets::none();
 
     let mut write_debug_str = write::DebugStr::from(EndianVec::new(LittleEndian));
     let debug_str_offsets = strings
@@ -153,7 +153,7 @@ fn test_convert_debug_info() {
     .expect("Should convert compilation units");
     assert_eq!(units.count(), 23);
     let entries: usize = (0..units.count())
-        .map(|id| units.get(write::UnitId(id)).count())
+        .map(|i| units.get(units.id(i)).count())
         .sum();
     assert_eq!(entries, 29_560);
     assert_eq!(line_programs.count(), 23);

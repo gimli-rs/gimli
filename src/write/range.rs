@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use vec::Vec;
 
 use common::{Encoding, RangeListsOffset};
-use write::{Address, Error, Result, Section, SectionId, Writer};
+use write::{Address, BaseId, Error, Result, Section, SectionId, Writer};
 
 define_section!(
     DebugRanges,
@@ -21,21 +21,23 @@ define_offsets!(
     "The section offsets of a series of range lists within the `.debug_ranges` or `.debug_rnglists` sections."
 );
 
-/// An identifier for a range list in a `RangeListTable`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct RangeListId(pub usize);
+define_id!(
+    RangeListId,
+    "An identifier for a range list in a `RangeListTable`."
+);
 
 /// A table of range lists that will be stored in a `.debug_ranges` or `.debug_rnglists` section.
 #[derive(Debug, Default)]
 pub struct RangeListTable {
+    base_id: BaseId,
     ranges: IndexSet<RangeList>,
 }
 
 impl RangeListTable {
     /// Add a range list to the table.
     pub fn add(&mut self, range_list: RangeList) -> RangeListId {
-        let (id, _) = self.ranges.insert_full(range_list);
-        RangeListId(id)
+        let (index, _) = self.ranges.insert_full(range_list);
+        RangeListId::new(self.base_id, index)
     }
 
     /// Write the range list table to the appropriate section for the given DWARF version.
@@ -46,7 +48,7 @@ impl RangeListTable {
         encoding: Encoding,
     ) -> Result<RangeListOffsets> {
         if self.ranges.is_empty() {
-            return Ok(RangeListOffsets::default());
+            return Ok(RangeListOffsets::none());
         }
 
         match encoding.version {
@@ -108,7 +110,10 @@ impl RangeListTable {
             w.write_word(0, address_size)?;
             w.write_word(0, address_size)?;
         }
-        Ok(RangeListOffsets { offsets })
+        Ok(RangeListOffsets {
+            base_id: self.base_id,
+            offsets,
+        })
     }
 
     /// Write the range list table to the `.debug_rnglists` section.
@@ -164,7 +169,10 @@ impl RangeListTable {
         let length = (w.len() - length_base) as u64;
         w.write_initial_length_at(length_offset, length, encoding.format)?;
 
-        Ok(RangeListOffsets { offsets })
+        Ok(RangeListOffsets {
+            base_id: self.base_id,
+            offsets,
+        })
     }
 }
 

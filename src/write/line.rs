@@ -6,20 +6,21 @@ use common::{DebugLineOffset, Encoding, Format};
 use constants;
 use leb128;
 use write::{
-    Address, DebugLineStrOffsets, DebugStrOffsets, Error, LineStringId, LineStringTable, Result,
-    Section, SectionId, StringId, Writer,
+    Address, BaseId, DebugLineStrOffsets, DebugStrOffsets, Error, LineStringId, LineStringTable,
+    Result, Section, SectionId, StringId, Writer,
 };
 
 /// A table of line number programs that will be stored in a `.debug_line` section.
 #[derive(Debug, Default)]
 pub struct LineProgramTable {
+    base_id: BaseId,
     programs: Vec<LineProgram>,
 }
 
 impl LineProgramTable {
     /// Add a line number program to the table.
     pub fn add(&mut self, program: LineProgram) -> LineProgramId {
-        let id = LineProgramId(self.programs.len());
+        let id = LineProgramId::new(self.base_id, self.programs.len());
         self.programs.push(program);
         id
     }
@@ -37,7 +38,8 @@ impl LineProgramTable {
     /// Panics if `id` is invalid.
     #[inline]
     pub fn get(&self, id: LineProgramId) -> &LineProgram {
-        &self.programs[id.0]
+        debug_assert_eq!(self.base_id, id.base_id);
+        &self.programs[id.index]
     }
 
     /// Get a mutable reference to a line number program.
@@ -47,7 +49,8 @@ impl LineProgramTable {
     /// Panics if `id` is invalid.
     #[inline]
     pub fn get_mut(&mut self, id: LineProgramId) -> &mut LineProgram {
-        &mut self.programs[id.0]
+        debug_assert_eq!(self.base_id, id.base_id);
+        &mut self.programs[id.index]
     }
 
     /// Write the line number programs to the given section.
@@ -61,13 +64,17 @@ impl LineProgramTable {
         for program in &self.programs {
             offsets.push(program.write(debug_line, debug_line_str_offsets, debug_str_offsets)?);
         }
-        Ok(DebugLineOffsets { offsets })
+        Ok(DebugLineOffsets {
+            base_id: self.base_id,
+            offsets,
+        })
     }
 }
 
-/// An identifier for a `LineProgram` in a `LineProgramTable`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct LineProgramId(pub usize);
+define_id!(
+    LineProgramId,
+    "An identifier for a `LineProgram` in a `LineProgramTable`."
+);
 
 /// The initial value of the `is_statement` register.
 //
@@ -1213,8 +1220,8 @@ mod tests {
 
         assert_eq!(programs.count(), program_ids.len());
 
-        let debug_line_str_offsets = DebugLineStrOffsets::default();
-        let debug_str_offsets = DebugStrOffsets::default();
+        let debug_line_str_offsets = DebugLineStrOffsets::none();
+        let debug_str_offsets = DebugStrOffsets::none();
         let mut debug_line = DebugLine::from(EndianVec::new(LittleEndian));
         let debug_line_offsets = programs
             .write(&mut debug_line, &debug_line_str_offsets, &debug_str_offsets)
@@ -1278,8 +1285,8 @@ mod tests {
         let file2 = &b"file2"[..];
         let convert_address = &|address| Some(Address::Absolute(address));
 
-        let debug_line_str_offsets = DebugLineStrOffsets::default();
-        let debug_str_offsets = DebugStrOffsets::default();
+        let debug_line_str_offsets = DebugLineStrOffsets::none();
+        let debug_str_offsets = DebugStrOffsets::none();
 
         for &version in &[2, 3, 4, 5] {
             for &address_size in &[4, 8] {
@@ -1587,8 +1594,8 @@ mod tests {
         let dir1 = &b"dir1"[..];
         let file1 = &b"file1"[..];
 
-        let debug_line_str_offsets = DebugLineStrOffsets::default();
-        let debug_str_offsets = DebugStrOffsets::default();
+        let debug_line_str_offsets = DebugLineStrOffsets::none();
+        let debug_str_offsets = DebugStrOffsets::none();
 
         for &version in &[2, 3, 4, 5] {
             for &address_size in &[4, 8] {
@@ -1731,8 +1738,8 @@ mod tests {
         let addresses = 0..50;
         let lines = -10..25i64;
 
-        let debug_line_str_offsets = DebugLineStrOffsets::default();
-        let debug_str_offsets = DebugStrOffsets::default();
+        let debug_line_str_offsets = DebugLineStrOffsets::none();
+        let debug_str_offsets = DebugStrOffsets::none();
 
         for minimum_instruction_length in vec![1, 4] {
             for maximum_operations_per_instruction in vec![1, 3] {
