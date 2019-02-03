@@ -1,10 +1,13 @@
-use common::{DebugAddrBase, DebugLocListsBase, DebugRngListsBase, DebugStrOffsetsBase, Encoding};
+use common::{
+    DebugAddrBase, DebugAddrIndex, DebugLocListsBase, DebugLocListsIndex, DebugRngListsBase,
+    DebugRngListsIndex, DebugStrOffsetsBase, Encoding, LocationListsOffset, RangeListsOffset,
+};
 use constants;
 use read::{
     Abbreviations, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter, DebugAbbrev,
     DebugAddr, DebugInfo, DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes,
-    EntriesCursor, Error, IncompleteLineProgram, LocationLists, RangeLists, Reader, ReaderOffset,
-    Result, TypeUnitHeader, TypeUnitHeadersIter, UnitHeader,
+    EntriesCursor, Error, IncompleteLineProgram, LocListIter, LocationLists, RangeLists, Reader,
+    ReaderOffset, Result, RngListIter, TypeUnitHeader, TypeUnitHeadersIter, UnitHeader,
 };
 
 /// All of the commonly used DWARF sections, and other common information.
@@ -81,7 +84,7 @@ impl<R: Reader> Dwarf<R> {
         unit.abbreviations(&self.debug_abbrev)
     }
 
-    /// Try to return an attribute value as a string slice.
+    /// Return an attribute value as a string slice.
     ///
     /// If the attribute value is one of:
     ///
@@ -114,6 +117,146 @@ impl<R: Reader> Dwarf<R> {
                 self.debug_str.get_str(offset)
             }
             _ => Err(Error::ExpectedStringAttributeValue),
+        }
+    }
+
+    /// Return the address at the given index.
+    pub fn address(&self, unit: &DwarfUnit<R>, index: DebugAddrIndex<R::Offset>) -> Result<u64> {
+        self.debug_addr
+            .get_address(unit.encoding().address_size, unit.addr_base, index)
+    }
+
+    /// Return the range list offset at the given index.
+    pub fn ranges_offset(
+        &self,
+        unit: &DwarfUnit<R>,
+        index: DebugRngListsIndex<R::Offset>,
+    ) -> Result<RangeListsOffset<R::Offset>> {
+        self.ranges
+            .get_offset(unit.encoding(), unit.rnglists_base, index)
+    }
+
+    /// Iterate over the `RangeListEntry`s starting at the given offset.
+    pub fn ranges(
+        &self,
+        unit: &DwarfUnit<R>,
+        offset: RangeListsOffset<R::Offset>,
+    ) -> Result<RngListIter<R>> {
+        self.ranges.ranges(
+            offset,
+            unit.encoding(),
+            unit.low_pc,
+            &self.debug_addr,
+            unit.addr_base,
+        )
+    }
+
+    /// Try to return an attribute value as a range list offset.
+    ///
+    /// If the attribute value is one of:
+    ///
+    /// - a `DW_FORM_sec_offset` reference to the `.debug_ranges` or `.debug_rnglists` sections
+    /// - a `DW_FORM_rnglistx` index into the `.debug_rnglists` entries for the unit
+    ///
+    /// then return the range list offset of the range list.
+    /// Returns `None` for other forms.
+    pub fn attr_ranges_offset(
+        &self,
+        unit: &DwarfUnit<R>,
+        attr: AttributeValue<R, R::Offset>,
+    ) -> Result<Option<RangeListsOffset<R::Offset>>> {
+        match attr {
+            AttributeValue::RangeListsRef(offset) => Ok(Some(offset)),
+            AttributeValue::DebugRngListsIndex(index) => self.ranges_offset(unit, index).map(Some),
+            _ => Ok(None),
+        }
+    }
+
+    /// Try to return an attribute value as a range list entry iterator.
+    ///
+    /// If the attribute value is one of:
+    ///
+    /// - a `DW_FORM_sec_offset` reference to the `.debug_ranges` or `.debug_rnglists` sections
+    /// - a `DW_FORM_rnglistx` index into the `.debug_rnglists` entries for the unit
+    ///
+    /// then return an iterator over the entries in the range list.
+    /// Returns `None` for other forms.
+    pub fn attr_ranges(
+        &self,
+        unit: &DwarfUnit<R>,
+        attr: AttributeValue<R, R::Offset>,
+    ) -> Result<Option<RngListIter<R>>> {
+        match self.attr_ranges_offset(unit, attr)? {
+            Some(offset) => Ok(Some(self.ranges(unit, offset)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Return the location list offset at the given index.
+    pub fn locations_offset(
+        &self,
+        unit: &DwarfUnit<R>,
+        index: DebugLocListsIndex<R::Offset>,
+    ) -> Result<LocationListsOffset<R::Offset>> {
+        self.locations
+            .get_offset(unit.encoding(), unit.loclists_base, index)
+    }
+
+    /// Iterate over the `LocationListEntry`s starting at the given offset.
+    pub fn locations(
+        &self,
+        unit: &DwarfUnit<R>,
+        offset: LocationListsOffset<R::Offset>,
+    ) -> Result<LocListIter<R>> {
+        self.locations.locations(
+            offset,
+            unit.encoding(),
+            unit.low_pc,
+            &self.debug_addr,
+            unit.addr_base,
+        )
+    }
+
+    /// Try to return an attribute value as a location list offset.
+    ///
+    /// If the attribute value is one of:
+    ///
+    /// - a `DW_FORM_sec_offset` reference to the `.debug_loc` or `.debug_loclists` sections
+    /// - a `DW_FORM_loclistx` index into the `.debug_loclists` entries for the unit
+    ///
+    /// then return the location list offset of the location list.
+    /// Returns `None` for other forms.
+    pub fn attr_locations_offset(
+        &self,
+        unit: &DwarfUnit<R>,
+        attr: AttributeValue<R, R::Offset>,
+    ) -> Result<Option<LocationListsOffset<R::Offset>>> {
+        match attr {
+            AttributeValue::LocationListsRef(offset) => Ok(Some(offset)),
+            AttributeValue::DebugLocListsIndex(index) => {
+                self.locations_offset(unit, index).map(Some)
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// Try to return an attribute value as a location list entry iterator.
+    ///
+    /// If the attribute value is one of:
+    ///
+    /// - a `DW_FORM_sec_offset` reference to the `.debug_loc` or `.debug_loclists` sections
+    /// - a `DW_FORM_loclistx` index into the `.debug_loclists` entries for the unit
+    ///
+    /// then return an iterator over the entries in the location list.
+    /// Returns `None` for other forms.
+    pub fn attr_locations(
+        &self,
+        unit: &DwarfUnit<R>,
+        attr: AttributeValue<R, R::Offset>,
+    ) -> Result<Option<LocListIter<R>>> {
+        match self.attr_locations_offset(unit, attr)? {
+            Some(offset) => Ok(Some(self.locations(unit, offset)?)),
+            None => Ok(None),
         }
     }
 }
