@@ -271,10 +271,10 @@ pub struct DwarfUnit<R: Reader> {
     pub abbreviations: Abbreviations,
 
     /// The `DW_AT_name` attribute of the unit.
-    pub name: Option<AttributeValue<R, R::Offset>>,
+    pub name: Option<R>,
 
     /// The `DW_AT_comp_dir` attribute of the unit.
-    pub comp_dir: Option<AttributeValue<R, R::Offset>>,
+    pub comp_dir: Option<R>,
 
     /// The `DW_AT_low_pc` attribute of the unit. Defaults to 0.
     pub low_pc: u64,
@@ -299,18 +299,25 @@ impl<R: Reader> DwarfUnit<R> {
     /// Construct a new `DwarfUnit` from the given header.
     pub fn new(dwarf: &Dwarf<R>, header: UnitHeader<R, R::Offset>) -> Result<Self> {
         let abbreviations = header.abbreviations(&dwarf.debug_abbrev)?;
+        let mut unit = DwarfUnit {
+            header,
+            abbreviations,
+            name: None,
+            comp_dir: None,
+            low_pc: 0,
+            // Defaults to 0 for GNU extensions.
+            str_offsets_base: DebugStrOffsetsBase(R::Offset::from_u8(0)),
+            addr_base: DebugAddrBase(R::Offset::from_u8(0)),
+            loclists_base: DebugLocListsBase(R::Offset::from_u8(0)),
+            rnglists_base: DebugRngListsBase(R::Offset::from_u8(0)),
+            line_program: None,
+        };
         let mut name = None;
         let mut comp_dir = None;
-        let mut low_pc = 0;
-        // Defaults to 0 for GNU extensions.
-        let mut str_offsets_base = DebugStrOffsetsBase(R::Offset::from_u8(0));
-        let mut addr_base = DebugAddrBase(R::Offset::from_u8(0));
-        let mut loclists_base = DebugLocListsBase(R::Offset::from_u8(0));
-        let mut rnglists_base = DebugRngListsBase(R::Offset::from_u8(0));
         let mut line_program_offset = None;
 
         {
-            let mut cursor = header.entries(&abbreviations);
+            let mut cursor = unit.header.entries(&unit.abbreviations);
             cursor.next_dfs()?;
             let root = cursor.current().ok_or(Error::MissingUnitDie)?;
             let mut attrs = root.attrs();
@@ -324,7 +331,7 @@ impl<R: Reader> DwarfUnit<R> {
                     }
                     constants::DW_AT_low_pc => {
                         if let AttributeValue::Addr(address) = attr.value() {
-                            low_pc = address;
+                            unit.low_pc = address;
                         }
                     }
                     constants::DW_AT_stmt_list => {
@@ -334,22 +341,22 @@ impl<R: Reader> DwarfUnit<R> {
                     }
                     constants::DW_AT_str_offsets_base => {
                         if let AttributeValue::DebugStrOffsetsBase(base) = attr.value() {
-                            str_offsets_base = base;
+                            unit.str_offsets_base = base;
                         }
                     }
                     constants::DW_AT_addr_base => {
                         if let AttributeValue::DebugAddrBase(base) = attr.value() {
-                            addr_base = base;
+                            unit.addr_base = base;
                         }
                     }
                     constants::DW_AT_loclists_base => {
                         if let AttributeValue::DebugLocListsBase(base) = attr.value() {
-                            loclists_base = base;
+                            unit.loclists_base = base;
                         }
                     }
                     constants::DW_AT_rnglists_base => {
                         if let AttributeValue::DebugRngListsBase(base) = attr.value() {
-                            rnglists_base = base;
+                            unit.rnglists_base = base;
                         }
                     }
                     _ => {}
@@ -357,28 +364,24 @@ impl<R: Reader> DwarfUnit<R> {
             }
         }
 
-        let line_program = match line_program_offset {
+        unit.name = match name {
+            Some(val) => Some(dwarf.attr_string(&unit, val)?),
+            None => None,
+        };
+        unit.comp_dir = match comp_dir {
+            Some(val) => Some(dwarf.attr_string(&unit, val)?),
+            None => None,
+        };
+        unit.line_program = match line_program_offset {
             Some(offset) => Some(dwarf.debug_line.program(
                 offset,
-                header.address_size(),
-                comp_dir.clone(),
-                name.clone(),
+                unit.header.address_size(),
+                unit.comp_dir.clone(),
+                unit.name.clone(),
             )?),
             None => None,
         };
-
-        Ok(DwarfUnit {
-            header,
-            abbreviations,
-            name,
-            comp_dir,
-            low_pc,
-            str_offsets_base,
-            addr_base,
-            loclists_base,
-            rnglists_base,
-            line_program,
-        })
+        Ok(unit)
     }
 
     /// Return the encoding parameters for this unit.

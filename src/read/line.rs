@@ -68,8 +68,8 @@ impl<R: Reader> DebugLine<R> {
         &self,
         offset: DebugLineOffset<R::Offset>,
         address_size: u8,
-        comp_dir: Option<AttributeValue<R, R::Offset>>,
-        comp_name: Option<AttributeValue<R, R::Offset>>,
+        comp_dir: Option<R>,
+        comp_name: Option<R>,
     ) -> Result<IncompleteLineProgram<R, R::Offset>> {
         let input = &mut self.debug_line_section.clone();
         input.skip(offset.0)?;
@@ -1064,7 +1064,7 @@ where
     program_buf: R,
 
     /// The current directory of the compilation.
-    comp_dir: Option<AttributeValue<R, Offset>>,
+    comp_dir: Option<R>,
 
     /// The primary source file.
     comp_file: Option<FileEntry<R, Offset>>,
@@ -1170,7 +1170,7 @@ where
     pub fn directory(&self, directory: u64) -> Option<AttributeValue<R, Offset>> {
         if self.encoding.version <= 4 {
             if directory == 0 {
-                self.comp_dir.clone()
+                self.comp_dir.clone().map(AttributeValue::String)
             } else {
                 let directory = directory as usize - 1;
                 self.include_directories.get(directory).cloned()
@@ -1273,8 +1273,8 @@ where
         input: &mut R,
         offset: DebugLineOffset<Offset>,
         mut address_size: u8,
-        mut comp_dir: Option<AttributeValue<R, Offset>>,
-        comp_name: Option<AttributeValue<R, Offset>>,
+        mut comp_dir: Option<R>,
+        comp_name: Option<R>,
     ) -> Result<LineProgramHeader<R, Offset>> {
         let (unit_length, format) = input.read_initial_length()?;
         let rest = &mut input.split(unit_length)?;
@@ -1360,7 +1360,7 @@ where
         let mut file_names = Vec::new();
         if version <= 4 {
             comp_file = comp_name.map(|name| FileEntry {
-                path_name: name,
+                path_name: AttributeValue::String(name),
                 directory_index: 0,
                 timestamp: 0,
                 size: 0,
@@ -1937,8 +1937,8 @@ mod tests {
         ];
 
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
-        let comp_dir = AttributeValue::String(EndianSlice::new(b"/comp_dir", LittleEndian));
-        let comp_name = AttributeValue::String(EndianSlice::new(b"/comp_name", LittleEndian));
+        let comp_dir = EndianSlice::new(b"/comp_dir", LittleEndian);
+        let comp_name = EndianSlice::new(b"/comp_name", LittleEndian);
 
         let header =
             LineProgramHeader::parse(rest, DebugLineOffset(0), 4, Some(comp_dir), Some(comp_name))
@@ -1957,8 +1957,11 @@ mod tests {
         assert_eq!(header.line_base(), 0);
         assert_eq!(header.line_range(), 1);
         assert_eq!(header.opcode_base(), 3);
-        assert_eq!(header.directory(0), Some(comp_dir));
-        assert_eq!(header.file(0).unwrap().path_name, comp_name);
+        assert_eq!(header.directory(0), Some(AttributeValue::String(comp_dir)));
+        assert_eq!(
+            header.file(0).unwrap().path_name,
+            AttributeValue::String(comp_name)
+        );
 
         let expected_lengths = [1, 2];
         assert_eq!(header.standard_opcode_lengths().slice(), &expected_lengths);

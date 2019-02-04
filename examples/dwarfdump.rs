@@ -1282,13 +1282,7 @@ fn dump_file_index<R: Reader, W: Write>(
         let directory = directory.to_string_lossy()?;
         if !directory.starts_with('/') {
             if let Some(ref comp_dir) = unit.comp_dir {
-                write!(
-                    w,
-                    "{}/",
-                    dwarf
-                        .attr_string(unit, comp_dir.clone())?
-                        .to_string_lossy()?
-                )?;
+                write!(w, "{}/", comp_dir.to_string_lossy()?,)?;
             }
         }
         write!(w, "{}/", directory)?;
