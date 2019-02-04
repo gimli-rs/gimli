@@ -879,7 +879,7 @@ where
     let process_unit =
         |unit: CompilationUnitHeader<R, R::Offset>, buf: &mut Vec<u8>| -> Result<()> {
             let offset = unit.offset().0;
-            let unit = match gimli::DwarfUnit::new(dwarf, unit.header()) {
+            let unit = match gimli::DwarfUnit::new(dwarf, unit) {
                 Ok(unit) => unit,
                 Err(err) => {
                     writeln!(
@@ -935,7 +935,7 @@ fn dump_types<R: Reader, W: Write>(
         )?;
 
         let offset = unit.offset().0;
-        let unit = match gimli::DwarfUnit::new(dwarf, unit.header()) {
+        let unit = match gimli::DwarfUnit::new_type_unit(dwarf, unit) {
             Ok(unit) => unit,
             Err(err) => {
                 writeln!(
@@ -1736,7 +1736,7 @@ fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<
             "\n.debug_line: line number info for unit at .debug_info offset 0x{:08x}",
             unit.offset().0
         )?;
-        let unit = match gimli::DwarfUnit::new(dwarf, unit.header()) {
+        let unit = match gimli::DwarfUnit::new(dwarf, unit) {
             Ok(unit) => unit,
             Err(err) => {
                 writeln!(

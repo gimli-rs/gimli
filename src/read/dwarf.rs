@@ -1,7 +1,7 @@
 use common::{
-    DebugAddrBase, DebugAddrIndex, DebugLineStrOffset, DebugLocListsBase, DebugLocListsIndex,
-    DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
-    DebugStrOffsetsIndex, Encoding, LocationListsOffset, RangeListsOffset,
+    DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
+    DebugLocListsIndex, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
+    DebugStrOffsetsIndex, DebugTypesOffset, Encoding, LocationListsOffset, RangeListsOffset,
 };
 use constants;
 use read::{
@@ -286,9 +286,12 @@ impl<R: Reader> Dwarf<R> {
     }
 }
 
-/// All of the commonly used information for a DWARF compilation unit.
+/// All of the commonly used information for a DWARF unit.
 #[derive(Debug)]
 pub struct DwarfUnit<R: Reader> {
+    /// The section offset of the unit.
+    pub offset: UnitSectionOffset<R::Offset>,
+
     /// The header of the unit.
     pub header: UnitHeader<R, R::Offset>,
 
@@ -321,10 +324,34 @@ pub struct DwarfUnit<R: Reader> {
 }
 
 impl<R: Reader> DwarfUnit<R> {
-    /// Construct a new `DwarfUnit` from the given header.
-    pub fn new(dwarf: &Dwarf<R>, header: UnitHeader<R, R::Offset>) -> Result<Self> {
+    /// Construct a new `DwarfUnit` from the given compilation unit header.
+    #[inline]
+    pub fn new(dwarf: &Dwarf<R>, header: CompilationUnitHeader<R, R::Offset>) -> Result<Self> {
+        Self::new_internal(
+            dwarf,
+            UnitSectionOffset::DebugInfoOffset(header.offset()),
+            header.header(),
+        )
+    }
+
+    /// Construct a new `DwarfUnit` from the given type unit header.
+    #[inline]
+    pub fn new_type_unit(dwarf: &Dwarf<R>, header: TypeUnitHeader<R, R::Offset>) -> Result<Self> {
+        Self::new_internal(
+            dwarf,
+            UnitSectionOffset::DebugTypesOffset(header.offset()),
+            header.header(),
+        )
+    }
+
+    fn new_internal(
+        dwarf: &Dwarf<R>,
+        offset: UnitSectionOffset<R::Offset>,
+        header: UnitHeader<R, R::Offset>,
+    ) -> Result<Self> {
         let abbreviations = header.abbreviations(&dwarf.debug_abbrev)?;
         let mut unit = DwarfUnit {
+            offset,
             header,
             abbreviations,
             name: None,
@@ -433,6 +460,63 @@ impl<R: Reader> DwarfUnit<R> {
     #[inline]
     pub fn entries_tree(&self, offset: Option<UnitOffset<R::Offset>>) -> Result<EntriesTree<R>> {
         self.header.entries_tree(&self.abbreviations, offset)
+    }
+}
+
+/// An offset into the `.debug_info` or `.debug_types` sections.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub enum UnitSectionOffset<T = usize> {
+    /// An offset into the `.debug_info` section.
+    DebugInfoOffset(DebugInfoOffset<T>),
+    /// An offset into the `.debug_types` section.
+    DebugTypesOffset(DebugTypesOffset<T>),
+}
+
+impl<T: ReaderOffset> UnitSectionOffset<T> {
+    /// Convert an offset to be relative to the start of the given unit,
+    /// instead of relative to the start of the section.
+    /// Returns `None` if the offset is not within the unit entries.
+    pub fn to_unit_offset<R>(&self, unit: &DwarfUnit<R>) -> Option<UnitOffset<T>>
+    where
+        R: Reader<Offset = T>,
+    {
+        let (offset, unit_offset) = match (self, unit.offset) {
+            (
+                UnitSectionOffset::DebugInfoOffset(offset),
+                UnitSectionOffset::DebugInfoOffset(unit_offset),
+            ) => (offset.0, unit_offset.0),
+            (
+                UnitSectionOffset::DebugTypesOffset(offset),
+                UnitSectionOffset::DebugTypesOffset(unit_offset),
+            ) => (offset.0, unit_offset.0),
+            _ => return None,
+        };
+        let offset = match offset.checked_sub(unit_offset) {
+            Some(offset) => UnitOffset(offset),
+            None => return None,
+        };
+        if !unit.header.is_valid_offset(offset) {
+            return None;
+        }
+        Some(offset)
+    }
+}
+
+impl<T: ReaderOffset> UnitOffset<T> {
+    /// Convert an offset to be relative to the start of the .debug_info section,
+    /// instead of relative to the start of the given compilation unit.
+    pub fn to_unit_section_offset<R>(&self, unit: &DwarfUnit<R>) -> UnitSectionOffset<T>
+    where
+        R: Reader<Offset = T>,
+    {
+        match unit.offset {
+            UnitSectionOffset::DebugInfoOffset(unit_offset) => {
+                UnitSectionOffset::DebugInfoOffset(DebugInfoOffset(unit_offset.0 + self.0))
+            }
+            UnitSectionOffset::DebugTypesOffset(unit_offset) => {
+                UnitSectionOffset::DebugTypesOffset(DebugTypesOffset(unit_offset.0 + self.0))
+            }
+        }
     }
 }
 

@@ -118,7 +118,7 @@ pub struct DebugStrOffsetsBase<T = usize>(pub T);
 pub struct DebugStrOffsetsIndex<T = usize>(pub T);
 
 /// An offset into the `.debug_types` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct DebugTypesOffset<T = usize>(pub T);
 
 /// A type signature as used in the `.debug_types` section.

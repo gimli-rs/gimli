@@ -1715,7 +1715,7 @@ mod tests {
             assert_eq!(unit1.address_size(), read_unit1.address_size());
             assert_eq!(unit1.format(), read_unit1.format());
 
-            let read_unit1 = read::DwarfUnit::new(&dwarf, read_unit1.header()).unwrap();
+            let read_unit1 = read::DwarfUnit::new(&dwarf, read_unit1).unwrap();
             let mut read_entries = read_unit1.entries();
 
             let root = unit1.get(unit1.root());
