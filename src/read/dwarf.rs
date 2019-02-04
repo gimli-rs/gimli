@@ -7,8 +7,9 @@ use constants;
 use read::{
     Abbreviations, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter, DebugAbbrev,
     DebugAddr, DebugInfo, DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes,
-    EntriesCursor, Error, IncompleteLineProgram, LocListIter, LocationLists, RangeLists, Reader,
-    ReaderOffset, Result, RngListIter, TypeUnitHeader, TypeUnitHeadersIter, UnitHeader,
+    EntriesCursor, EntriesTree, Error, IncompleteLineProgram, LocListIter, LocationLists,
+    RangeLists, Reader, ReaderOffset, Result, RngListIter, TypeUnitHeader, TypeUnitHeadersIter,
+    UnitHeader, UnitOffset,
 };
 
 /// All of the commonly used DWARF sections, and other common information.
@@ -418,6 +419,20 @@ impl<R: Reader> DwarfUnit<R> {
     #[inline]
     pub fn entries(&self) -> EntriesCursor<R> {
         self.header.entries(&self.abbreviations)
+    }
+
+    /// Navigate this unit's `DebuggingInformationEntry`s
+    /// starting at the given offset.
+    #[inline]
+    pub fn entries_at_offset(&self, offset: UnitOffset<R::Offset>) -> Result<EntriesCursor<R>> {
+        self.header.entries_at_offset(&self.abbreviations, offset)
+    }
+
+    /// Navigate this unit's `DebuggingInformationEntry`s as a tree
+    /// starting at the given offset.
+    #[inline]
+    pub fn entries_tree(&self, offset: Option<UnitOffset<R::Offset>>) -> Result<EntriesTree<R>> {
+        self.header.entries_tree(&self.abbreviations, offset)
     }
 }
 
