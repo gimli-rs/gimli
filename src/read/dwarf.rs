@@ -2,6 +2,7 @@ use common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
     DebugLocListsIndex, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
     DebugStrOffsetsIndex, DebugTypesOffset, Encoding, LocationListsOffset, RangeListsOffset,
+    UnitSectionOffset,
 };
 use constants;
 use read::{
@@ -458,15 +459,6 @@ impl<R: Reader> Unit<R> {
     pub fn entries_tree(&self, offset: Option<UnitOffset<R::Offset>>) -> Result<EntriesTree<R>> {
         self.header.entries_tree(&self.abbreviations, offset)
     }
-}
-
-/// An offset into the `.debug_info` or `.debug_types` sections.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub enum UnitSectionOffset<T = usize> {
-    /// An offset into the `.debug_info` section.
-    DebugInfoOffset(DebugInfoOffset<T>),
-    /// An offset into the `.debug_types` section.
-    DebugTypesOffset(DebugTypesOffset<T>),
 }
 
 impl<T: ReaderOffset> UnitSectionOffset<T> {

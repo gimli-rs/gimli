@@ -3,9 +3,8 @@ use std::{slice, usize};
 use vec::Vec;
 
 use common::{
-    DebugAbbrevOffset, DebugAddrBase, DebugInfoOffset, DebugLineOffset, DebugLocListsBase,
-    DebugMacinfoOffset, DebugRngListsBase, DebugStrOffset, DebugStrOffsetsBase, DebugTypeSignature,
-    Encoding, Format, LocationListsOffset,
+    DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugStrOffset,
+    DebugTypeSignature, Encoding, Format, LocationListsOffset, UnitSectionOffset,
 };
 use constants;
 use write::{
@@ -683,7 +682,7 @@ pub enum AttributeValue {
     /// This is an internal attribute that must only be used when converting an
     /// existing `.debug_info` section.
     #[doc(hidden)]
-    DebugInfoRef(DebugInfoOffset),
+    UnitSectionRef(UnitSectionOffset),
 
     /// An offset into the `.debug_info` section of the supplementary object file.
     ///
@@ -849,7 +848,7 @@ impl AttributeValue {
             | AttributeValue::FileIndex(_)
             | AttributeValue::Udata(_) => constants::DW_FORM_udata,
             AttributeValue::Sdata(_) => constants::DW_FORM_sdata,
-            AttributeValue::DebugInfoRef(_) => {
+            AttributeValue::UnitSectionRef(_) => {
                 return Err(Error::InvalidAttributeValue);
             }
         };
@@ -1064,7 +1063,7 @@ impl AttributeValue {
                 debug_assert_form!(constants::DW_FORM_udata);
                 w.write_uleb128(val.raw())?;
             }
-            AttributeValue::DebugInfoRef(_) => {
+            AttributeValue::UnitSectionRef(_) => {
                 return Err(Error::InvalidAttributeValue);
             }
         }
@@ -1126,18 +1125,14 @@ pub(crate) mod convert {
 
     pub(crate) struct ConvertUnitContext<'a, R: Reader<Offset = usize> + 'a> {
         pub dwarf: &'a read::Dwarf<R>,
+        pub unit: &'a read::Unit<R>,
         pub line_strings: &'a mut write::LineStringTable,
         pub strings: &'a mut write::StringTable,
         pub ranges: &'a mut write::RangeListTable,
         pub convert_address: &'a Fn(u64) -> Option<Address>,
-        pub encoding: Encoding,
+        pub base_address: Address,
         pub line_program: Option<(DebugLineOffset, LineProgramId)>,
         pub line_program_files: Vec<FileId>,
-        pub base_address: Address,
-        pub str_offsets_base: DebugStrOffsetsBase<usize>,
-        pub addr_base: DebugAddrBase<usize>,
-        pub loclists_base: DebugLocListsBase<usize>,
-        pub rnglists_base: DebugRngListsBase<usize>,
     }
 
     impl UnitTable {
@@ -1163,7 +1158,7 @@ pub(crate) mod convert {
             let mut unit_entry_offsets = HashMap::new();
 
             let mut from_units = dwarf.units();
-            while let Some(ref from_unit) = from_units.next()? {
+            while let Some(from_unit) = from_units.next()? {
                 let unit_id = UnitId::new(base_id, units.len());
                 units.push(CompilationUnit::from(
                     from_unit,
@@ -1183,7 +1178,7 @@ pub(crate) mod convert {
                 for entry in &mut unit.entries {
                     for attr in &mut entry.attrs {
                         let id = match attr.value {
-                            AttributeValue::DebugInfoRef(ref offset) => {
+                            AttributeValue::UnitSectionRef(ref offset) => {
                                 match unit_entry_offsets.get(offset) {
                                     Some(id) => Some(*id),
                                     None => return Err(ConvertError::InvalidDebugInfoOffset),
@@ -1210,46 +1205,27 @@ pub(crate) mod convert {
         /// Create a compilation unit by reading the data in the given sections.
         #[allow(clippy::too_many_arguments)]
         pub(crate) fn from<R: Reader<Offset = usize>>(
-            from_unit: &read::CompilationUnitHeader<R>,
+            from_unit: read::CompilationUnitHeader<R>,
             unit_id: UnitId,
-            unit_entry_offsets: &mut HashMap<DebugInfoOffset, (UnitId, UnitEntryId)>,
+            unit_entry_offsets: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
             dwarf: &read::Dwarf<R>,
             line_programs: &mut write::LineProgramTable,
             line_strings: &mut write::LineStringTable,
             strings: &mut write::StringTable,
             convert_address: &Fn(u64) -> Option<Address>,
         ) -> ConvertResult<CompilationUnit> {
+            let from_unit = read::Unit::new(dwarf, from_unit)?;
             let encoding = from_unit.encoding();
             let base_id = BaseId::default();
             let mut entries = Vec::new();
             let mut ranges = RangeListTable::default();
-            let abbreviations = dwarf.abbreviations(from_unit)?;
-            let mut from_tree = from_unit.entries_tree(&abbreviations, None)?;
-            let from_root = from_tree.root()?;
-            let mut base_address = Address::Absolute(0);
-            let mut line_program = None;
-            let mut line_program_files = Vec::new();
-            let mut str_offsets_base = DebugStrOffsetsBase(0);
-            let mut addr_base = DebugAddrBase(0);
-            let mut loclists_base = DebugLocListsBase(0);
-            let mut rnglists_base = DebugRngListsBase(0);
-            {
-                let from_root = from_root.entry();
-                let comp_dir = from_root
-                    .attr_value(constants::DW_AT_comp_dir)?
-                    .and_then(|x| x.string_value(&dwarf.debug_str));
-                let comp_file = from_root
-                    .attr_value(constants::DW_AT_name)?
-                    .and_then(|x| x.string_value(&dwarf.debug_str));
-                if let Some(read::AttributeValue::DebugLineRef(offset)) =
-                    from_root.attr_value(constants::DW_AT_stmt_list)?
-                {
-                    let from_program = dwarf.debug_line.program(
-                        offset,
-                        encoding.address_size,
-                        comp_dir,
-                        comp_file,
-                    )?;
+            let root = {
+                let base_address =
+                    convert_address(from_unit.low_pc).ok_or(ConvertError::InvalidAddress)?;
+                let mut line_program = None;
+                let mut line_program_files = Vec::new();
+                if let Some(from_program) = from_unit.line_program.clone() {
+                    let offset = from_program.header().offset();
                     let (program, files) = LineProgram::from(
                         from_program,
                         dwarf,
@@ -1260,53 +1236,22 @@ pub(crate) mod convert {
                     line_program = Some((offset, line_programs.add(program)));
                     line_program_files = files;
                 }
-                match from_root.attr_value(constants::DW_AT_low_pc)? {
-                    Some(read::AttributeValue::Addr(val)) => {
-                        base_address = convert_address(val).ok_or(ConvertError::InvalidAddress)?;
-                    }
-                    _ => {}
-                }
-                if let Some(read::AttributeValue::DebugStrOffsetsBase(base)) =
-                    from_root.attr_value(constants::DW_AT_str_offsets_base)?
-                {
-                    str_offsets_base = base;
-                }
-                if let Some(read::AttributeValue::DebugAddrBase(base)) =
-                    from_root.attr_value(constants::DW_AT_addr_base)?
-                {
-                    addr_base = base;
-                }
-                if let Some(read::AttributeValue::DebugLocListsBase(base)) =
-                    from_root.attr_value(constants::DW_AT_loclists_base)?
-                {
-                    loclists_base = base;
-                }
-                if let Some(read::AttributeValue::DebugRngListsBase(base)) =
-                    from_root.attr_value(constants::DW_AT_rnglists_base)?
-                {
-                    rnglists_base = base;
-                }
-            }
-            let root = {
                 let mut context = ConvertUnitContext {
                     dwarf,
+                    unit: &from_unit,
                     line_strings,
                     strings,
                     ranges: &mut ranges,
                     convert_address,
-                    encoding,
+                    base_address,
                     line_program,
                     line_program_files,
-                    base_address,
-                    str_offsets_base,
-                    addr_base,
-                    loclists_base,
-                    rnglists_base,
                 };
+                let mut from_tree = from_unit.entries_tree(None)?;
+                let from_root = from_tree.root()?;
                 DebuggingInformationEntry::from(
                     &mut context,
                     from_root,
-                    from_unit,
                     base_id,
                     &mut entries,
                     None,
@@ -1329,19 +1274,18 @@ pub(crate) mod convert {
         fn from<R: Reader<Offset = usize>>(
             context: &mut ConvertUnitContext<R>,
             from: read::EntriesTreeNode<R>,
-            from_unit: &read::CompilationUnitHeader<R>,
             base_id: BaseId,
             entries: &mut Vec<DebuggingInformationEntry>,
             parent: Option<UnitEntryId>,
             unit_id: UnitId,
-            unit_entry_offsets: &mut HashMap<DebugInfoOffset, (UnitId, UnitEntryId)>,
+            unit_entry_offsets: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
         ) -> ConvertResult<UnitEntryId> {
             let id = {
                 let from = from.entry();
                 let entry = DebuggingInformationEntry::new(base_id, entries, parent, from.tag());
                 let entry = &mut entries[entry.index];
 
-                let offset = from.offset().to_debug_info_offset(from_unit);
+                let offset = from.offset().to_unit_section_offset(context.unit);
                 unit_entry_offsets.insert(offset, (unit_id, entry.id));
 
                 let mut from_attrs = from.attrs();
@@ -1349,7 +1293,7 @@ pub(crate) mod convert {
                     if from_attr.name() == constants::DW_AT_sibling {
                         // This may point to a null entry, so we have to treat it differently.
                         entry.set_sibling(true);
-                    } else if let Some(attr) = Attribute::from(context, &from_attr, from_unit)? {
+                    } else if let Some(attr) = Attribute::from(context, &from_attr)? {
                         entry.set(attr.name, attr.value);
                     }
                 }
@@ -1362,7 +1306,6 @@ pub(crate) mod convert {
                 DebuggingInformationEntry::from(
                     context,
                     from_child,
-                    from_unit,
                     base_id,
                     entries,
                     Some(id),
@@ -1379,9 +1322,8 @@ pub(crate) mod convert {
         pub(crate) fn from<R: Reader<Offset = usize>>(
             context: &mut ConvertUnitContext<R>,
             from: &read::Attribute<R>,
-            from_unit: &read::CompilationUnitHeader<R>,
         ) -> ConvertResult<Option<Attribute>> {
-            let value = AttributeValue::from(context, from.value(), from_unit)?;
+            let value = AttributeValue::from(context, from.value())?;
             Ok(value.map(|value| Attribute {
                 name: from.name(),
                 value,
@@ -1394,7 +1336,6 @@ pub(crate) mod convert {
         pub(crate) fn from<R: Reader<Offset = usize>>(
             context: &mut ConvertUnitContext<R>,
             from: read::AttributeValue<R>,
-            from_unit: &read::CompilationUnitHeader<R>,
         ) -> ConvertResult<Option<AttributeValue>> {
             let to = match from {
                 read::AttributeValue::Addr(val) => match (context.convert_address)(val) {
@@ -1420,20 +1361,18 @@ pub(crate) mod convert {
                     return Ok(None);
                 }
                 read::AttributeValue::DebugAddrIndex(index) => {
-                    let val = context.dwarf.debug_addr.get_address(
-                        from_unit.address_size(),
-                        context.addr_base,
-                        index,
-                    )?;
+                    let val = context.dwarf.address(context.unit, index)?;
                     match (context.convert_address)(val) {
                         Some(val) => AttributeValue::Address(val),
                         None => return Err(ConvertError::InvalidAddress),
                     }
                 }
                 read::AttributeValue::UnitRef(val) => {
-                    AttributeValue::DebugInfoRef(val.to_debug_info_offset(from_unit))
+                    AttributeValue::UnitSectionRef(val.to_unit_section_offset(context.unit))
                 }
-                read::AttributeValue::DebugInfoRef(val) => AttributeValue::DebugInfoRef(val),
+                read::AttributeValue::DebugInfoRef(val) => {
+                    AttributeValue::UnitSectionRef(UnitSectionOffset::DebugInfoOffset(val))
+                }
                 read::AttributeValue::DebugInfoRefSup(val) => AttributeValue::DebugInfoRefSup(val),
                 read::AttributeValue::DebugLineRef(val) => {
                     // There should only be the line program in the CU DIE which we've already
@@ -1459,15 +1398,14 @@ pub(crate) mod convert {
                     return Ok(None);
                 }
                 read::AttributeValue::DebugLocListsIndex(index) => {
-                    let offset = context.dwarf.locations.get_offset(
-                        from_unit.encoding(),
-                        context.loclists_base,
-                        index,
-                    )?;
+                    let offset = context.dwarf.locations_offset(context.unit, index)?;
                     AttributeValue::LocationListsRef(offset)
                 }
                 read::AttributeValue::RangeListsRef(val) => {
-                    let iter = context.dwarf.ranges.raw_ranges(val, from_unit.encoding())?;
+                    let iter = context
+                        .dwarf
+                        .ranges
+                        .raw_ranges(val, context.unit.encoding())?;
                     let range_list = RangeList::from(iter, context)?;
                     let range_id = context.ranges.add(range_list);
                     AttributeValue::RangeListRef(range_id)
@@ -1478,22 +1416,18 @@ pub(crate) mod convert {
                     return Ok(None);
                 }
                 read::AttributeValue::DebugRngListsIndex(index) => {
-                    let offset = context.dwarf.ranges.get_offset(
-                        from_unit.encoding(),
-                        context.rnglists_base,
-                        index,
-                    )?;
+                    let offset = context.dwarf.ranges_offset(context.unit, index)?;
                     let iter = context
                         .dwarf
                         .ranges
-                        .raw_ranges(offset, from_unit.encoding())?;
+                        .raw_ranges(offset, context.unit.encoding())?;
                     let range_list = RangeList::from(iter, context)?;
                     let range_id = context.ranges.add(range_list);
                     AttributeValue::RangeListRef(range_id)
                 }
                 read::AttributeValue::DebugTypesRef(val) => AttributeValue::DebugTypesRef(val),
                 read::AttributeValue::DebugStrRef(offset) => {
-                    let r = context.dwarf.debug_str.get_str(offset)?;
+                    let r = context.dwarf.string(offset)?;
                     let id = context.strings.add(r.to_slice()?);
                     AttributeValue::StringRef(id)
                 }
@@ -1504,17 +1438,13 @@ pub(crate) mod convert {
                     return Ok(None);
                 }
                 read::AttributeValue::DebugStrOffsetsIndex(index) => {
-                    let offset = context.dwarf.debug_str_offsets.get_str_offset(
-                        from_unit.format(),
-                        context.str_offsets_base,
-                        index,
-                    )?;
-                    let r = context.dwarf.debug_str.get_str(offset)?;
+                    let offset = context.dwarf.string_offset(context.unit, index)?;
+                    let r = context.dwarf.string(offset)?;
                     let id = context.strings.add(r.to_slice()?);
                     AttributeValue::StringRef(id)
                 }
                 read::AttributeValue::DebugLineStrRef(offset) => {
-                    let r = context.dwarf.debug_line_str.get_str(offset)?;
+                    let r = context.dwarf.line_string(offset)?;
                     let id = context.line_strings.add(r.to_slice()?);
                     AttributeValue::LineStringRef(id)
                 }
@@ -1552,6 +1482,7 @@ pub(crate) mod convert {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common::{DebugAddrBase, DebugLocListsBase, DebugRngListsBase, DebugStrOffsetsBase};
     use constants;
     use read;
     use std::mem;
@@ -1934,8 +1865,6 @@ mod tests {
                         DebugAbbrevOffset(0),
                         read::EndianSlice::new(&[], LittleEndian),
                     );
-                    let from_comp_unit =
-                        read::CompilationUnitHeader::new(from_unit, DebugInfoOffset(0));
 
                     for &(ref name, ref value, ref expect_value) in &[
                         (
@@ -2148,9 +2077,23 @@ mod tests {
                             ..Default::default()
                         };
 
+                        let unit = read::Unit {
+                            offset: UnitSectionOffset::DebugInfoOffset(DebugInfoOffset(0)),
+                            header: from_unit,
+                            abbreviations: read::Abbreviations::default(),
+                            name: None,
+                            comp_dir: None,
+                            low_pc: 0,
+                            str_offsets_base: DebugStrOffsetsBase(0),
+                            addr_base: DebugAddrBase(0),
+                            loclists_base: DebugLocListsBase(0),
+                            rnglists_base: DebugRngListsBase(0),
+                            line_program: None,
+                        };
+
                         let mut context = convert::ConvertUnitContext {
                             dwarf: &dwarf,
-                            encoding,
+                            unit: &unit,
                             line_strings: &mut line_strings,
                             strings: &mut strings,
                             ranges: &mut ranges,
@@ -2158,16 +2101,10 @@ mod tests {
                             base_address: Address::Absolute(0),
                             line_program: None,
                             line_program_files: Vec::new(),
-                            str_offsets_base: DebugStrOffsetsBase(0),
-                            addr_base: DebugAddrBase(0),
-                            loclists_base: DebugLocListsBase(0),
-                            rnglists_base: DebugRngListsBase(0),
                         };
 
                         let convert_attr =
-                            Attribute::from(&mut context, &read_attr, &from_comp_unit)
-                                .unwrap()
-                                .unwrap();
+                            Attribute::from(&mut context, &read_attr).unwrap().unwrap();
                         assert_eq!(convert_attr, attr);
                     }
                 }
@@ -2579,8 +2516,6 @@ mod tests {
                         DebugAbbrevOffset(0),
                         read::EndianSlice::new(&[], LittleEndian),
                     );
-                    let from_comp_unit =
-                        read::CompilationUnitHeader::new(from_unit, DebugInfoOffset(0));
 
                     for &(ref name, ref value, ref expect_value) in &[
                         (
@@ -2643,9 +2578,23 @@ mod tests {
                         };
                         assert_eq!(read_value, expect_value);
 
+                        let unit = read::Unit {
+                            offset: UnitSectionOffset::DebugInfoOffset(DebugInfoOffset(0)),
+                            header: from_unit,
+                            abbreviations: read::Abbreviations::default(),
+                            name: None,
+                            comp_dir: None,
+                            low_pc: 0,
+                            str_offsets_base: DebugStrOffsetsBase(0),
+                            addr_base: DebugAddrBase(0),
+                            loclists_base: DebugLocListsBase(0),
+                            rnglists_base: DebugRngListsBase(0),
+                            line_program: None,
+                        };
+
                         let mut context = convert::ConvertUnitContext {
                             dwarf: &dwarf,
-                            encoding,
+                            unit: &unit,
                             line_strings: &mut line_strings,
                             strings: &mut strings,
                             ranges: &mut ranges,
@@ -2653,16 +2602,10 @@ mod tests {
                             base_address: Address::Absolute(0),
                             line_program: Some((line_program_offset, line_program_id)),
                             line_program_files: line_program_files.clone(),
-                            str_offsets_base: DebugStrOffsetsBase(0),
-                            addr_base: DebugAddrBase(0),
-                            loclists_base: DebugLocListsBase(0),
-                            rnglists_base: DebugRngListsBase(0),
                         };
 
                         let convert_attr =
-                            Attribute::from(&mut context, &read_attr, &from_comp_unit)
-                                .unwrap()
-                                .unwrap();
+                            Attribute::from(&mut context, &read_attr).unwrap().unwrap();
                         assert_eq!(convert_attr, attr);
                     }
                 }

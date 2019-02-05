@@ -262,36 +262,16 @@ mod convert {
                     }
                     read::RawRngListEntry::BaseAddressx { addr } => {
                         have_base_address = true;
-                        let addr = context.dwarf.debug_addr.get_address(
-                            context.encoding.address_size,
-                            context.addr_base,
-                            addr,
-                        )?;
-                        let address = convert_address(addr)?;
+                        let address = convert_address(context.dwarf.address(context.unit, addr)?)?;
                         Range::BaseAddress { address }
                     }
                     read::RawRngListEntry::StartxEndx { begin, end } => {
-                        let begin = context.dwarf.debug_addr.get_address(
-                            context.encoding.address_size,
-                            context.addr_base,
-                            begin,
-                        )?;
-                        let begin = convert_address(begin)?;
-                        let end = context.dwarf.debug_addr.get_address(
-                            context.encoding.address_size,
-                            context.addr_base,
-                            end,
-                        )?;
-                        let end = convert_address(end)?;
+                        let begin = convert_address(context.dwarf.address(context.unit, begin)?)?;
+                        let end = convert_address(context.dwarf.address(context.unit, end)?)?;
                         Range::StartEnd { begin, end }
                     }
                     read::RawRngListEntry::StartxLength { begin, length } => {
-                        let begin = context.dwarf.debug_addr.get_address(
-                            context.encoding.address_size,
-                            context.addr_base,
-                            begin,
-                        )?;
-                        let begin = convert_address(begin)?;
+                        let begin = convert_address(context.dwarf.address(context.unit, begin)?)?;
                         Range::StartLength { begin, length }
                     }
                     read::RawRngListEntry::OffsetPair { begin, end } => {
@@ -318,7 +298,8 @@ mod convert {
 mod tests {
     use super::*;
     use common::{
-        DebugAddrBase, DebugLocListsBase, DebugRngListsBase, DebugStrOffsetsBase, Format,
+        DebugAbbrevOffset, DebugAddrBase, DebugInfoOffset, DebugLocListsBase, DebugRngListsBase,
+        DebugStrOffsetsBase, Format, UnitSectionOffset,
     };
     use read;
     use write::{
@@ -380,9 +361,27 @@ mod tests {
                         ranges: read_ranges,
                         ..Default::default()
                     };
+                    let unit = read::Unit {
+                        offset: UnitSectionOffset::DebugInfoOffset(DebugInfoOffset(0)),
+                        header: read::UnitHeader::new(
+                            encoding,
+                            0,
+                            DebugAbbrevOffset(0),
+                            read::EndianSlice::default(),
+                        ),
+                        abbreviations: read::Abbreviations::default(),
+                        name: None,
+                        comp_dir: None,
+                        low_pc: 0,
+                        str_offsets_base: DebugStrOffsetsBase(0),
+                        addr_base: DebugAddrBase(0),
+                        loclists_base: DebugLocListsBase(0),
+                        rnglists_base: DebugRngListsBase(0),
+                        line_program: None,
+                    };
                     let context = ConvertUnitContext {
                         dwarf: &dwarf,
-                        encoding,
+                        unit: &unit,
                         line_strings: &mut line_strings,
                         strings: &mut strings,
                         ranges: &mut ranges,
@@ -390,10 +389,6 @@ mod tests {
                         base_address: Address::Absolute(0),
                         line_program: None,
                         line_program_files: Vec::new(),
-                        str_offsets_base: DebugStrOffsetsBase(0),
-                        addr_base: DebugAddrBase(0),
-                        loclists_base: DebugLocListsBase(0),
-                        rnglists_base: DebugRngListsBase(0),
                     };
                     let convert_range_list = RangeList::from(read_range_list, &context).unwrap();
 
