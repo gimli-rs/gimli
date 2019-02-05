@@ -90,7 +90,7 @@ impl<R: Reader> Dwarf<R> {
     #[inline]
     pub fn string_offset(
         &self,
-        unit: &DwarfUnit<R>,
+        unit: &Unit<R>,
         index: DebugStrOffsetsIndex<R::Offset>,
     ) -> Result<DebugStrOffset<R::Offset>> {
         self.debug_str_offsets
@@ -123,11 +123,7 @@ impl<R: Reader> Dwarf<R> {
     ///
     /// then return the attribute's string value. Returns an error if the attribute
     /// value does not have a string form, or if a string form has an invalid value.
-    pub fn attr_string(
-        &self,
-        unit: &DwarfUnit<R>,
-        attr: AttributeValue<R, R::Offset>,
-    ) -> Result<R> {
+    pub fn attr_string(&self, unit: &Unit<R>, attr: AttributeValue<R, R::Offset>) -> Result<R> {
         match attr {
             AttributeValue::String(string) => Ok(string),
             AttributeValue::DebugStrRef(offset) => self.debug_str.get_str(offset),
@@ -146,7 +142,7 @@ impl<R: Reader> Dwarf<R> {
     }
 
     /// Return the address at the given index.
-    pub fn address(&self, unit: &DwarfUnit<R>, index: DebugAddrIndex<R::Offset>) -> Result<u64> {
+    pub fn address(&self, unit: &Unit<R>, index: DebugAddrIndex<R::Offset>) -> Result<u64> {
         self.debug_addr
             .get_address(unit.encoding().address_size, unit.addr_base, index)
     }
@@ -154,7 +150,7 @@ impl<R: Reader> Dwarf<R> {
     /// Return the range list offset at the given index.
     pub fn ranges_offset(
         &self,
-        unit: &DwarfUnit<R>,
+        unit: &Unit<R>,
         index: DebugRngListsIndex<R::Offset>,
     ) -> Result<RangeListsOffset<R::Offset>> {
         self.ranges
@@ -164,7 +160,7 @@ impl<R: Reader> Dwarf<R> {
     /// Iterate over the `RangeListEntry`s starting at the given offset.
     pub fn ranges(
         &self,
-        unit: &DwarfUnit<R>,
+        unit: &Unit<R>,
         offset: RangeListsOffset<R::Offset>,
     ) -> Result<RngListIter<R>> {
         self.ranges.ranges(
@@ -187,7 +183,7 @@ impl<R: Reader> Dwarf<R> {
     /// Returns `None` for other forms.
     pub fn attr_ranges_offset(
         &self,
-        unit: &DwarfUnit<R>,
+        unit: &Unit<R>,
         attr: AttributeValue<R, R::Offset>,
     ) -> Result<Option<RangeListsOffset<R::Offset>>> {
         match attr {
@@ -208,7 +204,7 @@ impl<R: Reader> Dwarf<R> {
     /// Returns `None` for other forms.
     pub fn attr_ranges(
         &self,
-        unit: &DwarfUnit<R>,
+        unit: &Unit<R>,
         attr: AttributeValue<R, R::Offset>,
     ) -> Result<Option<RngListIter<R>>> {
         match self.attr_ranges_offset(unit, attr)? {
@@ -220,7 +216,7 @@ impl<R: Reader> Dwarf<R> {
     /// Return the location list offset at the given index.
     pub fn locations_offset(
         &self,
-        unit: &DwarfUnit<R>,
+        unit: &Unit<R>,
         index: DebugLocListsIndex<R::Offset>,
     ) -> Result<LocationListsOffset<R::Offset>> {
         self.locations
@@ -230,7 +226,7 @@ impl<R: Reader> Dwarf<R> {
     /// Iterate over the `LocationListEntry`s starting at the given offset.
     pub fn locations(
         &self,
-        unit: &DwarfUnit<R>,
+        unit: &Unit<R>,
         offset: LocationListsOffset<R::Offset>,
     ) -> Result<LocListIter<R>> {
         self.locations.locations(
@@ -253,7 +249,7 @@ impl<R: Reader> Dwarf<R> {
     /// Returns `None` for other forms.
     pub fn attr_locations_offset(
         &self,
-        unit: &DwarfUnit<R>,
+        unit: &Unit<R>,
         attr: AttributeValue<R, R::Offset>,
     ) -> Result<Option<LocationListsOffset<R::Offset>>> {
         match attr {
@@ -276,7 +272,7 @@ impl<R: Reader> Dwarf<R> {
     /// Returns `None` for other forms.
     pub fn attr_locations(
         &self,
-        unit: &DwarfUnit<R>,
+        unit: &Unit<R>,
         attr: AttributeValue<R, R::Offset>,
     ) -> Result<Option<LocListIter<R>>> {
         match self.attr_locations_offset(unit, attr)? {
@@ -286,9 +282,10 @@ impl<R: Reader> Dwarf<R> {
     }
 }
 
-/// All of the commonly used information for a DWARF unit.
+/// All of the commonly used information for a unit in the `.debug_info` or `.debug_types`
+/// sections.
 #[derive(Debug)]
-pub struct DwarfUnit<R: Reader> {
+pub struct Unit<R: Reader> {
     /// The section offset of the unit.
     pub offset: UnitSectionOffset<R::Offset>,
 
@@ -323,8 +320,8 @@ pub struct DwarfUnit<R: Reader> {
     pub line_program: Option<IncompleteLineProgram<R, R::Offset>>,
 }
 
-impl<R: Reader> DwarfUnit<R> {
-    /// Construct a new `DwarfUnit` from the given compilation unit header.
+impl<R: Reader> Unit<R> {
+    /// Construct a new `Unit` from the given compilation unit header.
     #[inline]
     pub fn new(dwarf: &Dwarf<R>, header: CompilationUnitHeader<R, R::Offset>) -> Result<Self> {
         Self::new_internal(
@@ -334,7 +331,7 @@ impl<R: Reader> DwarfUnit<R> {
         )
     }
 
-    /// Construct a new `DwarfUnit` from the given type unit header.
+    /// Construct a new `Unit` from the given type unit header.
     #[inline]
     pub fn new_type_unit(dwarf: &Dwarf<R>, header: TypeUnitHeader<R, R::Offset>) -> Result<Self> {
         Self::new_internal(
@@ -350,7 +347,7 @@ impl<R: Reader> DwarfUnit<R> {
         header: UnitHeader<R, R::Offset>,
     ) -> Result<Self> {
         let abbreviations = header.abbreviations(&dwarf.debug_abbrev)?;
-        let mut unit = DwarfUnit {
+        let mut unit = Unit {
             offset,
             header,
             abbreviations,
@@ -476,7 +473,7 @@ impl<T: ReaderOffset> UnitSectionOffset<T> {
     /// Convert an offset to be relative to the start of the given unit,
     /// instead of relative to the start of the section.
     /// Returns `None` if the offset is not within the unit entries.
-    pub fn to_unit_offset<R>(&self, unit: &DwarfUnit<R>) -> Option<UnitOffset<T>>
+    pub fn to_unit_offset<R>(&self, unit: &Unit<R>) -> Option<UnitOffset<T>>
     where
         R: Reader<Offset = T>,
     {
@@ -505,7 +502,7 @@ impl<T: ReaderOffset> UnitSectionOffset<T> {
 impl<T: ReaderOffset> UnitOffset<T> {
     /// Convert an offset to be relative to the start of the .debug_info section,
     /// instead of relative to the start of the given compilation unit.
-    pub fn to_unit_section_offset<R>(&self, unit: &DwarfUnit<R>) -> UnitSectionOffset<T>
+    pub fn to_unit_section_offset<R>(&self, unit: &Unit<R>) -> UnitSectionOffset<T>
     where
         R: Reader<Offset = T>,
     {
