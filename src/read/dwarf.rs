@@ -1,6 +1,7 @@
 use common::{
-    DebugAddrBase, DebugAddrIndex, DebugLocListsBase, DebugLocListsIndex, DebugRngListsBase,
-    DebugRngListsIndex, DebugStrOffsetsBase, Encoding, LocationListsOffset, RangeListsOffset,
+    DebugAddrBase, DebugAddrIndex, DebugLineStrOffset, DebugLocListsBase, DebugLocListsIndex,
+    DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
+    DebugStrOffsetsIndex, Encoding, LocationListsOffset, RangeListsOffset,
 };
 use constants;
 use read::{
@@ -82,6 +83,29 @@ impl<R: Reader> Dwarf<R> {
     #[inline]
     pub fn type_abbreviations(&self, unit: &TypeUnitHeader<R, R::Offset>) -> Result<Abbreviations> {
         unit.abbreviations(&self.debug_abbrev)
+    }
+
+    /// Return the string offset at the given index.
+    #[inline]
+    pub fn string_offset(
+        &self,
+        unit: &DwarfUnit<R>,
+        index: DebugStrOffsetsIndex<R::Offset>,
+    ) -> Result<DebugStrOffset<R::Offset>> {
+        self.debug_str_offsets
+            .get_str_offset(unit.header.format(), unit.str_offsets_base, index)
+    }
+
+    /// Return the string at the given offset in `.debug_str`.
+    #[inline]
+    pub fn string(&self, offset: DebugStrOffset<R::Offset>) -> Result<R> {
+        self.debug_str.get_str(offset)
+    }
+
+    /// Return the string at the given offset in `.debug_line_str`.
+    #[inline]
+    pub fn line_string(&self, offset: DebugLineStrOffset<R::Offset>) -> Result<R> {
+        self.debug_line_str.get_str(offset)
     }
 
     /// Return an attribute value as a string slice.
