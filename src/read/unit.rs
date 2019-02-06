@@ -529,7 +529,7 @@ where
         self.length_including_self() - self.entries_buf.len()
     }
 
-    fn is_valid_offset(&self, offset: UnitOffset<R::Offset>) -> bool {
+    pub(crate) fn is_valid_offset(&self, offset: UnitOffset<R::Offset>) -> bool {
         let size_of_header = self.header_size();
         if offset.0 < size_of_header {
             return false;

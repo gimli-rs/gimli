@@ -1235,8 +1235,12 @@ pub(crate) mod convert {
             let mut rnglists_base = DebugRngListsBase(0);
             {
                 let from_root = from_root.entry();
-                let comp_dir = from_root.attr_value(constants::DW_AT_comp_dir)?;
-                let comp_file = from_root.attr_value(constants::DW_AT_name)?;
+                let comp_dir = from_root
+                    .attr_value(constants::DW_AT_comp_dir)?
+                    .and_then(|x| x.string_value(&dwarf.debug_str));
+                let comp_file = from_root
+                    .attr_value(constants::DW_AT_name)?
+                    .and_then(|x| x.string_value(&dwarf.debug_str));
                 if let Some(read::AttributeValue::DebugLineRef(offset)) =
                     from_root.attr_value(constants::DW_AT_stmt_list)?
                 {
@@ -1711,7 +1715,7 @@ mod tests {
             assert_eq!(unit1.address_size(), read_unit1.address_size());
             assert_eq!(unit1.format(), read_unit1.format());
 
-            let read_unit1 = read::DwarfUnit::new(&dwarf, read_unit1.header()).unwrap();
+            let read_unit1 = read::Unit::new(&dwarf, read_unit1).unwrap();
             let mut read_entries = read_unit1.entries();
 
             let root = unit1.get(unit1.root());
@@ -2549,14 +2553,8 @@ mod tests {
                         .program(
                             line_program_offset,
                             address_size,
-                            Some(read::AttributeValue::String(read::EndianSlice::new(
-                                b"comp_dir",
-                                LittleEndian,
-                            ))),
-                            Some(read::AttributeValue::String(read::EndianSlice::new(
-                                b"comp_name",
-                                LittleEndian,
-                            ))),
+                            Some(read::EndianSlice::new(b"comp_dir", LittleEndian)),
+                            Some(read::EndianSlice::new(b"comp_name", LittleEndian)),
                         )
                         .unwrap();
                     let dwarf = read::Dwarf::default();

@@ -1236,14 +1236,8 @@ mod tests {
                 .program(
                     debug_line_offsets.get(*program_id),
                     encoding.address_size,
-                    Some(read::AttributeValue::String(read::EndianSlice::new(
-                        b"dir1",
-                        LittleEndian,
-                    ))),
-                    Some(read::AttributeValue::String(read::EndianSlice::new(
-                        b"file1",
-                        LittleEndian,
-                    ))),
+                    Some(read::EndianSlice::new(b"dir1", LittleEndian)),
+                    Some(read::EndianSlice::new(b"file1", LittleEndian)),
                 )
                 .unwrap();
 
@@ -1557,14 +1551,8 @@ mod tests {
                             .program(
                                 debug_line_offsets.get(program_id),
                                 address_size,
-                                Some(read::AttributeValue::String(read::EndianSlice::new(
-                                    dir1,
-                                    LittleEndian,
-                                ))),
-                                Some(read::AttributeValue::String(read::EndianSlice::new(
-                                    file1,
-                                    LittleEndian,
-                                ))),
+                                Some(read::EndianSlice::new(dir1, LittleEndian)),
+                                Some(read::EndianSlice::new(file1, LittleEndian)),
                             )
                             .unwrap();
 
@@ -1699,14 +1687,8 @@ mod tests {
                             .program(
                                 debug_line_offsets.get(program_id),
                                 address_size,
-                                Some(read::AttributeValue::String(read::EndianSlice::new(
-                                    dir1,
-                                    LittleEndian,
-                                ))),
-                                Some(read::AttributeValue::String(read::EndianSlice::new(
-                                    file1,
-                                    LittleEndian,
-                                ))),
+                                Some(read::EndianSlice::new(dir1, LittleEndian)),
+                                Some(read::EndianSlice::new(file1, LittleEndian)),
                             )
                             .unwrap();
                         let read_header = read_program.header();
@@ -1786,14 +1768,8 @@ mod tests {
                             .program(
                                 debug_line_offsets.get(program_id),
                                 8,
-                                Some(read::AttributeValue::String(read::EndianSlice::new(
-                                    dir1,
-                                    LittleEndian,
-                                ))),
-                                Some(read::AttributeValue::String(read::EndianSlice::new(
-                                    file1,
-                                    LittleEndian,
-                                ))),
+                                Some(read::EndianSlice::new(dir1, LittleEndian)),
+                                Some(read::EndianSlice::new(file1, LittleEndian)),
                             )
                             .unwrap();
 

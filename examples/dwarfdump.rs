@@ -879,7 +879,7 @@ where
     let process_unit =
         |unit: CompilationUnitHeader<R, R::Offset>, buf: &mut Vec<u8>| -> Result<()> {
             let offset = unit.offset().0;
-            let unit = match gimli::DwarfUnit::new(dwarf, unit.header()) {
+            let unit = match gimli::Unit::new(dwarf, unit) {
                 Ok(unit) => unit,
                 Err(err) => {
                     writeln!(
@@ -935,7 +935,7 @@ fn dump_types<R: Reader, W: Write>(
         )?;
 
         let offset = unit.offset().0;
-        let unit = match gimli::DwarfUnit::new(dwarf, unit.header()) {
+        let unit = match gimli::Unit::new_type_unit(dwarf, unit) {
             Ok(unit) => unit,
             Err(err) => {
                 writeln!(
@@ -968,7 +968,7 @@ fn spaces(buf: &mut String, len: usize) -> &str {
 fn dump_entries<R: Reader, W: Write>(
     w: &mut W,
     offset: R::Offset,
-    unit: gimli::DwarfUnit<R>,
+    unit: gimli::Unit<R>,
     dwarf: &gimli::Dwarf<R>,
     flags: &Flags,
 ) -> Result<()> {
@@ -1031,7 +1031,7 @@ fn dump_entries<R: Reader, W: Write>(
 fn dump_attr_value<R: Reader, W: Write>(
     w: &mut W,
     attr: &gimli::Attribute<R>,
-    unit: &gimli::DwarfUnit<R>,
+    unit: &gimli::Unit<R>,
     dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     let value = attr.value();
@@ -1259,7 +1259,7 @@ fn dump_type_signature<W: Write>(w: &mut W, signature: gimli::DebugTypeSignature
 fn dump_file_index<R: Reader, W: Write>(
     w: &mut W,
     file: u64,
-    unit: &gimli::DwarfUnit<R>,
+    unit: &gimli::Unit<R>,
     dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     if file == 0 {
@@ -1282,13 +1282,7 @@ fn dump_file_index<R: Reader, W: Write>(
         let directory = directory.to_string_lossy()?;
         if !directory.starts_with('/') {
             if let Some(ref comp_dir) = unit.comp_dir {
-                write!(
-                    w,
-                    "{}/",
-                    dwarf
-                        .attr_string(unit, comp_dir.clone())?
-                        .to_string_lossy()?
-                )?;
+                write!(w, "{}/", comp_dir.to_string_lossy()?,)?;
             }
         }
         write!(w, "{}/", directory)?;
@@ -1306,7 +1300,7 @@ fn dump_file_index<R: Reader, W: Write>(
 fn dump_exprloc<R: Reader, W: Write>(
     w: &mut W,
     data: &gimli::Expression<R>,
-    unit: &gimli::DwarfUnit<R>,
+    unit: &gimli::Unit<R>,
 ) -> Result<()> {
     let mut pc = data.0.clone();
     let mut space = false;
@@ -1509,7 +1503,7 @@ fn dump_op<R: Reader, W: Write>(
 fn dump_loc_list<R: Reader, W: Write>(
     w: &mut W,
     offset: gimli::LocationListsOffset<R::Offset>,
-    unit: &gimli::DwarfUnit<R>,
+    unit: &gimli::Unit<R>,
     dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     let raw_locations = dwarf.locations.raw_locations(offset, unit.encoding())?;
@@ -1627,7 +1621,7 @@ fn dump_loc_list<R: Reader, W: Write>(
 fn dump_range_list<R: Reader, W: Write>(
     w: &mut W,
     offset: gimli::RangeListsOffset<R::Offset>,
-    unit: &gimli::DwarfUnit<R>,
+    unit: &gimli::Unit<R>,
     dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     let raw_ranges = dwarf.ranges.raw_ranges(offset, unit.encoding())?;
@@ -1742,7 +1736,7 @@ fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<
             "\n.debug_line: line number info for unit at .debug_info offset 0x{:08x}",
             unit.offset().0
         )?;
-        let unit = match gimli::DwarfUnit::new(dwarf, unit.header()) {
+        let unit = match gimli::Unit::new(dwarf, unit) {
             Ok(unit) => unit,
             Err(err) => {
                 writeln!(
@@ -1768,7 +1762,7 @@ fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<
 
 fn dump_line_program<R: Reader, W: Write>(
     w: &mut W,
-    unit: &gimli::DwarfUnit<R>,
+    unit: &gimli::Unit<R>,
     dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     if let Some(program) = unit.line_program.clone() {
