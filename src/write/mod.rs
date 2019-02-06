@@ -154,6 +154,8 @@ pub enum Error {
     LineStringFormMismatch,
     /// The range is empty or otherwise invalid.
     InvalidRange,
+    /// The line number program encoding is incompatible with the unit encoding.
+    IncompatibleLineProgramEncoding,
 }
 
 impl fmt::Display for Error {
@@ -183,6 +185,10 @@ impl fmt::Display for Error {
                 write!(f, "Strings in line number program have mismatched forms.")
             }
             Error::InvalidRange => write!(f, "The range is empty or otherwise invalid."),
+            Error::IncompatibleLineProgramEncoding => write!(
+                f,
+                "The line number program encoding is incompatible with the unit encoding."
+            ),
         }
     }
 }

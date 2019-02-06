@@ -387,7 +387,7 @@ mod tests {
                         ranges: &mut ranges,
                         convert_address: &|address| Some(Address::Absolute(address)),
                         base_address: Address::Absolute(0),
-                        line_program: None,
+                        line_program_offset: None,
                         line_program_files: Vec::new(),
                     };
                     let convert_range_list = RangeList::from(read_range_list, &context).unwrap();

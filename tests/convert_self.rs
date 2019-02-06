@@ -57,16 +57,11 @@ fn test_convert_debug_info() {
         ..Default::default()
     };
 
-    let mut line_programs = write::LineProgramTable::default();
     let mut line_strings = write::LineStringTable::default();
     let mut strings = write::StringTable::default();
-    let units = write::UnitTable::from(
-        &dwarf,
-        &mut line_programs,
-        &mut line_strings,
-        &mut strings,
-        &|address| Some(Address::Absolute(address)),
-    )
+    let units = write::UnitTable::from(&dwarf, &mut line_strings, &mut strings, &|address| {
+        Some(Address::Absolute(address))
+    })
     .expect("Should convert compilation units");
     assert_eq!(units.count(), 23);
     let entries: usize = (0..units.count())
@@ -87,38 +82,29 @@ fn test_convert_debug_info() {
     assert_eq!(debug_str_offsets.count(), 3921);
     assert_eq!(debug_str_data.len(), 144_731);
 
-    let mut write_debug_line = write::DebugLine::from(EndianVec::new(LittleEndian));
-    let debug_line_offsets = line_programs
-        .write(
-            &mut write_debug_line,
-            &debug_line_str_offsets,
-            &debug_str_offsets,
-        )
-        .expect("Should write line programs");
-    let debug_line_data = write_debug_line.slice();
-    assert_eq!(debug_line_offsets.count(), 23);
-    assert_eq!(debug_line_data.len(), 105_797);
-
     let mut write_debug_abbrev = write::DebugAbbrev::from(EndianVec::new(LittleEndian));
     let mut write_debug_info = write::DebugInfo::from(EndianVec::new(LittleEndian));
+    let mut write_debug_line = write::DebugLine::from(EndianVec::new(LittleEndian));
     let mut write_debug_ranges = write::DebugRanges::from(EndianVec::new(LittleEndian));
     let mut write_debug_rnglists = write::DebugRngLists::from(EndianVec::new(LittleEndian));
     units
         .write(
             &mut write_debug_abbrev,
             &mut write_debug_info,
+            &mut write_debug_line,
             &mut write_debug_ranges,
             &mut write_debug_rnglists,
-            &debug_line_offsets,
             &debug_line_str_offsets,
             &debug_str_offsets,
         )
         .expect("Should write units");
     let debug_info_data = write_debug_info.slice();
     let debug_abbrev_data = write_debug_abbrev.slice();
+    let debug_line_data = write_debug_line.slice();
     let debug_ranges_data = write_debug_ranges.slice();
     assert_eq!(debug_info_data.len(), 394_930);
     assert_eq!(debug_abbrev_data.len(), 1282);
+    assert_eq!(debug_line_data.len(), 105_797);
     assert_eq!(debug_ranges_data.len(), 155_712);
 
     // Convert new sections
@@ -140,22 +126,16 @@ fn test_convert_debug_info() {
         ..Default::default()
     };
 
-    let mut line_programs = write::LineProgramTable::default();
     let mut line_strings = write::LineStringTable::default();
     let mut strings = write::StringTable::default();
-    let units = write::UnitTable::from(
-        &dwarf,
-        &mut line_programs,
-        &mut line_strings,
-        &mut strings,
-        &|address| Some(Address::Absolute(address)),
-    )
+    let units = write::UnitTable::from(&dwarf, &mut line_strings, &mut strings, &|address| {
+        Some(Address::Absolute(address))
+    })
     .expect("Should convert compilation units");
     assert_eq!(units.count(), 23);
     let entries: usize = (0..units.count())
         .map(|i| units.get(units.id(i)).count())
         .sum();
     assert_eq!(entries, 29_560);
-    assert_eq!(line_programs.count(), 23);
     assert_eq!(strings.count(), 3921);
 }

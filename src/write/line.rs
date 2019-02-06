@@ -6,75 +6,9 @@ use common::{DebugLineOffset, Encoding, Format};
 use constants;
 use leb128;
 use write::{
-    Address, BaseId, DebugLineStrOffsets, DebugStrOffsets, Error, LineStringId, LineStringTable,
-    Result, Section, SectionId, StringId, Writer,
+    Address, DebugLineStrOffsets, DebugStrOffsets, Error, LineStringId, LineStringTable, Result,
+    Section, SectionId, StringId, Writer,
 };
-
-/// A table of line number programs that will be stored in a `.debug_line` section.
-#[derive(Debug, Default)]
-pub struct LineProgramTable {
-    base_id: BaseId,
-    programs: Vec<LineProgram>,
-}
-
-impl LineProgramTable {
-    /// Add a line number program to the table.
-    pub fn add(&mut self, program: LineProgram) -> LineProgramId {
-        let id = LineProgramId::new(self.base_id, self.programs.len());
-        self.programs.push(program);
-        id
-    }
-
-    /// Return the number of line number programs in the table.
-    #[inline]
-    pub fn count(&self) -> usize {
-        self.programs.len()
-    }
-
-    /// Get a reference to a line number program.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `id` is invalid.
-    #[inline]
-    pub fn get(&self, id: LineProgramId) -> &LineProgram {
-        debug_assert_eq!(self.base_id, id.base_id);
-        &self.programs[id.index]
-    }
-
-    /// Get a mutable reference to a line number program.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `id` is invalid.
-    #[inline]
-    pub fn get_mut(&mut self, id: LineProgramId) -> &mut LineProgram {
-        debug_assert_eq!(self.base_id, id.base_id);
-        &mut self.programs[id.index]
-    }
-
-    /// Write the line number programs to the given section.
-    pub fn write<W: Writer>(
-        &self,
-        debug_line: &mut DebugLine<W>,
-        debug_line_str_offsets: &DebugLineStrOffsets,
-        debug_str_offsets: &DebugStrOffsets,
-    ) -> Result<DebugLineOffsets> {
-        let mut offsets = Vec::new();
-        for program in &self.programs {
-            offsets.push(program.write(debug_line, debug_line_str_offsets, debug_str_offsets)?);
-        }
-        Ok(DebugLineOffsets {
-            base_id: self.base_id,
-            offsets,
-        })
-    }
-}
-
-define_id!(
-    LineProgramId,
-    "An identifier for a `LineProgram` in a `LineProgramTable`."
-);
 
 /// The initial value of the `is_statement` register.
 //
@@ -518,9 +452,17 @@ impl LineProgram {
     pub fn write<W: Writer>(
         &self,
         w: &mut DebugLine<W>,
+        encoding: Encoding,
         debug_line_str_offsets: &DebugLineStrOffsets,
         debug_str_offsets: &DebugStrOffsets,
     ) -> Result<DebugLineOffset> {
+        if encoding.version < self.version()
+            || encoding.format != self.format()
+            || encoding.address_size != self.address_size()
+        {
+            return Err(Error::IncompatibleLineProgramEncoding);
+        }
+
         let offset = w.offset();
 
         let length_offset = w.write_initial_length(self.format())?;
@@ -965,11 +907,6 @@ define_section!(
     "A writable `.debug_line` section."
 );
 
-define_offsets!(
-    DebugLineOffsets: LineProgramId => DebugLineOffset,
-    "The section offsets of all line number programs within a `.debug_line` section."
-);
-
 #[cfg(feature = "read")]
 mod convert {
     use super::*;
@@ -1162,8 +1099,7 @@ mod tests {
         let dir2 = LineString::String(b"dir2".to_vec());
         let file2 = LineString::String(b"file2".to_vec());
 
-        let mut programs = LineProgramTable::default();
-        let mut program_ids = Vec::new();
+        let mut programs = Vec::new();
         for &version in &[2, 3, 4, 5] {
             for &address_size in &[4, 8] {
                 for &format in &[Format::Dwarf32, Format::Dwarf64] {
@@ -1172,12 +1108,10 @@ mod tests {
                         version,
                         address_size,
                     };
-                    let program =
+                    let mut program =
                         LineProgram::new(encoding, 1, 1, -5, 14, dir1.clone(), file1.clone(), None);
-                    let program_id = programs.add(program);
 
                     {
-                        let program = programs.get_mut(program_id);
                         assert_eq!(&dir1, program.get_directory(program.default_directory()));
                         program.file_has_timestamp = true;
                         program.file_has_size = true;
@@ -1212,29 +1146,37 @@ mod tests {
                         );
                         assert_eq!(file_info, *program.get_file_info(file_id));
 
-                        program_ids.push((program_id, file_id, encoding));
+                        programs.push((program, file_id, encoding));
                     }
                 }
             }
         }
 
-        assert_eq!(programs.count(), program_ids.len());
-
         let debug_line_str_offsets = DebugLineStrOffsets::none();
         let debug_str_offsets = DebugStrOffsets::none();
         let mut debug_line = DebugLine::from(EndianVec::new(LittleEndian));
-        let debug_line_offsets = programs
-            .write(&mut debug_line, &debug_line_str_offsets, &debug_str_offsets)
-            .unwrap();
-        assert_eq!(debug_line_offsets.count(), program_ids.len());
+        let mut debug_line_offsets = Vec::new();
+        for (program, _, encoding) in &programs {
+            debug_line_offsets.push(
+                program
+                    .write(
+                        &mut debug_line,
+                        *encoding,
+                        &debug_line_str_offsets,
+                        &debug_str_offsets,
+                    )
+                    .unwrap(),
+            );
+        }
 
         let read_debug_line = read::DebugLine::new(debug_line.slice(), LittleEndian);
 
         let convert_address = &|address| Some(Address::Absolute(address));
-        for (program_id, file_id, encoding) in program_ids.iter() {
+        for ((program, file_id, encoding), offset) in programs.iter().zip(debug_line_offsets.iter())
+        {
             let read_program = read_debug_line
                 .program(
-                    debug_line_offsets.get(*program_id),
+                    *offset,
                     encoding.address_size,
                     Some(read::EndianSlice::new(b"dir1", LittleEndian)),
                     Some(read::EndianSlice::new(b"file1", LittleEndian)),
@@ -1252,7 +1194,6 @@ mod tests {
                 convert_address,
             )
             .unwrap();
-            let program = programs.get(*program_id);
             assert_eq!(convert_program.version(), program.version());
             assert_eq!(convert_program.address_size(), program.address_size());
             assert_eq!(convert_program.format(), program.format());
@@ -1537,19 +1478,21 @@ mod tests {
                         );
 
                         // Test LineProgram::from().
-                        let mut programs = LineProgramTable::default();
-                        let program_id = programs.add(program);
-
                         let mut debug_line = DebugLine::from(EndianVec::new(LittleEndian));
-                        let debug_line_offsets = programs
-                            .write(&mut debug_line, &debug_line_str_offsets, &debug_str_offsets)
+                        let debug_line_offset = program
+                            .write(
+                                &mut debug_line,
+                                encoding,
+                                &debug_line_str_offsets,
+                                &debug_str_offsets,
+                            )
                             .unwrap();
 
                         let read_debug_line =
                             read::DebugLine::new(debug_line.slice(), LittleEndian);
                         let read_program = read_debug_line
                             .program(
-                                debug_line_offsets.get(program_id),
+                                debug_line_offset,
                                 address_size,
                                 Some(read::EndianSlice::new(dir1, LittleEndian)),
                                 Some(read::EndianSlice::new(file1, LittleEndian)),
@@ -1671,21 +1614,24 @@ mod tests {
                         ),
                     ][..]
                     {
-                        let mut programs = LineProgramTable::default();
                         let mut program = program.clone();
                         program.instructions.push(*inst);
-                        let program_id = programs.add(program);
 
                         let mut debug_line = DebugLine::from(EndianVec::new(LittleEndian));
-                        let debug_line_offsets = programs
-                            .write(&mut debug_line, &debug_line_str_offsets, &debug_str_offsets)
+                        let debug_line_offset = program
+                            .write(
+                                &mut debug_line,
+                                encoding,
+                                &debug_line_str_offsets,
+                                &debug_str_offsets,
+                            )
                             .unwrap();
 
                         let read_debug_line =
                             read::DebugLine::new(debug_line.slice(), LittleEndian);
                         let read_program = read_debug_line
                             .program(
-                                debug_line_offsets.get(program_id),
+                                debug_line_offset,
                                 address_size,
                                 Some(read::EndianSlice::new(dir1, LittleEndian)),
                                 Some(read::EndianSlice::new(file1, LittleEndian)),
@@ -1755,18 +1701,21 @@ mod tests {
                             program.end_sequence(address_offset);
                         }
 
-                        let mut programs = LineProgramTable::default();
-                        let program_id = programs.add(program);
                         let mut debug_line = DebugLine::from(EndianVec::new(LittleEndian));
-                        let debug_line_offsets = programs
-                            .write(&mut debug_line, &debug_line_str_offsets, &debug_str_offsets)
+                        let debug_line_offset = program
+                            .write(
+                                &mut debug_line,
+                                encoding,
+                                &debug_line_str_offsets,
+                                &debug_str_offsets,
+                            )
                             .unwrap();
 
                         let read_debug_line =
                             read::DebugLine::new(debug_line.slice(), LittleEndian);
                         let read_program = read_debug_line
                             .program(
-                                debug_line_offsets.get(program_id),
+                                debug_line_offset,
                                 8,
                                 Some(read::EndianSlice::new(dir1, LittleEndian)),
                                 Some(read::EndianSlice::new(file1, LittleEndian)),
@@ -1846,7 +1795,6 @@ mod tests {
                         ),
                     ),
                 ] {
-                    let mut programs = LineProgramTable::default();
                     let program = LineProgram::new(
                         encoding,
                         1,
@@ -1857,16 +1805,20 @@ mod tests {
                         file,
                         None,
                     );
-                    let program_id = programs.add(program);
 
                     let mut debug_line = DebugLine::from(EndianVec::new(LittleEndian));
-                    let debug_line_offsets = programs
-                        .write(&mut debug_line, &debug_line_str_offsets, &debug_str_offsets)
+                    let debug_line_offset = program
+                        .write(
+                            &mut debug_line,
+                            encoding,
+                            &debug_line_str_offsets,
+                            &debug_str_offsets,
+                        )
                         .unwrap();
 
                     let read_debug_line = read::DebugLine::new(debug_line.slice(), LittleEndian);
                     let read_program = read_debug_line
-                        .program(debug_line_offsets.get(program_id), address_size, None, None)
+                        .program(debug_line_offset, address_size, None, None)
                         .unwrap();
                     let read_header = read_program.header();
                     assert_eq!(read_header.file(0).unwrap().path_name(), expect_file);
