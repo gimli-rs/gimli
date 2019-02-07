@@ -8,10 +8,9 @@ use common::{
 };
 use constants;
 use write::{
-    Abbreviation, AbbreviationTable, Address, AttributeSpecification, BaseId, DebugAbbrev,
-    DebugLine, DebugLineStrOffsets, DebugRanges, DebugRngLists, DebugStrOffsets, Error, FileId,
-    LineProgram, LineStringId, RangeList, RangeListId, RangeListOffsets, RangeListTable, Result,
-    Section, SectionId, StringId, Writer,
+    Abbreviation, AbbreviationTable, Address, AttributeSpecification, BaseId, DebugLineStrOffsets,
+    DebugStrOffsets, Error, FileId, LineProgram, LineStringId, RangeList, RangeListId,
+    RangeListOffsets, RangeListTable, Result, Section, SectionId, Sections, StringId, Writer,
 };
 
 define_id!(UnitId, "An identifier for a unit in a `UnitTable`.");
@@ -88,16 +87,12 @@ impl UnitTable {
     /// `StringTable`.
     pub fn write<W: Writer>(
         &self,
-        debug_abbrev: &mut DebugAbbrev<W>,
-        debug_info: &mut DebugInfo<W>,
-        debug_line: &mut DebugLine<W>,
-        debug_ranges: &mut DebugRanges<W>,
-        debug_rnglists: &mut DebugRngLists<W>,
+        sections: &mut Sections<W>,
         line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
     ) -> Result<DebugInfoOffsets> {
         // Use one abbreviation table for everything.
-        let abbrev_offset = debug_abbrev.offset();
+        let abbrev_offset = sections.debug_abbrev.offset();
         let mut abbrevs = AbbreviationTable::default();
 
         let mut debug_info_refs = Vec::new();
@@ -107,10 +102,7 @@ impl UnitTable {
         };
         for unit in &self.units {
             offsets.units.push(unit.write(
-                debug_info,
-                debug_line,
-                debug_ranges,
-                debug_rnglists,
+                sections,
                 abbrev_offset,
                 &mut abbrevs,
                 line_strings,
@@ -122,10 +114,15 @@ impl UnitTable {
         for (offset, (unit, entry), size) in debug_info_refs {
             let entry_offset = offsets.entry(unit, entry).0;
             debug_assert_ne!(entry_offset, 0);
-            debug_info.write_offset_at(offset.0, entry_offset, SectionId::DebugInfo, size)?;
+            sections.debug_info.write_offset_at(
+                offset.0,
+                entry_offset,
+                SectionId::DebugInfo,
+                size,
+            )?;
         }
 
-        abbrevs.write(debug_abbrev)?;
+        abbrevs.write(&mut sections.debug_abbrev)?;
 
         Ok(offsets)
     }
@@ -269,10 +266,7 @@ impl Unit {
     /// Write the unit to the given sections.
     fn write<W: Writer>(
         &self,
-        w: &mut DebugInfo<W>,
-        debug_line: &mut DebugLine<W>,
-        debug_ranges: &mut DebugRanges<W>,
-        debug_rnglists: &mut DebugRngLists<W>,
+        sections: &mut Sections<W>,
         abbrev_offset: DebugAbbrevOffset,
         abbrevs: &mut AbbreviationTable,
         line_strings: &DebugLineStrOffsets,
@@ -280,16 +274,19 @@ impl Unit {
         debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
     ) -> Result<UnitOffsets> {
         let line_program = if self.line_program_in_use() {
-            Some(
-                self.line_program
-                    .write(debug_line, self.encoding, line_strings, strings)?,
-            )
+            Some(self.line_program.write(
+                &mut sections.debug_line,
+                self.encoding,
+                line_strings,
+                strings,
+            )?)
         } else {
             None
         };
-        let range_lists = self
-            .ranges
-            .write(debug_ranges, debug_rnglists, self.encoding)?;
+        let range_lists = self.ranges.write(sections, self.encoding)?;
+
+        // TODO: use .debug_types for type units in DWARF v4.
+        let w = &mut sections.debug_info;
 
         let mut offsets = UnitOffsets {
             base_id: self.base_id,
@@ -1516,8 +1513,8 @@ mod tests {
     use read;
     use std::mem;
     use write::{
-        DebugLine, DebugLineStr, DebugRanges, DebugRngLists, DebugStr, EndianVec, LineString,
-        LineStringTable, Range, RangeListOffsets, RangeListTable, StringTable,
+        DebugLine, DebugLineStr, DebugStr, EndianVec, LineString, LineStringTable, Range,
+        RangeListOffsets, RangeListTable, StringTable,
     };
     use LittleEndian;
 
@@ -1642,37 +1639,21 @@ mod tests {
             assert_eq!(root.tag(), constants::DW_TAG_compile_unit);
         }
 
+        let mut sections = Sections::new(EndianVec::new(LittleEndian));
         let debug_line_str_offsets = DebugLineStrOffsets::none();
-
-        let mut debug_str = DebugStr::from(EndianVec::new(LittleEndian));
-        let debug_str_offsets = strings.write(&mut debug_str).unwrap();
-
-        let mut debug_info = DebugInfo::from(EndianVec::new(LittleEndian));
-        let mut debug_abbrev = DebugAbbrev::from(EndianVec::new(LittleEndian));
-        let mut debug_line = DebugLine::from(EndianVec::new(LittleEndian));
-        let mut debug_ranges = DebugRanges::from(EndianVec::new(LittleEndian));
-        let mut debug_rnglists = DebugRngLists::from(EndianVec::new(LittleEndian));
+        let debug_str_offsets = strings.write(&mut sections.debug_str).unwrap();
         units
-            .write(
-                &mut debug_abbrev,
-                &mut debug_info,
-                &mut debug_line,
-                &mut debug_ranges,
-                &mut debug_rnglists,
-                &debug_line_str_offsets,
-                &debug_str_offsets,
-            )
+            .write(&mut sections, &debug_line_str_offsets, &debug_str_offsets)
             .unwrap();
 
-        println!("{:?}", debug_str);
-        println!("{:?}", debug_info);
-        println!("{:?}", debug_abbrev);
+        println!("{:?}", sections.debug_str);
+        println!("{:?}", sections.debug_info);
+        println!("{:?}", sections.debug_abbrev);
 
         let dwarf = read::Dwarf {
-            debug_abbrev: read::DebugAbbrev::new(debug_abbrev.slice(), LittleEndian),
-            debug_info: read::DebugInfo::new(debug_info.slice(), LittleEndian),
-            debug_line: read::DebugLine::new(&[], LittleEndian),
-            debug_str: read::DebugStr::new(debug_str.slice(), LittleEndian),
+            debug_abbrev: read::DebugAbbrev::new(sections.debug_abbrev.slice(), LittleEndian),
+            debug_info: read::DebugInfo::new(sections.debug_info.slice(), LittleEndian),
+            debug_str: read::DebugStr::new(sections.debug_str.slice(), LittleEndian),
             ..Default::default()
         };
         let mut read_units = dwarf.units();
@@ -1877,15 +1858,12 @@ mod tests {
                         address_size,
                     };
 
-                    let mut debug_ranges = DebugRanges::from(EndianVec::new(LittleEndian));
-                    let mut debug_rnglists = DebugRngLists::from(EndianVec::new(LittleEndian));
-                    let range_list_offsets = ranges
-                        .write(&mut debug_ranges, &mut debug_rnglists, encoding)
-                        .unwrap();
+                    let mut sections = Sections::new(EndianVec::new(LittleEndian));
+                    let range_list_offsets = ranges.write(&mut sections, encoding).unwrap();
                     let read_debug_ranges =
-                        read::DebugRanges::new(debug_ranges.slice(), LittleEndian);
+                        read::DebugRanges::new(sections.debug_ranges.slice(), LittleEndian);
                     let read_debug_rnglists =
-                        read::DebugRngLists::new(debug_rnglists.slice(), LittleEndian);
+                        read::DebugRngLists::new(sections.debug_rnglists.slice(), LittleEndian);
 
                     let mut units = UnitTable::default();
                     let unit = units.add(Unit::new(encoding, LineProgram::none()));
@@ -2221,32 +2199,17 @@ mod tests {
 
         let debug_line_str_offsets = DebugLineStrOffsets::none();
         let debug_str_offsets = DebugStrOffsets::none();
-        let mut debug_info = DebugInfo::from(EndianVec::new(LittleEndian));
-        let mut debug_abbrev = DebugAbbrev::from(EndianVec::new(LittleEndian));
-        let mut debug_line = DebugLine::from(EndianVec::new(LittleEndian));
-        let mut debug_ranges = DebugRanges::from(EndianVec::new(LittleEndian));
-        let mut debug_rnglists = DebugRngLists::from(EndianVec::new(LittleEndian));
+        let mut sections = Sections::new(EndianVec::new(LittleEndian));
         let debug_info_offsets = units
-            .write(
-                &mut debug_abbrev,
-                &mut debug_info,
-                &mut debug_line,
-                &mut debug_ranges,
-                &mut debug_rnglists,
-                &debug_line_str_offsets,
-                &debug_str_offsets,
-            )
+            .write(&mut sections, &debug_line_str_offsets, &debug_str_offsets)
             .unwrap();
 
-        println!("{:?}", debug_info);
-        println!("{:?}", debug_abbrev);
+        println!("{:?}", sections.debug_info);
+        println!("{:?}", sections.debug_abbrev);
 
         let dwarf = read::Dwarf {
-            debug_abbrev: read::DebugAbbrev::new(debug_abbrev.slice(), LittleEndian),
-            debug_info: read::DebugInfo::new(debug_info.slice(), LittleEndian),
-            debug_line: read::DebugLine::new(&[], LittleEndian),
-            debug_line_str: read::DebugLineStr::from(read::EndianSlice::new(&[], LittleEndian)),
-            debug_str: read::DebugStr::new(&[], LittleEndian),
+            debug_abbrev: read::DebugAbbrev::new(sections.debug_abbrev.slice(), LittleEndian),
+            debug_info: read::DebugInfo::new(sections.debug_info.slice(), LittleEndian),
             ..Default::default()
         };
 
@@ -2457,28 +2420,16 @@ mod tests {
 
         let debug_line_str_offsets = DebugLineStrOffsets::none();
         let debug_str_offsets = DebugStrOffsets::none();
-        let mut debug_info = DebugInfo::from(EndianVec::new(LittleEndian));
-        let mut debug_abbrev = DebugAbbrev::from(EndianVec::new(LittleEndian));
-        let mut debug_line = DebugLine::from(EndianVec::new(LittleEndian));
-        let mut debug_ranges = DebugRanges::from(EndianVec::new(LittleEndian));
-        let mut debug_rnglists = DebugRngLists::from(EndianVec::new(LittleEndian));
+        let mut sections = Sections::new(EndianVec::new(LittleEndian));
         units
-            .write(
-                &mut debug_abbrev,
-                &mut debug_info,
-                &mut debug_line,
-                &mut debug_ranges,
-                &mut debug_rnglists,
-                &debug_line_str_offsets,
-                &debug_str_offsets,
-            )
+            .write(&mut sections, &debug_line_str_offsets, &debug_str_offsets)
             .unwrap();
 
-        println!("{:?}", debug_info);
-        println!("{:?}", debug_abbrev);
+        println!("{:?}", sections.debug_info);
+        println!("{:?}", sections.debug_abbrev);
 
-        let read_debug_info = read::DebugInfo::new(debug_info.slice(), LittleEndian);
-        let read_debug_abbrev = read::DebugAbbrev::new(debug_abbrev.slice(), LittleEndian);
+        let read_debug_info = read::DebugInfo::new(sections.debug_info.slice(), LittleEndian);
+        let read_debug_abbrev = read::DebugAbbrev::new(sections.debug_abbrev.slice(), LittleEndian);
         let mut read_units = read_debug_info.units();
         check_sibling(&read_units.next().unwrap().unwrap(), &read_debug_abbrev);
         check_sibling(&read_units.next().unwrap().unwrap(), &read_debug_abbrev);

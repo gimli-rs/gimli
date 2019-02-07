@@ -82,26 +82,18 @@ fn test_convert_debug_info() {
     assert_eq!(debug_str_offsets.count(), 3921);
     assert_eq!(debug_str_data.len(), 144_731);
 
-    let mut write_debug_abbrev = write::DebugAbbrev::from(EndianVec::new(LittleEndian));
-    let mut write_debug_info = write::DebugInfo::from(EndianVec::new(LittleEndian));
-    let mut write_debug_line = write::DebugLine::from(EndianVec::new(LittleEndian));
-    let mut write_debug_ranges = write::DebugRanges::from(EndianVec::new(LittleEndian));
-    let mut write_debug_rnglists = write::DebugRngLists::from(EndianVec::new(LittleEndian));
+    let mut write_sections = write::Sections::new(EndianVec::new(LittleEndian));
     units
         .write(
-            &mut write_debug_abbrev,
-            &mut write_debug_info,
-            &mut write_debug_line,
-            &mut write_debug_ranges,
-            &mut write_debug_rnglists,
+            &mut write_sections,
             &debug_line_str_offsets,
             &debug_str_offsets,
         )
         .expect("Should write units");
-    let debug_info_data = write_debug_info.slice();
-    let debug_abbrev_data = write_debug_abbrev.slice();
-    let debug_line_data = write_debug_line.slice();
-    let debug_ranges_data = write_debug_ranges.slice();
+    let debug_info_data = write_sections.debug_info.slice();
+    let debug_abbrev_data = write_sections.debug_abbrev.slice();
+    let debug_line_data = write_sections.debug_line.slice();
+    let debug_ranges_data = write_sections.debug_ranges.slice();
     assert_eq!(debug_info_data.len(), 394_930);
     assert_eq!(debug_abbrev_data.len(), 1282);
     assert_eq!(debug_line_data.len(), 105_797);

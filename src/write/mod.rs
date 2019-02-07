@@ -2,7 +2,6 @@
 
 use std::error;
 use std::fmt;
-use std::ops::DerefMut;
 use std::result;
 
 mod endian_vec;
@@ -11,50 +10,9 @@ pub use self::endian_vec::*;
 mod writer;
 pub use self::writer::*;
 
-macro_rules! define_section {
-    ($name:ident, $offset:ident, $docs:expr) => {
-        #[doc=$docs]
-        #[derive(Debug)]
-        pub struct $name<W: Writer>(pub W);
-
-        impl<W: Writer> $name<W> {
-            /// Return the offset of the next write.
-            pub fn offset(&self) -> $offset {
-                $offset(self.len())
-            }
-        }
-
-        impl<W: Writer> From<W> for $name<W> {
-            #[inline]
-            fn from(w: W) -> Self {
-                $name(w)
-            }
-        }
-
-        impl<W: Writer> Deref for $name<W> {
-            type Target = W;
-
-            #[inline]
-            fn deref(&self) -> &W {
-                &self.0
-            }
-        }
-
-        impl<W: Writer> DerefMut for $name<W> {
-            #[inline]
-            fn deref_mut(&mut self) -> &mut W {
-                &mut self.0
-            }
-        }
-
-        impl<W: Writer> Section<W> for $name<W> {
-            #[inline]
-            fn id() -> SectionId {
-                SectionId::$name
-            }
-        }
-    };
-}
+#[macro_use]
+mod section;
+pub use self::section::*;
 
 macro_rules! define_id {
     ($name:ident, $docs:expr) => {
@@ -203,60 +161,6 @@ impl error::Error for Error {}
 
 /// The result of a write.
 pub type Result<T> = result::Result<T, Error>;
-
-/// An identifier for a DWARF section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SectionId {
-    /// The `.debug_abbrev` section.
-    DebugAbbrev,
-    /// The `.debug_info` section.
-    DebugInfo,
-    /// The `.debug_line` section.
-    DebugLine,
-    /// The `.debug_line_str` section.
-    DebugLineStr,
-    /// The `.debug_loc` section.
-    DebugLoc,
-    /// The `.debug_loclists` section.
-    DebugLocLists,
-    /// The `.debug_macinfo` section.
-    DebugMacinfo,
-    /// The `.debug_ranges` section.
-    DebugRanges,
-    /// The `.debug_rnglists` section.
-    DebugRngLists,
-    /// The `.debug_str` section.
-    DebugStr,
-}
-
-impl SectionId {
-    /// Returns the ELF section name for this kind.
-    pub fn name(self) -> &'static str {
-        match self {
-            SectionId::DebugInfo => ".debug_info",
-            SectionId::DebugStr => ".debug_str",
-            SectionId::DebugAbbrev => ".debug_abbrev",
-            SectionId::DebugRanges => ".debug_ranges",
-            SectionId::DebugLine => ".debug_line",
-            SectionId::DebugLineStr => ".debug_line_str",
-            SectionId::DebugLoc => ".debug_loc",
-            SectionId::DebugLocLists => ".debug_loclists",
-            SectionId::DebugRngLists => ".debug_rnglists",
-            SectionId::DebugMacinfo => ".debug_macinfo",
-        }
-    }
-}
-
-/// Functionality common to all writable DWARF sections.
-pub trait Section<W: Writer>: From<W> + DerefMut<Target = W> {
-    /// Returns the DWARF section kind for this type.
-    fn id() -> SectionId;
-
-    /// Returns the ELF section name for this type.
-    fn name() -> &'static str {
-        Self::id().name()
-    }
-}
 
 /// An address.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

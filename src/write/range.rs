@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use vec::Vec;
 
 use common::{Encoding, RangeListsOffset};
-use write::{Address, BaseId, Error, Result, Section, SectionId, Writer};
+use write::{Address, BaseId, Error, Result, Section, SectionId, Sections, Writer};
 
 define_section!(
     DebugRanges,
@@ -43,8 +43,7 @@ impl RangeListTable {
     /// Write the range list table to the appropriate section for the given DWARF version.
     pub(crate) fn write<W: Writer>(
         &self,
-        debug_ranges: &mut DebugRanges<W>,
-        debug_rnglists: &mut DebugRngLists<W>,
+        sections: &mut Sections<W>,
         encoding: Encoding,
     ) -> Result<RangeListOffsets> {
         if self.ranges.is_empty() {
@@ -52,8 +51,8 @@ impl RangeListTable {
         }
 
         match encoding.version {
-            2...4 => self.write_ranges(debug_ranges, encoding.address_size),
-            5 => self.write_rnglists(debug_rnglists, encoding),
+            2...4 => self.write_ranges(&mut sections.debug_ranges, encoding.address_size),
+            5 => self.write_rnglists(&mut sections.debug_rnglists, encoding),
             _ => Err(Error::UnsupportedVersion(encoding.version)),
         }
     }
@@ -303,8 +302,7 @@ mod tests {
     };
     use read;
     use write::{
-        ConvertUnitContext, DebugRanges, DebugRngLists, EndianVec, LineStringTable, Range,
-        RangeListTable, StringTable,
+        ConvertUnitContext, EndianVec, LineStringTable, Range, RangeListTable, StringTable,
     };
     use LittleEndian;
 
@@ -343,16 +341,13 @@ mod tests {
                     let mut ranges = RangeListTable::default();
                     let range_list_id = ranges.add(range_list.clone());
 
-                    let mut debug_ranges = DebugRanges::from(EndianVec::new(LittleEndian));
-                    let mut debug_rnglists = DebugRngLists::from(EndianVec::new(LittleEndian));
-                    let range_list_offsets = ranges
-                        .write(&mut debug_ranges, &mut debug_rnglists, encoding)
-                        .unwrap();
+                    let mut sections = Sections::new(EndianVec::new(LittleEndian));
+                    let range_list_offsets = ranges.write(&mut sections, encoding).unwrap();
 
                     let read_debug_ranges =
-                        read::DebugRanges::new(debug_ranges.slice(), LittleEndian);
+                        read::DebugRanges::new(sections.debug_ranges.slice(), LittleEndian);
                     let read_debug_rnglists =
-                        read::DebugRngLists::new(debug_rnglists.slice(), LittleEndian);
+                        read::DebugRngLists::new(sections.debug_rnglists.slice(), LittleEndian);
                     let read_ranges = read::RangeLists::new(read_debug_ranges, read_debug_rnglists);
                     let offset = range_list_offsets.get(range_list_id);
                     let read_range_list = read_ranges.raw_ranges(offset, encoding).unwrap();
