@@ -24,6 +24,8 @@ const OPCODE_BASE: u8 = 13;
 /// A line number program.
 #[derive(Debug, Clone)]
 pub struct LineProgram {
+    /// True if this line program was created with `LineProgram::none()`.
+    none: bool,
     encoding: Encoding,
     /// The minimum size in bytes of a target machine instruction.
     /// All instruction lengths must be a multiple of this size.
@@ -119,6 +121,7 @@ impl LineProgram {
         assert!(line_base <= 0);
         assert!(line_base + line_range as i8 > 0);
         let mut program = LineProgram {
+            none: false,
             encoding,
             minimum_instruction_length,
             maximum_operations_per_instruction,
@@ -145,6 +148,42 @@ impl LineProgram {
             program.add_file(comp_file, dir, comp_file_info);
         }
         program
+    }
+
+    /// Create a new `LineProgram` with no fields set.
+    ///
+    /// This can be used when the `LineProgram` will not be used.
+    ///
+    /// You should not attempt to add files or line instructions to
+    /// this line program, or write it to the `.debug_line` section.
+    pub fn none() -> Self {
+        LineProgram {
+            none: true,
+            encoding: Encoding {
+                format: Format::Dwarf32,
+                version: 2,
+                address_size: 0,
+            },
+            minimum_instruction_length: 1,
+            maximum_operations_per_instruction: 1,
+            line_base: 0,
+            line_range: 1,
+            directories: IndexSet::new(),
+            files: IndexMap::new(),
+            prev_row: LineRow::initial_state(),
+            row: LineRow::new(2),
+            instructions: Vec::new(),
+            in_sequence: false,
+            file_has_timestamp: false,
+            file_has_size: false,
+            file_has_md5: false,
+        }
+    }
+
+    /// Return true if this line program was created with `LineProgram::none()`.
+    #[inline]
+    pub fn is_none(&self) -> bool {
+        self.none
     }
 
     /// Return the encoding parameters for this line program.
@@ -448,6 +487,14 @@ impl LineProgram {
             - self.prev_row.op_index
     }
 
+    /// Returns true if the line number program has no instructions.
+    ///
+    /// Does not check the file or directory entries.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.instructions.is_empty()
+    }
+
     /// Write the line number program to the given section.
     pub fn write<W: Writer>(
         &self,
@@ -456,6 +503,10 @@ impl LineProgram {
         debug_line_str_offsets: &DebugLineStrOffsets,
         debug_str_offsets: &DebugStrOffsets,
     ) -> Result<DebugLineOffset> {
+        if self.none {
+            return Err(Error::CannotWriteEmptyLineProgram);
+        }
+
         if encoding.version < self.version()
             || encoding.format != self.format()
             || encoding.address_size != self.address_size()

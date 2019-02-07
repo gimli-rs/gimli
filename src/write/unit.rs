@@ -141,7 +141,7 @@ pub struct CompilationUnit {
     /// The encoding parameters for this unit.
     encoding: Encoding,
     /// The line number program for this unit.
-    pub line_program: Option<LineProgram>,
+    pub line_program: LineProgram,
     /// A table of range lists used by this unit.
     pub ranges: RangeListTable,
     /// All entries in this unit. The order is unrelated to the tree order.
@@ -159,9 +159,8 @@ pub struct CompilationUnit {
 
 impl CompilationUnit {
     /// Create a new `CompilationUnit`.
-    pub fn new(encoding: Encoding) -> Self {
+    pub fn new(encoding: Encoding, line_program: LineProgram) -> Self {
         let base_id = BaseId::default();
-        let line_program = None;
         let ranges = RangeListTable::default();
         let mut entries = Vec::new();
         let root = DebuggingInformationEntry::new(
@@ -253,6 +252,23 @@ impl CompilationUnit {
         &mut self.entries[id.index]
     }
 
+    /// Return true if `self.line_program` is used by a DIE.
+    fn line_program_in_use(&self) -> bool {
+        if !self.line_program.is_empty() {
+            return true;
+        }
+
+        for entry in &self.entries {
+            for attr in &entry.attrs {
+                if let AttributeValue::FileIndex(_) = attr.value {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     /// Write the compilation unit to the given sections.
     fn write<W: Writer>(
         &self,
@@ -266,13 +282,13 @@ impl CompilationUnit {
         strings: &DebugStrOffsets,
         debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
     ) -> Result<UnitOffsets> {
-        // TODO: don't use an option for line_program, but only write it
-        // if something references it.
-        let line_program = match self.line_program {
-            Some(ref line_program) => {
-                Some(line_program.write(debug_line, self.encoding, line_strings, strings)?)
-            }
-            None => None,
+        let line_program = if self.line_program_in_use() {
+            Some(
+                self.line_program
+                    .write(debug_line, self.encoding, line_strings, strings)?,
+            )
+        } else {
+            None
         };
         let range_lists = self
             .ranges
@@ -1247,13 +1263,9 @@ pub(crate) mod convert {
                             strings,
                             convert_address,
                         )?;
-                        (
-                            Some(line_program_offset),
-                            Some(line_program),
-                            line_program_files,
-                        )
+                        (Some(line_program_offset), line_program, line_program_files)
                     }
-                    None => (None, None, Vec::new()),
+                    None => (None, LineProgram::none(), Vec::new()),
                 };
 
             let mut ranges = RangeListTable::default();
@@ -1518,21 +1530,30 @@ mod tests {
         let mut strings = StringTable::default();
 
         let mut units = UnitTable::default();
-        let unit_id1 = units.add(CompilationUnit::new(Encoding {
-            version: 4,
-            address_size: 8,
-            format: Format::Dwarf32,
-        }));
-        let unit2 = units.add(CompilationUnit::new(Encoding {
-            version: 2,
-            address_size: 4,
-            format: Format::Dwarf64,
-        }));
-        let unit3 = units.add(CompilationUnit::new(Encoding {
-            version: 5,
-            address_size: 4,
-            format: Format::Dwarf32,
-        }));
+        let unit_id1 = units.add(CompilationUnit::new(
+            Encoding {
+                version: 4,
+                address_size: 8,
+                format: Format::Dwarf32,
+            },
+            LineProgram::none(),
+        ));
+        let unit2 = units.add(CompilationUnit::new(
+            Encoding {
+                version: 2,
+                address_size: 4,
+                format: Format::Dwarf64,
+            },
+            LineProgram::none(),
+        ));
+        let unit3 = units.add(CompilationUnit::new(
+            Encoding {
+                version: 5,
+                address_size: 4,
+                format: Format::Dwarf32,
+            },
+            LineProgram::none(),
+        ));
         assert_eq!(units.count(), 3);
         {
             let unit1 = units.get_mut(unit_id1);
@@ -1870,7 +1891,7 @@ mod tests {
                         read::DebugRngLists::new(debug_rnglists.slice(), LittleEndian);
 
                     let mut units = UnitTable::default();
-                    let unit = units.add(CompilationUnit::new(encoding));
+                    let unit = units.add(CompilationUnit::new(encoding, LineProgram::none()));
                     let unit = units.get(unit);
                     let encoding = Encoding {
                         format,
@@ -2134,17 +2155,23 @@ mod tests {
     #[allow(clippy::cyclomatic_complexity)]
     fn test_unit_ref() {
         let mut units = UnitTable::default();
-        let unit_id1 = units.add(CompilationUnit::new(Encoding {
-            version: 4,
-            address_size: 8,
-            format: Format::Dwarf32,
-        }));
+        let unit_id1 = units.add(CompilationUnit::new(
+            Encoding {
+                version: 4,
+                address_size: 8,
+                format: Format::Dwarf32,
+            },
+            LineProgram::none(),
+        ));
         assert_eq!(unit_id1, UnitId::new(units.base_id, 0));
-        let unit_id2 = units.add(CompilationUnit::new(Encoding {
-            version: 2,
-            address_size: 4,
-            format: Format::Dwarf64,
-        }));
+        let unit_id2 = units.add(CompilationUnit::new(
+            Encoding {
+                version: 2,
+                address_size: 4,
+                format: Format::Dwarf64,
+            },
+            LineProgram::none(),
+        ));
         assert_eq!(unit_id2, UnitId::new(units.base_id, 1));
         let unit1_child1 = UnitEntryId::new(units.get(unit_id1).base_id, 1);
         let unit1_child2 = UnitEntryId::new(units.get(unit_id1).base_id, 2);
@@ -2426,9 +2453,9 @@ mod tests {
             address_size: 8,
         };
         let mut units = UnitTable::default();
-        let unit_id1 = units.add(CompilationUnit::new(encoding));
+        let unit_id1 = units.add(CompilationUnit::new(encoding, LineProgram::none()));
         add_children(&mut units, unit_id1);
-        let unit_id2 = units.add(CompilationUnit::new(encoding));
+        let unit_id2 = units.add(CompilationUnit::new(encoding, LineProgram::none()));
         add_children(&mut units, unit_id2);
 
         let debug_line_str_offsets = DebugLineStrOffsets::none();
@@ -2519,7 +2546,7 @@ mod tests {
 
                     // Fake the unit.
                     let mut units = UnitTable::default();
-                    let unit = units.add(CompilationUnit::new(encoding));
+                    let unit = units.add(CompilationUnit::new(encoding, LineProgram::none()));
                     let unit = units.get(unit);
                     let from_unit = read::UnitHeader::new(
                         encoding,
