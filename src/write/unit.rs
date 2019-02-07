@@ -16,43 +16,40 @@ use write::{
 
 define_id!(UnitId, "An identifier for a unit in a `UnitTable`.");
 
-define_id!(
-    UnitEntryId,
-    "An identifier for an entry in a `CompilationUnit`."
-);
+define_id!(UnitEntryId, "An identifier for an entry in a `Unit`.");
 
 /// The bytecode for a DWARF expression or location description.
 // TODO: this needs to be a `Vec<Op>` so we can handle relocations
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Expression(pub Vec<u8>);
 
-/// A table of compilations units that will be stored in a `.debug_info` section.
+/// A table of units that will be stored in the `.debug_info` section.
 #[derive(Debug, Default)]
 pub struct UnitTable {
     base_id: BaseId,
-    units: Vec<CompilationUnit>,
+    units: Vec<Unit>,
 }
 
 impl UnitTable {
-    /// Create a new compilation unit and add it to the table.
+    /// Create a new unit and add it to the table.
     ///
     /// `address_size` must be in bytes.
     ///
     /// Returns the `UnitId` of the new unit.
     #[inline]
-    pub fn add(&mut self, unit: CompilationUnit) -> UnitId {
+    pub fn add(&mut self, unit: Unit) -> UnitId {
         let id = UnitId::new(self.base_id, self.units.len());
         self.units.push(unit);
         id
     }
 
-    /// Return the number of compilation units.
+    /// Return the number of units.
     #[inline]
     pub fn count(&self) -> usize {
         self.units.len()
     }
 
-    /// Return the id of a compilation units.
+    /// Return the id of a unit.
     ///
     /// # Panics
     ///
@@ -63,29 +60,29 @@ impl UnitTable {
         UnitId::new(self.base_id, index)
     }
 
-    /// Get a reference to a compilation unit.
+    /// Get a reference to a unit.
     ///
     /// # Panics
     ///
     /// Panics if `id` is invalid.
     #[inline]
-    pub fn get(&self, id: UnitId) -> &CompilationUnit {
+    pub fn get(&self, id: UnitId) -> &Unit {
         debug_assert_eq!(self.base_id, id.base_id);
         &self.units[id.index]
     }
 
-    /// Get a mutable reference to a compilation unit.
+    /// Get a mutable reference to a unit.
     ///
     /// # Panics
     ///
     /// Panics if `id` is invalid.
     #[inline]
-    pub fn get_mut(&mut self, id: UnitId) -> &mut CompilationUnit {
+    pub fn get_mut(&mut self, id: UnitId) -> &mut Unit {
         debug_assert_eq!(self.base_id, id.base_id);
         &mut self.units[id.index]
     }
 
-    /// Write the compilation units to the given sections.
+    /// Write the units to the given sections.
     ///
     /// `strings` must contain the `.debug_str` offsets of the corresponding
     /// `StringTable`.
@@ -134,9 +131,9 @@ impl UnitTable {
     }
 }
 
-/// A compilation unit's debugging information.
+/// A unit's debugging information.
 #[derive(Debug)]
-pub struct CompilationUnit {
+pub struct Unit {
     base_id: BaseId,
     /// The encoding parameters for this unit.
     encoding: Encoding,
@@ -157,8 +154,8 @@ pub struct CompilationUnit {
     root: UnitEntryId,
 }
 
-impl CompilationUnit {
-    /// Create a new `CompilationUnit`.
+impl Unit {
+    /// Create a new `Unit`.
     pub fn new(encoding: Encoding, line_program: LineProgram) -> Self {
         let base_id = BaseId::default();
         let ranges = RangeListTable::default();
@@ -169,7 +166,7 @@ impl CompilationUnit {
             None,
             constants::DW_TAG_compile_unit,
         );
-        CompilationUnit {
+        Unit {
             base_id,
             encoding,
             line_program,
@@ -269,7 +266,7 @@ impl CompilationUnit {
         false
     }
 
-    /// Write the compilation unit to the given sections.
+    /// Write the unit to the given sections.
     fn write<W: Writer>(
         &self,
         w: &mut DebugInfo<W>,
@@ -481,7 +478,7 @@ impl DebuggingInformationEntry {
 
     /// Iterate over the children of this entry.
     ///
-    /// Note: use `CompilationUnit::add` to add a new child to this entry.
+    /// Note: use `Unit::add` to add a new child to this entry.
     #[inline]
     pub fn children(&self) -> slice::Iter<UnitEntryId> {
         self.children.iter()
@@ -515,7 +512,7 @@ impl DebuggingInformationEntry {
     fn write<W: Writer>(
         &self,
         w: &mut DebugInfo<W>,
-        unit: &CompilationUnit,
+        unit: &Unit,
         offsets: &mut UnitOffsets,
         abbrevs: &mut AbbreviationTable,
         line_program: Option<DebugLineOffset>,
@@ -618,7 +615,7 @@ impl Attribute {
     fn write<W: Writer>(
         &self,
         w: &mut DebugInfo<W>,
-        unit: &CompilationUnit,
+        unit: &Unit,
         line_program: Option<DebugLineOffset>,
         line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
@@ -705,7 +702,7 @@ pub enum AttributeValue {
     AnyUnitEntryRef((UnitId, UnitEntryId)),
 
     /// A reference to the current `.debug_info` section, but possibly a different
-    /// compilation unit from the current one.
+    /// unit from the current one.
     ///
     /// This is an internal attribute that must only be used when converting an
     /// existing `.debug_info` section.
@@ -800,7 +797,7 @@ pub enum AttributeValue {
     Ordering(constants::DwOrd),
 
     /// An index into the filename entries from the line number information
-    /// table for the compilation unit containing this value.
+    /// table for the unit containing this value.
     FileIndex(FileId),
 }
 
@@ -888,7 +885,7 @@ impl AttributeValue {
     fn write<W: Writer>(
         &self,
         w: &mut DebugInfo<W>,
-        unit: &CompilationUnit,
+        unit: &Unit,
         line_program: Option<DebugLineOffset>,
         line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
@@ -1169,7 +1166,7 @@ pub(crate) mod convert {
     }
 
     impl UnitTable {
-        /// Create a compilation unit table by reading the data in the given sections.
+        /// Create a unit table by reading the data in the given sections.
         ///
         /// This also updates the given tables with the values that are referenced from
         /// attributes in this section.
@@ -1192,7 +1189,7 @@ pub(crate) mod convert {
             let mut from_units = dwarf.units();
             while let Some(from_unit) = from_units.next()? {
                 let unit_id = UnitId::new(base_id, units.len());
-                units.push(CompilationUnit::from(
+                units.push(Unit::from(
                     from_unit,
                     unit_id,
                     &mut unit_entry_offsets,
@@ -1232,8 +1229,8 @@ pub(crate) mod convert {
         }
     }
 
-    impl CompilationUnit {
-        /// Create a compilation unit by reading the data in the given sections.
+    impl Unit {
+        /// Create a unit by reading the data in the given sections.
         #[allow(clippy::too_many_arguments)]
         pub(crate) fn from<R: Reader<Offset = usize>>(
             from_unit: read::CompilationUnitHeader<R>,
@@ -1243,7 +1240,7 @@ pub(crate) mod convert {
             line_strings: &mut write::LineStringTable,
             strings: &mut write::StringTable,
             convert_address: &Fn(u64) -> Option<Address>,
-        ) -> ConvertResult<CompilationUnit> {
+        ) -> ConvertResult<Unit> {
             let base_id = BaseId::default();
 
             let from_unit = read::Unit::new(dwarf, from_unit)?;
@@ -1295,7 +1292,7 @@ pub(crate) mod convert {
                 )?
             };
 
-            Ok(CompilationUnit {
+            Ok(Unit {
                 base_id,
                 encoding,
                 line_program,
@@ -1530,7 +1527,7 @@ mod tests {
         let mut strings = StringTable::default();
 
         let mut units = UnitTable::default();
-        let unit_id1 = units.add(CompilationUnit::new(
+        let unit_id1 = units.add(Unit::new(
             Encoding {
                 version: 4,
                 address_size: 8,
@@ -1538,7 +1535,7 @@ mod tests {
             },
             LineProgram::none(),
         ));
-        let unit2 = units.add(CompilationUnit::new(
+        let unit2 = units.add(Unit::new(
             Encoding {
                 version: 2,
                 address_size: 4,
@@ -1546,7 +1543,7 @@ mod tests {
             },
             LineProgram::none(),
         ));
-        let unit3 = units.add(CompilationUnit::new(
+        let unit3 = units.add(Unit::new(
             Encoding {
                 version: 5,
                 address_size: 4,
@@ -1891,7 +1888,7 @@ mod tests {
                         read::DebugRngLists::new(debug_rnglists.slice(), LittleEndian);
 
                     let mut units = UnitTable::default();
-                    let unit = units.add(CompilationUnit::new(encoding, LineProgram::none()));
+                    let unit = units.add(Unit::new(encoding, LineProgram::none()));
                     let unit = units.get(unit);
                     let encoding = Encoding {
                         format,
@@ -2155,7 +2152,7 @@ mod tests {
     #[allow(clippy::cyclomatic_complexity)]
     fn test_unit_ref() {
         let mut units = UnitTable::default();
-        let unit_id1 = units.add(CompilationUnit::new(
+        let unit_id1 = units.add(Unit::new(
             Encoding {
                 version: 4,
                 address_size: 8,
@@ -2164,7 +2161,7 @@ mod tests {
             LineProgram::none(),
         ));
         assert_eq!(unit_id1, UnitId::new(units.base_id, 0));
-        let unit_id2 = units.add(CompilationUnit::new(
+        let unit_id2 = units.add(Unit::new(
             Encoding {
                 version: 2,
                 address_size: 4,
@@ -2390,7 +2387,7 @@ mod tests {
     #[test]
     fn test_sibling() {
         fn add_child(
-            unit: &mut CompilationUnit,
+            unit: &mut Unit,
             parent: UnitEntryId,
             tag: constants::DwTag,
             name: &str,
@@ -2453,9 +2450,9 @@ mod tests {
             address_size: 8,
         };
         let mut units = UnitTable::default();
-        let unit_id1 = units.add(CompilationUnit::new(encoding, LineProgram::none()));
+        let unit_id1 = units.add(Unit::new(encoding, LineProgram::none()));
         add_children(&mut units, unit_id1);
-        let unit_id2 = units.add(CompilationUnit::new(encoding, LineProgram::none()));
+        let unit_id2 = units.add(Unit::new(encoding, LineProgram::none()));
         add_children(&mut units, unit_id2);
 
         let debug_line_str_offsets = DebugLineStrOffsets::none();
@@ -2546,7 +2543,7 @@ mod tests {
 
                     // Fake the unit.
                     let mut units = UnitTable::default();
-                    let unit = units.add(CompilationUnit::new(encoding, LineProgram::none()));
+                    let unit = units.add(Unit::new(encoding, LineProgram::none()));
                     let unit = units.get(unit);
                     let from_unit = read::UnitHeader::new(
                         encoding,
