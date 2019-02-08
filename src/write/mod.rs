@@ -72,6 +72,9 @@ macro_rules! define_offsets {
     };
 }
 
+mod dwarf;
+pub use self::dwarf::*;
+
 mod abbrev;
 pub use self::abbrev::*;
 

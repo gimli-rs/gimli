@@ -57,47 +57,32 @@ fn test_convert_debug_info() {
         ..Default::default()
     };
 
-    let mut line_strings = write::LineStringTable::default();
-    let mut strings = write::StringTable::default();
-    let units = write::UnitTable::from(&dwarf, &mut line_strings, &mut strings, &|address| {
-        Some(Address::Absolute(address))
-    })
-    .expect("Should convert compilation units");
-    assert_eq!(units.count(), 23);
-    let entries: usize = (0..units.count())
-        .map(|i| units.get(units.id(i)).count())
+    let dwarf = write::Dwarf::from(&dwarf, &|address| Some(Address::Absolute(address)))
+        .expect("Should convert DWARF information");
+
+    assert_eq!(dwarf.units.count(), 23);
+    let entries: usize = (0..dwarf.units.count())
+        .map(|i| dwarf.units.get(dwarf.units.id(i)).count())
         .sum();
     assert_eq!(entries, 29_560);
-    assert_eq!(line_strings.count(), 0);
-    assert_eq!(strings.count(), 3921);
+    assert_eq!(dwarf.line_strings.count(), 0);
+    assert_eq!(dwarf.strings.count(), 3921);
 
     // Write to new sections
-    let debug_line_str_offsets = write::DebugLineStrOffsets::none();
-
-    let mut write_debug_str = write::DebugStr::from(EndianVec::new(LittleEndian));
-    let debug_str_offsets = strings
-        .write(&mut write_debug_str)
-        .expect("Should write strings");
-    let debug_str_data = write_debug_str.slice();
-    assert_eq!(debug_str_offsets.count(), 3921);
-    assert_eq!(debug_str_data.len(), 144_731);
-
     let mut write_sections = write::Sections::new(EndianVec::new(LittleEndian));
-    units
-        .write(
-            &mut write_sections,
-            &debug_line_str_offsets,
-            &debug_str_offsets,
-        )
-        .expect("Should write units");
+    dwarf
+        .write(&mut write_sections)
+        .expect("Should write DWARF information");
     let debug_info_data = write_sections.debug_info.slice();
     let debug_abbrev_data = write_sections.debug_abbrev.slice();
     let debug_line_data = write_sections.debug_line.slice();
     let debug_ranges_data = write_sections.debug_ranges.slice();
+    let debug_str_data = write_sections.debug_str.slice();
     assert_eq!(debug_info_data.len(), 394_930);
     assert_eq!(debug_abbrev_data.len(), 1282);
     assert_eq!(debug_line_data.len(), 105_797);
     assert_eq!(debug_ranges_data.len(), 155_712);
+    assert_eq!(debug_str_data.len(), 144_731);
 
     // Convert new sections
     let debug_abbrev = read::DebugAbbrev::new(debug_abbrev_data, LittleEndian);
@@ -118,16 +103,13 @@ fn test_convert_debug_info() {
         ..Default::default()
     };
 
-    let mut line_strings = write::LineStringTable::default();
-    let mut strings = write::StringTable::default();
-    let units = write::UnitTable::from(&dwarf, &mut line_strings, &mut strings, &|address| {
-        Some(Address::Absolute(address))
-    })
-    .expect("Should convert compilation units");
-    assert_eq!(units.count(), 23);
-    let entries: usize = (0..units.count())
-        .map(|i| units.get(units.id(i)).count())
+    let dwarf = write::Dwarf::from(&dwarf, &|address| Some(Address::Absolute(address)))
+        .expect("Should convert DWARF information");
+
+    assert_eq!(dwarf.units.count(), 23);
+    let entries: usize = (0..dwarf.units.count())
+        .map(|i| dwarf.units.get(dwarf.units.id(i)).count())
         .sum();
     assert_eq!(entries, 29_560);
-    assert_eq!(strings.count(), 3921);
+    assert_eq!(dwarf.strings.count(), 3921);
 }

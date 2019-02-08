@@ -264,7 +264,7 @@ impl Unit {
     }
 
     /// Write the unit to the given sections.
-    fn write<W: Writer>(
+    pub(crate) fn write<W: Writer>(
         &self,
         sections: &mut Sections<W>,
         abbrev_offset: DebugAbbrevOffset,
@@ -1129,7 +1129,7 @@ impl DebugInfoOffsets {
 
 /// The section offsets of all elements of a unit within a `.debug_info` section.
 #[derive(Debug)]
-struct UnitOffsets {
+pub(crate) struct UnitOffsets {
     base_id: BaseId,
     unit: DebugInfoOffset,
     entries: Vec<DebugInfoOffset>,
