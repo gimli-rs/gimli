@@ -86,7 +86,7 @@ impl UnitTable {
     /// `strings` must contain the `.debug_str` offsets of the corresponding
     /// `StringTable`.
     pub fn write<W: Writer>(
-        &self,
+        &mut self,
         sections: &mut Sections<W>,
         line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
@@ -100,7 +100,7 @@ impl UnitTable {
             base_id: self.base_id,
             units: Vec::new(),
         };
-        for unit in &self.units {
+        for unit in &mut self.units {
             offsets.units.push(unit.write(
                 sections,
                 abbrev_offset,
@@ -265,7 +265,7 @@ impl Unit {
 
     /// Write the unit to the given sections.
     pub(crate) fn write<W: Writer>(
-        &self,
+        &mut self,
         sections: &mut Sections<W>,
         abbrev_offset: DebugAbbrevOffset,
         abbrevs: &mut AbbreviationTable,
@@ -274,6 +274,8 @@ impl Unit {
         debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
     ) -> Result<UnitOffsets> {
         let line_program = if self.line_program_in_use() {
+            self.entries[self.root.index]
+                .set(constants::DW_AT_stmt_list, AttributeValue::LineProgramRef);
             Some(self.line_program.write(
                 &mut sections.debug_line,
                 self.encoding,
@@ -281,6 +283,7 @@ impl Unit {
                 strings,
             )?)
         } else {
+            self.entries[self.root.index].delete(constants::DW_AT_stmt_list);
             None
         };
         let range_lists = self.ranges.write(sections, self.encoding)?;
@@ -471,6 +474,13 @@ impl DebuggingInformationEntry {
             return;
         }
         self.attrs.push(Attribute { name, value });
+    }
+
+    /// Delete an attribute.
+    ///
+    /// Replaces any existing attribute with the same name.
+    pub fn delete(&mut self, name: constants::DwAt) {
+        self.attrs.retain(|x| x.name != name);
     }
 
     /// Iterate over the children of this entry.
@@ -2596,6 +2606,49 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn test_line_program_used() {
+        for used in vec![false, true] {
+            let encoding = Encoding {
+                format: Format::Dwarf32,
+                version: 5,
+                address_size: 8,
+            };
+
+            let line_program = LineProgram::new(
+                encoding,
+                1,
+                1,
+                -5,
+                14,
+                LineString::String(b"comp_dir".to_vec()),
+                LineString::String(b"comp_name".to_vec()),
+                None,
+            );
+
+            let mut unit = Unit::new(encoding, line_program);
+            if used {
+                let file_id = FileId::new(0, encoding.version);
+                let root = unit.root();
+                unit.get_mut(root).set(
+                    constants::DW_AT_decl_file,
+                    AttributeValue::FileIndex(file_id),
+                );
+            }
+
+            let mut units = UnitTable::default();
+            units.add(unit);
+
+            let debug_line_str_offsets = DebugLineStrOffsets::none();
+            let debug_str_offsets = DebugStrOffsets::none();
+            let mut sections = Sections::new(EndianVec::new(LittleEndian));
+            units
+                .write(&mut sections, &debug_line_str_offsets, &debug_str_offsets)
+                .unwrap();
+            assert_eq!(!used, sections.debug_line.slice().is_empty());
         }
     }
 }

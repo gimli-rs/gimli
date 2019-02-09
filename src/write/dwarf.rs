@@ -28,7 +28,7 @@ pub struct Dwarf {
 
 impl Dwarf {
     /// Write the DWARF information to the given sections.
-    pub fn write<W: Writer>(&self, sections: &mut Sections<W>) -> Result<()> {
+    pub fn write<W: Writer>(&mut self, sections: &mut Sections<W>) -> Result<()> {
         let line_strings = self.line_strings.write(&mut sections.debug_line_str)?;
         let strings = self.strings.write(&mut sections.debug_str)?;
         self.units.write(sections, &line_strings, &strings)?;
@@ -74,7 +74,7 @@ impl DwarfUnit {
     }
 
     /// Write the DWARf information to the given sections.
-    pub fn write<W: Writer>(&self, sections: &mut Sections<W>) -> Result<()> {
+    pub fn write<W: Writer>(&mut self, sections: &mut Sections<W>) -> Result<()> {
         let line_strings = self.line_strings.write(&mut sections.debug_line_str)?;
         let strings = self.strings.write(&mut sections.debug_str)?;
 
