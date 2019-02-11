@@ -496,6 +496,10 @@ impl LineProgram {
     }
 
     /// Write the line number program to the given section.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self.is_none()`.
     pub fn write<W: Writer>(
         &self,
         w: &mut DebugLine<W>,
@@ -503,9 +507,7 @@ impl LineProgram {
         debug_line_str_offsets: &DebugLineStrOffsets,
         debug_str_offsets: &DebugStrOffsets,
     ) -> Result<DebugLineOffset> {
-        if self.none {
-            return Err(Error::CannotWriteEmptyLineProgram);
-        }
+        assert!(!self.is_none());
 
         if encoding.version < self.version()
             || encoding.format != self.format()

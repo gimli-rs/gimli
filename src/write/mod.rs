@@ -117,8 +117,6 @@ pub enum Error {
     InvalidRange,
     /// The line number program encoding is incompatible with the unit encoding.
     IncompatibleLineProgramEncoding,
-    /// The line number program has no settings and cannot be written.
-    CannotWriteEmptyLineProgram,
 }
 
 impl fmt::Display for Error {
@@ -151,10 +149,6 @@ impl fmt::Display for Error {
             Error::IncompatibleLineProgramEncoding => write!(
                 f,
                 "The line number program encoding is incompatible with the unit encoding."
-            ),
-            Error::CannotWriteEmptyLineProgram => write!(
-                f,
-                "The line number program has no settings and cannot be written."
             ),
         }
     }

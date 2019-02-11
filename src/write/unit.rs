@@ -248,6 +248,9 @@ impl Unit {
 
     /// Return true if `self.line_program` is used by a DIE.
     fn line_program_in_use(&self) -> bool {
+        if self.line_program.is_none() {
+            return false;
+        }
         if !self.line_program.is_empty() {
             return true;
         }
