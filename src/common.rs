@@ -44,6 +44,39 @@ pub struct Encoding {
     // TODO: pub segment_size: u8,
 }
 
+/// Encoding parameters for a line number program.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LineEncoding {
+    /// The size in bytes of the smallest target machine instruction.
+    pub minimum_instruction_length: u8,
+
+    /// The maximum number of individual operations that may be encoded in an
+    /// instruction.
+    pub maximum_operations_per_instruction: u8,
+
+    /// The initial value of the `is_stmt` register.
+    pub default_is_stmt: bool,
+
+    /// The minimum value which a special opcode can add to the line register.
+    pub line_base: i8,
+
+    /// The range of values which a special opcode can add to the line register.
+    pub line_range: u8,
+}
+
+impl Default for LineEncoding {
+    fn default() -> Self {
+        // Values from LLVM.
+        LineEncoding {
+            minimum_instruction_length: 1,
+            maximum_operations_per_instruction: 1,
+            default_is_stmt: true,
+            line_base: -5,
+            line_range: 14,
+        }
+    }
+}
+
 /// A DWARF register number.
 ///
 /// The meaning of this value is ABI dependent. This is generally encoded as
