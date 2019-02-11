@@ -146,3 +146,12 @@ impl<T> From<T> for EhFrameOffset<T> {
         EhFrameOffset(o)
     }
 }
+
+/// An offset into the `.debug_info` or `.debug_types` sections.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub enum UnitSectionOffset<T = usize> {
+    /// An offset into the `.debug_info` section.
+    DebugInfoOffset(DebugInfoOffset<T>),
+    /// An offset into the `.debug_types` section.
+    DebugTypesOffset(DebugTypesOffset<T>),
+}
