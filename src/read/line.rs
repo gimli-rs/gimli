@@ -4,6 +4,7 @@ use vec::Vec;
 
 use common::{
     DebugLineOffset, DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsIndex, Encoding, Format,
+    LineEncoding,
 };
 use constants;
 use endianity::Endianity;
@@ -621,7 +622,6 @@ pub struct LineRow {
 impl LineRow {
     /// Create a line number row in the initial state for the given program.
     pub fn new<R: Reader>(header: &LineProgramHeader<R, R::Offset>) -> Self {
-        let default_is_stmt = header.default_is_stmt;
         LineRow {
             // "At the beginning of each sequence within a line number program, the
             // state of the registers is:" -- Section 6.2.2
@@ -631,7 +631,7 @@ impl LineRow {
             line: 1,
             column: 0,
             // "determined by default_is_stmt in the line number program header"
-            is_stmt: default_is_stmt,
+            is_stmt: header.line_encoding.default_is_stmt,
             basic_block: false,
             end_sequence: false,
             prologue_end: false,
@@ -823,7 +823,7 @@ impl LineRow {
 
             LineInstruction::ConstAddPc => {
                 let adjusted = self.adjust_opcode(255, program.header());
-                let operation_advance = adjusted / program.header().line_range;
+                let operation_advance = adjusted / program.header().line_encoding.line_range;
                 self.apply_operation_advance(u64::from(operation_advance), program.header());
                 false
             }
@@ -917,9 +917,9 @@ impl LineRow {
         operation_advance: u64,
         header: &LineProgramHeader<R, R::Offset>,
     ) {
-        let minimum_instruction_length = u64::from(header.minimum_instruction_length);
+        let minimum_instruction_length = u64::from(header.line_encoding.minimum_instruction_length);
         let maximum_operations_per_instruction =
-            u64::from(header.maximum_operations_per_instruction);
+            u64::from(header.line_encoding.maximum_operations_per_instruction);
 
         if maximum_operations_per_instruction == 1 {
             self.address += minimum_instruction_length * operation_advance;
@@ -945,12 +945,12 @@ impl LineRow {
     ) {
         let adjusted_opcode = self.adjust_opcode(opcode, header);
 
-        let line_range = header.line_range;
+        let line_range = header.line_encoding.line_range;
         let line_advance = adjusted_opcode % line_range;
         let operation_advance = adjusted_opcode / line_range;
 
         // Step 1
-        let line_base = i64::from(header.line_base);
+        let line_base = i64::from(header.line_encoding.line_base);
         self.apply_line_advance(line_base + i64::from(line_advance));
 
         // Step 2
@@ -1006,29 +1006,7 @@ where
 
     header_length: Offset,
 
-    /// "The size in bytes of the smallest target machine instruction. Line
-    /// number program opcodes that alter the address and `op_index` registers
-    /// use this and `maximum_operations_per_instruction` in their
-    /// calculations."
-    minimum_instruction_length: u8,
-
-    /// > The maximum number of individual operations that may be encoded in an
-    /// > instruction. Line number program opcodes that alter the address and
-    /// > op_index registers use this and `minimum_instruction_length` in their
-    /// > calculations.
-    /// >
-    /// > For non-VLIW architectures, this field is 1, the `op_index` register
-    /// > is always 0, and the operation pointer is simply the address register.
-    maximum_operations_per_instruction: u8,
-
-    /// "The initial value of the `is_stmt` register."
-    default_is_stmt: bool,
-
-    /// "This parameter affects the meaning of the special opcodes."
-    line_base: i8,
-
-    /// "This parameter affects the meaning of the special opcodes."
-    line_range: u8,
+    line_encoding: LineEncoding,
 
     /// "The number assigned to the first special opcode."
     opcode_base: u8,
@@ -1112,32 +1090,37 @@ where
         self.encoding.format
     }
 
+    /// Get the line encoding parameters for this header's line program.
+    pub fn line_encoding(&self) -> LineEncoding {
+        self.line_encoding
+    }
+
     /// Get the minimum instruction length any instruction in this header's line
     /// program may have.
     pub fn minimum_instruction_length(&self) -> u8 {
-        self.minimum_instruction_length
+        self.line_encoding.minimum_instruction_length
     }
 
     /// Get the maximum number of operations each instruction in this header's
     /// line program may have.
     pub fn maximum_operations_per_instruction(&self) -> u8 {
-        self.maximum_operations_per_instruction
+        self.line_encoding.maximum_operations_per_instruction
     }
 
     /// Get the default value of the `is_stmt` register for this header's line
     /// program.
     pub fn default_is_stmt(&self) -> bool {
-        self.default_is_stmt
+        self.line_encoding.default_is_stmt
     }
 
     /// Get the line base for this header's line program.
     pub fn line_base(&self) -> i8 {
-        self.line_base
+        self.line_encoding.line_base
     }
 
     /// Get the line range for this header's line program.
     pub fn line_range(&self) -> u8 {
-        self.line_range
+        self.line_encoding.line_range
     }
 
     /// Get opcode base for this header's line program.
@@ -1316,12 +1299,19 @@ where
             return Err(Error::MaximumOperationsPerInstructionZero);
         }
 
-        let default_is_stmt = rest.read_u8()?;
+        let default_is_stmt = rest.read_u8()? != 0;
         let line_base = rest.read_i8()?;
         let line_range = rest.read_u8()?;
         if line_range == 0 {
             return Err(Error::LineRangeZero);
         }
+        let line_encoding = LineEncoding {
+            minimum_instruction_length,
+            maximum_operations_per_instruction,
+            default_is_stmt,
+            line_base,
+            line_range,
+        };
 
         let opcode_base = rest.read_u8()?;
         if opcode_base == 0 {
@@ -1389,11 +1379,7 @@ where
             offset,
             unit_length,
             header_length,
-            minimum_instruction_length,
-            maximum_operations_per_instruction,
-            default_is_stmt: default_is_stmt != 0,
-            line_base,
-            line_range,
+            line_encoding,
             opcode_base,
             standard_opcode_lengths,
             directory_entry_format,
@@ -2124,15 +2110,19 @@ mod tests {
             version: 4,
             address_size: 8,
         };
+        let line_encoding = LineEncoding {
+            line_base: -3,
+            line_range: 12,
+            ..Default::default()
+        };
         LineProgramHeader {
             encoding,
             offset: DebugLineOffset(0),
-            opcode_base: OPCODE_BASE,
-            minimum_instruction_length: 1,
-            maximum_operations_per_instruction: 1,
-            default_is_stmt: true,
-            program_buf: buf,
+            unit_length: 1,
             header_length: 1,
+            line_encoding,
+            opcode_base: OPCODE_BASE,
+            standard_opcode_lengths: EndianSlice::new(STANDARD_OPCODE_LENGTHS, LittleEndian),
             file_names: vec![
                 FileEntry {
                     path_name: AttributeValue::String(EndianSlice::new(b"foo.c", LittleEndian)),
@@ -2149,13 +2139,10 @@ mod tests {
                     md5: [0; 16],
                 },
             ],
-            line_base: -3,
-            line_range: 12,
-            unit_length: 1,
-            standard_opcode_lengths: EndianSlice::new(STANDARD_OPCODE_LENGTHS, LittleEndian),
             include_directories: vec![],
             directory_entry_format: vec![],
             file_name_entry_format: vec![],
+            program_buf: buf,
             comp_dir: None,
             comp_file: None,
         }

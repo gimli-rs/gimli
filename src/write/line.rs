@@ -2,18 +2,13 @@ use indexmap::{IndexMap, IndexSet};
 use std::ops::{Deref, DerefMut};
 use vec::Vec;
 
-use common::{DebugLineOffset, Encoding, Format};
+use common::{DebugLineOffset, Encoding, Format, LineEncoding};
 use constants;
 use leb128;
 use write::{
     Address, DebugLineStrOffsets, DebugStrOffsets, Error, LineStringId, LineStringTable, Result,
     Section, SectionId, StringId, Writer,
 };
-
-/// The initial value of the `is_statement` register.
-//
-// Currently we don't allow this to be configured.
-const DEFAULT_IS_STATEMENT: bool = true;
 
 /// The number assigned to the first special opcode.
 //
@@ -27,16 +22,7 @@ pub struct LineProgram {
     /// True if this line program was created with `LineProgram::none()`.
     none: bool,
     encoding: Encoding,
-    /// The minimum size in bytes of a target machine instruction.
-    /// All instruction lengths must be a multiple of this size.
-    minimum_instruction_length: u8,
-    /// The maximum number of individual operations that may be encoded in an
-    /// instruction. For non-VLIW architectures, this field is 1.
-    maximum_operations_per_instruction: u8,
-    /// Minimum line increment for special opcodes.
-    line_base: i8,
-    /// Range of line increment for special opcodes.
-    line_range: u8,
+    line_encoding: LineEncoding,
 
     /// A list of source directory path names.
     ///
@@ -97,9 +83,9 @@ impl LineProgram {
     ///
     /// # Panics
     ///
-    /// Panics if `line_base` > 0.
+    /// Panics if `line_encoding.line_base` > 0.
     ///
-    /// Panics if `line_base` + `line_range` <= 0.
+    /// Panics if `line_encoding.line_base` + `line_encoding.line_range` <= 0.
     ///
     /// Panics if `comp_dir` is empty or contains a null byte.
     ///
@@ -108,29 +94,23 @@ impl LineProgram {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(
         encoding: Encoding,
-        minimum_instruction_length: u8,
-        maximum_operations_per_instruction: u8,
-        line_base: i8,
-        line_range: u8,
+        line_encoding: LineEncoding,
         comp_dir: LineString,
         comp_file: LineString,
         comp_file_info: Option<FileInfo>,
     ) -> LineProgram {
         // We require a special opcode for a line advance of 0.
         // See the debug_asserts in generate_row().
-        assert!(line_base <= 0);
-        assert!(line_base + line_range as i8 > 0);
+        assert!(line_encoding.line_base <= 0);
+        assert!(line_encoding.line_base + line_encoding.line_range as i8 > 0);
         let mut program = LineProgram {
             none: false,
             encoding,
-            minimum_instruction_length,
-            maximum_operations_per_instruction,
-            line_base,
-            line_range,
+            line_encoding,
             directories: IndexSet::new(),
             files: IndexMap::new(),
-            prev_row: LineRow::initial_state(),
-            row: LineRow::new(encoding.version),
+            prev_row: LineRow::initial_state(line_encoding),
+            row: LineRow::new(encoding.version, line_encoding),
             instructions: Vec::new(),
             in_sequence: false,
             file_has_timestamp: false,
@@ -157,6 +137,7 @@ impl LineProgram {
     /// You should not attempt to add files or line instructions to
     /// this line program, or write it to the `.debug_line` section.
     pub fn none() -> Self {
+        let line_encoding = LineEncoding::default();
         LineProgram {
             none: true,
             encoding: Encoding {
@@ -164,14 +145,11 @@ impl LineProgram {
                 version: 2,
                 address_size: 0,
             },
-            minimum_instruction_length: 1,
-            maximum_operations_per_instruction: 1,
-            line_base: 0,
-            line_range: 1,
+            line_encoding,
             directories: IndexSet::new(),
             files: IndexMap::new(),
-            prev_row: LineRow::initial_state(),
-            row: LineRow::new(2),
+            prev_row: LineRow::initial_state(line_encoding),
+            row: LineRow::new(2, line_encoding),
             instructions: Vec::new(),
             in_sequence: false,
             file_has_timestamp: false,
@@ -351,8 +329,8 @@ impl LineProgram {
                 .push(LineInstruction::AdvancePc(op_advance));
         }
         self.instructions.push(LineInstruction::EndSequence);
-        self.prev_row = LineRow::initial_state();
-        self.row = LineRow::new(self.version());
+        self.prev_row = LineRow::initial_state(self.line_encoding);
+        self.row = LineRow::new(self.version(), self.line_encoding);
     }
 
     /// Return true if a sequence has begun.
@@ -416,16 +394,16 @@ impl LineProgram {
         }
 
         // Advance the line, address, and operation index.
-        let line_base = i64::from(self.line_base) as u64;
-        let line_range = u64::from(self.line_range);
+        let line_base = i64::from(self.line_encoding.line_base) as u64;
+        let line_range = u64::from(self.line_encoding.line_range);
         let line_advance = self.row.line as i64 - self.prev_row.line as i64;
         let op_advance = self.op_advance();
 
         // Default to special advances of 0.
         let special_base = u64::from(OPCODE_BASE);
         // TODO: handle lack of special opcodes for 0 line advance
-        debug_assert!(self.line_base <= 0);
-        debug_assert!(self.line_base + self.line_range as i8 >= 0);
+        debug_assert!(self.line_encoding.line_base <= 0);
+        debug_assert!(self.line_encoding.line_base + self.line_encoding.line_range as i8 >= 0);
         let special_default = special_base.wrapping_sub(line_base);
         let mut special = special_default;
         let mut use_special = false;
@@ -478,12 +456,13 @@ impl LineProgram {
     fn op_advance(&self) -> u64 {
         debug_assert!(self.row.address_offset >= self.prev_row.address_offset);
         debug_assert_eq!(
-            self.row.address_offset % u64::from(self.minimum_instruction_length),
+            self.row.address_offset % u64::from(self.line_encoding.minimum_instruction_length),
             0
         );
         let address_advance = (self.row.address_offset - self.prev_row.address_offset)
-            / u64::from(self.minimum_instruction_length);
-        address_advance * u64::from(self.maximum_operations_per_instruction) + self.row.op_index
+            / u64::from(self.line_encoding.minimum_instruction_length);
+        address_advance * u64::from(self.line_encoding.maximum_operations_per_instruction)
+            + self.row.op_index
             - self.prev_row.op_index
     }
 
@@ -536,15 +515,19 @@ impl LineProgram {
         w.write_word(0, self.format().word_size())?;
         let header_length_base = w.len();
 
-        w.write_u8(self.minimum_instruction_length)?;
+        w.write_u8(self.line_encoding.minimum_instruction_length)?;
         if self.version() >= 4 {
-            w.write_u8(self.maximum_operations_per_instruction)?;
-        } else if self.maximum_operations_per_instruction != 1 {
+            w.write_u8(self.line_encoding.maximum_operations_per_instruction)?;
+        } else if self.line_encoding.maximum_operations_per_instruction != 1 {
             return Err(Error::NeedVersion(4));
         };
-        w.write_u8(if DEFAULT_IS_STATEMENT { 1 } else { 0 })?;
-        w.write_u8(self.line_base as u8)?;
-        w.write_u8(self.line_range)?;
+        w.write_u8(if self.line_encoding.default_is_stmt {
+            1
+        } else {
+            0
+        })?;
+        w.write_u8(self.line_encoding.line_base as u8)?;
+        w.write_u8(self.line_encoding.line_range)?;
         w.write_u8(OPCODE_BASE)?;
         w.write(&[0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1])?;
 
@@ -702,7 +685,7 @@ pub struct LineRow {
 
 impl LineRow {
     /// Return the initial state as specified in the DWARF standard.
-    fn initial_state() -> Self {
+    fn initial_state(line_encoding: LineEncoding) -> Self {
         LineRow {
             address_offset: 0,
             op_index: 0,
@@ -712,7 +695,7 @@ impl LineRow {
             column: 0,
             discriminator: 0,
 
-            is_statement: DEFAULT_IS_STATEMENT,
+            is_statement: line_encoding.default_is_stmt,
             basic_block: false,
             prologue_end: false,
             epilogue_begin: false,
@@ -721,8 +704,8 @@ impl LineRow {
         }
     }
 
-    fn new(version: u16) -> Self {
-        let mut row = LineRow::initial_state();
+    fn new(version: u16, line_encoding: LineEncoding) -> Self {
+        let mut row = LineRow::initial_state(line_encoding);
         // This is a safer default than FileId(1) if version >= 5.
         row.file = FileId::new(0, version);
         row
@@ -1008,10 +991,7 @@ mod convert {
                 }
                 let mut program = LineProgram::new(
                     from_header.encoding(),
-                    from_header.minimum_instruction_length(),
-                    from_header.maximum_operations_per_instruction(),
-                    from_header.line_base(),
-                    from_header.line_range(),
+                    from_header.line_encoding(),
                     comp_dir,
                     comp_name,
                     Some(comp_file_info),
@@ -1161,8 +1141,13 @@ mod tests {
                         version,
                         address_size,
                     };
-                    let mut program =
-                        LineProgram::new(encoding, 1, 1, -5, 14, dir1.clone(), file1.clone(), None);
+                    let mut program = LineProgram::new(
+                        encoding,
+                        LineEncoding::default(),
+                        dir1.clone(),
+                        file1.clone(),
+                        None,
+                    );
 
                     {
                         assert_eq!(&dir1, program.get_directory(program.default_directory()));
@@ -1289,10 +1274,11 @@ mod tests {
                     let neg_line_base = (-line_base) as u8;
                     let mut program = LineProgram::new(
                         encoding,
-                        1,
-                        1,
-                        line_base,
-                        line_range,
+                        LineEncoding {
+                            line_base,
+                            line_range,
+                            ..Default::default()
+                        },
                         LineString::String(dir1.to_vec()),
                         LineString::String(file1.to_vec()),
                         None,
@@ -1591,10 +1577,7 @@ mod tests {
                     };
                     let mut program = LineProgram::new(
                         encoding,
-                        1,
-                        1,
-                        -5,
-                        14,
+                        LineEncoding::default(),
                         LineString::String(dir1.to_vec()),
                         LineString::String(file1.to_vec()),
                         None,
@@ -1726,12 +1709,16 @@ mod tests {
             for maximum_operations_per_instruction in vec![1, 3] {
                 for line_base in vec![-5, 0] {
                     for line_range in vec![10, 20] {
-                        let mut program = LineProgram::new(
-                            encoding,
+                        let line_encoding = LineEncoding {
                             minimum_instruction_length,
                             maximum_operations_per_instruction,
                             line_base,
                             line_range,
+                            default_is_stmt: true,
+                        };
+                        let mut program = LineProgram::new(
+                            encoding,
+                            line_encoding,
                             LineString::String(dir1.to_vec()),
                             LineString::String(file1.to_vec()),
                             None,
@@ -1850,10 +1837,7 @@ mod tests {
                 ] {
                     let program = LineProgram::new(
                         encoding,
-                        1,
-                        1,
-                        -5,
-                        14,
+                        LineEncoding::default(),
                         LineString::String(b"dir".to_vec()),
                         file,
                         None,

@@ -1521,7 +1521,9 @@ pub(crate) mod convert {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{DebugAddrBase, DebugLocListsBase, DebugRngListsBase, DebugStrOffsetsBase};
+    use common::{
+        DebugAddrBase, DebugLocListsBase, DebugRngListsBase, DebugStrOffsetsBase, LineEncoding,
+    };
     use constants;
     use read;
     use std::mem;
@@ -2462,10 +2464,7 @@ mod tests {
                     // The line program we'll be referencing.
                     let mut line_program = LineProgram::new(
                         encoding,
-                        1,
-                        1,
-                        -5,
-                        14,
+                        LineEncoding::default(),
                         LineString::String(b"comp_dir".to_vec()),
                         LineString::String(b"comp_name".to_vec()),
                         None,
@@ -2623,10 +2622,7 @@ mod tests {
 
             let line_program = LineProgram::new(
                 encoding,
-                1,
-                1,
-                -5,
-                14,
+                LineEncoding::default(),
                 LineString::String(b"comp_dir".to_vec()),
                 LineString::String(b"comp_name".to_vec()),
                 None,
