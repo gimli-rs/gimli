@@ -1135,7 +1135,6 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "0x{:08x}", offset)?;
         }
         gimli::AttributeValue::LocationListsRef(offset) => {
-            writeln!(w, "0x{:08x}", offset.0)?;
             dump_loc_list(w, offset, unit, dwarf)?;
         }
         gimli::AttributeValue::DebugLocListsBase(base) => {
@@ -1143,14 +1142,12 @@ fn dump_attr_value<R: Reader, W: Write>(
         }
         gimli::AttributeValue::DebugLocListsIndex(index) => {
             let offset = dwarf.locations_offset(unit, index)?;
-            writeln!(w, "0x{:08x}", offset.0)?;
             dump_loc_list(w, offset, unit, dwarf)?;
         }
         gimli::AttributeValue::DebugMacinfoRef(gimli::DebugMacinfoOffset(offset)) => {
             writeln!(w, "{}", offset)?;
         }
         gimli::AttributeValue::RangeListsRef(offset) => {
-            writeln!(w, "0x{:08x}", offset.0)?;
             dump_range_list(w, offset, unit, dwarf)?;
         }
         gimli::AttributeValue::DebugRngListsBase(base) => {
@@ -1158,7 +1155,6 @@ fn dump_attr_value<R: Reader, W: Write>(
         }
         gimli::AttributeValue::DebugRngListsIndex(index) => {
             let offset = dwarf.ranges_offset(unit, index)?;
-            writeln!(w, "0x{:08x}", offset.0)?;
             dump_range_list(w, offset, unit, dwarf)?;
         }
         gimli::AttributeValue::DebugTypesRef(signature) => {
@@ -1506,7 +1502,12 @@ fn dump_loc_list<R: Reader, W: Write>(
     let mut locations = dwarf.locations(unit, offset)?;
     writeln!(
         w,
-        "<loclist at offset 0x{:08x} with {} entries follows>",
+        "<loclist at {}+0x{:08x} with {} entries>",
+        if unit.encoding().version < 5 {
+            ".debug_loc"
+        } else {
+            ".debug_loclists"
+        },
         offset.0,
         raw_locations.len()
     )?;
@@ -1624,15 +1625,14 @@ fn dump_range_list<R: Reader, W: Write>(
     let mut ranges = dwarf.ranges(unit, offset)?;
     writeln!(
         w,
-        "\t\tranges: {} at {} offset {} (0x{:08x})",
-        raw_ranges.len(),
+        "<rnglist at {}+0x{:08x} with {} entries>",
         if unit.encoding().version < 5 {
             ".debug_ranges"
         } else {
             ".debug_rnglists"
         },
         offset.0,
-        offset.0
+        raw_ranges.len()
     )?;
     for (i, raw) in raw_ranges.iter().enumerate() {
         write!(w, "\t\t\t[{:2}] ", i)?;
