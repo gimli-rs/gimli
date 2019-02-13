@@ -6,29 +6,155 @@
 
 Released YYYY/MM/DD.
 
+The focus of this release has been on improving DWARF 5 support, and
+adding support for writing DWARF.
+
+### Breaking changes
+
+* Changed register values to a `Register` type instead of `u8`/`u64`.
+  [#328](https://github.com/gimli-rs/gimli/pull/328)
+
+* Replaced `BaseAddresses::set_cfi` with `set_eh_frame_hdr` and `set_eh_frame`.
+  Replaced `BaseAddresses::set_data` with `set_got`.
+  You should now use the same `BaseAddresses` value for parsing both
+  `.eh_frame` and `.eh_frame_hdr`.
+  [#351](https://github.com/gimli-rs/gimli/pull/351)
+
+* Renamed many types and functions related to `.debug_line`.
+  Renamed `LineNumberProgram` to `LineProgram`.
+  Renamed `IncompleteLineNumberProgram` to `IncompleteLineProgram`.
+  Renamed `CompleteLineNumberProgram` to `CompleteLineProgram`.
+  Renamed `LineNumberProgramHeader` to `LineProgramHeader`.
+  Renamed `LineNumberRow` to `LineRow`.
+  Renamed `StateMachine` to `LineRows`.
+  Renamed `Opcode` to `LineInstruction`.
+  Renamed `OpcodesIter` to `LineInstructions`.
+  Renamed `LineNumberSequence` to `LineSequence`.
+  [#359](https://github.com/gimli-rs/gimli/pull/359)
+
+* Added `Offset` type parameter to `AttributeValue`, `LineProgram`,
+  `IncompleteLineProgram`, `CompleteLineProgram`, `LineRows`, `LineInstruction`,
+  and `FileEntry`.
+  [#324](https://github.com/gimli-rs/gimli/pull/324)
+
+* Changed `FileEntry::path_name`, `FileEntry::directory`, and
+  `LineProgramHeader::directory` to return an `AttributeValue` instead
+  of a `Reader`.
+  [#366](https://github.com/gimli-rs/gimli/pull/366)
+
+* Renamed `FileEntry::last_modification` to `FileEntry::timestamp`
+  and renamed `FileEntry::length` to `FileEntry::size`.
+  [#366](https://github.com/gimli-rs/gimli/pull/366)
+
+* Added an `Encoding` type. Changed many functions that previously accepted
+  `Format`, version or address size parameters to accept an `Encoding`
+  parameter instead.
+  Notable changes are `LocationLists::locations`, `RangeLists::ranges`,
+  and `Expression::evaluation`.
+  [#364](https://github.com/gimli-rs/gimli/pull/364)
+
+* Changed return type of `LocationLists::new` and `RangeLists::new`.
+  [#370](https://github.com/gimli-rs/gimli/pull/370)
+
+* Added parameters to `LocationsLists::locations` and `RangeLists::ranges`
+  to support `.debug_addr`.
+  [#358](https://github.com/gimli-rs/gimli/pull/358)
+
+* Added more `AttributeValue` variants: `DebugAddrBase`, `DebugAddrIndex`,
+  `DebugLocListsBase`, `DebugLocListsIndex`, `DebugRngListsBase`, `DebugRngListsIndex`,
+  `DebugStrOffsetsBase`, `DebugStrOffsetsIndex`, `DebugLineStrRef`.
+  [#358](https://github.com/gimli-rs/gimli/pull/358)
+
+* Changed `AttributeValue::Data*` attributes to native endian integers instead
+  of byte arrays.
+  [#365](https://github.com/gimli-rs/gimli/pull/365)
+
+* Replaced `EvaluationResult::TextBase` with
+  `EvaluationResult::RequiresRelocatedAddress`. The handling of `TextBase`
+  was incorrect.
+  [#335](https://github.com/gimli-rs/gimli/pull/335)
+
+* Added `EvaluationResult::IndexedAddress` for operations that require an
+  address from `.debug_addr`.
+  [#358](https://github.com/gimli-rs/gimli/pull/358)
+
+* Added `Reader::read_slice`. Added a default implementation of
+  `Reader::read_u8_array` which uses this.
+  [#358](https://github.com/gimli-rs/gimli/pull/358)
+
 ### Added
 
-* TODO (or remove section if none)
+* Added initial support for writing DWARF. This is targeted at supporting
+  line number information only.
+  [#340](https://github.com/gimli-rs/gimli/pull/340)
+  [#344](https://github.com/gimli-rs/gimli/pull/344)
+  [#346](https://github.com/gimli-rs/gimli/pull/346)
+  [#361](https://github.com/gimli-rs/gimli/pull/361)
+  [#362](https://github.com/gimli-rs/gimli/pull/362)
+  [#365](https://github.com/gimli-rs/gimli/pull/365)
+  [#368](https://github.com/gimli-rs/gimli/pull/368)
+  [#382](https://github.com/gimli-rs/gimli/pull/382)
 
-### Changed
+* Added `read` and `write` Cargo features. Both are enabled by default.
+  [#343](https://github.com/gimli-rs/gimli/pull/343)
 
-* TODO (or remove section if none)
+* Added support for reading DWARF 5 `.debug_line` and `.debug_line_str` sections.
+  [#366](https://github.com/gimli-rs/gimli/pull/366)
 
-### Deprecated
+* Added support for reading DWARF 5 `.debug_str_offsets` sections, including
+  parsing `DW_FORM_strx*` attributes.
+  [#358](https://github.com/gimli-rs/gimli/pull/358)
 
-* TODO (or remove section if none)
+* Added support for reading DWARF 5 `.debug_addr` sections, including parsing
+  `DW_FORM_addrx*` attributes and evaluating `DW_OP_addrx` and `DW_OP_constx`
+  operations.
+  [#358](https://github.com/gimli-rs/gimli/pull/358)
 
-### Removed
+* Added support for reading DWARF 5 indexed addresses and offsets in
+  `.debug_loclists` and `.debug_rnglists`, including parsing `DW_FORM_rnglistx`
+  and `DW_FORM_loclistx` attributes.
+  [#358](https://github.com/gimli-rs/gimli/pull/358)
 
-* TODO (or remove section if none)
+* Added high level `Dwarf` and `Unit` types. Existing code does not need to
+  switch to using these types, but doing so will make DWARF 5 support simpler.
+  [#352](https://github.com/gimli-rs/gimli/pull/352)
+  [#380](https://github.com/gimli-rs/gimli/pull/380)
+  [#381](https://github.com/gimli-rs/gimli/pull/381)
+
+* Added `EhFrame::set_address_size` and `DebugFrame::set_address_size` methods
+  to allow parsing non-native CFI sections. The default address size is still
+  the native size.
+  [#325](https://github.com/gimli-rs/gimli/pull/325)
+
+* Added architecture specific definitions for `Register` values and names.
+  Changed dwarfdump to print them.
+  [#328](https://github.com/gimli-rs/gimli/pull/328)
+
+* Added support for reading relocatable DWARF sections.
+  [#337](https://github.com/gimli-rs/gimli/pull/337)
+
+* Added parsing of `DW_FORM_data16`.
+  [#366](https://github.com/gimli-rs/gimli/pull/366)
 
 ### Fixed
 
-* TODO (or remove section if none)
+* Fixed parsing DWARF 5 ranges with `start == end == 0`.
+  [#323](https://github.com/gimli-rs/gimli/pull/323)
 
-### Security
+* Changed `LineRows` to be covariant in its `Reader` type parameter.
+  [#324](https://github.com/gimli-rs/gimli/pull/324)
 
-* TODO (or remove section if none)
+* Fixed handling of empty units in dwarfdump.
+  [#330](https://github.com/gimli-rs/gimli/pull/330)
+
+* Fixed `UnitHeader::length_including_self` for `Dwarf64`.
+  [#342](https://github.com/gimli-rs/gimli/pull/342)
+
+* Fixed parsing of `DW_CFA_set_loc`.
+  [#355](https://github.com/gimli-rs/gimli/pull/355)
+
+* Fixed handling of multiple headers in `.debug_loclists` and `.debug_rnglists`.
+  [#370](https://github.com/gimli-rs/gimli/pull/370)
 
 --------------------------------------------------------------------------------
 
