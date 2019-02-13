@@ -951,7 +951,7 @@ fn dump_types<R: Reader, W: Write>(
                     "Failed to parse unit root entry: {}",
                     error::Error::description(&err)
                 )?;
-                return Ok(());
+                continue;
             }
         };
         let entries_result = dump_entries(w, unit, dwarf, flags);
@@ -1739,7 +1739,7 @@ fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<
                     "Failed to parse unit root entry: {}",
                     error::Error::description(&err)
                 )?;
-                return Ok(());
+                continue;
             }
         };
         match dump_line_program(w, &unit, dwarf) {
