@@ -878,7 +878,12 @@ where
     let units = dwarf.units().collect::<Vec<_>>().unwrap();
     let process_unit =
         |unit: CompilationUnitHeader<R, R::Offset>, buf: &mut Vec<u8>| -> Result<()> {
-            let offset = unit.offset().0;
+            writeln!(
+                buf,
+                "\nUNIT<header overall offset = 0x{:08x}>:",
+                unit.offset().0,
+            )?;
+
             let unit = match gimli::Unit::new(dwarf, unit) {
                 Ok(unit) => unit,
                 Err(err) => {
@@ -891,7 +896,7 @@ where
                 }
             };
 
-            let entries_result = dump_entries(buf, offset, unit, dwarf, flags);
+            let entries_result = dump_entries(buf, unit, dwarf, flags);
             if let Err(err) = entries_result {
                 writeln!(
                     buf,
@@ -923,7 +928,11 @@ fn dump_types<R: Reader, W: Write>(
 
     let mut iter = dwarf.type_units();
     while let Some(unit) = iter.next()? {
-        writeln!(w, "\nCU_HEADER:")?;
+        writeln!(
+            w,
+            "\nUNIT<header overall offset = 0x{:08x}>:",
+            unit.offset().0,
+        )?;
         write!(w, "  signature        = ")?;
         dump_type_signature(w, unit.type_signature())?;
         writeln!(w)?;
@@ -934,7 +943,6 @@ fn dump_types<R: Reader, W: Write>(
             unit.type_offset().0
         )?;
 
-        let offset = unit.offset().0;
         let unit = match gimli::Unit::new_type_unit(dwarf, unit) {
             Ok(unit) => unit,
             Err(err) => {
@@ -946,7 +954,7 @@ fn dump_types<R: Reader, W: Write>(
                 return Ok(());
             }
         };
-        let entries_result = dump_entries(w, offset, unit, dwarf, flags);
+        let entries_result = dump_entries(w, unit, dwarf, flags);
         if let Err(err) = entries_result {
             writeln!(
                 w,
@@ -967,31 +975,18 @@ fn spaces(buf: &mut String, len: usize) -> &str {
 
 fn dump_entries<R: Reader, W: Write>(
     w: &mut W,
-    offset: R::Offset,
     unit: gimli::Unit<R>,
     dwarf: &gimli::Dwarf<R>,
     flags: &Flags,
 ) -> Result<()> {
     let mut spaces_buf = String::new();
 
-    let mut print_local = true;
     let mut depth = 0;
     let mut entries = unit.entries();
     while let Some((delta_depth, entry)) = entries.next_dfs()? {
         depth += delta_depth;
         assert!(depth >= 0);
         let indent = depth as usize * 2 + 2;
-        if depth == 0 {
-            writeln!(
-                w,
-                "\nCOMPILE_UNIT<header overall offset = 0x{:08x}>:",
-                offset
-            )?;
-            print_local = true;
-        } else if print_local {
-            writeln!(w, "\nLOCAL_SYMBOLS:")?;
-            print_local = false;
-        }
         writeln!(
             w,
             "<{}{}><0x{:08x}>{}{}",
