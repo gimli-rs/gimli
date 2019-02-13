@@ -1819,14 +1819,13 @@ fn length_uleb128_value<R: Reader>(input: &mut R) -> Result<R> {
 
 // Return true if the given `name` can be a section offset in DWARF version 2/3.
 // This is required to correctly handle relocations.
-fn allow_section_offset(name: constants::DwAt) -> bool {
+fn allow_section_offset(name: constants::DwAt, version: u16) -> bool {
     match name {
         constants::DW_AT_location
         | constants::DW_AT_stmt_list
         | constants::DW_AT_string_length
         | constants::DW_AT_return_addr
         | constants::DW_AT_start_scope
-        | constants::DW_AT_data_member_location
         | constants::DW_AT_frame_base
         | constants::DW_AT_macro_info
         | constants::DW_AT_segment
@@ -1834,6 +1833,7 @@ fn allow_section_offset(name: constants::DwAt) -> bool {
         | constants::DW_AT_use_location
         | constants::DW_AT_vtable_elem_location
         | constants::DW_AT_ranges => true,
+        constants::DW_AT_data_member_location => version == 2 || version == 3,
         _ => false,
     }
 }
@@ -1885,10 +1885,9 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 // DWARF version 2/3 may use DW_FORM_data4/8 for section offsets.
                 // Ensure we handle relocations here.
                 if unit.format() == Format::Dwarf32
-                    && (unit.version() == 2 || unit.version() == 3)
-                    && allow_section_offset(spec.name())
+                    && allow_section_offset(spec.name(), unit.version())
                 {
-                    let offset = input.read_offset(unit.format())?;
+                    let offset = input.read_offset(Format::Dwarf32)?;
                     AttributeValue::SecOffset(offset)
                 } else {
                     let data = input.read_u32()?;
@@ -1899,10 +1898,9 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 // DWARF version 2/3 may use DW_FORM_data4/8 for section offsets.
                 // Ensure we handle relocations here.
                 if unit.format() == Format::Dwarf64
-                    && (unit.version() == 2 || unit.version() == 3)
-                    && allow_section_offset(spec.name())
+                    && allow_section_offset(spec.name(), unit.version())
                 {
-                    let offset = input.read_offset(unit.format())?;
+                    let offset = input.read_offset(Format::Dwarf64)?;
                     AttributeValue::SecOffset(offset)
                 } else {
                     let data = input.read_u64()?;
@@ -3702,6 +3700,25 @@ mod tests {
                 data8,
                 AttributeValue::Data8(0x0102_0304_0506_0708),
                 AttributeValue::Udata(0x0102_0304_0506_0708),
+            ),
+            (
+                Format::Dwarf32,
+                4,
+                constants::DW_AT_location,
+                constants::DW_FORM_data4,
+                data4,
+                AttributeValue::SecOffset(0x0102_0304),
+                AttributeValue::LocationListsRef(LocationListsOffset(0x0102_0304)),
+            ),
+            #[cfg(target_pointer_width = "64")]
+            (
+                Format::Dwarf64,
+                4,
+                constants::DW_AT_location,
+                constants::DW_FORM_data8,
+                data8,
+                AttributeValue::SecOffset(0x0102_0304_0506_0708),
+                AttributeValue::LocationListsRef(LocationListsOffset(0x0102_0304_0506_0708)),
             ),
             (
                 Format::Dwarf32,
