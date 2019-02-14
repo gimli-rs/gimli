@@ -21,16 +21,21 @@
 //! let endian = gimli::LittleEndian;
 //! let debug_info = gimli::DebugInfo::new(read_debug_info(), endian);
 //! let debug_abbrev = gimli::DebugAbbrev::new(read_debug_abbrev(), endian);
+//! let dwarf = gimli::Dwarf {
+//!     debug_info,
+//!     debug_abbrev,
+//!     ..Default::default()
+//! };
 //!
 //! // Iterate over all compilation units.
-//! let mut iter = debug_info.units();
-//! while let Some(unit) = try!(iter.next()) {
-//!     // Parse the abbreviations for this compilation unit.
-//!     let abbrevs = try!(unit.abbreviations(&debug_abbrev));
+//! let mut iter = dwarf.units();
+//! while let Some(header) = iter.next()? {
+//!     // Parse the abbreviations and other information for this compilation unit.
+//!     let unit = dwarf.unit(header)?;
 //!
 //!     // Iterate over all of this compilation unit's entries.
-//!     let mut entries = unit.entries(&abbrevs);
-//!     while let Some((_, entry)) = try!(entries.next_dfs()) {
+//!     let mut entries = unit.entries();
+//!     while let Some((_, entry)) = entries.next_dfs()? {
 //!         // If we find an entry for a function, print it.
 //!         if entry.tag() == gimli::DW_TAG_subprogram {
 //!             println!("Found a function: {:?}", entry);
@@ -63,10 +68,16 @@
 //!
 //! * Basic familiarity with DWARF is assumed.
 //!
+//! * The [`Dwarf`](./struct.Dwarf.html) type contains the commonly used DWARF
+//! sections. It has methods that simplify access to debugging data that spans
+//! multiple sections. Use of this type is optional, but recommended.
+//!
 //! * Each section gets its own type. Consider these types the entry points to
 //! the library:
 //!
 //!   * [`DebugAbbrev`](./struct.DebugAbbrev.html): The `.debug_abbrev` section.
+//!
+//!   * [`DebugAddr`](./struct.DebugAddr.html): The `.debug_addr` section.
 //!
 //!   * [`DebugAranges`](./struct.DebugAranges.html): The `.debug_aranges`
 //!   section.
@@ -77,7 +88,11 @@
 //!
 //!   * [`DebugLine`](./struct.DebugLine.html): The `.debug_line` section.
 //!
+//!   * [`DebugLineStr`](./struct.DebugLineStr.html): The `.debug_line_str` section.
+//!
 //!   * [`DebugLoc`](./struct.DebugLoc.html): The `.debug_loc` section.
+//!
+//!   * [`DebugLocLists`](./struct.DebugLocLists.html): The `.debug_loclists` section.
 //!
 //!   * [`DebugPubNames`](./struct.DebugPubNames.html): The `.debug_pubnames`
 //!   section.
@@ -87,7 +102,11 @@
 //!
 //!   * [`DebugRanges`](./struct.DebugRanges.html): The `.debug_ranges` section.
 //!
+//!   * [`DebugRngLists`](./struct.DebugRngLists.html): The `.debug_rnglists` section.
+//!
 //!   * [`DebugStr`](./struct.DebugStr.html): The `.debug_str` section.
+//!
+//!   * [`DebugStrOffsets`](./struct.DebugStrOffsets.html): The `.debug_str_offsets` section.
 //!
 //!   * [`DebugTypes`](./struct.DebugTypes.html): The `.debug_types` section.
 //!
