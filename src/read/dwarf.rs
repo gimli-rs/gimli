@@ -51,7 +51,7 @@ pub struct Dwarf<R: Reader> {
 }
 
 impl<R: Reader> Dwarf<R> {
-    /// Iterate the compilation- and partial-units in this
+    /// Iterate the compilation- and partial-unit headers in the
     /// `.debug_info` section.
     ///
     /// Can be [used with
@@ -61,13 +61,25 @@ impl<R: Reader> Dwarf<R> {
         self.debug_info.units()
     }
 
-    /// Iterate the type-units in this `.debug_types` section.
+    /// Construct a new `Unit` from the given compilation unit header.
+    #[inline]
+    pub fn unit(&self, header: CompilationUnitHeader<R, R::Offset>) -> Result<Unit<R>> {
+        Unit::new(self, header)
+    }
+
+    /// Iterate the type-unit headers in the `.debug_types` section.
     ///
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     #[inline]
     pub fn type_units(&self) -> TypeUnitHeadersIter<R> {
         self.debug_types.units()
+    }
+
+    /// Construct a new `Unit` from the given type unit header.
+    #[inline]
+    pub fn type_unit(&self, header: TypeUnitHeader<R, R::Offset>) -> Result<Unit<R>> {
+        Unit::new_type_unit(self, header)
     }
 
     /// Parse the abbreviations for a compilation unit.

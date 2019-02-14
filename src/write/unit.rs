@@ -1243,7 +1243,7 @@ pub(crate) mod convert {
         /// Create a unit by reading the data in the given sections.
         #[allow(clippy::too_many_arguments)]
         pub(crate) fn from<R: Reader<Offset = usize>>(
-            from_unit: read::CompilationUnitHeader<R>,
+            from_header: read::CompilationUnitHeader<R>,
             unit_id: UnitId,
             unit_entry_offsets: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
             dwarf: &read::Dwarf<R>,
@@ -1253,7 +1253,7 @@ pub(crate) mod convert {
         ) -> ConvertResult<Unit> {
             let base_id = BaseId::default();
 
-            let from_unit = read::Unit::new(dwarf, from_unit)?;
+            let from_unit = dwarf.unit(from_header)?;
             let encoding = from_unit.encoding();
             let base_address =
                 convert_address(from_unit.low_pc).ok_or(ConvertError::InvalidAddress)?;
@@ -1680,7 +1680,7 @@ mod tests {
             assert_eq!(unit1.address_size(), read_unit1.address_size());
             assert_eq!(unit1.format(), read_unit1.format());
 
-            let read_unit1 = read::Unit::new(&dwarf, read_unit1).unwrap();
+            let read_unit1 = dwarf.unit(read_unit1).unwrap();
             let mut read_entries = read_unit1.entries();
 
             let root = unit1.get(unit1.root());

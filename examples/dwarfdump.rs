@@ -877,14 +877,14 @@ where
 
     let units = dwarf.units().collect::<Vec<_>>().unwrap();
     let process_unit =
-        |unit: CompilationUnitHeader<R, R::Offset>, buf: &mut Vec<u8>| -> Result<()> {
+        |header: CompilationUnitHeader<R, R::Offset>, buf: &mut Vec<u8>| -> Result<()> {
             writeln!(
                 buf,
                 "\nUNIT<header overall offset = 0x{:08x}>:",
-                unit.offset().0,
+                header.offset().0,
             )?;
 
-            let unit = match gimli::Unit::new(dwarf, unit) {
+            let unit = match dwarf.unit(header) {
                 Ok(unit) => unit,
                 Err(err) => {
                     writeln!(
@@ -927,23 +927,18 @@ fn dump_types<R: Reader, W: Write>(
     writeln!(w, "\n.debug_types")?;
 
     let mut iter = dwarf.type_units();
-    while let Some(unit) = iter.next()? {
+    while let Some(header) = iter.next()? {
         writeln!(
             w,
             "\nUNIT<header overall offset = 0x{:08x}>:",
-            unit.offset().0,
+            header.offset().0,
         )?;
         write!(w, "  signature        = ")?;
-        dump_type_signature(w, unit.type_signature())?;
+        dump_type_signature(w, header.type_signature())?;
         writeln!(w)?;
-        writeln!(
-            w,
-            "  typeoffset       = 0x{:08x} {}",
-            unit.type_offset().0,
-            unit.type_offset().0
-        )?;
+        writeln!(w, "  typeoffset       = 0x{:08x}", header.type_offset().0,)?;
 
-        let unit = match gimli::Unit::new_type_unit(dwarf, unit) {
+        let unit = match dwarf.type_unit(header) {
             Ok(unit) => unit,
             Err(err) => {
                 writeln!(
@@ -1725,13 +1720,13 @@ fn dump_range_list<R: Reader, W: Write>(
 
 fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<()> {
     let mut iter = dwarf.units();
-    while let Some(unit) = iter.next()? {
+    while let Some(header) = iter.next()? {
         writeln!(
             w,
             "\n.debug_line: line number info for unit at .debug_info offset 0x{:08x}",
-            unit.offset().0
+            header.offset().0
         )?;
-        let unit = match gimli::Unit::new(dwarf, unit) {
+        let unit = match dwarf.unit(header) {
             Ok(unit) => unit,
             Err(err) => {
                 writeln!(
