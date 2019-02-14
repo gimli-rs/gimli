@@ -149,13 +149,14 @@ impl<W: Writer> Sections<W> {
                 f($s.id(), &$s)
             };
         }
+        // Ordered so that earlier sections do not reference later sections.
         f!(self.debug_abbrev)?;
-        f!(self.debug_info)?;
-        f!(self.debug_line)?;
+        f!(self.debug_str)?;
         f!(self.debug_line_str)?;
+        f!(self.debug_line)?;
         f!(self.debug_ranges)?;
         f!(self.debug_rnglists)?;
-        f!(self.debug_str)?;
+        f!(self.debug_info)?;
         Ok(())
     }
 
@@ -169,13 +170,14 @@ impl<W: Writer> Sections<W> {
                 f($s.id(), &mut $s)
             };
         }
+        // Ordered so that earlier sections do not reference later sections.
         f!(self.debug_abbrev)?;
-        f!(self.debug_info)?;
-        f!(self.debug_line)?;
+        f!(self.debug_str)?;
         f!(self.debug_line_str)?;
+        f!(self.debug_line)?;
         f!(self.debug_ranges)?;
         f!(self.debug_rnglists)?;
-        f!(self.debug_str)?;
+        f!(self.debug_info)?;
         Ok(())
     }
 }
