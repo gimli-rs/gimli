@@ -1,7 +1,7 @@
 [package]
 authors = ["Nick Fitzgerald <fitzgen@gmail.com>", "Philip Craig <philipjcraig@gmail.com>"]
 categories = ["development-tools::debugging", "development-tools::profiling", "parser-implementations"]
-description = "A blazing fast DWARF debugging format parser."
+description = "A library for reading and writing the DWARF debugging format."
 documentation = "https://docs.rs/gimli"
 keywords = ["DWARF", "debug", "ELF", "eh_frame"]
 license = "Apache-2.0/MIT"

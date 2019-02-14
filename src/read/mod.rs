@@ -1,4 +1,156 @@
 //! Read DWARF debugging information.
+//!
+//! * [Example Usage](#example-usage)
+//! * [API Structure](#api-structure)
+//! * [Using with `FallibleIterator`](#using-with-fallibleiterator)
+//!
+//! ## Example Usage
+//!
+//! Print out all of the functions in the debuggee program:
+//!
+//! ```rust,no_run
+//! extern crate gimli;
+//!
+//! # fn example() -> Result<(), gimli::Error> {
+//! # let debug_info_buf = [];
+//! # let debug_abbrev_buf = [];
+//! # let read_debug_info = || &debug_info_buf;
+//! # let read_debug_abbrev = || &debug_abbrev_buf;
+//! // Read the .debug_info and .debug_abbrev sections with whatever object
+//! // loader you're using.
+//! let endian = gimli::LittleEndian;
+//! let debug_info = gimli::DebugInfo::new(read_debug_info(), endian);
+//! let debug_abbrev = gimli::DebugAbbrev::new(read_debug_abbrev(), endian);
+//!
+//! // Iterate over all compilation units.
+//! let mut iter = debug_info.units();
+//! while let Some(unit) = try!(iter.next()) {
+//!     // Parse the abbreviations for this compilation unit.
+//!     let abbrevs = try!(unit.abbreviations(&debug_abbrev));
+//!
+//!     // Iterate over all of this compilation unit's entries.
+//!     let mut entries = unit.entries(&abbrevs);
+//!     while let Some((_, entry)) = try!(entries.next_dfs()) {
+//!         // If we find an entry for a function, print it.
+//!         if entry.tag() == gimli::DW_TAG_subprogram {
+//!             println!("Found a function: {:?}", entry);
+//!         }
+//!     }
+//! }
+//! # unreachable!()
+//! # }
+//! ```
+//!
+//! Full example programs:
+//!
+//!   * [A `dwarfdump`
+//!     clone](https://github.com/gimli-rs/gimli/blob/master/examples/dwarfdump.rs)
+//!
+//!   * [An `addr2line` clone](https://github.com/gimli-rs/addr2line)
+//!
+//!   * [`ddbug`](https://github.com/philipc/ddbug), a utility giving insight into
+//!     code generation by making debugging information readable
+//!
+//!   * [`dwprod`](https://github.com/fitzgen/dwprod), a tiny utility to list the
+//!     compilers used to create each compilation unit within a shared library or
+//!     executable (via `DW_AT_producer`)
+//!
+//!   * [`dwarf-validate`](http://github.com/gimli-rs/gimli/blob/master/examples/dwarf-validate.rs),
+//!     a program to validate the integrity of some DWARF and its references
+//!     between sections and ocmpilation units.
+//!
+//! ## API Structure
+//!
+//! * Basic familiarity with DWARF is assumed.
+//!
+//! * Each section gets its own type. Consider these types the entry points to
+//! the library:
+//!
+//!   * [`DebugAbbrev`](./struct.DebugAbbrev.html): The `.debug_abbrev` section.
+//!
+//!   * [`DebugAranges`](./struct.DebugAranges.html): The `.debug_aranges`
+//!   section.
+//!
+//!   * [`DebugFrame`](./struct.DebugFrame.html): The `.debug_frame` section.
+//!
+//!   * [`DebugInfo`](./struct.DebugInfo.html): The `.debug_info` section.
+//!
+//!   * [`DebugLine`](./struct.DebugLine.html): The `.debug_line` section.
+//!
+//!   * [`DebugLoc`](./struct.DebugLoc.html): The `.debug_loc` section.
+//!
+//!   * [`DebugPubNames`](./struct.DebugPubNames.html): The `.debug_pubnames`
+//!   section.
+//!
+//!   * [`DebugPubTypes`](./struct.DebugPubTypes.html): The `.debug_pubtypes`
+//!   section.
+//!
+//!   * [`DebugRanges`](./struct.DebugRanges.html): The `.debug_ranges` section.
+//!
+//!   * [`DebugStr`](./struct.DebugStr.html): The `.debug_str` section.
+//!
+//!   * [`DebugTypes`](./struct.DebugTypes.html): The `.debug_types` section.
+//!
+//!   * [`EhFrame`](./struct.EhFrame.html): The `.eh_frame` section.
+//!
+//!   * [`EhFrameHdr`](./struct.EhFrameHdr.html): The `.eh_frame_hdr` section.
+//!
+//! * Each section type exposes methods for accessing the debugging data encoded
+//! in that section. For example, the [`DebugInfo`](./struct.DebugInfo.html)
+//! struct has the [`units`](./struct.DebugInfo.html#method.units) method for
+//! iterating over the compilation units defined within it.
+//!
+//! * Offsets into a section are strongly typed: an offset into `.debug_info` is
+//! the [`DebugInfoOffset`](./struct.DebugInfoOffset.html) type. It cannot be
+//! used to index into the [`DebugLine`](./struct.DebugLine.html) type because
+//! `DebugLine` represents the `.debug_line` section. There are similar types
+//! for offsets relative to a compilation unit rather than a section.
+//!
+//! ## Using with `FallibleIterator`
+//!
+//! The standard library's `Iterator` trait and related APIs do not play well
+//! with iterators where the `next` operation is fallible. One can make the
+//! `Iterator`'s associated `Item` type be a `Result<T, E>`, however the
+//! provided methods cannot gracefully handle the case when an `Err` is
+//! returned.
+//!
+//! This situation led to the
+//! [`fallible-iterator`](https://crates.io/crates/fallible-iterator) crate's
+//! existence. You can read more of the rationale for its existence in its
+//! docs. The crate provides the helpers you have come to expect (eg `map`,
+//! `filter`, etc) for iterators that can fail.
+//!
+//! `gimli`'s many lazy parsing iterators are a perfect match for the
+//! `fallible-iterator` crate's `FallibleIterator` trait because parsing is not
+//! done eagerly. Parse errors later in the input might only be discovered after
+//! having iterated through many items.
+//!
+//! To use `gimli` iterators with `FallibleIterator`, import the crate and trait
+//! into your code:
+//!
+//! ```
+//! // Add the `fallible-iterator` crate. Don't forget to add it to your
+//! // `Cargo.toml`, too!
+//! extern crate fallible_iterator;
+//! extern crate gimli;
+//!
+//! // Use the `FallibleIterator` trait so its methods are in scope!
+//! use fallible_iterator::FallibleIterator;
+//! use gimli::{DebugAranges, EndianBuf, LittleEndian};
+//!
+//! fn find_sum_of_address_range_lengths(aranges: DebugAranges<EndianBuf<LittleEndian>>)
+//!     -> gimli::Result<u64>
+//! {
+//!     // `DebugAranges::items` returns a `FallibleIterator`!
+//!     aranges.items()
+//!         // `map` is provided by `FallibleIterator`!
+//!         .map(|arange| arange.length())
+//!         // `fold` is provided by `FallibleIterator`!
+//!         .fold(0, |sum, len| sum + len)
+//! }
+//!
+//! # fn main() {}
+//! ```
 
 use std::fmt::{self, Debug};
 use std::result;
