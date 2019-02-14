@@ -91,16 +91,16 @@ impl UnitTable {
         line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
     ) -> Result<DebugInfoOffsets> {
-        // Use one abbreviation table for everything.
-        let abbrev_offset = sections.debug_abbrev.offset();
-        let mut abbrevs = AbbreviationTable::default();
-
         let mut debug_info_refs = Vec::new();
         let mut offsets = DebugInfoOffsets {
             base_id: self.base_id,
             units: Vec::new(),
         };
         for unit in &mut self.units {
+            // TODO: maybe share abbreviation tables
+            let abbrev_offset = sections.debug_abbrev.offset();
+            let mut abbrevs = AbbreviationTable::default();
+
             offsets.units.push(unit.write(
                 sections,
                 abbrev_offset,
@@ -109,6 +109,8 @@ impl UnitTable {
                 strings,
                 &mut debug_info_refs,
             )?);
+
+            abbrevs.write(&mut sections.debug_abbrev)?;
         }
 
         for (offset, (unit, entry), size) in debug_info_refs {
@@ -121,8 +123,6 @@ impl UnitTable {
                 size,
             )?;
         }
-
-        abbrevs.write(&mut sections.debug_abbrev)?;
 
         Ok(offsets)
     }

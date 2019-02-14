@@ -79,7 +79,7 @@ fn test_convert_debug_info() {
     let debug_ranges_data = write_sections.debug_ranges.slice();
     let debug_str_data = write_sections.debug_str.slice();
     assert_eq!(debug_info_data.len(), 394_930);
-    assert_eq!(debug_abbrev_data.len(), 1282);
+    assert_eq!(debug_abbrev_data.len(), 9701);
     assert_eq!(debug_line_data.len(), 105_797);
     assert_eq!(debug_ranges_data.len(), 155_712);
     assert_eq!(debug_str_data.len(), 144_731);
