@@ -27,6 +27,12 @@ pub struct Dwarf {
 }
 
 impl Dwarf {
+    /// Create a new `Dwarf` instance.
+    #[inline]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Write the DWARF information to the given sections.
     pub fn write<W: Writer>(&mut self, sections: &mut Sections<W>) -> Result<()> {
         let line_strings = self.line_strings.write(&mut sections.debug_line_str)?;
