@@ -1,4 +1,20 @@
-//! Low level functionality for writing DWARF debugging information.
+//! Write DWARF debugging information.
+//!
+//! ## API Structure
+//!
+//! This module works by building up a representation of the debugging information
+//! in memory, and then writing it all at once. It supports two major use cases:
+//!
+//! * Use the [`DwarfUnit`](./struct.DwarfUnit.html) type when writing DWARF
+//! for a single compilation unit.
+//!
+//! * Use the [`Dwarf`](./struct.Dwarf.html) type when writing DWARF for multiple
+//! compilation units.
+//!
+//! The module also supports reading in DWARF debugging information and writing it out
+//! again, possibly after modifying it. Create a [`read::Dwarf`](../read/struct.Dwarf.html)
+//! instance, and then use [`Dwarf::from`](./struct.Dwarf.html#method.from) to convert
+//! it to a writable instance.
 
 use std::error;
 use std::fmt;
