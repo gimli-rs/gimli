@@ -91,16 +91,16 @@ impl UnitTable {
         line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
     ) -> Result<DebugInfoOffsets> {
-        // Use one abbreviation table for everything.
-        let abbrev_offset = sections.debug_abbrev.offset();
-        let mut abbrevs = AbbreviationTable::default();
-
         let mut debug_info_refs = Vec::new();
         let mut offsets = DebugInfoOffsets {
             base_id: self.base_id,
             units: Vec::new(),
         };
         for unit in &mut self.units {
+            // TODO: maybe share abbreviation tables
+            let abbrev_offset = sections.debug_abbrev.offset();
+            let mut abbrevs = AbbreviationTable::default();
+
             offsets.units.push(unit.write(
                 sections,
                 abbrev_offset,
@@ -109,6 +109,8 @@ impl UnitTable {
                 strings,
                 &mut debug_info_refs,
             )?);
+
+            abbrevs.write(&mut sections.debug_abbrev)?;
         }
 
         for (offset, (unit, entry), size) in debug_info_refs {
@@ -121,8 +123,6 @@ impl UnitTable {
                 size,
             )?;
         }
-
-        abbrevs.write(&mut sections.debug_abbrev)?;
 
         Ok(offsets)
     }
@@ -257,7 +257,7 @@ impl Unit {
 
         for entry in &self.entries {
             for attr in &entry.attrs {
-                if let AttributeValue::FileIndex(_) = attr.value {
+                if let AttributeValue::FileIndex(Some(_)) = attr.value {
                     return true;
                 }
             }
@@ -808,7 +808,7 @@ pub enum AttributeValue {
 
     /// An index into the filename entries from the line number information
     /// table for the unit containing this value.
-    FileIndex(FileId),
+    FileIndex(Option<FileId>),
 }
 
 impl AttributeValue {
@@ -1101,7 +1101,7 @@ impl AttributeValue {
             }
             AttributeValue::FileIndex(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                w.write_uleb128(val.raw())?;
+                w.write_uleb128(val.map(FileId::raw).unwrap_or(0))?;
             }
             AttributeValue::UnitSectionRef(_) => {
                 return Err(Error::InvalidAttributeValue);
@@ -1503,9 +1503,14 @@ pub(crate) mod convert {
                 read::AttributeValue::Inline(val) => AttributeValue::Inline(val),
                 read::AttributeValue::Ordering(val) => AttributeValue::Ordering(val),
                 read::AttributeValue::FileIndex(val) => {
-                    match context.line_program_files.get(val as usize) {
-                        Some(id) => AttributeValue::FileIndex(*id),
-                        None => return Err(ConvertError::InvalidFileIndex),
+                    if val == 0 {
+                        // 0 means not specified, even for version 5.
+                        AttributeValue::FileIndex(None)
+                    } else {
+                        match context.line_program_files.get(val as usize) {
+                            Some(id) => AttributeValue::FileIndex(Some(*id)),
+                            None => return Err(ConvertError::InvalidFileIndex),
+                        }
                     }
                 }
                 // Should always be a more specific section reference.
@@ -2523,12 +2528,12 @@ mod tests {
                         ),
                         (
                             constants::DW_AT_decl_file,
-                            AttributeValue::FileIndex(file1),
+                            AttributeValue::FileIndex(Some(file1)),
                             read::AttributeValue::Udata(file1.raw()),
                         ),
                         (
                             constants::DW_AT_decl_file,
-                            AttributeValue::FileIndex(file2),
+                            AttributeValue::FileIndex(Some(file2)),
                             read::AttributeValue::Udata(file2.raw()),
                         ),
                     ][..]
@@ -2629,14 +2634,12 @@ mod tests {
             );
 
             let mut unit = Unit::new(encoding, line_program);
-            if used {
-                let file_id = FileId::new(0, encoding.version);
-                let root = unit.root();
-                unit.get_mut(root).set(
-                    constants::DW_AT_decl_file,
-                    AttributeValue::FileIndex(file_id),
-                );
-            }
+            let file_id = if used { Some(FileId::new(0)) } else { None };
+            let root = unit.root();
+            unit.get_mut(root).set(
+                constants::DW_AT_decl_file,
+                AttributeValue::FileIndex(file_id),
+            );
 
             let mut units = UnitTable::default();
             units.add(unit);
