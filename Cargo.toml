@@ -8,7 +8,7 @@ license = "Apache-2.0/MIT"
 name = "gimli"
 readme = "./README.md"
 repository = "https://github.com/gimli-rs/gimli"
-version = "0.16.1"
+version = "0.17.0"
 exclude = ["/ci/*", "/releases/*", "/.travis.yml"]
 
 [badges]
