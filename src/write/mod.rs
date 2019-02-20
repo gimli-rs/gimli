@@ -1,4 +1,64 @@
-//! Low level functionality for writing DWARF debugging information.
+//! Write DWARF debugging information.
+//!
+//! ## API Structure
+//!
+//! This module works by building up a representation of the debugging information
+//! in memory, and then writing it all at once. It supports two major use cases:
+//!
+//! * Use the [`DwarfUnit`](./struct.DwarfUnit.html) type when writing DWARF
+//! for a single compilation unit.
+//!
+//! * Use the [`Dwarf`](./struct.Dwarf.html) type when writing DWARF for multiple
+//! compilation units.
+//!
+//! The module also supports reading in DWARF debugging information and writing it out
+//! again, possibly after modifying it. Create a [`read::Dwarf`](../read/struct.Dwarf.html)
+//! instance, and then use [`Dwarf::from`](./struct.Dwarf.html#method.from) to convert
+//! it to a writable instance.
+//!
+//! ## Example Usage
+//!
+//! Write a compilation unit containing only the top level DIE.
+//!
+//! ```rust
+//! extern crate gimli;
+//!
+//! use gimli::write::{
+//!     Address, AttributeValue, DwarfUnit, EndianVec, Error, Range, RangeList, Sections,
+//! };
+//!
+//! fn example() -> Result<(), Error> {
+//!     // Choose the encoding parameters.
+//!     let encoding = gimli::Encoding {
+//!         format: gimli::Format::Dwarf32,
+//!         version: 5,
+//!         address_size: 8,
+//!     };
+//!     // Create a container for a single compilation unit.
+//!     let mut dwarf = DwarfUnit::new(encoding);
+//!     // Set a range attribute on the root DIE.
+//!     let range_list = RangeList(vec![Range::StartLength {
+//!         begin: Address::Absolute(0x100),
+//!         length: 42,
+//!     }]);
+//!     let range_list_id = dwarf.unit.ranges.add(range_list);
+//!     let root = dwarf.unit.root();
+//!     dwarf.unit.get_mut(root).set(
+//!         gimli::DW_AT_ranges,
+//!         AttributeValue::RangeListRef(range_list_id),
+//!     );
+//!     // Create a `Vec` for each DWARF section.
+//!     let mut sections = Sections::new(EndianVec::new(gimli::LittleEndian));
+//!     // Finally, write the DWARF data to the sections.
+//!     dwarf.write(&mut sections)?;
+//!     sections.for_each(|id, data| {
+//!         // Here you can add the data to the output object file.
+//!         Ok(())
+//!     })
+//! }
+//! # fn main() {
+//! #     example().unwrap();
+//! # }
 
 use std::error;
 use std::fmt;
