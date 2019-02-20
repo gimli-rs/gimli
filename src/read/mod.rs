@@ -62,7 +62,7 @@
 //!
 //!   * [`dwarf-validate`](http://github.com/gimli-rs/gimli/blob/master/examples/dwarf-validate.rs),
 //!     a program to validate the integrity of some DWARF and its references
-//!     between sections and ocmpilation units.
+//!     between sections and compilation units.
 //!
 //! ## API Structure
 //!
