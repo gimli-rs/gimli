@@ -1,13 +1,13 @@
 use std::ops::{Deref, DerefMut};
 use std::{slice, usize};
-use vec::Vec;
+use crate::vec::Vec;
 
-use common::{
+use crate::common::{
     DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugStrOffset,
     DebugTypeSignature, Encoding, Format, LocationListsOffset, UnitSectionOffset,
 };
-use constants;
-use write::{
+use crate::constants;
+use crate::write::{
     Abbreviation, AbbreviationTable, Address, AttributeSpecification, BaseId, DebugLineStrOffsets,
     DebugStrOffsets, Error, FileId, LineProgram, LineStringId, RangeList, RangeListId,
     RangeListOffsets, RangeListTable, Result, Section, SectionId, Sections, StringId, Writer,
@@ -1159,9 +1159,9 @@ impl UnitOffsets {
 #[cfg(feature = "read")]
 pub(crate) mod convert {
     use super::*;
-    use collections::HashMap;
-    use read::{self, Reader};
-    use write::{self, ConvertError, ConvertResult};
+    use crate::collections::HashMap;
+    use crate::read::{self, Reader};
+    use crate::write::{self, ConvertError, ConvertResult};
 
     pub(crate) struct ConvertUnitContext<'a, R: Reader<Offset = usize> + 'a> {
         pub dwarf: &'a read::Dwarf<R>,
@@ -1526,17 +1526,17 @@ pub(crate) mod convert {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{
+    use crate::common::{
         DebugAddrBase, DebugLocListsBase, DebugRngListsBase, DebugStrOffsetsBase, LineEncoding,
     };
-    use constants;
-    use read;
+    use crate::constants;
+    use crate::read;
     use std::mem;
-    use write::{
+    use crate::write::{
         DebugLine, DebugLineStr, DebugStr, EndianVec, LineString, LineStringTable, Range,
         RangeListOffsets, RangeListTable, StringTable,
     };
-    use LittleEndian;
+    use crate::LittleEndian;
 
     #[test]
     #[allow(clippy::cyclomatic_complexity)]

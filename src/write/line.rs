@@ -1,11 +1,11 @@
 use indexmap::{IndexMap, IndexSet};
 use std::ops::{Deref, DerefMut};
-use vec::Vec;
+use crate::vec::Vec;
 
-use common::{DebugLineOffset, Encoding, Format, LineEncoding};
-use constants;
-use leb128;
-use write::{
+use crate::common::{DebugLineOffset, Encoding, Format, LineEncoding};
+use crate::constants;
+use crate::leb128;
+use crate::write::{
     Address, DebugLineStrOffsets, DebugStrOffsets, Error, LineStringId, LineStringTable, Result,
     Section, SectionId, StringId, Writer,
 };
@@ -952,8 +952,8 @@ define_section!(
 #[cfg(feature = "read")]
 mod convert {
     use super::*;
-    use read::{self, Reader};
-    use write::{self, ConvertError, ConvertResult};
+    use crate::read::{self, Reader};
+    use crate::write::{self, ConvertError, ConvertResult};
 
     impl LineProgram {
         /// Create a line number program by reading the data from the given program.
@@ -1137,9 +1137,9 @@ mod convert {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use read;
-    use write::{DebugLineStr, DebugStr, EndianVec, StringTable};
-    use LittleEndian;
+    use crate::read;
+    use crate::write::{DebugLineStr, DebugStr, EndianVec, StringTable};
+    use crate::LittleEndian;
 
     #[test]
     fn test_line_program_table() {

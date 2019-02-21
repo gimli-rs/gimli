@@ -1,5 +1,5 @@
 use arrayvec::ArrayVec;
-use boxed::Box;
+use crate::boxed::Box;
 use fallible_iterator::FallibleIterator;
 use std::cell::RefCell;
 use std::cmp::{Ord, Ordering};
@@ -9,10 +9,10 @@ use std::marker::PhantomData;
 use std::mem;
 use std::str;
 
-use common::{DebugFrameOffset, EhFrameOffset, Format, Register};
-use constants::{self, DwEhPe};
-use endianity::Endianity;
-use read::{
+use crate::common::{DebugFrameOffset, EhFrameOffset, Format, Register};
+use crate::constants::{self, DwEhPe};
+use crate::endianity::Endianity;
+use crate::read::{
     parse_encoded_pointer, parse_pointer_encoding, EndianSlice, Error, Expression, Pointer, Reader,
     ReaderOffset, Result, Section,
 };
@@ -2264,7 +2264,7 @@ where
     /// Evaluate one call frame instruction. Return `Ok(true)` if the row is
     /// complete, `Ok(false)` otherwise.
     fn evaluate(&mut self, instruction: CallFrameInstruction<R>) -> Result<bool> {
-        use CallFrameInstruction::*;
+        use crate::CallFrameInstruction::*;
 
         match instruction {
             // Instructions that complete the current row and advance the
@@ -3323,15 +3323,15 @@ mod tests {
     use self::test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};
     use super::*;
     use super::{parse_cfi_entry, AugmentationData, RegisterRuleMap, UnwindContext};
-    use common::Format;
-    use constants;
-    use endianity::{BigEndian, Endianity, LittleEndian, NativeEndian};
-    use read::{EndianSlice, Error, Expression, Pointer, Result};
+    use crate::common::Format;
+    use crate::constants;
+    use crate::endianity::{BigEndian, Endianity, LittleEndian, NativeEndian};
+    use crate::read::{EndianSlice, Error, Expression, Pointer, Result};
     use std::marker::PhantomData;
     use std::mem;
     use std::u64;
-    use test_util::GimliSectionMethods;
-    use vec::Vec;
+    use crate::test_util::GimliSectionMethods;
+    use crate::vec::Vec;
 
     type DebugFrameCie<R, O = usize> = CommonInformationEntry<DebugFrame<R>, R, O>;
     type DebugFrameFde<R, O = usize> = FrameDescriptionEntry<DebugFrame<R>, R, O>;

@@ -1,14 +1,14 @@
 use std::fmt;
 use std::result;
-use vec::Vec;
+use crate::vec::Vec;
 
-use common::{
+use crate::common::{
     DebugLineOffset, DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsIndex, Encoding, Format,
     LineEncoding,
 };
-use constants;
-use endianity::Endianity;
-use read::{AttributeValue, EndianSlice, Error, Reader, ReaderOffset, Result, Section};
+use crate::constants;
+use crate::endianity::Endianity;
+use crate::read::{AttributeValue, EndianSlice, Error, Reader, ReaderOffset, Result, Section};
 
 /// The `DebugLine` struct contains the source location to instruction mapping
 /// found in the `.debug_line` section.
@@ -1863,11 +1863,11 @@ mod tests {
 
     use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
-    use constants;
-    use endianity::LittleEndian;
-    use read::{EndianSlice, Error};
+    use crate::constants;
+    use crate::endianity::LittleEndian;
+    use crate::read::{EndianSlice, Error};
     use std::u8;
-    use test_util::GimliSectionMethods;
+    use crate::test_util::GimliSectionMethods;
 
     #[test]
     fn test_parse_debug_line_32_ok() {

@@ -1,12 +1,12 @@
 //! Functions for parsing DWARF debugging abbreviations.
 
-use collections::btree_map;
-use vec::Vec;
+use crate::collections::btree_map;
+use crate::vec::Vec;
 
-use common::DebugAbbrevOffset;
-use constants;
-use endianity::Endianity;
-use read::{EndianSlice, Error, Reader, Result, Section, UnitHeader};
+use crate::common::DebugAbbrevOffset;
+use crate::constants;
+use crate::endianity::Endianity;
+use crate::read::{EndianSlice, Error, Reader, Result, Section, UnitHeader};
 
 /// The `DebugAbbrev` struct represents the abbreviations describing
 /// `DebuggingInformationEntry`s' attribute names and forms found in the
@@ -385,12 +385,12 @@ pub mod tests {
 
     use self::test_assembler::Section;
     use super::*;
-    use constants;
-    use endianity::LittleEndian;
-    use read::{EndianSlice, Error};
+    use crate::constants;
+    use crate::endianity::LittleEndian;
+    use crate::read::{EndianSlice, Error};
     #[cfg(target_pointer_width = "32")]
     use std::u32;
-    use test_util::GimliSectionMethods;
+    use crate::test_util::GimliSectionMethods;
 
     pub trait AbbrevSectionMethods {
         fn abbrev(self, code: u64, tag: constants::DwTag, children: constants::DwChildren) -> Self;

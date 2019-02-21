@@ -5,16 +5,16 @@ use std::cell::Cell;
 use std::ops::{Range, RangeFrom, RangeTo};
 use std::{u16, u8};
 
-use common::{
+use crate::common::{
     DebugAbbrevOffset, DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineOffset,
     DebugLineStrOffset, DebugLocListsBase, DebugLocListsIndex, DebugMacinfoOffset,
     DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
     DebugStrOffsetsIndex, DebugTypeSignature, DebugTypesOffset, Encoding, Format,
     LocationListsOffset, RangeListsOffset,
 };
-use constants;
-use endianity::Endianity;
-use read::{
+use crate::constants;
+use crate::endianity::Endianity;
+use crate::read::{
     Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, DebugStr, EndianSlice, Error,
     Expression, Reader, ReaderOffset, Result, Section,
 };
@@ -3106,16 +3106,16 @@ mod tests {
 
     use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
-    use constants;
-    use constants::*;
-    use endianity::{Endianity, LittleEndian};
-    use leb128;
-    use read::abbrev::tests::AbbrevSectionMethods;
-    use read::{Abbreviation, AttributeSpecification, DebugAbbrev, EndianSlice, Error, Result};
+    use crate::constants;
+    use crate::constants::*;
+    use crate::endianity::{Endianity, LittleEndian};
+    use crate::leb128;
+    use crate::read::abbrev::tests::AbbrevSectionMethods;
+    use crate::read::{Abbreviation, AttributeSpecification, DebugAbbrev, EndianSlice, Error, Result};
     use std;
     use std::cell::Cell;
-    use test_util::GimliSectionMethods;
-    use vec::Vec;
+    use crate::test_util::GimliSectionMethods;
+    use crate::vec::Vec;
 
     // Mixin methods for `Section` to help define binary test data.
 

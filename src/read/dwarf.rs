@@ -1,11 +1,11 @@
-use common::{
+use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
     DebugLocListsIndex, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
     DebugStrOffsetsIndex, DebugTypesOffset, Encoding, LocationListsOffset, RangeListsOffset,
     UnitSectionOffset,
 };
-use constants;
-use read::{
+use crate::constants;
+use crate::read::{
     Abbreviations, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter, DebugAbbrev,
     DebugAddr, DebugInfo, DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes,
     EntriesCursor, EntriesTree, Error, IncompleteLineProgram, LocListIter, LocationLists,
@@ -524,8 +524,8 @@ impl<T: ReaderOffset> UnitOffset<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use read::EndianSlice;
-    use Endianity;
+    use crate::read::EndianSlice;
+    use crate::Endianity;
 
     /// Ensure that `Dwarf<R>` is covariant wrt R.
     #[test]

@@ -1,12 +1,12 @@
 use fallible_iterator::FallibleIterator;
 
-use common::{
+use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugLocListsBase, DebugLocListsIndex, Encoding, Format,
     LocationListsOffset,
 };
-use constants;
-use endianity::Endianity;
-use read::{
+use crate::constants;
+use crate::endianity::Endianity;
+use crate::read::{
     DebugAddr, EndianSlice, Error, Expression, Range, RawRange, Reader, ReaderOffset, Result,
     Section,
 };
@@ -549,9 +549,9 @@ mod tests {
 
     use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
-    use endianity::LittleEndian;
-    use read::{EndianSlice, Range};
-    use test_util::GimliSectionMethods;
+    use crate::endianity::LittleEndian;
+    use crate::read::{EndianSlice, Range};
+    use crate::test_util::GimliSectionMethods;
 
     #[test]
     fn test_loclists_32() {

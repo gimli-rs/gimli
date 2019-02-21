@@ -1,9 +1,9 @@
 use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
-use vec::Vec;
+use crate::vec::Vec;
 
-use common::{DebugLineStrOffset, DebugStrOffset};
-use write::{BaseId, Result, Section, SectionId, Writer};
+use crate::common::{DebugLineStrOffset, DebugStrOffset};
+use crate::write::{BaseId, Result, Section, SectionId, Writer};
 
 // Requirements:
 // - values are `[u8]`, null bytes are not allowed
@@ -129,9 +129,9 @@ define_offsets!(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use read;
-    use write::EndianVec;
-    use LittleEndian;
+    use crate::read;
+    use crate::write::EndianVec;
+    use crate::LittleEndian;
 
     #[test]
     fn test_string_table() {

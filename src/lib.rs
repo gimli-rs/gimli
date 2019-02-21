@@ -76,22 +76,22 @@ mod imports {
     pub use alloc::vec;
 }
 
-use imports::*;
+use crate::imports::*;
 
 pub use stable_deref_trait::{CloneStableDeref, StableDeref};
 
 mod common;
-pub use common::*;
+pub use crate::common::*;
 
 mod arch;
-pub use arch::*;
+pub use crate::arch::*;
 
 pub mod constants;
 // For backwards compat.
-pub use constants::*;
+pub use crate::constants::*;
 
 mod endianity;
-pub use endianity::{BigEndian, Endianity, LittleEndian, NativeEndian, RunTimeEndian};
+pub use crate::endianity::{BigEndian, Endianity, LittleEndian, NativeEndian, RunTimeEndian};
 
 pub mod leb128;
 
@@ -99,7 +99,7 @@ pub mod leb128;
 pub mod read;
 // For backwards compat.
 #[cfg(feature = "read")]
-pub use read::*;
+pub use crate::read::*;
 
 #[cfg(feature = "write")]
 pub mod write;

@@ -2,8 +2,8 @@
 
 use std::mem;
 
-use constants;
-use read::{AttributeValue, DebuggingInformationEntry, Error, Reader, Result};
+use crate::constants;
+use crate::read::{AttributeValue, DebuggingInformationEntry, Error, Reader, Result};
 
 /// Convert a u64 to an i64, with sign extension if required.
 ///
@@ -906,9 +906,9 @@ impl Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{DebugAbbrevOffset, Encoding, Format};
-    use endianity::LittleEndian;
-    use read::{
+    use crate::common::{DebugAbbrevOffset, Encoding, Format};
+    use crate::endianity::LittleEndian;
+    use crate::read::{
         Abbreviation, AttributeSpecification, DebuggingInformationEntry, EndianSlice, UnitHeader,
         UnitOffset,
     };

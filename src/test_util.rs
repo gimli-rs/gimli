@@ -2,11 +2,11 @@
 
 extern crate test_assembler;
 
-use vec::Vec;
+use crate::vec::Vec;
 
 use self::test_assembler::{Label, Section};
-use leb128;
-use Format;
+use crate::leb128;
+use crate::Format;
 
 pub trait GimliSectionMethods {
     fn sleb(self, val: i64) -> Self;

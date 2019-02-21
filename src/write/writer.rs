@@ -1,7 +1,7 @@
-use endianity::Endianity;
-use leb128;
-use write::{Address, Error, Result, SectionId};
-use Format;
+use crate::endianity::Endianity;
+use crate::leb128;
+use crate::write::{Address, Error, Result, SectionId};
+use crate::Format;
 
 /// A trait for writing the data to a DWARF section.
 ///
@@ -229,8 +229,8 @@ pub struct InitialLengthOffset(usize);
 mod tests {
     use super::*;
     use std::{i64, u64};
-    use write;
-    use {BigEndian, LittleEndian};
+    use crate::write;
+    use crate::{BigEndian, LittleEndian};
 
     #[test]
     #[allow(clippy::cyclomatic_complexity)]

@@ -1,17 +1,17 @@
 //! Defining custom `Reader`s quickly.
 
-use borrow::Cow;
-use rc::Rc;
+use crate::borrow::Cow;
+use crate::rc::Rc;
 use stable_deref_trait::CloneStableDeref;
 use std::fmt::Debug;
 use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 use std::slice;
 use std::str;
-use string::String;
-use Arc;
+use crate::string::String;
+use crate::Arc;
 
-use endianity::Endianity;
-use read::{Error, Reader, Result};
+use crate::endianity::Endianity;
+use crate::read::{Error, Reader, Result};
 
 /// A reference counted, non-thread-safe slice of bytes and associated
 /// endianity.
@@ -450,8 +450,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use endianity::NativeEndian;
-    use read::Reader;
+    use crate::endianity::NativeEndian;
+    use crate::read::Reader;
 
     fn native_reader<T: CloneStableDeref<Target = [u8]> + Debug>(
         bytes: T,

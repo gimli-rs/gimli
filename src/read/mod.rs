@@ -176,8 +176,8 @@ use std::result;
 #[cfg(feature = "std")]
 use std::{error, io};
 
-use common::Register;
-use constants;
+use crate::common::Register;
+use crate::constants;
 
 mod addr;
 pub use self::addr::*;
@@ -738,11 +738,11 @@ mod tests {
 
     use self::test_assembler::{Endian, Section};
     use super::*;
-    use common::Format;
-    use constants;
-    use endianity::LittleEndian;
+    use crate::common::Format;
+    use crate::constants;
+    use crate::endianity::LittleEndian;
     use std::cell::RefCell;
-    use test_util::GimliSectionMethods;
+    use crate::test_util::GimliSectionMethods;
 
     #[test]
     fn test_parse_initial_length_32_ok() {
@@ -887,7 +887,7 @@ mod tests {
 
     #[test]
     fn test_parse_pointer_encoding_ok() {
-        use endianity::NativeEndian;
+        use crate::endianity::NativeEndian;
         let expected =
             constants::DwEhPe(constants::DW_EH_PE_uleb128.0 | constants::DW_EH_PE_pcrel.0);
         let input = [expected.0, 1, 2, 3, 4];
@@ -898,7 +898,7 @@ mod tests {
 
     #[test]
     fn test_parse_pointer_encoding_bad_encoding() {
-        use endianity::NativeEndian;
+        use crate::endianity::NativeEndian;
         let expected =
             constants::DwEhPe((constants::DW_EH_PE_sdata8.0 + 1) | constants::DW_EH_PE_pcrel.0);
         let input = [expected.0, 1, 2, 3, 4];

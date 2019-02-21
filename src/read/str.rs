@@ -1,7 +1,7 @@
-use common::{DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex};
-use endianity::Endianity;
-use read::{EndianSlice, Reader, ReaderOffset, Result, Section};
-use Format;
+use crate::common::{DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex};
+use crate::endianity::Endianity;
+use crate::read::{EndianSlice, Reader, ReaderOffset, Result, Section};
+use crate::Format;
 
 /// The `DebugStr` struct represents the DWARF strings
 /// found in the `.debug_str` section.
@@ -149,8 +149,8 @@ mod tests {
 
     use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
-    use test_util::GimliSectionMethods;
-    use LittleEndian;
+    use crate::test_util::GimliSectionMethods;
+    use crate::LittleEndian;
 
     #[test]
     fn test_get_str_offset() {

@@ -1,5 +1,5 @@
-use common::{DebugAddrBase, DebugAddrIndex};
-use read::{Reader, ReaderOffset, Result, Section};
+use crate::common::{DebugAddrBase, DebugAddrIndex};
+use crate::read::{Reader, ReaderOffset, Result, Section};
 
 /// The raw contents of the `.debug_addr` section.
 #[derive(Debug, Default, Clone, Copy)]
@@ -58,9 +58,9 @@ mod tests {
 
     use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
-    use read::EndianSlice;
-    use test_util::GimliSectionMethods;
-    use {Format, LittleEndian};
+    use crate::read::EndianSlice;
+    use crate::test_util::GimliSectionMethods;
+    use crate::{Format, LittleEndian};
 
     #[test]
     fn test_get_address() {
