@@ -2,9 +2,9 @@
 
 use crate::vec::Vec;
 
-use test_assembler::{Label, Section};
 use crate::leb128;
 use crate::Format;
+use test_assembler::{Label, Section};
 
 pub trait GimliSectionMethods {
     fn sleb(self, val: i64) -> Self;

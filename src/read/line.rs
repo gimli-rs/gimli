@@ -1,6 +1,6 @@
+use crate::vec::Vec;
 use std::fmt;
 use std::result;
-use crate::vec::Vec;
 
 use crate::common::{
     DebugLineOffset, DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsIndex, Encoding, Format,
@@ -1859,13 +1859,13 @@ fn parse_attribute<R: Reader>(
 
 #[cfg(test)]
 mod tests {
-    use test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
     use crate::constants;
     use crate::endianity::LittleEndian;
     use crate::read::{EndianSlice, Error};
-    use std::u8;
     use crate::test_util::GimliSectionMethods;
+    use std::u8;
+    use test_assembler::{Endian, Label, LabelMaker, Section};
 
     #[test]
     fn test_parse_debug_line_32_ok() {

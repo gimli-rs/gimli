@@ -381,14 +381,14 @@ impl AttributeSpecification {
 
 #[cfg(test)]
 pub mod tests {
-    use test_assembler::Section;
     use super::*;
     use crate::constants;
     use crate::endianity::LittleEndian;
     use crate::read::{EndianSlice, Error};
+    use crate::test_util::GimliSectionMethods;
     #[cfg(target_pointer_width = "32")]
     use std::u32;
-    use crate::test_util::GimliSectionMethods;
+    use test_assembler::Section;
 
     pub trait AbbrevSectionMethods {
         fn abbrev(self, code: u64, tag: constants::DwTag, children: constants::DwChildren) -> Self;

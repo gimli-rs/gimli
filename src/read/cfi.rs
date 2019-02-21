@@ -1,5 +1,5 @@
-use arrayvec::ArrayVec;
 use crate::boxed::Box;
+use arrayvec::ArrayVec;
 use fallible_iterator::FallibleIterator;
 use std::cell::RefCell;
 use std::cmp::{Ord, Ordering};
@@ -3318,18 +3318,18 @@ impl<R: Reader> FallibleIterator for CallFrameInstructionIter<R> {
 
 #[cfg(test)]
 mod tests {
-    use test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};
     use super::*;
     use super::{parse_cfi_entry, AugmentationData, RegisterRuleMap, UnwindContext};
     use crate::common::Format;
     use crate::constants;
     use crate::endianity::{BigEndian, Endianity, LittleEndian, NativeEndian};
     use crate::read::{EndianSlice, Error, Expression, Pointer, Result};
+    use crate::test_util::GimliSectionMethods;
+    use crate::vec::Vec;
     use std::marker::PhantomData;
     use std::mem;
     use std::u64;
-    use crate::test_util::GimliSectionMethods;
-    use crate::vec::Vec;
+    use test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};
 
     type DebugFrameCie<R, O = usize> = CommonInformationEntry<DebugFrame<R>, R, O>;
     type DebugFrameFde<R, O = usize> = FrameDescriptionEntry<DebugFrame<R>, R, O>;

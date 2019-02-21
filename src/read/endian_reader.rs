@@ -2,13 +2,13 @@
 
 use crate::borrow::Cow;
 use crate::rc::Rc;
+use crate::string::String;
+use crate::Arc;
 use stable_deref_trait::CloneStableDeref;
 use std::fmt::Debug;
 use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 use std::slice;
 use std::str;
-use crate::string::String;
-use crate::Arc;
 
 use crate::endianity::Endianity;
 use crate::read::{Error, Reader, Result};

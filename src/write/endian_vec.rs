@@ -1,5 +1,5 @@
-use std::mem;
 use crate::vec::Vec;
+use std::mem;
 
 use crate::endianity::Endianity;
 use crate::write::{Error, Result, Writer};

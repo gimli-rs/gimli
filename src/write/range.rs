@@ -1,6 +1,6 @@
+use crate::vec::Vec;
 use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
-use crate::vec::Vec;
 
 use crate::common::{Encoding, RangeListsOffset};
 use crate::write::{Address, BaseId, Error, Result, Section, SectionId, Sections, Writer};

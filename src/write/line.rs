@@ -1,6 +1,6 @@
+use crate::vec::Vec;
 use indexmap::{IndexMap, IndexSet};
 use std::ops::{Deref, DerefMut};
-use crate::vec::Vec;
 
 use crate::common::{DebugLineOffset, Encoding, Format, LineEncoding};
 use crate::constants;

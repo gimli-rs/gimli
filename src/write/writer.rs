@@ -228,9 +228,9 @@ pub struct InitialLengthOffset(usize);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{i64, u64};
     use crate::write;
     use crate::{BigEndian, LittleEndian};
+    use std::{i64, u64};
 
     #[test]
     #[allow(clippy::cyclomatic_complexity)]

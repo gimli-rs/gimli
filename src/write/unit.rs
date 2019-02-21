@@ -1,6 +1,6 @@
+use crate::vec::Vec;
 use std::ops::{Deref, DerefMut};
 use std::{slice, usize};
-use crate::vec::Vec;
 
 use crate::common::{
     DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugStrOffset,
@@ -1531,12 +1531,12 @@ mod tests {
     };
     use crate::constants;
     use crate::read;
-    use std::mem;
     use crate::write::{
         DebugLine, DebugLineStr, DebugStr, EndianVec, LineString, LineStringTable, Range,
         RangeListOffsets, RangeListTable, StringTable,
     };
     use crate::LittleEndian;
+    use std::mem;
 
     #[test]
     #[allow(clippy::cyclomatic_complexity)]

@@ -545,11 +545,11 @@ pub struct LocationListEntry<R: Reader> {
 
 #[cfg(test)]
 mod tests {
-    use test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
     use crate::endianity::LittleEndian;
     use crate::read::{EndianSlice, Range};
     use crate::test_util::GimliSectionMethods;
+    use test_assembler::{Endian, Label, LabelMaker, Section};
 
     #[test]
     fn test_loclists_32() {

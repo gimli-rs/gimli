@@ -1,6 +1,6 @@
+use crate::vec::Vec;
 use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
-use crate::vec::Vec;
 
 use crate::common::DebugAbbrevOffset;
 use crate::constants;

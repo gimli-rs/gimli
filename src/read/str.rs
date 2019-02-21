@@ -1,4 +1,6 @@
-use crate::common::{DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex};
+use crate::common::{
+    DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex,
+};
 use crate::endianity::Endianity;
 use crate::read::{EndianSlice, Reader, ReaderOffset, Result, Section};
 use crate::Format;
@@ -145,10 +147,10 @@ impl<R: Reader> From<R> for DebugLineStr<R> {
 
 #[cfg(test)]
 mod tests {
-    use test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
     use crate::test_util::GimliSectionMethods;
     use crate::LittleEndian;
+    use test_assembler::{Endian, Label, LabelMaker, Section};
 
     #[test]
     fn test_get_str_offset() {

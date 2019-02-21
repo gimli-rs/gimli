@@ -3100,18 +3100,20 @@ fn parse_type_unit_header<R: Reader>(
 
 #[cfg(test)]
 mod tests {
-    use test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
     use crate::constants;
     use crate::constants::*;
     use crate::endianity::{Endianity, LittleEndian};
     use crate::leb128;
     use crate::read::abbrev::tests::AbbrevSectionMethods;
-    use crate::read::{Abbreviation, AttributeSpecification, DebugAbbrev, EndianSlice, Error, Result};
-    use std;
-    use std::cell::Cell;
+    use crate::read::{
+        Abbreviation, AttributeSpecification, DebugAbbrev, EndianSlice, Error, Result,
+    };
     use crate::test_util::GimliSectionMethods;
     use crate::vec::Vec;
+    use std;
+    use std::cell::Cell;
+    use test_assembler::{Endian, Label, LabelMaker, Section};
 
     // Mixin methods for `Section` to help define binary test data.
 

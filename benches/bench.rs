@@ -516,8 +516,8 @@ fn bench_evaluating_debug_loc_expressions(b: &mut test::Bencher) {
 // See comment above `test_parse_self_eh_frame`.
 #[cfg(target_pointer_width = "64")]
 mod cfi {
-    use fallible_iterator::FallibleIterator;
     use super::*;
+    use fallible_iterator::FallibleIterator;
 
     use gimli::{
         BaseAddresses, CieOrFde, EhFrame, FrameDescriptionEntry, LittleEndian,

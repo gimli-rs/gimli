@@ -5,7 +5,9 @@ use std::marker::PhantomData;
 use crate::common::{DebugInfoOffset, Encoding};
 use crate::endianity::Endianity;
 use crate::read::lookup::{DebugLookup, LookupEntryIter, LookupParser};
-use crate::read::{parse_debug_info_offset, EndianSlice, Error, Reader, ReaderOffset, Result, Section};
+use crate::read::{
+    parse_debug_info_offset, EndianSlice, Error, Reader, ReaderOffset, Result, Section,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ArangeHeader<T = usize> {

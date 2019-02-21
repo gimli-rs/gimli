@@ -553,10 +553,10 @@ impl Range {
 
 #[cfg(test)]
 mod tests {
-    use test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
     use crate::endianity::LittleEndian;
     use crate::test_util::GimliSectionMethods;
+    use test_assembler::{Endian, Label, LabelMaker, Section};
 
     #[test]
     fn test_rnglists_32() {

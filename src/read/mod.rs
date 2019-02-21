@@ -727,13 +727,13 @@ impl Register {
 
 #[cfg(test)]
 mod tests {
-    use test_assembler::{Endian, Section};
     use super::*;
     use crate::common::Format;
     use crate::constants;
     use crate::endianity::LittleEndian;
-    use std::cell::RefCell;
     use crate::test_util::GimliSectionMethods;
+    use std::cell::RefCell;
+    use test_assembler::{Endian, Section};
 
     #[test]
     fn test_parse_initial_length_32_ok() {
