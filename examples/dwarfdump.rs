@@ -104,7 +104,7 @@ where
         let condvars_ref = &condvars;
         crossbeam::scope(|scope| {
             for i in 0..workers {
-                scope.spawn(move || {
+                scope.spawn(move |_| {
                     let mut v = Vec::new();
                     let mut lock = state_ref.lock().unwrap();
                     while lock.current_worker != i {
@@ -143,7 +143,8 @@ where
                     }
                 });
             }
-        });
+        })
+        .unwrap();
     }
     state.into_inner().unwrap().result
 }
