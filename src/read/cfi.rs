@@ -898,7 +898,7 @@ impl BaseAddresses {
 /// let mut entries = eh_frame.entries(&bases);
 ///
 /// # let do_stuff_with = |_| unimplemented!();
-/// while let Some(entry) = try!(entries.next()) {
+/// while let Some(entry) = entries.next()? {
 ///     do_stuff_with(entry)
 /// }
 /// # unreachable!()

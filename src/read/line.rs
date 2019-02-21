@@ -2872,7 +2872,7 @@ mod tests {
             let header_start = Label::new();
             let end = Label::new();
             let header_end = Label::new();
-            let mut section = Section::with_endian(Endian::Little)
+            let section = Section::with_endian(Endian::Little)
                 .initial_length(format, &length, &start)
                 .D16(5)
                 // Address size.

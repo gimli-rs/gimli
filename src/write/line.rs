@@ -1003,7 +1003,7 @@ mod convert {
                     Some(comp_file_info),
                 );
 
-                let mut file_skip;
+                let file_skip;
                 if from_header.version() <= 4 {
                     // The first directory is implicit.
                     dirs.push(DirectoryId(0));
@@ -1344,7 +1344,7 @@ mod tests {
                     // Create test cases.
                     let mut tests = Vec::new();
 
-                    let mut row = base_row;
+                    let row = base_row;
                     tests.push((row, vec![LineInstruction::Copy]));
 
                     let mut row = base_row;
