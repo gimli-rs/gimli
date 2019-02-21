@@ -668,8 +668,8 @@ fn parse_unit_header<R: Reader>(input: &mut R) -> Result<UnitHeader<R, R::Offset
 #[derive(Clone, Debug)]
 pub struct DebuggingInformationEntry<'abbrev, 'unit, R, Offset = usize>
 where
-    R: Reader<Offset = Offset> + 'unit,
-    Offset: ReaderOffset + 'unit,
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     offset: UnitOffset<Offset>,
     attrs_slice: R,
@@ -2073,7 +2073,7 @@ pub struct AttrsIter<'abbrev, 'entry, 'unit, R>
 where
     'abbrev: 'entry,
     'unit: 'entry,
-    R: Reader + 'entry + 'unit,
+    R: Reader,
 {
     input: R,
     attributes: &'abbrev [AttributeSpecification],
@@ -2143,7 +2143,7 @@ impl<'abbrev, 'entry, 'unit, R: Reader> FallibleIterator for AttrsIter<'abbrev, 
 #[derive(Clone, Debug)]
 pub struct EntriesCursor<'abbrev, 'unit, R>
 where
-    R: Reader + 'unit,
+    R: Reader,
 {
     input: R,
     unit: &'unit UnitHeader<R, R::Offset>,
@@ -2533,7 +2533,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
 #[derive(Clone, Debug)]
 pub struct EntriesTree<'abbrev, 'unit, R>
 where
-    R: Reader + 'unit,
+    R: Reader,
 {
     root: R,
     unit: &'unit UnitHeader<R, R::Offset>,
@@ -2671,7 +2671,7 @@ pub struct EntriesTreeNode<'abbrev, 'unit, 'tree, R>
 where
     'abbrev: 'tree,
     'unit: 'tree,
-    R: Reader + 'unit,
+    R: Reader,
 {
     tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
     depth: isize,
@@ -2711,7 +2711,7 @@ pub struct EntriesTreeIter<'abbrev, 'unit, 'tree, R>
 where
     'abbrev: 'tree,
     'unit: 'tree,
-    R: Reader + 'unit,
+    R: Reader,
 {
     tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
     depth: isize,

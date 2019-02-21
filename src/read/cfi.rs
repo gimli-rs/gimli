@@ -214,7 +214,7 @@ impl<R: Reader> ParsedEhFrameHdr<R> {
 
 /// The CFI binary search table that is an optional part of the `.eh_frame_hdr` section.
 #[derive(Debug, Clone)]
-pub struct EhHdrTable<'a, R: Reader + 'a> {
+pub struct EhHdrTable<'a, R: Reader> {
     hdr: &'a ParsedEhFrameHdr<R>,
 }
 
@@ -2163,8 +2163,8 @@ where
 #[derive(Debug)]
 pub struct UnwindTable<'cie, 'fde, 'ctx, Section, R>
 where
-    R: 'cie + 'fde + 'ctx + Reader,
-    Section: 'cie + 'fde + 'ctx + UnwindSection<R>,
+    R: Reader,
+    Section: UnwindSection<R>,
 {
     cie: &'cie CommonInformationEntry<Section, R, R::Offset>,
     next_start_address: u64,
@@ -2571,7 +2571,7 @@ impl<R> Eq for RegisterRuleMap<R> where R: Reader + Eq {}
 #[derive(Debug, Clone)]
 pub struct RegisterRuleIter<'iter, R>(::std::slice::Iter<'iter, (Register, RegisterRule<R>)>)
 where
-    R: 'iter + Reader;
+    R: Reader;
 
 impl<'iter, R: Reader> Iterator for RegisterRuleIter<'iter, R> {
     type Item = &'iter (Register, RegisterRule<R>);

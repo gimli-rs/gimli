@@ -1163,7 +1163,7 @@ pub(crate) mod convert {
     use crate::read::{self, Reader};
     use crate::write::{self, ConvertError, ConvertResult};
 
-    pub(crate) struct ConvertUnitContext<'a, R: Reader<Offset = usize> + 'a> {
+    pub(crate) struct ConvertUnitContext<'a, R: Reader<Offset = usize>> {
         pub dwarf: &'a read::Dwarf<R>,
         pub unit: &'a read::Unit<R>,
         pub line_strings: &'a mut write::LineStringTable,

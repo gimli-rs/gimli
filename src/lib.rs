@@ -30,7 +30,7 @@
 #![warn(unused_extern_crates)]
 #![warn(ellipsis_inclusive_range_patterns)]
 //#![warn(elided_lifetimes_in_paths)]
-//#![warn(explicit_outlives_requirements)]
+#![warn(explicit_outlives_requirements)]
 // Allow clippy warnings when we aren't building with clippy.
 #![allow(unknown_lints)]
 // False positives with `fallible_iterator`.
