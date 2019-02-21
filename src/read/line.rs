@@ -94,7 +94,7 @@ impl<R: Reader> From<R> for DebugLine<R> {
 
 /// Deprecated. `LineNumberProgram` has been renamed to `LineProgram`.
 #[deprecated(note = "LineNumberProgram has been renamed to LineProgram, use that instead.")]
-pub type LineNumberProgram<R, Offset> = LineProgram<R, Offset>;
+pub type LineNumberProgram<R, Offset> = dyn LineProgram<R, Offset>;
 
 /// A `LineProgram` provides access to a `LineProgramHeader` and
 /// a way to add files to the files table if necessary. Gimli consumers should

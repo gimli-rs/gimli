@@ -26,7 +26,7 @@
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
 // Selectively enable rust 2018 warnings
-//#![warn(bare-trait-objects)]
+#![warn(bare_trait_objects)]
 #![warn(unused_extern_crates)]
 //#![warn(ellipsis_inclusive_range_patterns)]
 //#![warn(elided_lifetimes_in_paths)]

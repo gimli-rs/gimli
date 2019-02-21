@@ -120,7 +120,7 @@ pub(crate) mod convert {
         /// and return `Address::Relative { symbol, addend }`.
         pub fn from<R: Reader<Offset = usize>>(
             dwarf: &read::Dwarf<R>,
-            convert_address: &Fn(u64) -> Option<Address>,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<Dwarf> {
             let mut line_strings = LineStringTable::default();
             let mut strings = StringTable::default();

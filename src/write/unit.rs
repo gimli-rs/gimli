@@ -1169,7 +1169,7 @@ pub(crate) mod convert {
         pub line_strings: &'a mut write::LineStringTable,
         pub strings: &'a mut write::StringTable,
         pub ranges: &'a mut write::RangeListTable,
-        pub convert_address: &'a Fn(u64) -> Option<Address>,
+        pub convert_address: &'a dyn Fn(u64) -> Option<Address>,
         pub base_address: Address,
         pub line_program_offset: Option<DebugLineOffset>,
         pub line_program_files: Vec<FileId>,
@@ -1190,7 +1190,7 @@ pub(crate) mod convert {
             dwarf: &read::Dwarf<R>,
             line_strings: &mut write::LineStringTable,
             strings: &mut write::StringTable,
-            convert_address: &Fn(u64) -> Option<Address>,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<UnitTable> {
             let base_id = BaseId::default();
             let mut units = Vec::new();
@@ -1249,7 +1249,7 @@ pub(crate) mod convert {
             dwarf: &read::Dwarf<R>,
             line_strings: &mut write::LineStringTable,
             strings: &mut write::StringTable,
-            convert_address: &Fn(u64) -> Option<Address>,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<Unit> {
             let base_id = BaseId::default();
 
