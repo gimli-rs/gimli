@@ -54,9 +54,7 @@ impl<R: Reader> From<R> for DebugAddr<R> {
 
 #[cfg(test)]
 mod tests {
-    extern crate test_assembler;
-
-    use self::test_assembler::{Endian, Label, LabelMaker, Section};
+    use test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
     use crate::read::EndianSlice;
     use crate::test_util::GimliSectionMethods;

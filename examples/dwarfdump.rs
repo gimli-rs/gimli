@@ -1,16 +1,6 @@
 // Allow clippy lints when building without clippy.
 #![allow(unknown_lints)]
 
-extern crate crossbeam;
-extern crate fallible_iterator;
-extern crate getopts;
-extern crate gimli;
-extern crate memmap;
-extern crate num_cpus;
-extern crate object;
-extern crate regex;
-extern crate typed_arena;
-
 use fallible_iterator::FallibleIterator;
 use gimli::{CompilationUnitHeader, UnitOffset, UnwindSection};
 use object::{Object, ObjectSection};

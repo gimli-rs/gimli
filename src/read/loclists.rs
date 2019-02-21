@@ -545,9 +545,7 @@ pub struct LocationListEntry<R: Reader> {
 
 #[cfg(test)]
 mod tests {
-    extern crate test_assembler;
-
-    use self::test_assembler::{Endian, Label, LabelMaker, Section};
+    use test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
     use crate::endianity::LittleEndian;
     use crate::read::{EndianSlice, Range};

@@ -21,8 +21,6 @@
 //! Write a compilation unit containing only the top level DIE.
 //!
 //! ```rust
-//! extern crate gimli;
-//!
 //! use gimli::write::{
 //!     Address, AttributeValue, DwarfUnit, EndianVec, Error, Range, RangeList, Sections,
 //! };

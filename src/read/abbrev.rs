@@ -381,9 +381,7 @@ impl AttributeSpecification {
 
 #[cfg(test)]
 pub mod tests {
-    extern crate test_assembler;
-
-    use self::test_assembler::Section;
+    use test_assembler::Section;
     use super::*;
     use crate::constants;
     use crate::endianity::LittleEndian;

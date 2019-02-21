@@ -55,7 +55,6 @@ pub type EndianArcSlice<Endian> = EndianReader<Endian, Arc<[u8]>>;
 /// long as `MmapFile` dereferences to the underlying `[u8]` data.
 ///
 /// ```
-/// extern crate gimli;
 /// use std::io;
 /// use std::ops::Deref;
 /// use std::path::Path;

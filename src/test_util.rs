@@ -1,10 +1,8 @@
 #![allow(missing_docs)]
 
-extern crate test_assembler;
-
 use crate::vec::Vec;
 
-use self::test_assembler::{Label, Section};
+use test_assembler::{Label, Section};
 use crate::leb128;
 use crate::Format;
 

@@ -145,9 +145,7 @@ impl<R: Reader> From<R> for DebugLineStr<R> {
 
 #[cfg(test)]
 mod tests {
-    extern crate test_assembler;
-
-    use self::test_assembler::{Endian, Label, LabelMaker, Section};
+    use test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
     use crate::test_util::GimliSectionMethods;
     use crate::LittleEndian;

@@ -2499,8 +2499,6 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
 ///
 /// ## Example Usage
 /// ```rust,no_run
-/// extern crate gimli;
-///
 /// # fn example() -> Result<(), gimli::Error> {
 /// # let debug_info = gimli::DebugInfo::new(&[], gimli::LittleEndian);
 /// # let get_some_unit = || debug_info.units().next().unwrap().unwrap();
@@ -3102,9 +3100,7 @@ fn parse_type_unit_header<R: Reader>(
 
 #[cfg(test)]
 mod tests {
-    extern crate test_assembler;
-
-    use self::test_assembler::{Endian, Label, LabelMaker, Section};
+    use test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
     use crate::constants;
     use crate::constants::*;

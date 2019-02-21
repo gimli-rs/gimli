@@ -1,6 +1,5 @@
 #![feature(test)]
 
-extern crate gimli;
 extern crate test;
 
 use gimli::{
@@ -517,11 +516,7 @@ fn bench_evaluating_debug_loc_expressions(b: &mut test::Bencher) {
 // See comment above `test_parse_self_eh_frame`.
 #[cfg(target_pointer_width = "64")]
 mod cfi {
-    extern crate fallible_iterator;
-    extern crate gimli;
-    extern crate test;
-
-    use self::fallible_iterator::FallibleIterator;
+    use fallible_iterator::FallibleIterator;
     use super::*;
 
     use gimli::{

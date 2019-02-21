@@ -25,6 +25,12 @@
 //! enables `std` too.
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
+// Selectively enable rust 2018 warnings
+//#![warn(bare-trait-objects)]
+#![warn(unused_extern_crates)]
+//#![warn(ellipsis_inclusive_range_patterns)]
+//#![warn(elided_lifetimes_in_paths)]
+//#![warn(explicit_outlives_requirements)]
 // Allow clippy warnings when we aren't building with clippy.
 #![allow(unknown_lints)]
 // False positives with `fallible_iterator`.
@@ -46,13 +52,6 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 #[macro_use]
 extern crate core as std;
-
-extern crate arrayvec;
-extern crate byteorder;
-extern crate fallible_iterator;
-#[cfg(feature = "write")]
-extern crate indexmap;
-extern crate stable_deref_trait;
 
 #[cfg(feature = "std")]
 mod imports {

@@ -1784,9 +1784,7 @@ impl<R: Reader> Evaluation<R> {
 
 #[cfg(test)]
 mod tests {
-    extern crate test_assembler;
-
-    use self::test_assembler::{Endian, Section};
+    use test_assembler::{Endian, Section};
     use super::*;
     use crate::common::Format;
     use crate::constants;
