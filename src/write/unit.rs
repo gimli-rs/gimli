@@ -1,13 +1,13 @@
+use crate::vec::Vec;
 use std::ops::{Deref, DerefMut};
 use std::{slice, usize};
-use vec::Vec;
 
-use common::{
+use crate::common::{
     DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugStrOffset,
     DebugTypeSignature, Encoding, Format, LocationListsOffset, UnitSectionOffset,
 };
-use constants;
-use write::{
+use crate::constants;
+use crate::write::{
     Abbreviation, AbbreviationTable, Address, AttributeSpecification, BaseId, DebugLineStrOffsets,
     DebugStrOffsets, Error, FileId, LineProgram, LineStringId, RangeList, RangeListId,
     RangeListOffsets, RangeListTable, Result, Section, SectionId, Sections, StringId, Writer,
@@ -1159,17 +1159,17 @@ impl UnitOffsets {
 #[cfg(feature = "read")]
 pub(crate) mod convert {
     use super::*;
-    use collections::HashMap;
-    use read::{self, Reader};
-    use write::{self, ConvertError, ConvertResult};
+    use crate::collections::HashMap;
+    use crate::read::{self, Reader};
+    use crate::write::{self, ConvertError, ConvertResult};
 
-    pub(crate) struct ConvertUnitContext<'a, R: Reader<Offset = usize> + 'a> {
+    pub(crate) struct ConvertUnitContext<'a, R: Reader<Offset = usize>> {
         pub dwarf: &'a read::Dwarf<R>,
         pub unit: &'a read::Unit<R>,
         pub line_strings: &'a mut write::LineStringTable,
         pub strings: &'a mut write::StringTable,
         pub ranges: &'a mut write::RangeListTable,
-        pub convert_address: &'a Fn(u64) -> Option<Address>,
+        pub convert_address: &'a dyn Fn(u64) -> Option<Address>,
         pub base_address: Address,
         pub line_program_offset: Option<DebugLineOffset>,
         pub line_program_files: Vec<FileId>,
@@ -1190,7 +1190,7 @@ pub(crate) mod convert {
             dwarf: &read::Dwarf<R>,
             line_strings: &mut write::LineStringTable,
             strings: &mut write::StringTable,
-            convert_address: &Fn(u64) -> Option<Address>,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<UnitTable> {
             let base_id = BaseId::default();
             let mut units = Vec::new();
@@ -1249,7 +1249,7 @@ pub(crate) mod convert {
             dwarf: &read::Dwarf<R>,
             line_strings: &mut write::LineStringTable,
             strings: &mut write::StringTable,
-            convert_address: &Fn(u64) -> Option<Address>,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<Unit> {
             let base_id = BaseId::default();
 
@@ -1526,17 +1526,17 @@ pub(crate) mod convert {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{
+    use crate::common::{
         DebugAddrBase, DebugLocListsBase, DebugRngListsBase, DebugStrOffsetsBase, LineEncoding,
     };
-    use constants;
-    use read;
-    use std::mem;
-    use write::{
+    use crate::constants;
+    use crate::read;
+    use crate::write::{
         DebugLine, DebugLineStr, DebugStr, EndianVec, LineString, LineStringTable, Range,
         RangeListOffsets, RangeListTable, StringTable,
     };
-    use LittleEndian;
+    use crate::LittleEndian;
+    use std::mem;
 
     #[test]
     #[allow(clippy::cyclomatic_complexity)]

@@ -1,7 +1,7 @@
-use vec::Vec;
+use crate::vec::Vec;
 
-use common::Encoding;
-use write::{
+use crate::common::Encoding;
+use crate::write::{
     AbbreviationTable, LineProgram, LineStringTable, Result, Sections, StringTable, Unit,
     UnitTable, Writer,
 };
@@ -107,8 +107,8 @@ impl DwarfUnit {
 #[cfg(feature = "read")]
 pub(crate) mod convert {
     use super::*;
-    use read::{self, Reader};
-    use write::{Address, ConvertResult};
+    use crate::read::{self, Reader};
+    use crate::write::{Address, ConvertResult};
 
     impl Dwarf {
         /// Create a `write::Dwarf` by converting a `read::Dwarf`.
@@ -120,7 +120,7 @@ pub(crate) mod convert {
         /// and return `Address::Relative { symbol, addend }`.
         pub fn from<R: Reader<Offset = usize>>(
             dwarf: &read::Dwarf<R>,
-            convert_address: &Fn(u64) -> Option<Address>,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<Dwarf> {
             let mut line_strings = LineStringTable::default();
             let mut strings = StringTable::default();

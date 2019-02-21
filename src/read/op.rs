@@ -1,11 +1,11 @@
 //! Functions for parsing and evaluating DWARF expressions.
 
+use crate::vec::Vec;
 use std::mem;
-use vec::Vec;
 
-use common::{DebugAddrIndex, DebugInfoOffset, Encoding, Register};
-use constants;
-use read::{Error, Reader, ReaderOffset, Result, UnitOffset, Value, ValueType};
+use crate::common::{DebugAddrIndex, DebugInfoOffset, Encoding, Register};
+use crate::constants;
+use crate::read::{Error, Reader, ReaderOffset, Result, UnitOffset, Value, ValueType};
 
 /// A reference to a DIE, either relative to the current CU or
 /// relative to the section.
@@ -1784,17 +1784,15 @@ impl<R: Reader> Evaluation<R> {
 
 #[cfg(test)]
 mod tests {
-    extern crate test_assembler;
-
-    use self::test_assembler::{Endian, Section};
     use super::*;
-    use common::Format;
-    use constants;
-    use endianity::LittleEndian;
-    use leb128;
-    use read::{EndianSlice, Error, Result, UnitOffset};
+    use crate::common::Format;
+    use crate::constants;
+    use crate::endianity::LittleEndian;
+    use crate::leb128;
+    use crate::read::{EndianSlice, Error, Result, UnitOffset};
+    use crate::test_util::GimliSectionMethods;
     use std::usize;
-    use test_util::GimliSectionMethods;
+    use test_assembler::{Endian, Section};
 
     fn encoding4() -> Encoding {
         Encoding {
@@ -2768,7 +2766,7 @@ mod tests {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
         use self::AssemblerEntry::*;
-        use constants::*;
+        use crate::constants::*;
 
         // Indices of marks in the assembly.
         let done = 0;
@@ -2939,7 +2937,7 @@ mod tests {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
         use self::AssemblerEntry::*;
-        use constants::*;
+        use crate::constants::*;
 
         // Indices of marks in the assembly.
         let done = 0;
@@ -3014,7 +3012,7 @@ mod tests {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
         use self::AssemblerEntry::*;
-        use constants::*;
+        use crate::constants::*;
 
         // Indices of marks in the assembly.
         let done = 0;
@@ -3081,7 +3079,7 @@ mod tests {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
         use self::AssemblerEntry::*;
-        use constants::*;
+        use crate::constants::*;
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
@@ -3119,7 +3117,7 @@ mod tests {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
         use self::AssemblerEntry::*;
-        use constants::*;
+        use crate::constants::*;
 
         let mut program = Vec::new();
         program.push(Op(DW_OP_lit0));
@@ -3176,7 +3174,7 @@ mod tests {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
         use self::AssemblerEntry::*;
-        use constants::*;
+        use crate::constants::*;
 
         // Indices of marks in the assembly.
         let done = 0;
@@ -3303,7 +3301,7 @@ mod tests {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
         use self::AssemblerEntry::*;
-        use constants::*;
+        use crate::constants::*;
 
         for i in 0..32 {
             #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -3350,7 +3348,7 @@ mod tests {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
         use self::AssemblerEntry::*;
-        use constants::*;
+        use crate::constants::*;
 
         // Test `frame_base` and `call_frame_cfa` callbacks.
         #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -3493,7 +3491,7 @@ mod tests {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
         use self::AssemblerEntry::*;
-        use constants::*;
+        use crate::constants::*;
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
@@ -3508,7 +3506,7 @@ mod tests {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
         use self::AssemblerEntry::*;
-        use constants::*;
+        use crate::constants::*;
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
@@ -3608,7 +3606,7 @@ mod tests {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
         use self::AssemblerEntry::*;
-        use constants::*;
+        use crate::constants::*;
 
         // Example from DWARF 2.6.1.3.
         #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -3788,7 +3786,7 @@ mod tests {
         // It's nice if an operation and its arguments can fit on a single
         // line in the test program.
         use self::AssemblerEntry::*;
-        use constants::*;
+        use crate::constants::*;
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let program = [
@@ -3810,7 +3808,7 @@ mod tests {
     #[test]
     fn test_eval_typed_stack() {
         use self::AssemblerEntry::*;
-        use constants::*;
+        use crate::constants::*;
 
         let base_types = [
             ValueType::Generic,

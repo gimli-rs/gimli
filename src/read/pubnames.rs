@@ -1,9 +1,9 @@
 use fallible_iterator::FallibleIterator;
 
-use common::DebugInfoOffset;
-use endianity::Endianity;
-use read::lookup::{DebugLookup, LookupEntryIter, PubStuffEntry, PubStuffParser};
-use read::{EndianSlice, Error, Reader, Result, Section, UnitOffset};
+use crate::common::DebugInfoOffset;
+use crate::endianity::Endianity;
+use crate::read::lookup::{DebugLookup, LookupEntryIter, PubStuffEntry, PubStuffParser};
+use crate::read::{EndianSlice, Error, Reader, Result, Section, UnitOffset};
 
 /// A single parsed pubname.
 #[derive(Debug, Clone)]

@@ -1,7 +1,7 @@
 use std::ops::DerefMut;
 use std::result;
 
-use write::{
+use crate::write::{
     DebugAbbrev, DebugInfo, DebugLine, DebugLineStr, DebugRanges, DebugRngLists, DebugStr, Writer,
 };
 

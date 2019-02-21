@@ -1,4 +1,4 @@
-use common::Register;
+use crate::common::Register;
 
 macro_rules! registers {
     ($struct_name:ident, { $($name:ident = ($val:expr, $disp:expr)),+ }) => {

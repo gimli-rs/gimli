@@ -1,5 +1,5 @@
+use crate::boxed::Box;
 use arrayvec::ArrayVec;
-use boxed::Box;
 use fallible_iterator::FallibleIterator;
 use std::cell::RefCell;
 use std::cmp::{Ord, Ordering};
@@ -9,10 +9,10 @@ use std::marker::PhantomData;
 use std::mem;
 use std::str;
 
-use common::{DebugFrameOffset, EhFrameOffset, Format, Register};
-use constants::{self, DwEhPe};
-use endianity::Endianity;
-use read::{
+use crate::common::{DebugFrameOffset, EhFrameOffset, Format, Register};
+use crate::constants::{self, DwEhPe};
+use crate::endianity::Endianity;
+use crate::read::{
     parse_encoded_pointer, parse_pointer_encoding, EndianSlice, Error, Expression, Pointer, Reader,
     ReaderOffset, Result, Section,
 };
@@ -214,7 +214,7 @@ impl<R: Reader> ParsedEhFrameHdr<R> {
 
 /// The CFI binary search table that is an optional part of the `.eh_frame_hdr` section.
 #[derive(Debug, Clone)]
-pub struct EhHdrTable<'a, R: Reader + 'a> {
+pub struct EhHdrTable<'a, R: Reader> {
     hdr: &'a ParsedEhFrameHdr<R>,
 }
 
@@ -898,7 +898,7 @@ impl BaseAddresses {
 /// let mut entries = eh_frame.entries(&bases);
 ///
 /// # let do_stuff_with = |_| unimplemented!();
-/// while let Some(entry) = try!(entries.next()) {
+/// while let Some(entry) = entries.next()? {
 ///     do_stuff_with(entry)
 /// }
 /// # unreachable!()
@@ -2163,8 +2163,8 @@ where
 #[derive(Debug)]
 pub struct UnwindTable<'cie, 'fde, 'ctx, Section, R>
 where
-    R: 'cie + 'fde + 'ctx + Reader,
-    Section: 'cie + 'fde + 'ctx + UnwindSection<R>,
+    R: Reader,
+    Section: UnwindSection<R>,
 {
     cie: &'cie CommonInformationEntry<Section, R, R::Offset>,
     next_start_address: u64,
@@ -2264,7 +2264,7 @@ where
     /// Evaluate one call frame instruction. Return `Ok(true)` if the row is
     /// complete, `Ok(false)` otherwise.
     fn evaluate(&mut self, instruction: CallFrameInstruction<R>) -> Result<bool> {
-        use CallFrameInstruction::*;
+        use crate::CallFrameInstruction::*;
 
         match instruction {
             // Instructions that complete the current row and advance the
@@ -2571,7 +2571,7 @@ impl<R> Eq for RegisterRuleMap<R> where R: Reader + Eq {}
 #[derive(Debug, Clone)]
 pub struct RegisterRuleIter<'iter, R>(::std::slice::Iter<'iter, (Register, RegisterRule<R>)>)
 where
-    R: 'iter + Reader;
+    R: Reader;
 
 impl<'iter, R: Reader> Iterator for RegisterRuleIter<'iter, R> {
     type Item = &'iter (Register, RegisterRule<R>);
@@ -3318,20 +3318,18 @@ impl<R: Reader> FallibleIterator for CallFrameInstructionIter<R> {
 
 #[cfg(test)]
 mod tests {
-    extern crate test_assembler;
-
-    use self::test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};
     use super::*;
     use super::{parse_cfi_entry, AugmentationData, RegisterRuleMap, UnwindContext};
-    use common::Format;
-    use constants;
-    use endianity::{BigEndian, Endianity, LittleEndian, NativeEndian};
-    use read::{EndianSlice, Error, Expression, Pointer, Result};
+    use crate::common::Format;
+    use crate::constants;
+    use crate::endianity::{BigEndian, Endianity, LittleEndian, NativeEndian};
+    use crate::read::{EndianSlice, Error, Expression, Pointer, Result};
+    use crate::test_util::GimliSectionMethods;
+    use crate::vec::Vec;
     use std::marker::PhantomData;
     use std::mem;
     use std::u64;
-    use test_util::GimliSectionMethods;
-    use vec::Vec;
+    use test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};
 
     type DebugFrameCie<R, O = usize> = CommonInformationEntry<DebugFrame<R>, R, O>;
     type DebugFrameFde<R, O = usize> = FrameDescriptionEntry<DebugFrame<R>, R, O>;

@@ -5,16 +5,16 @@ use std::cell::Cell;
 use std::ops::{Range, RangeFrom, RangeTo};
 use std::{u16, u8};
 
-use common::{
+use crate::common::{
     DebugAbbrevOffset, DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineOffset,
     DebugLineStrOffset, DebugLocListsBase, DebugLocListsIndex, DebugMacinfoOffset,
     DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
     DebugStrOffsetsIndex, DebugTypeSignature, DebugTypesOffset, Encoding, Format,
     LocationListsOffset, RangeListsOffset,
 };
-use constants;
-use endianity::Endianity;
-use read::{
+use crate::constants;
+use crate::endianity::Endianity;
+use crate::read::{
     Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, DebugStr, EndianSlice, Error,
     Expression, Reader, ReaderOffset, Result, Section,
 };
@@ -668,8 +668,8 @@ fn parse_unit_header<R: Reader>(input: &mut R) -> Result<UnitHeader<R, R::Offset
 #[derive(Clone, Debug)]
 pub struct DebuggingInformationEntry<'abbrev, 'unit, R, Offset = usize>
 where
-    R: Reader<Offset = Offset> + 'unit,
-    Offset: ReaderOffset + 'unit,
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
 {
     offset: UnitOffset<Offset>,
     attrs_slice: R,
@@ -2073,7 +2073,7 @@ pub struct AttrsIter<'abbrev, 'entry, 'unit, R>
 where
     'abbrev: 'entry,
     'unit: 'entry,
-    R: Reader + 'entry + 'unit,
+    R: Reader,
 {
     input: R,
     attributes: &'abbrev [AttributeSpecification],
@@ -2143,7 +2143,7 @@ impl<'abbrev, 'entry, 'unit, R: Reader> FallibleIterator for AttrsIter<'abbrev, 
 #[derive(Clone, Debug)]
 pub struct EntriesCursor<'abbrev, 'unit, R>
 where
-    R: Reader + 'unit,
+    R: Reader,
 {
     input: R,
     unit: &'unit UnitHeader<R, R::Offset>,
@@ -2499,8 +2499,6 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
 ///
 /// ## Example Usage
 /// ```rust,no_run
-/// extern crate gimli;
-///
 /// # fn example() -> Result<(), gimli::Error> {
 /// # let debug_info = gimli::DebugInfo::new(&[], gimli::LittleEndian);
 /// # let get_some_unit = || debug_info.units().next().unwrap().unwrap();
@@ -2535,7 +2533,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
 #[derive(Clone, Debug)]
 pub struct EntriesTree<'abbrev, 'unit, R>
 where
-    R: Reader + 'unit,
+    R: Reader,
 {
     root: R,
     unit: &'unit UnitHeader<R, R::Offset>,
@@ -2673,7 +2671,7 @@ pub struct EntriesTreeNode<'abbrev, 'unit, 'tree, R>
 where
     'abbrev: 'tree,
     'unit: 'tree,
-    R: Reader + 'unit,
+    R: Reader,
 {
     tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
     depth: isize,
@@ -2713,7 +2711,7 @@ pub struct EntriesTreeIter<'abbrev, 'unit, 'tree, R>
 where
     'abbrev: 'tree,
     'unit: 'tree,
-    R: Reader + 'unit,
+    R: Reader,
 {
     tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
     depth: isize,
@@ -3102,20 +3100,20 @@ fn parse_type_unit_header<R: Reader>(
 
 #[cfg(test)]
 mod tests {
-    extern crate test_assembler;
-
-    use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
-    use constants;
-    use constants::*;
-    use endianity::{Endianity, LittleEndian};
-    use leb128;
-    use read::abbrev::tests::AbbrevSectionMethods;
-    use read::{Abbreviation, AttributeSpecification, DebugAbbrev, EndianSlice, Error, Result};
+    use crate::constants;
+    use crate::constants::*;
+    use crate::endianity::{Endianity, LittleEndian};
+    use crate::leb128;
+    use crate::read::abbrev::tests::AbbrevSectionMethods;
+    use crate::read::{
+        Abbreviation, AttributeSpecification, DebugAbbrev, EndianSlice, Error, Result,
+    };
+    use crate::test_util::GimliSectionMethods;
+    use crate::vec::Vec;
     use std;
     use std::cell::Cell;
-    use test_util::GimliSectionMethods;
-    use vec::Vec;
+    use test_assembler::{Endian, Label, LabelMaker, Section};
 
     // Mixin methods for `Section` to help define binary test data.
 

@@ -25,6 +25,12 @@
 //! enables `std` too.
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
+// Selectively enable rust 2018 warnings
+#![warn(bare_trait_objects)]
+#![warn(unused_extern_crates)]
+#![warn(ellipsis_inclusive_range_patterns)]
+//#![warn(elided_lifetimes_in_paths)]
+#![warn(explicit_outlives_requirements)]
 // Allow clippy warnings when we aren't building with clippy.
 #![allow(unknown_lints)]
 // False positives with `fallible_iterator`.
@@ -46,13 +52,6 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 #[macro_use]
 extern crate core as std;
-
-extern crate arrayvec;
-extern crate byteorder;
-extern crate fallible_iterator;
-#[cfg(feature = "write")]
-extern crate indexmap;
-extern crate stable_deref_trait;
 
 #[cfg(feature = "std")]
 mod imports {
@@ -76,22 +75,22 @@ mod imports {
     pub use alloc::vec;
 }
 
-use imports::*;
+use crate::imports::*;
 
 pub use stable_deref_trait::{CloneStableDeref, StableDeref};
 
 mod common;
-pub use common::*;
+pub use crate::common::*;
 
 mod arch;
-pub use arch::*;
+pub use crate::arch::*;
 
 pub mod constants;
 // For backwards compat.
-pub use constants::*;
+pub use crate::constants::*;
 
 mod endianity;
-pub use endianity::{BigEndian, Endianity, LittleEndian, NativeEndian, RunTimeEndian};
+pub use crate::endianity::{BigEndian, Endianity, LittleEndian, NativeEndian, RunTimeEndian};
 
 pub mod leb128;
 
@@ -99,7 +98,7 @@ pub mod leb128;
 pub mod read;
 // For backwards compat.
 #[cfg(feature = "read")]
-pub use read::*;
+pub use crate::read::*;
 
 #[cfg(feature = "write")]
 pub mod write;

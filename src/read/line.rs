@@ -1,14 +1,14 @@
+use crate::vec::Vec;
 use std::fmt;
 use std::result;
-use vec::Vec;
 
-use common::{
+use crate::common::{
     DebugLineOffset, DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsIndex, Encoding, Format,
     LineEncoding,
 };
-use constants;
-use endianity::Endianity;
-use read::{AttributeValue, EndianSlice, Error, Reader, ReaderOffset, Result, Section};
+use crate::constants;
+use crate::endianity::Endianity;
+use crate::read::{AttributeValue, EndianSlice, Error, Reader, ReaderOffset, Result, Section};
 
 /// The `DebugLine` struct contains the source location to instruction mapping
 /// found in the `.debug_line` section.
@@ -94,7 +94,7 @@ impl<R: Reader> From<R> for DebugLine<R> {
 
 /// Deprecated. `LineNumberProgram` has been renamed to `LineProgram`.
 #[deprecated(note = "LineNumberProgram has been renamed to LineProgram, use that instead.")]
-pub type LineNumberProgram<R, Offset> = LineProgram<R, Offset>;
+pub type LineNumberProgram<R, Offset> = dyn LineProgram<R, Offset>;
 
 /// A `LineProgram` provides access to a `LineProgramHeader` and
 /// a way to add files to the files table if necessary. Gimli consumers should
@@ -1859,15 +1859,13 @@ fn parse_attribute<R: Reader>(
 
 #[cfg(test)]
 mod tests {
-    extern crate test_assembler;
-
-    use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
-    use constants;
-    use endianity::LittleEndian;
-    use read::{EndianSlice, Error};
+    use crate::constants;
+    use crate::endianity::LittleEndian;
+    use crate::read::{EndianSlice, Error};
+    use crate::test_util::GimliSectionMethods;
     use std::u8;
-    use test_util::GimliSectionMethods;
+    use test_assembler::{Endian, Label, LabelMaker, Section};
 
     #[test]
     fn test_parse_debug_line_32_ok() {
@@ -2872,7 +2870,7 @@ mod tests {
             let header_start = Label::new();
             let end = Label::new();
             let header_end = Label::new();
-            let mut section = Section::with_endian(Endian::Little)
+            let section = Section::with_endian(Endian::Little)
                 .initial_length(format, &length, &start)
                 .D16(5)
                 // Address size.

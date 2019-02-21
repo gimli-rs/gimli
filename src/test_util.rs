@@ -1,12 +1,10 @@
 #![allow(missing_docs)]
 
-extern crate test_assembler;
+use crate::vec::Vec;
 
-use vec::Vec;
-
-use self::test_assembler::{Label, Section};
-use leb128;
-use Format;
+use crate::leb128;
+use crate::Format;
+use test_assembler::{Label, Section};
 
 pub trait GimliSectionMethods {
     fn sleb(self, val: i64) -> Self;

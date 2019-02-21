@@ -1,9 +1,9 @@
+use crate::vec::Vec;
 use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
-use vec::Vec;
 
-use common::{Encoding, RangeListsOffset};
-use write::{Address, BaseId, Error, Result, Section, SectionId, Sections, Writer};
+use crate::common::{Encoding, RangeListsOffset};
+use crate::write::{Address, BaseId, Error, Result, Section, SectionId, Sections, Writer};
 
 define_section!(
     DebugRanges,
@@ -51,7 +51,7 @@ impl RangeListTable {
         }
 
         match encoding.version {
-            2...4 => self.write_ranges(&mut sections.debug_ranges, encoding.address_size),
+            2..=4 => self.write_ranges(&mut sections.debug_ranges, encoding.address_size),
             5 => self.write_rnglists(&mut sections.debug_rnglists, encoding),
             _ => Err(Error::UnsupportedVersion(encoding.version)),
         }
@@ -141,28 +141,28 @@ impl RangeListTable {
             for range in &range_list.0 {
                 match *range {
                     Range::BaseAddress { address } => {
-                        w.write_u8(::constants::DW_RLE_base_address.0)?;
+                        w.write_u8(crate::constants::DW_RLE_base_address.0)?;
                         w.write_address(address, encoding.address_size)?;
                     }
                     Range::OffsetPair { begin, end } => {
-                        w.write_u8(::constants::DW_RLE_offset_pair.0)?;
+                        w.write_u8(crate::constants::DW_RLE_offset_pair.0)?;
                         w.write_uleb128(begin)?;
                         w.write_uleb128(end)?;
                     }
                     Range::StartEnd { begin, end } => {
-                        w.write_u8(::constants::DW_RLE_start_end.0)?;
+                        w.write_u8(crate::constants::DW_RLE_start_end.0)?;
                         w.write_address(begin, encoding.address_size)?;
                         w.write_address(end, encoding.address_size)?;
                     }
                     Range::StartLength { begin, length } => {
-                        w.write_u8(::constants::DW_RLE_start_length.0)?;
+                        w.write_u8(crate::constants::DW_RLE_start_length.0)?;
                         w.write_address(begin, encoding.address_size)?;
                         w.write_uleb128(length)?;
                     }
                 }
             }
 
-            w.write_u8(::constants::DW_RLE_end_of_list.0)?;
+            w.write_u8(crate::constants::DW_RLE_end_of_list.0)?;
         }
 
         let length = (w.len() - length_base) as u64;
@@ -214,8 +214,8 @@ pub enum Range {
 mod convert {
     use super::*;
 
-    use read::{self, Reader};
-    use write::{ConvertError, ConvertResult, ConvertUnitContext};
+    use crate::read::{self, Reader};
+    use crate::write::{ConvertError, ConvertResult, ConvertUnitContext};
 
     impl RangeList {
         /// Create a range list by reading the data from the give range list iter.
@@ -296,15 +296,15 @@ mod convert {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{
+    use crate::common::{
         DebugAbbrevOffset, DebugAddrBase, DebugInfoOffset, DebugLocListsBase, DebugRngListsBase,
         DebugStrOffsetsBase, Format, UnitSectionOffset,
     };
-    use read;
-    use write::{
+    use crate::read;
+    use crate::write::{
         ConvertUnitContext, EndianVec, LineStringTable, Range, RangeListTable, StringTable,
     };
-    use LittleEndian;
+    use crate::LittleEndian;
 
     #[test]
     fn test_range() {

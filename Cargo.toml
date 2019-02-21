@@ -10,6 +10,7 @@ readme = "./README.md"
 repository = "https://github.com/gimli-rs/gimli"
 version = "0.17.0"
 exclude = ["/ci/*", "/releases/*", "/.travis.yml"]
+edition = "2018"
 
 [badges]
 travis-ci = { repository = "gimli-rs/gimli" }

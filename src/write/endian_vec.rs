@@ -1,8 +1,8 @@
+use crate::vec::Vec;
 use std::mem;
-use vec::Vec;
 
-use endianity::Endianity;
-use write::{Error, Result, Writer};
+use crate::endianity::Endianity;
+use crate::write::{Error, Result, Writer};
 
 /// A `Vec<u8>` with endianity metadata.
 ///
@@ -84,7 +84,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use LittleEndian;
+    use crate::LittleEndian;
 
     #[test]
     fn test_endian_vec() {

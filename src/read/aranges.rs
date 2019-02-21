@@ -2,10 +2,12 @@ use fallible_iterator::FallibleIterator;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 
-use common::{DebugInfoOffset, Encoding};
-use endianity::Endianity;
-use read::lookup::{DebugLookup, LookupEntryIter, LookupParser};
-use read::{parse_debug_info_offset, EndianSlice, Error, Reader, ReaderOffset, Result, Section};
+use crate::common::{DebugInfoOffset, Encoding};
+use crate::endianity::Endianity;
+use crate::read::lookup::{DebugLookup, LookupEntryIter, LookupParser};
+use crate::read::{
+    parse_debug_info_offset, EndianSlice, Error, Reader, ReaderOffset, Result, Section,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ArangeHeader<T = usize> {
@@ -261,10 +263,10 @@ impl<R: Reader> FallibleIterator for ArangeEntryIter<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{DebugInfoOffset, Format};
-    use endianity::LittleEndian;
-    use read::lookup::LookupParser;
-    use read::EndianSlice;
+    use crate::common::{DebugInfoOffset, Format};
+    use crate::endianity::LittleEndian;
+    use crate::read::lookup::LookupParser;
+    use crate::read::EndianSlice;
 
     #[test]
     fn test_parse_header_ok() {

@@ -1,12 +1,12 @@
-use borrow::Cow;
+use crate::borrow::Cow;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::{Add, AddAssign, Sub};
 
-use common::Format;
-use endianity::Endianity;
-use leb128;
-use read::{Error, Result};
+use crate::common::Format;
+use crate::endianity::Endianity;
+use crate::leb128;
+use crate::read::{Error, Result};
 
 /// A trait for offsets with a DWARF section.
 ///

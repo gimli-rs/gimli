@@ -1,10 +1,10 @@
+use crate::vec::Vec;
 use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
-use vec::Vec;
 
-use common::DebugAbbrevOffset;
-use constants;
-use write::{Result, Section, SectionId, Writer};
+use crate::common::DebugAbbrevOffset;
+use crate::constants;
+use crate::write::{Result, Section, SectionId, Writer};
 
 /// A table of abbreviations that will be stored in a `.debug_abbrev` section.
 // Requirements:
@@ -108,10 +108,10 @@ define_section!(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use constants;
-    use read;
-    use write::EndianVec;
-    use LittleEndian;
+    use crate::constants;
+    use crate::read;
+    use crate::write::EndianVec;
+    use crate::LittleEndian;
 
     #[test]
     fn test_abbreviation_table() {

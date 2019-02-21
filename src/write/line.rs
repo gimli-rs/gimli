@@ -1,11 +1,11 @@
+use crate::vec::Vec;
 use indexmap::{IndexMap, IndexSet};
 use std::ops::{Deref, DerefMut};
-use vec::Vec;
 
-use common::{DebugLineOffset, Encoding, Format, LineEncoding};
-use constants;
-use leb128;
-use write::{
+use crate::common::{DebugLineOffset, Encoding, Format, LineEncoding};
+use crate::constants;
+use crate::leb128;
+use crate::write::{
     Address, DebugLineStrOffsets, DebugStrOffsets, Error, LineStringId, LineStringTable, Result,
     Section, SectionId, StringId, Writer,
 };
@@ -952,8 +952,8 @@ define_section!(
 #[cfg(feature = "read")]
 mod convert {
     use super::*;
-    use read::{self, Reader};
-    use write::{self, ConvertError, ConvertResult};
+    use crate::read::{self, Reader};
+    use crate::write::{self, ConvertError, ConvertResult};
 
     impl LineProgram {
         /// Create a line number program by reading the data from the given program.
@@ -964,7 +964,7 @@ mod convert {
             dwarf: &read::Dwarf<R>,
             line_strings: &mut write::LineStringTable,
             strings: &mut write::StringTable,
-            convert_address: &Fn(u64) -> Option<Address>,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<(LineProgram, Vec<FileId>)> {
             // Create mappings in case the source has duplicate files or directories.
             let mut dirs = Vec::new();
@@ -1003,7 +1003,7 @@ mod convert {
                     Some(comp_file_info),
                 );
 
-                let mut file_skip;
+                let file_skip;
                 if from_header.version() <= 4 {
                     // The first directory is implicit.
                     dirs.push(DirectoryId(0));
@@ -1137,9 +1137,9 @@ mod convert {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use read;
-    use write::{DebugLineStr, DebugStr, EndianVec, StringTable};
-    use LittleEndian;
+    use crate::read;
+    use crate::write::{DebugLineStr, DebugStr, EndianVec, StringTable};
+    use crate::LittleEndian;
 
     #[test]
     fn test_line_program_table() {
@@ -1344,7 +1344,7 @@ mod tests {
                     // Create test cases.
                     let mut tests = Vec::new();
 
-                    let mut row = base_row;
+                    let row = base_row;
                     tests.push((row, vec![LineInstruction::Copy]));
 
                     let mut row = base_row;

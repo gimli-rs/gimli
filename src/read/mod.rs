@@ -9,8 +9,6 @@
 //! Print out all of the functions in the debuggee program:
 //!
 //! ```rust,no_run
-//! extern crate gimli;
-//!
 //! # fn example() -> Result<(), gimli::Error> {
 //! # let debug_info_buf = [];
 //! # let debug_abbrev_buf = [];
@@ -148,11 +146,6 @@
 //! into your code:
 //!
 //! ```
-//! // Add the `fallible-iterator` crate. Don't forget to add it to your
-//! // `Cargo.toml`, too!
-//! extern crate fallible_iterator;
-//! extern crate gimli;
-//!
 //! // Use the `FallibleIterator` trait so its methods are in scope!
 //! use fallible_iterator::FallibleIterator;
 //! use gimli::{DebugAranges, EndianBuf, LittleEndian};
@@ -176,8 +169,8 @@ use std::result;
 #[cfg(feature = "std")]
 use std::{error, io};
 
-use common::Register;
-use constants;
+use crate::common::Register;
+use crate::constants;
 
 mod addr;
 pub use self::addr::*;
@@ -734,15 +727,13 @@ impl Register {
 
 #[cfg(test)]
 mod tests {
-    extern crate test_assembler;
-
-    use self::test_assembler::{Endian, Section};
     use super::*;
-    use common::Format;
-    use constants;
-    use endianity::LittleEndian;
+    use crate::common::Format;
+    use crate::constants;
+    use crate::endianity::LittleEndian;
+    use crate::test_util::GimliSectionMethods;
     use std::cell::RefCell;
-    use test_util::GimliSectionMethods;
+    use test_assembler::{Endian, Section};
 
     #[test]
     fn test_parse_initial_length_32_ok() {
@@ -887,7 +878,7 @@ mod tests {
 
     #[test]
     fn test_parse_pointer_encoding_ok() {
-        use endianity::NativeEndian;
+        use crate::endianity::NativeEndian;
         let expected =
             constants::DwEhPe(constants::DW_EH_PE_uleb128.0 | constants::DW_EH_PE_pcrel.0);
         let input = [expected.0, 1, 2, 3, 4];
@@ -898,7 +889,7 @@ mod tests {
 
     #[test]
     fn test_parse_pointer_encoding_bad_encoding() {
-        use endianity::NativeEndian;
+        use crate::endianity::NativeEndian;
         let expected =
             constants::DwEhPe((constants::DW_EH_PE_sdata8.0 + 1) | constants::DW_EH_PE_pcrel.0);
         let input = [expected.0, 1, 2, 3, 4];

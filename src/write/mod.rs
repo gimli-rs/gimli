@@ -21,8 +21,6 @@
 //! Write a compilation unit containing only the top level DIE.
 //!
 //! ```rust
-//! extern crate gimli;
-//!
 //! use gimli::write::{
 //!     Address, AttributeValue, DwarfUnit, EndianVec, Error, Range, RangeList, Sections,
 //! };
@@ -258,7 +256,7 @@ impl Default for BaseId {
 #[cfg(feature = "read")]
 mod convert {
     use super::*;
-    use read;
+    use crate::read;
 
     pub(crate) use super::unit::convert::*;
 

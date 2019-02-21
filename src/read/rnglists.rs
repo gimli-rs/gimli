@@ -1,12 +1,12 @@
 use fallible_iterator::FallibleIterator;
 
-use common::{
+use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugRngListsBase, DebugRngListsIndex, Encoding, Format,
     RangeListsOffset,
 };
-use constants;
-use endianity::Endianity;
-use read::{DebugAddr, EndianSlice, Error, Reader, ReaderOffset, Result, Section};
+use crate::constants;
+use crate::endianity::Endianity;
+use crate::read::{DebugAddr, EndianSlice, Error, Reader, ReaderOffset, Result, Section};
 
 /// The raw contents of the `.debug_ranges` section.
 #[derive(Debug, Default, Clone, Copy)]
@@ -553,12 +553,10 @@ impl Range {
 
 #[cfg(test)]
 mod tests {
-    extern crate test_assembler;
-
-    use self::test_assembler::{Endian, Label, LabelMaker, Section};
     use super::*;
-    use endianity::LittleEndian;
-    use test_util::GimliSectionMethods;
+    use crate::endianity::LittleEndian;
+    use crate::test_util::GimliSectionMethods;
+    use test_assembler::{Endian, Label, LabelMaker, Section};
 
     #[test]
     fn test_rnglists_32() {
