@@ -28,7 +28,7 @@
 // Selectively enable rust 2018 warnings
 #![warn(bare_trait_objects)]
 #![warn(unused_extern_crates)]
-//#![warn(ellipsis_inclusive_range_patterns)]
+#![warn(ellipsis_inclusive_range_patterns)]
 //#![warn(elided_lifetimes_in_paths)]
 //#![warn(explicit_outlives_requirements)]
 // Allow clippy warnings when we aren't building with clippy.

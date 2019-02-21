@@ -51,7 +51,7 @@ impl RangeListTable {
         }
 
         match encoding.version {
-            2...4 => self.write_ranges(&mut sections.debug_ranges, encoding.address_size),
+            2..=4 => self.write_ranges(&mut sections.debug_ranges, encoding.address_size),
             5 => self.write_rnglists(&mut sections.debug_rnglists, encoding),
             _ => Err(Error::UnsupportedVersion(encoding.version)),
         }
