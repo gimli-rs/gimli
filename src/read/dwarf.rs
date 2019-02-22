@@ -63,7 +63,7 @@ impl<R: Reader> Dwarf<R> {
 
     /// Construct a new `Unit` from the given compilation unit header.
     #[inline]
-    pub fn unit(&self, header: CompilationUnitHeader<R, R::Offset>) -> Result<Unit<R>> {
+    pub fn unit(&self, header: CompilationUnitHeader<R>) -> Result<Unit<R>> {
         Unit::new(self, header)
     }
 
@@ -78,24 +78,21 @@ impl<R: Reader> Dwarf<R> {
 
     /// Construct a new `Unit` from the given type unit header.
     #[inline]
-    pub fn type_unit(&self, header: TypeUnitHeader<R, R::Offset>) -> Result<Unit<R>> {
+    pub fn type_unit(&self, header: TypeUnitHeader<R>) -> Result<Unit<R>> {
         Unit::new_type_unit(self, header)
     }
 
     /// Parse the abbreviations for a compilation unit.
     // TODO: provide caching of abbreviations
     #[inline]
-    pub fn abbreviations(
-        &self,
-        unit: &CompilationUnitHeader<R, R::Offset>,
-    ) -> Result<Abbreviations> {
+    pub fn abbreviations(&self, unit: &CompilationUnitHeader<R>) -> Result<Abbreviations> {
         unit.abbreviations(&self.debug_abbrev)
     }
 
     /// Parse the abbreviations for a type unit.
     // TODO: provide caching of abbreviations
     #[inline]
-    pub fn type_abbreviations(&self, unit: &TypeUnitHeader<R, R::Offset>) -> Result<Abbreviations> {
+    pub fn type_abbreviations(&self, unit: &TypeUnitHeader<R>) -> Result<Abbreviations> {
         unit.abbreviations(&self.debug_abbrev)
     }
 
@@ -136,7 +133,7 @@ impl<R: Reader> Dwarf<R> {
     ///
     /// then return the attribute's string value. Returns an error if the attribute
     /// value does not have a string form, or if a string form has an invalid value.
-    pub fn attr_string(&self, unit: &Unit<R>, attr: AttributeValue<R, R::Offset>) -> Result<R> {
+    pub fn attr_string(&self, unit: &Unit<R>, attr: AttributeValue<R>) -> Result<R> {
         match attr {
             AttributeValue::String(string) => Ok(string),
             AttributeValue::DebugStrRef(offset) => self.debug_str.get_str(offset),
@@ -197,7 +194,7 @@ impl<R: Reader> Dwarf<R> {
     pub fn attr_ranges_offset(
         &self,
         unit: &Unit<R>,
-        attr: AttributeValue<R, R::Offset>,
+        attr: AttributeValue<R>,
     ) -> Result<Option<RangeListsOffset<R::Offset>>> {
         match attr {
             AttributeValue::RangeListsRef(offset) => Ok(Some(offset)),
@@ -218,7 +215,7 @@ impl<R: Reader> Dwarf<R> {
     pub fn attr_ranges(
         &self,
         unit: &Unit<R>,
-        attr: AttributeValue<R, R::Offset>,
+        attr: AttributeValue<R>,
     ) -> Result<Option<RngListIter<R>>> {
         match self.attr_ranges_offset(unit, attr)? {
             Some(offset) => Ok(Some(self.ranges(unit, offset)?)),
@@ -263,7 +260,7 @@ impl<R: Reader> Dwarf<R> {
     pub fn attr_locations_offset(
         &self,
         unit: &Unit<R>,
-        attr: AttributeValue<R, R::Offset>,
+        attr: AttributeValue<R>,
     ) -> Result<Option<LocationListsOffset<R::Offset>>> {
         match attr {
             AttributeValue::LocationListsRef(offset) => Ok(Some(offset)),
@@ -286,7 +283,7 @@ impl<R: Reader> Dwarf<R> {
     pub fn attr_locations(
         &self,
         unit: &Unit<R>,
-        attr: AttributeValue<R, R::Offset>,
+        attr: AttributeValue<R>,
     ) -> Result<Option<LocListIter<R>>> {
         match self.attr_locations_offset(unit, attr)? {
             Some(offset) => Ok(Some(self.locations(unit, offset)?)),
@@ -303,7 +300,7 @@ pub struct Unit<R: Reader> {
     pub offset: UnitSectionOffset<R::Offset>,
 
     /// The header of the unit.
-    pub header: UnitHeader<R, R::Offset>,
+    pub header: UnitHeader<R>,
 
     /// The parsed abbreviations for the unit.
     pub abbreviations: Abbreviations,
@@ -330,13 +327,13 @@ pub struct Unit<R: Reader> {
     pub rnglists_base: DebugRngListsBase<R::Offset>,
 
     /// The line number program of the unit.
-    pub line_program: Option<IncompleteLineProgram<R, R::Offset>>,
+    pub line_program: Option<IncompleteLineProgram<R>>,
 }
 
 impl<R: Reader> Unit<R> {
     /// Construct a new `Unit` from the given compilation unit header.
     #[inline]
-    pub fn new(dwarf: &Dwarf<R>, header: CompilationUnitHeader<R, R::Offset>) -> Result<Self> {
+    pub fn new(dwarf: &Dwarf<R>, header: CompilationUnitHeader<R>) -> Result<Self> {
         Self::new_internal(
             dwarf,
             UnitSectionOffset::DebugInfoOffset(header.offset()),
@@ -346,7 +343,7 @@ impl<R: Reader> Unit<R> {
 
     /// Construct a new `Unit` from the given type unit header.
     #[inline]
-    pub fn new_type_unit(dwarf: &Dwarf<R>, header: TypeUnitHeader<R, R::Offset>) -> Result<Self> {
+    pub fn new_type_unit(dwarf: &Dwarf<R>, header: TypeUnitHeader<R>) -> Result<Self> {
         Self::new_internal(
             dwarf,
             UnitSectionOffset::DebugTypesOffset(header.offset()),
@@ -357,7 +354,7 @@ impl<R: Reader> Unit<R> {
     fn new_internal(
         dwarf: &Dwarf<R>,
         offset: UnitSectionOffset<R::Offset>,
-        header: UnitHeader<R, R::Offset>,
+        header: UnitHeader<R>,
     ) -> Result<Self> {
         let abbreviations = header.abbreviations(&dwarf.debug_abbrev)?;
         let mut unit = Unit {

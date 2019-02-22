@@ -29,7 +29,7 @@ pub enum DieReference<T = usize> {
 /// example, both `DW_OP_deref` and `DW_OP_xderef` are represented
 /// using `Operation::Deref`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Operation<R, Offset = usize>
+pub enum Operation<R, Offset = <R as Reader>::Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
@@ -250,13 +250,13 @@ where
 enum OperationEvaluationResult<R: Reader> {
     Piece,
     Incomplete,
-    Complete { location: Location<R, R::Offset> },
+    Complete { location: Location<R> },
     Waiting(EvaluationWaiting<R>, EvaluationResult<R>),
 }
 
 /// A single location of a piece of the result of a DWARF expression.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Location<R, Offset = usize>
+pub enum Location<R, Offset = <R as Reader>::Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
@@ -310,7 +310,7 @@ where
 /// The description of a single piece of the result of a DWARF
 /// expression.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Piece<R, Offset = usize>
+pub struct Piece<R, Offset = <R as Reader>::Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
@@ -958,7 +958,7 @@ pub struct Evaluation<R: Reader> {
     // is stored here while evaluating the subroutine.
     expression_stack: Vec<(R, R)>,
 
-    result: Vec<Piece<R, R::Offset>>,
+    result: Vec<Piece<R>>,
 }
 
 impl<R: Reader> Evaluation<R> {
@@ -1402,7 +1402,7 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` has not been driven to completion.
-    pub fn result(self) -> Vec<Piece<R, R::Offset>> {
+    pub fn result(self) -> Vec<Piece<R>> {
         match self.state {
             EvaluationState::Complete => self.result,
             _ => {

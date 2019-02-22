@@ -161,7 +161,7 @@ fn validate_info<W, R>(
         last_offset = u.offset().0 + u.length_including_self();
         units.push(u);
     }
-    let process_unit = |unit: CompilationUnitHeader<R, R::Offset>| -> UnitSummary {
+    let process_unit = |unit: CompilationUnitHeader<R>| -> UnitSummary {
         let mut ret = UnitSummary {
             internally_valid: false,
             offset: unit.offset(),

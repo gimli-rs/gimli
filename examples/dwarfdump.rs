@@ -867,44 +867,43 @@ where
     writeln!(&mut BufWriter::new(out.lock()), "\n.debug_info")?;
 
     let units = dwarf.units().collect::<Vec<_>>().unwrap();
-    let process_unit =
-        |header: CompilationUnitHeader<R, R::Offset>, buf: &mut Vec<u8>| -> Result<()> {
-            writeln!(
-                buf,
-                "\nUNIT<header overall offset = 0x{:08x}>:",
-                header.offset().0,
-            )?;
+    let process_unit = |header: CompilationUnitHeader<R>, buf: &mut Vec<u8>| -> Result<()> {
+        writeln!(
+            buf,
+            "\nUNIT<header overall offset = 0x{:08x}>:",
+            header.offset().0,
+        )?;
 
-            let unit = match dwarf.unit(header) {
-                Ok(unit) => unit,
-                Err(err) => {
-                    writeln!(
-                        buf,
-                        "Failed to parse unit root entry: {}",
-                        error::Error::description(&err)
-                    )?;
-                    return Ok(());
-                }
-            };
-
-            let entries_result = dump_entries(buf, unit, dwarf, flags);
-            if let Err(err) = entries_result {
+        let unit = match dwarf.unit(header) {
+            Ok(unit) => unit,
+            Err(err) => {
                 writeln!(
                     buf,
-                    "Failed to dump entries: {}",
+                    "Failed to parse unit root entry: {}",
                     error::Error::description(&err)
                 )?;
+                return Ok(());
             }
-            if !flags
-                .match_units
-                .as_ref()
-                .map(|r| r.is_match(&buf))
-                .unwrap_or(true)
-            {
-                buf.clear();
-            }
-            Ok(())
         };
+
+        let entries_result = dump_entries(buf, unit, dwarf, flags);
+        if let Err(err) = entries_result {
+            writeln!(
+                buf,
+                "Failed to dump entries: {}",
+                error::Error::description(&err)
+            )?;
+        }
+        if !flags
+            .match_units
+            .as_ref()
+            .map(|r| r.is_match(&buf))
+            .unwrap_or(true)
+        {
+            buf.clear();
+        }
+        Ok(())
+    };
     // Don't use more than 16 cores even if available. No point in soaking hundreds
     // of cores if you happen to have them.
     parallel_output(16, units, process_unit)
@@ -1310,7 +1309,7 @@ fn dump_exprloc<R: Reader, W: Write>(
 fn dump_op<R: Reader, W: Write>(
     w: &mut W,
     dwop: gimli::DwOp,
-    op: gimli::Operation<R, R::Offset>,
+    op: gimli::Operation<R>,
     newpc: &R,
 ) -> Result<()> {
     write!(w, "{}", dwop)?;
