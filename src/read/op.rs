@@ -250,7 +250,7 @@ where
 enum OperationEvaluationResult<R: Reader> {
     Piece,
     Incomplete,
-    Complete { location: Location<R, R::Offset> },
+    Complete { location: Location<R> },
     Waiting(EvaluationWaiting<R>, EvaluationResult<R>),
 }
 
@@ -958,7 +958,7 @@ pub struct Evaluation<R: Reader> {
     // is stored here while evaluating the subroutine.
     expression_stack: Vec<(R, R)>,
 
-    result: Vec<Piece<R, R::Offset>>,
+    result: Vec<Piece<R>>,
 }
 
 impl<R: Reader> Evaluation<R> {
@@ -1402,7 +1402,7 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// # Panics
     /// Panics if this `Evaluation` has not been driven to completion.
-    pub fn result(self) -> Vec<Piece<R, R::Offset>> {
+    pub fn result(self) -> Vec<Piece<R>> {
         match self.state {
             EvaluationState::Complete => self.result,
             _ => {

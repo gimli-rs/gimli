@@ -312,11 +312,11 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         bases: &BaseAddresses,
         frame: EhFrame<R>,
         cb: F,
-    ) -> Result<FrameDescriptionEntry<EhFrame<R>, R, R::Offset>>
+    ) -> Result<FrameDescriptionEntry<EhFrame<R>, R>>
     where
         F: FnMut(
             EhFrameOffset<R::Offset>,
-        ) -> Result<CommonInformationEntry<EhFrame<R>, R, R::Offset>>,
+        ) -> Result<CommonInformationEntry<EhFrame<R>, R>>,
     {
         let fdeptr = self.lookup(address, bases)?;
         let fdeptr = match fdeptr {
@@ -534,7 +534,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
         &self,
         bases: &'bases BaseAddresses,
         offset: Self::Offset,
-    ) -> Result<CommonInformationEntry<Self, R, R::Offset>> {
+    ) -> Result<CommonInformationEntry<Self, R>> {
         let offset = UnwindOffset::into(offset);
         let input = &mut self.section().clone();
         input.skip(offset)?;
@@ -1012,7 +1012,7 @@ where
     Section: UnwindSection<R>,
 {
     /// This CFI entry is a `CommonInformationEntry`.
-    Cie(CommonInformationEntry<Section, R, R::Offset>),
+    Cie(CommonInformationEntry<Section, R>),
     /// This CFI entry is a `FrameDescriptionEntry`, however fully parsing it
     /// requires parsing its CIE first, so it is left in a partially parsed
     /// state.
@@ -1466,9 +1466,9 @@ where
     /// You must provide a function get its associated CIE (either by parsing it
     /// on demand, or looking it up in some table mapping offsets to CIEs that
     /// you've already parsed, etc.)
-    pub fn parse<F>(&self, get_cie: F) -> Result<FrameDescriptionEntry<Section, R, R::Offset>>
+    pub fn parse<F>(&self, get_cie: F) -> Result<FrameDescriptionEntry<Section, R>>
     where
-        F: FnMut(Section::Offset) -> Result<CommonInformationEntry<Section, R, R::Offset>>,
+        F: FnMut(Section::Offset) -> Result<CommonInformationEntry<Section, R>>,
     {
         FrameDescriptionEntry::parse_rest(
             self.offset,
@@ -1547,7 +1547,7 @@ where
         mut get_cie: F,
     ) -> Result<FrameDescriptionEntry<Section, R, Offset>>
     where
-        F: FnMut(Section::Offset) -> Result<CommonInformationEntry<Section, R, R::Offset>>,
+        F: FnMut(Section::Offset) -> Result<CommonInformationEntry<Section, R>>,
     {
         {
             let mut func = bases.eh_frame.func.borrow_mut();
@@ -1595,7 +1595,7 @@ where
 
     fn parse_addresses(
         input: &mut R,
-        cie: &CommonInformationEntry<Section, R, R::Offset>,
+        cie: &CommonInformationEntry<Section, R>,
         bases: &BaseAddresses,
         section: &Section,
     ) -> Result<(u64, u64)> {
@@ -1648,7 +1648,7 @@ where
     }
 
     /// Get a reference to this FDE's CIE.
-    pub fn cie(&self) -> &CommonInformationEntry<Section, R, R::Offset> {
+    pub fn cie(&self) -> &CommonInformationEntry<Section, R> {
         &self.cie
     }
 
@@ -1751,7 +1751,7 @@ where
 ///     /// Call `f` on each row in the given FDE's unwind table.
 ///     fn each_unwind_row<F>(
 ///         &mut self,
-///         fde: &gimli::FrameDescriptionEntry<S, R, R::Offset>,
+///         fde: &gimli::FrameDescriptionEntry<S, R>,
 ///         mut f: F,
 ///     ) -> gimli::Result<()>
 ///     where
@@ -1922,7 +1922,7 @@ where
     /// `InitializedUnwindContext`.
     pub fn initialize(
         mut self,
-        cie: &CommonInformationEntry<Section, R, R::Offset>,
+        cie: &CommonInformationEntry<Section, R>,
     ) -> UnwindResult<InitializedUnwindContext<Section, R>, Self> {
         self.0.assert_fully_uninitialized();
 
@@ -2166,14 +2166,14 @@ where
     R: Reader,
     Section: UnwindSection<R>,
 {
-    cie: &'cie CommonInformationEntry<Section, R, R::Offset>,
+    cie: &'cie CommonInformationEntry<Section, R>,
     next_start_address: u64,
     returned_last_row: bool,
     instructions: CallFrameInstructionIter<R>,
     ctx: &'ctx mut UnwindContext<Section, R>,
     // If this is `None`, then we are executing a CIE's initial_instructions. If
     // this is `Some`, then we are executing an FDE's instructions.
-    fde: Option<&'fde FrameDescriptionEntry<Section, R, R::Offset>>,
+    fde: Option<&'fde FrameDescriptionEntry<Section, R>>,
 }
 
 /// # Signal Safe Methods
@@ -2189,7 +2189,7 @@ where
     /// `FrameDescriptionEntry`'s CFI unwinding program.
     pub fn new(
         ctx: &'ctx mut InitializedUnwindContext<Section, R>,
-        fde: &'fde FrameDescriptionEntry<Section, R, R::Offset>,
+        fde: &'fde FrameDescriptionEntry<Section, R>,
     ) -> UnwindTable<'fde, 'fde, 'ctx, Section, R> {
         assert!(ctx.0.is_initialized);
         Self::new_internal(&mut ctx.0, fde.cie(), Some(fde))
@@ -2207,8 +2207,8 @@ where
 {
     fn new_internal(
         ctx: &'ctx mut UnwindContext<Section, R>,
-        cie: &'cie CommonInformationEntry<Section, R, R::Offset>,
-        fde: Option<&'fde FrameDescriptionEntry<Section, R, R::Offset>>,
+        cie: &'cie CommonInformationEntry<Section, R>,
+        fde: Option<&'fde FrameDescriptionEntry<Section, R>>,
     ) -> UnwindTable<'cie, 'fde, 'ctx, Section, R> {
         assert!(ctx.stack.len() >= 1);
         let next_start_address = fde.map_or(0, |fde| fde.initial_address());
@@ -3339,12 +3339,12 @@ mod tests {
         section: Section,
         input: &mut R,
         get_cie: F,
-    ) -> Result<FrameDescriptionEntry<Section, R, R::Offset>>
+    ) -> Result<FrameDescriptionEntry<Section, R>>
     where
         R: Reader,
         Section: UnwindSection<R, Offset = O>,
         O: UnwindOffset<R::Offset>,
-        F: FnMut(O) -> Result<CommonInformationEntry<Section, R, R::Offset>>,
+        F: FnMut(O) -> Result<CommonInformationEntry<Section, R>>,
     {
         let bases = Default::default();
         match parse_cfi_entry(&bases, section, input) {

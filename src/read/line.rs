@@ -71,7 +71,7 @@ impl<R: Reader> DebugLine<R> {
         address_size: u8,
         comp_dir: Option<R>,
         comp_name: Option<R>,
-    ) -> Result<IncompleteLineProgram<R, R::Offset>> {
+    ) -> Result<IncompleteLineProgram<R>> {
         let input = &mut self.debug_line_section.clone();
         input.skip(offset.0)?;
         let header = LineProgramHeader::parse(input, offset, address_size, comp_dir, comp_name)?;
@@ -378,9 +378,9 @@ where
     Offset: ReaderOffset,
 {
     fn parse<'header>(
-        header: &'header LineProgramHeader<R, R::Offset>,
+        header: &'header LineProgramHeader<R>,
         input: &mut R,
-    ) -> Result<LineInstruction<R, R::Offset>>
+    ) -> Result<LineInstruction<R>>
     where
         R: 'header,
     {
@@ -580,8 +580,8 @@ impl<R: Reader> LineInstructions<R> {
     #[inline(always)]
     pub fn next_instruction(
         &mut self,
-        header: &LineProgramHeader<R, R::Offset>,
-    ) -> Result<Option<LineInstruction<R, R::Offset>>> {
+        header: &LineProgramHeader<R>,
+    ) -> Result<Option<LineInstruction<R>>> {
         if self.input.is_empty() {
             return Ok(None);
         }
@@ -621,7 +621,7 @@ pub struct LineRow {
 
 impl LineRow {
     /// Create a line number row in the initial state for the given program.
-    pub fn new<R: Reader>(header: &LineProgramHeader<R, R::Offset>) -> Self {
+    pub fn new<R: Reader>(header: &LineProgramHeader<R>) -> Self {
         LineRow {
             // "At the beginning of each sequence within a line number program, the
             // state of the registers is:" -- Section 6.2.2
@@ -675,8 +675,8 @@ impl LineRow {
     #[inline]
     pub fn file<'header, R: Reader>(
         &self,
-        header: &'header LineProgramHeader<R, R::Offset>,
-    ) -> Option<&'header FileEntry<R, R::Offset>> {
+        header: &'header LineProgramHeader<R>,
+    ) -> Option<&'header FileEntry<R>> {
         header.file(self.file)
     }
 
@@ -776,11 +776,11 @@ impl LineRow {
     #[inline]
     pub fn execute<R, Program>(
         &mut self,
-        instruction: LineInstruction<R, R::Offset>,
+        instruction: LineInstruction<R>,
         program: &mut Program,
     ) -> bool
     where
-        Program: LineProgram<R, R::Offset>,
+        Program: LineProgram<R>,
         R: Reader,
     {
         match instruction {
@@ -880,7 +880,7 @@ impl LineRow {
 
     /// Perform any reset that was required after copying the previous row.
     #[inline]
-    pub fn reset<R: Reader>(&mut self, header: &LineProgramHeader<R, R::Offset>) {
+    pub fn reset<R: Reader>(&mut self, header: &LineProgramHeader<R>) {
         if self.end_sequence {
             // Previous instruction was EndSequence, so reset everything
             // as specified in Section 6.2.5.3.
@@ -915,7 +915,7 @@ impl LineRow {
     fn apply_operation_advance<R: Reader>(
         &mut self,
         operation_advance: u64,
-        header: &LineProgramHeader<R, R::Offset>,
+        header: &LineProgramHeader<R>,
     ) {
         let minimum_instruction_length = u64::from(header.line_encoding.minimum_instruction_length);
         let maximum_operations_per_instruction =
@@ -933,7 +933,7 @@ impl LineRow {
     }
 
     #[inline]
-    fn adjust_opcode<R: Reader>(&self, opcode: u8, header: &LineProgramHeader<R, R::Offset>) -> u8 {
+    fn adjust_opcode<R: Reader>(&self, opcode: u8, header: &LineProgramHeader<R>) -> u8 {
         opcode - header.opcode_base
     }
 
@@ -941,7 +941,7 @@ impl LineRow {
     fn exec_special_opcode<R: Reader>(
         &mut self,
         opcode: u8,
-        header: &LineProgramHeader<R, R::Offset>,
+        header: &LineProgramHeader<R>,
     ) {
         let adjusted_opcode = self.adjust_opcode(opcode, header);
 
@@ -1607,7 +1607,7 @@ where
     /// A directory index of 0 corresponds to the compilation unit directory.
     pub fn directory(
         &self,
-        header: &LineProgramHeader<R, R::Offset>,
+        header: &LineProgramHeader<R>,
     ) -> Option<AttributeValue<R, Offset>> {
         header.directory(self.directory_index)
     }
@@ -1688,7 +1688,7 @@ fn parse_directory_v5<R: Reader>(
     input: &mut R,
     encoding: Encoding,
     formats: &[FileEntryFormat],
-) -> Result<AttributeValue<R, R::Offset>> {
+) -> Result<AttributeValue<R>> {
     let mut path_name = None;
 
     for format in formats {
@@ -1705,7 +1705,7 @@ fn parse_file_v5<R: Reader>(
     input: &mut R,
     encoding: Encoding,
     formats: &[FileEntryFormat],
-) -> Result<FileEntry<R, R::Offset>> {
+) -> Result<FileEntry<R>> {
     let mut path_name = None;
     let mut directory_index = 0;
     let mut timestamp = 0;
@@ -1757,7 +1757,7 @@ fn parse_attribute<R: Reader>(
     input: &mut R,
     encoding: Encoding,
     form: constants::DwForm,
-) -> Result<AttributeValue<R, R::Offset>> {
+) -> Result<AttributeValue<R>> {
     Ok(match form {
         constants::DW_FORM_block1 => {
             let len = input.read_u8().map(R::Offset::from_u8)?;

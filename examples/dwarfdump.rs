@@ -868,7 +868,7 @@ where
 
     let units = dwarf.units().collect::<Vec<_>>().unwrap();
     let process_unit =
-        |header: CompilationUnitHeader<R, R::Offset>, buf: &mut Vec<u8>| -> Result<()> {
+        |header: CompilationUnitHeader<R>, buf: &mut Vec<u8>| -> Result<()> {
             writeln!(
                 buf,
                 "\nUNIT<header overall offset = 0x{:08x}>:",
@@ -1310,7 +1310,7 @@ fn dump_exprloc<R: Reader, W: Write>(
 fn dump_op<R: Reader, W: Write>(
     w: &mut W,
     dwop: gimli::DwOp,
-    op: gimli::Operation<R, R::Offset>,
+    op: gimli::Operation<R>,
     newpc: &R,
 ) -> Result<()> {
     write!(w, "{}", dwop)?;

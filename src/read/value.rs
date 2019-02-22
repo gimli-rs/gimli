@@ -108,7 +108,7 @@ impl ValueType {
 
     /// Construct a `ValueType` from a base type DIE.
     pub fn from_entry<R: Reader>(
-        entry: &DebuggingInformationEntry<R, R::Offset>,
+        entry: &DebuggingInformationEntry<R>,
     ) -> Result<Option<ValueType>> {
         if entry.tag() != constants::DW_TAG_base_type {
             return Ok(None);
