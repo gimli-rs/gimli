@@ -42,10 +42,7 @@ impl<T: ReaderOffset> DebugInfoOffset<T> {
     /// Convert an offset to be relative to the start of the given unit,
     /// instead of relative to the start of the .debug_info section.
     /// Returns `None` if the offset is not within this unit entries.
-    pub fn to_unit_offset<R>(
-        &self,
-        unit: &CompilationUnitHeader<R>,
-    ) -> Option<UnitOffset<T>>
+    pub fn to_unit_offset<R>(&self, unit: &CompilationUnitHeader<R>) -> Option<UnitOffset<T>>
     where
         R: Reader<Offset = T>,
     {
@@ -67,10 +64,7 @@ pub struct UnitOffset<T = usize>(pub T);
 impl<T: ReaderOffset> UnitOffset<T> {
     /// Convert an offset to be relative to the start of the .debug_info section,
     /// instead of relative to the start of the given compilation unit.
-    pub fn to_debug_info_offset<R>(
-        &self,
-        unit: &CompilationUnitHeader<R>,
-    ) -> DebugInfoOffset<T>
+    pub fn to_debug_info_offset<R>(&self, unit: &CompilationUnitHeader<R>) -> DebugInfoOffset<T>
     where
         R: Reader<Offset = T>,
     {
@@ -79,10 +73,7 @@ impl<T: ReaderOffset> UnitOffset<T> {
 
     /// Convert an offset to be relative to the start of the .debug_types section,
     /// instead of relative to the start of the given type unit.
-    pub fn to_debug_types_offset<R>(
-        &self,
-        unit: &TypeUnitHeader<R>,
-    ) -> DebugTypesOffset<T>
+    pub fn to_debug_types_offset<R>(&self, unit: &TypeUnitHeader<R>) -> DebugTypesOffset<T>
     where
         R: Reader<Offset = T>,
     {
@@ -881,10 +872,7 @@ where
 
     /// Find the first attribute in this entry which has the given name,
     /// and return its raw value. Returns `Ok(None)` if no attribute is found.
-    pub fn attr_value_raw(
-        &self,
-        name: constants::DwAt,
-    ) -> Result<Option<AttributeValue<R>>> {
+    pub fn attr_value_raw(&self, name: constants::DwAt) -> Result<Option<AttributeValue<R>>> {
         self.attr(name)
             .map(|attr| attr.map(|attr| attr.raw_value()))
     }
@@ -892,10 +880,7 @@ where
     /// Find the first attribute in this entry which has the given name,
     /// and return its normalized value.  Returns `Ok(None)` if no
     /// attribute is found.
-    pub fn attr_value(
-        &self,
-        name: constants::DwAt,
-    ) -> Result<Option<AttributeValue<R>>> {
+    pub fn attr_value(&self, name: constants::DwAt) -> Result<Option<AttributeValue<R>>> {
         self.attr(name).map(|attr| attr.map(|attr| attr.value()))
     }
 
@@ -2317,12 +2302,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     #[allow(clippy::type_complexity)]
     pub fn next_dfs(
         &mut self,
-    ) -> Result<
-        Option<(
-            isize,
-            &DebuggingInformationEntry<'abbrev, 'unit, R>,
-        )>,
-    > {
+    ) -> Result<Option<(isize, &DebuggingInformationEntry<'abbrev, 'unit, R>)>> {
         let mut delta_depth = self.delta_depth;
         loop {
             // The next entry should be the one we want.
@@ -2544,11 +2524,7 @@ where
 }
 
 impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
-    fn new(
-        root: R,
-        unit: &'unit UnitHeader<R>,
-        abbreviations: &'abbrev Abbreviations,
-    ) -> Self {
+    fn new(root: R, unit: &'unit UnitHeader<R>, abbreviations: &'abbrev Abbreviations) -> Self {
         let input = root.clone();
         EntriesTree {
             root,

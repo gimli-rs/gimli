@@ -85,10 +85,7 @@ impl<R: Reader> Dwarf<R> {
     /// Parse the abbreviations for a compilation unit.
     // TODO: provide caching of abbreviations
     #[inline]
-    pub fn abbreviations(
-        &self,
-        unit: &CompilationUnitHeader<R>,
-    ) -> Result<Abbreviations> {
+    pub fn abbreviations(&self, unit: &CompilationUnitHeader<R>) -> Result<Abbreviations> {
         unit.abbreviations(&self.debug_abbrev)
     }
 

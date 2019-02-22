@@ -314,9 +314,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         cb: F,
     ) -> Result<FrameDescriptionEntry<EhFrame<R>, R>>
     where
-        F: FnMut(
-            EhFrameOffset<R::Offset>,
-        ) -> Result<CommonInformationEntry<EhFrame<R>, R>>,
+        F: FnMut(EhFrameOffset<R::Offset>) -> Result<CommonInformationEntry<EhFrame<R>, R>>,
     {
         let fdeptr = self.lookup(address, bases)?;
         let fdeptr = match fdeptr {

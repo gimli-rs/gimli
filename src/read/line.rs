@@ -157,7 +157,8 @@ where
     instructions: LineInstructions<R>,
 }
 
-type OneShotLineRows<R, Offset = <R as Reader>::Offset> = LineRows<R, IncompleteLineProgram<R, Offset>, Offset>;
+type OneShotLineRows<R, Offset = <R as Reader>::Offset> =
+    LineRows<R, IncompleteLineProgram<R, Offset>, Offset>;
 
 type ResumedLineRows<'program, R, Offset = <R as Reader>::Offset> =
     LineRows<R, &'program CompleteLineProgram<R, Offset>, Offset>;
@@ -938,11 +939,7 @@ impl LineRow {
     }
 
     /// Section 6.2.5.1
-    fn exec_special_opcode<R: Reader>(
-        &mut self,
-        opcode: u8,
-        header: &LineProgramHeader<R>,
-    ) {
+    fn exec_special_opcode<R: Reader>(&mut self, opcode: u8, header: &LineProgramHeader<R>) {
         let adjusted_opcode = self.adjust_opcode(opcode, header);
 
         let line_range = header.line_encoding.line_range;
@@ -1605,10 +1602,7 @@ where
     /// Get this file's directory.
     ///
     /// A directory index of 0 corresponds to the compilation unit directory.
-    pub fn directory(
-        &self,
-        header: &LineProgramHeader<R>,
-    ) -> Option<AttributeValue<R, Offset>> {
+    pub fn directory(&self, header: &LineProgramHeader<R>) -> Option<AttributeValue<R, Offset>> {
         header.directory(self.directory_index)
     }
 
