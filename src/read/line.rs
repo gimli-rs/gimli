@@ -99,7 +99,7 @@ pub type LineNumberProgram<R, Offset> = dyn LineProgram<R, Offset>;
 /// A `LineProgram` provides access to a `LineProgramHeader` and
 /// a way to add files to the files table if necessary. Gimli consumers should
 /// never need to use or see this trait.
-pub trait LineProgram<R, Offset = usize>
+pub trait LineProgram<R, Offset = <R as Reader>::Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
@@ -146,7 +146,7 @@ pub type StateMachine<R, Program, Offset> = LineRows<R, Program, Offset>;
 /// to expand the byte-coded instruction stream into a matrix of line number
 /// information." -- Section 6.2.1
 #[derive(Debug, Clone)]
-pub struct LineRows<R, Program, Offset = usize>
+pub struct LineRows<R, Program, Offset = <R as Reader>::Offset>
 where
     Program: LineProgram<R, Offset>,
     R: Reader<Offset = Offset>,
@@ -157,9 +157,9 @@ where
     instructions: LineInstructions<R>,
 }
 
-type OneShotLineRows<R, Offset = usize> = LineRows<R, IncompleteLineProgram<R, Offset>, Offset>;
+type OneShotLineRows<R, Offset = <R as Reader>::Offset> = LineRows<R, IncompleteLineProgram<R, Offset>, Offset>;
 
-type ResumedLineRows<'program, R, Offset = usize> =
+type ResumedLineRows<'program, R, Offset = <R as Reader>::Offset> =
     LineRows<R, &'program CompleteLineProgram<R, Offset>, Offset>;
 
 impl<R, Program, Offset> LineRows<R, Program, Offset>
@@ -238,7 +238,7 @@ pub type Opcode<R> = LineInstruction<R, <R as Reader>::Offset>;
 
 /// A parsed line number program instruction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LineInstruction<R, Offset = usize>
+pub enum LineInstruction<R, Offset = <R as Reader>::Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
@@ -995,7 +995,7 @@ pub type LineNumberProgramHeader<R, Offset> = LineProgramHeader<R, Offset>;
 /// A header for a line number program in the `.debug_line` section, as defined
 /// in section 6.2.4 of the standard.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LineProgramHeader<R, Offset = usize>
+pub struct LineProgramHeader<R, Offset = <R as Reader>::Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
@@ -1402,7 +1402,7 @@ pub type IncompleteLineNumberProgram<R, Offset> = IncompleteLineProgram<R, Offse
 
 /// A line number program that has not been run to completion.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IncompleteLineProgram<R, Offset = usize>
+pub struct IncompleteLineProgram<R, Offset = <R as Reader>::Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
@@ -1495,7 +1495,7 @@ pub type CompleteLineNumberProgram<R, Offset> = CompleteLineProgram<R, Offset>;
 
 /// A line number program that has previously been run to completion.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CompleteLineProgram<R, Offset = usize>
+pub struct CompleteLineProgram<R, Offset = <R as Reader>::Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
@@ -1544,7 +1544,7 @@ where
 
 /// An entry in the `LineProgramHeader`'s `file_names` set.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct FileEntry<R, Offset = usize>
+pub struct FileEntry<R, Offset = <R as Reader>::Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
