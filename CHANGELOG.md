@@ -2,9 +2,9 @@
 
 --------------------------------------------------------------------------------
 
-## Unreleased
+## 0.17.0
 
-Released YYYY/MM/DD.
+Released 2019/02/21.
 
 The focus of this release has been on improving DWARF 5 support, and
 adding support for writing DWARF.
