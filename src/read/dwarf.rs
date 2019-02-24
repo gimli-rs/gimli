@@ -295,12 +295,16 @@ impl<R: Reader> Dwarf<R> {
 /// All of the commonly used information for a unit in the `.debug_info` or `.debug_types`
 /// sections.
 #[derive(Debug)]
-pub struct Unit<R: Reader> {
+pub struct Unit<R, Offset = <R as Reader>::Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
     /// The section offset of the unit.
-    pub offset: UnitSectionOffset<R::Offset>,
+    pub offset: UnitSectionOffset<Offset>,
 
     /// The header of the unit.
-    pub header: UnitHeader<R>,
+    pub header: UnitHeader<R, Offset>,
 
     /// The parsed abbreviations for the unit.
     pub abbreviations: Abbreviations,
@@ -315,19 +319,19 @@ pub struct Unit<R: Reader> {
     pub low_pc: u64,
 
     /// The `DW_AT_str_offsets_base` attribute of the unit. Defaults to 0.
-    pub str_offsets_base: DebugStrOffsetsBase<R::Offset>,
+    pub str_offsets_base: DebugStrOffsetsBase<Offset>,
 
     /// The `DW_AT_addr_base` attribute of the unit. Defaults to 0.
-    pub addr_base: DebugAddrBase<R::Offset>,
+    pub addr_base: DebugAddrBase<Offset>,
 
     /// The `DW_AT_loclists_base` attribute of the unit. Defaults to 0.
-    pub loclists_base: DebugLocListsBase<R::Offset>,
+    pub loclists_base: DebugLocListsBase<Offset>,
 
     /// The `DW_AT_rnglists_base` attribute of the unit. Defaults to 0.
-    pub rnglists_base: DebugRngListsBase<R::Offset>,
+    pub rnglists_base: DebugRngListsBase<Offset>,
 
     /// The line number program of the unit.
-    pub line_program: Option<IncompleteLineProgram<R>>,
+    pub line_program: Option<IncompleteLineProgram<R, Offset>>,
 }
 
 impl<R: Reader> Unit<R> {
@@ -528,8 +532,16 @@ mod tests {
     #[test]
     fn test_dwarf_variance() {
         /// This only needs to compile.
-        #[allow(dead_code)]
-        fn f<'a: 'b, 'b, E: Endianity>(x: Dwarf<EndianSlice<'a, E>>) -> Dwarf<EndianSlice<'b, E>> {
+        fn _f<'a: 'b, 'b, E: Endianity>(x: Dwarf<EndianSlice<'a, E>>) -> Dwarf<EndianSlice<'b, E>> {
+            x
+        }
+    }
+
+    /// Ensure that `Unit<R>` is covariant wrt R.
+    #[test]
+    fn test_dwarf_unit_variance() {
+        /// This only needs to compile.
+        fn _f<'a: 'b, 'b, E: Endianity>(x: Unit<EndianSlice<'a, E>>) -> Unit<EndianSlice<'b, E>> {
             x
         }
     }
