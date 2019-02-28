@@ -148,6 +148,9 @@ pub use self::unit::*;
 mod range;
 pub use self::range::*;
 
+mod frame;
+pub use self::frame::*;
+
 /// An error that occurred when writing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
@@ -175,6 +178,8 @@ pub enum Error {
     InvalidRange,
     /// The line number program encoding is incompatible with the unit encoding.
     IncompatibleLineProgramEncoding,
+    /// Unsupported feature.
+    Unsupported(&'static str),
 }
 
 impl fmt::Display for Error {
@@ -208,6 +213,7 @@ impl fmt::Display for Error {
                 f,
                 "The line number program encoding is incompatible with the unit encoding."
             ),
+            Error::Unsupported(msg) => write!(f, "Unsupported operation: {}", msg),
         }
     }
 }
