@@ -618,7 +618,7 @@ mod cfi {
             .set_got(0)
             .set_text(0);
 
-        let mut ctx = Some(UninitializedUnwindContext::new());
+        let mut ctx = UninitializedUnwindContext::new();
 
         b.iter(|| {
             let mut entries = eh_frame.entries(&bases);
@@ -630,22 +630,18 @@ mod cfi {
                             .parse(|offset| eh_frame.cie_from_offset(&bases, offset))
                             .expect("Should be able to get CIE for FED");
 
-                        let mut context = ctx
-                            .take()
-                            .unwrap()
+                        let context = ctx
                             .initialize(fde.cie())
                             .expect("Should be able to initialize ctx");
 
                         {
-                            let mut table = UnwindTable::new(&mut context, &fde);
+                            let mut table = UnwindTable::new(context, &fde);
                             while let Some(row) =
                                 table.next_row().expect("Should get next unwind table row")
                             {
                                 test::black_box(row);
                             }
                         }
-
-                        ctx = Some(context.reset());
                     }
                 };
             }
@@ -715,11 +711,12 @@ mod cfi {
         let fde = get_fde_with_longest_cfi_instructions(&eh_frame);
 
         b.iter(|| {
-            let mut ctx = UninitializedUnwindContext::new()
+            let mut ctx = UninitializedUnwindContext::new();
+            let context = ctx
                 .initialize(fde.cie())
                 .expect("Should initialize the ctx OK");
 
-            let mut table = UnwindTable::new(&mut ctx, &fde);
+            let mut table = UnwindTable::new(context, &fde);
             while let Some(row) = table.next_row().expect("Should get next unwind table row") {
                 test::black_box(row);
             }
@@ -732,23 +729,19 @@ mod cfi {
         let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
         let fde = get_fde_with_longest_cfi_instructions(&eh_frame);
 
-        let mut ctx = Some(UninitializedUnwindContext::new());
+        let mut ctx = UninitializedUnwindContext::new();
 
         b.iter(|| {
-            let mut context = ctx
-                .take()
-                .unwrap()
+            let context = ctx
                 .initialize(fde.cie())
                 .expect("Should be able to initialize ctx");
 
             {
-                let mut table = UnwindTable::new(&mut context, &fde);
+                let mut table = UnwindTable::new(context, &fde);
                 while let Some(row) = table.next_row().expect("Should get next unwind table row") {
                     test::black_box(row);
                 }
             }
-
-            ctx = Some(context.reset());
         });
     }
 }
