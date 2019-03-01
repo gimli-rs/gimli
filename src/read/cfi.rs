@@ -606,14 +606,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
             }
         };
 
-        let ctx = ctx.initialize(fde.cie())?;
-        let mut table = UnwindTable::new(ctx, &fde);
-        while let Some(row) = table.next_row()? {
-            if row.contains(address) {
-                return Ok(row.clone());
-            }
-        }
-        Err(Error::NoUnwindInfoForAddress)
+        fde.unwind_info_for_address(ctx, address)
     }
 }
 
@@ -1591,6 +1584,27 @@ where
             let address_range = input.read_address(cie.address_size)?;
             Ok((initial_address, address_range))
         }
+    }
+
+    /// Find the frame unwind information for the given address.
+    ///
+    /// If found, the unwind information is returned along with the reset
+    /// context in the form `Ok((unwind_info, context))`. If not found,
+    /// `Err(gimli::Error::NoUnwindInfoForAddress)` is returned. If parsing or
+    /// CFI evaluation fails, the error is returned.
+    pub fn unwind_info_for_address(
+        &self,
+        ctx: &mut UninitializedUnwindContext<Section, R>,
+        address: u64,
+    ) -> Result<UnwindTableRow<R>> {
+        let ctx = ctx.initialize(self.cie())?;
+        let mut table = UnwindTable::new(ctx, self);
+        while let Some(row) = table.next_row()? {
+            if row.contains(address) {
+                return Ok(row.clone());
+            }
+        }
+        Err(Error::NoUnwindInfoForAddress)
     }
 }
 
