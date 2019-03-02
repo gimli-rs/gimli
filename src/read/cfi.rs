@@ -544,10 +544,37 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
         }
     }
 
+    /// Find the `FrameDescriptionEntry` for the given address.
+    ///
+    /// If found, the FDE is returned.  If not found,
+    /// `Err(gimli::Error::NoUnwindInfoForAddress)` is returned.
+    /// If parsing fails, the error is returned.
+    ///
+    /// Note: this iterates over all FDEs. If available, it is possible
+    /// to do a binary search with `EhFrameHdr::lookup_and_parse` instead.
+    fn fde_for_address(
+        &self,
+        bases: &BaseAddresses,
+        address: u64,
+    ) -> Result<FrameDescriptionEntry<Self, R>> {
+        let mut entries = self.entries(bases);
+        while let Some(entry) = entries.next()? {
+            match entry {
+                CieOrFde::Cie(_) => {}
+                CieOrFde::Fde(partial) => {
+                    let fde = partial.parse(|offset| self.cie_from_offset(bases, offset))?;
+                    if fde.contains(address) {
+                        return Ok(fde);
+                    }
+                }
+            }
+        }
+        Err(Error::NoUnwindInfoForAddress)
+    }
+
     /// Find the frame unwind information for the given address.
     ///
-    /// If found, the unwind information is returned along with the reset
-    /// context in the form `Ok((unwind_info, context))`. If not found,
+    /// If found, the unwind information is returned.  If not found,
     /// `Err(gimli::Error::NoUnwindInfoForAddress)` is returned. If parsing or
     /// CFI evaluation fails, the error is returned.
     ///
@@ -585,27 +612,14 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// # unreachable!()
     /// # }
     /// ```
-    #[allow(clippy::type_complexity)]
+    #[inline]
     fn unwind_info_for_address<'bases>(
         &self,
         bases: &'bases BaseAddresses,
         ctx: &mut UninitializedUnwindContext<Self, R>,
         address: u64,
     ) -> Result<UnwindTableRow<R>> {
-        let mut entries = self.entries(bases);
-        let fde = loop {
-            match entries.next()? {
-                None => return Err(Error::NoUnwindInfoForAddress),
-                Some(CieOrFde::Cie(_)) => {}
-                Some(CieOrFde::Fde(partial)) => {
-                    let fde = partial.parse(|offset| self.cie_from_offset(bases, offset))?;
-                    if fde.contains(address) {
-                        break fde;
-                    }
-                }
-            }
-        };
-
+        let fde = self.fde_for_address(bases, address)?;
         fde.unwind_info_for_address(ctx, address)
     }
 }
