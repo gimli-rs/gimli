@@ -1586,6 +1586,15 @@ where
         }
     }
 
+    /// Return the table of unwind information for this FDE.
+    #[inline]
+    pub fn rows<'fde, 'ctx>(
+        &'fde self,
+        ctx: &'ctx mut UninitializedUnwindContext<Section, R>,
+    ) -> Result<UnwindTable<'fde, 'fde, 'ctx, Section, R>> {
+        UnwindTable::new(ctx, self)
+    }
+
     /// Find the frame unwind information for the given address.
     ///
     /// If found, the unwind information is returned along with the reset
@@ -1597,8 +1606,7 @@ where
         ctx: &mut UninitializedUnwindContext<Section, R>,
         address: u64,
     ) -> Result<UnwindTableRow<R>> {
-        let ctx = ctx.initialize(self.cie())?;
-        let mut table = UnwindTable::new(ctx, self);
+        let mut table = self.rows(ctx)?;
         while let Some(row) = table.next_row()? {
             if row.contains(address) {
                 return Ok(row.clone());
@@ -1713,11 +1721,9 @@ where
 /// // An uninitialized context.
 /// let mut ctx = UninitializedUnwindContext::new();
 ///
-/// // Initialize the context by evaluating the CIE's initial instruction program.
-/// let ctx = ctx.initialize(some_fde.cie())?;
-///
-/// // The initialized context can now be used to generate the unwind table.
-/// let mut table = UnwindTable::new(ctx, &some_fde);
+/// // Initialize the context by evaluating the CIE's initial instruction program,
+/// // and generate the unwind table.
+/// let mut table = some_fde.rows(&mut ctx)?;
 /// while let Some(row) = table.next_row()? {
 ///     // Do stuff with each row...
 /// #   let _ = row;
@@ -1991,11 +1997,11 @@ where
     /// Construct a new `UnwindTable` for the given
     /// `FrameDescriptionEntry`'s CFI unwinding program.
     pub fn new(
-        ctx: &'ctx mut UnwindContext<Section, R>,
+        ctx: &'ctx mut UninitializedUnwindContext<Section, R>,
         fde: &'fde FrameDescriptionEntry<Section, R>,
-    ) -> UnwindTable<'fde, 'fde, 'ctx, Section, R> {
-        assert!(ctx.is_initialized);
-        Self::new_internal(ctx, fde.cie(), Some(fde))
+    ) -> Result<UnwindTable<'fde, 'fde, 'ctx, Section, R>> {
+        let ctx = ctx.initialize(fde.cie())?;
+        Ok(Self::new_internal(ctx, fde.cie(), Some(fde)))
     }
 }
 
@@ -5145,18 +5151,16 @@ mod tests {
 
         let mut ctx = UninitializedUnwindContext::new();
         ctx.0.assert_fully_uninitialized();
-        let ctx = ctx.initialize(&cie).expect("Should run initial program OK");
 
-        assert!(ctx.is_initialized);
+        let mut table = fde.rows(&mut ctx).expect("Should run initial program OK");
+        assert!(table.ctx.is_initialized);
         let expected_initial_rules: RegisterRuleMap<_> = [
             (Register(0), RegisterRule::Offset(8)),
             (Register(3), RegisterRule::Offset(4)),
         ]
         .into_iter()
         .collect();
-        assert_eq!(ctx.initial_rules, expected_initial_rules);
-
-        let mut table = UnwindTable::new(ctx, &fde);
+        assert_eq!(table.ctx.initial_rules, expected_initial_rules);
 
         {
             let row = table.next_row().expect("Should evaluate first row OK");
