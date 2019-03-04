@@ -521,7 +521,7 @@ mod cfi {
 
     use gimli::{
         BaseAddresses, CieOrFde, EhFrame, FrameDescriptionEntry, LittleEndian,
-        UninitializedUnwindContext, UnwindSection, UnwindTable,
+        UninitializedUnwindContext, UnwindSection,
     };
 
     #[bench]
@@ -629,18 +629,13 @@ mod cfi {
                         let fde = partial
                             .parse(|offset| eh_frame.cie_from_offset(&bases, offset))
                             .expect("Should be able to get CIE for FED");
-
-                        let context = ctx
-                            .initialize(fde.cie())
+                        let mut table = fde
+                            .rows(&mut ctx)
                             .expect("Should be able to initialize ctx");
-
+                        while let Some(row) =
+                            table.next_row().expect("Should get next unwind table row")
                         {
-                            let mut table = UnwindTable::new(context, &fde);
-                            while let Some(row) =
-                                table.next_row().expect("Should get next unwind table row")
-                            {
-                                test::black_box(row);
-                            }
+                            test::black_box(row);
                         }
                     }
                 };
@@ -712,11 +707,7 @@ mod cfi {
 
         b.iter(|| {
             let mut ctx = UninitializedUnwindContext::new();
-            let context = ctx
-                .initialize(fde.cie())
-                .expect("Should initialize the ctx OK");
-
-            let mut table = UnwindTable::new(context, &fde);
+            let mut table = fde.rows(&mut ctx).expect("Should initialize the ctx OK");
             while let Some(row) = table.next_row().expect("Should get next unwind table row") {
                 test::black_box(row);
             }
@@ -732,15 +723,9 @@ mod cfi {
         let mut ctx = UninitializedUnwindContext::new();
 
         b.iter(|| {
-            let context = ctx
-                .initialize(fde.cie())
-                .expect("Should be able to initialize ctx");
-
-            {
-                let mut table = UnwindTable::new(context, &fde);
-                while let Some(row) = table.next_row().expect("Should get next unwind table row") {
-                    test::black_box(row);
-                }
+            let mut table = fde.rows(&mut ctx).expect("Should initialize the ctx OK");
+            while let Some(row) = table.next_row().expect("Should get next unwind table row") {
+                test::black_box(row);
             }
         });
     }

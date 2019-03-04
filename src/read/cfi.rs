@@ -544,10 +544,37 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
         }
     }
 
+    /// Find the `FrameDescriptionEntry` for the given address.
+    ///
+    /// If found, the FDE is returned.  If not found,
+    /// `Err(gimli::Error::NoUnwindInfoForAddress)` is returned.
+    /// If parsing fails, the error is returned.
+    ///
+    /// Note: this iterates over all FDEs. If available, it is possible
+    /// to do a binary search with `EhFrameHdr::lookup_and_parse` instead.
+    fn fde_for_address(
+        &self,
+        bases: &BaseAddresses,
+        address: u64,
+    ) -> Result<FrameDescriptionEntry<Self, R>> {
+        let mut entries = self.entries(bases);
+        while let Some(entry) = entries.next()? {
+            match entry {
+                CieOrFde::Cie(_) => {}
+                CieOrFde::Fde(partial) => {
+                    let fde = partial.parse(|offset| self.cie_from_offset(bases, offset))?;
+                    if fde.contains(address) {
+                        return Ok(fde);
+                    }
+                }
+            }
+        }
+        Err(Error::NoUnwindInfoForAddress)
+    }
+
     /// Find the frame unwind information for the given address.
     ///
-    /// If found, the unwind information is returned along with the reset
-    /// context in the form `Ok((unwind_info, context))`. If not found,
+    /// If found, the unwind information is returned.  If not found,
     /// `Err(gimli::Error::NoUnwindInfoForAddress)` is returned. If parsing or
     /// CFI evaluation fails, the error is returned.
     ///
@@ -585,35 +612,15 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// # unreachable!()
     /// # }
     /// ```
-    #[allow(clippy::type_complexity)]
+    #[inline]
     fn unwind_info_for_address<'bases>(
         &self,
         bases: &'bases BaseAddresses,
         ctx: &mut UninitializedUnwindContext<Self, R>,
         address: u64,
     ) -> Result<UnwindTableRow<R>> {
-        let mut entries = self.entries(bases);
-        let fde = loop {
-            match entries.next()? {
-                None => return Err(Error::NoUnwindInfoForAddress),
-                Some(CieOrFde::Cie(_)) => {}
-                Some(CieOrFde::Fde(partial)) => {
-                    let fde = partial.parse(|offset| self.cie_from_offset(bases, offset))?;
-                    if fde.contains(address) {
-                        break fde;
-                    }
-                }
-            }
-        };
-
-        let ctx = ctx.initialize(fde.cie())?;
-        let mut table = UnwindTable::new(ctx, &fde);
-        while let Some(row) = table.next_row()? {
-            if row.contains(address) {
-                return Ok(row.clone());
-            }
-        }
-        Err(Error::NoUnwindInfoForAddress)
+        let fde = self.fde_for_address(bases, address)?;
+        fde.unwind_info_for_address(ctx, address)
     }
 }
 
@@ -1592,6 +1599,35 @@ where
             Ok((initial_address, address_range))
         }
     }
+
+    /// Return the table of unwind information for this FDE.
+    #[inline]
+    pub fn rows<'fde, 'ctx>(
+        &'fde self,
+        ctx: &'ctx mut UninitializedUnwindContext<Section, R>,
+    ) -> Result<UnwindTable<'fde, 'fde, 'ctx, Section, R>> {
+        UnwindTable::new(ctx, self)
+    }
+
+    /// Find the frame unwind information for the given address.
+    ///
+    /// If found, the unwind information is returned along with the reset
+    /// context in the form `Ok((unwind_info, context))`. If not found,
+    /// `Err(gimli::Error::NoUnwindInfoForAddress)` is returned. If parsing or
+    /// CFI evaluation fails, the error is returned.
+    pub fn unwind_info_for_address(
+        &self,
+        ctx: &mut UninitializedUnwindContext<Section, R>,
+        address: u64,
+    ) -> Result<UnwindTableRow<R>> {
+        let mut table = self.rows(ctx)?;
+        while let Some(row) = table.next_row()? {
+            if row.contains(address) {
+                return Ok(row.clone());
+            }
+        }
+        Err(Error::NoUnwindInfoForAddress)
+    }
 }
 
 /// # Signal Safe Methods
@@ -1699,11 +1735,9 @@ where
 /// // An uninitialized context.
 /// let mut ctx = UninitializedUnwindContext::new();
 ///
-/// // Initialize the context by evaluating the CIE's initial instruction program.
-/// let ctx = ctx.initialize(some_fde.cie())?;
-///
-/// // The initialized context can now be used to generate the unwind table.
-/// let mut table = UnwindTable::new(ctx, &some_fde);
+/// // Initialize the context by evaluating the CIE's initial instruction program,
+/// // and generate the unwind table.
+/// let mut table = some_fde.rows(&mut ctx)?;
 /// while let Some(row) = table.next_row()? {
 ///     // Do stuff with each row...
 /// #   let _ = row;
@@ -1977,11 +2011,11 @@ where
     /// Construct a new `UnwindTable` for the given
     /// `FrameDescriptionEntry`'s CFI unwinding program.
     pub fn new(
-        ctx: &'ctx mut UnwindContext<Section, R>,
+        ctx: &'ctx mut UninitializedUnwindContext<Section, R>,
         fde: &'fde FrameDescriptionEntry<Section, R>,
-    ) -> UnwindTable<'fde, 'fde, 'ctx, Section, R> {
-        assert!(ctx.is_initialized);
-        Self::new_internal(ctx, fde.cie(), Some(fde))
+    ) -> Result<UnwindTable<'fde, 'fde, 'ctx, Section, R>> {
+        let ctx = ctx.initialize(fde.cie())?;
+        Ok(Self::new_internal(ctx, fde.cie(), Some(fde)))
     }
 }
 
@@ -5131,18 +5165,16 @@ mod tests {
 
         let mut ctx = UninitializedUnwindContext::new();
         ctx.0.assert_fully_uninitialized();
-        let ctx = ctx.initialize(&cie).expect("Should run initial program OK");
 
-        assert!(ctx.is_initialized);
+        let mut table = fde.rows(&mut ctx).expect("Should run initial program OK");
+        assert!(table.ctx.is_initialized);
         let expected_initial_rules: RegisterRuleMap<_> = [
             (Register(0), RegisterRule::Offset(8)),
             (Register(3), RegisterRule::Offset(4)),
         ]
         .into_iter()
         .collect();
-        assert_eq!(ctx.initial_rules, expected_initial_rules);
-
-        let mut table = UnwindTable::new(ctx, &fde);
+        assert_eq!(table.ctx.initial_rules, expected_initial_rules);
 
         {
             let row = table.next_row().expect("Should evaluate first row OK");
