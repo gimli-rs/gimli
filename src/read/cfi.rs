@@ -920,52 +920,6 @@ where
     }
 }
 
-struct CfiEntryCommon<R: Reader> {
-    offset: R::Offset,
-    length: R::Offset,
-    format: Format,
-    cie_offset_input: R,
-    cie_id_or_offset: u64,
-    rest: R,
-}
-
-/// Parse the common start shared between both CIEs and FDEs. If we find the
-/// end-of-entries sentinel, return `Ok(None)`. Otherwise, return
-/// `Ok(Some(tuple))`, where `tuple.0` is the start of the next entry and
-/// `tuple.1` is the parsed CFI entry data.
-fn parse_cfi_entry_common<Section, R>(
-    section: &Section,
-    input: &mut R,
-) -> Result<Option<CfiEntryCommon<R>>>
-where
-    R: Reader,
-    Section: UnwindSection<R>,
-{
-    let offset = input.offset_from(section.section());
-    let (length, format) = input.read_initial_length()?;
-
-    if Section::length_value_is_end_of_entries(length) {
-        return Ok(None);
-    }
-
-    let cie_offset_input = input.split(length)?;
-
-    let mut rest = cie_offset_input.clone();
-    let cie_id_or_offset = match Section::cie_offset_encoding(format) {
-        CieOffsetEncoding::U32 => rest.read_u32().map(u64::from)?,
-        CieOffsetEncoding::U64 => rest.read_u64()?,
-    };
-
-    Ok(Some(CfiEntryCommon {
-        offset,
-        length,
-        format,
-        cie_offset_input,
-        cie_id_or_offset,
-        rest,
-    }))
-}
-
 /// Either a `CommonInformationEntry` (CIE) or a `FrameDescriptionEntry` (FDE).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CieOrFde<'bases, Section, R>
@@ -991,16 +945,19 @@ where
     R: Reader,
     Section: UnwindSection<R>,
 {
-    let CfiEntryCommon {
-        offset,
-        length,
-        format,
-        cie_offset_input,
-        cie_id_or_offset,
-        rest,
-    } = match parse_cfi_entry_common::<Section, R>(section, input)? {
-        None => return Ok(None),
-        Some(common) => common,
+    let offset = input.offset_from(section.section());
+    let (length, format) = input.read_initial_length()?;
+
+    if Section::length_value_is_end_of_entries(length) {
+        return Ok(None);
+    }
+
+    let cie_offset_input = input.split(length)?;
+
+    let mut rest = cie_offset_input.clone();
+    let cie_id_or_offset = match Section::cie_offset_encoding(format) {
+        CieOffsetEncoding::U32 => rest.read_u32().map(u64::from)?,
+        CieOffsetEncoding::U64 => rest.read_u64()?,
     };
 
     if Section::is_cie(format, cie_id_or_offset) {
