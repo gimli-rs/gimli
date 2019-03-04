@@ -643,7 +643,7 @@ mod cfi {
         });
     }
 
-    fn instrs_len<R: Reader>(fde: &FrameDescriptionEntry<EhFrame<R>, R>) -> usize {
+    fn instrs_len<R: Reader>(fde: &FrameDescriptionEntry<R>) -> usize {
         fde.instructions()
             .fold(0, |count, _| count + 1)
             .expect("fold over instructions OK")
@@ -651,13 +651,13 @@ mod cfi {
 
     fn get_fde_with_longest_cfi_instructions<R: Reader>(
         eh_frame: &EhFrame<R>,
-    ) -> FrameDescriptionEntry<EhFrame<R>, R> {
+    ) -> FrameDescriptionEntry<R> {
         let bases = BaseAddresses::default()
             .set_eh_frame(0)
             .set_got(0)
             .set_text(0);
 
-        let mut longest: Option<(usize, FrameDescriptionEntry<_, _, _>)> = None;
+        let mut longest: Option<(usize, FrameDescriptionEntry<_>)> = None;
 
         let mut entries = eh_frame.entries(&bases);
         while let Some(entry) = entries.next().expect("Should parse CFI entry OK") {
