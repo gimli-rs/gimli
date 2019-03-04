@@ -331,11 +331,10 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         let mut input = &mut frame.section().clone();
         input.skip(offset)?;
 
-        let entry = parse_cfi_entry(bases, frame, &mut input)?;
-        let entry = match entry {
+        let entry = match parse_cfi_entry(bases, &frame, &mut input)? {
             Some(CieOrFde::Fde(fde)) => fde.parse(cb)?,
             Some(CieOrFde::Cie(_)) => return Err(Error::NotFdePointer),
-            None => return Err(Error::NoUnwindInfoForAddress),
+            None => return Err(Error::NoEntryAtGivenOffset),
         };
         if entry.contains(address) {
             Ok(entry)
@@ -534,12 +533,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
         let offset = UnwindOffset::into(offset);
         let input = &mut self.section().clone();
         input.skip(offset)?;
-        if let Some(entry) = CommonInformationEntry::parse(bases, self, input)? {
-            debug_assert_eq!(entry.offset(), offset);
-            Ok(entry)
-        } else {
-            Err(Error::NoEntryAtGivenOffset)
-        }
+        CommonInformationEntry::parse(bases, self, input)
     }
 
     /// Find the `FrameDescriptionEntry` for the given address.
@@ -899,7 +893,7 @@ where
         // the last entry.
         self.bases.eh_frame.func.borrow_mut().take();
 
-        match parse_cfi_entry(self.bases, self.section.clone(), &mut self.input) {
+        match parse_cfi_entry(self.bases, &self.section, &mut self.input) {
             Err(e) => {
                 self.input.empty();
                 Err(e)
@@ -990,7 +984,7 @@ where
 #[allow(clippy::type_complexity)]
 fn parse_cfi_entry<'bases, Section, R>(
     bases: &'bases BaseAddresses,
-    section: Section,
+    section: &Section,
     input: &mut R,
 ) -> Result<Option<CieOrFde<'bases, Section, R>>>
 where
@@ -1004,14 +998,13 @@ where
         cie_offset_input,
         cie_id_or_offset,
         rest,
-    } = match parse_cfi_entry_common::<Section, R>(&section, input)? {
+    } = match parse_cfi_entry_common::<Section, R>(section, input)? {
         None => return Ok(None),
         Some(common) => common,
     };
 
     if Section::is_cie(format, cie_id_or_offset) {
-        let cie =
-            CommonInformationEntry::parse_rest(offset, length, format, bases, &section, rest)?;
+        let cie = CommonInformationEntry::parse_rest(offset, length, format, bases, section, rest)?;
         Ok(Some(CieOrFde::Cie(cie)))
     } else {
         let cie_offset = R::Offset::from_u64(cie_id_or_offset)?;
@@ -1026,7 +1019,7 @@ where
             format,
             cie_offset: cie_offset.into(),
             rest,
-            section,
+            section: section.clone(),
             bases,
         };
 
@@ -1232,30 +1225,16 @@ where
 }
 
 impl<R: Reader> CommonInformationEntry<R> {
-    #[allow(clippy::type_complexity)]
-    fn parse<'bases, Section: UnwindSection<R>>(
-        bases: &'bases BaseAddresses,
+    fn parse<Section: UnwindSection<R>>(
+        bases: &BaseAddresses,
         section: &Section,
         input: &mut R,
-    ) -> Result<Option<CommonInformationEntry<R>>> {
-        let CfiEntryCommon {
-            offset,
-            length,
-            format,
-            cie_id_or_offset: cie_id,
-            rest,
-            ..
-        } = match parse_cfi_entry_common::<Section, R>(section, input)? {
-            None => return Ok(None),
-            Some(common) => common,
-        };
-
-        if !Section::is_cie(format, cie_id) {
-            return Err(Error::NotCieId);
+    ) -> Result<CommonInformationEntry<R>> {
+        match parse_cfi_entry(bases, section, input)? {
+            Some(CieOrFde::Cie(cie)) => Ok(cie),
+            Some(CieOrFde::Fde(_)) => Err(Error::NotCieId),
+            None => Err(Error::NoEntryAtGivenOffset),
         }
-
-        let entry = Self::parse_rest(offset, length, format, bases, section, rest)?;
-        Ok(Some(entry))
     }
 
     fn parse_rest<Section: UnwindSection<R>>(
@@ -3132,7 +3111,7 @@ mod tests {
         F: FnMut(O) -> Result<CommonInformationEntry<R>>,
     {
         let bases = Default::default();
-        match parse_cfi_entry(&bases, section, input) {
+        match parse_cfi_entry(&bases, &section, input) {
             Ok(Some(CieOrFde::Fde(partial))) => partial.parse(get_cie),
             Ok(_) => Err(Error::NoEntryAtGivenOffset),
             Err(e) => Err(e),
@@ -3319,12 +3298,10 @@ mod tests {
         kind: SectionKind<DebugFrame<EndianSlice<'input, E>>>,
         section: Section,
         address_size: u8,
-        expected: Result<
-            Option<(
-                EndianSlice<'input, E>,
-                CommonInformationEntry<EndianSlice<'input, E>>,
-            )>,
-        >,
+        expected: Result<(
+            EndianSlice<'input, E>,
+            CommonInformationEntry<EndianSlice<'input, E>>,
+        )>,
     ) where
         E: Endianity,
     {
@@ -3334,7 +3311,7 @@ mod tests {
         let input = &mut EndianSlice::new(&section, E::default());
         let bases = Default::default();
         let result = CommonInformationEntry::parse(&bases, &debug_frame, input);
-        let result = result.map(|option| option.map(|cie| (*input, cie)));
+        let result = result.map(|cie| (*input, cie));
         assert_eq!(result, expected);
     }
 
@@ -3461,7 +3438,7 @@ mod tests {
             kind,
             section,
             address_size,
-            Ok(Some((EndianSlice::new(&expected_rest, LittleEndian), cie))),
+            Ok((EndianSlice::new(&expected_rest, LittleEndian), cie)),
         );
     }
 
@@ -3745,7 +3722,7 @@ mod tests {
 
         let bases = Default::default();
         assert_eq!(
-            parse_cfi_entry(&bases, debug_frame, rest),
+            parse_cfi_entry(&bases, &debug_frame, rest),
             Ok(Some(CieOrFde::Cie(cie)))
         );
         assert_eq!(*rest, EndianSlice::new(&expected_rest, BigEndian));
@@ -3793,7 +3770,7 @@ mod tests {
         let rest = &mut EndianSlice::new(&section, BigEndian);
 
         let bases = Default::default();
-        match parse_cfi_entry(&bases, debug_frame, rest) {
+        match parse_cfi_entry(&bases, &debug_frame, rest) {
             Ok(Some(CieOrFde::Fde(partial))) => {
                 assert_eq!(*rest, EndianSlice::new(&expected_rest, BigEndian));
 
@@ -5639,7 +5616,7 @@ mod tests {
         let bases = Default::default();
 
         assert_eq!(
-            parse_cfi_entry(&bases, EhFrame::new(&*section, LittleEndian), rest),
+            parse_cfi_entry(&bases, &EhFrame::new(&*section, LittleEndian), rest),
             Ok(None)
         );
 
