@@ -284,6 +284,24 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         )
     }
 
+    /// Convert a `Pointer` to a section offset.
+    ///
+    /// This does not support indirect pointers.
+    pub fn pointer_to_offset(&self, ptr: Pointer) -> Result<EhFrameOffset<R::Offset>> {
+        let ptr = match ptr {
+            Pointer::Direct(x) => x,
+            _ => return Err(Error::UnsupportedPointerEncoding),
+        };
+
+        let eh_frame_ptr = match self.hdr.eh_frame_ptr() {
+            Pointer::Direct(x) => x,
+            _ => return Err(Error::UnsupportedPointerEncoding),
+        };
+
+        // Calculate the offset in the EhFrame section
+        R::Offset::from_u64(ptr - eh_frame_ptr).map(EhFrameOffset)
+    }
+
     /// Returns a parsed FDE for the given address, or NoUnwindInfoForAddress
     /// if there are none.
     ///
@@ -316,20 +334,10 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         F: FnMut(EhFrameOffset<R::Offset>) -> Result<CommonInformationEntry<R>>,
     {
         let fdeptr = self.lookup(address, bases)?;
-        let fdeptr = match fdeptr {
-            Pointer::Direct(x) => x,
-            _ => return Err(Error::UnsupportedPointerEncoding),
-        };
+        let offset = self.pointer_to_offset(fdeptr)?;
 
-        let eh_frame_ptr = match self.hdr.eh_frame_ptr() {
-            Pointer::Direct(x) => x,
-            _ => return Err(Error::UnsupportedPointerEncoding),
-        };
-
-        // Calculate the offset in the EhFrame section
-        let offset = R::Offset::from_u64(fdeptr - eh_frame_ptr)?;
         let mut input = &mut frame.section().clone();
-        input.skip(offset)?;
+        input.skip(offset.0)?;
 
         let entry = match parse_cfi_entry(bases, &frame, &mut input)? {
             Some(CieOrFde::Fde(fde)) => fde.parse(cb)?,
