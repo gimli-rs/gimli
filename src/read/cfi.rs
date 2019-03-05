@@ -481,9 +481,9 @@ pub trait _UnwindSectionPrivate<R: Reader> {
     /// For `.eh_frame`, CIE offsets are relative to the current position. For
     /// `.debug_frame`, they are relative to the start of the section. We always
     /// internally store them relative to the section, so we handle translating
-    /// `.eh_frame`'s relative offsets in this method. If the relative offset is
-    /// out of bounds of the section, return `None`.
-    fn resolve_cie_offset(&self, input_before_offset: R, offset: R::Offset) -> Option<R::Offset>;
+    /// `.eh_frame`'s relative offsets in this method. If the offset calculation
+    /// underflows, return `None`.
+    fn resolve_cie_offset(&self, base: R::Offset, offset: R::Offset) -> Option<R::Offset>;
 
     /// Return true if our parser is compatible with the given version.
     fn compatible_version(version: u8) -> bool;
@@ -639,7 +639,7 @@ impl<R: Reader> _UnwindSectionPrivate<R> for DebugFrame<R> {
         }
     }
 
-    fn resolve_cie_offset(&self, _: R, offset: R::Offset) -> Option<R::Offset> {
+    fn resolve_cie_offset(&self, _: R::Offset, offset: R::Offset) -> Option<R::Offset> {
         Some(offset)
     }
 
@@ -697,20 +697,8 @@ impl<R: Reader> _UnwindSectionPrivate<R> for EhFrame<R> {
         CieOffsetEncoding::U32
     }
 
-    fn resolve_cie_offset(
-        &self,
-        input_before_offset: R,
-        input_relative_offset: R::Offset,
-    ) -> Option<R::Offset> {
-        let section = &mut self.section();
-
-        // It would make no sense for any of these slices to be empty, since we
-        // have already parsed an offset out of them.
-        debug_assert!(!section.is_empty());
-        debug_assert!(!input_before_offset.is_empty());
-
-        let input_offset = input_before_offset.offset_from(section);
-        input_offset.checked_sub(input_relative_offset)
+    fn resolve_cie_offset(&self, base: R::Offset, offset: R::Offset) -> Option<R::Offset> {
+        base.checked_sub(offset)
     }
 
     fn compatible_version(version: u8) -> bool {
@@ -952,9 +940,8 @@ where
         return Ok(None);
     }
 
-    let cie_offset_input = input.split(length)?;
-
-    let mut rest = cie_offset_input.clone();
+    let mut rest = input.split(length)?;
+    let cie_offset_base = rest.offset_from(section.section());
     let cie_id_or_offset = match Section::cie_offset_encoding(format) {
         CieOffsetEncoding::U32 => rest.read_u32().map(u64::from)?,
         CieOffsetEncoding::U64 => rest.read_u64()?,
@@ -965,7 +952,7 @@ where
         Ok(Some(CieOrFde::Cie(cie)))
     } else {
         let cie_offset = R::Offset::from_u64(cie_id_or_offset)?;
-        let cie_offset = match section.resolve_cie_offset(cie_offset_input, cie_offset) {
+        let cie_offset = match section.resolve_cie_offset(cie_offset_base, cie_offset) {
             None => return Err(Error::OffsetOutOfBounds),
             Some(cie_offset) => cie_offset,
         };
@@ -5583,30 +5570,63 @@ mod tests {
         );
     }
 
+    fn resolve_cie_offset(buf: &[u8], cie_offset: usize) -> Result<usize> {
+        let mut fde = FrameDescriptionEntry {
+            offset: 0,
+            length: 0,
+            format: Format::Dwarf64,
+            cie: make_test_cie(),
+            initial_segment: 0,
+            initial_address: 0xfeed_beef,
+            address_range: 39,
+            augmentation: None,
+            instructions: EndianSlice::new(&[], LittleEndian),
+        };
+
+        let kind = eh_frame_le();
+        let section = Section::with_endian(kind.endian())
+            .append_bytes(&buf)
+            .fde(kind, cie_offset as u64, &mut fde)
+            .append_bytes(&buf);
+
+        let section = section.get_contents().unwrap();
+        let eh_frame = kind.section(&section);
+        let input = &mut EndianSlice::new(&section[buf.len()..], LittleEndian);
+
+        let bases = Default::default();
+        match parse_cfi_entry(&bases, &eh_frame, input) {
+            Ok(Some(CieOrFde::Fde(partial))) => Ok(partial.cie_offset.0),
+            Err(e) => Err(e),
+            otherwise => panic!("Unexpected result: {:#?}", otherwise),
+        }
+    }
+
     #[test]
     fn test_eh_frame_resolve_cie_offset_ok() {
         let buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let section = EhFrame::new(&buf, BigEndian);
-        let subslice = EndianSlice::new(&buf[6..8], BigEndian);
-        assert_eq!(section.resolve_cie_offset(subslice, 4), Some(2));
+        let cie_offset = 2;
+        // + 4 for size of length field
+        assert_eq!(
+            resolve_cie_offset(&buf, buf.len() + 4 - cie_offset),
+            Ok(cie_offset)
+        );
     }
 
     #[test]
     fn test_eh_frame_resolve_cie_offset_out_of_bounds() {
         let buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let section = EhFrame::new(&buf, BigEndian);
-        let subslice = EndianSlice::new(&buf[6..8], BigEndian);
-        assert_eq!(section.resolve_cie_offset(subslice, 7), None);
+        assert_eq!(
+            resolve_cie_offset(&buf, buf.len() + 4 + 2),
+            Err(Error::OffsetOutOfBounds)
+        );
     }
 
     #[test]
     fn test_eh_frame_resolve_cie_offset_underflow() {
         let buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let section = EhFrame::new(&buf, BigEndian);
-        let subslice = EndianSlice::new(&buf[6..8], BigEndian);
         assert_eq!(
-            section.resolve_cie_offset(subslice, ::std::usize::MAX),
-            None
+            resolve_cie_offset(&buf, ::std::usize::MAX),
+            Err(Error::OffsetOutOfBounds)
         );
     }
 
