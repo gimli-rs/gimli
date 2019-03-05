@@ -335,15 +335,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     {
         let fdeptr = self.lookup(address, bases)?;
         let offset = self.pointer_to_offset(fdeptr)?;
-
-        let mut input = &mut frame.section().clone();
-        input.skip(offset.0)?;
-
-        let entry = match parse_cfi_entry(bases, &frame, &mut input)? {
-            Some(CieOrFde::Fde(fde)) => fde.parse(cb)?,
-            Some(CieOrFde::Cie(_)) => return Err(Error::NotFdePointer),
-            None => return Err(Error::NoEntryAtGivenOffset),
-        };
+        let entry = frame.fde_from_offset(bases, offset, cb)?;
         if entry.contains(address) {
             Ok(entry)
         } else {
@@ -533,15 +525,41 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     }
 
     /// Parse the `CommonInformationEntry` at the given offset.
-    fn cie_from_offset<'bases>(
+    fn cie_from_offset(
         &self,
-        bases: &'bases BaseAddresses,
+        bases: &BaseAddresses,
         offset: Self::Offset,
     ) -> Result<CommonInformationEntry<R>> {
         let offset = UnwindOffset::into(offset);
         let input = &mut self.section().clone();
         input.skip(offset)?;
         CommonInformationEntry::parse(bases, self, input)
+    }
+
+    /// Parse the `PartialFrameDescriptionEntry` at the given offset.
+    fn partial_fde_from_offset<'bases>(
+        &self,
+        bases: &'bases BaseAddresses,
+        offset: Self::Offset,
+    ) -> Result<PartialFrameDescriptionEntry<'bases, Self, R>> {
+        let offset = UnwindOffset::into(offset);
+        let input = &mut self.section().clone();
+        input.skip(offset)?;
+        PartialFrameDescriptionEntry::parse_partial(self, bases, input)
+    }
+
+    /// Parse the `FrameDescriptionEntry` at the given offset.
+    fn fde_from_offset<F>(
+        &self,
+        bases: &BaseAddresses,
+        offset: Self::Offset,
+        get_cie: F,
+    ) -> Result<FrameDescriptionEntry<R>>
+    where
+        F: FnMut(Self::Offset) -> Result<CommonInformationEntry<R>>,
+    {
+        let partial = self.partial_fde_from_offset(bases, offset)?;
+        partial.parse(get_cie)
     }
 
     /// Find the `FrameDescriptionEntry` for the given address.
@@ -1343,6 +1361,18 @@ where
     R: Reader,
     Section: UnwindSection<R>,
 {
+    fn parse_partial(
+        section: &Section,
+        bases: &'bases BaseAddresses,
+        input: &mut R,
+    ) -> Result<PartialFrameDescriptionEntry<'bases, Section, R>> {
+        match parse_cfi_entry(bases, section, input)? {
+            Some(CieOrFde::Cie(_)) => Err(Error::NotFdePointer),
+            Some(CieOrFde::Fde(partial)) => Ok(partial),
+            None => Err(Error::NoEntryAtGivenOffset),
+        }
+    }
+
     /// Fully parse this FDE.
     ///
     /// You must provide a function get its associated CIE (either by parsing it
