@@ -302,11 +302,11 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         R::Offset::from_u64(ptr - eh_frame_ptr).map(EhFrameOffset)
     }
 
-    /// Returns a parsed FDE for the given address, or NoUnwindInfoForAddress
+    /// Returns a parsed FDE for the given address, or `NoUnwindInfoForAddress`
     /// if there are none.
     ///
-    /// You must provide a function get its associated CIE. See PartialFrameDescriptionEntry::parse
-    /// for more information.
+    /// You must provide a function to get its associated CIE. See
+    /// `PartialFrameDescriptionEntry::parse` for more information.
     ///
     /// # Example
     ///
@@ -318,29 +318,45 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     /// # let addr = 0;
     /// # let bases = unimplemented!();
     /// let table = eh_frame_hdr.table().unwrap();
-    /// let fde = table.lookup_and_parse(addr, &bases, eh_frame.clone(),
+    /// let fde = table.fde_for_address(eh_frame.clone(), &bases, addr,
     ///     |offset| eh_frame.cie_from_offset(&bases, offset))?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn lookup_and_parse<F>(
+    pub fn fde_for_address<F>(
         &self,
-        address: u64,
-        bases: &BaseAddresses,
         frame: EhFrame<R>,
-        cb: F,
+        bases: &BaseAddresses,
+        address: u64,
+        get_cie: F,
     ) -> Result<FrameDescriptionEntry<R>>
     where
         F: FnMut(EhFrameOffset<R::Offset>) -> Result<CommonInformationEntry<R>>,
     {
         let fdeptr = self.lookup(address, bases)?;
         let offset = self.pointer_to_offset(fdeptr)?;
-        let entry = frame.fde_from_offset(bases, offset, cb)?;
+        let entry = frame.fde_from_offset(bases, offset, get_cie)?;
         if entry.contains(address) {
             Ok(entry)
         } else {
             Err(Error::NoUnwindInfoForAddress)
         }
+    }
+
+    #[inline]
+    #[doc(hidden)]
+    #[deprecated(note = "Method renamed to fde_for_address; use that instead.")]
+    pub fn lookup_and_parse<F>(
+        &self,
+        address: u64,
+        bases: &BaseAddresses,
+        frame: EhFrame<R>,
+        get_cie: F,
+    ) -> Result<FrameDescriptionEntry<R>>
+    where
+        F: FnMut(EhFrameOffset<R::Offset>) -> Result<CommonInformationEntry<R>>,
+    {
+        self.fde_for_address(frame, bases, address, get_cie)
     }
 }
 
@@ -568,19 +584,26 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// `Err(gimli::Error::NoUnwindInfoForAddress)` is returned.
     /// If parsing fails, the error is returned.
     ///
+    /// You must provide a function to get its associated CIE. See
+    /// `PartialFrameDescriptionEntry::parse` for more information.
+    ///
     /// Note: this iterates over all FDEs. If available, it is possible
-    /// to do a binary search with `EhFrameHdr::lookup_and_parse` instead.
-    fn fde_for_address(
+    /// to do a binary search with `EhFrameHdr::fde_for_address` instead.
+    fn fde_for_address<F>(
         &self,
         bases: &BaseAddresses,
         address: u64,
-    ) -> Result<FrameDescriptionEntry<R>> {
+        mut get_cie: F,
+    ) -> Result<FrameDescriptionEntry<R>>
+    where
+        F: FnMut(Self::Offset) -> Result<CommonInformationEntry<R>>,
+    {
         let mut entries = self.entries(bases);
         while let Some(entry) = entries.next()? {
             match entry {
                 CieOrFde::Cie(_) => {}
                 CieOrFde::Fde(partial) => {
-                    let fde = partial.parse(|offset| self.cie_from_offset(bases, offset))?;
+                    let fde = partial.parse(&mut get_cie)?;
                     if fde.contains(address) {
                         return Ok(fde);
                     }
@@ -622,7 +645,8 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     ///     .set_text(address_of_text_section_in_memory)
     ///     .set_got(address_of_got_section_in_memory);
     ///
-    /// let unwind_info = eh_frame.unwind_info_for_address(&bases, &mut ctx, address)?;
+    /// let unwind_info = eh_frame.unwind_info_for_address(&bases, &mut ctx, address,
+    ///     |offset| eh_frame.cie_from_offset(&bases, offset))?;
     ///
     /// # let do_stuff_with = |_| unimplemented!();
     /// do_stuff_with(unwind_info);
@@ -631,13 +655,17 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// # }
     /// ```
     #[inline]
-    fn unwind_info_for_address<'bases>(
+    fn unwind_info_for_address<F>(
         &self,
-        bases: &'bases BaseAddresses,
+        bases: &BaseAddresses,
         ctx: &mut UninitializedUnwindContext<R>,
         address: u64,
-    ) -> Result<UnwindTableRow<R>> {
-        let fde = self.fde_for_address(bases, address)?;
+        get_cie: F,
+    ) -> Result<UnwindTableRow<R>>
+    where
+        F: FnMut(Self::Offset) -> Result<CommonInformationEntry<R>>,
+    {
+        let fde = self.fde_for_address(bases, address, get_cie)?;
         fde.unwind_info_for_address(ctx, address)
     }
 }
@@ -1034,9 +1062,9 @@ pub struct Augmentation {
 }
 
 impl Augmentation {
-    fn parse<'bases, Section, R>(
+    fn parse<Section, R>(
         augmentation_str: &mut R,
-        bases: &'bases BaseAddresses,
+        bases: &BaseAddresses,
         address_size: u8,
         section: &Section,
         input: &mut R,
@@ -5285,7 +5313,10 @@ mod tests {
         // Get the second row of the unwind table in `instrs3`.
         let bases = Default::default();
         let mut ctx = UninitializedUnwindContext::new();
-        let result = debug_frame.unwind_info_for_address(&bases, &mut ctx, 0xfeed_beef + 150);
+        let result =
+            debug_frame.unwind_info_for_address(&bases, &mut ctx, 0xfeed_beef + 150, |offset| {
+                debug_frame.cie_from_offset(&bases, offset)
+            });
         assert!(result.is_ok());
         let unwind_info = result.unwrap();
 
@@ -5311,7 +5342,9 @@ mod tests {
         let debug_frame = DebugFrame::new(&[], NativeEndian);
         let bases = Default::default();
         let mut ctx = UninitializedUnwindContext::new();
-        let result = debug_frame.unwind_info_for_address(&bases, &mut ctx, 0xbadb_ad99);
+        let result = debug_frame.unwind_info_for_address(&bases, &mut ctx, 0xbadb_ad99, |offset| {
+            debug_frame.cie_from_offset(&bases, offset)
+        });
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), Error::NoUnwindInfoForAddress);
     }
@@ -5481,7 +5514,7 @@ mod tests {
     }
 
     #[test]
-    fn test_eh_frame_lookup_parse_good() {
+    fn test_eh_frame_fde_for_address_good() {
         // First, setup eh_frame
         // Write the CIE first so that its length gets set before we clone it
         // into the FDE.
@@ -5567,25 +5600,25 @@ mod tests {
             Ok(cie.clone())
         };
         assert_eq!(
-            table.lookup_and_parse(9, &bases, eh_frame, f),
+            table.fde_for_address(eh_frame, &bases, 9, f),
             Ok(fde1.clone())
         );
         assert_eq!(
-            table.lookup_and_parse(10, &bases, eh_frame, f),
+            table.fde_for_address(eh_frame, &bases, 10, f),
             Ok(fde1.clone())
         );
-        assert_eq!(table.lookup_and_parse(11, &bases, eh_frame, f), Ok(fde1));
+        assert_eq!(table.fde_for_address(eh_frame, &bases, 11, f), Ok(fde1));
         assert_eq!(
-            table.lookup_and_parse(19, &bases, eh_frame, f),
+            table.fde_for_address(eh_frame, &bases, 19, f),
             Err(Error::NoUnwindInfoForAddress)
         );
         assert_eq!(
-            table.lookup_and_parse(20, &bases, eh_frame, f),
+            table.fde_for_address(eh_frame, &bases, 20, f),
             Ok(fde2.clone())
         );
-        assert_eq!(table.lookup_and_parse(21, &bases, eh_frame, f), Ok(fde2));
+        assert_eq!(table.fde_for_address(eh_frame, &bases, 21, f), Ok(fde2));
         assert_eq!(
-            table.lookup_and_parse(100_000, &bases, eh_frame, f),
+            table.fde_for_address(eh_frame, &bases, 100_000, f),
             Err(Error::NoUnwindInfoForAddress)
         );
     }
