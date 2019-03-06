@@ -365,6 +365,30 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     {
         self.fde_for_address(frame, bases, address, get_cie)
     }
+
+    /// Returns the frame unwind information for the given address,
+    /// or `NoUnwindInfoForAddress` if there are none.
+    ///
+    /// You must provide a function to get the associated CIE. See
+    /// `PartialFrameDescriptionEntry::parse` for more information.
+    pub fn unwind_info_for_address<F>(
+        &self,
+        frame: EhFrame<R>,
+        bases: &BaseAddresses,
+        ctx: &mut UninitializedUnwindContext<R>,
+        address: u64,
+        get_cie: F,
+    ) -> Result<UnwindTableRow<R>>
+    where
+        F: FnMut(
+            &EhFrame<R>,
+            &BaseAddresses,
+            EhFrameOffset<R::Offset>,
+        ) -> Result<CommonInformationEntry<R>>,
+    {
+        let fde = self.fde_for_address(frame, bases, address, get_cie)?;
+        fde.unwind_info_for_address(ctx, address)
+    }
 }
 
 /// `EhFrame` contains the frame unwinding information needed during exception
