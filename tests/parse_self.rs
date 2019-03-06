@@ -391,7 +391,7 @@ fn test_parse_self_eh_frame() {
             }
             CieOrFde::Fde(partial) => {
                 let fde = partial
-                    .parse(|offset| eh_frame.cie_from_offset(&bases, offset))
+                    .parse(UnwindSection::cie_from_offset)
                     .expect("Should be able to get CIE for FDE");
 
                 let mut instrs = fde.instructions();

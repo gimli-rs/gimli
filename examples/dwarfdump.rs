@@ -642,10 +642,10 @@ fn dump_eh_frame<R: Reader, W: Write>(
             }
             Some(gimli::CieOrFde::Fde(partial)) => {
                 let mut offset = None;
-                let fde = partial.parse(|o| {
+                let fde = partial.parse(|_, bases, o| {
                     offset = Some(o);
                     cies.entry(o)
-                        .or_insert_with(|| eh_frame.cie_from_offset(&bases, o))
+                        .or_insert_with(|| eh_frame.cie_from_offset(bases, o))
                         .clone()
                 })?;
 
