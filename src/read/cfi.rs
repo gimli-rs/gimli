@@ -1599,10 +1599,10 @@ impl<R: Reader> FrameDescriptionEntry<R> {
 
     /// Return the table of unwind information for this FDE.
     #[inline]
-    pub fn rows<'fde, 'ctx>(
-        &'fde self,
+    pub fn rows<'ctx>(
+        &self,
         ctx: &'ctx mut UninitializedUnwindContext<R>,
-    ) -> Result<UnwindTable<'fde, 'fde, 'ctx, R>> {
+    ) -> Result<UnwindTable<'ctx, R>> {
         UnwindTable::new(ctx, self)
     }
 
@@ -1764,7 +1764,7 @@ impl<R: Reader> UninitializedUnwindContext<R> {
             self.0.reset();
         }
 
-        let mut table = UnwindTable::new_internal(&mut self.0, cie, None);
+        let mut table = UnwindTable::new_for_cie(&mut self.0, cie);
         while let Some(_) = table.next_row()? {}
 
         self.0.save_initial_rules();
@@ -1946,53 +1946,59 @@ impl<R: Reader> UnwindContext<R> {
 /// > recording just the differences starting at the beginning address of each
 /// > subroutine in the program.
 #[derive(Debug)]
-pub struct UnwindTable<'cie, 'fde, 'ctx, R: Reader> {
-    cie: &'cie CommonInformationEntry<R>,
+pub struct UnwindTable<'ctx, R: Reader> {
+    code_alignment_factor: u64,
+    data_alignment_factor: i64,
     next_start_address: u64,
+    last_end_address: u64,
     returned_last_row: bool,
     instructions: CallFrameInstructionIter<R>,
     ctx: &'ctx mut UnwindContext<R>,
-    // If this is `None`, then we are executing a CIE's initial_instructions. If
-    // this is `Some`, then we are executing an FDE's instructions.
-    fde: Option<&'fde FrameDescriptionEntry<R>>,
 }
 
 /// # Signal Safe Methods
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
-impl<'fde, 'ctx, R: Reader> UnwindTable<'fde, 'fde, 'ctx, R> {
+impl<'ctx, R: Reader> UnwindTable<'ctx, R> {
     /// Construct a new `UnwindTable` for the given
     /// `FrameDescriptionEntry`'s CFI unwinding program.
     pub fn new(
         ctx: &'ctx mut UninitializedUnwindContext<R>,
-        fde: &'fde FrameDescriptionEntry<R>,
-    ) -> Result<UnwindTable<'fde, 'fde, 'ctx, R>> {
+        fde: &FrameDescriptionEntry<R>,
+    ) -> Result<UnwindTable<'ctx, R>> {
         let ctx = ctx.initialize(fde.cie())?;
-        Ok(Self::new_internal(ctx, fde.cie(), Some(fde)))
+        Ok(Self::new_for_fde(ctx, fde))
     }
-}
 
-/// # Signal Safe Methods
-///
-/// These methods are guaranteed not to allocate, acquire locks, or perform any
-/// other signal-unsafe operations.
-impl<'cie, 'fde, 'ctx, R: Reader> UnwindTable<'cie, 'fde, 'ctx, R> {
-    fn new_internal(
+    fn new_for_fde(
         ctx: &'ctx mut UnwindContext<R>,
-        cie: &'cie CommonInformationEntry<R>,
-        fde: Option<&'fde FrameDescriptionEntry<R>>,
-    ) -> UnwindTable<'cie, 'fde, 'ctx, R> {
+        fde: &FrameDescriptionEntry<R>,
+    ) -> UnwindTable<'ctx, R> {
         assert!(ctx.stack.len() >= 1);
-        let next_start_address = fde.map_or(0, |fde| fde.initial_address());
-        let instructions = fde.map_or_else(|| cie.instructions(), |fde| fde.instructions());
         UnwindTable {
-            ctx,
-            cie,
-            next_start_address,
+            code_alignment_factor: fde.cie().code_alignment_factor(),
+            data_alignment_factor: fde.cie().data_alignment_factor(),
+            next_start_address: fde.initial_address(),
+            last_end_address: fde.initial_address() + fde.len(),
             returned_last_row: false,
-            instructions,
-            fde,
+            instructions: fde.instructions(),
+            ctx,
+        }
+    }
+    fn new_for_cie(
+        ctx: &'ctx mut UnwindContext<R>,
+        cie: &CommonInformationEntry<R>,
+    ) -> UnwindTable<'ctx, R> {
+        assert!(ctx.stack.len() >= 1);
+        UnwindTable {
+            code_alignment_factor: cie.code_alignment_factor(),
+            data_alignment_factor: cie.data_alignment_factor(),
+            next_start_address: 0,
+            last_end_address: 0,
+            returned_last_row: false,
+            instructions: cie.instructions(),
+            ctx,
         }
     }
 
@@ -2015,11 +2021,7 @@ impl<'cie, 'fde, 'ctx, R: Reader> UnwindTable<'cie, 'fde, 'ctx, R> {
                     }
 
                     let row = self.ctx.row_mut();
-                    row.end_address = if let Some(fde) = self.fde {
-                        fde.initial_address() + fde.len()
-                    } else {
-                        0
-                    };
+                    row.end_address = self.last_end_address;
 
                     self.returned_last_row = true;
                     return Ok(Some(row));
@@ -2068,7 +2070,7 @@ impl<'cie, 'fde, 'ctx, R: Reader> UnwindTable<'cie, 'fde, 'ctx, R> {
                 register,
                 factored_offset,
             } => {
-                let data_align = self.cie.data_alignment_factor();
+                let data_align = self.data_alignment_factor;
                 self.ctx.set_cfa(CfaRule::RegisterAndOffset {
                     register,
                     offset: factored_offset * data_align,
@@ -2102,7 +2104,7 @@ impl<'cie, 'fde, 'ctx, R: Reader> UnwindTable<'cie, 'fde, 'ctx, R> {
                     ..
                 } = *self.ctx.cfa_mut()
                 {
-                    let data_align = self.cie.data_alignment_factor();
+                    let data_align = self.data_alignment_factor;
                     *off = factored_offset * data_align;
                 } else {
                     return Err(Error::CfiInstructionInInvalidContext);
@@ -2125,7 +2127,7 @@ impl<'cie, 'fde, 'ctx, R: Reader> UnwindTable<'cie, 'fde, 'ctx, R> {
                 register,
                 factored_offset,
             } => {
-                let offset = factored_offset as i64 * self.cie.data_alignment_factor;
+                let offset = factored_offset as i64 * self.data_alignment_factor;
                 self.ctx
                     .set_register_rule(register, RegisterRule::Offset(offset))?;
             }
@@ -2133,7 +2135,7 @@ impl<'cie, 'fde, 'ctx, R: Reader> UnwindTable<'cie, 'fde, 'ctx, R> {
                 register,
                 factored_offset,
             } => {
-                let offset = factored_offset * self.cie.data_alignment_factor();
+                let offset = factored_offset * self.data_alignment_factor;
                 self.ctx
                     .set_register_rule(register, RegisterRule::Offset(offset))?;
             }
@@ -2141,7 +2143,7 @@ impl<'cie, 'fde, 'ctx, R: Reader> UnwindTable<'cie, 'fde, 'ctx, R> {
                 register,
                 factored_offset,
             } => {
-                let offset = factored_offset as i64 * self.cie.data_alignment_factor();
+                let offset = factored_offset as i64 * self.data_alignment_factor;
                 self.ctx
                     .set_register_rule(register, RegisterRule::ValOffset(offset))?;
             }
@@ -2149,7 +2151,7 @@ impl<'cie, 'fde, 'ctx, R: Reader> UnwindTable<'cie, 'fde, 'ctx, R> {
                 register,
                 factored_offset,
             } => {
-                let offset = factored_offset * self.cie.data_alignment_factor();
+                let offset = factored_offset * self.data_alignment_factor;
                 self.ctx
                     .set_register_rule(register, RegisterRule::ValOffset(offset))?;
             }
@@ -4635,7 +4637,10 @@ mod tests {
         >,
     {
         {
-            let mut table = UnwindTable::new_internal(&mut initial_ctx, &cie, fde.as_ref());
+            let mut table = match fde {
+                Some(fde) => UnwindTable::new_for_fde(&mut initial_ctx, &fde),
+                None => UnwindTable::new_for_cie(&mut initial_ctx, &cie),
+            };
             for &(ref expected_result, ref instruction) in instructions.as_ref() {
                 assert_eq!(*expected_result, table.evaluate(instruction.clone()));
             }
