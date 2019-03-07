@@ -2054,7 +2054,8 @@ impl<'ctx, R: Reader> UnwindTable<'ctx, R> {
                 return Ok(true);
             }
             AdvanceLoc { delta } => {
-                self.next_start_address = self.ctx.start_address() + u64::from(delta);
+                let delta = u64::from(delta) * self.code_alignment_factor;
+                self.next_start_address = self.ctx.start_address() + delta;
                 self.ctx.row_mut().end_address = self.next_start_address;
                 return Ok(true);
             }
@@ -4694,8 +4695,8 @@ mod tests {
         let mut ctx = UnwindContext::new();
         ctx.row_mut().start_address = 3;
         let mut expected = ctx.clone();
-        expected.row_mut().end_address = 4;
-        let instructions = [(Ok(true), CallFrameInstruction::AdvanceLoc { delta: 1 })];
+        expected.row_mut().end_address = 3 + 2 * cie.code_alignment_factor;
+        let instructions = [(Ok(true), CallFrameInstruction::AdvanceLoc { delta: 2 })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
 
