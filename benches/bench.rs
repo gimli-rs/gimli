@@ -561,7 +561,7 @@ mod cfi {
                     }
                     CieOrFde::Fde(partial) => {
                         let fde = partial
-                            .parse(|offset| eh_frame.cie_from_offset(&bases, offset))
+                            .parse(EhFrame::cie_from_offset)
                             .expect("Should be able to get CIE for FED");
                         test::black_box(fde);
                     }
@@ -594,7 +594,7 @@ mod cfi {
                     }
                     CieOrFde::Fde(partial) => {
                         let fde = partial
-                            .parse(|offset| eh_frame.cie_from_offset(&bases, offset))
+                            .parse(EhFrame::cie_from_offset)
                             .expect("Should be able to get CIE for FED");
                         let mut instrs = fde.instructions();
                         while let Some(i) =
@@ -627,7 +627,7 @@ mod cfi {
                     CieOrFde::Cie(_) => {}
                     CieOrFde::Fde(partial) => {
                         let fde = partial
-                            .parse(|offset| eh_frame.cie_from_offset(&bases, offset))
+                            .parse(EhFrame::cie_from_offset)
                             .expect("Should be able to get CIE for FED");
                         let mut table = fde
                             .rows(&mut ctx)
@@ -665,7 +665,7 @@ mod cfi {
                 CieOrFde::Cie(_) => {}
                 CieOrFde::Fde(partial) => {
                     let fde = partial
-                        .parse(|offset| eh_frame.cie_from_offset(&bases, offset))
+                        .parse(EhFrame::cie_from_offset)
                         .expect("Should be able to get CIE for FED");
 
                     let this_len = instrs_len(&fde);

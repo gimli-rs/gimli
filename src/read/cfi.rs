@@ -284,11 +284,29 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         )
     }
 
-    /// Returns a parsed FDE for the given address, or NoUnwindInfoForAddress
+    /// Convert a `Pointer` to a section offset.
+    ///
+    /// This does not support indirect pointers.
+    pub fn pointer_to_offset(&self, ptr: Pointer) -> Result<EhFrameOffset<R::Offset>> {
+        let ptr = match ptr {
+            Pointer::Direct(x) => x,
+            _ => return Err(Error::UnsupportedPointerEncoding),
+        };
+
+        let eh_frame_ptr = match self.hdr.eh_frame_ptr() {
+            Pointer::Direct(x) => x,
+            _ => return Err(Error::UnsupportedPointerEncoding),
+        };
+
+        // Calculate the offset in the EhFrame section
+        R::Offset::from_u64(ptr - eh_frame_ptr).map(EhFrameOffset)
+    }
+
+    /// Returns a parsed FDE for the given address, or `NoUnwindInfoForAddress`
     /// if there are none.
     ///
-    /// You must provide a function get its associated CIE. See PartialFrameDescriptionEntry::parse
-    /// for more information.
+    /// You must provide a function to get its associated CIE. See
+    /// `PartialFrameDescriptionEntry::parse` for more information.
     ///
     /// # Example
     ///
@@ -300,48 +318,76 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     /// # let addr = 0;
     /// # let bases = unimplemented!();
     /// let table = eh_frame_hdr.table().unwrap();
-    /// let fde = table.lookup_and_parse(addr, &bases, eh_frame.clone(),
-    ///     |offset| eh_frame.cie_from_offset(&bases, offset))?;
+    /// let fde = table.fde_for_address(eh_frame.clone(), &bases, addr, EhFrame::cie_from_offset)?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn lookup_and_parse<F>(
+    pub fn fde_for_address<F>(
         &self,
-        address: u64,
-        bases: &BaseAddresses,
         frame: EhFrame<R>,
-        cb: F,
+        bases: &BaseAddresses,
+        address: u64,
+        get_cie: F,
     ) -> Result<FrameDescriptionEntry<R>>
     where
-        F: FnMut(EhFrameOffset<R::Offset>) -> Result<CommonInformationEntry<R>>,
+        F: FnMut(
+            &EhFrame<R>,
+            &BaseAddresses,
+            EhFrameOffset<R::Offset>,
+        ) -> Result<CommonInformationEntry<R>>,
     {
         let fdeptr = self.lookup(address, bases)?;
-        let fdeptr = match fdeptr {
-            Pointer::Direct(x) => x,
-            _ => return Err(Error::UnsupportedPointerEncoding),
-        };
-
-        let eh_frame_ptr = match self.hdr.eh_frame_ptr() {
-            Pointer::Direct(x) => x,
-            _ => return Err(Error::UnsupportedPointerEncoding),
-        };
-
-        // Calculate the offset in the EhFrame section
-        let offset = R::Offset::from_u64(fdeptr - eh_frame_ptr)?;
-        let mut input = &mut frame.section().clone();
-        input.skip(offset)?;
-
-        let entry = parse_cfi_entry(bases, frame, &mut input)?;
-        let entry = match entry {
-            Some(CieOrFde::Fde(fde)) => fde.parse(cb)?,
-            Some(CieOrFde::Cie(_)) => return Err(Error::NotFdePointer),
-            None => return Err(Error::NoUnwindInfoForAddress),
-        };
+        let offset = self.pointer_to_offset(fdeptr)?;
+        let entry = frame.fde_from_offset(bases, offset, get_cie)?;
         if entry.contains(address) {
             Ok(entry)
         } else {
             Err(Error::NoUnwindInfoForAddress)
         }
+    }
+
+    #[inline]
+    #[doc(hidden)]
+    #[deprecated(note = "Method renamed to fde_for_address; use that instead.")]
+    pub fn lookup_and_parse<F>(
+        &self,
+        address: u64,
+        bases: &BaseAddresses,
+        frame: EhFrame<R>,
+        get_cie: F,
+    ) -> Result<FrameDescriptionEntry<R>>
+    where
+        F: FnMut(
+            &EhFrame<R>,
+            &BaseAddresses,
+            EhFrameOffset<R::Offset>,
+        ) -> Result<CommonInformationEntry<R>>,
+    {
+        self.fde_for_address(frame, bases, address, get_cie)
+    }
+
+    /// Returns the frame unwind information for the given address,
+    /// or `NoUnwindInfoForAddress` if there are none.
+    ///
+    /// You must provide a function to get the associated CIE. See
+    /// `PartialFrameDescriptionEntry::parse` for more information.
+    pub fn unwind_info_for_address<F>(
+        &self,
+        frame: EhFrame<R>,
+        bases: &BaseAddresses,
+        ctx: &mut UninitializedUnwindContext<R>,
+        address: u64,
+        get_cie: F,
+    ) -> Result<UnwindTableRow<R>>
+    where
+        F: FnMut(
+            &EhFrame<R>,
+            &BaseAddresses,
+            EhFrameOffset<R::Offset>,
+        ) -> Result<CommonInformationEntry<R>>,
+    {
+        let fde = self.fde_for_address(frame, bases, address, get_cie)?;
+        fde.unwind_info_for_address(ctx, address)
     }
 }
 
@@ -482,9 +528,9 @@ pub trait _UnwindSectionPrivate<R: Reader> {
     /// For `.eh_frame`, CIE offsets are relative to the current position. For
     /// `.debug_frame`, they are relative to the start of the section. We always
     /// internally store them relative to the section, so we handle translating
-    /// `.eh_frame`'s relative offsets in this method. If the relative offset is
-    /// out of bounds of the section, return `None`.
-    fn resolve_cie_offset(&self, input_before_offset: R, offset: R::Offset) -> Option<R::Offset>;
+    /// `.eh_frame`'s relative offsets in this method. If the offset calculation
+    /// underflows, return `None`.
+    fn resolve_cie_offset(&self, base: R::Offset, offset: R::Offset) -> Option<R::Offset>;
 
     /// Return true if our parser is compatible with the given version.
     fn compatible_version(version: u8) -> bool;
@@ -526,20 +572,41 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     }
 
     /// Parse the `CommonInformationEntry` at the given offset.
-    fn cie_from_offset<'bases>(
+    fn cie_from_offset(
         &self,
-        bases: &'bases BaseAddresses,
+        bases: &BaseAddresses,
         offset: Self::Offset,
     ) -> Result<CommonInformationEntry<R>> {
         let offset = UnwindOffset::into(offset);
         let input = &mut self.section().clone();
         input.skip(offset)?;
-        if let Some(entry) = CommonInformationEntry::parse(bases, self, input)? {
-            debug_assert_eq!(entry.offset(), offset);
-            Ok(entry)
-        } else {
-            Err(Error::NoEntryAtGivenOffset)
-        }
+        CommonInformationEntry::parse(bases, self, input)
+    }
+
+    /// Parse the `PartialFrameDescriptionEntry` at the given offset.
+    fn partial_fde_from_offset<'bases>(
+        &self,
+        bases: &'bases BaseAddresses,
+        offset: Self::Offset,
+    ) -> Result<PartialFrameDescriptionEntry<'bases, Self, R>> {
+        let offset = UnwindOffset::into(offset);
+        let input = &mut self.section().clone();
+        input.skip(offset)?;
+        PartialFrameDescriptionEntry::parse_partial(self, bases, input)
+    }
+
+    /// Parse the `FrameDescriptionEntry` at the given offset.
+    fn fde_from_offset<F>(
+        &self,
+        bases: &BaseAddresses,
+        offset: Self::Offset,
+        get_cie: F,
+    ) -> Result<FrameDescriptionEntry<R>>
+    where
+        F: FnMut(&Self, &BaseAddresses, Self::Offset) -> Result<CommonInformationEntry<R>>,
+    {
+        let partial = self.partial_fde_from_offset(bases, offset)?;
+        partial.parse(get_cie)
     }
 
     /// Find the `FrameDescriptionEntry` for the given address.
@@ -548,19 +615,26 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// `Err(gimli::Error::NoUnwindInfoForAddress)` is returned.
     /// If parsing fails, the error is returned.
     ///
+    /// You must provide a function to get its associated CIE. See
+    /// `PartialFrameDescriptionEntry::parse` for more information.
+    ///
     /// Note: this iterates over all FDEs. If available, it is possible
-    /// to do a binary search with `EhFrameHdr::lookup_and_parse` instead.
-    fn fde_for_address(
+    /// to do a binary search with `EhFrameHdr::fde_for_address` instead.
+    fn fde_for_address<F>(
         &self,
         bases: &BaseAddresses,
         address: u64,
-    ) -> Result<FrameDescriptionEntry<R>> {
+        mut get_cie: F,
+    ) -> Result<FrameDescriptionEntry<R>>
+    where
+        F: FnMut(&Self, &BaseAddresses, Self::Offset) -> Result<CommonInformationEntry<R>>,
+    {
         let mut entries = self.entries(bases);
         while let Some(entry) = entries.next()? {
             match entry {
                 CieOrFde::Cie(_) => {}
                 CieOrFde::Fde(partial) => {
-                    let fde = partial.parse(|offset| self.cie_from_offset(bases, offset))?;
+                    let fde = partial.parse(&mut get_cie)?;
                     if fde.contains(address) {
                         return Ok(fde);
                     }
@@ -602,7 +676,12 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     ///     .set_text(address_of_text_section_in_memory)
     ///     .set_got(address_of_got_section_in_memory);
     ///
-    /// let unwind_info = eh_frame.unwind_info_for_address(&bases, &mut ctx, address)?;
+    /// let unwind_info = eh_frame.unwind_info_for_address(
+    ///     &bases,
+    ///     &mut ctx,
+    ///     address,
+    ///     EhFrame::cie_from_offset,
+    /// )?;
     ///
     /// # let do_stuff_with = |_| unimplemented!();
     /// do_stuff_with(unwind_info);
@@ -611,13 +690,17 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// # }
     /// ```
     #[inline]
-    fn unwind_info_for_address<'bases>(
+    fn unwind_info_for_address<F>(
         &self,
-        bases: &'bases BaseAddresses,
+        bases: &BaseAddresses,
         ctx: &mut UninitializedUnwindContext<R>,
         address: u64,
-    ) -> Result<UnwindTableRow<R>> {
-        let fde = self.fde_for_address(bases, address)?;
+        get_cie: F,
+    ) -> Result<UnwindTableRow<R>>
+    where
+        F: FnMut(&Self, &BaseAddresses, Self::Offset) -> Result<CommonInformationEntry<R>>,
+    {
+        let fde = self.fde_for_address(bases, address, get_cie)?;
         fde.unwind_info_for_address(ctx, address)
     }
 }
@@ -645,7 +728,7 @@ impl<R: Reader> _UnwindSectionPrivate<R> for DebugFrame<R> {
         }
     }
 
-    fn resolve_cie_offset(&self, _: R, offset: R::Offset) -> Option<R::Offset> {
+    fn resolve_cie_offset(&self, _: R::Offset, offset: R::Offset) -> Option<R::Offset> {
         Some(offset)
     }
 
@@ -703,20 +786,8 @@ impl<R: Reader> _UnwindSectionPrivate<R> for EhFrame<R> {
         CieOffsetEncoding::U32
     }
 
-    fn resolve_cie_offset(
-        &self,
-        input_before_offset: R,
-        input_relative_offset: R::Offset,
-    ) -> Option<R::Offset> {
-        let section = &mut self.section();
-
-        // It would make no sense for any of these slices to be empty, since we
-        // have already parsed an offset out of them.
-        debug_assert!(!section.is_empty());
-        debug_assert!(!input_before_offset.is_empty());
-
-        let input_offset = input_before_offset.offset_from(section);
-        input_offset.checked_sub(input_relative_offset)
+    fn resolve_cie_offset(&self, base: R::Offset, offset: R::Offset) -> Option<R::Offset> {
+        base.checked_sub(offset)
     }
 
     fn compatible_version(version: u8) -> bool {
@@ -899,7 +970,7 @@ where
         // the last entry.
         self.bases.eh_frame.func.borrow_mut().take();
 
-        match parse_cfi_entry(self.bases, self.section.clone(), &mut self.input) {
+        match parse_cfi_entry(self.bases, &self.section, &mut self.input) {
             Err(e) => {
                 self.input.empty();
                 Err(e)
@@ -926,52 +997,6 @@ where
     }
 }
 
-struct CfiEntryCommon<R: Reader> {
-    offset: R::Offset,
-    length: R::Offset,
-    format: Format,
-    cie_offset_input: R,
-    cie_id_or_offset: u64,
-    rest: R,
-}
-
-/// Parse the common start shared between both CIEs and FDEs. If we find the
-/// end-of-entries sentinel, return `Ok(None)`. Otherwise, return
-/// `Ok(Some(tuple))`, where `tuple.0` is the start of the next entry and
-/// `tuple.1` is the parsed CFI entry data.
-fn parse_cfi_entry_common<Section, R>(
-    section: &Section,
-    input: &mut R,
-) -> Result<Option<CfiEntryCommon<R>>>
-where
-    R: Reader,
-    Section: UnwindSection<R>,
-{
-    let offset = input.offset_from(section.section());
-    let (length, format) = input.read_initial_length()?;
-
-    if Section::length_value_is_end_of_entries(length) {
-        return Ok(None);
-    }
-
-    let cie_offset_input = input.split(length)?;
-
-    let mut rest = cie_offset_input.clone();
-    let cie_id_or_offset = match Section::cie_offset_encoding(format) {
-        CieOffsetEncoding::U32 => rest.read_u32().map(u64::from)?,
-        CieOffsetEncoding::U64 => rest.read_u64()?,
-    };
-
-    Ok(Some(CfiEntryCommon {
-        offset,
-        length,
-        format,
-        cie_offset_input,
-        cie_id_or_offset,
-        rest,
-    }))
-}
-
 /// Either a `CommonInformationEntry` (CIE) or a `FrameDescriptionEntry` (FDE).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CieOrFde<'bases, Section, R>
@@ -990,32 +1015,33 @@ where
 #[allow(clippy::type_complexity)]
 fn parse_cfi_entry<'bases, Section, R>(
     bases: &'bases BaseAddresses,
-    section: Section,
+    section: &Section,
     input: &mut R,
 ) -> Result<Option<CieOrFde<'bases, Section, R>>>
 where
     R: Reader,
     Section: UnwindSection<R>,
 {
-    let CfiEntryCommon {
-        offset,
-        length,
-        format,
-        cie_offset_input,
-        cie_id_or_offset,
-        rest,
-    } = match parse_cfi_entry_common::<Section, R>(&section, input)? {
-        None => return Ok(None),
-        Some(common) => common,
+    let offset = input.offset_from(section.section());
+    let (length, format) = input.read_initial_length()?;
+
+    if Section::length_value_is_end_of_entries(length) {
+        return Ok(None);
+    }
+
+    let mut rest = input.split(length)?;
+    let cie_offset_base = rest.offset_from(section.section());
+    let cie_id_or_offset = match Section::cie_offset_encoding(format) {
+        CieOffsetEncoding::U32 => rest.read_u32().map(u64::from)?,
+        CieOffsetEncoding::U64 => rest.read_u64()?,
     };
 
     if Section::is_cie(format, cie_id_or_offset) {
-        let cie =
-            CommonInformationEntry::parse_rest(offset, length, format, bases, &section, rest)?;
+        let cie = CommonInformationEntry::parse_rest(offset, length, format, bases, section, rest)?;
         Ok(Some(CieOrFde::Cie(cie)))
     } else {
         let cie_offset = R::Offset::from_u64(cie_id_or_offset)?;
-        let cie_offset = match section.resolve_cie_offset(cie_offset_input, cie_offset) {
+        let cie_offset = match section.resolve_cie_offset(cie_offset_base, cie_offset) {
             None => return Err(Error::OffsetOutOfBounds),
             Some(cie_offset) => cie_offset,
         };
@@ -1026,7 +1052,7 @@ where
             format,
             cie_offset: cie_offset.into(),
             rest,
-            section,
+            section: section.clone(),
             bases,
         };
 
@@ -1071,9 +1097,9 @@ pub struct Augmentation {
 }
 
 impl Augmentation {
-    fn parse<'bases, Section, R>(
+    fn parse<Section, R>(
         augmentation_str: &mut R,
-        bases: &'bases BaseAddresses,
+        bases: &BaseAddresses,
         address_size: u8,
         section: &Section,
         input: &mut R,
@@ -1232,30 +1258,16 @@ where
 }
 
 impl<R: Reader> CommonInformationEntry<R> {
-    #[allow(clippy::type_complexity)]
-    fn parse<'bases, Section: UnwindSection<R>>(
-        bases: &'bases BaseAddresses,
+    fn parse<Section: UnwindSection<R>>(
+        bases: &BaseAddresses,
         section: &Section,
         input: &mut R,
-    ) -> Result<Option<CommonInformationEntry<R>>> {
-        let CfiEntryCommon {
-            offset,
-            length,
-            format,
-            cie_id_or_offset: cie_id,
-            rest,
-            ..
-        } = match parse_cfi_entry_common::<Section, R>(section, input)? {
-            None => return Ok(None),
-            Some(common) => common,
-        };
-
-        if !Section::is_cie(format, cie_id) {
-            return Err(Error::NotCieId);
+    ) -> Result<CommonInformationEntry<R>> {
+        match parse_cfi_entry(bases, section, input)? {
+            Some(CieOrFde::Cie(cie)) => Ok(cie),
+            Some(CieOrFde::Fde(_)) => Err(Error::NotCieId),
+            None => Err(Error::NoEntryAtGivenOffset),
         }
-
-        let entry = Self::parse_rest(offset, length, format, bases, section, rest)?;
-        Ok(Some(entry))
     }
 
     fn parse_rest<Section: UnwindSection<R>>(
@@ -1412,6 +1424,18 @@ where
     R: Reader,
     Section: UnwindSection<R>,
 {
+    fn parse_partial(
+        section: &Section,
+        bases: &'bases BaseAddresses,
+        input: &mut R,
+    ) -> Result<PartialFrameDescriptionEntry<'bases, Section, R>> {
+        match parse_cfi_entry(bases, section, input)? {
+            Some(CieOrFde::Cie(_)) => Err(Error::NotFdePointer),
+            Some(CieOrFde::Fde(partial)) => Ok(partial),
+            None => Err(Error::NoEntryAtGivenOffset),
+        }
+    }
+
     /// Fully parse this FDE.
     ///
     /// You must provide a function get its associated CIE (either by parsing it
@@ -1419,7 +1443,7 @@ where
     /// you've already parsed, etc.)
     pub fn parse<F>(&self, get_cie: F) -> Result<FrameDescriptionEntry<R>>
     where
-        F: FnMut(Section::Offset) -> Result<CommonInformationEntry<R>>,
+        F: FnMut(&Section, &BaseAddresses, Section::Offset) -> Result<CommonInformationEntry<R>>,
     {
         FrameDescriptionEntry::parse_rest(
             self.offset,
@@ -1491,7 +1515,7 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     ) -> Result<FrameDescriptionEntry<R>>
     where
         Section: UnwindSection<R>,
-        F: FnMut(Section::Offset) -> Result<CommonInformationEntry<R>>,
+        F: FnMut(&Section, &BaseAddresses, Section::Offset) -> Result<CommonInformationEntry<R>>,
     {
         {
             let mut func = bases.eh_frame.func.borrow_mut();
@@ -1499,7 +1523,7 @@ impl<R: Reader> FrameDescriptionEntry<R> {
             *func = Some(offset.into_u64());
         }
 
-        let cie = get_cie(cie_pointer)?;
+        let cie = get_cie(section, bases, cie_pointer)?;
 
         let initial_segment = if cie.segment_size > 0 {
             rest.read_address(cie.segment_size)?
@@ -1575,10 +1599,10 @@ impl<R: Reader> FrameDescriptionEntry<R> {
 
     /// Return the table of unwind information for this FDE.
     #[inline]
-    pub fn rows<'fde, 'ctx>(
-        &'fde self,
+    pub fn rows<'ctx>(
+        &self,
         ctx: &'ctx mut UninitializedUnwindContext<R>,
-    ) -> Result<UnwindTable<'fde, 'fde, 'ctx, R>> {
+    ) -> Result<UnwindTable<'ctx, R>> {
         UnwindTable::new(ctx, self)
     }
 
@@ -1740,7 +1764,7 @@ impl<R: Reader> UninitializedUnwindContext<R> {
             self.0.reset();
         }
 
-        let mut table = UnwindTable::new_internal(&mut self.0, cie, None);
+        let mut table = UnwindTable::new_for_cie(&mut self.0, cie);
         while let Some(_) = table.next_row()? {}
 
         self.0.save_initial_rules();
@@ -1922,53 +1946,59 @@ impl<R: Reader> UnwindContext<R> {
 /// > recording just the differences starting at the beginning address of each
 /// > subroutine in the program.
 #[derive(Debug)]
-pub struct UnwindTable<'cie, 'fde, 'ctx, R: Reader> {
-    cie: &'cie CommonInformationEntry<R>,
+pub struct UnwindTable<'ctx, R: Reader> {
+    code_alignment_factor: u64,
+    data_alignment_factor: i64,
     next_start_address: u64,
+    last_end_address: u64,
     returned_last_row: bool,
     instructions: CallFrameInstructionIter<R>,
     ctx: &'ctx mut UnwindContext<R>,
-    // If this is `None`, then we are executing a CIE's initial_instructions. If
-    // this is `Some`, then we are executing an FDE's instructions.
-    fde: Option<&'fde FrameDescriptionEntry<R>>,
 }
 
 /// # Signal Safe Methods
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
-impl<'fde, 'ctx, R: Reader> UnwindTable<'fde, 'fde, 'ctx, R> {
+impl<'ctx, R: Reader> UnwindTable<'ctx, R> {
     /// Construct a new `UnwindTable` for the given
     /// `FrameDescriptionEntry`'s CFI unwinding program.
     pub fn new(
         ctx: &'ctx mut UninitializedUnwindContext<R>,
-        fde: &'fde FrameDescriptionEntry<R>,
-    ) -> Result<UnwindTable<'fde, 'fde, 'ctx, R>> {
+        fde: &FrameDescriptionEntry<R>,
+    ) -> Result<UnwindTable<'ctx, R>> {
         let ctx = ctx.initialize(fde.cie())?;
-        Ok(Self::new_internal(ctx, fde.cie(), Some(fde)))
+        Ok(Self::new_for_fde(ctx, fde))
     }
-}
 
-/// # Signal Safe Methods
-///
-/// These methods are guaranteed not to allocate, acquire locks, or perform any
-/// other signal-unsafe operations.
-impl<'cie, 'fde, 'ctx, R: Reader> UnwindTable<'cie, 'fde, 'ctx, R> {
-    fn new_internal(
+    fn new_for_fde(
         ctx: &'ctx mut UnwindContext<R>,
-        cie: &'cie CommonInformationEntry<R>,
-        fde: Option<&'fde FrameDescriptionEntry<R>>,
-    ) -> UnwindTable<'cie, 'fde, 'ctx, R> {
+        fde: &FrameDescriptionEntry<R>,
+    ) -> UnwindTable<'ctx, R> {
         assert!(ctx.stack.len() >= 1);
-        let next_start_address = fde.map_or(0, |fde| fde.initial_address());
-        let instructions = fde.map_or_else(|| cie.instructions(), |fde| fde.instructions());
         UnwindTable {
-            ctx,
-            cie,
-            next_start_address,
+            code_alignment_factor: fde.cie().code_alignment_factor(),
+            data_alignment_factor: fde.cie().data_alignment_factor(),
+            next_start_address: fde.initial_address(),
+            last_end_address: fde.initial_address() + fde.len(),
             returned_last_row: false,
-            instructions,
-            fde,
+            instructions: fde.instructions(),
+            ctx,
+        }
+    }
+    fn new_for_cie(
+        ctx: &'ctx mut UnwindContext<R>,
+        cie: &CommonInformationEntry<R>,
+    ) -> UnwindTable<'ctx, R> {
+        assert!(ctx.stack.len() >= 1);
+        UnwindTable {
+            code_alignment_factor: cie.code_alignment_factor(),
+            data_alignment_factor: cie.data_alignment_factor(),
+            next_start_address: 0,
+            last_end_address: 0,
+            returned_last_row: false,
+            instructions: cie.instructions(),
+            ctx,
         }
     }
 
@@ -1991,11 +2021,7 @@ impl<'cie, 'fde, 'ctx, R: Reader> UnwindTable<'cie, 'fde, 'ctx, R> {
                     }
 
                     let row = self.ctx.row_mut();
-                    row.end_address = if let Some(fde) = self.fde {
-                        fde.initial_address() + fde.len()
-                    } else {
-                        0
-                    };
+                    row.end_address = self.last_end_address;
 
                     self.returned_last_row = true;
                     return Ok(Some(row));
@@ -2044,7 +2070,7 @@ impl<'cie, 'fde, 'ctx, R: Reader> UnwindTable<'cie, 'fde, 'ctx, R> {
                 register,
                 factored_offset,
             } => {
-                let data_align = self.cie.data_alignment_factor();
+                let data_align = self.data_alignment_factor;
                 self.ctx.set_cfa(CfaRule::RegisterAndOffset {
                     register,
                     offset: factored_offset * data_align,
@@ -2078,7 +2104,7 @@ impl<'cie, 'fde, 'ctx, R: Reader> UnwindTable<'cie, 'fde, 'ctx, R> {
                     ..
                 } = *self.ctx.cfa_mut()
                 {
-                    let data_align = self.cie.data_alignment_factor();
+                    let data_align = self.data_alignment_factor;
                     *off = factored_offset * data_align;
                 } else {
                     return Err(Error::CfiInstructionInInvalidContext);
@@ -2101,7 +2127,7 @@ impl<'cie, 'fde, 'ctx, R: Reader> UnwindTable<'cie, 'fde, 'ctx, R> {
                 register,
                 factored_offset,
             } => {
-                let offset = factored_offset as i64 * self.cie.data_alignment_factor;
+                let offset = factored_offset as i64 * self.data_alignment_factor;
                 self.ctx
                     .set_register_rule(register, RegisterRule::Offset(offset))?;
             }
@@ -2109,7 +2135,7 @@ impl<'cie, 'fde, 'ctx, R: Reader> UnwindTable<'cie, 'fde, 'ctx, R> {
                 register,
                 factored_offset,
             } => {
-                let offset = factored_offset * self.cie.data_alignment_factor();
+                let offset = factored_offset * self.data_alignment_factor;
                 self.ctx
                     .set_register_rule(register, RegisterRule::Offset(offset))?;
             }
@@ -2117,7 +2143,7 @@ impl<'cie, 'fde, 'ctx, R: Reader> UnwindTable<'cie, 'fde, 'ctx, R> {
                 register,
                 factored_offset,
             } => {
-                let offset = factored_offset as i64 * self.cie.data_alignment_factor();
+                let offset = factored_offset as i64 * self.data_alignment_factor;
                 self.ctx
                     .set_register_rule(register, RegisterRule::ValOffset(offset))?;
             }
@@ -2125,7 +2151,7 @@ impl<'cie, 'fde, 'ctx, R: Reader> UnwindTable<'cie, 'fde, 'ctx, R> {
                 register,
                 factored_offset,
             } => {
-                let offset = factored_offset * self.cie.data_alignment_factor();
+                let offset = factored_offset * self.data_alignment_factor;
                 self.ctx
                     .set_register_rule(register, RegisterRule::ValOffset(offset))?;
             }
@@ -3129,10 +3155,10 @@ mod tests {
         R: Reader,
         Section: UnwindSection<R, Offset = O>,
         O: UnwindOffset<R::Offset>,
-        F: FnMut(O) -> Result<CommonInformationEntry<R>>,
+        F: FnMut(&Section, &BaseAddresses, O) -> Result<CommonInformationEntry<R>>,
     {
         let bases = Default::default();
-        match parse_cfi_entry(&bases, section, input) {
+        match parse_cfi_entry(&bases, &section, input) {
             Ok(Some(CieOrFde::Fde(partial))) => partial.parse(get_cie),
             Ok(_) => Err(Error::NoEntryAtGivenOffset),
             Err(e) => Err(e),
@@ -3319,12 +3345,10 @@ mod tests {
         kind: SectionKind<DebugFrame<EndianSlice<'input, E>>>,
         section: Section,
         address_size: u8,
-        expected: Result<
-            Option<(
-                EndianSlice<'input, E>,
-                CommonInformationEntry<EndianSlice<'input, E>>,
-            )>,
-        >,
+        expected: Result<(
+            EndianSlice<'input, E>,
+            CommonInformationEntry<EndianSlice<'input, E>>,
+        )>,
     ) where
         E: Endianity,
     {
@@ -3334,7 +3358,7 @@ mod tests {
         let input = &mut EndianSlice::new(&section, E::default());
         let bases = Default::default();
         let result = CommonInformationEntry::parse(&bases, &debug_frame, input);
-        let result = result.map(|option| option.map(|cie| (*input, cie)));
+        let result = result.map(|cie| (*input, cie));
         assert_eq!(result, expected);
     }
 
@@ -3461,7 +3485,7 @@ mod tests {
             kind,
             section,
             address_size,
-            Ok(Some((EndianSlice::new(&expected_rest, LittleEndian), cie))),
+            Ok((EndianSlice::new(&expected_rest, LittleEndian), cie)),
         );
     }
 
@@ -3529,7 +3553,7 @@ mod tests {
         let debug_frame = kind.section(&section);
         let rest = &mut EndianSlice::new(&section, LittleEndian);
         assert_eq!(
-            parse_fde(debug_frame, rest, |_| unreachable!()),
+            parse_fde(debug_frame, rest, UnwindSection::cie_from_offset),
             Err(Error::UnexpectedEof)
         );
     }
@@ -3544,7 +3568,7 @@ mod tests {
         let debug_frame = kind.section(&section);
         let rest = &mut EndianSlice::new(&section, LittleEndian);
         assert_eq!(
-            parse_fde(debug_frame, rest, |_| unreachable!()),
+            parse_fde(debug_frame, rest, UnwindSection::cie_from_offset),
             Err(Error::UnexpectedEof)
         );
     }
@@ -3560,7 +3584,7 @@ mod tests {
         let debug_frame = kind.section(&section);
         let rest = &mut EndianSlice::new(&section, BigEndian);
         assert_eq!(
-            parse_fde(debug_frame, rest, |_| unreachable!()),
+            parse_fde(debug_frame, rest, UnwindSection::cie_from_offset),
             Err(Error::UnexpectedEof)
         );
     }
@@ -3607,7 +3631,7 @@ mod tests {
         let debug_frame = kind.section(&section);
         let rest = &mut EndianSlice::new(&section, LittleEndian);
 
-        let get_cie = |offset| {
+        let get_cie = |_: &_, _: &_, offset| {
             assert_eq!(offset, DebugFrameOffset(cie_offset as usize));
             Ok(cie.clone())
         };
@@ -3657,7 +3681,7 @@ mod tests {
         let debug_frame = kind.section(&section);
         let rest = &mut EndianSlice::new(&section, LittleEndian);
 
-        let get_cie = |offset| {
+        let get_cie = |_: &_, _: &_, offset| {
             assert_eq!(offset, DebugFrameOffset(cie_offset as usize));
             Ok(cie.clone())
         };
@@ -3707,7 +3731,7 @@ mod tests {
         let debug_frame = kind.section(&section);
         let rest = &mut EndianSlice::new(&section, LittleEndian);
 
-        let get_cie = |offset| {
+        let get_cie = |_: &_, _: &_, offset| {
             assert_eq!(offset, DebugFrameOffset(cie_offset as usize));
             Ok(cie.clone())
         };
@@ -3745,7 +3769,7 @@ mod tests {
 
         let bases = Default::default();
         assert_eq!(
-            parse_cfi_entry(&bases, debug_frame, rest),
+            parse_cfi_entry(&bases, &debug_frame, rest),
             Ok(Some(CieOrFde::Cie(cie)))
         );
         assert_eq!(*rest, EndianSlice::new(&expected_rest, BigEndian));
@@ -3793,7 +3817,7 @@ mod tests {
         let rest = &mut EndianSlice::new(&section, BigEndian);
 
         let bases = Default::default();
-        match parse_cfi_entry(&bases, debug_frame, rest) {
+        match parse_cfi_entry(&bases, &debug_frame, rest) {
             Ok(Some(CieOrFde::Fde(partial))) => {
                 assert_eq!(*rest, EndianSlice::new(&expected_rest, BigEndian));
 
@@ -3801,7 +3825,7 @@ mod tests {
                 assert_eq!(partial.format, fde.format);
                 assert_eq!(partial.cie_offset, DebugFrameOffset(cie_offset as usize));
 
-                let get_cie = |offset| {
+                let get_cie = |_: &_, _: &_, offset| {
                     assert_eq!(offset, DebugFrameOffset(cie_offset as usize));
                     Ok(cie.clone())
                 };
@@ -3912,7 +3936,7 @@ mod tests {
                 assert_eq!(partial.format, fde1.format);
                 assert_eq!(partial.cie_offset, DebugFrameOffset(cie1_offset));
 
-                let get_cie = |offset| {
+                let get_cie = |_: &_, _: &_, offset| {
                     assert_eq!(offset, DebugFrameOffset(cie1_offset));
                     Ok(cie1.clone())
                 };
@@ -3927,7 +3951,7 @@ mod tests {
                 assert_eq!(partial.format, fde2.format);
                 assert_eq!(partial.cie_offset, DebugFrameOffset(cie2_offset));
 
-                let get_cie = |offset| {
+                let get_cie = |_: &_, _: &_, offset| {
                     assert_eq!(offset, DebugFrameOffset(cie2_offset));
                     Ok(cie2.clone())
                 };
@@ -4613,7 +4637,10 @@ mod tests {
         >,
     {
         {
-            let mut table = UnwindTable::new_internal(&mut initial_ctx, &cie, fde.as_ref());
+            let mut table = match fde {
+                Some(fde) => UnwindTable::new_for_fde(&mut initial_ctx, &fde),
+                None => UnwindTable::new_for_cie(&mut initial_ctx, &cie),
+            };
             for &(ref expected_result, ref instruction) in instructions.as_ref() {
                 assert_eq!(*expected_result, table.evaluate(instruction.clone()));
             }
@@ -5326,7 +5353,12 @@ mod tests {
         // Get the second row of the unwind table in `instrs3`.
         let bases = Default::default();
         let mut ctx = UninitializedUnwindContext::new();
-        let result = debug_frame.unwind_info_for_address(&bases, &mut ctx, 0xfeed_beef + 150);
+        let result = debug_frame.unwind_info_for_address(
+            &bases,
+            &mut ctx,
+            0xfeed_beef + 150,
+            DebugFrame::cie_from_offset,
+        );
         assert!(result.is_ok());
         let unwind_info = result.unwrap();
 
@@ -5352,7 +5384,12 @@ mod tests {
         let debug_frame = DebugFrame::new(&[], NativeEndian);
         let bases = Default::default();
         let mut ctx = UninitializedUnwindContext::new();
-        let result = debug_frame.unwind_info_for_address(&bases, &mut ctx, 0xbadb_ad99);
+        let result = debug_frame.unwind_info_for_address(
+            &bases,
+            &mut ctx,
+            0xbadb_ad99,
+            DebugFrame::cie_from_offset,
+        );
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), Error::NoUnwindInfoForAddress);
     }
@@ -5522,7 +5559,7 @@ mod tests {
     }
 
     #[test]
-    fn test_eh_frame_lookup_parse_good() {
+    fn test_eh_frame_fde_for_address_good() {
         // First, setup eh_frame
         // Write the CIE first so that its length gets set before we clone it
         // into the FDE.
@@ -5603,30 +5640,30 @@ mod tests {
 
         let bases = Default::default();
 
-        let f = |o: EhFrameOffset| {
+        let f = |_: &_, _: &_, o: EhFrameOffset| {
             assert_eq!(o, EhFrameOffset(start_of_cie.value().unwrap() as usize));
             Ok(cie.clone())
         };
         assert_eq!(
-            table.lookup_and_parse(9, &bases, eh_frame, f),
+            table.fde_for_address(eh_frame, &bases, 9, f),
             Ok(fde1.clone())
         );
         assert_eq!(
-            table.lookup_and_parse(10, &bases, eh_frame, f),
+            table.fde_for_address(eh_frame, &bases, 10, f),
             Ok(fde1.clone())
         );
-        assert_eq!(table.lookup_and_parse(11, &bases, eh_frame, f), Ok(fde1));
+        assert_eq!(table.fde_for_address(eh_frame, &bases, 11, f), Ok(fde1));
         assert_eq!(
-            table.lookup_and_parse(19, &bases, eh_frame, f),
+            table.fde_for_address(eh_frame, &bases, 19, f),
             Err(Error::NoUnwindInfoForAddress)
         );
         assert_eq!(
-            table.lookup_and_parse(20, &bases, eh_frame, f),
+            table.fde_for_address(eh_frame, &bases, 20, f),
             Ok(fde2.clone())
         );
-        assert_eq!(table.lookup_and_parse(21, &bases, eh_frame, f), Ok(fde2));
+        assert_eq!(table.fde_for_address(eh_frame, &bases, 21, f), Ok(fde2));
         assert_eq!(
-            table.lookup_and_parse(100_000, &bases, eh_frame, f),
+            table.fde_for_address(eh_frame, &bases, 100_000, f),
             Err(Error::NoUnwindInfoForAddress)
         );
     }
@@ -5639,7 +5676,7 @@ mod tests {
         let bases = Default::default();
 
         assert_eq!(
-            parse_cfi_entry(&bases, EhFrame::new(&*section, LittleEndian), rest),
+            parse_cfi_entry(&bases, &EhFrame::new(&*section, LittleEndian), rest),
             Ok(None)
         );
 
@@ -5649,30 +5686,63 @@ mod tests {
         );
     }
 
+    fn resolve_cie_offset(buf: &[u8], cie_offset: usize) -> Result<usize> {
+        let mut fde = FrameDescriptionEntry {
+            offset: 0,
+            length: 0,
+            format: Format::Dwarf64,
+            cie: make_test_cie(),
+            initial_segment: 0,
+            initial_address: 0xfeed_beef,
+            address_range: 39,
+            augmentation: None,
+            instructions: EndianSlice::new(&[], LittleEndian),
+        };
+
+        let kind = eh_frame_le();
+        let section = Section::with_endian(kind.endian())
+            .append_bytes(&buf)
+            .fde(kind, cie_offset as u64, &mut fde)
+            .append_bytes(&buf);
+
+        let section = section.get_contents().unwrap();
+        let eh_frame = kind.section(&section);
+        let input = &mut EndianSlice::new(&section[buf.len()..], LittleEndian);
+
+        let bases = Default::default();
+        match parse_cfi_entry(&bases, &eh_frame, input) {
+            Ok(Some(CieOrFde::Fde(partial))) => Ok(partial.cie_offset.0),
+            Err(e) => Err(e),
+            otherwise => panic!("Unexpected result: {:#?}", otherwise),
+        }
+    }
+
     #[test]
     fn test_eh_frame_resolve_cie_offset_ok() {
         let buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let section = EhFrame::new(&buf, BigEndian);
-        let subslice = EndianSlice::new(&buf[6..8], BigEndian);
-        assert_eq!(section.resolve_cie_offset(subslice, 4), Some(2));
+        let cie_offset = 2;
+        // + 4 for size of length field
+        assert_eq!(
+            resolve_cie_offset(&buf, buf.len() + 4 - cie_offset),
+            Ok(cie_offset)
+        );
     }
 
     #[test]
     fn test_eh_frame_resolve_cie_offset_out_of_bounds() {
         let buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let section = EhFrame::new(&buf, BigEndian);
-        let subslice = EndianSlice::new(&buf[6..8], BigEndian);
-        assert_eq!(section.resolve_cie_offset(subslice, 7), None);
+        assert_eq!(
+            resolve_cie_offset(&buf, buf.len() + 4 + 2),
+            Err(Error::OffsetOutOfBounds)
+        );
     }
 
     #[test]
     fn test_eh_frame_resolve_cie_offset_underflow() {
         let buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let section = EhFrame::new(&buf, BigEndian);
-        let subslice = EndianSlice::new(&buf[6..8], BigEndian);
         assert_eq!(
-            section.resolve_cie_offset(subslice, ::std::usize::MAX),
-            None
+            resolve_cie_offset(&buf, ::std::usize::MAX),
+            Err(Error::OffsetOutOfBounds)
         );
     }
 
@@ -5719,7 +5789,7 @@ mod tests {
         match parse_fde(
             eh_frame,
             &mut section.range_from(end_of_cie.value().unwrap() as usize..),
-            |o| {
+            |_, _, o| {
                 offset = Some(o);
                 assert_eq!(o, EhFrameOffset(start_of_cie.value().unwrap() as usize));
                 Ok(cie.clone())
@@ -5764,7 +5834,7 @@ mod tests {
         let result = parse_fde(
             eh_frame,
             &mut section.range_from(end_of_cie.value().unwrap() as usize..),
-            |_| unreachable!(),
+            UnwindSection::cie_from_offset,
         );
         assert_eq!(result, Err(Error::OffsetOutOfBounds));
     }
@@ -5977,7 +6047,7 @@ mod tests {
         let section = kind.section(&section);
         let input = &mut section.section().clone();
 
-        let result = parse_fde(section, input, |_| Ok(cie.clone()));
+        let result = parse_fde(section, input, |_, _, _| Ok(cie.clone()));
         assert_eq!(result, Ok(fde));
         assert_eq!(*input, EndianSlice::new(&rest, LittleEndian));
     }
@@ -6015,7 +6085,7 @@ mod tests {
         let section = kind.section(&section);
         let input = &mut section.section().clone();
 
-        let result = parse_fde(section, input, |_| Ok(cie.clone()));
+        let result = parse_fde(section, input, |_, _, _| Ok(cie.clone()));
         assert_eq!(result, Ok(fde));
         assert_eq!(*input, EndianSlice::new(&rest, LittleEndian));
     }
@@ -6056,7 +6126,7 @@ mod tests {
         let section = kind.section(&section);
         let input = &mut section.section().clone();
 
-        let result = parse_fde(section, input, |_| Ok(cie.clone()));
+        let result = parse_fde(section, input, |_, _, _| Ok(cie.clone()));
         assert_eq!(result, Ok(fde));
         assert_eq!(*input, EndianSlice::new(&rest, LittleEndian));
     }
@@ -6103,7 +6173,7 @@ mod tests {
         // Adjust the FDE's augmentation to be relative to the section.
         fde.augmentation.as_mut().unwrap().lsda = Some(Pointer::Direct(19));
 
-        let result = parse_fde(section, input, |_| Ok(cie.clone()));
+        let result = parse_fde(section, input, |_, _, _| Ok(cie.clone()));
         assert_eq!(result, Ok(fde));
         assert_eq!(*input, EndianSlice::new(&rest, LittleEndian));
     }
