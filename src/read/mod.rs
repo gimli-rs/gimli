@@ -244,6 +244,8 @@ pub enum Error {
     /// Found a function relative pointer in a context that does not have a
     /// function base.
     FuncRelativePointerInBadContext,
+    /// Cannot parse a pointer with a `DW_EH_PE_omit` encoding.
+    CannotParseOmitPointerEncoding,
     /// An error parsing an unsigned LEB128 value.
     BadUnsignedLeb128,
     /// An error parsing a signed LEB128 value.
@@ -406,6 +408,9 @@ impl Error {
             }
             Error::FuncRelativePointerInBadContext => {
                 "Found a function relative pointer in a context that does not have a function base."
+            }
+            Error::CannotParseOmitPointerEncoding => {
+                "Cannot parse a pointer with a `DW_EH_PE_omit` encoding."
             }
             Error::BadUnsignedLeb128 => "An error parsing an unsigned LEB128 value",
             Error::BadSignedLeb128 => "An error parsing a signed LEB128 value",

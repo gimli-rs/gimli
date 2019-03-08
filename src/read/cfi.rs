@@ -136,9 +136,8 @@ impl<R: Reader> EhFrameHdr<R> {
 
         // Omitting this pointer is not valid (defeats the purpose of .eh_frame_hdr entirely)
         if eh_frame_ptr_enc == constants::DW_EH_PE_omit {
-            return Err(Error::UnexpectedNull);
+            return Err(Error::CannotParseOmitPointerEncoding);
         }
-
         let eh_frame_ptr = parse_encoded_pointer(
             eh_frame_ptr_enc,
             &bases.eh_frame_hdr,
@@ -147,18 +146,24 @@ impl<R: Reader> EhFrameHdr<R> {
             &self.0,
             &mut reader,
         )?;
-        let fde_count = parse_encoded_pointer(
-            fde_count_enc,
-            &bases.eh_frame_hdr,
-            None,
-            address_size,
-            &self.0,
-            &mut reader,
-        )?;
-        let fde_count = match fde_count {
-            Pointer::Direct(c) => c,
-            Pointer::Indirect(_) => return Err(Error::UnsupportedPointerEncoding),
-        };
+
+        let fde_count;
+        if fde_count_enc == constants::DW_EH_PE_omit || table_enc == constants::DW_EH_PE_omit {
+            fde_count = 0
+        } else {
+            let ptr = parse_encoded_pointer(
+                fde_count_enc,
+                &bases.eh_frame_hdr,
+                None,
+                address_size,
+                &self.0,
+                &mut reader,
+            )?;
+            fde_count = match ptr {
+                Pointer::Direct(c) => c,
+                Pointer::Indirect(_) => return Err(Error::UnsupportedPointerEncoding),
+            }
+        }
 
         Ok(ParsedEhFrameHdr {
             address_size,
@@ -201,7 +206,7 @@ impl<R: Reader> ParsedEhFrameHdr<R> {
         //   is too low. After all, we're just doing a normal binary search.
         // * This falls apart when the table is empty - there is no entry we could
         //   return. We conclude that an empty table is not really a table at all.
-        if (self.fde_count == 0) || (self.table_enc == constants::DW_EH_PE_omit) {
+        if self.fde_count == 0 {
             None
         } else {
             Some(EhHdrTable { hdr: self })
@@ -3153,9 +3158,8 @@ fn parse_encoded_pointer<'bases, R: Reader>(
         return Err(Error::UnknownPointerEncoding);
     }
 
-    // FIXME: return an error instead
     if encoding == constants::DW_EH_PE_omit {
-        return Ok(Pointer::Direct(0));
+        return Err(Error::CannotParseOmitPointerEncoding);
     }
 
     let base = match encoding.application() {
@@ -5546,7 +5550,7 @@ mod tests {
         let bases = BaseAddresses::default();
         let result = EhFrameHdr::new(&section, LittleEndian).parse(&bases, 8);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), Error::UnexpectedNull);
+        assert_eq!(result.unwrap_err(), Error::CannotParseOmitPointerEncoding);
     }
 
     #[test]
@@ -6861,7 +6865,7 @@ mod tests {
 
         assert_eq!(
             parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
-            Ok(Pointer::default())
+            Err(Error::CannotParseOmitPointerEncoding)
         );
         assert_eq!(rest, input);
     }
