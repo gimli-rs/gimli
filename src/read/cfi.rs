@@ -134,31 +134,24 @@ impl<R: Reader> EhFrameHdr<R> {
         let fde_count_enc = parse_pointer_encoding(&mut reader)?;
         let table_enc = parse_pointer_encoding(&mut reader)?;
 
+        let parameters = PointerEncodingParameters {
+            bases: &bases.eh_frame_hdr,
+            func_base: None,
+            address_size,
+            section: &self.0,
+        };
+
         // Omitting this pointer is not valid (defeats the purpose of .eh_frame_hdr entirely)
         if eh_frame_ptr_enc == constants::DW_EH_PE_omit {
             return Err(Error::CannotParseOmitPointerEncoding);
         }
-        let eh_frame_ptr = parse_encoded_pointer(
-            eh_frame_ptr_enc,
-            &bases.eh_frame_hdr,
-            None,
-            address_size,
-            &self.0,
-            &mut reader,
-        )?;
+        let eh_frame_ptr = parse_encoded_pointer(eh_frame_ptr_enc, &parameters, &mut reader)?;
 
         let fde_count;
         if fde_count_enc == constants::DW_EH_PE_omit || table_enc == constants::DW_EH_PE_omit {
             fde_count = 0
         } else {
-            let ptr = parse_encoded_pointer(
-                fde_count_enc,
-                &bases.eh_frame_hdr,
-                None,
-                address_size,
-                &self.0,
-                &mut reader,
-            )?;
+            let ptr = parse_encoded_pointer(fde_count_enc, &parameters, &mut reader)?;
             fde_count = match ptr {
                 Pointer::Direct(c) => c,
                 Pointer::Indirect(_) => return Err(Error::UnsupportedPointerEncoding),
@@ -244,18 +237,18 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
 
         let mut reader = self.hdr.table.clone();
 
+        let parameters = PointerEncodingParameters {
+            bases: &bases.eh_frame_hdr,
+            func_base: None,
+            address_size: self.hdr.address_size,
+            section: &self.hdr.section,
+        };
+
         while len > 1 {
             let head = reader.split(R::Offset::from_u64((len / 2) * row_size)?)?;
             let tail = reader.clone();
 
-            let pivot = parse_encoded_pointer(
-                self.hdr.table_enc,
-                &bases.eh_frame_hdr,
-                None,
-                self.hdr.address_size,
-                &self.hdr.section,
-                &mut reader,
-            )?;
+            let pivot = parse_encoded_pointer(self.hdr.table_enc, &parameters, &mut reader)?;
             let pivot = match pivot {
                 Pointer::Direct(x) => x,
                 Pointer::Indirect(_) => return Err(Error::UnsupportedPointerEncoding),
@@ -279,14 +272,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
 
         reader.skip(R::Offset::from_u64(size)?)?;
 
-        parse_encoded_pointer(
-            self.hdr.table_enc,
-            &bases.eh_frame_hdr,
-            None,
-            self.hdr.address_size,
-            &self.hdr.section,
-            &mut reader,
-        )
+        parse_encoded_pointer(self.hdr.table_enc, &parameters, &mut reader)
     }
 
     /// Convert a `Pointer` to a section offset.
@@ -1129,14 +1115,14 @@ impl Augmentation {
                 }
                 b'P' => {
                     let encoding = parse_pointer_encoding(rest)?;
-                    let personality = parse_encoded_pointer(
-                        encoding,
-                        &bases.eh_frame,
-                        None,
+                    let parameters = PointerEncodingParameters {
+                        bases: &bases.eh_frame,
+                        func_base: None,
                         address_size,
-                        section.section(),
-                        rest,
-                    )?;
+                        section: section.section(),
+                    };
+
+                    let personality = parse_encoded_pointer(encoding, &parameters, rest)?;
                     augmentation.personality = Some(personality);
                 }
                 b'R' => {
@@ -1159,18 +1145,11 @@ struct AugmentationData {
 }
 
 impl AugmentationData {
-    fn parse<Section, R>(
+    fn parse<R: Reader>(
         augmentation: &Augmentation,
-        bases: &BaseAddresses,
-        fde_address: u64,
-        address_size: u8,
-        section: &Section,
+        encoding_parameters: &PointerEncodingParameters<R>,
         input: &mut R,
-    ) -> Result<AugmentationData>
-    where
-        R: Reader,
-        Section: UnwindSection<R>,
-    {
+    ) -> Result<AugmentationData> {
         // In theory, we should be iterating over the original augmentation
         // string, interpreting each character, and reading the appropriate bits
         // out of the augmentation data as we go. However, the only character
@@ -1181,14 +1160,7 @@ impl AugmentationData {
         let rest = &mut input.split(aug_data_len)?;
         let mut augmentation_data = AugmentationData::default();
         if let Some(encoding) = augmentation.lsda {
-            let lsda = parse_encoded_pointer(
-                encoding,
-                &bases.eh_frame,
-                Some(fde_address),
-                address_size,
-                section.section(),
-                rest,
-            )?;
+            let lsda = parse_encoded_pointer(encoding, encoding_parameters, rest)?;
             augmentation_data.lsda = Some(lsda);
         }
         Ok(augmentation_data)
@@ -1525,16 +1497,20 @@ impl<R: Reader> FrameDescriptionEntry<R> {
             0
         };
 
-        let (initial_address, address_range) =
-            Self::parse_addresses(&mut rest, &cie, bases, section)?;
+        let mut parameters = PointerEncodingParameters {
+            bases: &bases.eh_frame,
+            func_base: None,
+            address_size: cie.address_size,
+            section: section.section(),
+        };
+
+        let (initial_address, address_range) = Self::parse_addresses(&mut rest, &cie, &parameters)?;
+        parameters.func_base = Some(initial_address);
 
         let aug_data = if let Some(ref augmentation) = cie.augmentation {
             Some(AugmentationData::parse(
                 augmentation,
-                bases,
-                initial_address,
-                cie.address_size,
-                section,
+                &parameters,
                 &mut rest,
             )?)
         } else {
@@ -1556,36 +1532,21 @@ impl<R: Reader> FrameDescriptionEntry<R> {
         Ok(entry)
     }
 
-    fn parse_addresses<Section: UnwindSection<R>>(
+    fn parse_addresses(
         input: &mut R,
         cie: &CommonInformationEntry<R>,
-        bases: &BaseAddresses,
-        section: &Section,
+        parameters: &PointerEncodingParameters<R>,
     ) -> Result<(u64, u64)> {
         let encoding = cie.augmentation().and_then(|a| a.fde_address_encoding);
         if let Some(encoding) = encoding {
-            let initial_address = parse_encoded_pointer(
-                encoding,
-                &bases.eh_frame,
-                None,
-                cie.address_size,
-                section.section(),
-                input,
-            )?;
+            let initial_address = parse_encoded_pointer(encoding, parameters, input)?;
 
             // Ignore indirection.
             let initial_address = initial_address.into();
 
             // Address ranges cannot be relative to anything, so just grab the
             // data format bits from the encoding.
-            let address_range = parse_encoded_pointer(
-                encoding.format(),
-                &bases.eh_frame,
-                None,
-                cie.address_size,
-                section.section(),
-                input,
-            )?;
+            let address_range = parse_encoded_pointer(encoding.format(), parameters, input)?;
             Ok((initial_address, address_range.into()))
         } else {
             let initial_address = input.read_address(cie.address_size)?;
@@ -3145,12 +3106,16 @@ impl Pointer {
     }
 }
 
-fn parse_encoded_pointer<'bases, R: Reader>(
-    encoding: constants::DwEhPe,
-    bases: &'bases SectionBaseAddresses,
+struct PointerEncodingParameters<'a, R: Reader> {
+    bases: &'a SectionBaseAddresses,
     func_base: Option<u64>,
     address_size: u8,
-    section: &R,
+    section: &'a R,
+}
+
+fn parse_encoded_pointer<R: Reader>(
+    encoding: constants::DwEhPe,
+    parameters: &PointerEncodingParameters<R>,
     input: &mut R,
 ) -> Result<Pointer> {
     // TODO: check this once only in parse_pointer_encoding
@@ -3165,29 +3130,29 @@ fn parse_encoded_pointer<'bases, R: Reader>(
     let base = match encoding.application() {
         constants::DW_EH_PE_absptr => 0,
         constants::DW_EH_PE_pcrel => {
-            if let Some(section_base) = bases.section {
-                let offset_from_section = input.offset_from(section);
+            if let Some(section_base) = parameters.bases.section {
+                let offset_from_section = input.offset_from(parameters.section);
                 section_base.wrapping_add(offset_from_section.into_u64())
             } else {
                 return Err(Error::PcRelativePointerButSectionBaseIsUndefined);
             }
         }
         constants::DW_EH_PE_textrel => {
-            if let Some(text) = bases.text {
+            if let Some(text) = parameters.bases.text {
                 text
             } else {
                 return Err(Error::TextRelativePointerButTextBaseIsUndefined);
             }
         }
         constants::DW_EH_PE_datarel => {
-            if let Some(data) = bases.data {
+            if let Some(data) = parameters.bases.data {
                 data
             } else {
                 return Err(Error::DataRelativePointerButDataBaseIsUndefined);
             }
         }
         constants::DW_EH_PE_funcrel => {
-            if let Some(func) = func_base {
+            if let Some(func) = parameters.func_base {
                 func
             } else {
                 return Err(Error::FuncRelativePointerInBadContext);
@@ -3199,7 +3164,7 @@ fn parse_encoded_pointer<'bases, R: Reader>(
 
     let offset = match encoding.format() {
         // Unsigned variants.
-        constants::DW_EH_PE_absptr => input.read_address(address_size),
+        constants::DW_EH_PE_absptr => input.read_address(parameters.address_size),
         constants::DW_EH_PE_uleb128 => input.read_uleb128(),
         constants::DW_EH_PE_udata2 => input.read_u16().map(u64::from),
         constants::DW_EH_PE_udata4 => input.read_u32().map(u64::from),
@@ -6493,8 +6458,6 @@ mod tests {
     #[test]
     fn test_parse_encoded_pointer_absptr() {
         let encoding = constants::DW_EH_PE_absptr;
-        let bases = Default::default();
-        let address_size = 4;
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
@@ -6504,8 +6467,14 @@ mod tests {
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Ok(Pointer::Direct(0xf00d_f00d))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
@@ -6514,10 +6483,6 @@ mod tests {
     #[test]
     fn test_parse_encoded_pointer_pcrel() {
         let encoding = constants::DW_EH_PE_pcrel;
-
-        let bases = BaseAddresses::default().set_eh_frame(0x100).eh_frame;
-
-        let address_size = 4;
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
@@ -6528,8 +6493,14 @@ mod tests {
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input.range_from(0x10..);
 
+        let parameters = PointerEncodingParameters {
+            bases: &BaseAddresses::default().set_eh_frame(0x100).eh_frame,
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Ok(Pointer::Direct(0x111))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
@@ -6538,16 +6509,20 @@ mod tests {
     #[test]
     fn test_parse_encoded_pointer_pcrel_undefined() {
         let encoding = constants::DW_EH_PE_pcrel;
-        let bases = SectionBaseAddresses::default();
-        let address_size = 4;
 
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Err(Error::PcRelativePointerButSectionBaseIsUndefined)
         );
     }
@@ -6555,10 +6530,6 @@ mod tests {
     #[test]
     fn test_parse_encoded_pointer_textrel() {
         let encoding = constants::DW_EH_PE_textrel;
-
-        let bases = BaseAddresses::default().set_text(0x10).eh_frame;
-
-        let address_size = 4;
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
@@ -6568,8 +6539,14 @@ mod tests {
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &BaseAddresses::default().set_text(0x10).eh_frame,
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Ok(Pointer::Direct(0x11))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
@@ -6578,16 +6555,20 @@ mod tests {
     #[test]
     fn test_parse_encoded_pointer_textrel_undefined() {
         let encoding = constants::DW_EH_PE_textrel;
-        let bases = SectionBaseAddresses::default();
-        let address_size = 4;
 
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Err(Error::TextRelativePointerButTextBaseIsUndefined)
         );
     }
@@ -6595,10 +6576,6 @@ mod tests {
     #[test]
     fn test_parse_encoded_pointer_datarel() {
         let encoding = constants::DW_EH_PE_datarel;
-
-        let bases = BaseAddresses::default().set_got(0x10).eh_frame;
-
-        let address_size = 4;
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
@@ -6608,8 +6585,14 @@ mod tests {
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &BaseAddresses::default().set_got(0x10).eh_frame,
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Ok(Pointer::Direct(0x11))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
@@ -6618,16 +6601,20 @@ mod tests {
     #[test]
     fn test_parse_encoded_pointer_datarel_undefined() {
         let encoding = constants::DW_EH_PE_datarel;
-        let bases = SectionBaseAddresses::default();
-        let address_size = 4;
 
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Err(Error::DataRelativePointerButDataBaseIsUndefined)
         );
     }
@@ -6635,11 +6622,6 @@ mod tests {
     #[test]
     fn test_parse_encoded_pointer_funcrel() {
         let encoding = constants::DW_EH_PE_funcrel;
-
-        let bases = SectionBaseAddresses::default();
-        let func_base = Some(0x10);
-
-        let address_size = 4;
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
@@ -6649,8 +6631,14 @@ mod tests {
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: Some(0x10),
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, func_base, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Ok(Pointer::Direct(0x11))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
@@ -6659,16 +6647,20 @@ mod tests {
     #[test]
     fn test_parse_encoded_pointer_funcrel_undefined() {
         let encoding = constants::DW_EH_PE_funcrel;
-        let bases = SectionBaseAddresses::default();
-        let address_size = 4;
 
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Err(Error::FuncRelativePointerInBadContext)
         );
     }
@@ -6677,8 +6669,6 @@ mod tests {
     fn test_parse_encoded_pointer_uleb128() {
         let encoding =
             constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_uleb128.0);
-        let bases = SectionBaseAddresses::default();
-        let address_size = 4;
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
@@ -6688,8 +6678,14 @@ mod tests {
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Ok(Pointer::Direct(0x12_3456))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
@@ -6699,8 +6695,6 @@ mod tests {
     fn test_parse_encoded_pointer_udata2() {
         let encoding =
             constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_udata2.0);
-        let bases = SectionBaseAddresses::default();
-        let address_size = 4;
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
@@ -6710,8 +6704,14 @@ mod tests {
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Ok(Pointer::Direct(0x1234))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
@@ -6721,8 +6721,6 @@ mod tests {
     fn test_parse_encoded_pointer_udata4() {
         let encoding =
             constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_udata4.0);
-        let bases = SectionBaseAddresses::default();
-        let address_size = 4;
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
@@ -6732,8 +6730,14 @@ mod tests {
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Ok(Pointer::Direct(0x1234_5678))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
@@ -6743,8 +6747,6 @@ mod tests {
     fn test_parse_encoded_pointer_udata8() {
         let encoding =
             constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_udata8.0);
-        let bases = SectionBaseAddresses::default();
-        let address_size = 4;
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
@@ -6754,8 +6756,14 @@ mod tests {
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Ok(Pointer::Direct(0x1234_5678_1234_5678))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
@@ -6765,8 +6773,6 @@ mod tests {
     fn test_parse_encoded_pointer_sleb128() {
         let encoding =
             constants::DwEhPe(constants::DW_EH_PE_textrel.0 | constants::DW_EH_PE_sleb128.0);
-        let bases = BaseAddresses::default().set_text(0x1111_1111).eh_frame;
-        let address_size = 4;
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
@@ -6776,8 +6782,14 @@ mod tests {
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &BaseAddresses::default().set_text(0x1111_1111).eh_frame,
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Ok(Pointer::Direct(0x1111_0000))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
@@ -6787,8 +6799,6 @@ mod tests {
     fn test_parse_encoded_pointer_sdata2() {
         let encoding =
             constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_sdata2.0);
-        let bases = SectionBaseAddresses::default();
-        let address_size = 4;
         let expected_rest = [1, 2, 3, 4];
         let expected = 0x111 as i16;
 
@@ -6799,8 +6809,14 @@ mod tests {
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Ok(Pointer::Direct(expected as u64))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
@@ -6810,8 +6826,6 @@ mod tests {
     fn test_parse_encoded_pointer_sdata4() {
         let encoding =
             constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_sdata4.0);
-        let bases = SectionBaseAddresses::default();
-        let address_size = 4;
         let expected_rest = [1, 2, 3, 4];
         let expected = 0x111_1111 as i32;
 
@@ -6822,8 +6836,14 @@ mod tests {
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Ok(Pointer::Direct(expected as u64))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
@@ -6833,8 +6853,6 @@ mod tests {
     fn test_parse_encoded_pointer_sdata8() {
         let encoding =
             constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_sdata8.0);
-        let bases = SectionBaseAddresses::default();
-        let address_size = 4;
         let expected_rest = [1, 2, 3, 4];
         let expected = -0x11_1111_1222_2222 as i64;
 
@@ -6845,8 +6863,14 @@ mod tests {
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Ok(Pointer::Direct(expected as u64))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
@@ -6855,16 +6879,20 @@ mod tests {
     #[test]
     fn test_parse_encoded_pointer_omit() {
         let encoding = constants::DW_EH_PE_omit;
-        let bases = SectionBaseAddresses::default();
-        let address_size = 4;
 
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Err(Error::CannotParseOmitPointerEncoding)
         );
         assert_eq!(rest, input);
@@ -6873,16 +6901,20 @@ mod tests {
     #[test]
     fn test_parse_encoded_pointer_bad_encoding() {
         let encoding = constants::DwEhPe(constants::DW_EH_PE_sdata8.0 + 1);
-        let bases = SectionBaseAddresses::default();
-        let address_size = 4;
 
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Err(Error::UnknownPointerEncoding)
         );
     }
@@ -6892,16 +6924,20 @@ mod tests {
         // FIXME: support this encoding!
 
         let encoding = constants::DW_EH_PE_aligned;
-        let bases = SectionBaseAddresses::default();
-        let address_size = 4;
 
         let input = Section::with_endian(Endian::Little).L32(0x1);
         let input = input.get_contents().unwrap();
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Err(Error::UnsupportedPointerEncoding)
         );
     }
@@ -6909,10 +6945,7 @@ mod tests {
     #[test]
     fn test_parse_encoded_pointer_indirect() {
         let expected_rest = [1, 2, 3, 4];
-
         let encoding = constants::DW_EH_PE_indirect;
-        let bases = SectionBaseAddresses::default();
-        let address_size = 4;
 
         let input = Section::with_endian(Endian::Little)
             .L32(0x1234_5678)
@@ -6921,8 +6954,14 @@ mod tests {
         let input = EndianSlice::new(&input, LittleEndian);
         let mut rest = input;
 
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size: 4,
+            section: &input,
+        };
         assert_eq!(
-            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            parse_encoded_pointer(encoding, &parameters, &mut rest),
             Ok(Pointer::Indirect(0x1234_5678))
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
