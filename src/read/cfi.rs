@@ -10,10 +10,7 @@ use std::str;
 use crate::common::{DebugFrameOffset, EhFrameOffset, Format, Register};
 use crate::constants::{self, DwEhPe};
 use crate::endianity::Endianity;
-use crate::read::{
-    parse_encoded_pointer, parse_pointer_encoding, EndianSlice, Error, Expression, Pointer, Reader,
-    ReaderOffset, Result, Section,
-};
+use crate::read::{EndianSlice, Error, Expression, Reader, ReaderOffset, Result, Section};
 
 /// `DebugFrame` contains the `.debug_frame` section's frame unwinding
 /// information required to unwind to and recover registers from older frames on
@@ -3084,6 +3081,155 @@ impl<R: Reader> FallibleIterator for CallFrameInstructionIter<R> {
 
     fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
         CallFrameInstructionIter::next(self)
+    }
+}
+
+/// Parse a `DW_EH_PE_*` pointer encoding.
+#[doc(hidden)]
+#[inline]
+fn parse_pointer_encoding<R: Reader>(input: &mut R) -> Result<constants::DwEhPe> {
+    let eh_pe = input.read_u8()?;
+    let eh_pe = constants::DwEhPe(eh_pe);
+
+    if eh_pe.is_valid_encoding() {
+        Ok(eh_pe)
+    } else {
+        Err(Error::UnknownPointerEncoding)
+    }
+}
+
+/// A decoded pointer.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Pointer {
+    /// This value is the decoded pointer value.
+    Direct(u64),
+
+    /// This value is *not* the pointer value, but points to the address of
+    /// where the real pointer value lives. In other words, deref this pointer
+    /// to get the real pointer value.
+    ///
+    /// Chase this pointer at your own risk: do you trust the DWARF data it came
+    /// from?
+    Indirect(u64),
+}
+
+impl Default for Pointer {
+    #[inline]
+    fn default() -> Self {
+        Pointer::Direct(0)
+    }
+}
+
+impl Into<u64> for Pointer {
+    #[inline]
+    fn into(self) -> u64 {
+        match self {
+            Pointer::Direct(p) | Pointer::Indirect(p) => p,
+        }
+    }
+}
+
+impl Pointer {
+    #[inline]
+    fn new(encoding: constants::DwEhPe, address: u64) -> Pointer {
+        if encoding.is_indirect() {
+            Pointer::Indirect(address)
+        } else {
+            Pointer::Direct(address)
+        }
+    }
+}
+
+fn parse_encoded_pointer<'bases, R: Reader>(
+    encoding: constants::DwEhPe,
+    bases: &'bases SectionBaseAddresses,
+    func_base: Option<u64>,
+    address_size: u8,
+    section: &R,
+    input: &mut R,
+) -> Result<Pointer> {
+    fn parse_data<R: Reader>(
+        encoding: constants::DwEhPe,
+        address_size: u8,
+        input: &mut R,
+    ) -> Result<u64> {
+        // We should never be called with an invalid encoding: parse_encoded_pointer
+        // checks validity for us.
+        debug_assert!(encoding.is_valid_encoding());
+
+        match encoding.format() {
+            // Unsigned variants.
+            constants::DW_EH_PE_absptr => input.read_address(address_size),
+            constants::DW_EH_PE_uleb128 => input.read_uleb128(),
+            constants::DW_EH_PE_udata2 => input.read_u16().map(u64::from),
+            constants::DW_EH_PE_udata4 => input.read_u32().map(u64::from),
+            constants::DW_EH_PE_udata8 => input.read_u64(),
+
+            // Signed variants. Here we sign extend the values (happens by
+            // default when casting a signed integer to a larger range integer
+            // in Rust), return them as u64, and rely on wrapping addition to do
+            // the right thing when adding these offsets to their bases.
+            constants::DW_EH_PE_sleb128 => input.read_sleb128().map(|a| a as u64),
+            constants::DW_EH_PE_sdata2 => input.read_i16().map(|a| a as u64),
+            constants::DW_EH_PE_sdata4 => input.read_i32().map(|a| a as u64),
+            constants::DW_EH_PE_sdata8 => input.read_i64().map(|a| a as u64),
+
+            // That was all of the valid encoding formats.
+            _ => unreachable!(),
+        }
+    }
+
+    if !encoding.is_valid_encoding() {
+        return Err(Error::UnknownPointerEncoding);
+    }
+
+    if encoding == constants::DW_EH_PE_omit {
+        return Ok(Pointer::Direct(0));
+    }
+
+    match encoding.application() {
+        constants::DW_EH_PE_absptr => {
+            let addr = parse_data(encoding, address_size, input)?;
+            Ok(Pointer::new(encoding, addr))
+        }
+        constants::DW_EH_PE_pcrel => {
+            if let Some(section_base) = bases.section {
+                let offset_from_section = input.offset_from(section);
+                let offset = parse_data(encoding, address_size, input)?;
+                let p = section_base
+                    .wrapping_add(offset_from_section.into_u64())
+                    .wrapping_add(offset);
+                Ok(Pointer::new(encoding, p))
+            } else {
+                Err(Error::PcRelativePointerButSectionBaseIsUndefined)
+            }
+        }
+        constants::DW_EH_PE_textrel => {
+            if let Some(text) = bases.text {
+                let offset = parse_data(encoding, address_size, input)?;
+                Ok(Pointer::new(encoding, text.wrapping_add(offset)))
+            } else {
+                Err(Error::TextRelativePointerButTextBaseIsUndefined)
+            }
+        }
+        constants::DW_EH_PE_datarel => {
+            if let Some(data) = bases.data {
+                let offset = parse_data(encoding, address_size, input)?;
+                Ok(Pointer::new(encoding, data.wrapping_add(offset)))
+            } else {
+                Err(Error::DataRelativePointerButDataBaseIsUndefined)
+            }
+        }
+        constants::DW_EH_PE_funcrel => {
+            if let Some(func) = func_base {
+                let offset = parse_data(encoding, address_size, input)?;
+                Ok(Pointer::new(encoding, func.wrapping_add(offset)))
+            } else {
+                Err(Error::FuncRelativePointerInBadContext)
+            }
+        }
+        constants::DW_EH_PE_aligned => Err(Error::UnsupportedPointerEncoding),
+        _ => unreachable!(),
     }
 }
 
@@ -6330,5 +6476,467 @@ mod tests {
         if size > max_size {
             assert_eq!(size, max_size);
         }
+    }
+
+    #[test]
+    fn test_parse_pointer_encoding_ok() {
+        use crate::endianity::NativeEndian;
+        let expected =
+            constants::DwEhPe(constants::DW_EH_PE_uleb128.0 | constants::DW_EH_PE_pcrel.0);
+        let input = [expected.0, 1, 2, 3, 4];
+        let input = &mut EndianSlice::new(&input, NativeEndian);
+        assert_eq!(parse_pointer_encoding(input), Ok(expected));
+        assert_eq!(*input, EndianSlice::new(&[1, 2, 3, 4], NativeEndian));
+    }
+
+    #[test]
+    fn test_parse_pointer_encoding_bad_encoding() {
+        use crate::endianity::NativeEndian;
+        let expected =
+            constants::DwEhPe((constants::DW_EH_PE_sdata8.0 + 1) | constants::DW_EH_PE_pcrel.0);
+        let input = [expected.0, 1, 2, 3, 4];
+        let input = &mut EndianSlice::new(&input, NativeEndian);
+        assert_eq!(
+            Err(Error::UnknownPointerEncoding),
+            parse_pointer_encoding(input)
+        );
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_absptr() {
+        let encoding = constants::DW_EH_PE_absptr;
+        let bases = Default::default();
+        let address_size = 4;
+        let expected_rest = [1, 2, 3, 4];
+
+        let input = Section::with_endian(Endian::Little)
+            .L32(0xf00d_f00d)
+            .append_bytes(&expected_rest);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Ok(Pointer::Direct(0xf00d_f00d))
+        );
+        assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_pcrel() {
+        let encoding = constants::DW_EH_PE_pcrel;
+
+        let bases = BaseAddresses::default().set_eh_frame(0x100).eh_frame;
+
+        let address_size = 4;
+        let expected_rest = [1, 2, 3, 4];
+
+        let input = Section::with_endian(Endian::Little)
+            .append_repeated(0, 0x10)
+            .L32(0x1)
+            .append_bytes(&expected_rest);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input.range_from(0x10..);
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Ok(Pointer::Direct(0x111))
+        );
+        assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_pcrel_undefined() {
+        let encoding = constants::DW_EH_PE_pcrel;
+        let bases = SectionBaseAddresses::default();
+        let address_size = 4;
+
+        let input = Section::with_endian(Endian::Little).L32(0x1);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Err(Error::PcRelativePointerButSectionBaseIsUndefined)
+        );
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_textrel() {
+        let encoding = constants::DW_EH_PE_textrel;
+
+        let bases = BaseAddresses::default().set_text(0x10).eh_frame;
+
+        let address_size = 4;
+        let expected_rest = [1, 2, 3, 4];
+
+        let input = Section::with_endian(Endian::Little)
+            .L32(0x1)
+            .append_bytes(&expected_rest);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Ok(Pointer::Direct(0x11))
+        );
+        assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_textrel_undefined() {
+        let encoding = constants::DW_EH_PE_textrel;
+        let bases = SectionBaseAddresses::default();
+        let address_size = 4;
+
+        let input = Section::with_endian(Endian::Little).L32(0x1);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Err(Error::TextRelativePointerButTextBaseIsUndefined)
+        );
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_datarel() {
+        let encoding = constants::DW_EH_PE_datarel;
+
+        let bases = BaseAddresses::default().set_got(0x10).eh_frame;
+
+        let address_size = 4;
+        let expected_rest = [1, 2, 3, 4];
+
+        let input = Section::with_endian(Endian::Little)
+            .L32(0x1)
+            .append_bytes(&expected_rest);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Ok(Pointer::Direct(0x11))
+        );
+        assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_datarel_undefined() {
+        let encoding = constants::DW_EH_PE_datarel;
+        let bases = SectionBaseAddresses::default();
+        let address_size = 4;
+
+        let input = Section::with_endian(Endian::Little).L32(0x1);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Err(Error::DataRelativePointerButDataBaseIsUndefined)
+        );
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_funcrel() {
+        let encoding = constants::DW_EH_PE_funcrel;
+
+        let bases = SectionBaseAddresses::default();
+        let func_base = Some(0x10);
+
+        let address_size = 4;
+        let expected_rest = [1, 2, 3, 4];
+
+        let input = Section::with_endian(Endian::Little)
+            .L32(0x1)
+            .append_bytes(&expected_rest);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, func_base, address_size, &input, &mut rest),
+            Ok(Pointer::Direct(0x11))
+        );
+        assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_funcrel_undefined() {
+        let encoding = constants::DW_EH_PE_funcrel;
+        let bases = SectionBaseAddresses::default();
+        let address_size = 4;
+
+        let input = Section::with_endian(Endian::Little).L32(0x1);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Err(Error::FuncRelativePointerInBadContext)
+        );
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_uleb128() {
+        let encoding =
+            constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_uleb128.0);
+        let bases = SectionBaseAddresses::default();
+        let address_size = 4;
+        let expected_rest = [1, 2, 3, 4];
+
+        let input = Section::with_endian(Endian::Little)
+            .uleb(0x12_3456)
+            .append_bytes(&expected_rest);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Ok(Pointer::Direct(0x12_3456))
+        );
+        assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_udata2() {
+        let encoding =
+            constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_udata2.0);
+        let bases = SectionBaseAddresses::default();
+        let address_size = 4;
+        let expected_rest = [1, 2, 3, 4];
+
+        let input = Section::with_endian(Endian::Little)
+            .L16(0x1234)
+            .append_bytes(&expected_rest);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Ok(Pointer::Direct(0x1234))
+        );
+        assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_udata4() {
+        let encoding =
+            constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_udata4.0);
+        let bases = SectionBaseAddresses::default();
+        let address_size = 4;
+        let expected_rest = [1, 2, 3, 4];
+
+        let input = Section::with_endian(Endian::Little)
+            .L32(0x1234_5678)
+            .append_bytes(&expected_rest);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Ok(Pointer::Direct(0x1234_5678))
+        );
+        assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_udata8() {
+        let encoding =
+            constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_udata8.0);
+        let bases = SectionBaseAddresses::default();
+        let address_size = 4;
+        let expected_rest = [1, 2, 3, 4];
+
+        let input = Section::with_endian(Endian::Little)
+            .L64(0x1234_5678_1234_5678)
+            .append_bytes(&expected_rest);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Ok(Pointer::Direct(0x1234_5678_1234_5678))
+        );
+        assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_sleb128() {
+        let encoding =
+            constants::DwEhPe(constants::DW_EH_PE_textrel.0 | constants::DW_EH_PE_sleb128.0);
+        let bases = BaseAddresses::default().set_text(0x1111_1111).eh_frame;
+        let address_size = 4;
+        let expected_rest = [1, 2, 3, 4];
+
+        let input = Section::with_endian(Endian::Little)
+            .sleb(-0x1111)
+            .append_bytes(&expected_rest);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Ok(Pointer::Direct(0x1111_0000))
+        );
+        assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_sdata2() {
+        let encoding =
+            constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_sdata2.0);
+        let bases = SectionBaseAddresses::default();
+        let address_size = 4;
+        let expected_rest = [1, 2, 3, 4];
+        let expected = 0x111 as i16;
+
+        let input = Section::with_endian(Endian::Little)
+            .L16(expected as u16)
+            .append_bytes(&expected_rest);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Ok(Pointer::Direct(expected as u64))
+        );
+        assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_sdata4() {
+        let encoding =
+            constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_sdata4.0);
+        let bases = SectionBaseAddresses::default();
+        let address_size = 4;
+        let expected_rest = [1, 2, 3, 4];
+        let expected = 0x111_1111 as i32;
+
+        let input = Section::with_endian(Endian::Little)
+            .L32(expected as u32)
+            .append_bytes(&expected_rest);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Ok(Pointer::Direct(expected as u64))
+        );
+        assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_sdata8() {
+        let encoding =
+            constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_sdata8.0);
+        let bases = SectionBaseAddresses::default();
+        let address_size = 4;
+        let expected_rest = [1, 2, 3, 4];
+        let expected = -0x11_1111_1222_2222 as i64;
+
+        let input = Section::with_endian(Endian::Little)
+            .L64(expected as u64)
+            .append_bytes(&expected_rest);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Ok(Pointer::Direct(expected as u64))
+        );
+        assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_omit() {
+        let encoding = constants::DW_EH_PE_omit;
+        let bases = SectionBaseAddresses::default();
+        let address_size = 4;
+
+        let input = Section::with_endian(Endian::Little).L32(0x1);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Ok(Pointer::default())
+        );
+        assert_eq!(rest, input);
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_bad_encoding() {
+        let encoding = constants::DwEhPe(constants::DW_EH_PE_sdata8.0 + 1);
+        let bases = SectionBaseAddresses::default();
+        let address_size = 4;
+
+        let input = Section::with_endian(Endian::Little).L32(0x1);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Err(Error::UnknownPointerEncoding)
+        );
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_aligned() {
+        // FIXME: support this encoding!
+
+        let encoding = constants::DW_EH_PE_aligned;
+        let bases = SectionBaseAddresses::default();
+        let address_size = 4;
+
+        let input = Section::with_endian(Endian::Little).L32(0x1);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Err(Error::UnsupportedPointerEncoding)
+        );
+    }
+
+    #[test]
+    fn test_parse_encoded_pointer_indirect() {
+        let expected_rest = [1, 2, 3, 4];
+
+        let encoding = constants::DW_EH_PE_indirect;
+        let bases = SectionBaseAddresses::default();
+        let address_size = 4;
+
+        let input = Section::with_endian(Endian::Little)
+            .L32(0x1234_5678)
+            .append_bytes(&expected_rest);
+        let input = input.get_contents().unwrap();
+        let input = EndianSlice::new(&input, LittleEndian);
+        let mut rest = input;
+
+        assert_eq!(
+            parse_encoded_pointer(encoding, &bases, None, address_size, &input, &mut rest),
+            Ok(Pointer::Indirect(0x1234_5678))
+        );
+        assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
     }
 }
