@@ -3148,89 +3148,73 @@ fn parse_encoded_pointer<'bases, R: Reader>(
     section: &R,
     input: &mut R,
 ) -> Result<Pointer> {
-    fn parse_data<R: Reader>(
-        encoding: constants::DwEhPe,
-        address_size: u8,
-        input: &mut R,
-    ) -> Result<u64> {
-        // We should never be called with an invalid encoding: parse_encoded_pointer
-        // checks validity for us.
-        debug_assert!(encoding.is_valid_encoding());
-
-        match encoding.format() {
-            // Unsigned variants.
-            constants::DW_EH_PE_absptr => input.read_address(address_size),
-            constants::DW_EH_PE_uleb128 => input.read_uleb128(),
-            constants::DW_EH_PE_udata2 => input.read_u16().map(u64::from),
-            constants::DW_EH_PE_udata4 => input.read_u32().map(u64::from),
-            constants::DW_EH_PE_udata8 => input.read_u64(),
-
-            // Signed variants. Here we sign extend the values (happens by
-            // default when casting a signed integer to a larger range integer
-            // in Rust), return them as u64, and rely on wrapping addition to do
-            // the right thing when adding these offsets to their bases.
-            constants::DW_EH_PE_sleb128 => input.read_sleb128().map(|a| a as u64),
-            constants::DW_EH_PE_sdata2 => input.read_i16().map(|a| a as u64),
-            constants::DW_EH_PE_sdata4 => input.read_i32().map(|a| a as u64),
-            constants::DW_EH_PE_sdata8 => input.read_i64().map(|a| a as u64),
-
-            // That was all of the valid encoding formats.
-            _ => unreachable!(),
-        }
-    }
-
+    // TODO: check this once only in parse_pointer_encoding
     if !encoding.is_valid_encoding() {
         return Err(Error::UnknownPointerEncoding);
     }
 
+    // FIXME: return an error instead
     if encoding == constants::DW_EH_PE_omit {
         return Ok(Pointer::Direct(0));
     }
 
-    match encoding.application() {
-        constants::DW_EH_PE_absptr => {
-            let addr = parse_data(encoding, address_size, input)?;
-            Ok(Pointer::new(encoding, addr))
-        }
+    let base = match encoding.application() {
+        constants::DW_EH_PE_absptr => 0,
         constants::DW_EH_PE_pcrel => {
             if let Some(section_base) = bases.section {
                 let offset_from_section = input.offset_from(section);
-                let offset = parse_data(encoding, address_size, input)?;
-                let p = section_base
-                    .wrapping_add(offset_from_section.into_u64())
-                    .wrapping_add(offset);
-                Ok(Pointer::new(encoding, p))
+                section_base.wrapping_add(offset_from_section.into_u64())
             } else {
-                Err(Error::PcRelativePointerButSectionBaseIsUndefined)
+                return Err(Error::PcRelativePointerButSectionBaseIsUndefined);
             }
         }
         constants::DW_EH_PE_textrel => {
             if let Some(text) = bases.text {
-                let offset = parse_data(encoding, address_size, input)?;
-                Ok(Pointer::new(encoding, text.wrapping_add(offset)))
+                text
             } else {
-                Err(Error::TextRelativePointerButTextBaseIsUndefined)
+                return Err(Error::TextRelativePointerButTextBaseIsUndefined);
             }
         }
         constants::DW_EH_PE_datarel => {
             if let Some(data) = bases.data {
-                let offset = parse_data(encoding, address_size, input)?;
-                Ok(Pointer::new(encoding, data.wrapping_add(offset)))
+                data
             } else {
-                Err(Error::DataRelativePointerButDataBaseIsUndefined)
+                return Err(Error::DataRelativePointerButDataBaseIsUndefined);
             }
         }
         constants::DW_EH_PE_funcrel => {
             if let Some(func) = func_base {
-                let offset = parse_data(encoding, address_size, input)?;
-                Ok(Pointer::new(encoding, func.wrapping_add(offset)))
+                func
             } else {
-                Err(Error::FuncRelativePointerInBadContext)
+                return Err(Error::FuncRelativePointerInBadContext);
             }
         }
-        constants::DW_EH_PE_aligned => Err(Error::UnsupportedPointerEncoding),
+        constants::DW_EH_PE_aligned => return Err(Error::UnsupportedPointerEncoding),
         _ => unreachable!(),
-    }
+    };
+
+    let offset = match encoding.format() {
+        // Unsigned variants.
+        constants::DW_EH_PE_absptr => input.read_address(address_size),
+        constants::DW_EH_PE_uleb128 => input.read_uleb128(),
+        constants::DW_EH_PE_udata2 => input.read_u16().map(u64::from),
+        constants::DW_EH_PE_udata4 => input.read_u32().map(u64::from),
+        constants::DW_EH_PE_udata8 => input.read_u64(),
+
+        // Signed variants. Here we sign extend the values (happens by
+        // default when casting a signed integer to a larger range integer
+        // in Rust), return them as u64, and rely on wrapping addition to do
+        // the right thing when adding these offsets to their bases.
+        constants::DW_EH_PE_sleb128 => input.read_sleb128().map(|a| a as u64),
+        constants::DW_EH_PE_sdata2 => input.read_i16().map(|a| a as u64),
+        constants::DW_EH_PE_sdata4 => input.read_i32().map(|a| a as u64),
+        constants::DW_EH_PE_sdata8 => input.read_i64().map(|a| a as u64),
+
+        // That was all of the valid encoding formats.
+        _ => unreachable!(),
+    }?;
+
+    Ok(Pointer::new(encoding, base.wrapping_add(offset)))
 }
 
 #[cfg(test)]
