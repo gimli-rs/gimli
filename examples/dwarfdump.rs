@@ -661,6 +661,9 @@ fn dump_eh_frame<R: Reader, W: Write>(
                     fde.len(),
                     fde.initial_address() + fde.len()
                 )?;
+                if let Some(gimli::Pointer::Direct(lsda)) = fde.lsda() {
+                    writeln!(w, "          lsda: {:#018x}", lsda)?;
+                }
                 dump_cfi_instructions(w, fde.instructions(), false, register_name)?;
                 writeln!(w)?;
             }
