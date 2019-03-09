@@ -585,7 +585,7 @@ mod cfi {
             while let Some(entry) = entries.next().expect("Should parse CFI entry OK") {
                 match entry {
                     CieOrFde::Cie(cie) => {
-                        let mut instrs = cie.instructions();
+                        let mut instrs = cie.instructions(&eh_frame, &bases);
                         while let Some(i) =
                             instrs.next().expect("Can parse next CFI instruction OK")
                         {
@@ -596,7 +596,7 @@ mod cfi {
                         let fde = partial
                             .parse(EhFrame::cie_from_offset)
                             .expect("Should be able to get CIE for FED");
-                        let mut instrs = fde.instructions();
+                        let mut instrs = fde.instructions(&eh_frame, &bases);
                         while let Some(i) =
                             instrs.next().expect("Can parse next CFI instruction OK")
                         {
@@ -630,7 +630,7 @@ mod cfi {
                             .parse(EhFrame::cie_from_offset)
                             .expect("Should be able to get CIE for FED");
                         let mut table = fde
-                            .rows(&mut ctx)
+                            .rows(&eh_frame, &bases, &mut ctx)
                             .expect("Should be able to initialize ctx");
                         while let Some(row) =
                             table.next_row().expect("Should get next unwind table row")
@@ -643,23 +643,23 @@ mod cfi {
         });
     }
 
-    fn instrs_len<R: Reader>(fde: &FrameDescriptionEntry<R>) -> usize {
-        fde.instructions()
+    fn instrs_len<R: Reader>(
+        eh_frame: &EhFrame<R>,
+        bases: &BaseAddresses,
+        fde: &FrameDescriptionEntry<R>,
+    ) -> usize {
+        fde.instructions(eh_frame, bases)
             .fold(0, |count, _| count + 1)
             .expect("fold over instructions OK")
     }
 
     fn get_fde_with_longest_cfi_instructions<R: Reader>(
         eh_frame: &EhFrame<R>,
+        bases: &BaseAddresses,
     ) -> FrameDescriptionEntry<R> {
-        let bases = BaseAddresses::default()
-            .set_eh_frame(0)
-            .set_got(0)
-            .set_text(0);
-
         let mut longest: Option<(usize, FrameDescriptionEntry<_>)> = None;
 
-        let mut entries = eh_frame.entries(&bases);
+        let mut entries = eh_frame.entries(bases);
         while let Some(entry) = entries.next().expect("Should parse CFI entry OK") {
             match entry {
                 CieOrFde::Cie(_) => {}
@@ -668,7 +668,7 @@ mod cfi {
                         .parse(EhFrame::cie_from_offset)
                         .expect("Should be able to get CIE for FED");
 
-                    let this_len = instrs_len(&fde);
+                    let this_len = instrs_len(eh_frame, bases, &fde);
 
                     let found_new_longest = match longest {
                         None => true,
@@ -689,10 +689,14 @@ mod cfi {
     fn parse_longest_fde_instructions(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
         let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
-        let fde = get_fde_with_longest_cfi_instructions(&eh_frame);
+        let bases = BaseAddresses::default()
+            .set_eh_frame(0)
+            .set_got(0)
+            .set_text(0);
+        let fde = get_fde_with_longest_cfi_instructions(&eh_frame, &bases);
 
         b.iter(|| {
-            let mut instrs = fde.instructions();
+            let mut instrs = fde.instructions(&eh_frame, &bases);
             while let Some(i) = instrs.next().expect("Should parse instruction OK") {
                 test::black_box(i);
             }
@@ -703,11 +707,17 @@ mod cfi {
     fn eval_longest_fde_instructions_new_ctx_everytime(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
         let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
-        let fde = get_fde_with_longest_cfi_instructions(&eh_frame);
+        let bases = BaseAddresses::default()
+            .set_eh_frame(0)
+            .set_got(0)
+            .set_text(0);
+        let fde = get_fde_with_longest_cfi_instructions(&eh_frame, &bases);
 
         b.iter(|| {
             let mut ctx = UninitializedUnwindContext::new();
-            let mut table = fde.rows(&mut ctx).expect("Should initialize the ctx OK");
+            let mut table = fde
+                .rows(&eh_frame, &bases, &mut ctx)
+                .expect("Should initialize the ctx OK");
             while let Some(row) = table.next_row().expect("Should get next unwind table row") {
                 test::black_box(row);
             }
@@ -718,12 +728,18 @@ mod cfi {
     fn eval_longest_fde_instructions_same_ctx(b: &mut test::Bencher) {
         let eh_frame = read_section("eh_frame");
         let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
-        let fde = get_fde_with_longest_cfi_instructions(&eh_frame);
+        let bases = BaseAddresses::default()
+            .set_eh_frame(0)
+            .set_got(0)
+            .set_text(0);
+        let fde = get_fde_with_longest_cfi_instructions(&eh_frame, &bases);
 
         let mut ctx = UninitializedUnwindContext::new();
 
         b.iter(|| {
-            let mut table = fde.rows(&mut ctx).expect("Should initialize the ctx OK");
+            let mut table = fde
+                .rows(&eh_frame, &bases, &mut ctx)
+                .expect("Should initialize the ctx OK");
             while let Some(row) = table.next_row().expect("Should get next unwind table row") {
                 test::black_box(row);
             }

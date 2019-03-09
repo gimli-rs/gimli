@@ -378,7 +378,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         ) -> Result<CommonInformationEntry<R>>,
     {
         let fde = self.fde_for_address(frame, bases, address, get_cie)?;
-        fde.unwind_info_for_address(ctx, address)
+        fde.unwind_info_for_address(frame, bases, ctx, address)
     }
 }
 
@@ -692,7 +692,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
         F: FnMut(&Self, &BaseAddresses, Self::Offset) -> Result<CommonInformationEntry<R>>,
     {
         let fde = self.fde_for_address(bases, address, get_cie)?;
-        fde.unwind_info_for_address(ctx, address)
+        fde.unwind_info_for_address(self, bases, ctx, address)
     }
 }
 
@@ -1324,10 +1324,22 @@ impl<R: Reader> CommonInformationEntry<R> {
     ///
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
-    pub fn instructions(&self) -> CallFrameInstructionIter<R> {
+    pub fn instructions<'a, Section>(
+        &self,
+        section: &'a Section,
+        bases: &'a BaseAddresses,
+    ) -> CallFrameInstructionIter<'a, R>
+    where
+        Section: UnwindSection<R>,
+    {
         CallFrameInstructionIter {
             input: self.initial_instructions.clone(),
-            address_size: self.address_size,
+            parameters: PointerEncodingParameters {
+                bases: &bases.eh_frame,
+                func_base: None,
+                address_size: self.address_size,
+                section: section.section(),
+            },
         }
     }
 
@@ -1557,11 +1569,13 @@ impl<R: Reader> FrameDescriptionEntry<R> {
 
     /// Return the table of unwind information for this FDE.
     #[inline]
-    pub fn rows<'ctx>(
+    pub fn rows<'a, Section: UnwindSection<R>>(
         &self,
-        ctx: &'ctx mut UninitializedUnwindContext<R>,
-    ) -> Result<UnwindTable<'ctx, R>> {
-        UnwindTable::new(ctx, self)
+        section: &'a Section,
+        bases: &'a BaseAddresses,
+        ctx: &'a mut UninitializedUnwindContext<R>,
+    ) -> Result<UnwindTable<'a, R>> {
+        UnwindTable::new(section, bases, ctx, self)
     }
 
     /// Find the frame unwind information for the given address.
@@ -1570,12 +1584,14 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     /// context in the form `Ok((unwind_info, context))`. If not found,
     /// `Err(gimli::Error::NoUnwindInfoForAddress)` is returned. If parsing or
     /// CFI evaluation fails, the error is returned.
-    pub fn unwind_info_for_address(
+    pub fn unwind_info_for_address<Section: UnwindSection<R>>(
         &self,
+        section: &Section,
+        bases: &BaseAddresses,
         ctx: &mut UninitializedUnwindContext<R>,
         address: u64,
     ) -> Result<UnwindTableRow<R>> {
-        let mut table = self.rows(ctx)?;
+        let mut table = self.rows(section, bases, ctx)?;
         while let Some(row) = table.next_row()? {
             if row.contains(address) {
                 return Ok(row.clone());
@@ -1616,10 +1632,22 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     ///
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
-    pub fn instructions(&self) -> CallFrameInstructionIter<R> {
+    pub fn instructions<'a, Section>(
+        &self,
+        section: &'a Section,
+        bases: &'a BaseAddresses,
+    ) -> CallFrameInstructionIter<'a, R>
+    where
+        Section: UnwindSection<R>,
+    {
         CallFrameInstructionIter {
             input: self.instructions.clone(),
-            address_size: self.cie.address_size,
+            parameters: PointerEncodingParameters {
+                bases: &bases.eh_frame,
+                func_base: None,
+                address_size: self.cie.address_size,
+                section: section.section(),
+            },
         }
     }
 
@@ -1681,12 +1709,14 @@ impl<R: Reader> FrameDescriptionEntry<R> {
 ///
 /// # fn foo<'a>(some_fde: gimli::FrameDescriptionEntry<gimli::EndianSlice<'a, gimli::LittleEndian>>)
 /// #            -> gimli::Result<()> {
+/// # let eh_frame: gimli::EhFrame<_> = unreachable!();
+/// # let bases = unimplemented!();
 /// // An uninitialized context.
 /// let mut ctx = UninitializedUnwindContext::new();
 ///
 /// // Initialize the context by evaluating the CIE's initial instruction program,
 /// // and generate the unwind table.
-/// let mut table = some_fde.rows(&mut ctx)?;
+/// let mut table = some_fde.rows(&eh_frame, &bases, &mut ctx)?;
 /// while let Some(row) = table.next_row()? {
 ///     // Do stuff with each row...
 /// #   let _ = row;
@@ -1717,12 +1747,17 @@ impl<R: Reader> Default for UninitializedUnwindContext<R> {
 impl<R: Reader> UninitializedUnwindContext<R> {
     /// Run the CIE's initial instructions, creating and return an
     /// `UnwindContext`.
-    pub fn initialize(&mut self, cie: &CommonInformationEntry<R>) -> Result<&mut UnwindContext<R>> {
+    pub fn initialize<Section: UnwindSection<R>>(
+        &mut self,
+        section: &Section,
+        bases: &BaseAddresses,
+        cie: &CommonInformationEntry<R>,
+    ) -> Result<&mut UnwindContext<R>> {
         if self.0.is_initialized {
             self.0.reset();
         }
 
-        let mut table = UnwindTable::new_for_cie(&mut self.0, cie);
+        let mut table = UnwindTable::new_for_cie(section, bases, &mut self.0, cie);
         while let Some(_) = table.next_row()? {}
 
         self.0.save_initial_rules();
@@ -1904,35 +1939,39 @@ impl<R: Reader> UnwindContext<R> {
 /// > recording just the differences starting at the beginning address of each
 /// > subroutine in the program.
 #[derive(Debug)]
-pub struct UnwindTable<'ctx, R: Reader> {
+pub struct UnwindTable<'a, R: Reader> {
     code_alignment_factor: u64,
     data_alignment_factor: i64,
     next_start_address: u64,
     last_end_address: u64,
     returned_last_row: bool,
-    instructions: CallFrameInstructionIter<R>,
-    ctx: &'ctx mut UnwindContext<R>,
+    instructions: CallFrameInstructionIter<'a, R>,
+    ctx: &'a mut UnwindContext<R>,
 }
 
 /// # Signal Safe Methods
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
-impl<'ctx, R: Reader> UnwindTable<'ctx, R> {
+impl<'a, R: Reader> UnwindTable<'a, R> {
     /// Construct a new `UnwindTable` for the given
     /// `FrameDescriptionEntry`'s CFI unwinding program.
-    pub fn new(
-        ctx: &'ctx mut UninitializedUnwindContext<R>,
+    pub fn new<Section: UnwindSection<R>>(
+        section: &'a Section,
+        bases: &'a BaseAddresses,
+        ctx: &'a mut UninitializedUnwindContext<R>,
         fde: &FrameDescriptionEntry<R>,
-    ) -> Result<UnwindTable<'ctx, R>> {
-        let ctx = ctx.initialize(fde.cie())?;
-        Ok(Self::new_for_fde(ctx, fde))
+    ) -> Result<UnwindTable<'a, R>> {
+        let ctx = ctx.initialize(section, bases, fde.cie())?;
+        Ok(Self::new_for_fde(section, bases, ctx, fde))
     }
 
-    fn new_for_fde(
-        ctx: &'ctx mut UnwindContext<R>,
+    fn new_for_fde<Section: UnwindSection<R>>(
+        section: &'a Section,
+        bases: &'a BaseAddresses,
+        ctx: &'a mut UnwindContext<R>,
         fde: &FrameDescriptionEntry<R>,
-    ) -> UnwindTable<'ctx, R> {
+    ) -> UnwindTable<'a, R> {
         assert!(ctx.stack.len() >= 1);
         UnwindTable {
             code_alignment_factor: fde.cie().code_alignment_factor(),
@@ -1940,14 +1979,17 @@ impl<'ctx, R: Reader> UnwindTable<'ctx, R> {
             next_start_address: fde.initial_address(),
             last_end_address: fde.initial_address() + fde.len(),
             returned_last_row: false,
-            instructions: fde.instructions(),
+            instructions: fde.instructions(section, bases),
             ctx,
         }
     }
-    fn new_for_cie(
-        ctx: &'ctx mut UnwindContext<R>,
+
+    fn new_for_cie<Section: UnwindSection<R>>(
+        section: &'a Section,
+        bases: &'a BaseAddresses,
+        ctx: &'a mut UnwindContext<R>,
         cie: &CommonInformationEntry<R>,
-    ) -> UnwindTable<'ctx, R> {
+    ) -> UnwindTable<'a, R> {
         assert!(ctx.stack.len() >= 1);
         UnwindTable {
             code_alignment_factor: cie.code_alignment_factor(),
@@ -1955,7 +1997,7 @@ impl<'ctx, R: Reader> UnwindTable<'ctx, R> {
             next_start_address: 0,
             last_end_address: 0,
             returned_last_row: false,
-            instructions: cie.instructions(),
+            instructions: cie.instructions(section, bases),
             ctx,
         }
     }
@@ -2825,7 +2867,10 @@ const CFI_INSTRUCTION_HIGH_BITS_MASK: u8 = 0b1100_0000;
 const CFI_INSTRUCTION_LOW_BITS_MASK: u8 = !CFI_INSTRUCTION_HIGH_BITS_MASK;
 
 impl<R: Reader> CallFrameInstruction<R> {
-    fn parse(input: &mut R, address_size: u8) -> Result<CallFrameInstruction<R>> {
+    fn parse(
+        input: &mut R,
+        parameters: &PointerEncodingParameters<R>,
+    ) -> Result<CallFrameInstruction<R>> {
         let instruction = input.read_u8()?;
         let high_bits = instruction & CFI_INSTRUCTION_HIGH_BITS_MASK;
 
@@ -2857,7 +2902,7 @@ impl<R: Reader> CallFrameInstruction<R> {
             constants::DW_CFA_nop => Ok(CallFrameInstruction::Nop),
 
             constants::DW_CFA_set_loc => {
-                let address = input.read_address(address_size)?;
+                let address = input.read_address(parameters.address_size)?;
                 Ok(CallFrameInstruction::SetLoc { address })
             }
 
@@ -3019,19 +3064,19 @@ impl<R: Reader> CallFrameInstruction<R> {
 /// Can be [used with
 /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
 #[derive(Clone, Debug)]
-pub struct CallFrameInstructionIter<R: Reader> {
+pub struct CallFrameInstructionIter<'a, R: Reader> {
     input: R,
-    address_size: u8,
+    parameters: PointerEncodingParameters<'a, R>,
 }
 
-impl<R: Reader> CallFrameInstructionIter<R> {
+impl<'a, R: Reader> CallFrameInstructionIter<'a, R> {
     /// Parse the next call frame instruction.
     pub fn next(&mut self) -> Result<Option<CallFrameInstruction<R>>> {
         if self.input.is_empty() {
             return Ok(None);
         }
 
-        match CallFrameInstruction::parse(&mut self.input, self.address_size) {
+        match CallFrameInstruction::parse(&mut self.input, &self.parameters) {
             Ok(instruction) => Ok(Some(instruction)),
             Err(e) => {
                 self.input.empty();
@@ -3041,7 +3086,7 @@ impl<R: Reader> CallFrameInstructionIter<R> {
     }
 }
 
-impl<R: Reader> FallibleIterator for CallFrameInstructionIter<R> {
+impl<'a, R: Reader> FallibleIterator for CallFrameInstructionIter<'a, R> {
     type Item = CallFrameInstruction<R>;
     type Error = Error;
 
@@ -3106,6 +3151,7 @@ impl Pointer {
     }
 }
 
+#[derive(Clone, Debug)]
 struct PointerEncodingParameters<'a, R: Reader> {
     bases: &'a SectionBaseAddresses,
     func_base: Option<u64>,
@@ -4097,6 +4143,19 @@ mod tests {
         assert_eq!(debug_frame.cie_from_offset(&bases, cie_offset), Ok(cie));
     }
 
+    fn parse_cfi_instruction<R: Reader + Default>(
+        input: &mut R,
+        address_size: u8,
+    ) -> Result<CallFrameInstruction<R>> {
+        let parameters = &PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
+            address_size,
+            section: &R::default(),
+        };
+        CallFrameInstruction::parse(input, parameters)
+    }
+
     #[test]
     fn test_parse_cfi_instruction_advance_loc() {
         let expected_rest = [1, 2, 3, 4];
@@ -4107,7 +4166,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::AdvanceLoc {
                 delta: u32::from(expected_delta),
             })
@@ -4127,7 +4186,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::Offset {
                 register: Register(expected_reg.into()),
                 factored_offset: expected_offset,
@@ -4146,7 +4205,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::Restore {
                 register: Register(expected_reg.into()),
             })
@@ -4163,7 +4222,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::Nop)
         );
         assert_eq!(*input, EndianSlice::new(&expected_rest, LittleEndian));
@@ -4180,7 +4239,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::SetLoc {
                 address: expected_addr,
             })
@@ -4199,7 +4258,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::AdvanceLoc {
                 delta: u32::from(expected_delta),
             })
@@ -4218,7 +4277,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::AdvanceLoc {
                 delta: u32::from(expected_delta),
             })
@@ -4237,7 +4296,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::AdvanceLoc {
                 delta: expected_delta,
             })
@@ -4258,7 +4317,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::Offset {
                 register: Register(expected_reg),
                 factored_offset: expected_offset,
@@ -4278,7 +4337,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::Restore {
                 register: Register(expected_reg),
             })
@@ -4297,7 +4356,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::Undefined {
                 register: Register(expected_reg),
             })
@@ -4316,7 +4375,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::SameValue {
                 register: Register(expected_reg),
             })
@@ -4337,7 +4396,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::Register {
                 dest_register: Register(expected_dest_reg),
                 src_register: Register(expected_src_reg),
@@ -4355,7 +4414,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::RememberState)
         );
         assert_eq!(*input, EndianSlice::new(&expected_rest, LittleEndian));
@@ -4370,7 +4429,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::RestoreState)
         );
         assert_eq!(*input, EndianSlice::new(&expected_rest, LittleEndian));
@@ -4389,7 +4448,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::DefCfa {
                 register: Register(expected_reg),
                 offset: expected_offset,
@@ -4409,7 +4468,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::DefCfaRegister {
                 register: Register(expected_reg),
             })
@@ -4428,7 +4487,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::DefCfaOffset {
                 offset: expected_offset,
             })
@@ -4458,7 +4517,7 @@ mod tests {
         let input = &mut EndianSlice::new(&contents, LittleEndian);
 
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::DefCfaExpression {
                 expression: Expression(EndianSlice::new(&expected_expr, LittleEndian)),
             })
@@ -4490,7 +4549,7 @@ mod tests {
         let input = &mut EndianSlice::new(&contents, LittleEndian);
 
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::Expression {
                 register: Register(expected_reg),
                 expression: Expression(EndianSlice::new(&expected_expr, LittleEndian)),
@@ -4512,7 +4571,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::OffsetExtendedSf {
                 register: Register(expected_reg),
                 factored_offset: expected_offset,
@@ -4534,7 +4593,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::DefCfaSf {
                 register: Register(expected_reg),
                 factored_offset: expected_offset,
@@ -4554,7 +4613,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::DefCfaOffsetSf {
                 factored_offset: expected_offset,
             })
@@ -4575,7 +4634,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::ValOffset {
                 register: Register(expected_reg),
                 factored_offset: expected_offset,
@@ -4597,7 +4656,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::ValOffsetSf {
                 register: Register(expected_reg),
                 factored_offset: expected_offset,
@@ -4630,7 +4689,7 @@ mod tests {
         let input = &mut EndianSlice::new(&contents, LittleEndian);
 
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::ValExpression {
                 register: Register(expected_reg),
                 expression: Expression(EndianSlice::new(&expected_expr, LittleEndian)),
@@ -4649,7 +4708,7 @@ mod tests {
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
-            CallFrameInstruction::parse(input, 8),
+            parse_cfi_instruction(input, 8),
             Err(Error::UnknownCallFrameInstruction(unknown_instr))
         );
     }
@@ -4677,10 +4736,13 @@ mod tests {
         length.set_const((&end - &start) as u64);
         let contents = section.get_contents().unwrap();
         let input = EndianSlice::new(&contents, BigEndian);
-        let mut iter = CallFrameInstructionIter {
-            input,
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
             address_size: 8,
+            section: &EndianSlice::default(),
         };
+        let mut iter = CallFrameInstructionIter { input, parameters };
 
         assert_eq!(
             iter.next(),
@@ -4707,10 +4769,13 @@ mod tests {
 
         let contents = section.get_contents().unwrap();
         let input = EndianSlice::new(&contents, BigEndian);
-        let mut iter = CallFrameInstructionIter {
-            input,
+        let parameters = PointerEncodingParameters {
+            bases: &SectionBaseAddresses::default(),
+            func_base: None,
             address_size: 8,
+            section: &EndianSlice::default(),
         };
+        let mut iter = CallFrameInstructionIter { input, parameters };
 
         assert_eq!(iter.next(), Err(Error::UnexpectedEof));
         assert_eq!(iter.next(), Ok(None));
@@ -4732,9 +4797,11 @@ mod tests {
         >,
     {
         {
+            let section = &DebugFrame::from(EndianSlice::default());
+            let bases = &BaseAddresses::default();
             let mut table = match fde {
-                Some(fde) => UnwindTable::new_for_fde(&mut initial_ctx, &fde),
-                None => UnwindTable::new_for_cie(&mut initial_ctx, &cie),
+                Some(fde) => UnwindTable::new_for_fde(section, bases, &mut initial_ctx, &fde),
+                None => UnwindTable::new_for_cie(section, bases, &mut initial_ctx, &cie),
             };
             for &(ref expected_result, ref instruction) in instructions.as_ref() {
                 assert_eq!(*expected_result, table.evaluate(instruction.clone()));
@@ -5249,10 +5316,14 @@ mod tests {
             instructions: EndianSlice::new(&instructions, LittleEndian),
         };
 
+        let section = &DebugFrame::from(EndianSlice::default());
+        let bases = &BaseAddresses::default();
         let mut ctx = UninitializedUnwindContext::new();
         ctx.0.assert_fully_uninitialized();
 
-        let mut table = fde.rows(&mut ctx).expect("Should run initial program OK");
+        let mut table = fde
+            .rows(section, bases, &mut ctx)
+            .expect("Should run initial program OK");
         assert!(table.ctx.is_initialized);
         let expected_initial_rules: RegisterRuleMap<_> = [
             (Register(0), RegisterRule::Offset(8)),
