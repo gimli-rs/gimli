@@ -1,7 +1,6 @@
 use crate::boxed::Box;
 use arrayvec::ArrayVec;
 use fallible_iterator::FallibleIterator;
-use std::cell::RefCell;
 use std::cmp::{Ord, Ordering};
 use std::fmt::Debug;
 use std::iter::FromIterator;
@@ -146,6 +145,7 @@ impl<R: Reader> EhFrameHdr<R> {
         let eh_frame_ptr = parse_encoded_pointer(
             eh_frame_ptr_enc,
             &bases.eh_frame_hdr,
+            None,
             address_size,
             &self.0,
             &mut reader,
@@ -153,6 +153,7 @@ impl<R: Reader> EhFrameHdr<R> {
         let fde_count = parse_encoded_pointer(
             fde_count_enc,
             &bases.eh_frame_hdr,
+            None,
             address_size,
             &self.0,
             &mut reader,
@@ -248,6 +249,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
             let pivot = parse_encoded_pointer(
                 self.hdr.table_enc,
                 &bases.eh_frame_hdr,
+                None,
                 self.hdr.address_size,
                 &self.hdr.section,
                 &mut reader,
@@ -278,6 +280,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         parse_encoded_pointer(
             self.hdr.table_enc,
             &bases.eh_frame_hdr,
+            None,
             self.hdr.address_size,
             &self.hdr.section,
             &mut reader,
@@ -867,10 +870,6 @@ pub struct SectionBaseAddresses {
     /// For pointers in the `.eh_frame` section, this is generally the
     /// global pointer, such as the address of the `.got` section.
     pub data: Option<u64>,
-
-    // Unlike the others, the function base is managed internally to the parser
-    // as we enter and exit FDE parsing.
-    pub(crate) func: RefCell<Option<u64>>,
 }
 
 impl BaseAddresses {
@@ -965,10 +964,6 @@ where
         if self.input.is_empty() {
             return Ok(None);
         }
-
-        // Clear any function relative base address, if one was set when parsing
-        // the last entry.
-        self.bases.eh_frame.func.borrow_mut().take();
 
         match parse_cfi_entry(self.bases, &self.section, &mut self.input) {
             Err(e) => {
@@ -1135,6 +1130,7 @@ impl Augmentation {
                     let personality = parse_encoded_pointer(
                         encoding,
                         &bases.eh_frame,
+                        None,
                         address_size,
                         section.section(),
                         rest,
@@ -1164,6 +1160,7 @@ impl AugmentationData {
     fn parse<Section, R>(
         augmentation: &Augmentation,
         bases: &BaseAddresses,
+        fde_address: u64,
         address_size: u8,
         section: &Section,
         input: &mut R,
@@ -1185,6 +1182,7 @@ impl AugmentationData {
             let lsda = parse_encoded_pointer(
                 encoding,
                 &bases.eh_frame,
+                Some(fde_address),
                 address_size,
                 section.section(),
                 rest,
@@ -1517,12 +1515,6 @@ impl<R: Reader> FrameDescriptionEntry<R> {
         Section: UnwindSection<R>,
         F: FnMut(&Section, &BaseAddresses, Section::Offset) -> Result<CommonInformationEntry<R>>,
     {
-        {
-            let mut func = bases.eh_frame.func.borrow_mut();
-            let offset = rest.offset_from(section.section());
-            *func = Some(offset.into_u64());
-        }
-
         let cie = get_cie(section, bases, cie_pointer)?;
 
         let initial_segment = if cie.segment_size > 0 {
@@ -1538,6 +1530,7 @@ impl<R: Reader> FrameDescriptionEntry<R> {
             Some(AugmentationData::parse(
                 augmentation,
                 bases,
+                initial_address,
                 cie.address_size,
                 section,
                 &mut rest,
@@ -1572,6 +1565,7 @@ impl<R: Reader> FrameDescriptionEntry<R> {
             let initial_address = parse_encoded_pointer(
                 encoding,
                 &bases.eh_frame,
+                None,
                 cie.address_size,
                 section.section(),
                 input,
@@ -1585,6 +1579,7 @@ impl<R: Reader> FrameDescriptionEntry<R> {
             let address_range = parse_encoded_pointer(
                 encoding.format(),
                 &bases.eh_frame,
+                None,
                 cie.address_size,
                 section.section(),
                 input,
@@ -6154,7 +6149,7 @@ mod tests {
             initial_address: 0xfeed_face,
             address_range: 9000,
             augmentation: Some(AugmentationData {
-                lsda: Some(Pointer::Direct(1)),
+                lsda: Some(Pointer::Direct(0xbeef)),
             }),
             instructions: EndianSlice::new(&instrs, LittleEndian),
         };
@@ -6171,8 +6166,8 @@ mod tests {
         let section = kind.section(&section);
         let input = &mut section.section().range_from(10..);
 
-        // Adjust the FDE's augmentation to be relative to the section.
-        fde.augmentation.as_mut().unwrap().lsda = Some(Pointer::Direct(19));
+        // Adjust the FDE's augmentation to be relative to the function.
+        fde.augmentation.as_mut().unwrap().lsda = Some(Pointer::Direct(0xfeed_face + 0xbeef));
 
         let result = parse_fde(section, input, |_, _, _| Ok(cie.clone()));
         assert_eq!(result, Ok(fde));
