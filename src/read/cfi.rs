@@ -321,13 +321,13 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     /// # let addr = 0;
     /// # let bases = unimplemented!();
     /// let table = eh_frame_hdr.table().unwrap();
-    /// let fde = table.fde_for_address(eh_frame.clone(), &bases, addr, EhFrame::cie_from_offset)?;
+    /// let fde = table.fde_for_address(&eh_frame, &bases, addr, EhFrame::cie_from_offset)?;
     /// # Ok(())
     /// # }
     /// ```
     pub fn fde_for_address<F>(
         &self,
-        frame: EhFrame<R>,
+        frame: &EhFrame<R>,
         bases: &BaseAddresses,
         address: u64,
         get_cie: F,
@@ -366,7 +366,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
             EhFrameOffset<R::Offset>,
         ) -> Result<CommonInformationEntry<R>>,
     {
-        self.fde_for_address(frame, bases, address, get_cie)
+        self.fde_for_address(&frame, bases, address, get_cie)
     }
 
     /// Returns the frame unwind information for the given address,
@@ -376,7 +376,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     /// `PartialFrameDescriptionEntry::parse` for more information.
     pub fn unwind_info_for_address<F>(
         &self,
-        frame: EhFrame<R>,
+        frame: &EhFrame<R>,
         bases: &BaseAddresses,
         ctx: &mut UninitializedUnwindContext<R>,
         address: u64,
@@ -5641,25 +5641,25 @@ mod tests {
             Ok(cie.clone())
         };
         assert_eq!(
-            table.fde_for_address(eh_frame, &bases, 9, f),
+            table.fde_for_address(&eh_frame, &bases, 9, f),
             Ok(fde1.clone())
         );
         assert_eq!(
-            table.fde_for_address(eh_frame, &bases, 10, f),
+            table.fde_for_address(&eh_frame, &bases, 10, f),
             Ok(fde1.clone())
         );
-        assert_eq!(table.fde_for_address(eh_frame, &bases, 11, f), Ok(fde1));
+        assert_eq!(table.fde_for_address(&eh_frame, &bases, 11, f), Ok(fde1));
         assert_eq!(
-            table.fde_for_address(eh_frame, &bases, 19, f),
+            table.fde_for_address(&eh_frame, &bases, 19, f),
             Err(Error::NoUnwindInfoForAddress)
         );
         assert_eq!(
-            table.fde_for_address(eh_frame, &bases, 20, f),
+            table.fde_for_address(&eh_frame, &bases, 20, f),
             Ok(fde2.clone())
         );
-        assert_eq!(table.fde_for_address(eh_frame, &bases, 21, f), Ok(fde2));
+        assert_eq!(table.fde_for_address(&eh_frame, &bases, 21, f), Ok(fde2));
         assert_eq!(
-            table.fde_for_address(eh_frame, &bases, 100_000, f),
+            table.fde_for_address(&eh_frame, &bases, 100_000, f),
             Err(Error::NoUnwindInfoForAddress)
         );
     }
