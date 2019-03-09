@@ -1334,6 +1334,7 @@ impl<R: Reader> CommonInformationEntry<R> {
     {
         CallFrameInstructionIter {
             input: self.initial_instructions.clone(),
+            address_encoding: None,
             parameters: PointerEncodingParameters {
                 bases: &bases.eh_frame,
                 func_base: None,
@@ -1642,6 +1643,7 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     {
         CallFrameInstructionIter {
             input: self.instructions.clone(),
+            address_encoding: self.cie.augmentation().and_then(|a| a.fde_address_encoding),
             parameters: PointerEncodingParameters {
                 bases: &bases.eh_frame,
                 func_base: None,
@@ -2869,6 +2871,7 @@ const CFI_INSTRUCTION_LOW_BITS_MASK: u8 = !CFI_INSTRUCTION_HIGH_BITS_MASK;
 impl<R: Reader> CallFrameInstruction<R> {
     fn parse(
         input: &mut R,
+        address_encoding: Option<DwEhPe>,
         parameters: &PointerEncodingParameters<R>,
     ) -> Result<CallFrameInstruction<R>> {
         let instruction = input.read_u8()?;
@@ -2902,7 +2905,14 @@ impl<R: Reader> CallFrameInstruction<R> {
             constants::DW_CFA_nop => Ok(CallFrameInstruction::Nop),
 
             constants::DW_CFA_set_loc => {
-                let address = input.read_address(parameters.address_size)?;
+                let address = if let Some(encoding) = address_encoding {
+                    match parse_encoded_pointer(encoding, parameters, input)? {
+                        Pointer::Direct(x) => x,
+                        _ => return Err(Error::UnsupportedPointerEncoding),
+                    }
+                } else {
+                    input.read_address(parameters.address_size)?
+                };
                 Ok(CallFrameInstruction::SetLoc { address })
             }
 
@@ -3066,6 +3076,7 @@ impl<R: Reader> CallFrameInstruction<R> {
 #[derive(Clone, Debug)]
 pub struct CallFrameInstructionIter<'a, R: Reader> {
     input: R,
+    address_encoding: Option<constants::DwEhPe>,
     parameters: PointerEncodingParameters<'a, R>,
 }
 
@@ -3076,7 +3087,8 @@ impl<'a, R: Reader> CallFrameInstructionIter<'a, R> {
             return Ok(None);
         }
 
-        match CallFrameInstruction::parse(&mut self.input, &self.parameters) {
+        match CallFrameInstruction::parse(&mut self.input, self.address_encoding, &self.parameters)
+        {
             Ok(instruction) => Ok(Some(instruction)),
             Err(e) => {
                 self.input.empty();
@@ -4153,7 +4165,7 @@ mod tests {
             address_size,
             section: &R::default(),
         };
-        CallFrameInstruction::parse(input, parameters)
+        CallFrameInstruction::parse(input, None, parameters)
     }
 
     #[test]
@@ -4240,6 +4252,33 @@ mod tests {
         let input = &mut EndianSlice::new(&contents, LittleEndian);
         assert_eq!(
             parse_cfi_instruction(input, 8),
+            Ok(CallFrameInstruction::SetLoc {
+                address: expected_addr,
+            })
+        );
+        assert_eq!(*input, EndianSlice::new(&expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_cfi_instruction_set_loc_encoding() {
+        let text_base = 0xfeed_face;
+        let addr_offset = 0xbeef;
+        let expected_addr = text_base + addr_offset;
+        let expected_rest = [1, 2, 3, 4];
+        let section = Section::with_endian(Endian::Little)
+            .D8(constants::DW_CFA_set_loc.0)
+            .L64(addr_offset)
+            .append_bytes(&expected_rest);
+        let contents = section.get_contents().unwrap();
+        let input = &mut EndianSlice::new(&contents, LittleEndian);
+        let parameters = &PointerEncodingParameters {
+            bases: &BaseAddresses::default().set_text(text_base).eh_frame,
+            func_base: None,
+            address_size: 8,
+            section: &EndianSlice::new(&[], LittleEndian),
+        };
+        assert_eq!(
+            CallFrameInstruction::parse(input, Some(constants::DW_EH_PE_textrel), parameters),
             Ok(CallFrameInstruction::SetLoc {
                 address: expected_addr,
             })
@@ -4742,7 +4781,11 @@ mod tests {
             address_size: 8,
             section: &EndianSlice::default(),
         };
-        let mut iter = CallFrameInstructionIter { input, parameters };
+        let mut iter = CallFrameInstructionIter {
+            input,
+            address_encoding: None,
+            parameters,
+        };
 
         assert_eq!(
             iter.next(),
@@ -4775,7 +4818,11 @@ mod tests {
             address_size: 8,
             section: &EndianSlice::default(),
         };
-        let mut iter = CallFrameInstructionIter { input, parameters };
+        let mut iter = CallFrameInstructionIter {
+            input,
+            address_encoding: None,
+            parameters,
+        };
 
         assert_eq!(iter.next(), Err(Error::UnexpectedEof));
         assert_eq!(iter.next(), Ok(None));
