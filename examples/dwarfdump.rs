@@ -637,7 +637,7 @@ fn dump_eh_frame<R: Reader, W: Write>(
                 writeln!(w, "    data_align: {}", cie.data_alignment_factor())?;
                 writeln!(w, "   ra_register: {:#x}", cie.return_address_register().0)?;
                 // TODO: aug_arg
-                dump_cfi_instructions(w, cie.instructions(), true, register_name)?;
+                dump_cfi_instructions(w, cie.instructions(eh_frame, &bases), true, register_name)?;
                 writeln!(w)?;
             }
             Some(gimli::CieOrFde::Fde(partial)) => {
@@ -664,7 +664,7 @@ fn dump_eh_frame<R: Reader, W: Write>(
                 if let Some(gimli::Pointer::Direct(lsda)) = fde.lsda() {
                     writeln!(w, "          lsda: {:#018x}", lsda)?;
                 }
-                dump_cfi_instructions(w, fde.instructions(), false, register_name)?;
+                dump_cfi_instructions(w, fde.instructions(eh_frame, &bases), false, register_name)?;
                 writeln!(w)?;
             }
         }
