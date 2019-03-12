@@ -9,8 +9,8 @@ use crate::read::{
     Abbreviations, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter, DebugAbbrev,
     DebugAddr, DebugInfo, DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes,
     EntriesCursor, EntriesTree, Error, IncompleteLineProgram, LocListIter, LocationLists,
-    RangeLists, Reader, ReaderOffset, Result, RngListIter, TypeUnitHeader, TypeUnitHeadersIter,
-    UnitHeader, UnitOffset,
+    RangeLists, Reader, ReaderOffset, Result, RngListIter, Section, TypeUnitHeader,
+    TypeUnitHeadersIter, UnitHeader, UnitOffset,
 };
 
 /// All of the commonly used DWARF sections, and other common information.
@@ -48,6 +48,38 @@ pub struct Dwarf<R: Reader> {
 
     /// The range lists in the `.debug_ranges` and `.debug_rnglists` sections.
     pub ranges: RangeLists<R>,
+}
+
+impl<R: Reader> Dwarf<R> {
+    /// Try to load the DWARF sections using the given loader functions.
+    ///
+    /// `section` loads a DWARF section from the main object file.
+    /// `sup` loads a DWARF sections from the supplementary object file.
+    /// These functions should return an empty section if the section does not exist.
+    pub fn load<F1, F2, E>(mut section: F1, mut sup: F2) -> std::result::Result<Self, E>
+    where
+        F1: FnMut(&'static str) -> std::result::Result<R, E>,
+        F2: FnMut(&'static str) -> std::result::Result<R, E>,
+    {
+        // Section types are inferred.
+        let debug_loc = Section::load(&mut section)?;
+        let debug_loclists = Section::load(&mut section)?;
+        let debug_ranges = Section::load(&mut section)?;
+        let debug_rnglists = Section::load(&mut section)?;
+        Ok(Dwarf {
+            debug_abbrev: Section::load(&mut section)?,
+            debug_addr: Section::load(&mut section)?,
+            debug_info: Section::load(&mut section)?,
+            debug_line: Section::load(&mut section)?,
+            debug_line_str: Section::load(&mut section)?,
+            debug_str: Section::load(&mut section)?,
+            debug_str_offsets: Section::load(&mut section)?,
+            debug_str_sup: Section::load(&mut sup)?,
+            debug_types: Section::load(&mut section)?,
+            locations: LocationLists::new(debug_loc, debug_loclists),
+            ranges: RangeLists::new(debug_ranges, debug_rnglists),
+        })
+    }
 }
 
 impl<R: Reader> Dwarf<R> {
