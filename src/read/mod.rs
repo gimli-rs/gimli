@@ -148,17 +148,17 @@
 //! ```
 //! // Use the `FallibleIterator` trait so its methods are in scope!
 //! use fallible_iterator::FallibleIterator;
-//! use gimli::{DebugAranges, EndianBuf, LittleEndian};
+//! use gimli::{DebugAranges, EndianSlice, LittleEndian};
 //!
-//! fn find_sum_of_address_range_lengths(aranges: DebugAranges<EndianBuf<LittleEndian>>)
+//! fn find_sum_of_address_range_lengths(aranges: DebugAranges<EndianSlice<LittleEndian>>)
 //!     -> gimli::Result<u64>
 //! {
 //!     // `DebugAranges::items` returns a `FallibleIterator`!
 //!     aranges.items()
 //!         // `map` is provided by `FallibleIterator`!
-//!         .map(|arange| arange.length())
+//!         .map(|arange| Ok(arange.length()))
 //!         // `fold` is provided by `FallibleIterator`!
-//!         .fold(0, |sum, len| sum + len)
+//!         .fold(0, |sum, len| Ok(sum + len))
 //! }
 //!
 //! # fn main() {}
