@@ -160,7 +160,7 @@ use std::result;
 #[cfg(feature = "std")]
 use std::{error, io};
 
-use crate::common::Register;
+use crate::common::{Register, SectionId};
 use crate::constants;
 
 mod addr;
@@ -551,15 +551,20 @@ pub type Result<T> = result::Result<T, Error>;
 /// let debug_info: DebugInfo<_> = Section::load(loader).unwrap();
 /// ```
 pub trait Section<R>: From<R> {
+    /// Returns the section id for this type.
+    fn id() -> SectionId;
+
     /// Returns the ELF section name for this type.
-    fn section_name() -> &'static str;
+    fn section_name() -> &'static str {
+        Self::id().name()
+    }
 
     /// Try to load the section using the given loader function.
     fn load<F, E>(f: F) -> std::result::Result<Self, E>
     where
-        F: FnOnce(&'static str) -> std::result::Result<R, E>,
+        F: FnOnce(SectionId) -> std::result::Result<R, E>,
     {
-        f(Self::section_name()).map(From::from)
+        f(Self::id()).map(From::from)
     }
 }
 

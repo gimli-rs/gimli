@@ -188,3 +188,73 @@ pub enum UnitSectionOffset<T = usize> {
     /// An offset into the `.debug_types` section.
     DebugTypesOffset(DebugTypesOffset<T>),
 }
+
+/// An identifier for a DWARF section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SectionId {
+    /// The `.debug_abbrev` section.
+    DebugAbbrev,
+    /// The `.debug_addr` section.
+    DebugAddr,
+    /// The `.debug_aranges` section.
+    DebugAranges,
+    /// The `.debug_frame` section.
+    DebugFrame,
+    /// The `.eh_frame` section.
+    EhFrame,
+    /// The `.eh_frame_hdr` section.
+    EhFrameHdr,
+    /// The `.debug_info` section.
+    DebugInfo,
+    /// The `.debug_line` section.
+    DebugLine,
+    /// The `.debug_line_str` section.
+    DebugLineStr,
+    /// The `.debug_loc` section.
+    DebugLoc,
+    /// The `.debug_loclists` section.
+    DebugLocLists,
+    /// The `.debug_macinfo` section.
+    DebugMacinfo,
+    /// The `.debug_pubnames` section.
+    DebugPubNames,
+    /// The `.debug_pubtypes` section.
+    DebugPubTypes,
+    /// The `.debug_ranges` section.
+    DebugRanges,
+    /// The `.debug_rnglists` section.
+    DebugRngLists,
+    /// The `.debug_str` section.
+    DebugStr,
+    /// The `.debug_str_offsets` section.
+    DebugStrOffsets,
+    /// The `.debug_types` section.
+    DebugTypes,
+}
+
+impl SectionId {
+    /// Returns the ELF section name for this kind.
+    pub fn name(self) -> &'static str {
+        match self {
+            SectionId::DebugAbbrev => ".debug_abbrev",
+            SectionId::DebugAddr => ".debug_addr",
+            SectionId::DebugAranges => ".debug_aranges",
+            SectionId::DebugFrame => ".debug_frame",
+            SectionId::EhFrame => ".eh_frame",
+            SectionId::EhFrameHdr => ".eh_frame_hdr",
+            SectionId::DebugInfo => ".debug_info",
+            SectionId::DebugLine => ".debug_line",
+            SectionId::DebugLineStr => ".debug_line_str",
+            SectionId::DebugLoc => ".debug_loc",
+            SectionId::DebugLocLists => ".debug_loclists",
+            SectionId::DebugMacinfo => ".debug_macinfo",
+            SectionId::DebugPubNames => ".debug_pubnames",
+            SectionId::DebugPubTypes => ".debug_pubtypes",
+            SectionId::DebugRanges => ".debug_ranges",
+            SectionId::DebugRngLists => ".debug_rnglists",
+            SectionId::DebugStr => ".debug_str",
+            SectionId::DebugStrOffsets => ".debug_str_offsets",
+            SectionId::DebugTypes => ".debug_types",
+        }
+    }
+}

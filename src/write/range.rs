@@ -2,8 +2,8 @@ use crate::vec::Vec;
 use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
 
-use crate::common::{Encoding, RangeListsOffset};
-use crate::write::{Address, BaseId, Error, Result, Section, SectionId, Sections, Writer};
+use crate::common::{Encoding, RangeListsOffset, SectionId};
+use crate::write::{Address, BaseId, Error, Result, Section, Sections, Writer};
 
 define_section!(
     DebugRanges,

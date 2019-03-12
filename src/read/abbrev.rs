@@ -3,7 +3,7 @@
 use crate::collections::btree_map;
 use crate::vec::Vec;
 
-use crate::common::DebugAbbrevOffset;
+use crate::common::{DebugAbbrevOffset, SectionId};
 use crate::constants;
 use crate::endianity::Endianity;
 use crate::read::{EndianSlice, Error, Reader, Result, Section, UnitHeader};
@@ -67,8 +67,8 @@ impl<T> DebugAbbrev<T> {
 }
 
 impl<R> Section<R> for DebugAbbrev<R> {
-    fn section_name() -> &'static str {
-        ".debug_abbrev"
+    fn id() -> SectionId {
+        SectionId::DebugAbbrev
     }
 }
 

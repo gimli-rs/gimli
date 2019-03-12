@@ -4,7 +4,7 @@ use std::result;
 
 use crate::common::{
     DebugLineOffset, DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsIndex, Encoding, Format,
-    LineEncoding,
+    LineEncoding, SectionId,
 };
 use crate::constants;
 use crate::endianity::Endianity;
@@ -93,8 +93,8 @@ impl<T> DebugLine<T> {
 }
 
 impl<R> Section<R> for DebugLine<R> {
-    fn section_name() -> &'static str {
-        ".debug_line"
+    fn id() -> SectionId {
+        SectionId::DebugLine
     }
 }
 

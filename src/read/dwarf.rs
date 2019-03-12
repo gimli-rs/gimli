@@ -2,7 +2,7 @@ use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
     DebugLocListsIndex, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
     DebugStrOffsetsIndex, DebugTypesOffset, Encoding, LocationListsOffset, RangeListsOffset,
-    UnitSectionOffset,
+    SectionId, UnitSectionOffset,
 };
 use crate::constants;
 use crate::read::{
@@ -58,8 +58,8 @@ impl<T> Dwarf<T> {
     /// These functions should return an empty section if the section does not exist.
     pub fn load<F1, F2, E>(mut section: F1, mut sup: F2) -> std::result::Result<Self, E>
     where
-        F1: FnMut(&'static str) -> std::result::Result<T, E>,
-        F2: FnMut(&'static str) -> std::result::Result<T, E>,
+        F1: FnMut(SectionId) -> std::result::Result<T, E>,
+        F2: FnMut(SectionId) -> std::result::Result<T, E>,
     {
         // Section types are inferred.
         let debug_loc = Section::load(&mut section)?;

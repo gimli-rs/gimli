@@ -479,9 +479,9 @@ where
 {
     let arena = (Arena::new(), Arena::new());
 
-    let mut load_section = |name| -> Result<_> {
+    let mut load_section = |id: gimli::SectionId| -> Result<_> {
         let mut relocations = RelocationMap::default();
-        let data = match file.section_by_name(name) {
+        let data = match file.section_by_name(id.name()) {
             Some(ref section) => {
                 add_relocations(&mut relocations, file, section);
                 section.uncompressed_data()

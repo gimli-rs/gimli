@@ -1,4 +1,4 @@
-use crate::common::{DebugAddrBase, DebugAddrIndex};
+use crate::common::{DebugAddrBase, DebugAddrIndex, SectionId};
 use crate::read::{Reader, ReaderOffset, Result, Section};
 
 /// The raw contents of the `.debug_addr` section.
@@ -53,8 +53,8 @@ impl<T> DebugAddr<T> {
 }
 
 impl<R> Section<R> for DebugAddr<R> {
-    fn section_name() -> &'static str {
-        ".debug_addr"
+    fn id() -> SectionId {
+        SectionId::DebugAddr
     }
 }
 

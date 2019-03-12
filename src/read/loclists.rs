@@ -2,7 +2,7 @@ use fallible_iterator::FallibleIterator;
 
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugLocListsBase, DebugLocListsIndex, Encoding, Format,
-    LocationListsOffset,
+    LocationListsOffset, SectionId,
 };
 use crate::constants;
 use crate::endianity::Endianity;
@@ -41,8 +41,8 @@ where
 }
 
 impl<R> Section<R> for DebugLoc<R> {
-    fn section_name() -> &'static str {
-        ".debug_loc"
+    fn id() -> SectionId {
+        SectionId::DebugLoc
     }
 }
 
@@ -83,8 +83,8 @@ where
 }
 
 impl<R> Section<R> for DebugLocLists<R> {
-    fn section_name() -> &'static str {
-        ".debug_loclists"
+    fn id() -> SectionId {
+        SectionId::DebugLocLists
     }
 }
 

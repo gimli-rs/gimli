@@ -2,9 +2,9 @@ use crate::vec::Vec;
 use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
 
-use crate::common::DebugAbbrevOffset;
+use crate::common::{DebugAbbrevOffset, SectionId};
 use crate::constants;
-use crate::write::{Result, Section, SectionId, Writer};
+use crate::write::{Result, Section, Writer};
 
 /// A table of abbreviations that will be stored in a `.debug_abbrev` section.
 // Requirements:

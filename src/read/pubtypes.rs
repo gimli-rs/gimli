@@ -1,6 +1,6 @@
 use fallible_iterator::FallibleIterator;
 
-use crate::common::DebugInfoOffset;
+use crate::common::{DebugInfoOffset, SectionId};
 use crate::endianity::Endianity;
 use crate::read::lookup::{DebugLookup, LookupEntryIter, PubStuffEntry, PubStuffParser};
 use crate::read::{EndianSlice, Error, Reader, Result, Section, UnitOffset};
@@ -97,8 +97,8 @@ impl<R: Reader> DebugPubTypes<R> {
 }
 
 impl<R: Reader> Section<R> for DebugPubTypes<R> {
-    fn section_name() -> &'static str {
-        ".debug_pubtypes"
+    fn id() -> SectionId {
+        SectionId::DebugPubTypes
     }
 }
 

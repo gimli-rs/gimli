@@ -2,7 +2,7 @@ use fallible_iterator::FallibleIterator;
 
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugRngListsBase, DebugRngListsIndex, Encoding, Format,
-    RangeListsOffset,
+    RangeListsOffset, SectionId,
 };
 use crate::constants;
 use crate::endianity::Endianity;
@@ -38,8 +38,8 @@ where
 }
 
 impl<R> Section<R> for DebugRanges<R> {
-    fn section_name() -> &'static str {
-        ".debug_ranges"
+    fn id() -> SectionId {
+        SectionId::DebugRanges
     }
 }
 
@@ -81,8 +81,8 @@ where
 }
 
 impl<R> Section<R> for DebugRngLists<R> {
-    fn section_name() -> &'static str {
-        ".debug_rnglists"
+    fn id() -> SectionId {
+        SectionId::DebugRngLists
     }
 }
 

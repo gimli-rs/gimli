@@ -10,7 +10,7 @@ use crate::common::{
     DebugLineStrOffset, DebugLocListsBase, DebugLocListsIndex, DebugMacinfoOffset,
     DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
     DebugStrOffsetsIndex, DebugTypeSignature, DebugTypesOffset, Encoding, Format,
-    LocationListsOffset, RangeListsOffset,
+    LocationListsOffset, RangeListsOffset, SectionId,
 };
 use crate::constants;
 use crate::endianity::Endianity;
@@ -163,8 +163,8 @@ impl<T> DebugInfo<T> {
 }
 
 impl<R> Section<R> for DebugInfo<R> {
-    fn section_name() -> &'static str {
-        ".debug_info"
+    fn id() -> SectionId {
+        SectionId::DebugInfo
     }
 }
 
@@ -2787,8 +2787,8 @@ impl<T> DebugTypes<T> {
 }
 
 impl<R> Section<R> for DebugTypes<R> {
-    fn section_name() -> &'static str {
-        ".debug_types"
+    fn id() -> SectionId {
+        SectionId::DebugTypes
     }
 }
 

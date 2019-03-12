@@ -2,12 +2,12 @@ use crate::vec::Vec;
 use indexmap::{IndexMap, IndexSet};
 use std::ops::{Deref, DerefMut};
 
-use crate::common::{DebugLineOffset, Encoding, Format, LineEncoding};
+use crate::common::{DebugLineOffset, Encoding, Format, LineEncoding, SectionId};
 use crate::constants;
 use crate::leb128;
 use crate::write::{
     Address, DebugLineStrOffsets, DebugStrOffsets, Error, LineStringId, LineStringTable, Result,
-    Section, SectionId, StringId, Writer,
+    Section, StringId, Writer,
 };
 
 /// The number assigned to the first special opcode.

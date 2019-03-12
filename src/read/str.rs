@@ -1,5 +1,5 @@
 use crate::common::{
-    DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex,
+    DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex, SectionId,
 };
 use crate::endianity::Endianity;
 use crate::read::{EndianSlice, Reader, ReaderOffset, Result, Section};
@@ -68,8 +68,8 @@ impl<T> DebugStr<T> {
 }
 
 impl<R> Section<R> for DebugStr<R> {
-    fn section_name() -> &'static str {
-        ".debug_str"
+    fn id() -> SectionId {
+        SectionId::DebugStr
     }
 }
 
@@ -130,8 +130,8 @@ impl<T> DebugStrOffsets<T> {
 }
 
 impl<R> Section<R> for DebugStrOffsets<R> {
-    fn section_name() -> &'static str {
-        ".debug_str_offsets"
+    fn id() -> SectionId {
+        SectionId::DebugStrOffsets
     }
 }
 
@@ -170,8 +170,8 @@ impl<T> DebugLineStr<T> {
 }
 
 impl<R> Section<R> for DebugLineStr<R> {
-    fn section_name() -> &'static str {
-        ".debug_line_str"
+    fn id() -> SectionId {
+        SectionId::DebugLineStr
     }
 }
 

@@ -5,9 +5,8 @@ use std::cmp::{Ord, Ordering};
 use std::fmt::Debug;
 use std::iter::FromIterator;
 use std::mem;
-use std::str;
 
-use crate::common::{DebugFrameOffset, EhFrameOffset, Format, Register};
+use crate::common::{DebugFrameOffset, EhFrameOffset, Format, Register, SectionId};
 use crate::constants::{self, DwEhPe};
 use crate::endianity::Endianity;
 use crate::read::{EndianSlice, Error, Expression, Reader, ReaderOffset, Result, Section};
@@ -76,8 +75,8 @@ where
 }
 
 impl<R: Reader> Section<R> for DebugFrame<R> {
-    fn section_name() -> &'static str {
-        ".debug_frame"
+    fn id() -> SectionId {
+        SectionId::DebugFrame
     }
 }
 
@@ -171,8 +170,8 @@ impl<R: Reader> EhFrameHdr<R> {
 }
 
 impl<R: Reader> Section<R> for EhFrameHdr<R> {
-    fn section_name() -> &'static str {
-        ".eh_frame_hdr"
+    fn id() -> SectionId {
+        SectionId::EhFrameHdr
     }
 }
 
@@ -432,8 +431,8 @@ where
 }
 
 impl<R: Reader> Section<R> for EhFrame<R> {
-    fn section_name() -> &'static str {
-        ".eh_frame"
+    fn id() -> SectionId {
+        SectionId::EhFrame
     }
 }
 
