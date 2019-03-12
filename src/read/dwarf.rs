@@ -15,7 +15,7 @@ use crate::read::{
 
 /// All of the commonly used DWARF sections, and other common information.
 #[derive(Debug, Default)]
-pub struct Dwarf<R: Reader> {
+pub struct Dwarf<R> {
     /// The `.debug_abbrev` section.
     pub debug_abbrev: DebugAbbrev<R>,
 
@@ -50,7 +50,7 @@ pub struct Dwarf<R: Reader> {
     pub ranges: RangeLists<R>,
 }
 
-impl<R: Reader> Dwarf<R> {
+impl<T> Dwarf<T> {
     /// Try to load the DWARF sections using the given loader functions.
     ///
     /// `section` loads a DWARF section from the main object file.
@@ -58,8 +58,8 @@ impl<R: Reader> Dwarf<R> {
     /// These functions should return an empty section if the section does not exist.
     pub fn load<F1, F2, E>(mut section: F1, mut sup: F2) -> std::result::Result<Self, E>
     where
-        F1: FnMut(&'static str) -> std::result::Result<R, E>,
-        F2: FnMut(&'static str) -> std::result::Result<R, E>,
+        F1: FnMut(&'static str) -> std::result::Result<T, E>,
+        F2: FnMut(&'static str) -> std::result::Result<T, E>,
     {
         // Section types are inferred.
         let debug_loc = Section::load(&mut section)?;
@@ -79,6 +79,28 @@ impl<R: Reader> Dwarf<R> {
             locations: LocationLists::new(debug_loc, debug_loclists),
             ranges: RangeLists::new(debug_ranges, debug_rnglists),
         })
+    }
+
+    /// Create a `Dwarf` structure that references the data in `self`.
+    ///
+    /// This is useful when `R` implements `Reader` but `T` does not.
+    pub fn borrow<'a, F, R>(&'a self, mut borrow: F) -> Dwarf<R>
+    where
+        F: FnMut(&'a T) -> R,
+    {
+        Dwarf {
+            debug_abbrev: self.debug_abbrev.borrow(&mut borrow),
+            debug_addr: self.debug_addr.borrow(&mut borrow),
+            debug_info: self.debug_info.borrow(&mut borrow),
+            debug_line: self.debug_line.borrow(&mut borrow),
+            debug_line_str: self.debug_line_str.borrow(&mut borrow),
+            debug_str: self.debug_str.borrow(&mut borrow),
+            debug_str_offsets: self.debug_str_offsets.borrow(&mut borrow),
+            debug_str_sup: self.debug_str_sup.borrow(&mut borrow),
+            debug_types: self.debug_types.borrow(&mut borrow),
+            locations: self.locations.borrow(&mut borrow),
+            ranges: self.ranges.borrow(&mut borrow),
+        }
     }
 }
 

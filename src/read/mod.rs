@@ -550,7 +550,7 @@ pub type Result<T> = result::Result<T, Error>;
 ///
 /// let debug_info: DebugInfo<_> = Section::load(loader).unwrap();
 /// ```
-pub trait Section<R: Reader>: From<R> {
+pub trait Section<R>: From<R> {
     /// Returns the ELF section name for this type.
     fn section_name() -> &'static str;
 

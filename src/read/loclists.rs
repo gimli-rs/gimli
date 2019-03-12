@@ -13,7 +13,7 @@ use crate::read::{
 
 /// The raw contents of the `.debug_loc` section.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct DebugLoc<R: Reader> {
+pub struct DebugLoc<R> {
     pub(crate) section: R,
 }
 
@@ -40,13 +40,13 @@ where
     }
 }
 
-impl<R: Reader> Section<R> for DebugLoc<R> {
+impl<R> Section<R> for DebugLoc<R> {
     fn section_name() -> &'static str {
         ".debug_loc"
     }
 }
 
-impl<R: Reader> From<R> for DebugLoc<R> {
+impl<R> From<R> for DebugLoc<R> {
     fn from(section: R) -> Self {
         DebugLoc { section }
     }
@@ -55,7 +55,7 @@ impl<R: Reader> From<R> for DebugLoc<R> {
 /// The `DebugLocLists` struct represents the DWARF data
 /// found in the `.debug_loclists` section.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct DebugLocLists<R: Reader> {
+pub struct DebugLocLists<R> {
     section: R,
 }
 
@@ -82,13 +82,13 @@ where
     }
 }
 
-impl<R: Reader> Section<R> for DebugLocLists<R> {
+impl<R> Section<R> for DebugLocLists<R> {
     fn section_name() -> &'static str {
         ".debug_loclists"
     }
 }
 
-impl<R: Reader> From<R> for DebugLocLists<R> {
+impl<R> From<R> for DebugLocLists<R> {
     fn from(section: R) -> Self {
         DebugLocLists { section }
     }
@@ -154,12 +154,12 @@ fn parse_header<R: Reader>(input: &mut R) -> Result<LocListsHeader> {
 
 /// The DWARF data found in `.debug_loc` and `.debug_loclists` sections.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct LocationLists<R: Reader> {
+pub struct LocationLists<R> {
     debug_loc: DebugLoc<R>,
     debug_loclists: DebugLocLists<R>,
 }
 
-impl<R: Reader> LocationLists<R> {
+impl<R> LocationLists<R> {
     /// Construct a new `LocationLists` instance from the data in the `.debug_loc` and
     /// `.debug_loclists` sections.
     pub fn new(debug_loc: DebugLoc<R>, debug_loclists: DebugLocLists<R>) -> LocationLists<R> {
@@ -168,7 +168,24 @@ impl<R: Reader> LocationLists<R> {
             debug_loclists,
         }
     }
+}
 
+impl<T> LocationLists<T> {
+    /// Create a `LocationLists` that references the data in `self`.
+    ///
+    /// This is useful when `R` implements `Reader` but `T` does not.
+    pub fn borrow<'a, F, R>(&'a self, mut borrow: F) -> LocationLists<R>
+    where
+        F: FnMut(&'a T) -> R,
+    {
+        LocationLists {
+            debug_loc: borrow(&self.debug_loc.section).into(),
+            debug_loclists: borrow(&self.debug_loclists.section).into(),
+        }
+    }
+}
+
+impl<R: Reader> LocationLists<R> {
     /// Iterate over the `LocationListEntry`s starting at the given offset.
     ///
     /// The `unit_encoding` must match the compilation unit that the
