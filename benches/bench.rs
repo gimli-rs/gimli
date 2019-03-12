@@ -649,7 +649,7 @@ mod cfi {
         fde: &FrameDescriptionEntry<R>,
     ) -> usize {
         fde.instructions(eh_frame, bases)
-            .fold(0, |count, _| count + 1)
+            .fold(0, |count, _| Ok(count + 1))
             .expect("fold over instructions OK")
     }
 
