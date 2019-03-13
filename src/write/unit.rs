@@ -4,13 +4,13 @@ use std::{slice, usize};
 
 use crate::common::{
     DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugStrOffset,
-    DebugTypeSignature, Encoding, Format, LocationListsOffset, UnitSectionOffset,
+    DebugTypeSignature, Encoding, Format, LocationListsOffset, SectionId, UnitSectionOffset,
 };
 use crate::constants;
 use crate::write::{
     Abbreviation, AbbreviationTable, Address, AttributeSpecification, BaseId, DebugLineStrOffsets,
     DebugStrOffsets, Error, FileId, LineProgram, LineStringId, RangeList, RangeListId,
-    RangeListOffsets, RangeListTable, Result, Section, SectionId, Sections, StringId, Writer,
+    RangeListOffsets, RangeListTable, Result, Section, Sections, StringId, Writer,
 };
 
 define_id!(UnitId, "An identifier for a unit in a `UnitTable`.");

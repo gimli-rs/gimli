@@ -2,7 +2,7 @@ use fallible_iterator::FallibleIterator;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 
-use crate::common::{DebugInfoOffset, Encoding};
+use crate::common::{DebugInfoOffset, Encoding, SectionId};
 use crate::endianity::Endianity;
 use crate::read::lookup::{DebugLookup, LookupEntryIter, LookupParser};
 use crate::read::{
@@ -221,8 +221,8 @@ impl<R: Reader> DebugAranges<R> {
 }
 
 impl<R: Reader> Section<R> for DebugAranges<R> {
-    fn section_name() -> &'static str {
-        ".debug_aranges"
+    fn id() -> SectionId {
+        SectionId::DebugAranges
     }
 }
 

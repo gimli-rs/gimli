@@ -2,7 +2,7 @@ use fallible_iterator::FallibleIterator;
 
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugRngListsBase, DebugRngListsIndex, Encoding, Format,
-    RangeListsOffset,
+    RangeListsOffset, SectionId,
 };
 use crate::constants;
 use crate::endianity::Endianity;
@@ -10,7 +10,7 @@ use crate::read::{DebugAddr, EndianSlice, Error, Reader, ReaderOffset, Result, S
 
 /// The raw contents of the `.debug_ranges` section.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct DebugRanges<R: Reader> {
+pub struct DebugRanges<R> {
     pub(crate) section: R,
 }
 
@@ -37,13 +37,13 @@ where
     }
 }
 
-impl<R: Reader> Section<R> for DebugRanges<R> {
-    fn section_name() -> &'static str {
-        ".debug_ranges"
+impl<R> Section<R> for DebugRanges<R> {
+    fn id() -> SectionId {
+        SectionId::DebugRanges
     }
 }
 
-impl<R: Reader> From<R> for DebugRanges<R> {
+impl<R> From<R> for DebugRanges<R> {
     fn from(section: R) -> Self {
         DebugRanges { section }
     }
@@ -52,7 +52,7 @@ impl<R: Reader> From<R> for DebugRanges<R> {
 /// The `DebugRngLists` struct represents the contents of the
 /// `.debug_rnglists` section.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct DebugRngLists<R: Reader> {
+pub struct DebugRngLists<R> {
     section: R,
 }
 
@@ -80,13 +80,13 @@ where
     }
 }
 
-impl<R: Reader> Section<R> for DebugRngLists<R> {
-    fn section_name() -> &'static str {
-        ".debug_rnglists"
+impl<R> Section<R> for DebugRngLists<R> {
+    fn id() -> SectionId {
+        SectionId::DebugRngLists
     }
 }
 
-impl<R: Reader> From<R> for DebugRngLists<R> {
+impl<R> From<R> for DebugRngLists<R> {
     fn from(section: R) -> Self {
         DebugRngLists { section }
     }
@@ -152,12 +152,12 @@ fn parse_header<R: Reader>(input: &mut R) -> Result<RngListsHeader> {
 
 /// The DWARF data found in `.debug_ranges` and `.debug_rnglists` sections.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct RangeLists<R: Reader> {
+pub struct RangeLists<R> {
     debug_ranges: DebugRanges<R>,
     debug_rnglists: DebugRngLists<R>,
 }
 
-impl<R: Reader> RangeLists<R> {
+impl<R> RangeLists<R> {
     /// Construct a new `RangeLists` instance from the data in the `.debug_ranges` and
     /// `.debug_rnglists` sections.
     pub fn new(debug_ranges: DebugRanges<R>, debug_rnglists: DebugRngLists<R>) -> RangeLists<R> {
@@ -166,7 +166,36 @@ impl<R: Reader> RangeLists<R> {
             debug_rnglists,
         }
     }
+}
 
+impl<T> RangeLists<T> {
+    /// Create a `RangeLists` that references the data in `self`.
+    ///
+    /// This is useful when `R` implements `Reader` but `T` does not.
+    ///
+    /// ## Example Usage
+    ///
+    /// ```rust,no_run
+    /// # let load_section = || unimplemented!();
+    /// // Read the DWARF section into a `Vec` with whatever object loader you're using.
+    /// let owned_section: gimli::RangeLists<Vec<u8>> = load_section();
+    /// // Create a reference to the DWARF section.
+    /// let section = owned_section.borrow(|section| {
+    ///     gimli::EndianSlice::new(&section, gimli::LittleEndian)
+    /// });
+    /// ```
+    pub fn borrow<'a, F, R>(&'a self, mut borrow: F) -> RangeLists<R>
+    where
+        F: FnMut(&'a T) -> R,
+    {
+        RangeLists {
+            debug_ranges: borrow(&self.debug_ranges.section).into(),
+            debug_rnglists: borrow(&self.debug_rnglists.section).into(),
+        }
+    }
+}
+
+impl<R: Reader> RangeLists<R> {
     /// Iterate over the `Range` list entries starting at the given offset.
     ///
     /// The `unit_version` and `address_size` must match the compilation unit that the

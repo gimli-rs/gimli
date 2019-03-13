@@ -1,5 +1,5 @@
 use crate::common::{
-    DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex,
+    DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex, SectionId,
 };
 use crate::endianity::Endianity;
 use crate::read::{EndianSlice, Reader, ReaderOffset, Result, Section};
@@ -8,7 +8,7 @@ use crate::Format;
 /// The `DebugStr` struct represents the DWARF strings
 /// found in the `.debug_str` section.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct DebugStr<R: Reader> {
+pub struct DebugStr<R> {
     debug_str_section: R,
 }
 
@@ -55,13 +55,37 @@ impl<R: Reader> DebugStr<R> {
     }
 }
 
-impl<R: Reader> Section<R> for DebugStr<R> {
-    fn section_name() -> &'static str {
-        ".debug_str"
+impl<T> DebugStr<T> {
+    /// Create a `DebugStr` section that references the data in `self`.
+    ///
+    /// This is useful when `R` implements `Reader` but `T` does not.
+    ///
+    /// ## Example Usage
+    ///
+    /// ```rust,no_run
+    /// # let load_section = || unimplemented!();
+    /// // Read the DWARF section into a `Vec` with whatever object loader you're using.
+    /// let owned_section: gimli::DebugStr<Vec<u8>> = load_section();
+    /// // Create a reference to the DWARF section.
+    /// let section = owned_section.borrow(|section| {
+    ///     gimli::EndianSlice::new(&section, gimli::LittleEndian)
+    /// });
+    /// ```
+    pub fn borrow<'a, F, R>(&'a self, mut borrow: F) -> DebugStr<R>
+    where
+        F: FnMut(&'a T) -> R,
+    {
+        borrow(&self.debug_str_section).into()
     }
 }
 
-impl<R: Reader> From<R> for DebugStr<R> {
+impl<R> Section<R> for DebugStr<R> {
+    fn id() -> SectionId {
+        SectionId::DebugStr
+    }
+}
+
+impl<R> From<R> for DebugStr<R> {
     fn from(debug_str_section: R) -> Self {
         DebugStr { debug_str_section }
     }
@@ -69,7 +93,7 @@ impl<R: Reader> From<R> for DebugStr<R> {
 
 /// The raw contents of the `.debug_str_offsets` section.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct DebugStrOffsets<R: Reader> {
+pub struct DebugStrOffsets<R> {
     section: R,
 }
 
@@ -105,13 +129,37 @@ impl<R: Reader> DebugStrOffsets<R> {
     }
 }
 
-impl<R: Reader> Section<R> for DebugStrOffsets<R> {
-    fn section_name() -> &'static str {
-        ".debug_str_offsets"
+impl<T> DebugStrOffsets<T> {
+    /// Create a `DebugStrOffsets` section that references the data in `self`.
+    ///
+    /// This is useful when `R` implements `Reader` but `T` does not.
+    ///
+    /// ## Example Usage
+    ///
+    /// ```rust,no_run
+    /// # let load_section = || unimplemented!();
+    /// // Read the DWARF section into a `Vec` with whatever object loader you're using.
+    /// let owned_section: gimli::DebugStrOffsets<Vec<u8>> = load_section();
+    /// // Create a reference to the DWARF section.
+    /// let section = owned_section.borrow(|section| {
+    ///     gimli::EndianSlice::new(&section, gimli::LittleEndian)
+    /// });
+    /// ```
+    pub fn borrow<'a, F, R>(&'a self, mut borrow: F) -> DebugStrOffsets<R>
+    where
+        F: FnMut(&'a T) -> R,
+    {
+        borrow(&self.section).into()
     }
 }
 
-impl<R: Reader> From<R> for DebugStrOffsets<R> {
+impl<R> Section<R> for DebugStrOffsets<R> {
+    fn id() -> SectionId {
+        SectionId::DebugStrOffsets
+    }
+}
+
+impl<R> From<R> for DebugStrOffsets<R> {
     fn from(section: R) -> Self {
         DebugStrOffsets { section }
     }
@@ -120,7 +168,7 @@ impl<R: Reader> From<R> for DebugStrOffsets<R> {
 /// The `DebugLineStr` struct represents the DWARF strings
 /// found in the `.debug_line_str` section.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct DebugLineStr<R: Reader> {
+pub struct DebugLineStr<R> {
     section: R,
 }
 
@@ -133,13 +181,37 @@ impl<R: Reader> DebugLineStr<R> {
     }
 }
 
-impl<R: Reader> Section<R> for DebugLineStr<R> {
-    fn section_name() -> &'static str {
-        ".debug_line_str"
+impl<T> DebugLineStr<T> {
+    /// Create a `DebugLineStr` section that references the data in `self`.
+    ///
+    /// This is useful when `R` implements `Reader` but `T` does not.
+    ///
+    /// ## Example Usage
+    ///
+    /// ```rust,no_run
+    /// # let load_section = || unimplemented!();
+    /// // Read the DWARF section into a `Vec` with whatever object loader you're using.
+    /// let owned_section: gimli::DebugLineStr<Vec<u8>> = load_section();
+    /// // Create a reference to the DWARF section.
+    /// let section = owned_section.borrow(|section| {
+    ///     gimli::EndianSlice::new(&section, gimli::LittleEndian)
+    /// });
+    /// ```
+    pub fn borrow<'a, F, R>(&'a self, mut borrow: F) -> DebugLineStr<R>
+    where
+        F: FnMut(&'a T) -> R,
+    {
+        borrow(&self.section).into()
     }
 }
 
-impl<R: Reader> From<R> for DebugLineStr<R> {
+impl<R> Section<R> for DebugLineStr<R> {
+    fn id() -> SectionId {
+        SectionId::DebugLineStr
+    }
+}
+
+impl<R> From<R> for DebugLineStr<R> {
     fn from(section: R) -> Self {
         DebugLineStr { section }
     }

@@ -1,7 +1,7 @@
+use crate::common::{Format, SectionId};
 use crate::endianity::Endianity;
 use crate::leb128;
-use crate::write::{Address, Error, Result, SectionId};
-use crate::Format;
+use crate::write::{Address, Error, Result};
 
 /// A trait for writing the data to a DWARF section.
 ///

@@ -1,6 +1,7 @@
 use std::ops::DerefMut;
 use std::result;
 
+use crate::common::SectionId;
 use crate::write::{
     DebugAbbrev, DebugInfo, DebugLine, DebugLineStr, DebugRanges, DebugRngLists, DebugStr, Writer,
 };
@@ -48,49 +49,6 @@ macro_rules! define_section {
             }
         }
     };
-}
-
-/// An identifier for a DWARF section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SectionId {
-    /// The `.debug_abbrev` section.
-    DebugAbbrev,
-    /// The `.debug_info` section.
-    DebugInfo,
-    /// The `.debug_line` section.
-    DebugLine,
-    /// The `.debug_line_str` section.
-    DebugLineStr,
-    /// The `.debug_loc` section.
-    DebugLoc,
-    /// The `.debug_loclists` section.
-    DebugLocLists,
-    /// The `.debug_macinfo` section.
-    DebugMacinfo,
-    /// The `.debug_ranges` section.
-    DebugRanges,
-    /// The `.debug_rnglists` section.
-    DebugRngLists,
-    /// The `.debug_str` section.
-    DebugStr,
-}
-
-impl SectionId {
-    /// Returns the ELF section name for this kind.
-    pub fn name(self) -> &'static str {
-        match self {
-            SectionId::DebugAbbrev => ".debug_abbrev",
-            SectionId::DebugInfo => ".debug_info",
-            SectionId::DebugLine => ".debug_line",
-            SectionId::DebugLineStr => ".debug_line_str",
-            SectionId::DebugLoc => ".debug_loc",
-            SectionId::DebugLocLists => ".debug_loclists",
-            SectionId::DebugMacinfo => ".debug_macinfo",
-            SectionId::DebugRanges => ".debug_ranges",
-            SectionId::DebugRngLists => ".debug_rnglists",
-            SectionId::DebugStr => ".debug_str",
-        }
-    }
 }
 
 /// Functionality common to all writable DWARF sections.

@@ -10,20 +10,11 @@
 //!
 //! ```rust,no_run
 //! # fn example() -> Result<(), gimli::Error> {
-//! # let debug_info_buf = [];
-//! # let debug_abbrev_buf = [];
-//! # let read_debug_info = || &debug_info_buf;
-//! # let read_debug_abbrev = || &debug_abbrev_buf;
-//! // Read the .debug_info and .debug_abbrev sections with whatever object
-//! // loader you're using.
-//! let endian = gimli::LittleEndian;
-//! let debug_info = gimli::DebugInfo::new(read_debug_info(), endian);
-//! let debug_abbrev = gimli::DebugAbbrev::new(read_debug_abbrev(), endian);
-//! let dwarf = gimli::Dwarf {
-//!     debug_info,
-//!     debug_abbrev,
-//!     ..Default::default()
-//! };
+//! # type R = gimli::EndianSlice<'static, gimli::LittleEndian>;
+//! # let loader = |name| -> Result<R, gimli::Error> { unimplemented!() };
+//! # let sup_loader = |name| { unimplemented!() };
+//! // Read the DWARF sections with whatever object loader you're using.
+//! let dwarf = gimli::Dwarf::load(loader, sup_loader)?;
 //!
 //! // Iterate over all compilation units.
 //! let mut iter = dwarf.units();
@@ -169,7 +160,7 @@ use std::result;
 #[cfg(feature = "std")]
 use std::{error, io};
 
-use crate::common::Register;
+use crate::common::{Register, SectionId};
 use crate::constants;
 
 mod addr;
@@ -551,23 +542,30 @@ pub type Result<T> = result::Result<T, Error>;
 /// used like:
 ///
 /// ```
-/// use gimli::{DebugInfo, EndianBuf, LittleEndian, Reader, Section};
-///
-/// fn load_section<R, S, F>(loader: F) -> S
-///   where R: Reader, S: Section<R>, F: FnOnce(&'static str) -> R
-/// {
-///   let data = loader(S::section_name());
-///   S::from(data)
-/// }
+/// use gimli::{DebugInfo, EndianSlice, LittleEndian, Reader, Section};
 ///
 /// let buf = [0x00, 0x01, 0x02, 0x03];
-/// let reader = EndianBuf::new(&buf, LittleEndian);
+/// let reader = EndianSlice::new(&buf, LittleEndian);
+/// let loader = |name| -> Result<_, ()> { Ok(reader) };
 ///
-/// let debug_info: DebugInfo<_> = load_section(|_: &'static str| reader);
+/// let debug_info: DebugInfo<_> = Section::load(loader).unwrap();
 /// ```
-pub trait Section<R: Reader>: From<R> {
+pub trait Section<R>: From<R> {
+    /// Returns the section id for this type.
+    fn id() -> SectionId;
+
     /// Returns the ELF section name for this type.
-    fn section_name() -> &'static str;
+    fn section_name() -> &'static str {
+        Self::id().name()
+    }
+
+    /// Try to load the section using the given loader function.
+    fn load<F, E>(f: F) -> std::result::Result<Self, E>
+    where
+        F: FnOnce(SectionId) -> std::result::Result<R, E>,
+    {
+        f(Self::id()).map(From::from)
+    }
 }
 
 impl Register {

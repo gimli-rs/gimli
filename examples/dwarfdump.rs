@@ -2,7 +2,7 @@
 #![allow(unknown_lints)]
 
 use fallible_iterator::FallibleIterator;
-use gimli::{CompilationUnitHeader, UnitOffset, UnwindSection};
+use gimli::{CompilationUnitHeader, Section, UnitOffset, UnwindSection};
 use object::{Object, ObjectSection};
 use regex::bytes::Regex;
 use std::borrow::{Borrow, Cow};
@@ -479,19 +479,9 @@ where
 {
     let arena = (Arena::new(), Arena::new());
 
-    fn load_section<'a, 'file, 'input, S, Endian>(
-        arena: &'a (Arena<Cow<'file, [u8]>>, Arena<RelocationMap>),
-        file: &'file object::File<'input>,
-        endian: Endian,
-    ) -> S
-    where
-        S: gimli::Section<Relocate<'a, gimli::EndianSlice<'a, Endian>>>,
-        Endian: gimli::Endianity + Send + Sync,
-        'file: 'input,
-        'a: 'file,
-    {
+    let mut load_section = |id: gimli::SectionId| -> Result<_> {
         let mut relocations = RelocationMap::default();
-        let data = match file.section_by_name(S::section_name()) {
+        let data = match file.section_by_name(id.name()) {
             Some(ref section) => {
                 add_relocations(&mut relocations, file, section);
                 section.uncompressed_data()
@@ -502,12 +492,12 @@ where
         let reader = gimli::EndianSlice::new(data_ref, endian);
         let section = reader;
         let relocations = (*arena.1.alloc(relocations)).borrow();
-        S::from(Relocate {
+        Ok(Relocate {
             relocations,
             section,
             reader,
         })
-    }
+    };
 
     let no_relocations = (*arena.1.alloc(RelocationMap::default())).borrow();
     let no_reader = Relocate {
@@ -516,37 +506,7 @@ where
         reader: Default::default(),
     };
 
-    // The type of each section variable is inferred from its use below.
-    let debug_abbrev = load_section(&arena, file, endian);
-    let debug_addr = load_section(&arena, file, endian);
-    let debug_info = load_section(&arena, file, endian);
-    let debug_line = load_section(&arena, file, endian);
-    let debug_line_str = load_section(&arena, file, endian);
-    let debug_str = load_section(&arena, file, endian);
-    let debug_str_offsets = load_section(&arena, file, endian);
-    let debug_types = load_section(&arena, file, endian);
-
-    let debug_loc = load_section(&arena, file, endian);
-    let debug_loclists = load_section(&arena, file, endian);
-    let locations = gimli::LocationLists::new(debug_loc, debug_loclists);
-
-    let debug_ranges = load_section(&arena, file, endian);
-    let debug_rnglists = load_section(&arena, file, endian);
-    let ranges = gimli::RangeLists::new(debug_ranges, debug_rnglists);
-
-    let dwarf = gimli::Dwarf {
-        debug_abbrev,
-        debug_addr,
-        debug_info,
-        debug_line,
-        debug_line_str,
-        debug_str,
-        debug_str_offsets,
-        debug_str_sup: no_reader.clone().into(),
-        debug_types,
-        locations,
-        ranges,
-    };
+    let dwarf = gimli::Dwarf::load(&mut load_section, |_| Ok(no_reader.clone())).unwrap();
 
     let out = io::stdout();
     if flags.eh_frame {
@@ -571,7 +531,7 @@ where
             None => Cow::Owned(format!("{}", register.0)),
         };
 
-        let mut eh_frame: gimli::EhFrame<_> = load_section(&arena, file, endian);
+        let mut eh_frame = gimli::EhFrame::load(&mut load_section).unwrap();
         eh_frame.set_address_size(address_size);
         dump_eh_frame(&mut BufWriter::new(out.lock()), &eh_frame, &register_name)?;
     }
@@ -585,15 +545,15 @@ where
         dump_line(w, &dwarf)?;
     }
     if flags.pubnames {
-        let debug_pubnames = &load_section(&arena, file, endian);
+        let debug_pubnames = &gimli::Section::load(&mut load_section).unwrap();
         dump_pubnames(w, debug_pubnames, &dwarf.debug_info)?;
     }
     if flags.aranges {
-        let debug_aranges = &load_section(&arena, file, endian);
+        let debug_aranges = &gimli::Section::load(&mut load_section).unwrap();
         dump_aranges(w, debug_aranges, &dwarf.debug_info)?;
     }
     if flags.pubtypes {
-        let debug_pubtypes = &load_section(&arena, file, endian);
+        let debug_pubtypes = &gimli::Section::load(&mut load_section).unwrap();
         dump_pubtypes(w, debug_pubtypes, &dwarf.debug_info)?;
     }
     Ok(())

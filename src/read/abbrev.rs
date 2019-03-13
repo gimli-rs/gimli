@@ -3,7 +3,7 @@
 use crate::collections::btree_map;
 use crate::vec::Vec;
 
-use crate::common::DebugAbbrevOffset;
+use crate::common::{DebugAbbrevOffset, SectionId};
 use crate::constants;
 use crate::endianity::Endianity;
 use crate::read::{EndianSlice, Error, Reader, Result, Section, UnitHeader};
@@ -12,7 +12,7 @@ use crate::read::{EndianSlice, Error, Reader, Result, Section, UnitHeader};
 /// `DebuggingInformationEntry`s' attribute names and forms found in the
 /// `.debug_abbrev` section.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct DebugAbbrev<R: Reader> {
+pub struct DebugAbbrev<R> {
     debug_abbrev_section: R,
 }
 
@@ -54,13 +54,37 @@ impl<R: Reader> DebugAbbrev<R> {
     }
 }
 
-impl<R: Reader> Section<R> for DebugAbbrev<R> {
-    fn section_name() -> &'static str {
-        ".debug_abbrev"
+impl<T> DebugAbbrev<T> {
+    /// Create a `DebugAbbrev` section that references the data in `self`.
+    ///
+    /// This is useful when `R` implements `Reader` but `T` does not.
+    ///
+    /// ## Example Usage
+    ///
+    /// ```rust,no_run
+    /// # let load_section = || unimplemented!();
+    /// // Read the DWARF section into a `Vec` with whatever object loader you're using.
+    /// let owned_section: gimli::DebugAbbrev<Vec<u8>> = load_section();
+    /// // Create a reference to the DWARF section.
+    /// let section = owned_section.borrow(|section| {
+    ///     gimli::EndianSlice::new(&section, gimli::LittleEndian)
+    /// });
+    /// ```
+    pub fn borrow<'a, F, R>(&'a self, mut borrow: F) -> DebugAbbrev<R>
+    where
+        F: FnMut(&'a T) -> R,
+    {
+        borrow(&self.debug_abbrev_section).into()
     }
 }
 
-impl<R: Reader> From<R> for DebugAbbrev<R> {
+impl<R> Section<R> for DebugAbbrev<R> {
+    fn id() -> SectionId {
+        SectionId::DebugAbbrev
+    }
+}
+
+impl<R> From<R> for DebugAbbrev<R> {
     fn from(debug_abbrev_section: R) -> Self {
         DebugAbbrev {
             debug_abbrev_section,

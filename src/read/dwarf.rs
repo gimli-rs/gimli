@@ -2,20 +2,20 @@ use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
     DebugLocListsIndex, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
     DebugStrOffsetsIndex, DebugTypesOffset, Encoding, LocationListsOffset, RangeListsOffset,
-    UnitSectionOffset,
+    SectionId, UnitSectionOffset,
 };
 use crate::constants;
 use crate::read::{
     Abbreviations, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter, DebugAbbrev,
     DebugAddr, DebugInfo, DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes,
     EntriesCursor, EntriesTree, Error, IncompleteLineProgram, LocListIter, LocationLists,
-    RangeLists, Reader, ReaderOffset, Result, RngListIter, TypeUnitHeader, TypeUnitHeadersIter,
-    UnitHeader, UnitOffset,
+    RangeLists, Reader, ReaderOffset, Result, RngListIter, Section, TypeUnitHeader,
+    TypeUnitHeadersIter, UnitHeader, UnitOffset,
 };
 
 /// All of the commonly used DWARF sections, and other common information.
 #[derive(Debug, Default)]
-pub struct Dwarf<R: Reader> {
+pub struct Dwarf<R> {
     /// The `.debug_abbrev` section.
     pub debug_abbrev: DebugAbbrev<R>,
 
@@ -48,6 +48,83 @@ pub struct Dwarf<R: Reader> {
 
     /// The range lists in the `.debug_ranges` and `.debug_rnglists` sections.
     pub ranges: RangeLists<R>,
+}
+
+impl<T> Dwarf<T> {
+    /// Try to load the DWARF sections using the given loader functions.
+    ///
+    /// `section` loads a DWARF section from the main object file.
+    /// `sup` loads a DWARF sections from the supplementary object file.
+    /// These functions should return an empty section if the section does not exist.
+    pub fn load<F1, F2, E>(mut section: F1, mut sup: F2) -> std::result::Result<Self, E>
+    where
+        F1: FnMut(SectionId) -> std::result::Result<T, E>,
+        F2: FnMut(SectionId) -> std::result::Result<T, E>,
+    {
+        // Section types are inferred.
+        let debug_loc = Section::load(&mut section)?;
+        let debug_loclists = Section::load(&mut section)?;
+        let debug_ranges = Section::load(&mut section)?;
+        let debug_rnglists = Section::load(&mut section)?;
+        Ok(Dwarf {
+            debug_abbrev: Section::load(&mut section)?,
+            debug_addr: Section::load(&mut section)?,
+            debug_info: Section::load(&mut section)?,
+            debug_line: Section::load(&mut section)?,
+            debug_line_str: Section::load(&mut section)?,
+            debug_str: Section::load(&mut section)?,
+            debug_str_offsets: Section::load(&mut section)?,
+            debug_str_sup: Section::load(&mut sup)?,
+            debug_types: Section::load(&mut section)?,
+            locations: LocationLists::new(debug_loc, debug_loclists),
+            ranges: RangeLists::new(debug_ranges, debug_rnglists),
+        })
+    }
+
+    /// Create a `Dwarf` structure that references the data in `self`.
+    ///
+    /// This is useful when `R` implements `Reader` but `T` does not.
+    ///
+    /// ## Example Usage
+    ///
+    /// It can be useful to load DWARF sections into owned data structures,
+    /// such as `Vec`. However, we do not implement the `Reader` trait
+    /// for `Vec`, because it would be very inefficient, but this trait
+    /// is required for all of the methods that parse the DWARF data.
+    /// So we first load the DWARF sections into `Vec`s, and then use
+    /// `borrow` to create `Reader`s that reference the data.
+    ///
+    /// ```rust,no_run
+    /// # fn example() -> Result<(), gimli::Error> {
+    /// # let loader = |name| -> Result<_, gimli::Error> { unimplemented!() };
+    /// # let sup_loader = |name| { unimplemented!() };
+    /// // Read the DWARF sections into `Vec`s with whatever object loader you're using.
+    /// let owned_dwarf: gimli::Dwarf<Vec<u8>> = gimli::Dwarf::load(loader, sup_loader)?;
+    /// // Create references to the DWARF sections.
+    /// let dwarf = owned_dwarf.borrow(|section| {
+    ///     gimli::EndianSlice::new(&section, gimli::LittleEndian)
+    /// });
+    /// # unreachable!()
+    /// # }
+    /// ```
+    pub fn borrow<'a, F, R>(&'a self, mut borrow: F) -> Dwarf<R>
+    where
+        F: FnMut(&'a T) -> R,
+    {
+        Dwarf {
+            debug_abbrev: self.debug_abbrev.borrow(&mut borrow),
+            debug_addr: self.debug_addr.borrow(&mut borrow),
+            debug_info: self.debug_info.borrow(&mut borrow),
+            debug_line: self.debug_line.borrow(&mut borrow),
+            debug_line_str: self.debug_line_str.borrow(&mut borrow),
+            debug_str: self.debug_str.borrow(&mut borrow),
+            debug_str_offsets: self.debug_str_offsets.borrow(&mut borrow),
+            debug_str_sup: self.debug_str_sup.borrow(&mut borrow),
+            debug_types: self.debug_types.borrow(&mut borrow),
+            locations: self.locations.borrow(&mut borrow),
+            ranges: self.ranges.borrow(&mut borrow),
+        }
+    }
 }
 
 impl<R: Reader> Dwarf<R> {

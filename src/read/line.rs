@@ -4,7 +4,7 @@ use std::result;
 
 use crate::common::{
     DebugLineOffset, DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsIndex, Encoding, Format,
-    LineEncoding,
+    LineEncoding, SectionId,
 };
 use crate::constants;
 use crate::endianity::Endianity;
@@ -13,7 +13,7 @@ use crate::read::{AttributeValue, EndianSlice, Error, Reader, ReaderOffset, Resu
 /// The `DebugLine` struct contains the source location to instruction mapping
 /// found in the `.debug_line` section.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct DebugLine<R: Reader> {
+pub struct DebugLine<R> {
     debug_line_section: R,
 }
 
@@ -80,13 +80,37 @@ impl<R: Reader> DebugLine<R> {
     }
 }
 
-impl<R: Reader> Section<R> for DebugLine<R> {
-    fn section_name() -> &'static str {
-        ".debug_line"
+impl<T> DebugLine<T> {
+    /// Create a `DebugLine` section that references the data in `self`.
+    ///
+    /// This is useful when `R` implements `Reader` but `T` does not.
+    ///
+    /// ## Example Usage
+    ///
+    /// ```rust,no_run
+    /// # let load_section = || unimplemented!();
+    /// // Read the DWARF section into a `Vec` with whatever object loader you're using.
+    /// let owned_section: gimli::DebugLine<Vec<u8>> = load_section();
+    /// // Create a reference to the DWARF section.
+    /// let section = owned_section.borrow(|section| {
+    ///     gimli::EndianSlice::new(&section, gimli::LittleEndian)
+    /// });
+    /// ```
+    pub fn borrow<'a, F, R>(&'a self, mut borrow: F) -> DebugLine<R>
+    where
+        F: FnMut(&'a T) -> R,
+    {
+        borrow(&self.debug_line_section).into()
     }
 }
 
-impl<R: Reader> From<R> for DebugLine<R> {
+impl<R> Section<R> for DebugLine<R> {
+    fn id() -> SectionId {
+        SectionId::DebugLine
+    }
+}
+
+impl<R> From<R> for DebugLine<R> {
     fn from(debug_line_section: R) -> Self {
         DebugLine { debug_line_section }
     }
