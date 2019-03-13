@@ -172,6 +172,18 @@ impl<T> RangeLists<T> {
     /// Create a `RangeLists` that references the data in `self`.
     ///
     /// This is useful when `R` implements `Reader` but `T` does not.
+    ///
+    /// ## Example Usage
+    ///
+    /// ```rust,no_run
+    /// # let load_section = || unimplemented!();
+    /// // Read the DWARF section into a `Vec` with whatever object loader you're using.
+    /// let owned_section: gimli::RangeLists<Vec<u8>> = load_section();
+    /// // Create a reference to the DWARF section.
+    /// let section = owned_section.borrow(|section| {
+    ///     gimli::EndianSlice::new(&section, gimli::LittleEndian)
+    /// });
+    /// ```
     pub fn borrow<'a, F, R>(&'a self, mut borrow: F) -> RangeLists<R>
     where
         F: FnMut(&'a T) -> R,

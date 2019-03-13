@@ -84,6 +84,29 @@ impl<T> Dwarf<T> {
     /// Create a `Dwarf` structure that references the data in `self`.
     ///
     /// This is useful when `R` implements `Reader` but `T` does not.
+    ///
+    /// ## Example Usage
+    ///
+    /// It can be useful to load DWARF sections into owned data structures,
+    /// such as `Vec`. However, we do not implement the `Reader` trait
+    /// for `Vec`, because it would be very inefficient, but this trait
+    /// is required for all of the methods that parse the DWARF data.
+    /// So we first load the DWARF sections into `Vec`s, and then use
+    /// `borrow` to create `Reader`s that reference the data.
+    ///
+    /// ```rust,no_run
+    /// # fn example() -> Result<(), gimli::Error> {
+    /// # let loader = |name| -> Result<_, gimli::Error> { unimplemented!() };
+    /// # let sup_loader = |name| { unimplemented!() };
+    /// // Read the DWARF sections into `Vec`s with whatever object loader you're using.
+    /// let owned_dwarf: gimli::Dwarf<Vec<u8>> = gimli::Dwarf::load(loader, sup_loader)?;
+    /// // Create references to the DWARF sections.
+    /// let dwarf = owned_dwarf.borrow(|section| {
+    ///     gimli::EndianSlice::new(&section, gimli::LittleEndian)
+    /// });
+    /// # unreachable!()
+    /// # }
+    /// ```
     pub fn borrow<'a, F, R>(&'a self, mut borrow: F) -> Dwarf<R>
     where
         F: FnMut(&'a T) -> R,
