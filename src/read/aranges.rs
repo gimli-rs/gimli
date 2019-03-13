@@ -224,6 +224,10 @@ impl<R: Reader> Section<R> for DebugAranges<R> {
     fn id() -> SectionId {
         SectionId::DebugAranges
     }
+
+    fn reader(&self) -> &R {
+        self.0.reader()
+    }
 }
 
 impl<R: Reader> From<R> for DebugAranges<R> {

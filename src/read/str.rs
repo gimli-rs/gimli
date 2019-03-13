@@ -83,6 +83,10 @@ impl<R> Section<R> for DebugStr<R> {
     fn id() -> SectionId {
         SectionId::DebugStr
     }
+
+    fn reader(&self) -> &R {
+        &self.debug_str_section
+    }
 }
 
 impl<R> From<R> for DebugStr<R> {
@@ -157,6 +161,10 @@ impl<R> Section<R> for DebugStrOffsets<R> {
     fn id() -> SectionId {
         SectionId::DebugStrOffsets
     }
+
+    fn reader(&self) -> &R {
+        &self.section
+    }
 }
 
 impl<R> From<R> for DebugStrOffsets<R> {
@@ -208,6 +216,10 @@ impl<T> DebugLineStr<T> {
 impl<R> Section<R> for DebugLineStr<R> {
     fn id() -> SectionId {
         SectionId::DebugLineStr
+    }
+
+    fn reader(&self) -> &R {
+        &self.section
     }
 }
 

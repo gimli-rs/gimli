@@ -178,6 +178,10 @@ impl<R> Section<R> for DebugInfo<R> {
     fn id() -> SectionId {
         SectionId::DebugInfo
     }
+
+    fn reader(&self) -> &R {
+        &self.debug_info_section
+    }
 }
 
 impl<R> From<R> for DebugInfo<R> {
@@ -2814,6 +2818,10 @@ impl<R> Section<R> for DebugTypes<R> {
     fn id() -> SectionId {
         SectionId::DebugTypes
     }
+
+    fn reader(&self) -> &R {
+        &self.debug_types_section
+    }
 }
 
 impl<R> From<R> for DebugTypes<R> {
@@ -3281,7 +3289,7 @@ mod tests {
         let buf = &mut EndianSlice::new(&buf, LittleEndian);
 
         match parse_debug_abbrev_offset(buf, Format::Dwarf32) {
-            Err(Error::UnexpectedEof) => assert!(true),
+            Err(Error::UnexpectedEof(_)) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
@@ -3305,7 +3313,7 @@ mod tests {
         let buf = &mut EndianSlice::new(&buf, LittleEndian);
 
         match parse_debug_abbrev_offset(buf, Format::Dwarf64) {
-            Err(Error::UnexpectedEof) => assert!(true),
+            Err(Error::UnexpectedEof(_)) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
@@ -3328,7 +3336,7 @@ mod tests {
         let buf = &mut EndianSlice::new(&buf, LittleEndian);
 
         match parse_debug_info_offset(buf, Format::Dwarf32) {
-            Err(Error::UnexpectedEof) => assert!(true),
+            Err(Error::UnexpectedEof(_)) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
@@ -3352,7 +3360,7 @@ mod tests {
         let buf = &mut EndianSlice::new(&buf, LittleEndian);
 
         match parse_debug_info_offset(buf, Format::Dwarf64) {
-            Err(Error::UnexpectedEof) => assert!(true),
+            Err(Error::UnexpectedEof(_)) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
@@ -3425,7 +3433,7 @@ mod tests {
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
         match parse_unit_header(rest) {
-            Err(Error::UnexpectedEof) => assert!(true),
+            Err(Error::UnexpectedEof(_)) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
@@ -3564,7 +3572,7 @@ mod tests {
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
         match parse_type_offset(rest, Format::Dwarf32) {
-            Err(Error::UnexpectedEof) => assert!(true),
+            Err(Error::UnexpectedEof(_)) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }

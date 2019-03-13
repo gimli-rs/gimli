@@ -62,6 +62,10 @@ where
             remaining_input: self.input_buffer.clone(),
         }
     }
+
+    pub fn reader(&self) -> &R {
+        &self.input_buffer
+    }
 }
 
 #[derive(Clone, Debug)]

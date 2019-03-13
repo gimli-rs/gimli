@@ -267,7 +267,7 @@ pub enum Error {
     /// Found a record with an unknown abbreviation code.
     UnknownAbbreviation,
     /// Hit the end of input before it was expected.
-    UnexpectedEof,
+    UnexpectedEof(ReaderOffsetId),
     /// Read a null entry before it was expected.
     UnexpectedNull,
     /// Found an unknown standard opcode.
@@ -427,7 +427,7 @@ impl Error {
             Error::UnknownReservedLength => "Found an unknown reserved length value",
             Error::UnknownVersion(_) => "Found an unknown DWARF version",
             Error::UnknownAbbreviation => "Found a record with an unknown abbreviation code",
-            Error::UnexpectedEof => "Hit the end of input before it was expected",
+            Error::UnexpectedEof(_) => "Hit the end of input before it was expected",
             Error::UnexpectedNull => "Read a null entry before it was expected.",
             Error::UnknownStandardOpcode(_) => "Found an unknown standard opcode",
             Error::UnknownExtendedOpcode(_) => "Found an unknown extended opcode",
@@ -566,6 +566,21 @@ pub trait Section<R>: From<R> {
     {
         f(Self::id()).map(From::from)
     }
+
+    /// Returns the `Reader` for this section.
+    fn reader(&self) -> &R
+    where
+        R: Reader;
+
+    /// Returns the `Reader` for this section.
+    fn lookup_offset_id(&self, id: ReaderOffsetId) -> Option<(SectionId, R::Offset)>
+    where
+        R: Reader,
+    {
+        self.reader()
+            .lookup_offset_id(id)
+            .map(|offset| (Self::id(), offset))
+    }
 }
 
 impl Register {
@@ -647,7 +662,7 @@ mod tests {
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
         match input.read_initial_length() {
-            Err(Error::UnexpectedEof) => assert!(true),
+            Err(Error::UnexpectedEof(_)) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
@@ -663,7 +678,7 @@ mod tests {
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
         match input.read_initial_length() {
-            Err(Error::UnexpectedEof) => assert!(true),
+            Err(Error::UnexpectedEof(_)) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }

@@ -68,6 +68,10 @@ impl<R> Section<R> for DebugAddr<R> {
     fn id() -> SectionId {
         SectionId::DebugAddr
     }
+
+    fn reader(&self) -> &R {
+        &self.section
+    }
 }
 
 impl<R> From<R> for DebugAddr<R> {

@@ -108,6 +108,10 @@ impl<R> Section<R> for DebugLine<R> {
     fn id() -> SectionId {
         SectionId::DebugLine
     }
+
+    fn reader(&self) -> &R {
+        &self.debug_line_section
+    }
 }
 
 impl<R> From<R> for DebugLine<R> {
@@ -2049,7 +2053,7 @@ mod tests {
         let input = &mut EndianSlice::new(&buf, LittleEndian);
 
         match LineProgramHeader::parse(input, DebugLineOffset(0), 4, None, None) {
-            Err(Error::UnexpectedEof) => return,
+            Err(Error::UnexpectedEof(_)) => return,
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
     }
@@ -2110,7 +2114,7 @@ mod tests {
         let input = &mut EndianSlice::new(&buf, LittleEndian);
 
         match LineProgramHeader::parse(input, DebugLineOffset(0), 4, None, None) {
-            Err(Error::UnexpectedEof) => return,
+            Err(Error::UnexpectedEof(_)) => return,
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
     }

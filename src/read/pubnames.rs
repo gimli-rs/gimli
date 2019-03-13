@@ -100,6 +100,10 @@ impl<R: Reader> Section<R> for DebugPubNames<R> {
     fn id() -> SectionId {
         SectionId::DebugPubNames
     }
+
+    fn reader(&self) -> &R {
+        self.0.reader()
+    }
 }
 
 impl<R: Reader> From<R> for DebugPubNames<R> {

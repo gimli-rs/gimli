@@ -11,7 +11,7 @@ use std::slice;
 use std::str;
 
 use crate::endianity::Endianity;
-use crate::read::{Error, Reader, Result};
+use crate::read::{Error, Reader, ReaderOffsetId, Result};
 
 /// A reference counted, non-thread-safe slice of bytes and associated
 /// endianity.
@@ -203,14 +203,14 @@ where
     }
 
     #[inline]
-    fn read_slice(&mut self, len: usize) -> Result<&[u8]> {
+    fn read_slice(&mut self, len: usize) -> Option<&[u8]> {
         if self.len() < len {
-            Err(Error::UnexpectedEof)
+            None
         } else {
             // Same as for `bytes()`.
             let bytes = unsafe { slice::from_raw_parts(self.ptr, len) };
             self.skip(len);
-            Ok(bytes)
+            Some(bytes)
         }
     }
 }
@@ -374,7 +374,7 @@ where
     #[inline]
     fn truncate(&mut self, len: usize) -> Result<()> {
         if self.len() < len {
-            Err(Error::UnexpectedEof)
+            Err(Error::UnexpectedEof(self.offset_id()))
         } else {
             self.range.truncate(len);
             Ok(())
@@ -391,17 +391,34 @@ where
     }
 
     #[inline]
+    fn offset_id(&self) -> ReaderOffsetId {
+        ReaderOffsetId(self.bytes().as_ptr() as u64)
+    }
+
+    #[inline]
+    fn lookup_offset_id(&self, id: ReaderOffsetId) -> Option<Self::Offset> {
+        let id = id.0;
+        let self_id = self.bytes().as_ptr() as u64;
+        let self_len = self.bytes().len() as u64;
+        if id >= self_id && id <= self_id + self_len {
+            Some((id - self_id) as usize)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
     fn find(&self, byte: u8) -> Result<usize> {
         self.bytes()
             .iter()
             .position(|x| *x == byte)
-            .ok_or(Error::UnexpectedEof)
+            .ok_or(Error::UnexpectedEof(self.offset_id()))
     }
 
     #[inline]
     fn skip(&mut self, len: usize) -> Result<()> {
         if self.len() < len {
-            Err(Error::UnexpectedEof)
+            Err(Error::UnexpectedEof(self.offset_id()))
         } else {
             self.range.skip(len);
             Ok(())
@@ -411,7 +428,7 @@ where
     #[inline]
     fn split(&mut self, len: usize) -> Result<Self> {
         if self.len() < len {
-            Err(Error::UnexpectedEof)
+            Err(Error::UnexpectedEof(self.offset_id()))
         } else {
             let mut r = self.clone();
             r.range.truncate(len);
@@ -440,9 +457,13 @@ where
 
     #[inline]
     fn read_slice(&mut self, buf: &mut [u8]) -> Result<()> {
-        let slice = self.range.read_slice(buf.len())?;
-        buf.clone_from_slice(slice);
-        Ok(())
+        match self.range.read_slice(buf.len()) {
+            Some(slice) => {
+                buf.clone_from_slice(slice);
+                Ok(())
+            }
+            None => Err(Error::UnexpectedEof(self.offset_id())),
+        }
     }
 }
 
