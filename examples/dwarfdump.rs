@@ -9,7 +9,6 @@ use std::borrow::{Borrow, Cow};
 use std::cmp::min;
 use std::collections::HashMap;
 use std::env;
-use std::error;
 use std::fmt::{self, Debug};
 use std::fs;
 use std::io;
@@ -25,7 +24,6 @@ use typed_arena::Arena;
 pub enum Error {
     GimliError(gimli::Error),
     IoError,
-    MissingDIE,
 }
 
 impl fmt::Display for Error {
@@ -35,21 +33,21 @@ impl fmt::Display for Error {
     }
 }
 
-impl error::Error for Error {
-    fn description(&self) -> &str {
-        match *self {
-            Error::GimliError(ref err) => err.description(),
-            Error::IoError => "An I/O error occurred while writing.",
-            Error::MissingDIE => "Expected a DIE but none was found",
+fn writeln_error<W: Write, R: Reader>(
+    w: &mut W,
+    dwarf: &gimli::Dwarf<R>,
+    err: Error,
+    msg: &str,
+) -> io::Result<()> {
+    writeln!(
+        w,
+        "{}: {}",
+        msg,
+        match err {
+            Error::GimliError(err) => dwarf.format_error(err),
+            Error::IoError => "An I/O error occurred while writing.".to_string(),
         }
-    }
-
-    fn cause(&self) -> Option<&error::Error> {
-        match *self {
-            Error::GimliError(ref err) => Some(err),
-            _ => None,
-        }
-    }
+    )
 }
 
 impl From<gimli::Error> for Error {
@@ -290,6 +288,16 @@ impl<'a, R: gimli::Reader<Offset = usize>> gimli::Reader for Relocate<'a, R> {
     }
 
     #[inline]
+    fn offset_id(&self) -> gimli::ReaderOffsetId {
+        self.reader.offset_id()
+    }
+
+    #[inline]
+    fn lookup_offset_id(&self, id: gimli::ReaderOffsetId) -> Option<Self::Offset> {
+        self.reader.lookup_offset_id(id)
+    }
+
+    #[inline]
     fn find(&self, byte: u8) -> gimli::Result<Self::Offset> {
         self.reader.find(byte)
     }
@@ -429,22 +437,14 @@ fn main() {
         let file = match fs::File::open(&file_path) {
             Ok(file) => file,
             Err(err) => {
-                println!(
-                    "Failed to open file '{}': {}",
-                    file_path,
-                    error::Error::description(&err)
-                );
+                println!("Failed to open file '{}': {}", file_path, err);
                 continue;
             }
         };
         let file = match unsafe { memmap::Mmap::map(&file) } {
             Ok(mmap) => mmap,
             Err(err) => {
-                println!(
-                    "Failed to map file '{}': {}",
-                    file_path,
-                    error::Error::description(&err)
-                );
+                println!("Failed to map file '{}': {}", file_path, err);
                 continue;
             }
         };
@@ -464,11 +464,7 @@ fn main() {
         let ret = dump_file(&file, endian, &flags);
         match ret {
             Ok(_) => (),
-            Err(err) => println!(
-                "Failed to dump '{}': {}",
-                file_path,
-                error::Error::description(&err)
-            ),
+            Err(err) => println!("Failed to dump '{}': {}", file_path, err,),
         }
     }
 }
@@ -486,7 +482,8 @@ where
                 add_relocations(&mut relocations, file, section);
                 section.uncompressed_data()
             }
-            None => Cow::Borrowed(&[][..]),
+            // Use a non-zero capacity so that `ReaderOffsetId`s are unique.
+            None => Cow::Owned(Vec::with_capacity(1)),
         };
         let data_ref = (*arena.0.alloc(data)).borrow();
         let reader = gimli::EndianSlice::new(data_ref, endian);
@@ -840,22 +837,14 @@ where
         let unit = match dwarf.unit(header) {
             Ok(unit) => unit,
             Err(err) => {
-                writeln!(
-                    buf,
-                    "Failed to parse unit root entry: {}",
-                    error::Error::description(&err)
-                )?;
+                writeln_error(buf, dwarf, err.into(), "Failed to parse unit root entry")?;
                 return Ok(());
             }
         };
 
         let entries_result = dump_entries(buf, unit, dwarf, flags);
         if let Err(err) = entries_result {
-            writeln!(
-                buf,
-                "Failed to dump entries: {}",
-                error::Error::description(&err)
-            )?;
+            writeln_error(buf, dwarf, err, "Failed to dump entries")?;
         }
         if !flags
             .match_units
@@ -894,21 +883,13 @@ fn dump_types<R: Reader, W: Write>(
         let unit = match dwarf.type_unit(header) {
             Ok(unit) => unit,
             Err(err) => {
-                writeln!(
-                    w,
-                    "Failed to parse unit root entry: {}",
-                    error::Error::description(&err)
-                )?;
+                writeln_error(w, dwarf, err.into(), "Failed to parse unit root entry")?;
                 continue;
             }
         };
         let entries_result = dump_entries(w, unit, dwarf, flags);
         if let Err(err) = entries_result {
-            writeln!(
-                w,
-                "Failed to dump entries: {}",
-                error::Error::description(&err)
-            )?;
+            writeln_error(w, dwarf, err, "Failed to dump entries")?;
         }
     }
     Ok(())
@@ -959,11 +940,7 @@ fn dump_entries<R: Reader, W: Write>(
             } else {
                 match dump_attr_value(w, &attr, &unit, dwarf) {
                     Ok(_) => (),
-                    Err(ref err) => writeln!(
-                        w,
-                        "Failed to dump attribute value: {}",
-                        error::Error::description(err)
-                    )?,
+                    Err(err) => writeln_error(w, dwarf, err, "Failed to dump attribute value")?,
                 };
             }
         }
@@ -1682,22 +1659,14 @@ fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<
         let unit = match dwarf.unit(header) {
             Ok(unit) => unit,
             Err(err) => {
-                writeln!(
-                    w,
-                    "Failed to parse unit root entry: {}",
-                    error::Error::description(&err)
-                )?;
+                writeln_error(w, dwarf, err.into(), "Failed to parse unit root entry")?;
                 continue;
             }
         };
         match dump_line_program(w, &unit, dwarf) {
             Ok(_) => (),
             Err(Error::IoError) => return Err(Error::IoError),
-            Err(err) => writeln!(
-                w,
-                "Failed to dump line program: {}",
-                error::Error::description(&err)
-            )?,
+            Err(err) => writeln_error(w, dwarf, err, "Failed to dump line program")?,
         }
     }
     Ok(())

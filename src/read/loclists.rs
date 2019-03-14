@@ -7,8 +7,8 @@ use crate::common::{
 use crate::constants;
 use crate::endianity::Endianity;
 use crate::read::{
-    DebugAddr, EndianSlice, Error, Expression, Range, RawRange, Reader, ReaderOffset, Result,
-    Section,
+    DebugAddr, EndianSlice, Error, Expression, Range, RawRange, Reader, ReaderOffset,
+    ReaderOffsetId, Result, Section,
 };
 
 /// The raw contents of the `.debug_loc` section.
@@ -43,6 +43,10 @@ where
 impl<R> Section<R> for DebugLoc<R> {
     fn id() -> SectionId {
         SectionId::DebugLoc
+    }
+
+    fn reader(&self) -> &R {
+        &self.section
     }
 }
 
@@ -85,6 +89,10 @@ where
 impl<R> Section<R> for DebugLocLists<R> {
     fn id() -> SectionId {
         SectionId::DebugLocLists
+    }
+
+    fn reader(&self) -> &R {
+        &self.section
     }
 }
 
@@ -270,6 +278,13 @@ impl<R: Reader> LocationLists<R> {
         input
             .read_offset(format)
             .map(|x| LocationListsOffset(base.0 + x))
+    }
+
+    /// Call `Reader::lookup_offset_id` for each section, and return the first match.
+    pub fn lookup_offset_id(&self, id: ReaderOffsetId) -> Option<(SectionId, R::Offset)> {
+        self.debug_loc
+            .lookup_offset_id(id)
+            .or_else(|| self.debug_loclists.lookup_offset_id(id))
     }
 }
 
@@ -1352,7 +1367,7 @@ mod tests {
             debug_addr,
             debug_addr_base,
         ) {
-            Err(Error::UnexpectedEof) => {}
+            Err(Error::UnexpectedEof(_)) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
     }

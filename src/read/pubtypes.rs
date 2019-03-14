@@ -100,6 +100,10 @@ impl<R: Reader> Section<R> for DebugPubTypes<R> {
     fn id() -> SectionId {
         SectionId::DebugPubTypes
     }
+
+    fn reader(&self) -> &R {
+        self.0.reader()
+    }
 }
 
 impl<R: Reader> From<R> for DebugPubTypes<R> {

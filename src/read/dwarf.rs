@@ -9,9 +9,10 @@ use crate::read::{
     Abbreviations, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter, DebugAbbrev,
     DebugAddr, DebugInfo, DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes,
     EntriesCursor, EntriesTree, Error, IncompleteLineProgram, LocListIter, LocationLists,
-    RangeLists, Reader, ReaderOffset, Result, RngListIter, Section, TypeUnitHeader,
+    RangeLists, Reader, ReaderOffset, ReaderOffsetId, Result, RngListIter, Section, TypeUnitHeader,
     TypeUnitHeadersIter, UnitHeader, UnitOffset,
 };
+use crate::string::String;
 
 /// All of the commonly used DWARF sections, and other common information.
 #[derive(Debug, Default)]
@@ -367,6 +368,50 @@ impl<R: Reader> Dwarf<R> {
             None => Ok(None),
         }
     }
+
+    /// Call `Reader::lookup_offset_id` for each section, and return the first match.
+    ///
+    /// The first element of the tuple is `true` for supplementary sections.
+    pub fn lookup_offset_id(&self, id: ReaderOffsetId) -> Option<(bool, SectionId, R::Offset)> {
+        None.or_else(|| self.debug_abbrev.lookup_offset_id(id))
+            .or_else(|| self.debug_addr.lookup_offset_id(id))
+            .or_else(|| self.debug_info.lookup_offset_id(id))
+            .or_else(|| self.debug_line.lookup_offset_id(id))
+            .or_else(|| self.debug_line_str.lookup_offset_id(id))
+            .or_else(|| self.debug_str.lookup_offset_id(id))
+            .or_else(|| self.debug_str_offsets.lookup_offset_id(id))
+            .or_else(|| self.debug_types.lookup_offset_id(id))
+            .or_else(|| self.locations.lookup_offset_id(id))
+            .or_else(|| self.ranges.lookup_offset_id(id))
+            .map(|(id, offset)| (false, id, offset))
+            .or_else(|| {
+                self.debug_str_sup
+                    .lookup_offset_id(id)
+                    .map(|(id, offset)| (true, id, offset))
+            })
+    }
+
+    /// Returns a string representation of the given error.
+    ///
+    /// This uses information from the DWARF sections to provide more information in some cases.
+    pub fn format_error(&self, err: Error) -> String {
+        match err {
+            Error::UnexpectedEof(id) => match self.lookup_offset_id(id) {
+                Some((sup, section, offset)) => {
+                    return format!(
+                        "{} at {}{}+0x{:x}",
+                        err.description(),
+                        section.name(),
+                        if sup { "(sup)" } else { "" },
+                        offset.into_u64(),
+                    );
+                }
+                None => {}
+            },
+            _ => {}
+        }
+        format!("{}", err.description())
+    }
 }
 
 /// All of the commonly used information for a unit in the `.debug_info` or `.debug_types`
@@ -603,7 +648,7 @@ impl<T: ReaderOffset> UnitOffset<T> {
 mod tests {
     use super::*;
     use crate::read::EndianSlice;
-    use crate::Endianity;
+    use crate::{Endianity, LittleEndian};
 
     /// Ensure that `Dwarf<R>` is covariant wrt R.
     #[test]
@@ -621,5 +666,32 @@ mod tests {
         fn _f<'a: 'b, 'b, E: Endianity>(x: Unit<EndianSlice<'a, E>>) -> Unit<EndianSlice<'b, E>> {
             x
         }
+    }
+
+    #[test]
+    fn test_format_error() {
+        let owned_dwarf =
+            Dwarf::load(|_| -> Result<_> { Ok(vec![1, 2]) }, |_| Ok(vec![1, 2])).unwrap();
+        let dwarf = owned_dwarf.borrow(|section| EndianSlice::new(&section, LittleEndian));
+
+        match dwarf.debug_str.get_str(DebugStrOffset(1)) {
+            Ok(r) => panic!("Unexpected str {:?}", r),
+            Err(e) => {
+                assert_eq!(
+                    dwarf.format_error(e),
+                    "Hit the end of input before it was expected at .debug_str+0x1"
+                );
+            }
+        }
+        match dwarf.debug_str_sup.get_str(DebugStrOffset(1)) {
+            Ok(r) => panic!("Unexpected str {:?}", r),
+            Err(e) => {
+                assert_eq!(
+                    dwarf.format_error(e),
+                    "Hit the end of input before it was expected at .debug_str(sup)+0x1"
+                );
+            }
+        }
+        assert_eq!(dwarf.format_error(Error::Io), Error::Io.description());
     }
 }

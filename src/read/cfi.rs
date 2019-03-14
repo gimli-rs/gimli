@@ -78,6 +78,10 @@ impl<R: Reader> Section<R> for DebugFrame<R> {
     fn id() -> SectionId {
         SectionId::DebugFrame
     }
+
+    fn reader(&self) -> &R {
+        &self.section
+    }
 }
 
 impl<R: Reader> From<R> for DebugFrame<R> {
@@ -172,6 +176,10 @@ impl<R: Reader> EhFrameHdr<R> {
 impl<R: Reader> Section<R> for EhFrameHdr<R> {
     fn id() -> SectionId {
         SectionId::EhFrameHdr
+    }
+
+    fn reader(&self) -> &R {
+        &self.0
     }
 }
 
@@ -433,6 +441,10 @@ where
 impl<R: Reader> Section<R> for EhFrame<R> {
     fn id() -> SectionId {
         SectionId::EhFrame
+    }
+
+    fn reader(&self) -> &R {
+        &self.section
     }
 }
 
@@ -3250,7 +3262,9 @@ mod tests {
     use crate::common::Format;
     use crate::constants;
     use crate::endianity::{BigEndian, Endianity, LittleEndian, NativeEndian};
-    use crate::read::{EndianSlice, Error, Expression, Pointer, Result, Section as ReadSection};
+    use crate::read::{
+        EndianSlice, Error, Expression, Pointer, ReaderOffsetId, Result, Section as ReadSection,
+    };
     use crate::test_util::GimliSectionMethods;
     use crate::vec::Vec;
     use std::marker::PhantomData;
@@ -3491,6 +3505,22 @@ mod tests {
         }
     }
 
+    trait ResultExt {
+        fn map_eof(self, input: &[u8]) -> Self;
+    }
+
+    impl<T> ResultExt for Result<T> {
+        fn map_eof(self, input: &[u8]) -> Self {
+            match self {
+                Err(Error::UnexpectedEof(id)) => {
+                    let id = ReaderOffsetId(id.0 - input.as_ptr() as u64);
+                    Err(Error::UnexpectedEof(id))
+                }
+                r => r,
+            }
+        }
+    }
+
     #[allow(clippy::type_complexity)]
     #[allow(clippy::needless_pass_by_value)]
     fn assert_parse_cie<'input, E>(
@@ -3510,7 +3540,7 @@ mod tests {
         let input = &mut EndianSlice::new(&section, E::default());
         let bases = Default::default();
         let result = CommonInformationEntry::parse(&bases, &debug_frame, input);
-        let result = result.map(|cie| (*input, cie));
+        let result = result.map(|cie| (*input, cie)).map_eof(&section);
         assert_eq!(result, expected);
     }
 
@@ -3518,7 +3548,12 @@ mod tests {
     fn test_parse_cie_incomplete_length_32() {
         let kind = debug_frame_le();
         let section = Section::with_endian(kind.endian()).L16(5);
-        assert_parse_cie(kind, section, 8, Err(Error::UnexpectedEof));
+        assert_parse_cie(
+            kind,
+            section,
+            8,
+            Err(Error::UnexpectedEof(ReaderOffsetId(0))),
+        );
     }
 
     #[test]
@@ -3527,7 +3562,12 @@ mod tests {
         let section = Section::with_endian(kind.endian())
             .L32(0xffff_ffff)
             .L32(12345);
-        assert_parse_cie(kind, section, 8, Err(Error::UnexpectedEof));
+        assert_parse_cie(
+            kind,
+            section,
+            8,
+            Err(Error::UnexpectedEof(ReaderOffsetId(4))),
+        );
     }
 
     #[test]
@@ -3537,7 +3577,12 @@ mod tests {
             // The length is not large enough to contain the ID.
             .B32(3)
             .B32(0xffff_ffff);
-        assert_parse_cie(kind, section, 8, Err(Error::UnexpectedEof));
+        assert_parse_cie(
+            kind,
+            section,
+            8,
+            Err(Error::UnexpectedEof(ReaderOffsetId(4))),
+        );
     }
 
     #[test]
@@ -3686,14 +3731,16 @@ mod tests {
         contents[2] = 0;
         contents[3] = 255;
 
+        let debug_frame = DebugFrame::new(&contents, LittleEndian);
         let bases = Default::default();
         assert_eq!(
             CommonInformationEntry::parse(
                 &bases,
-                &DebugFrame::new(&contents, LittleEndian),
+                &debug_frame,
                 &mut EndianSlice::new(&contents, LittleEndian)
-            ),
-            Err(Error::UnexpectedEof)
+            )
+            .map_eof(&contents),
+            Err(Error::UnexpectedEof(ReaderOffsetId(4)))
         );
     }
 
@@ -3705,8 +3752,8 @@ mod tests {
         let debug_frame = kind.section(&section);
         let rest = &mut EndianSlice::new(&section, LittleEndian);
         assert_eq!(
-            parse_fde(debug_frame, rest, UnwindSection::cie_from_offset),
-            Err(Error::UnexpectedEof)
+            parse_fde(debug_frame, rest, UnwindSection::cie_from_offset).map_eof(&section),
+            Err(Error::UnexpectedEof(ReaderOffsetId(0)))
         );
     }
 
@@ -3720,8 +3767,8 @@ mod tests {
         let debug_frame = kind.section(&section);
         let rest = &mut EndianSlice::new(&section, LittleEndian);
         assert_eq!(
-            parse_fde(debug_frame, rest, UnwindSection::cie_from_offset),
-            Err(Error::UnexpectedEof)
+            parse_fde(debug_frame, rest, UnwindSection::cie_from_offset).map_eof(&section),
+            Err(Error::UnexpectedEof(ReaderOffsetId(4)))
         );
     }
 
@@ -3736,8 +3783,8 @@ mod tests {
         let debug_frame = kind.section(&section);
         let rest = &mut EndianSlice::new(&section, BigEndian);
         assert_eq!(
-            parse_fde(debug_frame, rest, UnwindSection::cie_from_offset),
-            Err(Error::UnexpectedEof)
+            parse_fde(debug_frame, rest, UnwindSection::cie_from_offset).map_eof(&section),
+            Err(Error::UnexpectedEof(ReaderOffsetId(4)))
         );
     }
 
@@ -4823,7 +4870,10 @@ mod tests {
             parameters,
         };
 
-        assert_eq!(iter.next(), Err(Error::UnexpectedEof));
+        assert_eq!(
+            iter.next().map_eof(&contents),
+            Err(Error::UnexpectedEof(ReaderOffsetId(1)))
+        );
         assert_eq!(iter.next(), Ok(None));
     }
 

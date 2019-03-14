@@ -1862,6 +1862,18 @@ mod tests {
         }
     }
 
+    fn check_op_parse_eof(input: &[u8], encoding: Encoding) {
+        let buf = EndianSlice::new(input, LittleEndian);
+        let mut pc = buf;
+        match Operation::parse(&mut pc, &buf, encoding) {
+            Err(Error::UnexpectedEof(id)) => {
+                assert!(buf.lookup_offset_id(id).is_some());
+            }
+
+            _ => panic!("Unexpected result"),
+        }
+    }
+
     fn check_op_parse<F>(
         input: F,
         expect: &Operation<EndianSlice<LittleEndian>>,
@@ -1873,7 +1885,7 @@ mod tests {
             .get_contents()
             .unwrap();
         for i in 1..input.len() {
-            check_op_parse_failure(&input[..i], Error::UnexpectedEof, encoding);
+            check_op_parse_eof(&input[..i], encoding);
         }
         check_op_parse_simple(&input, expect, encoding);
     }
@@ -2000,7 +2012,7 @@ mod tests {
         ];
 
         let input = [];
-        check_op_parse_failure(&input[..], Error::UnexpectedEof, encoding);
+        check_op_parse_eof(&input[..], encoding);
 
         for item in inputs.iter() {
             let (opcode, ref result) = *item;

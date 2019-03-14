@@ -82,6 +82,10 @@ impl<R> Section<R> for DebugAbbrev<R> {
     fn id() -> SectionId {
         SectionId::DebugAbbrev
     }
+
+    fn reader(&self) -> &R {
+        &self.debug_abbrev_section
+    }
 }
 
 impl<R> From<R> for DebugAbbrev<R> {
@@ -774,7 +778,7 @@ pub mod tests {
         let buf = &mut EndianSlice::new(&*buf, LittleEndian);
 
         match Abbreviation::parse(buf) {
-            Err(Error::UnexpectedEof) => {}
+            Err(Error::UnexpectedEof(_)) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         }
     }

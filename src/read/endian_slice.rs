@@ -6,7 +6,7 @@ use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 use std::str;
 
 use crate::endianity::Endianity;
-use crate::read::{Error, Reader, Result};
+use crate::read::{Error, Reader, ReaderOffsetId, Result};
 
 /// A `&[u8]` slice with endianity metadata.
 ///
@@ -90,7 +90,7 @@ where
     #[inline]
     fn read_slice(&mut self, len: usize) -> Result<&'input [u8]> {
         if self.slice.len() < len {
-            Err(Error::UnexpectedEof)
+            Err(Error::UnexpectedEof(self.offset_id()))
         } else {
             let val = &self.slice[..len];
             self.slice = &self.slice[len..];
@@ -233,7 +233,7 @@ where
     #[inline]
     fn truncate(&mut self, len: usize) -> Result<()> {
         if self.slice.len() < len {
-            Err(Error::UnexpectedEof)
+            Err(Error::UnexpectedEof(self.offset_id()))
         } else {
             self.slice = &self.slice[..len];
             Ok(())
@@ -246,14 +246,32 @@ where
     }
 
     #[inline]
+    fn offset_id(&self) -> ReaderOffsetId {
+        ReaderOffsetId(self.slice.as_ptr() as u64)
+    }
+
+    #[inline]
+    fn lookup_offset_id(&self, id: ReaderOffsetId) -> Option<Self::Offset> {
+        let id = id.0;
+        let self_id = self.slice.as_ptr() as u64;
+        let self_len = self.slice.len() as u64;
+        if id >= self_id && id <= self_id + self_len {
+            Some((id - self_id) as usize)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
     fn find(&self, byte: u8) -> Result<usize> {
-        self.find(byte).ok_or(Error::UnexpectedEof)
+        self.find(byte)
+            .ok_or(Error::UnexpectedEof(self.offset_id()))
     }
 
     #[inline]
     fn skip(&mut self, len: usize) -> Result<()> {
         if self.slice.len() < len {
-            Err(Error::UnexpectedEof)
+            Err(Error::UnexpectedEof(self.offset_id()))
         } else {
             self.slice = &self.slice[len..];
             Ok(())

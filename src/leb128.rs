@@ -188,9 +188,25 @@ pub mod write {
 mod tests {
     use super::{low_bits_of_byte, low_bits_of_u64, read, write, CONTINUATION_BIT};
     use crate::endianity::NativeEndian;
-    use crate::read::{EndianSlice, Error};
+    use crate::read::{EndianSlice, Error, ReaderOffsetId};
     use std;
     use std::io;
+
+    trait ResultExt {
+        fn map_eof(self, input: &[u8]) -> Self;
+    }
+
+    impl<T> ResultExt for Result<T, Error> {
+        fn map_eof(self, input: &[u8]) -> Self {
+            match self {
+                Err(Error::UnexpectedEof(id)) => {
+                    let id = ReaderOffsetId(id.0 - input.as_ptr() as u64);
+                    Err(Error::UnexpectedEof(id))
+                }
+                r => r,
+            }
+        }
+    }
 
     #[test]
     fn test_low_bits_of_byte() {
@@ -335,14 +351,20 @@ mod tests {
     fn test_read_unsigned_not_enough_data() {
         let buf = [CONTINUATION_BIT];
         let mut readable = EndianSlice::new(&buf[..], NativeEndian);
-        assert_eq!(read::unsigned(&mut readable), Err(Error::UnexpectedEof));
+        assert_eq!(
+            read::unsigned(&mut readable).map_eof(&buf),
+            Err(Error::UnexpectedEof(ReaderOffsetId(1)))
+        );
     }
 
     #[test]
     fn test_read_signed_not_enough_data() {
         let buf = [CONTINUATION_BIT];
         let mut readable = EndianSlice::new(&buf[..], NativeEndian);
-        assert_eq!(read::signed(&mut readable), Err(Error::UnexpectedEof));
+        assert_eq!(
+            read::signed(&mut readable).map_eof(&buf),
+            Err(Error::UnexpectedEof(ReaderOffsetId(1)))
+        );
     }
 
     #[test]
