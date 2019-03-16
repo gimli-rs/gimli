@@ -530,7 +530,25 @@ where
 
         let mut eh_frame = gimli::EhFrame::load(&mut load_section).unwrap();
         eh_frame.set_address_size(address_size);
-        dump_eh_frame(&mut BufWriter::new(out.lock()), &eh_frame, &register_name)?;
+        let mut bases = gimli::BaseAddresses::default();
+        if let Some(section) = file.section_by_name(".eh_frame_hdr") {
+            bases = bases.set_eh_frame_hdr(section.address());
+        }
+        if let Some(section) = file.section_by_name(".eh_frame") {
+            bases = bases.set_eh_frame(section.address());
+        }
+        if let Some(section) = file.section_by_name(".text") {
+            bases = bases.set_text(section.address());
+        }
+        if let Some(section) = file.section_by_name(".got") {
+            bases = bases.set_got(section.address());
+        }
+        dump_eh_frame(
+            &mut BufWriter::new(out.lock()),
+            &eh_frame,
+            &bases,
+            &register_name,
+        )?;
     }
     if flags.info {
         dump_info(&dwarf, flags)?;
@@ -559,6 +577,7 @@ where
 fn dump_eh_frame<R: Reader, W: Write>(
     w: &mut W,
     eh_frame: &gimli::EhFrame<R>,
+    bases: &gimli::BaseAddresses,
     register_name: &Fn(gimli::Register) -> Cow<'static, str>,
 ) -> Result<()> {
     // TODO: Print "__eh_frame" here on macOS, and more generally use the
@@ -569,17 +588,9 @@ fn dump_eh_frame<R: Reader, W: Write>(
         "Exception handling frame information for section .eh_frame"
     )?;
 
-    // TODO: when grabbing section contents in `dump_file`, we should also grab
-    // these addresses.
-    let bases = gimli::BaseAddresses::default()
-        .set_eh_frame_hdr(0)
-        .set_eh_frame(0)
-        .set_text(0)
-        .set_got(0);
-
     let mut cies = HashMap::new();
 
-    let mut entries = eh_frame.entries(&bases);
+    let mut entries = eh_frame.entries(bases);
     loop {
         match entries.next()? {
             None => return Ok(()),
@@ -594,7 +605,7 @@ fn dump_eh_frame<R: Reader, W: Write>(
                 writeln!(w, "    data_align: {}", cie.data_alignment_factor())?;
                 writeln!(w, "   ra_register: {:#x}", cie.return_address_register().0)?;
                 // TODO: aug_arg
-                dump_cfi_instructions(w, cie.instructions(eh_frame, &bases), true, register_name)?;
+                dump_cfi_instructions(w, cie.instructions(eh_frame, bases), true, register_name)?;
                 writeln!(w)?;
             }
             Some(gimli::CieOrFde::Fde(partial)) => {
@@ -621,7 +632,7 @@ fn dump_eh_frame<R: Reader, W: Write>(
                 if let Some(gimli::Pointer::Direct(lsda)) = fde.lsda() {
                     writeln!(w, "          lsda: {:#018x}", lsda)?;
                 }
-                dump_cfi_instructions(w, fde.instructions(eh_frame, &bases), false, register_name)?;
+                dump_cfi_instructions(w, fde.instructions(eh_frame, bases), false, register_name)?;
                 writeln!(w)?;
             }
         }
