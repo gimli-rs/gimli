@@ -130,23 +130,26 @@ macro_rules! define_offsets {
     };
 }
 
-mod dwarf;
-pub use self::dwarf::*;
-
 mod abbrev;
 pub use self::abbrev::*;
 
+mod cfi;
+pub use self::cfi::*;
+
+mod dwarf;
+pub use self::dwarf::*;
+
 mod line;
 pub use self::line::*;
+
+mod range;
+pub use self::range::*;
 
 mod str;
 pub use self::str::*;
 
 mod unit;
 pub use self::unit::*;
-
-mod range;
-pub use self::range::*;
 
 /// An error that occurred when writing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -175,6 +178,10 @@ pub enum Error {
     InvalidRange,
     /// The line number program encoding is incompatible with the unit encoding.
     IncompatibleLineProgramEncoding,
+    /// Could not encode code offset for a frame instruction.
+    InvalidFrameCodeOffset(u32),
+    /// Could not encode data offset for a frame instruction.
+    InvalidFrameDataOffset(i32),
 }
 
 impl fmt::Display for Error {
@@ -207,6 +214,16 @@ impl fmt::Display for Error {
             Error::IncompatibleLineProgramEncoding => write!(
                 f,
                 "The line number program encoding is incompatible with the unit encoding."
+            ),
+            Error::InvalidFrameCodeOffset(offset) => write!(
+                f,
+                "Could not encode code offset ({}) for a frame instruction.",
+                offset,
+            ),
+            Error::InvalidFrameDataOffset(offset) => write!(
+                f,
+                "Could not encode data offset ({}) for a frame instruction.",
+                offset,
             ),
         }
     }
@@ -291,6 +308,10 @@ mod convert {
         InvalidLineRef,
         /// Invalid relative address in a range list.
         InvalidRangeRelativeAddress,
+        /// Writing this CFI instruction is not implemented yet.
+        UnsupportedCfiInstruction,
+        /// Writing indirect pointers is not implemented yet.
+        UnsupportedIndirectAddress,
     }
 
     impl fmt::Display for ConvertError {
@@ -332,6 +353,12 @@ mod convert {
                 InvalidLineRef => write!(f, "A `.debug_line` reference is invalid."),
                 InvalidRangeRelativeAddress => {
                     write!(f, "Invalid relative address in a range list.")
+                }
+                UnsupportedCfiInstruction => {
+                    write!(f, "Writing this CFI instruction is not implemented yet.")
+                }
+                UnsupportedIndirectAddress => {
+                    write!(f, "Writing indirect pointers is not implemented yet.")
                 }
             }
         }

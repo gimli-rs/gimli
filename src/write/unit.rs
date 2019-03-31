@@ -19,7 +19,7 @@ define_id!(UnitEntryId, "An identifier for an entry in a `Unit`.");
 
 /// The bytecode for a DWARF expression or location description.
 // TODO: this needs to be a `Vec<Op>` so we can handle relocations
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Expression(pub Vec<u8>);
 
 /// A table of units that will be stored in the `.debug_info` section.

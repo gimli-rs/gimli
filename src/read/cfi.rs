@@ -1386,6 +1386,22 @@ impl<R: Reader> CommonInformationEntry<R> {
         self.augmentation.as_ref()
     }
 
+    /// True if this CIE's FDEs have a LSDA.
+    pub fn has_lsda(&self) -> bool {
+        self.augmentation.map_or(false, |a| a.lsda.is_some())
+    }
+
+    /// Return the address of the personality routine handler
+    /// for this CIE's FDEs.
+    pub fn personality(&self) -> Option<Pointer> {
+        self.augmentation.as_ref().and_then(|a| a.personality)
+    }
+
+    /// True if this CIE's FDEs are trampolines for signal handlers.
+    pub fn is_signal_trampoline(&self) -> bool {
+        self.augmentation.map_or(false, |a| a.is_signal_trampoline)
+    }
+
     /// > A constant that is factored out of all advance location instructions
     /// > (see Section 6.4.2.1).
     pub fn code_alignment_factor(&self) -> u64 {
@@ -1702,17 +1718,17 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     }
 
     /// Return true if this FDE's function is a trampoline for a signal handler.
+    #[inline]
     pub fn is_signal_trampoline(&self) -> bool {
-        self.cie()
-            .augmentation
-            .map_or(false, |a| a.is_signal_trampoline)
+        self.cie().is_signal_trampoline()
     }
 
     /// Return the address of the FDE's function's personality routine
     /// handler. The personality routine does language-specific clean up when
     /// unwinding the stack frames with the intent to not run them again.
+    #[inline]
     pub fn personality(&self) -> Option<Pointer> {
-        self.cie().augmentation.as_ref().and_then(|a| a.personality)
+        self.cie().personality()
     }
 }
 
