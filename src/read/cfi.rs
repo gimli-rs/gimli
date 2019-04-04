@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use std::iter::FromIterator;
 use std::mem;
 
-use crate::common::{DebugFrameOffset, EhFrameOffset, Format, Register, SectionId};
+use crate::common::{DebugFrameOffset, EhFrameOffset, Encoding, Format, Register, SectionId};
 use crate::constants::{self, DwEhPe};
 use crate::endianity::Endianity;
 use crate::read::{EndianSlice, Error, Expression, Reader, ReaderOffset, Result, Section};
@@ -1324,6 +1324,15 @@ impl<R: Reader> CommonInformationEntry<R> {
     /// Get the offset of this entry from the start of its containing section.
     pub fn offset(&self) -> R::Offset {
         self.offset
+    }
+
+    /// Return the encoding parameters for this CIE.
+    pub fn encoding(&self) -> Encoding {
+        Encoding {
+            format: self.format,
+            version: u16::from(self.version),
+            address_size: self.address_size,
+        }
     }
 
     /// The size of addresses (in bytes) in this CIE.
