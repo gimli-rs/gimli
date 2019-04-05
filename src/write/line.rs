@@ -113,7 +113,7 @@ impl LineProgram {
             line_encoding,
             directories: IndexSet::new(),
             files: IndexMap::new(),
-            comp_file: (comp_file, comp_file_info.unwrap_or(FileInfo::default())),
+            comp_file: (comp_file, comp_file_info.unwrap_or_default()),
             prev_row: LineRow::initial_state(line_encoding),
             row: LineRow::initial_state(line_encoding),
             instructions: Vec::new(),
@@ -570,7 +570,7 @@ impl LineProgram {
             w.write_u8(1)?;
             w.write_uleb128(u64::from(constants::DW_LNCT_path.0))?;
             let dir_form = self.directories.get_index(0).unwrap().form();
-            w.write_uleb128(u64::from(dir_form.0))?;
+            w.write_uleb128(dir_form.0)?;
 
             // Directory entries.
             w.write_uleb128(self.directories.len() as u64)?;
@@ -592,20 +592,20 @@ impl LineProgram {
             w.write_u8(count)?;
             w.write_uleb128(u64::from(constants::DW_LNCT_path.0))?;
             let file_form = self.comp_file.0.form();
-            w.write_uleb128(u64::from(file_form.0))?;
+            w.write_uleb128(file_form.0)?;
             w.write_uleb128(u64::from(constants::DW_LNCT_directory_index.0))?;
-            w.write_uleb128(u64::from(constants::DW_FORM_udata.0))?;
+            w.write_uleb128(constants::DW_FORM_udata.0)?;
             if self.file_has_timestamp {
                 w.write_uleb128(u64::from(constants::DW_LNCT_timestamp.0))?;
-                w.write_uleb128(u64::from(constants::DW_FORM_udata.0))?;
+                w.write_uleb128(constants::DW_FORM_udata.0)?;
             }
             if self.file_has_size {
                 w.write_uleb128(u64::from(constants::DW_LNCT_size.0))?;
-                w.write_uleb128(u64::from(constants::DW_FORM_udata.0))?;
+                w.write_uleb128(constants::DW_FORM_udata.0)?;
             }
             if self.file_has_md5 {
                 w.write_uleb128(u64::from(constants::DW_LNCT_MD5.0))?;
-                w.write_uleb128(u64::from(constants::DW_FORM_data16.0))?;
+                w.write_uleb128(constants::DW_FORM_data16.0)?;
             }
 
             // File name entries.

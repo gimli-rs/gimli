@@ -412,7 +412,7 @@ where
         self.bytes()
             .iter()
             .position(|x| *x == byte)
-            .ok_or(Error::UnexpectedEof(self.offset_id()))
+            .ok_or_else(|| Error::UnexpectedEof(self.offset_id()))
     }
 
     #[inline]

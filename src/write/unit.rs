@@ -622,6 +622,7 @@ impl Attribute {
 
     /// Write the attribute to the given sections.
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     fn write<W: Writer>(
         &self,
         w: &mut DebugInfo<W>,
@@ -891,7 +892,7 @@ impl AttributeValue {
     }
 
     /// Write the attribute value to the given sections.
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cyclomatic_complexity, clippy::too_many_arguments)]
     fn write<W: Writer>(
         &self,
         w: &mut DebugInfo<W>,
