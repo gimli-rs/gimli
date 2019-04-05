@@ -262,7 +262,7 @@ mod tests {
         w.write_u16(0x2233).unwrap();
         w.write_u32(0x4455_6677).unwrap();
         w.write_u64(0x8081_8283_8485_8687).unwrap();
-        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[rustfmt::skip]
         assert_eq!(w.slice(), &[
             0x11,
             0x33, 0x22,
@@ -273,7 +273,7 @@ mod tests {
         w.write_u16_at(12, 0x2233).unwrap();
         w.write_u32_at(8, 0x4455_6677).unwrap();
         w.write_u64_at(0, 0x8081_8283_8485_8687).unwrap();
-        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[rustfmt::skip]
         assert_eq!(w.slice(), &[
             0x87, 0x86, 0x85, 0x84, 0x83, 0x82, 0x81, 0x80,
             0x77, 0x66, 0x55, 0x44,
@@ -286,7 +286,7 @@ mod tests {
         w.write_u16(0x2233).unwrap();
         w.write_u32(0x4455_6677).unwrap();
         w.write_u64(0x8081_8283_8485_8687).unwrap();
-        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[rustfmt::skip]
         assert_eq!(w.slice(), &[
             0x11,
             0x22, 0x33,
@@ -297,7 +297,7 @@ mod tests {
         w.write_u16_at(12, 0x2233).unwrap();
         w.write_u32_at(8, 0x4455_6677).unwrap();
         w.write_u64_at(0, 0x8081_8283_8485_8687).unwrap();
-        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[rustfmt::skip]
         assert_eq!(w.slice(), &[
             0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
             0x44, 0x55, 0x66, 0x77,
@@ -310,7 +310,7 @@ mod tests {
         w.write_word(0x2233, 2).unwrap();
         w.write_word(0x4455_6677, 4).unwrap();
         w.write_word(0x8081_8283_8485_8687, 8).unwrap();
-        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[rustfmt::skip]
         assert_eq!(w.slice(), &[
             0x11,
             0x33, 0x22,
@@ -325,7 +325,7 @@ mod tests {
         w.write_word_at(12, 0x2233, 2).unwrap();
         w.write_word_at(8, 0x4455_6677, 4).unwrap();
         w.write_word_at(0, 0x8081_8283_8485_8687, 8).unwrap();
-        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[rustfmt::skip]
         assert_eq!(w.slice(), &[
             0x87, 0x86, 0x85, 0x84, 0x83, 0x82, 0x81, 0x80,
             0x77, 0x66, 0x55, 0x44,
