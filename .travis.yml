@@ -12,6 +12,7 @@ os:
 osx_image: xcode7.1
 
 rust:
+- 1.32.0
 - nightly
 - beta
 - stable

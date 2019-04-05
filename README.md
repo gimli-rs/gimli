@@ -33,6 +33,8 @@ Add this to your `Cargo.toml`:
 gimli = "0.17.0"
 ```
 
+The minimum supported rust version is 1.32.0.
+
 ## Documentation
 
 * [Documentation on docs.rs](https://docs.rs/gimli/)
