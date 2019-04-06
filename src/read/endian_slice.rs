@@ -265,7 +265,7 @@ where
     #[inline]
     fn find(&self, byte: u8) -> Result<usize> {
         self.find(byte)
-            .ok_or(Error::UnexpectedEof(self.offset_id()))
+            .ok_or_else(|| Error::UnexpectedEof(self.offset_id()))
     }
 
     #[inline]

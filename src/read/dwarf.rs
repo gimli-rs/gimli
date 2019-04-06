@@ -395,6 +395,7 @@ impl<R: Reader> Dwarf<R> {
     ///
     /// This uses information from the DWARF sections to provide more information in some cases.
     pub fn format_error(&self, err: Error) -> String {
+        #[allow(clippy::single_match)]
         match err {
             Error::UnexpectedEof(id) => match self.lookup_offset_id(id) {
                 Some((sup, section, offset)) => {
@@ -410,7 +411,7 @@ impl<R: Reader> Dwarf<R> {
             },
             _ => {}
         }
-        format!("{}", err.description())
+        err.description().into()
     }
 }
 

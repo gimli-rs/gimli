@@ -1,7 +1,7 @@
 use crate::common::Register;
 
 macro_rules! registers {
-    ($struct_name:ident, { $($name:ident = ($val:expr, $disp:expr)),+ }) => {
+    ($struct_name:ident, { $($name:ident = ($val:expr, $disp:expr)),+ $(,)? }) => {
         #[allow(missing_docs)]
         impl $struct_name {
             $(
@@ -20,10 +20,6 @@ macro_rules! registers {
                 }
             }
         }
-    };
-    // Handle trailing comma
-    ($struct_name:ident, { $($name:ident = ($val:expr, $disp:expr)),+, }) => {
-        registers!($struct_name, { $($name = ($val, $disp)),+ });
     };
 }
 

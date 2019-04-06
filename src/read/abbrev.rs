@@ -454,7 +454,7 @@ pub mod tests {
     fn test_debug_abbrev_ok() {
         let extra_start = [1, 2, 3, 4];
         let expected_rest = [5, 6, 7, 8];
-        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[rustfmt::skip]
         let buf = Section::new()
             .append_bytes(&extra_start)
             .abbrev(2, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
@@ -605,7 +605,7 @@ pub mod tests {
     #[test]
     fn test_parse_abbreviations_ok() {
         let expected_rest = [1, 2, 3, 4];
-        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[rustfmt::skip]
         let buf = Section::new()
             .abbrev(2, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
                 .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)
@@ -658,7 +658,7 @@ pub mod tests {
     #[test]
     fn test_parse_abbreviations_duplicate() {
         let expected_rest = [1, 2, 3, 4];
-        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[rustfmt::skip]
         let buf = Section::new()
             .abbrev(1, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
                 .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)

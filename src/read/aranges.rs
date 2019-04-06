@@ -274,7 +274,7 @@ mod tests {
 
     #[test]
     fn test_parse_header_ok() {
-        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[rustfmt::skip]
         let buf = [
             // 32-bit length = 32.
             0x20, 0x00, 0x00, 0x00,
@@ -370,7 +370,7 @@ mod tests {
             offset: DebugInfoOffset(0),
             segment_size: 8,
         };
-        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[rustfmt::skip]
         let buf = [
             // Segment.
             0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
@@ -407,7 +407,7 @@ mod tests {
             offset: DebugInfoOffset(0),
             segment_size: 0,
         };
-        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[rustfmt::skip]
         let buf = [
             // Zero tuple.
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

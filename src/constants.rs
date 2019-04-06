@@ -56,7 +56,8 @@ use std::fmt;
 //         }
 //     }
 macro_rules! dw {
-    ($struct_name:ident($struct_type:ty) { $($name:ident = $val:expr),+ }) => {
+    ($(#[$meta:meta])* $struct_name:ident($struct_type:ty) { $($name:ident = $val:expr),+ $(,)? }) => {
+        $(#[$meta])*
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub struct $struct_name(pub $struct_type);
 
@@ -87,15 +88,13 @@ macro_rules! dw {
             }
         }
     };
-    // Handle trailing comma
-    ($struct_name:ident($struct_type:ty) { $($name:ident = $val:expr),+, }) => {
-        dw!($struct_name($struct_type) { $($name = $val),+ });
-    };
 }
 
+dw!(
 /// The unit type field in a unit header.
+///
 /// See Section 7.5.1, Table 7.2.
-dw!(DwUt(u8) {
+DwUt(u8) {
     DW_UT_compile = 0x01,
     DW_UT_type = 0x02,
     DW_UT_partial = 0x03,
@@ -106,13 +105,15 @@ dw!(DwUt(u8) {
     DW_UT_hi_user = 0xff,
 });
 
-/// Section 7.24:
+dw!(
+/// The opcode for a call frame instruction.
 ///
+/// Section 7.24:
 /// > Call frame instructions are encoded in one or more bytes. The primary
 /// > opcode is encoded in the high order two bits of the first byte (that is,
 /// > opcode = byte >> 6). An operand or extended opcode may be encoded in the
 /// > low order 6 bits. Additional operands are encoded in subsequent bytes.
-dw!(DwCfa(u8) {
+DwCfa(u8) {
     DW_CFA_advance_loc = 0x01 << 6,
     DW_CFA_offset = 0x02 << 6,
     DW_CFA_restore = 0x03 << 6,
@@ -149,16 +150,20 @@ dw!(DwCfa(u8) {
     DW_CFA_GNU_negative_offset_extended = 0x2f,
 });
 
+dw!(
 /// The child determination encodings for DIE attributes.
+///
 /// See Section 7.5.3, Table 7.4.
-dw!(DwChildren(u8) {
+DwChildren(u8) {
     DW_CHILDREN_no = 0,
     DW_CHILDREN_yes = 1,
 });
 
+dw!(
 /// The tag encodings for DIE attributes.
+///
 /// See Section 7.5.3, Table 7.3.
-dw!(DwTag(u64) {
+DwTag(u64) {
     DW_TAG_null = 0x00,
 
     DW_TAG_array_type = 0x01,
@@ -299,9 +304,11 @@ dw!(DwTag(u64) {
     DW_TAG_BORLAND_Delphi_variant = 0xb004,
 });
 
+dw!(
 /// The attribute encodings for DIE attributes.
+///
 /// See Section 7.5.4, Table 7.5.
-dw!(DwAt(u64) {
+DwAt(u64) {
     DW_AT_null = 0x00,
 
     DW_AT_sibling = 0x01,
@@ -604,9 +611,11 @@ dw!(DwAt(u64) {
     DW_AT_APPLE_property = 0x3fed
 });
 
+dw!(
 /// The attribute form encodings for DIE attributes.
+///
 /// See Section 7.5.6, Table 7.6.
-dw!(DwForm(u64) {
+DwForm(u64) {
     DW_FORM_null = 0x00,
 
     DW_FORM_addr = 0x01,
@@ -666,9 +675,11 @@ dw!(DwForm(u64) {
     DW_FORM_GNU_strp_alt = 0x1f21
 });
 
+dw!(
 /// The encodings of the constants used in the `DW_AT_encoding` attribute.
+///
 /// See Section 7.8, Table 7.11.
-dw!(DwAte(u8) {
+DwAte(u8) {
     DW_ATE_address = 0x01,
     DW_ATE_boolean = 0x02,
     DW_ATE_complex_float = 0x03,
@@ -696,9 +707,11 @@ dw!(DwAte(u8) {
     DW_ATE_hi_user = 0xff,
 });
 
+dw!(
 /// The encodings of the constants used in location list entries.
+///
 /// See Section 7.7.3, Table 7.10.
-dw!(DwLle(u8) {
+DwLle(u8) {
     DW_LLE_end_of_list = 0x00,
     DW_LLE_base_addressx = 0x01,
     DW_LLE_startx_endx = 0x02,
@@ -710,9 +723,11 @@ dw!(DwLle(u8) {
     DW_LLE_start_length = 0x08,
 });
 
+dw!(
 /// The encodings of the constants used in the `DW_AT_decimal_sign` attribute.
+///
 /// See Section 7.8, Table 7.12.
-dw!(DwDs(u8) {
+DwDs(u8) {
     DW_DS_unsigned = 0x01,
     DW_DS_leading_overpunch = 0x02,
     DW_DS_trailing_overpunch = 0x03,
@@ -720,9 +735,11 @@ dw!(DwDs(u8) {
     DW_DS_trailing_separate = 0x05,
 });
 
+dw!(
 /// The encodings of the constants used in the `DW_AT_endianity` attribute.
+///
 /// See Section 7.8, Table 7.13.
-dw!(DwEnd(u8) {
+DwEnd(u8) {
     DW_END_default = 0x00,
     DW_END_big = 0x01,
     DW_END_little = 0x02,
@@ -730,33 +747,41 @@ dw!(DwEnd(u8) {
     DW_END_hi_user = 0xff,
 });
 
+dw!(
 /// The encodings of the constants used in the `DW_AT_accessibility` attribute.
+///
 /// See Section 7.9, Table 7.14.
-dw!(DwAccess(u8) {
+DwAccess(u8) {
     DW_ACCESS_public = 0x01,
     DW_ACCESS_protected = 0x02,
     DW_ACCESS_private = 0x03,
 });
 
+dw!(
 /// The encodings of the constants used in the `DW_AT_visibility` attribute.
+///
 /// See Section 7.10, Table 7.15.
-dw!(DwVis(u8) {
+DwVis(u8) {
     DW_VIS_local = 0x01,
     DW_VIS_exported = 0x02,
     DW_VIS_qualified = 0x03,
 });
 
+dw!(
 /// The encodings of the constants used in the `DW_AT_virtuality` attribute.
+///
 /// See Section 7.11, Table 7.16.
-dw!(DwVirtuality(u8) {
+DwVirtuality(u8) {
     DW_VIRTUALITY_none = 0x00,
     DW_VIRTUALITY_virtual = 0x01,
     DW_VIRTUALITY_pure_virtual = 0x02,
 });
 
+dw!(
 /// The encodings of the constants used in the `DW_AT_language` attribute.
+///
 /// See Section 7.12, Table 7.17.
-dw!(DwLang(u16) {
+DwLang(u16) {
     DW_LANG_C89 = 0x0001,
     DW_LANG_C = 0x0002,
     DW_LANG_Ada83 = 0x0003,
@@ -841,25 +866,31 @@ impl DwLang {
     }
 }
 
+dw!(
 /// The encodings of the constants used in the `DW_AT_address_class` attribute.
+///
 /// There is only one value that is common to all target architectures.
 /// See Section 7.13.
-dw!(DwAddr(u64) {
+DwAddr(u64) {
     DW_ADDR_none = 0x00,
 });
 
+dw!(
 /// The encodings of the constants used in the `DW_AT_identifier_case` attribute.
+///
 /// See Section 7.14, Table 7.18.
-dw!(DwId(u8) {
+DwId(u8) {
     DW_ID_case_sensitive = 0x00,
     DW_ID_up_case = 0x01,
     DW_ID_down_case = 0x02,
     DW_ID_case_insensitive = 0x03,
 });
 
+dw!(
 /// The encodings of the constants used in the `DW_AT_calling_convention` attribute.
+///
 /// See Section 7.15, Table 7.19.
-dw!(DwCc(u8) {
+DwCc(u8) {
     DW_CC_normal = 0x01,
     DW_CC_program = 0x02,
     DW_CC_nocall = 0x03,
@@ -869,32 +900,40 @@ dw!(DwCc(u8) {
     DW_CC_hi_user = 0xff,
 });
 
+dw!(
 /// The encodings of the constants used in the `DW_AT_inline` attribute.
+///
 /// See Section 7.16, Table 7.20.
-dw!(DwInl(u8) {
+DwInl(u8) {
     DW_INL_not_inlined = 0x00,
     DW_INL_inlined = 0x01,
     DW_INL_declared_not_inlined = 0x02,
     DW_INL_declared_inlined = 0x03,
 });
 
+dw!(
 /// The encodings of the constants used in the `DW_AT_ordering` attribute.
+///
 /// See Section 7.17, Table 7.17.
-dw!(DwOrd(u8) {
+DwOrd(u8) {
     DW_ORD_row_major = 0x00,
     DW_ORD_col_major = 0x01,
 });
 
+dw!(
 /// The encodings of the constants used in the `DW_AT_discr_list` attribute.
+///
 /// See Section 7.18, Table 7.22.
-dw!(DwDsc(u8) {
+DwDsc(u8) {
     DW_DSC_label = 0x00,
     DW_DSC_range = 0x01,
 });
 
+dw!(
 /// Name index attribute encodings.
+///
 /// See Section 7.19, Table 7.23.
-dw!(DwIdx(u16) {
+DwIdx(u16) {
     DW_IDX_compile_unit = 1,
     DW_IDX_type_unit = 2,
     DW_IDX_die_offset = 3,
@@ -904,17 +943,21 @@ dw!(DwIdx(u16) {
     DW_IDX_hi_user = 0x3fff,
 });
 
+dw!(
 /// The encodings of the constants used in the `DW_AT_defaulted` attribute.
+///
 /// See Section 7.20, Table 7.24.
-dw!(DwDefaulted(u8) {
+DwDefaulted(u8) {
     DW_DEFAULTED_no = 0x00,
     DW_DEFAULTED_in_class = 0x01,
     DW_DEFAULTED_out_of_class = 0x02,
 });
 
+dw!(
 /// The encodings for the standard opcodes for line number information.
+///
 /// See Section 7.22, Table 7.25.
-dw!(DwLns(u8) {
+DwLns(u8) {
     DW_LNS_copy = 0x01,
     DW_LNS_advance_pc = 0x02,
     DW_LNS_advance_line = 0x03,
@@ -929,9 +972,11 @@ dw!(DwLns(u8) {
     DW_LNS_set_isa = 0x0c,
 });
 
+dw!(
 /// The encodings for the extended opcodes for line number information.
+///
 /// See Section 7.22, Table 7.26.
-dw!(DwLne(u8) {
+DwLne(u8) {
     DW_LNE_end_sequence = 0x01,
     DW_LNE_set_address = 0x02,
     DW_LNE_define_file = 0x03,
@@ -941,9 +986,11 @@ dw!(DwLne(u8) {
     DW_LNE_hi_user = 0xff,
 });
 
+dw!(
 /// The encodings for the line number header entry formats.
+///
 /// See Section 7.22, Table 7.27.
-dw!(DwLnct(u16) {
+DwLnct(u16) {
     DW_LNCT_path = 0x1,
     DW_LNCT_directory_index = 0x2,
     DW_LNCT_timestamp = 0x3,
@@ -953,9 +1000,11 @@ dw!(DwLnct(u16) {
     DW_LNCT_hi_user = 0x3fff,
 });
 
+dw!(
 /// The encodings for macro information entry types.
+///
 /// See Section 7.23, Table 7.28.
-dw!(DwMacro(u8) {
+DwMacro(u8) {
     DW_MACRO_define = 0x01,
     DW_MACRO_undef = 0x02,
     DW_MACRO_start_file = 0x03,
@@ -972,9 +1021,11 @@ dw!(DwMacro(u8) {
     DW_MACRO_hi_user = 0xff,
 });
 
+dw!(
 /// Range list entry encoding values.
+///
 /// See Section 7.25, Table 7.30.
-dw!(DwRle(u8) {
+DwRle(u8) {
     DW_RLE_end_of_list = 0x00,
     DW_RLE_base_addressx = 0x01,
     DW_RLE_startx_endx = 0x02,
@@ -985,9 +1036,11 @@ dw!(DwRle(u8) {
     DW_RLE_start_length = 0x07,
 });
 
+dw!(
 /// The encodings for DWARF expression operations.
+///
 /// See Section 7.7.1, Table 7.9.
-dw!(DwOp(u8) {
+DwOp(u8) {
     DW_OP_addr = 0x03,
     DW_OP_deref = 0x06,
     DW_OP_const1u = 0x08,
@@ -1165,12 +1218,15 @@ dw!(DwOp(u8) {
     DW_OP_GNU_parameter_ref = 0xfa,
 });
 
-/// Pointer encoding used by `.eh_frame`. The four lower bits describe the
+dw!(
+/// Pointer encoding used by `.eh_frame`.
+///
+/// The four lower bits describe the
 /// format of the pointer, the upper four bits describe how the encoding should
 /// be applied.
 ///
 /// Defined in http://refspecs.linux-foundation.org/LSB_4.0.0/LSB-Core-generic/LSB-Core-generic/dwarfext.html
-dw!(DwEhPe(u8) {
+DwEhPe(u8) {
 // Format of pointer encoding.
 
 // "Unsigned value is encoded using the Little Endian Base 128"
