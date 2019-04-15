@@ -595,6 +595,19 @@ impl<R: Reader> Unit<R> {
     pub fn entries_tree(&self, offset: Option<UnitOffset<R::Offset>>) -> Result<EntriesTree<R>> {
         self.header.entries_tree(&self.abbreviations, offset)
     }
+
+    /// Convenience getter for the address range of this unit. This uses `DW_AT_low_pc`,
+    /// `DW_AT_high_pc` and `DW_AT_ranges`.
+    pub fn read_ranges(
+        &self,
+        sections: &Dwarf<R>,
+    ) -> Result<Option<crate::read::WrapRangeIter<R>>> {
+        if let Some((_, current_entry)) = self.entries().next_dfs()? {
+            current_entry.read_ranges(sections, self)
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 impl<T: ReaderOffset> UnitSectionOffset<T> {

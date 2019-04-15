@@ -15,6 +15,8 @@ use crate::common::{
 use crate::constants;
 use crate::endianity::Endianity;
 use crate::read::{
+    self,
+    dwarf::{Dwarf, Unit},
     Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, DebugStr, EndianSlice, Error,
     Expression, Reader, ReaderOffset, Result, Section,
 };
@@ -962,6 +964,59 @@ where
             abbrev,
             unit,
         }))
+    }
+
+    /// Convenience getter for the address range of this DIE. This uses `DW_AT_low_pc`,
+    /// `DW_AT_high_pc` and `DW_AT_ranges`.
+    pub fn read_ranges(
+        &self,
+        sections: &Dwarf<R>,
+        dw_unit: &Unit<R>,
+    ) -> Result<Option<WrapRangeIter<R>>> {
+        Ok(Some(match self.attr_value(constants::DW_AT_ranges)? {
+            None => {
+                let low_pc = match self.attr_value(constants::DW_AT_low_pc)? {
+                    Some(AttributeValue::Addr(low_pc)) => low_pc,
+                    _ => return Ok(None), // neither ranges nor low_pc => None
+                };
+                let high_pc = match self.attr_value(constants::DW_AT_high_pc)? {
+                    Some(AttributeValue::Addr(high_pc)) => high_pc,
+                    Some(AttributeValue::Udata(x)) => low_pc + x,
+                    _ => return Ok(None), // only low_pc, no high_pc? wtf is this? TODO: perhaps return error
+                };
+                WrapRangeIter(WrapRangeIterInner::Synthetic(Some(read::Range {
+                    begin: low_pc,
+                    end: high_pc,
+                })))
+            }
+            Some(AttributeValue::RangeListsRef(rr)) => {
+                let ranges = sections.ranges(dw_unit, rr)?;
+                WrapRangeIter(WrapRangeIterInner::Real(ranges))
+            }
+            _ => unreachable!(),
+        }))
+    }
+}
+
+/// Returned by `DebuggingInformationEntry::read_ranges`.
+#[derive(Debug)]
+pub struct WrapRangeIter<R: Reader>(WrapRangeIterInner<R>);
+
+#[derive(Debug)]
+enum WrapRangeIterInner<R: Reader> {
+    Real(read::rnglists::RngListIter<R>),
+    Synthetic(Option<read::Range>),
+}
+
+impl<R: Reader> FallibleIterator for WrapRangeIter<R> {
+    type Item = read::Range;
+    type Error = Error;
+
+    fn next(&mut self) -> Result<Option<read::Range>> {
+        match self.0 {
+            WrapRangeIterInner::Real(ref mut ri) => ri.next(),
+            WrapRangeIterInner::Synthetic(ref mut range) => Ok(range.take()),
+        }
     }
 }
 
