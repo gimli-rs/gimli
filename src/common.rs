@@ -190,7 +190,7 @@ pub enum UnitSectionOffset<T = usize> {
 }
 
 /// An identifier for a DWARF section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub enum SectionId {
     /// The `.debug_abbrev` section.
     DebugAbbrev,
