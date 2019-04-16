@@ -837,7 +837,18 @@ where
     let out = io::stdout();
     writeln!(&mut BufWriter::new(out.lock()), "\n.debug_info")?;
 
-    let units = dwarf.units().collect::<Vec<_>>().unwrap();
+    let units = match dwarf.units().collect::<Vec<_>>() {
+        Ok(units) => units,
+        Err(err) => {
+            writeln_error(
+                &mut BufWriter::new(out.lock()),
+                dwarf,
+                Error::GimliError(err),
+                "Failed to read unit headers",
+            )?;
+            return Ok(());
+        }
+    };
     let process_unit = |header: CompilationUnitHeader<R>, buf: &mut Vec<u8>| -> Result<()> {
         writeln!(
             buf,
