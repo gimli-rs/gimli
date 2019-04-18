@@ -1,3 +1,5 @@
+use fallible_iterator::FallibleIterator;
+
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
     DebugLocListsIndex, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
@@ -8,9 +10,9 @@ use crate::constants;
 use crate::read::{
     Abbreviations, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter, DebugAbbrev,
     DebugAddr, DebugInfo, DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes,
-    EntriesCursor, EntriesTree, Error, IncompleteLineProgram, LocListIter, LocationLists,
-    RangeLists, Reader, ReaderOffset, ReaderOffsetId, Result, RngListIter, Section, TypeUnitHeader,
-    TypeUnitHeadersIter, UnitHeader, UnitOffset,
+    DebuggingInformationEntry, EntriesCursor, EntriesTree, Error, IncompleteLineProgram,
+    LocListIter, LocationLists, Range, RangeLists, Reader, ReaderOffset, ReaderOffsetId, Result,
+    RngListIter, Section, TypeUnitHeader, TypeUnitHeadersIter, UnitHeader, UnitOffset,
 };
 use crate::string::String;
 
@@ -299,6 +301,57 @@ impl<R: Reader> Dwarf<R> {
             Some(offset) => Ok(Some(self.ranges(unit, offset)?)),
             None => Ok(None),
         }
+    }
+
+    /// Return an iterator for the address ranges of a `DebuggingInformationEntry`.
+    ///
+    /// This uses `DW_AT_low_pc`, `DW_AT_high_pc` and `DW_AT_ranges`.
+    pub fn die_ranges(
+        &self,
+        unit: &Unit<R>,
+        entry: &DebuggingInformationEntry<R>,
+    ) -> Result<RangeIter<R>> {
+        let mut low_pc = None;
+        let mut high_pc = None;
+        let mut size = None;
+        let mut attrs = entry.attrs();
+        while let Some(attr) = attrs.next()? {
+            match attr.name() {
+                constants::DW_AT_low_pc => {
+                    if let AttributeValue::Addr(val) = attr.value() {
+                        low_pc = Some(val);
+                    }
+                }
+                constants::DW_AT_high_pc => match attr.value() {
+                    AttributeValue::Addr(val) => high_pc = Some(val),
+                    AttributeValue::Udata(val) => size = Some(val),
+                    _ => return Err(Error::UnsupportedAttributeForm),
+                },
+                constants::DW_AT_ranges => {
+                    if let Some(list) = self.attr_ranges(unit, attr.value())? {
+                        return Ok(RangeIter(RangeIterInner::List(list)));
+                    }
+                }
+                _ => {}
+            }
+        }
+        let range = low_pc.and_then(|begin| {
+            let end = size.map(|size| begin + size).or(high_pc);
+            // TODO: perhaps return an error if `end` is `None`
+            end.map(|end| Range { begin, end })
+        });
+        Ok(RangeIter(RangeIterInner::Single(range)))
+    }
+
+    /// Return an iterator for the address ranges of a `Unit`.
+    ///
+    /// This uses `DW_AT_low_pc`, `DW_AT_high_pc` and `DW_AT_ranges` of the
+    /// root `DebuggingInformationEntry`.
+    pub fn unit_ranges(&self, unit: &Unit<R>) -> Result<RangeIter<R>> {
+        let mut cursor = unit.header.entries(&unit.abbreviations);
+        cursor.next_dfs()?;
+        let root = cursor.current().ok_or(Error::MissingUnitDie)?;
+        self.die_ranges(unit, root)
     }
 
     /// Return the location list offset at the given index.
@@ -642,6 +695,44 @@ impl<T: ReaderOffset> UnitOffset<T> {
                 UnitSectionOffset::DebugTypesOffset(DebugTypesOffset(unit_offset.0 + self.0))
             }
         }
+    }
+}
+
+/// An iterator for the address ranges of a `DebuggingInformationEntry`.
+///
+/// Returned by `Dwarf::die_ranges` and `Dwarf::unit_ranges`.
+#[derive(Debug)]
+pub struct RangeIter<R: Reader>(RangeIterInner<R>);
+
+#[derive(Debug)]
+enum RangeIterInner<R: Reader> {
+    Single(Option<Range>),
+    List(RngListIter<R>),
+}
+
+impl<R: Reader> Default for RangeIter<R> {
+    fn default() -> Self {
+        RangeIter(RangeIterInner::Single(None))
+    }
+}
+
+impl<R: Reader> RangeIter<R> {
+    /// Advance the iterator to the next range.
+    pub fn next(&mut self) -> Result<Option<Range>> {
+        match self.0 {
+            RangeIterInner::Single(ref mut range) => Ok(range.take()),
+            RangeIterInner::List(ref mut list) => list.next(),
+        }
+    }
+}
+
+impl<R: Reader> FallibleIterator for RangeIter<R> {
+    type Item = Range;
+    type Error = Error;
+
+    #[inline]
+    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
+        RangeIter::next(self)
     }
 }
 
