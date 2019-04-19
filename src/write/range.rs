@@ -92,8 +92,8 @@ impl RangeListTable {
                     }
                     Range::StartLength { begin, length } => {
                         let end = match begin {
-                            Address::Absolute(begin) => Address::Absolute(begin + length),
-                            Address::Relative { symbol, addend } => Address::Relative {
+                            Address::Constant(begin) => Address::Constant(begin + length),
+                            Address::Symbol { symbol, addend } => Address::Symbol {
                                 symbol,
                                 addend: addend + length as i64,
                             },
@@ -223,7 +223,7 @@ mod convert {
             mut from: read::RawRngListIter<R>,
             context: &ConvertUnitContext<R>,
         ) -> ConvertResult<Self> {
-            let mut have_base_address = context.base_address != Address::Absolute(0);
+            let mut have_base_address = context.base_address != Address::Constant(0);
             let convert_address =
                 |x| (context.convert_address)(x).ok_or(ConvertError::InvalidAddress);
             let mut ranges = Vec::new();
@@ -234,7 +234,7 @@ mod convert {
                         let begin = convert_address(begin)?;
                         let end = convert_address(end)?;
                         match (begin, end) {
-                            (Address::Absolute(begin_offset), Address::Absolute(end_offset)) => {
+                            (Address::Constant(begin_offset), Address::Constant(end_offset)) => {
                                 if have_base_address {
                                     Range::OffsetPair {
                                         begin: begin_offset,
@@ -322,15 +322,15 @@ mod tests {
 
                     let mut range_list = RangeList(vec![
                         Range::StartLength {
-                            begin: Address::Absolute(6666),
+                            begin: Address::Constant(6666),
                             length: 7777,
                         },
                         Range::StartEnd {
-                            begin: Address::Absolute(4444),
-                            end: Address::Absolute(5555),
+                            begin: Address::Constant(4444),
+                            end: Address::Constant(5555),
                         },
                         Range::BaseAddress {
-                            address: Address::Absolute(1111),
+                            address: Address::Constant(1111),
                         },
                         Range::OffsetPair {
                             begin: 2222,
@@ -380,8 +380,8 @@ mod tests {
                         line_strings: &mut line_strings,
                         strings: &mut strings,
                         ranges: &mut ranges,
-                        convert_address: &|address| Some(Address::Absolute(address)),
-                        base_address: Address::Absolute(0),
+                        convert_address: &|address| Some(Address::Constant(address)),
+                        base_address: Address::Constant(0),
                         line_program_offset: None,
                         line_program_files: Vec::new(),
                     };
@@ -389,8 +389,8 @@ mod tests {
 
                     if version <= 4 {
                         range_list.0[0] = Range::StartEnd {
-                            begin: Address::Absolute(6666),
-                            end: Address::Absolute(6666 + 7777),
+                            begin: Address::Constant(6666),
+                            end: Address::Constant(6666 + 7777),
                         };
                     }
                     assert_eq!(range_list, convert_range_list);

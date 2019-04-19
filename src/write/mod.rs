@@ -36,7 +36,7 @@
 //!     let mut dwarf = DwarfUnit::new(encoding);
 //!     // Set a range attribute on the root DIE.
 //!     let range_list = RangeList(vec![Range::StartLength {
-//!         begin: Address::Absolute(0x100),
+//!         begin: Address::Constant(0x100),
 //!         length: 42,
 //!     }]);
 //!     let range_list_id = dwarf.unit.ranges.add(range_list);
@@ -237,10 +237,10 @@ pub type Result<T> = result::Result<T, Error>;
 /// An address.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Address {
-    /// An absolute address that does not require relocation.
-    Absolute(u64),
+    /// A fixed address that does not require relocation.
+    Constant(u64),
     /// An address that is relative to a symbol which may be relocated.
-    Relative {
+    Symbol {
         /// The symbol that the address is relative to.
         ///
         /// The meaning of this value is decided by the writer, but

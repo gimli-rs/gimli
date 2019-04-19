@@ -1225,7 +1225,7 @@ mod tests {
 
         let read_debug_line = read::DebugLine::new(debug_line.slice(), LittleEndian);
 
-        let convert_address = &|address| Some(Address::Absolute(address));
+        let convert_address = &|address| Some(Address::Constant(address));
         for ((program, file_id, encoding), offset) in programs.iter().zip(debug_line_offsets.iter())
         {
             let read_program = read_debug_line
@@ -1272,7 +1272,7 @@ mod tests {
         let dir1 = &b"dir1"[..];
         let file1 = &b"file1"[..];
         let file2 = &b"file2"[..];
-        let convert_address = &|address| Some(Address::Absolute(address));
+        let convert_address = &|address| Some(Address::Constant(address));
 
         let debug_line_str_offsets = DebugLineStrOffsets::none();
         let debug_str_offsets = DebugStrOffsets::none();
@@ -1307,7 +1307,7 @@ mod tests {
                     // Test sequences.
                     {
                         let mut program = program.clone();
-                        let address = Address::Absolute(0x12);
+                        let address = Address::Constant(0x12);
                         program.begin_sequence(Some(address));
                         assert_eq!(
                             program.instructions,
@@ -1657,7 +1657,7 @@ mod tests {
                             read::LineInstruction::EndSequence,
                         ),
                         (
-                            LineInstruction::SetAddress(Address::Absolute(0x12)),
+                            LineInstruction::SetAddress(Address::Constant(0x12)),
                             read::LineInstruction::SetAddress(0x12),
                         ),
                         (
@@ -1740,7 +1740,7 @@ mod tests {
                             None,
                         );
                         for address_advance in addresses.clone() {
-                            program.begin_sequence(Some(Address::Absolute(0x1000)));
+                            program.begin_sequence(Some(Address::Constant(0x1000)));
                             program.row().line = 0x10000;
                             program.generate_row();
                             for line_advance in lines.clone() {

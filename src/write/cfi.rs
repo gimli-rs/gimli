@@ -533,9 +533,9 @@ pub(crate) mod convert {
         ///
         /// `convert_address` is a function to convert read addresses into the `Address`
         /// type. For non-relocatable addresses, this function may simply return
-        /// `Address::Absolute(address)`. For relocatable addresses, it is the caller's
+        /// `Address::Constant(address)`. For relocatable addresses, it is the caller's
         /// responsibility to determine the symbol and addend corresponding to the address
-        /// and return `Address::Relative { symbol, addend }`.
+        /// and return `Address::Symbol { symbol, addend }`.
         pub fn from<R: Reader<Offset = usize>>(
             frame: &read::DebugFrame<R>,
             convert_address: &dyn Fn(u64) -> Option<Address>,
@@ -784,24 +784,24 @@ mod tests {
 
                     let mut cie2 = CommonInformationEntry::new(encoding, 1, 8, X86_64::RA);
                     cie2.lsda = true;
-                    cie2.personality = Some(Address::Absolute(0x1234));
+                    cie2.personality = Some(Address::Constant(0x1234));
                     cie2.signal_trampoline = true;
                     let cie2_id = frames.add_cie(cie2.clone());
                     assert_ne!(cie1_id, cie2_id);
                     assert_eq!(cie2_id, frames.add_cie(cie2.clone()));
 
-                    let fde1 = FrameDescriptionEntry::new(Address::Absolute(0x1000), 0x10);
+                    let fde1 = FrameDescriptionEntry::new(Address::Constant(0x1000), 0x10);
                     frames.add_fde(cie1_id, fde1.clone());
 
-                    let fde2 = FrameDescriptionEntry::new(Address::Absolute(0x2000), 0x20);
+                    let fde2 = FrameDescriptionEntry::new(Address::Constant(0x2000), 0x20);
                     frames.add_fde(cie1_id, fde2.clone());
 
-                    let mut fde3 = FrameDescriptionEntry::new(Address::Absolute(0x3000), 0x30);
-                    fde3.lsda = Some(Address::Absolute(0x3300));
+                    let mut fde3 = FrameDescriptionEntry::new(Address::Constant(0x3000), 0x30);
+                    fde3.lsda = Some(Address::Constant(0x3300));
                     frames.add_fde(cie2_id, fde3.clone());
 
-                    let mut fde4 = FrameDescriptionEntry::new(Address::Absolute(0x4000), 0x40);
-                    fde4.lsda = Some(Address::Absolute(0x4400));
+                    let mut fde4 = FrameDescriptionEntry::new(Address::Constant(0x4000), 0x40);
+                    fde4.lsda = Some(Address::Constant(0x4400));
                     frames.add_fde(cie2_id, fde4.clone());
 
                     let mut debug_frame = DebugFrame::from(EndianVec::new(LittleEndian));
@@ -811,7 +811,7 @@ mod tests {
                         read::DebugFrame::new(debug_frame.slice(), LittleEndian);
                     read_debug_frame.set_address_size(address_size);
                     let convert_frames = FrameTable::from(&read_debug_frame, &|address| {
-                        Some(Address::Absolute(address))
+                        Some(Address::Constant(address))
                     })
                     .unwrap();
                     assert_eq!(frames.cies, convert_frames.cies);
@@ -880,7 +880,7 @@ mod tests {
                     }
                     let cie_id = frames.add_cie(cie);
 
-                    let mut fde = FrameDescriptionEntry::new(Address::Absolute(0x1000), 0x10);
+                    let mut fde = FrameDescriptionEntry::new(Address::Constant(0x1000), 0x10);
                     for (o, i) in &fde_instructions {
                         fde.add_instruction(*o, i.clone());
                     }
@@ -893,7 +893,7 @@ mod tests {
                         read::DebugFrame::new(debug_frame.slice(), LittleEndian);
                     read_debug_frame.set_address_size(address_size);
                     let frames = FrameTable::from(&read_debug_frame, &|address| {
-                        Some(Address::Absolute(address))
+                        Some(Address::Constant(address))
                     })
                     .unwrap();
 

@@ -55,7 +55,7 @@ fn test_convert_debug_info() {
         ..Default::default()
     };
 
-    let mut dwarf = write::Dwarf::from(&dwarf, &|address| Some(Address::Absolute(address)))
+    let mut dwarf = write::Dwarf::from(&dwarf, &|address| Some(Address::Constant(address)))
         .expect("Should convert DWARF information");
 
     assert_eq!(dwarf.units.count(), 23);
@@ -101,7 +101,7 @@ fn test_convert_debug_info() {
         ..Default::default()
     };
 
-    let dwarf = write::Dwarf::from(&dwarf, &|address| Some(Address::Absolute(address)))
+    let dwarf = write::Dwarf::from(&dwarf, &|address| Some(Address::Constant(address)))
         .expect("Should convert DWARF information");
 
     assert_eq!(dwarf.units.count(), 23);

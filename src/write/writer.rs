@@ -27,14 +27,14 @@ pub trait Writer {
     /// The write must not extend past the current section length.
     fn write_at(&mut self, offset: usize, bytes: &[u8]) -> Result<()>;
 
-    /// Write an address that is relative to the given symbol.
+    /// Write an address.
     ///
     /// If the writer supports relocations, then it must provide its own implementation
     /// of this method.
     fn write_address(&mut self, address: Address, size: u8) -> Result<()> {
         match address {
-            Address::Absolute(val) => self.write_word(val, size),
-            Address::Relative { .. } => Err(Error::InvalidAddress),
+            Address::Constant(val) => self.write_word(val, size),
+            Address::Symbol { .. } => Err(Error::InvalidAddress),
         }
     }
 
@@ -236,11 +236,11 @@ mod tests {
     #[allow(clippy::cyclomatic_complexity)]
     fn test_writer() {
         let mut w = write::EndianVec::new(LittleEndian);
-        w.write_address(Address::Absolute(0x1122_3344), 4).unwrap();
+        w.write_address(Address::Constant(0x1122_3344), 4).unwrap();
         assert_eq!(w.slice(), &[0x44, 0x33, 0x22, 0x11]);
         assert_eq!(
             w.write_address(
-                Address::Relative {
+                Address::Symbol {
                     symbol: 0,
                     addend: 0
                 },
