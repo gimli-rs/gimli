@@ -1,4 +1,5 @@
 use crate::common::{Format, SectionId};
+use crate::constants;
 use crate::endianity::Endianity;
 use crate::leb128;
 use crate::write::{Address, Error, Result};
@@ -34,6 +35,51 @@ pub trait Writer {
     fn write_address(&mut self, address: Address, size: u8) -> Result<()> {
         match address {
             Address::Constant(val) => self.write_word(val, size),
+            Address::Symbol { .. } => Err(Error::InvalidAddress),
+        }
+    }
+
+    /// Write an address with a `.eh_frame` pointer encoding.
+    ///
+    /// The given size is only used for `DW_EH_PE_absptr` formats.
+    ///
+    /// If the writer supports relocations, then it must provide its own implementation
+    /// of this method.
+    fn write_eh_pointer(
+        &mut self,
+        address: Address,
+        eh_pe: constants::DwEhPe,
+        size: u8,
+    ) -> Result<()> {
+        match address {
+            Address::Constant(val) => {
+                // Indirect doesn't matter here.
+                let val = match eh_pe.application() {
+                    constants::DW_EH_PE_absptr => val,
+                    constants::DW_EH_PE_pcrel => {
+                        // TODO: better handling of sign
+                        let offset = self.len() as u64;
+                        offset.wrapping_sub(val)
+                    }
+                    _ => {
+                        return Err(Error::UnsupportedPointerEncoding(eh_pe));
+                    }
+                };
+                match eh_pe.format() {
+                    constants::DW_EH_PE_absptr => self.write_word(val, size),
+                    constants::DW_EH_PE_uleb128 => self.write_uleb128(val),
+                    constants::DW_EH_PE_udata2 => self.write_word(val, 2),
+                    constants::DW_EH_PE_udata4 => self.write_word(val, 4),
+                    constants::DW_EH_PE_udata8 => self.write_word(val, 8),
+                    constants::DW_EH_PE_sleb128 => self.write_sleb128(val as i64),
+                    constants::DW_EH_PE_sdata2 => self.write_signed_word(val as i64, 2),
+                    constants::DW_EH_PE_sdata4 => self.write_signed_word(val as i64, 4),
+                    constants::DW_EH_PE_sdata8 => self.write_signed_word(val as i64, 8),
+                    _ => {
+                        return Err(Error::UnsupportedPointerEncoding(eh_pe));
+                    }
+                }
+            }
             Address::Symbol { .. } => Err(Error::InvalidAddress),
         }
     }
@@ -142,6 +188,38 @@ pub trait Writer {
                 self.write_u32(write_val)
             }
             8 => self.write_u64(val),
+            otherwise => Err(Error::UnsupportedWordSize(otherwise)),
+        }
+    }
+
+    /// Write a signed word of the given size.
+    ///
+    /// Returns an error if the value is too large for the size.
+    /// This must not be used directly for values that may require relocation.
+    fn write_signed_word(&mut self, val: i64, size: u8) -> Result<()> {
+        match size {
+            1 => {
+                let write_val = val as i8;
+                if val != i64::from(write_val) {
+                    return Err(Error::ValueTooLarge);
+                }
+                self.write_u8(write_val as u8)
+            }
+            2 => {
+                let write_val = val as i16;
+                if val != i64::from(write_val) {
+                    return Err(Error::ValueTooLarge);
+                }
+                self.write_u16(write_val as u16)
+            }
+            4 => {
+                let write_val = val as i32;
+                if val != i64::from(write_val) {
+                    return Err(Error::ValueTooLarge);
+                }
+                self.write_u32(write_val as u32)
+            }
+            8 => self.write_u64(val as u64),
             otherwise => Err(Error::UnsupportedWordSize(otherwise)),
         }
     }

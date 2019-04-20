@@ -62,6 +62,8 @@ use std::error;
 use std::fmt;
 use std::result;
 
+use crate::constants;
+
 mod endian_vec;
 pub use self::endian_vec::*;
 
@@ -182,6 +184,8 @@ pub enum Error {
     InvalidFrameCodeOffset(u32),
     /// Could not encode data offset for a frame instruction.
     InvalidFrameDataOffset(i32),
+    /// Unsupported eh_frame pointer encoding.
+    UnsupportedPointerEncoding(constants::DwEhPe),
 }
 
 impl fmt::Display for Error {
@@ -225,6 +229,9 @@ impl fmt::Display for Error {
                 "Could not encode data offset ({}) for a frame instruction.",
                 offset,
             ),
+            Error::UnsupportedPointerEncoding(eh_pe) => {
+                write!(f, "Unsupported eh_frame pointer encoding ({}).", eh_pe)
+            }
         }
     }
 }
