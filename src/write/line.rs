@@ -520,7 +520,7 @@ impl LineProgram {
         }
 
         let header_length_offset = w.len();
-        w.write_word(0, self.format().word_size())?;
+        w.write_udata(0, self.format().word_size())?;
         let header_length_base = w.len();
 
         w.write_u8(self.line_encoding.minimum_instruction_length)?;
@@ -637,7 +637,7 @@ impl LineProgram {
         }
 
         let header_length = (w.len() - header_length_base) as u64;
-        w.write_word_at(
+        w.write_udata_at(
             header_length_offset,
             header_length,
             self.format().word_size(),

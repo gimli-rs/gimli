@@ -345,7 +345,7 @@ impl Unit {
             let entry_offset = offsets.entry(entry).0;
             debug_assert_ne!(entry_offset, 0);
             // This does not need relocation.
-            w.write_word_at(
+            w.write_udata_at(
                 offset.0,
                 (entry_offset - offsets.unit.0) as u64,
                 self.format().word_size(),
@@ -538,7 +538,7 @@ impl DebuggingInformationEntry {
 
         let sibling_offset = if self.sibling && !self.children.is_empty() {
             let offset = w.offset();
-            w.write_word(0, unit.format().word_size())?;
+            w.write_udata(0, unit.format().word_size())?;
             Some(offset)
         } else {
             None
@@ -579,7 +579,7 @@ impl DebuggingInformationEntry {
         if let Some(offset) = sibling_offset {
             let next_offset = (w.offset().0 - offsets.unit.0) as u64;
             // This does not need relocation.
-            w.write_word_at(offset.0, next_offset, unit.format().word_size())?;
+            w.write_udata_at(offset.0, next_offset, unit.format().word_size())?;
         }
         Ok(())
     }
@@ -961,7 +961,7 @@ impl AttributeValue {
                     Format::Dwarf64 => debug_assert_form!(constants::DW_FORM_ref8),
                 }
                 unit_refs.push((w.offset(), id));
-                w.write_word(0, unit.format().word_size())?;
+                w.write_udata(0, unit.format().word_size())?;
             }
             AttributeValue::AnyUnitEntryRef(id) => {
                 debug_assert_form!(constants::DW_FORM_ref_addr);
@@ -971,14 +971,14 @@ impl AttributeValue {
                     unit.format().word_size()
                 };
                 debug_info_refs.push((w.offset(), id, size));
-                w.write_word(0, size)?;
+                w.write_udata(0, size)?;
             }
             AttributeValue::DebugInfoRefSup(val) => {
                 match unit.format() {
                     Format::Dwarf32 => debug_assert_form!(constants::DW_FORM_ref_sup4),
                     Format::Dwarf64 => debug_assert_form!(constants::DW_FORM_ref_sup8),
                 }
-                w.write_word(val.0 as u64, unit.format().word_size())?;
+                w.write_udata(val.0 as u64, unit.format().word_size())?;
             }
             AttributeValue::LineProgramRef => {
                 if unit.version() >= 4 {
@@ -1037,7 +1037,7 @@ impl AttributeValue {
             }
             AttributeValue::DebugStrRefSup(val) => {
                 debug_assert_form!(constants::DW_FORM_strp_sup);
-                w.write_word(val.0 as u64, unit.format().word_size())?;
+                w.write_udata(val.0 as u64, unit.format().word_size())?;
             }
             AttributeValue::LineStringRef(val) => {
                 debug_assert_form!(constants::DW_FORM_line_strp);

@@ -73,15 +73,15 @@ impl RangeListTable {
                 match *range {
                     Range::BaseAddress { address } => {
                         let marker = !0 >> (64 - address_size * 8);
-                        w.write_word(marker, address_size)?;
+                        w.write_udata(marker, address_size)?;
                         w.write_address(address, address_size)?;
                     }
                     Range::OffsetPair { begin, end } => {
                         if begin == end {
                             return Err(Error::InvalidRange);
                         }
-                        w.write_word(begin, address_size)?;
-                        w.write_word(end, address_size)?;
+                        w.write_udata(begin, address_size)?;
+                        w.write_udata(end, address_size)?;
                     }
                     Range::StartEnd { begin, end } => {
                         if begin == end {
@@ -106,8 +106,8 @@ impl RangeListTable {
                     }
                 }
             }
-            w.write_word(0, address_size)?;
-            w.write_word(0, address_size)?;
+            w.write_udata(0, address_size)?;
+            w.write_udata(0, address_size)?;
         }
         Ok(RangeListOffsets {
             base_id: self.base_id,

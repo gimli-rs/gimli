@@ -249,7 +249,7 @@ impl CommonInformationEntry {
 
             let augmentation_length = (w.len() - augmentation_length_base) as u64;
             debug_assert!(augmentation_length < 0x80);
-            w.write_word_at(augmentation_length_offset, augmentation_length, 1)?;
+            w.write_udata_at(augmentation_length_offset, augmentation_length, 1)?;
         }
 
         for instruction in &self.instructions {
@@ -317,7 +317,7 @@ impl FrameDescriptionEntry {
 
         if eh_frame {
             // .eh_frame uses a relative offset which doesn't need relocation.
-            w.write_word((w.len() - cie_offset) as u64, 4)?;
+            w.write_udata((w.len() - cie_offset) as u64, 4)?;
         } else {
             w.write_offset(
                 cie_offset,
@@ -332,14 +332,14 @@ impl FrameDescriptionEntry {
                 cie.fde_address_encoding,
                 encoding.address_size,
             )?;
-            w.write_eh_pointer(
-                Address::Constant(self.length.into()),
+            w.write_eh_pointer_data(
+                self.length.into(),
                 cie.fde_address_encoding.format(),
                 encoding.address_size,
             )?;
         } else {
             w.write_address(self.address, encoding.address_size)?;
-            w.write_word(self.length.into(), encoding.address_size)?;
+            w.write_udata(self.length.into(), encoding.address_size)?;
         }
 
         if cie.has_augmentation() {
