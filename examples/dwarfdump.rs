@@ -604,7 +604,17 @@ fn dump_eh_frame<R: Reader, W: Write>(
                 writeln!(w, "    code_align: {}", cie.code_alignment_factor())?;
                 writeln!(w, "    data_align: {}", cie.data_alignment_factor())?;
                 writeln!(w, "   ra_register: {:#x}", cie.return_address_register().0)?;
-                // TODO: aug_arg
+                if let Some(encoding) = cie.lsda_encoding() {
+                    writeln!(w, " lsda_encoding: {:#02x}", encoding.0)?;
+                }
+                if let Some((encoding, personality)) = cie.personality_with_encoding() {
+                    write!(w, "   personality: {:#02x} ", encoding.0)?;
+                    dump_pointer(w, personality)?;
+                    writeln!(w)?;
+                }
+                if let Some(encoding) = cie.fde_address_encoding() {
+                    writeln!(w, "  fde_encoding: {:#02x}", encoding.0)?;
+                }
                 dump_cfi_instructions(w, cie.instructions(eh_frame, bases), true, register_name)?;
                 writeln!(w)?;
             }
@@ -629,14 +639,28 @@ fn dump_eh_frame<R: Reader, W: Write>(
                     fde.len(),
                     fde.initial_address() + fde.len()
                 )?;
-                if let Some(gimli::Pointer::Direct(lsda)) = fde.lsda() {
-                    writeln!(w, "          lsda: {:#018x}", lsda)?;
+                if let Some(lsda) = fde.lsda() {
+                    write!(w, "          lsda: ")?;
+                    dump_pointer(w, lsda)?;
+                    writeln!(w)?;
                 }
                 dump_cfi_instructions(w, fde.instructions(eh_frame, bases), false, register_name)?;
                 writeln!(w)?;
             }
         }
     }
+}
+
+fn dump_pointer<W: Write>(w: &mut W, p: gimli::Pointer) -> Result<()> {
+    match p {
+        gimli::Pointer::Direct(p) => {
+            write!(w, "{:#018x}", p)?;
+        }
+        gimli::Pointer::Indirect(p) => {
+            write!(w, "({:#018x})", p)?;
+        }
+    }
+    Ok(())
 }
 
 #[allow(clippy::unneeded_field_pattern)]

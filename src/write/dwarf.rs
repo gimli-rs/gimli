@@ -115,9 +115,9 @@ pub(crate) mod convert {
         ///
         /// `convert_address` is a function to convert read addresses into the `Address`
         /// type. For non-relocatable addresses, this function may simply return
-        /// `Address::Absolute(address)`. For relocatable addresses, it is the caller's
+        /// `Address::Constant(address)`. For relocatable addresses, it is the caller's
         /// responsibility to determine the symbol and addend corresponding to the address
-        /// and return `Address::Relative { symbol, addend }`.
+        /// and return `Address::Symbol { symbol, addend }`.
         pub fn from<R: Reader<Offset = usize>>(
             dwarf: &read::Dwarf<R>,
             convert_address: &dyn Fn(u64) -> Option<Address>,

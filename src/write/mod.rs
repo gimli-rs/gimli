@@ -36,7 +36,7 @@
 //!     let mut dwarf = DwarfUnit::new(encoding);
 //!     // Set a range attribute on the root DIE.
 //!     let range_list = RangeList(vec![Range::StartLength {
-//!         begin: Address::Absolute(0x100),
+//!         begin: Address::Constant(0x100),
 //!         length: 42,
 //!     }]);
 //!     let range_list_id = dwarf.unit.ranges.add(range_list);
@@ -61,6 +61,8 @@
 use std::error;
 use std::fmt;
 use std::result;
+
+use crate::constants;
 
 mod endian_vec;
 pub use self::endian_vec::*;
@@ -182,6 +184,8 @@ pub enum Error {
     InvalidFrameCodeOffset(u32),
     /// Could not encode data offset for a frame instruction.
     InvalidFrameDataOffset(i32),
+    /// Unsupported eh_frame pointer encoding.
+    UnsupportedPointerEncoding(constants::DwEhPe),
 }
 
 impl fmt::Display for Error {
@@ -225,6 +229,9 @@ impl fmt::Display for Error {
                 "Could not encode data offset ({}) for a frame instruction.",
                 offset,
             ),
+            Error::UnsupportedPointerEncoding(eh_pe) => {
+                write!(f, "Unsupported eh_frame pointer encoding ({}).", eh_pe)
+            }
         }
     }
 }
@@ -237,10 +244,10 @@ pub type Result<T> = result::Result<T, Error>;
 /// An address.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Address {
-    /// An absolute address that does not require relocation.
-    Absolute(u64),
+    /// A fixed address that does not require relocation.
+    Constant(u64),
     /// An address that is relative to a symbol which may be relocated.
-    Relative {
+    Symbol {
         /// The symbol that the address is relative to.
         ///
         /// The meaning of this value is decided by the writer, but

@@ -4,7 +4,7 @@ use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
 
 use crate::collections::HashMap;
-use crate::common::{DebugFrameOffset, Encoding, Format, Register, SectionId};
+use crate::common::{DebugFrameOffset, EhFrameOffset, Encoding, Format, Register, SectionId};
 use crate::constants;
 use crate::write::{Address, BaseId, Error, Expression, Result, Section, Writer};
 
@@ -13,6 +13,8 @@ define_section!(
     DebugFrameOffset,
     "A writable `.debug_frame` section."
 );
+
+define_section!(EhFrame, EhFrameOffset, "A writable `.eh_frame` section.");
 
 define_id!(CieId, "An identifier for a CIE in a `FrameTable`.");
 
@@ -36,6 +38,11 @@ impl FrameTable {
         CieId::new(self.base_id, index)
     }
 
+    /// The number of CIEs.
+    pub fn cie_count(&self) -> usize {
+        self.cies.len()
+    }
+
     /// Add a FDE.
     ///
     /// Does not check for duplicates.
@@ -48,8 +55,22 @@ impl FrameTable {
         self.fdes.push((cie, fde));
     }
 
-    /// Write the frame table entries to the given section.
-    pub fn write<W: Writer>(&self, w: &mut DebugFrame<W>) -> Result<()> {
+    /// The number of FDEs.
+    pub fn fde_count(&self) -> usize {
+        self.fdes.len()
+    }
+
+    /// Write the frame table entries to the given `.debug_frame` section.
+    pub fn write_debug_frame<W: Writer>(&self, w: &mut DebugFrame<W>) -> Result<()> {
+        self.write(&mut w.0, false)
+    }
+
+    /// Write the frame table entries to the given `.eh_frame` section.
+    pub fn write_eh_frame<W: Writer>(&self, w: &mut EhFrame<W>) -> Result<()> {
+        self.write(&mut w.0, true)
+    }
+
+    fn write<W: Writer>(&self, w: &mut W, eh_frame: bool) -> Result<()> {
         let mut cie_offsets = vec![None; self.cies.len()];
         for (cie_id, fde) in &self.fdes {
             let cie_index = cie_id.index;
@@ -58,13 +79,13 @@ impl FrameTable {
                 Some(offset) => offset,
                 None => {
                     // Only write CIEs as they are referenced.
-                    let offset = cie.write(w)?;
+                    let offset = cie.write(w, eh_frame)?;
                     cie_offsets[cie_index] = Some(offset);
                     offset
                 }
             };
 
-            fde.write(w, cie_offset, cie)?;
+            fde.write(w, eh_frame, cie_offset, cie)?;
         }
         // TODO: write length 0 terminator for eh_frame?
         Ok(())
@@ -91,11 +112,16 @@ pub struct CommonInformationEntry {
     /// The return address register. This might not correspond to an actual machine register.
     return_address_register: Register,
 
-    /// The address of the personality function.
-    pub personality: Option<Address>,
+    /// The address of the personality function and its encoding.
+    pub personality: Option<(constants::DwEhPe, Address)>,
 
-    /// True if FDEs have a LSDA.
-    pub lsda: bool,
+    /// The encoding to use for the LSDA address in FDEs.
+    ///
+    /// If set then all FDEs which use this CIE must have a LSDA address.
+    pub lsda_encoding: Option<constants::DwEhPe>,
+
+    /// The encoding to use for addresses in FDEs.
+    pub fde_address_encoding: constants::DwEhPe,
 
     /// True for signal trampolines.
     pub signal_trampoline: bool,
@@ -120,7 +146,8 @@ impl CommonInformationEntry {
             data_alignment_factor,
             return_address_register,
             personality: None,
-            lsda: false,
+            lsda_encoding: None,
+            fde_address_encoding: constants::DW_EH_PE_absptr,
             signal_trampoline: false,
             instructions: Vec::new(),
         }
@@ -132,40 +159,53 @@ impl CommonInformationEntry {
     }
 
     fn has_augmentation(&self) -> bool {
-        self.personality.is_some() || self.lsda || self.signal_trampoline
+        self.personality.is_some()
+            || self.lsda_encoding.is_some()
+            || self.signal_trampoline
+            || self.fde_address_encoding != constants::DW_EH_PE_absptr
     }
 
-    fn write<W: Writer>(&self, w: &mut DebugFrame<W>) -> Result<DebugFrameOffset> {
+    /// Returns the section offset of the CIE.
+    fn write<W: Writer>(&self, w: &mut W, eh_frame: bool) -> Result<usize> {
         let encoding = self.encoding;
-        let offset = w.offset();
+        let offset = w.len();
 
         let length_offset = w.write_initial_length(encoding.format)?;
         let length_base = w.len();
 
-        match encoding.format {
-            Format::Dwarf32 => w.write_u32(0xffff_ffff)?,
-            Format::Dwarf64 => w.write_u64(0xffff_ffff_ffff_ffff)?,
+        if eh_frame {
+            w.write_u32(0)?;
+        } else {
+            match encoding.format {
+                Format::Dwarf32 => w.write_u32(0xffff_ffff)?,
+                Format::Dwarf64 => w.write_u64(0xffff_ffff_ffff_ffff)?,
+            }
         }
 
-        match encoding.version {
-            1 | 3 | 4 => {}
-            _ => return Err(Error::UnsupportedVersion(encoding.version)),
-        };
+        if eh_frame {
+            if encoding.version != 1 {
+                return Err(Error::UnsupportedVersion(encoding.version));
+            };
+        } else {
+            match encoding.version {
+                1 | 3 | 4 => {}
+                _ => return Err(Error::UnsupportedVersion(encoding.version)),
+            };
+        }
         w.write_u8(encoding.version as u8)?;
 
-        let mut augmentation_length = 0u64;
         let augmentation = self.has_augmentation();
         if augmentation {
             w.write_u8(b'z')?;
-            if self.lsda {
+            if self.lsda_encoding.is_some() {
                 w.write_u8(b'L')?;
-                augmentation_length += 1;
             }
             if self.personality.is_some() {
                 w.write_u8(b'P')?;
-                augmentation_length += 1 + u64::from(encoding.address_size);
             }
-            // TODO: R (FDE address encoding)
+            if self.fde_address_encoding != constants::DW_EH_PE_absptr {
+                w.write_u8(b'R')?;
+            }
             if self.signal_trampoline {
                 w.write_u8(b'S')?;
             }
@@ -181,8 +221,7 @@ impl CommonInformationEntry {
         w.write_uleb128(self.code_alignment_factor.into())?;
         w.write_sleb128(self.data_alignment_factor.into())?;
 
-        // TODO: eh_frame encoding
-        if encoding.version == 1 {
+        if !eh_frame && encoding.version == 1 {
             let register = self.return_address_register.0 as u8;
             if u16::from(register) != self.return_address_register.0 {
                 return Err(Error::ValueTooLarge);
@@ -193,19 +232,24 @@ impl CommonInformationEntry {
         }
 
         if augmentation {
-            w.write_uleb128(augmentation_length)?;
-            let offset = w.len();
-            if self.lsda {
-                // TODO: allow encoding to be specified
-                w.write_u8(constants::DW_EH_PE_absptr.0)?;
+            let augmentation_length_offset = w.len();
+            w.write_u8(0)?;
+            let augmentation_length_base = w.len();
+
+            if let Some(eh_pe) = self.lsda_encoding {
+                w.write_u8(eh_pe.0)?;
             }
-            if let Some(address) = self.personality {
-                // TODO: allow encoding to be specified
-                w.write_u8(constants::DW_EH_PE_absptr.0)?;
-                w.write_address(address, encoding.address_size)?;
+            if let Some((eh_pe, address)) = self.personality {
+                w.write_u8(eh_pe.0)?;
+                w.write_eh_pointer(address, constants::DW_EH_PE_absptr, encoding.address_size)?;
             }
-            // TODO: R (FDE address encoding)
-            debug_assert_eq!(w.len(), offset + augmentation_length as usize);
+            if self.fde_address_encoding != constants::DW_EH_PE_absptr {
+                w.write_u8(self.fde_address_encoding.0)?;
+            }
+
+            let augmentation_length = (w.len() - augmentation_length_base) as u64;
+            debug_assert!(augmentation_length < 0x80);
+            w.write_udata_at(augmentation_length_offset, augmentation_length, 1)?;
         }
 
         for instruction in &self.instructions {
@@ -262,37 +306,52 @@ impl FrameDescriptionEntry {
 
     fn write<W: Writer>(
         &self,
-        w: &mut DebugFrame<W>,
-        cie_offset: DebugFrameOffset,
+        w: &mut W,
+        eh_frame: bool,
+        cie_offset: usize,
         cie: &CommonInformationEntry,
     ) -> Result<()> {
         let encoding = cie.encoding;
         let length_offset = w.write_initial_length(encoding.format)?;
         let length_base = w.len();
 
-        // TODO: eh_frame encoding
-        w.write_offset(
-            cie_offset.0,
-            SectionId::DebugFrame,
-            encoding.format.word_size(),
-        )?;
+        if eh_frame {
+            // .eh_frame uses a relative offset which doesn't need relocation.
+            w.write_udata((w.len() - cie_offset) as u64, 4)?;
+        } else {
+            w.write_offset(
+                cie_offset,
+                SectionId::DebugFrame,
+                encoding.format.word_size(),
+            )?;
+        }
 
-        // TODO: eh_frame encoding
-        w.write_address(self.address, encoding.address_size)?;
-        w.write_word(self.length.into(), encoding.address_size)?;
+        if cie.fde_address_encoding != constants::DW_EH_PE_absptr {
+            w.write_eh_pointer(
+                self.address,
+                cie.fde_address_encoding,
+                encoding.address_size,
+            )?;
+            w.write_eh_pointer_data(
+                self.length.into(),
+                cie.fde_address_encoding.format(),
+                encoding.address_size,
+            )?;
+        } else {
+            w.write_address(self.address, encoding.address_size)?;
+            w.write_udata(self.length.into(), encoding.address_size)?;
+        }
 
         if cie.has_augmentation() {
-            debug_assert_eq!(cie.lsda, self.lsda.is_some());
-
             let mut augmentation_length = 0u64;
             if self.lsda.is_some() {
                 augmentation_length += u64::from(encoding.address_size);
             }
             w.write_uleb128(augmentation_length)?;
 
-            if let Some(lsda) = self.lsda {
-                // TODO: allow encoding to be specified
-                w.write_address(lsda, encoding.address_size)?;
+            debug_assert_eq!(self.lsda.is_some(), cie.lsda_encoding.is_some());
+            if let (Some(lsda), Some(lsda_encoding)) = (self.lsda, cie.lsda_encoding) {
+                w.write_eh_pointer(lsda, lsda_encoding, encoding.address_size)?;
             }
         }
 
@@ -356,7 +415,7 @@ pub enum CallFrameInstruction {
 }
 
 impl CallFrameInstruction {
-    fn write<W: Writer>(&self, w: &mut DebugFrame<W>, cie: &CommonInformationEntry) -> Result<()> {
+    fn write<W: Writer>(&self, w: &mut W, cie: &CommonInformationEntry) -> Result<()> {
         match *self {
             CallFrameInstruction::Cfa(register, offset) => {
                 if offset < 0 {
@@ -467,7 +526,7 @@ impl CallFrameInstruction {
 }
 
 fn write_advance_loc<W: Writer>(
-    w: &mut DebugFrame<W>,
+    w: &mut W,
     code_alignment_factor: u8,
     prev_offset: u32,
     offset: u32,
@@ -491,7 +550,7 @@ fn write_advance_loc<W: Writer>(
     Ok(())
 }
 
-fn write_nop<W: Writer>(w: &mut DebugFrame<W>, len: usize, align: u8) -> Result<()> {
+fn write_nop<W: Writer>(w: &mut W, len: usize, align: u8) -> Result<()> {
     debug_assert_eq!(align & (align - 1), 0);
     let tail_len = (!len + 1) & (align as usize - 1);
     for _ in 0..tail_len {
@@ -525,7 +584,7 @@ fn factored_data_offset(offset: i32, factor: i8) -> Result<i32> {
 #[cfg(feature = "read")]
 pub(crate) mod convert {
     use super::*;
-    use crate::read::{self, Reader, UnwindSection};
+    use crate::read::{self, Reader};
     use crate::write::{ConvertError, ConvertResult};
 
     impl FrameTable {
@@ -533,14 +592,19 @@ pub(crate) mod convert {
         ///
         /// `convert_address` is a function to convert read addresses into the `Address`
         /// type. For non-relocatable addresses, this function may simply return
-        /// `Address::Absolute(address)`. For relocatable addresses, it is the caller's
+        /// `Address::Constant(address)`. For relocatable addresses, it is the caller's
         /// responsibility to determine the symbol and addend corresponding to the address
-        /// and return `Address::Relative { symbol, addend }`.
-        pub fn from<R: Reader<Offset = usize>>(
-            frame: &read::DebugFrame<R>,
+        /// and return `Address::Symbol { symbol, addend }`.
+        pub fn from<R, Section>(
+            frame: &Section,
             convert_address: &dyn Fn(u64) -> Option<Address>,
-        ) -> ConvertResult<FrameTable> {
-            let bases = read::BaseAddresses::default();
+        ) -> ConvertResult<FrameTable>
+        where
+            R: Reader<Offset = usize>,
+            Section: read::UnwindSection<R>,
+            Section::Offset: read::UnwindOffset<usize>,
+        {
+            let bases = read::BaseAddresses::default().set_eh_frame(0);
 
             let mut frame_table = FrameTable::default();
 
@@ -554,7 +618,7 @@ pub(crate) mod convert {
 
                 // TODO: is it worth caching the parsed CIEs? It would be better if FDEs only
                 // stored a reference.
-                let from_fde = partial.parse(read::DebugFrame::cie_from_offset)?;
+                let from_fde = partial.parse(Section::cie_from_offset)?;
                 let from_cie = from_fde.cie();
                 let cie_id = match cie_ids.entry(from_cie.offset()) {
                     hash_map::Entry::Occupied(o) => *o.get(),
@@ -575,12 +639,17 @@ pub(crate) mod convert {
     }
 
     impl CommonInformationEntry {
-        fn from<R: Reader<Offset = usize>>(
+        fn from<R, Section>(
             from_cie: &read::CommonInformationEntry<R>,
-            frame: &read::DebugFrame<R>,
+            frame: &Section,
             bases: &read::BaseAddresses,
             convert_address: &dyn Fn(u64) -> Option<Address>,
-        ) -> ConvertResult<CommonInformationEntry> {
+        ) -> ConvertResult<CommonInformationEntry>
+        where
+            R: Reader<Offset = usize>,
+            Section: read::UnwindSection<R>,
+            Section::Offset: read::UnwindOffset<usize>,
+        {
             let mut cie = CommonInformationEntry::new(
                 from_cie.encoding(),
                 from_cie.code_alignment_factor() as u8,
@@ -588,17 +657,20 @@ pub(crate) mod convert {
                 from_cie.return_address_register(),
             );
 
-            match from_cie.personality() {
-                Some(read::Pointer::Direct(p)) => {
+            cie.personality = match from_cie.personality_with_encoding() {
+                // We treat these the same because the encoding already determines
+                // whether it is indirect.
+                Some((eh_pe, read::Pointer::Direct(p)))
+                | Some((eh_pe, read::Pointer::Indirect(p))) => {
                     let address = convert_address(p).ok_or(ConvertError::InvalidAddress)?;
-                    cie.personality = Some(address);
+                    Some((eh_pe, address))
                 }
-                Some(read::Pointer::Indirect(_)) => {
-                    return Err(ConvertError::UnsupportedIndirectAddress);
-                }
-                None => {}
-            }
-            cie.lsda = from_cie.has_lsda();
+                _ => None,
+            };
+            cie.lsda_encoding = from_cie.lsda_encoding();
+            cie.fde_address_encoding = from_cie
+                .fde_address_encoding()
+                .unwrap_or(constants::DW_EH_PE_absptr);
             cie.signal_trampoline = from_cie.is_signal_trampoline();
 
             let mut offset = 0;
@@ -615,24 +687,28 @@ pub(crate) mod convert {
     }
 
     impl FrameDescriptionEntry {
-        fn from<R: Reader<Offset = usize>>(
+        fn from<R, Section>(
             from_fde: &read::FrameDescriptionEntry<R>,
-            frame: &read::DebugFrame<R>,
+            frame: &Section,
             bases: &read::BaseAddresses,
             convert_address: &dyn Fn(u64) -> Option<Address>,
-        ) -> ConvertResult<FrameDescriptionEntry> {
+        ) -> ConvertResult<FrameDescriptionEntry>
+        where
+            R: Reader<Offset = usize>,
+            Section: read::UnwindSection<R>,
+            Section::Offset: read::UnwindOffset<usize>,
+        {
             let address =
                 convert_address(from_fde.initial_address()).ok_or(ConvertError::InvalidAddress)?;
             let length = from_fde.len() as u32;
             let mut fde = FrameDescriptionEntry::new(address, length);
 
             match from_fde.lsda() {
-                Some(read::Pointer::Direct(p)) => {
+                // We treat these the same because the encoding already determines
+                // whether it is indirect.
+                Some(read::Pointer::Direct(p)) | Some(read::Pointer::Indirect(p)) => {
                     let address = convert_address(p).ok_or(ConvertError::InvalidAddress)?;
                     fde.lsda = Some(address);
-                }
-                Some(read::Pointer::Indirect(_)) => {
-                    return Err(ConvertError::UnsupportedIndirectAddress);
                 }
                 None => {}
             }
@@ -783,41 +859,61 @@ mod tests {
                     assert_eq!(cie1_id, frames.add_cie(cie1.clone()));
 
                     let mut cie2 = CommonInformationEntry::new(encoding, 1, 8, X86_64::RA);
-                    cie2.lsda = true;
-                    cie2.personality = Some(Address::Absolute(0x1234));
+                    cie2.lsda_encoding = Some(constants::DW_EH_PE_absptr);
+                    cie2.personality =
+                        Some((constants::DW_EH_PE_absptr, Address::Constant(0x1234)));
                     cie2.signal_trampoline = true;
                     let cie2_id = frames.add_cie(cie2.clone());
                     assert_ne!(cie1_id, cie2_id);
                     assert_eq!(cie2_id, frames.add_cie(cie2.clone()));
 
-                    let fde1 = FrameDescriptionEntry::new(Address::Absolute(0x1000), 0x10);
+                    let fde1 = FrameDescriptionEntry::new(Address::Constant(0x1000), 0x10);
                     frames.add_fde(cie1_id, fde1.clone());
 
-                    let fde2 = FrameDescriptionEntry::new(Address::Absolute(0x2000), 0x20);
+                    let fde2 = FrameDescriptionEntry::new(Address::Constant(0x2000), 0x20);
                     frames.add_fde(cie1_id, fde2.clone());
 
-                    let mut fde3 = FrameDescriptionEntry::new(Address::Absolute(0x3000), 0x30);
-                    fde3.lsda = Some(Address::Absolute(0x3300));
+                    let mut fde3 = FrameDescriptionEntry::new(Address::Constant(0x3000), 0x30);
+                    fde3.lsda = Some(Address::Constant(0x3300));
                     frames.add_fde(cie2_id, fde3.clone());
 
-                    let mut fde4 = FrameDescriptionEntry::new(Address::Absolute(0x4000), 0x40);
-                    fde4.lsda = Some(Address::Absolute(0x4400));
+                    let mut fde4 = FrameDescriptionEntry::new(Address::Constant(0x4000), 0x40);
+                    fde4.lsda = Some(Address::Constant(0x4400));
                     frames.add_fde(cie2_id, fde4.clone());
 
+                    // Test writing `.debug_frame`.
                     let mut debug_frame = DebugFrame::from(EndianVec::new(LittleEndian));
-                    frames.write(&mut debug_frame).unwrap();
+                    frames.write_debug_frame(&mut debug_frame).unwrap();
 
                     let mut read_debug_frame =
                         read::DebugFrame::new(debug_frame.slice(), LittleEndian);
                     read_debug_frame.set_address_size(address_size);
                     let convert_frames = FrameTable::from(&read_debug_frame, &|address| {
-                        Some(Address::Absolute(address))
+                        Some(Address::Constant(address))
                     })
                     .unwrap();
                     assert_eq!(frames.cies, convert_frames.cies);
                     assert_eq!(frames.fdes.len(), convert_frames.fdes.len());
                     for (a, b) in frames.fdes.iter().zip(convert_frames.fdes.iter()) {
                         assert_eq!(a.1, b.1);
+                    }
+
+                    if version == 1 {
+                        // Test writing `.eh_frame`.
+                        let mut eh_frame = EhFrame::from(EndianVec::new(LittleEndian));
+                        frames.write_eh_frame(&mut eh_frame).unwrap();
+
+                        let mut read_eh_frame = read::EhFrame::new(eh_frame.slice(), LittleEndian);
+                        read_eh_frame.set_address_size(address_size);
+                        let convert_frames = FrameTable::from(&read_eh_frame, &|address| {
+                            Some(Address::Constant(address))
+                        })
+                        .unwrap();
+                        assert_eq!(frames.cies, convert_frames.cies);
+                        assert_eq!(frames.fdes.len(), convert_frames.fdes.len());
+                        for (a, b) in frames.fdes.iter().zip(convert_frames.fdes.iter()) {
+                            assert_eq!(a.1, b.1);
+                        }
                     }
                 }
             }
@@ -880,20 +976,20 @@ mod tests {
                     }
                     let cie_id = frames.add_cie(cie);
 
-                    let mut fde = FrameDescriptionEntry::new(Address::Absolute(0x1000), 0x10);
+                    let mut fde = FrameDescriptionEntry::new(Address::Constant(0x1000), 0x10);
                     for (o, i) in &fde_instructions {
                         fde.add_instruction(*o, i.clone());
                     }
                     frames.add_fde(cie_id, fde);
 
                     let mut debug_frame = DebugFrame::from(EndianVec::new(LittleEndian));
-                    frames.write(&mut debug_frame).unwrap();
+                    frames.write_debug_frame(&mut debug_frame).unwrap();
 
                     let mut read_debug_frame =
                         read::DebugFrame::new(debug_frame.slice(), LittleEndian);
                     read_debug_frame.set_address_size(address_size);
                     let frames = FrameTable::from(&read_debug_frame, &|address| {
-                        Some(Address::Absolute(address))
+                        Some(Address::Constant(address))
                     })
                     .unwrap();
 

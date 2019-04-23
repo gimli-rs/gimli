@@ -1,4 +1,5 @@
 use crate::common::{Format, SectionId};
+use crate::constants;
 use crate::endianity::Endianity;
 use crate::leb128;
 use crate::write::{Address, Error, Result};
@@ -27,14 +28,73 @@ pub trait Writer {
     /// The write must not extend past the current section length.
     fn write_at(&mut self, offset: usize, bytes: &[u8]) -> Result<()>;
 
-    /// Write an address that is relative to the given symbol.
+    /// Write an address.
     ///
     /// If the writer supports relocations, then it must provide its own implementation
     /// of this method.
     fn write_address(&mut self, address: Address, size: u8) -> Result<()> {
         match address {
-            Address::Absolute(val) => self.write_word(val, size),
-            Address::Relative { .. } => Err(Error::InvalidAddress),
+            Address::Constant(val) => self.write_udata(val, size),
+            Address::Symbol { .. } => Err(Error::InvalidAddress),
+        }
+    }
+
+    /// Write an address with a `.eh_frame` pointer encoding.
+    ///
+    /// The given size is only used for `DW_EH_PE_absptr` formats.
+    ///
+    /// If the writer supports relocations, then it must provide its own implementation
+    /// of this method.
+    fn write_eh_pointer(
+        &mut self,
+        address: Address,
+        eh_pe: constants::DwEhPe,
+        size: u8,
+    ) -> Result<()> {
+        match address {
+            Address::Constant(val) => {
+                // Indirect doesn't matter here.
+                let val = match eh_pe.application() {
+                    constants::DW_EH_PE_absptr => val,
+                    constants::DW_EH_PE_pcrel => {
+                        // TODO: better handling of sign
+                        let offset = self.len() as u64;
+                        offset.wrapping_sub(val)
+                    }
+                    _ => {
+                        return Err(Error::UnsupportedPointerEncoding(eh_pe));
+                    }
+                };
+                self.write_eh_pointer_data(val, eh_pe.format(), size)
+            }
+            Address::Symbol { .. } => Err(Error::InvalidAddress),
+        }
+    }
+
+    /// Write a value with a `.eh_frame` pointer format.
+    ///
+    /// The given size is only used for `DW_EH_PE_absptr` formats.
+    ///
+    /// This must not be used directly for values that may require relocation.
+    fn write_eh_pointer_data(
+        &mut self,
+        val: u64,
+        format: constants::DwEhPe,
+        size: u8,
+    ) -> Result<()> {
+        match format {
+            constants::DW_EH_PE_absptr => self.write_udata(val, size),
+            constants::DW_EH_PE_uleb128 => self.write_uleb128(val),
+            constants::DW_EH_PE_udata2 => self.write_udata(val, 2),
+            constants::DW_EH_PE_udata4 => self.write_udata(val, 4),
+            constants::DW_EH_PE_udata8 => self.write_udata(val, 8),
+            constants::DW_EH_PE_sleb128 => self.write_sleb128(val as i64),
+            constants::DW_EH_PE_sdata2 => self.write_sdata(val as i64, 2),
+            constants::DW_EH_PE_sdata4 => self.write_sdata(val as i64, 4),
+            constants::DW_EH_PE_sdata8 => self.write_sdata(val as i64, 8),
+            _ => {
+                return Err(Error::UnsupportedPointerEncoding(format));
+            }
         }
     }
 
@@ -43,7 +103,7 @@ pub trait Writer {
     /// If the writer supports relocations, then it must provide its own implementation
     /// of this method.
     fn write_offset(&mut self, val: usize, _section: SectionId, size: u8) -> Result<()> {
-        self.write_word(val as u64, size)
+        self.write_udata(val as u64, size)
     }
 
     /// Write an offset that is relative to the start of the given section.
@@ -57,7 +117,7 @@ pub trait Writer {
         _section: SectionId,
         size: u8,
     ) -> Result<()> {
-        self.write_word_at(offset, val as u64, size)
+        self.write_udata_at(offset, val as u64, size)
     }
 
     /// Write a u8.
@@ -114,11 +174,11 @@ pub trait Writer {
         self.write_at(offset, &bytes)
     }
 
-    /// Write a word of the given size.
+    /// Write unsigned data of the given size.
     ///
     /// Returns an error if the value is too large for the size.
     /// This must not be used directly for values that may require relocation.
-    fn write_word(&mut self, val: u64, size: u8) -> Result<()> {
+    fn write_udata(&mut self, val: u64, size: u8) -> Result<()> {
         match size {
             1 => {
                 let write_val = val as u8;
@@ -146,11 +206,43 @@ pub trait Writer {
         }
     }
 
+    /// Write signed data of the given size.
+    ///
+    /// Returns an error if the value is too large for the size.
+    /// This must not be used directly for values that may require relocation.
+    fn write_sdata(&mut self, val: i64, size: u8) -> Result<()> {
+        match size {
+            1 => {
+                let write_val = val as i8;
+                if val != i64::from(write_val) {
+                    return Err(Error::ValueTooLarge);
+                }
+                self.write_u8(write_val as u8)
+            }
+            2 => {
+                let write_val = val as i16;
+                if val != i64::from(write_val) {
+                    return Err(Error::ValueTooLarge);
+                }
+                self.write_u16(write_val as u16)
+            }
+            4 => {
+                let write_val = val as i32;
+                if val != i64::from(write_val) {
+                    return Err(Error::ValueTooLarge);
+                }
+                self.write_u32(write_val as u32)
+            }
+            8 => self.write_u64(val as u64),
+            otherwise => Err(Error::UnsupportedWordSize(otherwise)),
+        }
+    }
+
     /// Write a word of the given size at the given offset.
     ///
     /// Returns an error if the value is too large for the size.
     /// This must not be used directly for values that may require relocation.
-    fn write_word_at(&mut self, offset: usize, val: u64, size: u8) -> Result<()> {
+    fn write_udata_at(&mut self, offset: usize, val: u64, size: u8) -> Result<()> {
         match size {
             1 => {
                 let write_val = val as u8;
@@ -204,7 +296,7 @@ pub trait Writer {
             self.write_u32(0xffff_ffff)?;
         }
         let offset = InitialLengthOffset(self.len());
-        self.write_word(0, format.word_size())?;
+        self.write_udata(0, format.word_size())?;
         Ok(offset)
     }
 
@@ -217,7 +309,7 @@ pub trait Writer {
         length: u64,
         format: Format,
     ) -> Result<()> {
-        self.write_word_at(offset.0, length, format.word_size())
+        self.write_udata_at(offset.0, length, format.word_size())
     }
 }
 
@@ -236,11 +328,11 @@ mod tests {
     #[allow(clippy::cyclomatic_complexity)]
     fn test_writer() {
         let mut w = write::EndianVec::new(LittleEndian);
-        w.write_address(Address::Absolute(0x1122_3344), 4).unwrap();
+        w.write_address(Address::Constant(0x1122_3344), 4).unwrap();
         assert_eq!(w.slice(), &[0x44, 0x33, 0x22, 0x11]);
         assert_eq!(
             w.write_address(
-                Address::Relative {
+                Address::Symbol {
                     symbol: 0,
                     addend: 0
                 },
@@ -306,10 +398,10 @@ mod tests {
         ]);
 
         let mut w = write::EndianVec::new(LittleEndian);
-        w.write_word(0x11, 1).unwrap();
-        w.write_word(0x2233, 2).unwrap();
-        w.write_word(0x4455_6677, 4).unwrap();
-        w.write_word(0x8081_8283_8485_8687, 8).unwrap();
+        w.write_udata(0x11, 1).unwrap();
+        w.write_udata(0x2233, 2).unwrap();
+        w.write_udata(0x4455_6677, 4).unwrap();
+        w.write_udata(0x8081_8283_8485_8687, 8).unwrap();
         #[rustfmt::skip]
         assert_eq!(w.slice(), &[
             0x11,
@@ -317,14 +409,14 @@ mod tests {
             0x77, 0x66, 0x55, 0x44,
             0x87, 0x86, 0x85, 0x84, 0x83, 0x82, 0x81, 0x80,
         ]);
-        assert_eq!(w.write_word(0x100, 1), Err(Error::ValueTooLarge));
-        assert_eq!(w.write_word(0x1_0000, 2), Err(Error::ValueTooLarge));
-        assert_eq!(w.write_word(0x1_0000_0000, 4), Err(Error::ValueTooLarge));
-        assert_eq!(w.write_word(0x00, 3), Err(Error::UnsupportedWordSize(3)));
-        w.write_word_at(14, 0x11, 1).unwrap();
-        w.write_word_at(12, 0x2233, 2).unwrap();
-        w.write_word_at(8, 0x4455_6677, 4).unwrap();
-        w.write_word_at(0, 0x8081_8283_8485_8687, 8).unwrap();
+        assert_eq!(w.write_udata(0x100, 1), Err(Error::ValueTooLarge));
+        assert_eq!(w.write_udata(0x1_0000, 2), Err(Error::ValueTooLarge));
+        assert_eq!(w.write_udata(0x1_0000_0000, 4), Err(Error::ValueTooLarge));
+        assert_eq!(w.write_udata(0x00, 3), Err(Error::UnsupportedWordSize(3)));
+        w.write_udata_at(14, 0x11, 1).unwrap();
+        w.write_udata_at(12, 0x2233, 2).unwrap();
+        w.write_udata_at(8, 0x4455_6677, 4).unwrap();
+        w.write_udata_at(0, 0x8081_8283_8485_8687, 8).unwrap();
         #[rustfmt::skip]
         assert_eq!(w.slice(), &[
             0x87, 0x86, 0x85, 0x84, 0x83, 0x82, 0x81, 0x80,
@@ -332,14 +424,14 @@ mod tests {
             0x33, 0x22,
             0x11,
         ]);
-        assert_eq!(w.write_word_at(0, 0x100, 1), Err(Error::ValueTooLarge));
-        assert_eq!(w.write_word_at(0, 0x1_0000, 2), Err(Error::ValueTooLarge));
+        assert_eq!(w.write_udata_at(0, 0x100, 1), Err(Error::ValueTooLarge));
+        assert_eq!(w.write_udata_at(0, 0x1_0000, 2), Err(Error::ValueTooLarge));
         assert_eq!(
-            w.write_word_at(0, 0x1_0000_0000, 4),
+            w.write_udata_at(0, 0x1_0000_0000, 4),
             Err(Error::ValueTooLarge)
         );
         assert_eq!(
-            w.write_word_at(0, 0x00, 3),
+            w.write_udata_at(0, 0x00, 3),
             Err(Error::UnsupportedWordSize(3))
         );
 

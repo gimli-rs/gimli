@@ -1077,7 +1077,7 @@ pub struct Augmentation {
     /// > represents the pointer encoding used for the second argument, which is
     /// > the address of a personality routine handler. The size of the
     /// > personality routine pointer is specified by the pointer encoding used.
-    personality: Option<Pointer>,
+    personality: Option<(constants::DwEhPe, Pointer)>,
 
     /// > A 'R' may be present at any position after the first character of the
     /// > string. This character may only be present if 'z' is the first character
@@ -1134,7 +1134,7 @@ impl Augmentation {
                     };
 
                     let personality = parse_encoded_pointer(encoding, &parameters, rest)?;
-                    augmentation.personality = Some(personality);
+                    augmentation.personality = Some((encoding, personality));
                 }
                 b'R' => {
                     let encoding = parse_pointer_encoding(rest)?;
@@ -1391,10 +1391,29 @@ impl<R: Reader> CommonInformationEntry<R> {
         self.augmentation.map_or(false, |a| a.lsda.is_some())
     }
 
+    /// Return the encoding of the LSDA address for this CIE's FDEs.
+    pub fn lsda_encoding(&self) -> Option<constants::DwEhPe> {
+        self.augmentation.and_then(|a| a.lsda)
+    }
+
+    /// Return the encoding and address of the personality routine handler
+    /// for this CIE's FDEs.
+    pub fn personality_with_encoding(&self) -> Option<(constants::DwEhPe, Pointer)> {
+        self.augmentation.as_ref().and_then(|a| a.personality)
+    }
+
     /// Return the address of the personality routine handler
     /// for this CIE's FDEs.
     pub fn personality(&self) -> Option<Pointer> {
-        self.augmentation.as_ref().and_then(|a| a.personality)
+        self.augmentation
+            .as_ref()
+            .and_then(|a| a.personality)
+            .map(|(_, p)| p)
+    }
+
+    /// Return the encoding of the addresses for this CIE's FDEs.
+    pub fn fde_address_encoding(&self) -> Option<constants::DwEhPe> {
+        self.augmentation.and_then(|a| a.fde_address_encoding)
     }
 
     /// True if this CIE's FDEs are trampolines for signal handlers.
@@ -6204,7 +6223,7 @@ mod tests {
         let aug_str = &mut EndianSlice::new(b"zP", LittleEndian);
 
         let mut augmentation = Augmentation::default();
-        augmentation.personality = Some(Pointer::Direct(0xf00d_f00d));
+        augmentation.personality = Some((constants::DW_EH_PE_udata8, Pointer::Direct(0xf00d_f00d)));
 
         assert_eq!(
             Augmentation::parse(aug_str, &bases, address_size, &section, input),
@@ -6290,7 +6309,7 @@ mod tests {
 
         let augmentation = Augmentation {
             lsda: Some(constants::DW_EH_PE_uleb128),
-            personality: Some(Pointer::Direct(0x1bad_f00d)),
+            personality: Some((constants::DW_EH_PE_udata8, Pointer::Direct(0x1bad_f00d))),
             fde_address_encoding: Some(constants::DW_EH_PE_uleb128),
             is_signal_trampoline: true,
         };

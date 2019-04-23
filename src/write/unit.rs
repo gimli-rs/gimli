@@ -345,7 +345,7 @@ impl Unit {
             let entry_offset = offsets.entry(entry).0;
             debug_assert_ne!(entry_offset, 0);
             // This does not need relocation.
-            w.write_word_at(
+            w.write_udata_at(
                 offset.0,
                 (entry_offset - offsets.unit.0) as u64,
                 self.format().word_size(),
@@ -538,7 +538,7 @@ impl DebuggingInformationEntry {
 
         let sibling_offset = if self.sibling && !self.children.is_empty() {
             let offset = w.offset();
-            w.write_word(0, unit.format().word_size())?;
+            w.write_udata(0, unit.format().word_size())?;
             Some(offset)
         } else {
             None
@@ -579,7 +579,7 @@ impl DebuggingInformationEntry {
         if let Some(offset) = sibling_offset {
             let next_offset = (w.offset().0 - offsets.unit.0) as u64;
             // This does not need relocation.
-            w.write_word_at(offset.0, next_offset, unit.format().word_size())?;
+            w.write_udata_at(offset.0, next_offset, unit.format().word_size())?;
         }
         Ok(())
     }
@@ -961,7 +961,7 @@ impl AttributeValue {
                     Format::Dwarf64 => debug_assert_form!(constants::DW_FORM_ref8),
                 }
                 unit_refs.push((w.offset(), id));
-                w.write_word(0, unit.format().word_size())?;
+                w.write_udata(0, unit.format().word_size())?;
             }
             AttributeValue::AnyUnitEntryRef(id) => {
                 debug_assert_form!(constants::DW_FORM_ref_addr);
@@ -971,14 +971,14 @@ impl AttributeValue {
                     unit.format().word_size()
                 };
                 debug_info_refs.push((w.offset(), id, size));
-                w.write_word(0, size)?;
+                w.write_udata(0, size)?;
             }
             AttributeValue::DebugInfoRefSup(val) => {
                 match unit.format() {
                     Format::Dwarf32 => debug_assert_form!(constants::DW_FORM_ref_sup4),
                     Format::Dwarf64 => debug_assert_form!(constants::DW_FORM_ref_sup8),
                 }
-                w.write_word(val.0 as u64, unit.format().word_size())?;
+                w.write_udata(val.0 as u64, unit.format().word_size())?;
             }
             AttributeValue::LineProgramRef => {
                 if unit.version() >= 4 {
@@ -1037,7 +1037,7 @@ impl AttributeValue {
             }
             AttributeValue::DebugStrRefSup(val) => {
                 debug_assert_form!(constants::DW_FORM_strp_sup);
-                w.write_word(val.0 as u64, unit.format().word_size())?;
+                w.write_udata(val.0 as u64, unit.format().word_size())?;
             }
             AttributeValue::LineStringRef(val) => {
                 debug_assert_form!(constants::DW_FORM_line_strp);
@@ -1184,9 +1184,9 @@ pub(crate) mod convert {
         ///
         /// `convert_address` is a function to convert read addresses into the `Address`
         /// type. For non-relocatable addresses, this function may simply return
-        /// `Address::Absolute(address)`. For relocatable addresses, it is the caller's
+        /// `Address::Constant(address)`. For relocatable addresses, it is the caller's
         /// responsibility to determine the symbol and addend corresponding to the address
-        /// and return `Address::Relative { symbol, addend }`.
+        /// and return `Address::Symbol { symbol, addend }`.
         pub fn from<R: Reader<Offset = usize>>(
             dwarf: &read::Dwarf<R>,
             line_strings: &mut write::LineStringTable,
@@ -1819,7 +1819,7 @@ mod tests {
             &dwarf,
             &mut convert_line_strings,
             &mut convert_strings,
-            &|address| Some(Address::Absolute(address)),
+            &|address| Some(Address::Constant(address)),
         )
         .unwrap();
         assert_eq!(convert_units.count(), units.count());
@@ -1851,8 +1851,8 @@ mod tests {
         let string_id = strings.add("string two");
         let mut ranges = RangeListTable::default();
         let range_id = ranges.add(RangeList(vec![Range::StartEnd {
-            begin: Address::Absolute(0x1234),
-            end: Address::Absolute(0x2345),
+            begin: Address::Constant(0x1234),
+            end: Address::Constant(0x2345),
         }]));
 
         let mut debug_str = DebugStr::from(EndianVec::new(LittleEndian));
@@ -1904,7 +1904,7 @@ mod tests {
                     for &(ref name, ref value, ref expect_value) in &[
                         (
                             constants::DW_AT_name,
-                            AttributeValue::Address(Address::Absolute(0x1234)),
+                            AttributeValue::Address(Address::Constant(0x1234)),
                             read::AttributeValue::Addr(0x1234),
                         ),
                         (
@@ -2132,8 +2132,8 @@ mod tests {
                             line_strings: &mut line_strings,
                             strings: &mut strings,
                             ranges: &mut ranges,
-                            convert_address: &|address| Some(Address::Absolute(address)),
-                            base_address: Address::Absolute(0),
+                            convert_address: &|address| Some(Address::Constant(address)),
+                            base_address: Address::Constant(0),
                             line_program_offset: None,
                             line_program_files: Vec::new(),
                         };
@@ -2300,7 +2300,7 @@ mod tests {
             &dwarf,
             &mut convert_line_strings,
             &mut convert_strings,
-            &|address| Some(Address::Absolute(address)),
+            &|address| Some(Address::Constant(address)),
         )
         .unwrap();
         assert_eq!(convert_units.count(), units.count());
@@ -2506,7 +2506,7 @@ mod tests {
                         &dwarf,
                         &mut convert_line_strings,
                         &mut convert_strings,
-                        &|address| Some(Address::Absolute(address)),
+                        &|address| Some(Address::Constant(address)),
                     )
                     .unwrap();
 
@@ -2602,8 +2602,8 @@ mod tests {
                             line_strings: &mut line_strings,
                             strings: &mut strings,
                             ranges: &mut ranges,
-                            convert_address: &|address| Some(Address::Absolute(address)),
-                            base_address: Address::Absolute(0),
+                            convert_address: &|address| Some(Address::Constant(address)),
+                            base_address: Address::Constant(0),
                             line_program_offset: Some(line_program_offset),
                             line_program_files: line_program_files.clone(),
                         };
