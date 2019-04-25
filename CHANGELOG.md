@@ -2,6 +2,112 @@
 
 --------------------------------------------------------------------------------
 
+## 0.18.0
+
+Released 2019/04/25.
+
+The focus of this release has been on improving support for reading CFI,
+and adding support for writing CFI.
+
+### Breaking changes
+
+* For types which have an `Offset` type parameter, the default `Offset`
+  has changed from `usize` to `R::Offset`.
+  [#392](https://github.com/gimli-rs/gimli/pull/392)
+
+* Added an `Offset` type parameter to the `read::Unit` type to allow variance.
+  [#393](https://github.com/gimli-rs/gimli/pull/393)
+
+* Changed the `UninitializedUnwindContext::initialize` method to borrow `self`,
+  and return `&mut UnwindContext`. Deleted the `InitializedUnwindContext` type.
+  [#395](https://github.com/gimli-rs/gimli/pull/395)
+
+* Deleted the `UnwindSection` type parameters from the `CommonInformationEntry`,
+  `FrameDescriptionEntry`, `UninitializedUnwindContext`,
+  `UnwindContext`, and `UnwindTable` types.
+  [#399](https://github.com/gimli-rs/gimli/pull/399)
+
+* Changed the signature of the `get_cie` callback parameter for various functions.
+  The signature now matches the `UnwindSection::cie_from_offset` method, so
+  that method can be used as the parameter.
+  [#400](https://github.com/gimli-rs/gimli/pull/400)
+
+* Reduced the number of lifetime parameters for the `UnwindTable` type.
+  [#400](https://github.com/gimli-rs/gimli/pull/400)
+
+* Updated `fallible-iterator` to version 0.2.0.
+  [#407](https://github.com/gimli-rs/gimli/pull/407)
+
+* Added a parameter to the `Error::UnexpectedEof` enum variant.
+  [#408](https://github.com/gimli-rs/gimli/pull/408)
+
+### Added
+
+* Update to 2018 edition.
+  [#391](https://github.com/gimli-rs/gimli/pull/391)
+
+* Added the `FrameDescriptionEntry::unwind_info_for_address` method.
+  [#396](https://github.com/gimli-rs/gimli/pull/396)
+
+* Added the `FrameDescriptionEntry::rows` method.
+  [#396](https://github.com/gimli-rs/gimli/pull/396)
+
+* Added the `EhHdrTable::unwind_info_for_address` method.
+  [#400](https://github.com/gimli-rs/gimli/pull/400)
+
+* Added the `EhHdrTable::fde_for_address` method and deprecated the
+  `EhHdrTable::lookup_and_parse` method.
+  [#400](https://github.com/gimli-rs/gimli/pull/400)
+
+* Added the `EhHdrTable::pointer_to_offset` method.
+  [#400](https://github.com/gimli-rs/gimli/pull/400)
+
+* Added the `UnwindSection::fde_for_address` method.
+  [#396](https://github.com/gimli-rs/gimli/pull/396)
+
+* Added the `UnwindSection::fde_from_offset` method.
+  [#400](https://github.com/gimli-rs/gimli/pull/400)
+
+* Added the `UnwindSection::partial_fde_from_offset` method.
+  [#400](https://github.com/gimli-rs/gimli/pull/400)
+
+* Added the `Section::id` method.
+  [#406](https://github.com/gimli-rs/gimli/pull/406)
+
+* Added the `Dwarf::load` method, and corresponding methods for individual sections.
+  [#406](https://github.com/gimli-rs/gimli/pull/406)
+
+* Added the `Dwarf::borrow` method, and corresponding methods for individual sections.
+  [#406](https://github.com/gimli-rs/gimli/pull/406)
+
+* Added the `Dwarf::format_error` method.
+  [#408](https://github.com/gimli-rs/gimli/pull/408)
+
+* Added the `Dwarf::die_ranges` method.
+  [#417](https://github.com/gimli-rs/gimli/pull/417)
+
+* Added the `Dwarf::unit_ranges` method.
+  [#417](https://github.com/gimli-rs/gimli/pull/417)
+
+* Added support for writing `.debug_frame` and `.eh_frame` sections.
+  [#412](https://github.com/gimli-rs/gimli/pull/412)
+  [#419](https://github.com/gimli-rs/gimli/pull/419)
+
+### Fixed
+
+* The `code_alignment_factor` is now used when evaluting CFI instructions
+  that advance the location.
+  [#401](https://github.com/gimli-rs/gimli/pull/401)
+
+* Fixed parsing of pointers encoded with `DW_EH_PE_funcrel`.
+  [#402](https://github.com/gimli-rs/gimli/pull/402)
+
+* Use the FDE address encoding from the augmentation when parsing `DW_CFA_set_loc`.
+  [#403](https://github.com/gimli-rs/gimli/pull/403)
+
+* Fixed setting of `.eh_frame` base addresses in dwarfdump.
+  [#410](https://github.com/gimli-rs/gimli/pull/410)
+
 ## 0.17.0
 
 Released 2019/02/21.
