@@ -1642,7 +1642,7 @@ impl<R: Reader> Attribute<R> {
     /// The standard doesn't mention `DW_FORM_block*` as a possible form, but
     /// it is encountered in practice.
     #[inline]
-    fn exprloc_value(&self) -> Option<Expression<R>> {
+    pub fn exprloc_value(&self) -> Option<Expression<R>> {
         self.value.exprloc_value()
     }
 
@@ -1759,7 +1759,7 @@ where
     /// Expressions and locations may be `DW_FORM_block*` or `DW_FORM_exprloc`.
     /// The standard doesn't mention `DW_FORM_block*` as a possible form, but
     /// it is encountered in practice.
-    fn exprloc_value(&self) -> Option<Expression<R>> {
+    pub fn exprloc_value(&self) -> Option<Expression<R>> {
         Some(match *self {
             AttributeValue::Block(ref data) => Expression(data.clone()),
             AttributeValue::Exprloc(ref data) => data.clone(),
