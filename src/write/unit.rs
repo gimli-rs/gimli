@@ -4,13 +4,14 @@ use std::{slice, usize};
 
 use crate::common::{
     DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugStrOffset,
-    DebugTypeSignature, Encoding, Format, LocationListsOffset, SectionId, UnitSectionOffset,
+    DebugTypeSignature, Encoding, Format, SectionId, UnitSectionOffset,
 };
 use crate::constants;
 use crate::write::{
     Abbreviation, AbbreviationTable, Address, AttributeSpecification, BaseId, DebugLineStrOffsets,
-    DebugStrOffsets, Error, FileId, LineProgram, LineStringId, RangeList, RangeListId,
-    RangeListOffsets, RangeListTable, Result, Section, Sections, StringId, Writer,
+    DebugStrOffsets, Error, FileId, LineProgram, LineStringId, LocationList, LocationListId,
+    LocationListOffsets, LocationListTable, RangeList, RangeListId, RangeListOffsets,
+    RangeListTable, Result, Section, Sections, StringId, Writer,
 };
 
 define_id!(UnitId, "An identifier for a unit in a `UnitTable`.");
@@ -138,6 +139,8 @@ pub struct Unit {
     pub line_program: LineProgram,
     /// A table of range lists used by this unit.
     pub ranges: RangeListTable,
+    /// A table of location lists used by this unit.
+    pub locations: LocationListTable,
     /// All entries in this unit. The order is unrelated to the tree order.
     // Requirements:
     // - entries form a tree
@@ -156,6 +159,7 @@ impl Unit {
     pub fn new(encoding: Encoding, line_program: LineProgram) -> Self {
         let base_id = BaseId::default();
         let ranges = RangeListTable::default();
+        let locations = LocationListTable::default();
         let mut entries = Vec::new();
         let root = DebuggingInformationEntry::new(
             base_id,
@@ -168,6 +172,7 @@ impl Unit {
             encoding,
             line_program,
             ranges,
+            locations,
             entries,
             root,
         }
@@ -290,6 +295,7 @@ impl Unit {
             None
         };
         let range_lists = self.ranges.write(sections, self.encoding)?;
+        let loc_lists = self.locations.write(sections, self.encoding)?;
 
         // TODO: use .debug_types for type units in DWARF v4.
         let w = &mut sections.debug_info;
@@ -334,6 +340,7 @@ impl Unit {
             line_strings,
             strings,
             &range_lists,
+            &loc_lists,
             &mut unit_refs,
             debug_info_refs,
         )?;
@@ -529,6 +536,7 @@ impl DebuggingInformationEntry {
         line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
         range_lists: &RangeListOffsets,
+        loc_lists: &LocationListOffsets,
         unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
         debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
     ) -> Result<()> {
@@ -552,6 +560,7 @@ impl DebuggingInformationEntry {
                 line_strings,
                 strings,
                 range_lists,
+                loc_lists,
                 unit_refs,
                 debug_info_refs,
             )?;
@@ -568,6 +577,7 @@ impl DebuggingInformationEntry {
                     line_strings,
                     strings,
                     range_lists,
+                    loc_lists,
                     unit_refs,
                     debug_info_refs,
                 )?;
@@ -631,6 +641,7 @@ impl Attribute {
         line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
         range_lists: &RangeListOffsets,
+        loc_lists: &LocationListOffsets,
         unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
         debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
     ) -> Result<()> {
@@ -641,6 +652,7 @@ impl Attribute {
             line_strings,
             strings,
             range_lists,
+            loc_lists,
             unit_refs,
             debug_info_refs,
         )
@@ -735,7 +747,7 @@ pub enum AttributeValue {
     /// It is the user's responsibility to ensure the offset is valid.
     /// This variant will be removed from the API once support for writing
     /// `.debug_loc`/`.debug_loclists` sections is implemented.
-    LocationListsRef(LocationListsOffset),
+    LocationListsRef(LocationListId),
 
     /// An offset into the `.debug_macinfo` section.
     ///
@@ -901,6 +913,7 @@ impl AttributeValue {
         line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
         range_lists: &RangeListOffsets,
+        loc_lists: &LocationListOffsets,
         unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
         debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
     ) -> Result<()> {
@@ -1004,7 +1017,7 @@ impl AttributeValue {
                 } else {
                     SectionId::DebugLocLists
                 };
-                w.write_offset(val.0, section, unit.format().word_size())?;
+                w.write_offset(loc_lists.get(val).0, section, unit.format().word_size())?;
             }
             AttributeValue::DebugMacinfoRef(val) => {
                 if unit.version() >= 4 {
@@ -1170,6 +1183,7 @@ pub(crate) mod convert {
         pub line_strings: &'a mut write::LineStringTable,
         pub strings: &'a mut write::StringTable,
         pub ranges: &'a mut write::RangeListTable,
+        pub locations: &'a mut write::LocationListTable,
         pub convert_address: &'a dyn Fn(u64) -> Option<Address>,
         pub base_address: Address,
         pub line_program_offset: Option<DebugLineOffset>,
@@ -1277,6 +1291,7 @@ pub(crate) mod convert {
                 };
 
             let mut ranges = RangeListTable::default();
+            let mut locations = LocationListTable::default();
             let mut entries = Vec::new();
             let root = {
                 let mut context = ConvertUnitContext {
@@ -1285,6 +1300,7 @@ pub(crate) mod convert {
                     line_strings,
                     strings,
                     ranges: &mut ranges,
+                    locations: &mut locations,
                     convert_address,
                     base_address,
                     line_program_offset,
@@ -1308,6 +1324,7 @@ pub(crate) mod convert {
                 encoding,
                 line_program,
                 ranges,
+                locations,
                 entries,
                 root,
             })
@@ -1430,7 +1447,13 @@ pub(crate) mod convert {
                 }
                 read::AttributeValue::DebugMacinfoRef(val) => AttributeValue::DebugMacinfoRef(val),
                 read::AttributeValue::LocationListsRef(val) => {
-                    AttributeValue::LocationListsRef(val)
+                    let iter = context
+                        .dwarf
+                        .locations
+                        .raw_locations(val, context.unit.encoding())?;
+                    let loc_list = LocationList::from(iter, context)?;
+                    let loc_id = context.locations.add(loc_list);
+                    AttributeValue::LocationListsRef(loc_id)
                 }
                 read::AttributeValue::DebugLocListsBase(_base) => {
                     // We convert all location list indices to offsets,
@@ -1439,7 +1462,13 @@ pub(crate) mod convert {
                 }
                 read::AttributeValue::DebugLocListsIndex(index) => {
                     let offset = context.dwarf.locations_offset(context.unit, index)?;
-                    AttributeValue::LocationListsRef(offset)
+                    let iter = context
+                        .dwarf
+                        .locations
+                        .raw_locations(offset, context.unit.encoding())?;
+                    let loc_list = LocationList::from(iter, context)?;
+                    let loc_id = context.locations.add(loc_list);
+                    AttributeValue::LocationListsRef(loc_id)
                 }
                 read::AttributeValue::RangeListsRef(val) => {
                     let iter = context
@@ -1533,8 +1562,8 @@ mod tests {
     use crate::constants;
     use crate::read;
     use crate::write::{
-        DebugLine, DebugLineStr, DebugStr, EndianVec, LineString, LineStringTable, Range,
-        RangeListOffsets, RangeListTable, StringTable,
+        DebugLine, DebugLineStr, DebugStr, EndianVec, LineString, LineStringTable, Location,
+        LocationListTable, Range, RangeListOffsets, RangeListTable, StringTable,
     };
     use crate::LittleEndian;
     use std::mem;
@@ -1854,6 +1883,12 @@ mod tests {
             begin: Address::Constant(0x1234),
             end: Address::Constant(0x2345),
         }]));
+        let mut locations = LocationListTable::default();
+        let loc_id = locations.add(LocationList(vec![Location::StartEnd {
+            begin: Address::Constant(0x1234),
+            end: Address::Constant(0x2345),
+            data: Expression(vec![1, 0, 0, 0]),
+        }]));
 
         let mut debug_str = DebugStr::from(EndianVec::new(LittleEndian));
         let debug_str_offsets = strings.write(&mut debug_str).unwrap();
@@ -1881,10 +1916,17 @@ mod tests {
 
                     let mut sections = Sections::new(EndianVec::new(LittleEndian));
                     let range_list_offsets = ranges.write(&mut sections, encoding).unwrap();
+                    let loc_list_offsets = locations.write(&mut sections, encoding).unwrap();
+
                     let read_debug_ranges =
                         read::DebugRanges::new(sections.debug_ranges.slice(), LittleEndian);
                     let read_debug_rnglists =
                         read::DebugRngLists::new(sections.debug_rnglists.slice(), LittleEndian);
+
+                    let read_debug_loc =
+                        read::DebugLoc::new(sections.debug_loc.slice(), LittleEndian);
+                    let read_debug_loclists =
+                        read::DebugLocLists::new(sections.debug_loclists.slice(), LittleEndian);
 
                     let mut units = UnitTable::default();
                     let unit = units.add(Unit::new(encoding, LineProgram::none()));
@@ -1966,8 +2008,8 @@ mod tests {
                         ),
                         (
                             constants::DW_AT_location,
-                            AttributeValue::LocationListsRef(LocationListsOffset(0x1234)),
-                            read::AttributeValue::SecOffset(0x1234),
+                            AttributeValue::LocationListsRef(loc_id),
+                            read::AttributeValue::SecOffset(loc_list_offsets.get(loc_id).0),
                         ),
                         (
                             constants::DW_AT_macro_info,
@@ -2085,6 +2127,7 @@ mod tests {
                             &debug_line_str_offsets,
                             &debug_str_offsets,
                             &range_list_offsets,
+                            &loc_list_offsets,
                             &mut unit_refs,
                             &mut debug_info_refs,
                         )
@@ -2109,6 +2152,10 @@ mod tests {
                             debug_str: read_debug_str.clone(),
                             debug_line_str: read_debug_line_str.clone(),
                             ranges: read::RangeLists::new(read_debug_ranges, read_debug_rnglists),
+                            locations: read::LocationLists::new(
+                                read_debug_loc,
+                                read_debug_loclists,
+                            ),
                             ..Default::default()
                         };
 
@@ -2132,6 +2179,7 @@ mod tests {
                             line_strings: &mut line_strings,
                             strings: &mut strings,
                             ranges: &mut ranges,
+                            locations: &mut locations,
                             convert_address: &|address| Some(Address::Constant(address)),
                             base_address: Address::Constant(0),
                             line_program_offset: None,
@@ -2540,6 +2588,7 @@ mod tests {
                     ][..]
                     {
                         let mut ranges = RangeListTable::default();
+                        let mut locations = LocationListTable::default();
                         let mut strings = StringTable::default();
                         let debug_str_offsets = DebugStrOffsets::none();
                         let mut line_strings = LineStringTable::default();
@@ -2555,6 +2604,7 @@ mod tests {
                         let mut debug_info_refs = Vec::new();
                         let mut debug_info = DebugInfo::from(EndianVec::new(LittleEndian));
                         let range_list_offsets = RangeListOffsets::none();
+                        let loc_list_offsets = LocationListOffsets::none();
                         attr.write(
                             &mut debug_info,
                             &unit,
@@ -2562,6 +2612,7 @@ mod tests {
                             &debug_line_str_offsets,
                             &debug_str_offsets,
                             &range_list_offsets,
+                            &loc_list_offsets,
                             &mut unit_refs,
                             &mut debug_info_refs,
                         )
@@ -2602,6 +2653,7 @@ mod tests {
                             line_strings: &mut line_strings,
                             strings: &mut strings,
                             ranges: &mut ranges,
+                            locations: &mut locations,
                             convert_address: &|address| Some(Address::Constant(address)),
                             base_address: Address::Constant(0),
                             line_program_offset: Some(line_program_offset),

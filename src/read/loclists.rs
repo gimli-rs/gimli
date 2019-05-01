@@ -301,6 +301,15 @@ pub struct RawLocListIter<R: Reader> {
 /// A raw entry in .debug_loclists.
 #[derive(Clone, Debug)]
 pub enum RawLocListEntry<R: Reader> {
+    /// A location from DWARF version <= 4.
+    AddressOrOffsetPair {
+        /// Start of range. May be an address or an offset.
+        begin: u64,
+        /// End of range. May be an address or an offset.
+        end: u64,
+        /// expression
+        data: Expression<R>,
+    },
     /// DW_LLE_base_address
     BaseAddress {
         /// base address
@@ -380,7 +389,7 @@ impl<R: Reader> RawLocListEntry<R> {
             } else {
                 let len = R::Offset::from_u16(input.read_u16()?);
                 let data = Expression(input.split(len)?);
-                Some(RawLocListEntry::OffsetPair {
+                Some(RawLocListEntry::AddressOrOffsetPair {
                     begin: range.begin,
                     end: range.end,
                     data,
@@ -539,7 +548,8 @@ impl<R: Reader> LocListIter<R> {
                     },
                     data,
                 ),
-                RawLocListEntry::OffsetPair { begin, end, data } => {
+                RawLocListEntry::AddressOrOffsetPair { begin, end, data }
+                | RawLocListEntry::OffsetPair { begin, end, data } => {
                     let mut range = Range { begin, end };
                     range.add_base_address(self.base_address, self.raw.encoding.address_size);
                     (range, data)

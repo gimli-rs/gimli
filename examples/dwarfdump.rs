@@ -1527,7 +1527,12 @@ fn dump_loc_list<R: Reader, W: Write>(
                 dump_exprloc(w, data, unit)?;
                 writeln!(w)?;
             }
-            gimli::RawLocListEntry::OffsetPair {
+            gimli::RawLocListEntry::AddressOrOffsetPair {
+                begin,
+                end,
+                ref data,
+            }
+            | gimli::RawLocListEntry::OffsetPair {
                 begin,
                 end,
                 ref data,
