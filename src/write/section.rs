@@ -121,6 +121,8 @@ impl<W: Writer> Sections<W> {
         f!(self.debug_line)?;
         f!(self.debug_ranges)?;
         f!(self.debug_rnglists)?;
+        f!(self.debug_loc)?;
+        f!(self.debug_loclists)?;
         f!(self.debug_info)?;
         Ok(())
     }
@@ -142,6 +144,8 @@ impl<W: Writer> Sections<W> {
         f!(self.debug_line)?;
         f!(self.debug_ranges)?;
         f!(self.debug_rnglists)?;
+        f!(self.debug_loc)?;
+        f!(self.debug_loclists)?;
         f!(self.debug_info)?;
         Ok(())
     }
