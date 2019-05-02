@@ -742,12 +742,8 @@ pub enum AttributeValue {
     /// A reference to a line number program.
     LineProgramRef,
 
-    /// An offset into either the `.debug_loc` section or the `.debug_loclists` section.
-    ///
-    /// It is the user's responsibility to ensure the offset is valid.
-    /// This variant will be removed from the API once support for writing
-    /// `.debug_loc`/`.debug_loclists` sections is implemented.
-    LocationListsRef(LocationListId),
+    /// A reference to a location list.
+    LocationListRef(LocationListId),
 
     /// An offset into the `.debug_macinfo` section.
     ///
@@ -864,7 +860,7 @@ impl AttributeValue {
                 }
             }
             AttributeValue::LineProgramRef
-            | AttributeValue::LocationListsRef(_)
+            | AttributeValue::LocationListRef(_)
             | AttributeValue::DebugMacinfoRef(_)
             | AttributeValue::RangeListRef(_) => {
                 if encoding.version == 2 || encoding.version == 3 {
@@ -1008,7 +1004,7 @@ impl AttributeValue {
                     None => return Err(Error::InvalidAttributeValue),
                 }
             }
-            AttributeValue::LocationListsRef(val) => {
+            AttributeValue::LocationListRef(val) => {
                 if unit.version() >= 4 {
                     debug_assert_form!(constants::DW_FORM_sec_offset);
                 }
@@ -1453,7 +1449,7 @@ pub(crate) mod convert {
                         .raw_locations(val, context.unit.encoding())?;
                     let loc_list = LocationList::from(iter, context)?;
                     let loc_id = context.locations.add(loc_list);
-                    AttributeValue::LocationListsRef(loc_id)
+                    AttributeValue::LocationListRef(loc_id)
                 }
                 read::AttributeValue::DebugLocListsBase(_base) => {
                     // We convert all location list indices to offsets,
@@ -1468,7 +1464,7 @@ pub(crate) mod convert {
                         .raw_locations(offset, context.unit.encoding())?;
                     let loc_list = LocationList::from(iter, context)?;
                     let loc_id = context.locations.add(loc_list);
-                    AttributeValue::LocationListsRef(loc_id)
+                    AttributeValue::LocationListRef(loc_id)
                 }
                 read::AttributeValue::RangeListsRef(val) => {
                     let iter = context
@@ -2008,7 +2004,7 @@ mod tests {
                         ),
                         (
                             constants::DW_AT_location,
-                            AttributeValue::LocationListsRef(loc_id),
+                            AttributeValue::LocationListRef(loc_id),
                             read::AttributeValue::SecOffset(loc_list_offsets.get(loc_id).0),
                         ),
                         (
