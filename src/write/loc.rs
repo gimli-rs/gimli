@@ -368,7 +368,7 @@ mod convert {
                         Location::DefaultLocation { data }
                     }
                 };
-                // In some cases, existing data may contain begin==end, filtering
+                // In some cases, existing data may contain begin == end, filtering
                 // these out.
                 match loc {
                     Location::StartLength { length, .. } if length == 0 => continue,
@@ -430,6 +430,11 @@ mod tests {
                             data: Expression(vec![3, 0, 0, 0]),
                         },
                     ]);
+                    if version >= 5 {
+                        loc_list.0.push(Location::DefaultLocation {
+                            data: Expression(vec![4, 0, 0, 0]),
+                        });
+                    }
 
                     let mut locations = LocationListTable::default();
                     let loc_list_id = locations.add(loc_list.clone());
