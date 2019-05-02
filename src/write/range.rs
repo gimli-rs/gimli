@@ -286,6 +286,13 @@ mod convert {
                         Range::StartLength { begin, length }
                     }
                 };
+                // Filtering empty ranges out.
+                match range {
+                    Range::StartLength { length, .. } if length == 0 => continue,
+                    Range::StartEnd { begin, end, .. } if begin == end => continue,
+                    Range::OffsetPair { begin, end, .. } if begin == end => continue,
+                    _ => (),
+                }
                 ranges.push(range);
             }
             Ok(RangeList(ranges))
