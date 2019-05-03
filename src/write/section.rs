@@ -3,7 +3,8 @@ use std::result;
 
 use crate::common::SectionId;
 use crate::write::{
-    DebugAbbrev, DebugInfo, DebugLine, DebugLineStr, DebugRanges, DebugRngLists, DebugStr, Writer,
+    DebugAbbrev, DebugInfo, DebugLine, DebugLineStr, DebugLoc, DebugLocLists, DebugRanges,
+    DebugRngLists, DebugStr, Writer,
 };
 
 macro_rules! define_section {
@@ -77,6 +78,10 @@ pub struct Sections<W: Writer> {
     pub debug_ranges: DebugRanges<W>,
     /// The `.debug_rnglists` section.
     pub debug_rnglists: DebugRngLists<W>,
+    /// The `.debug_loc` section.
+    pub debug_loc: DebugLoc<W>,
+    /// The `.debug_loclists` section.
+    pub debug_loclists: DebugLocLists<W>,
     /// The `.debug_str` section.
     pub debug_str: DebugStr<W>,
 }
@@ -91,6 +96,8 @@ impl<W: Writer + Clone> Sections<W> {
             debug_line_str: DebugLineStr(section.clone()),
             debug_ranges: DebugRanges(section.clone()),
             debug_rnglists: DebugRngLists(section.clone()),
+            debug_loc: DebugLoc(section.clone()),
+            debug_loclists: DebugLocLists(section.clone()),
             debug_str: DebugStr(section.clone()),
         }
     }
@@ -114,6 +121,8 @@ impl<W: Writer> Sections<W> {
         f!(self.debug_line)?;
         f!(self.debug_ranges)?;
         f!(self.debug_rnglists)?;
+        f!(self.debug_loc)?;
+        f!(self.debug_loclists)?;
         f!(self.debug_info)?;
         Ok(())
     }
@@ -135,6 +144,8 @@ impl<W: Writer> Sections<W> {
         f!(self.debug_line)?;
         f!(self.debug_ranges)?;
         f!(self.debug_rnglists)?;
+        f!(self.debug_loc)?;
+        f!(self.debug_loclists)?;
         f!(self.debug_info)?;
         Ok(())
     }

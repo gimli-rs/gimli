@@ -46,12 +46,20 @@ fn test_convert_debug_info() {
 
     let ranges = gimli::RangeLists::new(debug_ranges, debug_rnglists);
 
+    let debug_loc = read_section("debug_loc");
+    let debug_loc = read::DebugLoc::new(&debug_loc, LittleEndian);
+
+    let debug_loclists = read::DebugLocLists::new(&[], LittleEndian);
+
+    let locations = gimli::LocationLists::new(debug_loc, debug_loclists);
+
     let dwarf = read::Dwarf {
         debug_abbrev,
         debug_info,
         debug_line,
         debug_str,
         ranges,
+        locations,
         ..Default::default()
     };
 
@@ -75,11 +83,13 @@ fn test_convert_debug_info() {
     let debug_abbrev_data = write_sections.debug_abbrev.slice();
     let debug_line_data = write_sections.debug_line.slice();
     let debug_ranges_data = write_sections.debug_ranges.slice();
+    let debug_loc_data = write_sections.debug_loc.slice();
     let debug_str_data = write_sections.debug_str.slice();
     assert_eq!(debug_info_data.len(), 394_930);
     assert_eq!(debug_abbrev_data.len(), 9701);
     assert_eq!(debug_line_data.len(), 105_797);
     assert_eq!(debug_ranges_data.len(), 155_712);
+    assert_eq!(debug_loc_data.len(), 245_768);
     assert_eq!(debug_str_data.len(), 144_731);
 
     // Convert new sections
@@ -89,8 +99,11 @@ fn test_convert_debug_info() {
     let debug_str = read::DebugStr::new(debug_str_data, LittleEndian);
     let debug_ranges = read::DebugRanges::new(debug_ranges_data, LittleEndian);
     let debug_rnglists = read::DebugRngLists::new(&[], LittleEndian);
+    let debug_loc = read::DebugLoc::new(debug_loc_data, LittleEndian);
+    let debug_loclists = read::DebugLocLists::new(&[], LittleEndian);
 
     let ranges = gimli::RangeLists::new(debug_ranges, debug_rnglists);
+    let locations = gimli::LocationLists::new(debug_loc, debug_loclists);
 
     let dwarf = read::Dwarf {
         debug_abbrev,
@@ -98,6 +111,7 @@ fn test_convert_debug_info() {
         debug_line,
         debug_str,
         ranges,
+        locations,
         ..Default::default()
     };
 

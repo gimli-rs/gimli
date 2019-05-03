@@ -286,6 +286,13 @@ mod convert {
                         Range::StartLength { begin, length }
                     }
                 };
+                // Filtering empty ranges out.
+                match range {
+                    Range::StartLength { length, .. } if length == 0 => continue,
+                    Range::StartEnd { begin, end, .. } if begin == end => continue,
+                    Range::OffsetPair { begin, end, .. } if begin == end => continue,
+                    _ => (),
+                }
                 ranges.push(range);
             }
             Ok(RangeList(ranges))
@@ -302,7 +309,8 @@ mod tests {
     };
     use crate::read;
     use crate::write::{
-        ConvertUnitContext, EndianVec, LineStringTable, Range, RangeListTable, StringTable,
+        ConvertUnitContext, EndianVec, LineStringTable, LocationListTable, Range, RangeListTable,
+        StringTable,
     };
     use crate::LittleEndian;
 
@@ -380,6 +388,7 @@ mod tests {
                         line_strings: &mut line_strings,
                         strings: &mut strings,
                         ranges: &mut ranges,
+                        locations: &mut LocationListTable::default(),
                         convert_address: &|address| Some(Address::Constant(address)),
                         base_address: Address::Constant(0),
                         line_program_offset: None,

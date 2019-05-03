@@ -147,6 +147,9 @@ pub use self::line::*;
 mod range;
 pub use self::range::*;
 
+mod loc;
+pub use self::loc::*;
+
 mod str;
 pub use self::str::*;
 
