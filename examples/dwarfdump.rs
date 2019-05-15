@@ -1019,7 +1019,7 @@ fn dump_entries<R: Reader, W: Write>(
             if flags.raw {
                 writeln!(w, "{:?}", attr.raw_value())?;
             } else {
-                match dump_attr_value(w, &attr, &unit, dwarf, flags) {
+                match dump_attr_value(w, &attr, &unit, dwarf) {
                     Ok(_) => (),
                     Err(err) => writeln_error(w, dwarf, err, "Failed to dump attribute value")?,
                 };
@@ -1034,7 +1034,6 @@ fn dump_attr_value<R: Reader, W: Write>(
     attr: &gimli::Attribute<R>,
     unit: &gimli::Unit<R>,
     dwarf: &gimli::Dwarf<R>,
-    flags: &Flags,
 ) -> Result<()> {
     let value = attr.value();
     match value {
@@ -1129,9 +1128,19 @@ fn dump_attr_value<R: Reader, W: Write>(
             let address = dwarf.address(unit, index)?;
             writeln!(w, "0x{:08x}", address)?;
         }
-        gimli::AttributeValue::UnitRef(o) => {
-            write_offset(w, unit, o, flags)?;
-            write!(w, "\n")?;
+        gimli::AttributeValue::UnitRef(offset) => {
+            write!(w, "0x{:08x}", offset.0)?;
+            let goff = match offset.to_unit_section_offset(unit) {
+                UnitSectionOffset::DebugInfoOffset(o) => {
+                    write!(w, "<.debug_info+")?;
+                    o.0
+                },
+                UnitSectionOffset::DebugTypesOffset(o) => {
+                    write!(w, "<.debug_types+")?;
+                    o.0
+                },
+            };
+            writeln!(w, "0x{:08x}>", goff)?;
         }
         gimli::AttributeValue::DebugInfoRef(gimli::DebugInfoOffset(offset)) => {
             writeln!(w, "<.debug_info+0x{:08x}>", offset)?;
