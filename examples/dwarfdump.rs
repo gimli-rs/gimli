@@ -2,7 +2,7 @@
 #![allow(unknown_lints)]
 
 use fallible_iterator::FallibleIterator;
-use gimli::{CompilationUnitHeader, Section, UnitOffset, UnwindSection};
+use gimli::{CompilationUnitHeader, Section, UnitOffset, UnitSectionOffset, UnwindSection};
 use object::{Object, ObjectSection};
 use regex::bytes::Regex;
 use std::borrow::{Borrow, Cow};
@@ -333,6 +333,7 @@ impl<'a, R: Reader> Reader for Relocate<'a, R> {}
 #[derive(Default)]
 struct Flags {
     eh_frame: bool,
+    goff: bool,
     info: bool,
     line: bool,
     pubnames: bool,
@@ -355,6 +356,7 @@ fn main() {
         "eh-frame",
         "print .eh-frame exception handling frame information",
     );
+    opts.optflag("G", "", "show global die offsets");
     opts.optflag("i", "", "print .debug_info and .debug_types sections");
     opts.optflag("l", "", "print .debug_line section");
     opts.optflag("p", "", "print .debug_pubnames section");
@@ -385,6 +387,9 @@ fn main() {
         flags.eh_frame = true;
         all = false;
     }
+    if matches.opt_present("G") {
+        flags.goff = true;
+    }
     if matches.opt_present("i") {
         flags.info = true;
         all = false;
@@ -410,6 +415,7 @@ fn main() {
     }
     if all {
         // .eh_frame is excluded even when printing all information.
+        // cosmetic flags like -G must be set explicitly too.
         flags.info = true;
         flags.line = true;
         flags.pubnames = true;
@@ -948,6 +954,27 @@ fn spaces(buf: &mut String, len: usize) -> &str {
     &buf[..len]
 }
 
+// " GOFF=0x{:08x}" adds exactly 16 spaces.
+const GOFF_SPACES: usize = 16;
+
+fn write_offset<R: Reader, W: Write>(
+    w: &mut W,
+    unit: &gimli::Unit<R>,
+    offset: gimli::UnitOffset<R::Offset>,
+    flags: &Flags,
+) -> Result<()> {
+    write!(w, "<0x{:08x}", offset.0)?;
+    if flags.goff {
+        let goff = match offset.to_unit_section_offset(unit) {
+            UnitSectionOffset::DebugInfoOffset(o) => o.0,
+            UnitSectionOffset::DebugTypesOffset(o) => o.0,
+        };
+        write!(w, " GOFF=0x{:08x}", goff)?;
+    }
+    write!(w, ">")?;
+    Ok(())
+}
+
 fn dump_entries<R: Reader, W: Write>(
     w: &mut W,
     unit: gimli::Unit<R>,
@@ -961,20 +988,28 @@ fn dump_entries<R: Reader, W: Write>(
     while let Some((delta_depth, entry)) = entries.next_dfs()? {
         depth += delta_depth;
         assert!(depth >= 0);
-        let indent = depth as usize * 2 + 2;
+        let mut indent = depth as usize * 2 + 2;
+        write!(
+            w,
+            "<{}{}>",
+            if depth < 10 { " " } else { "" },
+            depth)?;
+        write_offset(w, &unit, entry.offset(), flags)?;
         writeln!(
             w,
-            "<{}{}><0x{:08x}>{}{}",
-            if depth < 10 { " " } else { "" },
-            depth,
-            entry.offset().0,
+            "{}{}",
             spaces(&mut spaces_buf, indent),
             entry.tag()
         )?;
 
+        indent += 18;
+        if flags.goff {
+            indent += GOFF_SPACES;
+        }
+
         let mut attrs = entry.attrs();
         while let Some(attr) = attrs.next()? {
-            w.write_all(spaces(&mut spaces_buf, indent + 18).as_bytes())?;
+            w.write_all(spaces(&mut spaces_buf, indent).as_bytes())?;
             if let Some(n) = attr.name().static_string() {
                 let right_padding = 27 - std::cmp::min(27, n.len());
                 write!(w, "{}{} ", n, spaces(&mut spaces_buf, right_padding))?;
@@ -1093,8 +1128,19 @@ fn dump_attr_value<R: Reader, W: Write>(
             let address = dwarf.address(unit, index)?;
             writeln!(w, "0x{:08x}", address)?;
         }
-        gimli::AttributeValue::UnitRef(gimli::UnitOffset(offset)) => {
-            writeln!(w, "<0x{:08x}>", offset)?;
+        gimli::AttributeValue::UnitRef(offset) => {
+            write!(w, "0x{:08x}", offset.0)?;
+            let goff = match offset.to_unit_section_offset(unit) {
+                UnitSectionOffset::DebugInfoOffset(o) => {
+                    write!(w, "<.debug_info+")?;
+                    o.0
+                },
+                UnitSectionOffset::DebugTypesOffset(o) => {
+                    write!(w, "<.debug_types+")?;
+                    o.0
+                },
+            };
+            writeln!(w, "0x{:08x}>", goff)?;
         }
         gimli::AttributeValue::DebugInfoRef(gimli::DebugInfoOffset(offset)) => {
             writeln!(w, "<.debug_info+0x{:08x}>", offset)?;
