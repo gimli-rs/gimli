@@ -59,6 +59,10 @@ impl<T> Dwarf<T> {
     /// `section` loads a DWARF section from the main object file.
     /// `sup` loads a DWARF sections from the supplementary object file.
     /// These functions should return an empty section if the section does not exist.
+    ///
+    /// The provided callback functions may either directly return a `Reader` instance
+    /// (such as `EndianSlice`), or they may return some other type and then convert
+    /// that type into a `Reader` using `Dwarf::borrow`.
     pub fn load<F1, F2, E>(mut section: F1, mut sup: F2) -> std::result::Result<Self, E>
     where
         F1: FnMut(SectionId) -> std::result::Result<T, E>,
