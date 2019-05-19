@@ -300,10 +300,6 @@ mod convert {
         InvalidDebugInfoOffset,
         /// An address could not be converted.
         InvalidAddress,
-        /// The line number program is missing the compilation directory.
-        MissingCompilationDirectory,
-        /// The line number program is missing the compilation file.
-        MissingCompilationFile,
         /// Writing this line number instruction is not implemented yet.
         UnsupportedLineInstruction,
         /// Writing this form of line string is not implemented yet.
@@ -341,14 +337,6 @@ mod convert {
                     "A `.debug_info` reference does not refer to a valid entry."
                 ),
                 InvalidAddress => write!(f, "An address could not be converted."),
-                MissingCompilationDirectory => write!(
-                    f,
-                    "The line number program is missing the compilation directory."
-                ),
-                MissingCompilationFile => write!(
-                    f,
-                    "The line number program is missing the compilation file."
-                ),
                 UnsupportedLineInstruction => write!(
                     f,
                     "Writing this line number instruction is not implemented yet."
