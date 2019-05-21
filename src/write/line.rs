@@ -206,7 +206,11 @@ impl LineProgram {
     /// Panics if `directory` is empty or contains a null byte.
     pub fn add_directory(&mut self, directory: LineString) -> DirectoryId {
         if let LineString::String(ref val) = directory {
-            assert!(!val.is_empty());
+            // For DWARF version <= 4, directories must not be empty.
+            // The first directory isn't emitted so skip the check for it.
+            if self.encoding.version <= 4 && !self.directories.is_empty() {
+                assert!(!val.is_empty());
+            }
             assert!(!val.contains(&0));
         }
         let (index, _) = self.directories.insert_full(directory);
@@ -853,6 +857,9 @@ impl LineString {
 
         match *self {
             LineString::String(ref val) => {
+                if encoding.version <= 4 {
+                    debug_assert!(!val.is_empty());
+                }
                 w.write(val)?;
                 w.write_u8(0)?;
             }
@@ -972,35 +979,39 @@ mod convert {
 
             let mut program = {
                 let from_header = from_program.header();
+                let encoding = from_header.encoding();
 
-                let comp_dir = from_header
-                    .directory(0)
-                    .ok_or(ConvertError::MissingCompilationDirectory)?;
-                let comp_dir = LineString::from(comp_dir, dwarf, line_strings, strings)?;
+                let comp_dir = match from_header.directory(0) {
+                    Some(comp_dir) => LineString::from(comp_dir, dwarf, line_strings, strings)?,
+                    None => LineString::new(&[][..], encoding, line_strings),
+                };
 
-                let comp_file = from_header
-                    .file(0)
-                    .ok_or(ConvertError::MissingCompilationFile)?;
-                let comp_name =
-                    LineString::from(comp_file.path_name(), dwarf, line_strings, strings)?;
-                if comp_file.directory_index() != 0 {
-                    return Err(ConvertError::InvalidDirectoryIndex);
-                }
-                let comp_file_info = FileInfo {
-                    timestamp: comp_file.timestamp(),
-                    size: comp_file.size(),
-                    md5: *comp_file.md5(),
+                let (comp_name, comp_file_info) = match from_header.file(0) {
+                    Some(comp_file) => {
+                        if comp_file.directory_index() != 0 {
+                            return Err(ConvertError::InvalidDirectoryIndex);
+                        }
+                        (
+                            LineString::from(comp_file.path_name(), dwarf, line_strings, strings)?,
+                            Some(FileInfo {
+                                timestamp: comp_file.timestamp(),
+                                size: comp_file.size(),
+                                md5: *comp_file.md5(),
+                            }),
+                        )
+                    }
+                    None => (LineString::new(&[][..], encoding, line_strings), None),
                 };
 
                 if from_header.line_base() > 0 {
                     return Err(ConvertError::InvalidLineBase);
                 }
                 let mut program = LineProgram::new(
-                    from_header.encoding(),
+                    encoding,
                     from_header.line_encoding(),
                     comp_dir,
                     comp_name,
-                    Some(comp_file_info),
+                    comp_file_info,
                 );
 
                 let file_skip;
@@ -1875,6 +1886,65 @@ mod tests {
                         .unwrap();
                     let read_header = read_program.header();
                     assert_eq!(read_header.file(0).unwrap().path_name(), expect_file);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_missing_comp_dir() {
+        let debug_line_str_offsets = DebugLineStrOffsets::none();
+        let debug_str_offsets = DebugStrOffsets::none();
+
+        for &version in &[2, 3, 4, 5] {
+            for &address_size in &[4, 8] {
+                for &format in &[Format::Dwarf32, Format::Dwarf64] {
+                    let encoding = Encoding {
+                        format,
+                        version,
+                        address_size,
+                    };
+                    let program = LineProgram::new(
+                        encoding,
+                        LineEncoding::default(),
+                        LineString::String(Vec::new()),
+                        LineString::String(Vec::new()),
+                        None,
+                    );
+
+                    let mut debug_line = DebugLine::from(EndianVec::new(LittleEndian));
+                    let debug_line_offset = program
+                        .write(
+                            &mut debug_line,
+                            encoding,
+                            &debug_line_str_offsets,
+                            &debug_str_offsets,
+                            )
+                        .unwrap();
+
+                    let read_debug_line = read::DebugLine::new(debug_line.slice(), LittleEndian);
+                    let read_program = read_debug_line
+                        .program(
+                            debug_line_offset,
+                            address_size,
+                            // Testing missing comp_dir/comp_name.
+                            None,
+                            None,
+                            )
+                        .unwrap();
+
+                    let dwarf = read::Dwarf::default();
+                    let mut convert_line_strings = LineStringTable::default();
+                    let mut convert_strings = StringTable::default();
+                    let convert_address = &|address| Some(Address::Constant(address));
+                    LineProgram::from(
+                        read_program,
+                        &dwarf,
+                        &mut convert_line_strings,
+                        &mut convert_strings,
+                        convert_address,
+                        )
+                        .unwrap();
                 }
             }
         }
