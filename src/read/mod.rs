@@ -11,9 +11,12 @@
 //! ```rust,no_run
 //! # fn example() -> Result<(), gimli::Error> {
 //! # type R = gimli::EndianSlice<'static, gimli::LittleEndian>;
-//! # let loader = |name| -> Result<R, gimli::Error> { unimplemented!() };
-//! # let sup_loader = |name| { unimplemented!() };
+//! # let get_file_section_reader = |name| -> Result<R, gimli::Error> { unimplemented!() };
+//! # let get_sup_file_section_reader = |name| -> Result<R, gimli::Error> { unimplemented!() };
 //! // Read the DWARF sections with whatever object loader you're using.
+//! // These closures should return a `Reader` instance (e.g. `EndianSlice`).
+//! let loader = |section: gimli::SectionId| { get_file_section_reader(section.name()) };
+//! let sup_loader = |section: gimli::SectionId| { get_sup_file_section_reader(section.name()) };
 //! let dwarf = gimli::Dwarf::load(loader, sup_loader)?;
 //!
 //! // Iterate over all compilation units.
@@ -36,6 +39,8 @@
 //! ```
 //!
 //! Full example programs:
+//!
+//!   * [A simple parser](https://github.com/gimli-rs/gimli/blob/master/examples/simple.rs)
 //!
 //!   * [A `dwarfdump`
 //!     clone](https://github.com/gimli-rs/gimli/blob/master/examples/dwarfdump.rs)

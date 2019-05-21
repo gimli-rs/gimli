@@ -989,18 +989,9 @@ fn dump_entries<R: Reader, W: Write>(
         depth += delta_depth;
         assert!(depth >= 0);
         let mut indent = depth as usize * 2 + 2;
-        write!(
-            w,
-            "<{}{}>",
-            if depth < 10 { " " } else { "" },
-            depth)?;
+        write!(w, "<{}{}>", if depth < 10 { " " } else { "" }, depth)?;
         write_offset(w, &unit, entry.offset(), flags)?;
-        writeln!(
-            w,
-            "{}{}",
-            spaces(&mut spaces_buf, indent),
-            entry.tag()
-        )?;
+        writeln!(w, "{}{}", spaces(&mut spaces_buf, indent), entry.tag())?;
 
         indent += 18;
         if flags.goff {
@@ -1134,11 +1125,11 @@ fn dump_attr_value<R: Reader, W: Write>(
                 UnitSectionOffset::DebugInfoOffset(o) => {
                     write!(w, "<.debug_info+")?;
                     o.0
-                },
+                }
                 UnitSectionOffset::DebugTypesOffset(o) => {
                     write!(w, "<.debug_types+")?;
                     o.0
-                },
+                }
             };
             writeln!(w, "0x{:08x}>", goff)?;
         }
