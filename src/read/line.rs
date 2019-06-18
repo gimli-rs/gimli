@@ -1224,6 +1224,13 @@ where
             .any(|x| x.content_type == constants::DW_LNCT_MD5)
     }
 
+    /// Return true if the file name entry format contains embedded source.
+    pub fn file_has_embedded_source(&self) -> bool {
+        self.file_name_entry_format
+            .iter()
+            .any(|x| x.content_type == constants::DW_LNCT_LLVM_source)
+    }
+
     /// Get the list of source files that appear in this header's line program.
     pub fn file_names(&self) -> &[FileEntry<R, Offset>] {
         &self.file_names[..]
@@ -1380,6 +1387,7 @@ where
                 timestamp: 0,
                 size: 0,
                 md5: [0; 16],
+                embedded_source: None,
             });
 
             file_name_entry_format = Vec::new();
@@ -1579,6 +1587,7 @@ where
     timestamp: u64,
     size: u64,
     md5: [u8; 16],
+    embedded_source: Option<AttributeValue<R, Offset>>,
 }
 
 impl<R, Offset> FileEntry<R, Offset>
@@ -1598,6 +1607,7 @@ where
             timestamp,
             size,
             md5: [0; 16],
+            embedded_source: None,
         };
 
         Ok(entry)
@@ -1667,6 +1677,11 @@ where
     pub fn md5(&self) -> &[u8; 16] {
         &self.md5
     }
+
+    /// The embedded source if it exists.
+    pub fn embedded_source(&self) -> Option<AttributeValue<R, Offset>> {
+        self.embedded_source.clone()
+    }
 }
 
 /// The format of a compononent of an include directory or file name entry.
@@ -1729,6 +1744,7 @@ fn parse_file_v5<R: Reader>(
     formats: &[FileEntryFormat],
 ) -> Result<FileEntry<R>> {
     let mut path_name = None;
+    let mut embedded_source = None;
     let mut directory_index = 0;
     let mut timestamp = 0;
     let mut size = 0;
@@ -1760,6 +1776,7 @@ fn parse_file_v5<R: Reader>(
                     }
                 }
             }
+            constants::DW_LNCT_LLVM_source => embedded_source = Some(value),
             // Ignore unknown content types.
             _ => {}
         }
@@ -1771,6 +1788,7 @@ fn parse_file_v5<R: Reader>(
         timestamp,
         size,
         md5,
+        embedded_source,
     })
 }
 
@@ -1985,6 +2003,7 @@ mod tests {
                 timestamp: 0,
                 size: 0,
                 md5: [0; 16],
+                embedded_source: None,
             },
             FileEntry {
                 path_name: AttributeValue::String(EndianSlice::new(b"bar.h", LittleEndian)),
@@ -1992,6 +2011,7 @@ mod tests {
                 timestamp: 0,
                 size: 0,
                 md5: [0; 16],
+                embedded_source: None,
             },
         ];
         assert_eq!(&*header.file_names(), &expected_file_names);
@@ -2150,6 +2170,7 @@ mod tests {
                     timestamp: 0,
                     size: 0,
                     md5: [0; 16],
+                    embedded_source: None,
                 },
                 FileEntry {
                     path_name: AttributeValue::String(EndianSlice::new(b"bar.rs", LittleEndian)),
@@ -2157,6 +2178,7 @@ mod tests {
                     timestamp: 0,
                     size: 0,
                     md5: [0; 16],
+                    embedded_source: None,
                 },
             ],
             include_directories: vec![],
@@ -2403,6 +2425,7 @@ mod tests {
                 timestamp: 1,
                 size: 2,
                 md5: [0; 16],
+                embedded_source: None,
             }),
         );
 
@@ -2426,6 +2449,7 @@ mod tests {
             timestamp: 0,
             size: 0,
             md5: [0; 16],
+            embedded_source: None,
         };
 
         let mut header = make_test_header(EndianSlice::new(&[], LittleEndian));
@@ -2813,6 +2837,7 @@ mod tests {
             timestamp: 0,
             size: 0,
             md5: [0; 16],
+            embedded_source: None,
         };
 
         let opcode = LineInstruction::DefineFile(file);
@@ -2873,6 +2898,7 @@ mod tests {
                 timestamp: 0,
                 size: 0,
                 md5: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+                embedded_source: None,
             },
             FileEntry {
                 path_name: AttributeValue::String(EndianSlice::new(b"file2", LittleEndian)),
@@ -2882,6 +2908,7 @@ mod tests {
                 md5: [
                     11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
                 ],
+                embedded_source: None,
             },
         ];
 
