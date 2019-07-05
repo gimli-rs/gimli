@@ -2,6 +2,40 @@
 
 --------------------------------------------------------------------------------
 
+## 0.19.0
+
+Released 2019/07/08.
+
+### Breaking changes
+
+* Small API changes related to `.debug_loc` and `.debug_loclists`:
+  added `read::RawLocListEntry::AddressOrOffsetPair` enum variant,
+  added `write::Sections::debug_loc/debug_loclists` public members,
+  and replaced `write::AttributeValue::LocationListsRef` with `LocationListRef`.
+  [#425](https://github.com/gimli-rs/gimli/pull/425)
+
+### Added
+
+* Added `read::Attribute::exprloc_value` and `read::AttributeValue::exprloc_value`.
+  [#422](https://github.com/gimli-rs/gimli/pull/422)
+
+* Added support for writing `.debug_loc` and `.debug_loclists` sections.
+  [#425](https://github.com/gimli-rs/gimli/pull/425)
+
+* Added `-G` flag to `dwarfdump` example to display global offsets.
+  [#427](https://github.com/gimli-rs/gimli/pull/427)
+
+* Added `examples/simple.rs`.
+  [#429](https://github.com/gimli-rs/gimli/pull/429)
+
+### Fixed
+
+* `write::LineProgram::from` no longer requires `DW_AT_name` or `DW_AT_comp_dir`
+  attributes to be present in the unit DIE.
+  [#430](https://github.com/gimli-rs/gimli/pull/430)
+
+--------------------------------------------------------------------------------
+
 ## 0.18.0
 
 Released 2019/04/25.
