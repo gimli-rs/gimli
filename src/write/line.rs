@@ -1919,7 +1919,7 @@ mod tests {
                             encoding,
                             &debug_line_str_offsets,
                             &debug_str_offsets,
-                            )
+                        )
                         .unwrap();
 
                     let read_debug_line = read::DebugLine::new(debug_line.slice(), LittleEndian);
@@ -1930,7 +1930,7 @@ mod tests {
                             // Testing missing comp_dir/comp_name.
                             None,
                             None,
-                            )
+                        )
                         .unwrap();
 
                     let dwarf = read::Dwarf::default();
@@ -1943,8 +1943,8 @@ mod tests {
                         &mut convert_line_strings,
                         &mut convert_strings,
                         convert_address,
-                        )
-                        .unwrap();
+                    )
+                    .unwrap();
                 }
             }
         }
