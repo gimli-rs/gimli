@@ -158,7 +158,7 @@ fn add_relocations(
         }
         let offset = offset as usize;
         match relocation.kind() {
-            object::RelocationKind::Direct32 | object::RelocationKind::Direct64 => {
+            object::RelocationKind::Absolute => {
                 if let Some(symbol) = file.symbol_by_index(relocation.symbol()) {
                     let addend = symbol.address().wrapping_add(relocation.addend() as u64);
                     relocation.set_addend(addend as i64);
@@ -209,7 +209,7 @@ impl<'a, R: gimli::Reader<Offset = usize>> Relocate<'a, R> {
     fn relocate(&self, offset: usize, value: u64) -> u64 {
         if let Some(relocation) = self.relocations.get(&offset) {
             match relocation.kind() {
-                object::RelocationKind::Direct32 | object::RelocationKind::Direct64 => {
+                object::RelocationKind::Absolute => {
                     if relocation.has_implicit_addend() {
                         // Use the explicit addend too, because it may have the symbol value.
                         return value.wrapping_add(relocation.addend() as u64);
@@ -515,7 +515,7 @@ where
     if flags.eh_frame {
         // TODO: this might be better based on the file format.
         let address_size = match file.machine() {
-            object::Machine::Arm | object::Machine::X86 => 4,
+            object::Machine::Arm | object::Machine::Mips | object::Machine::X86 => 4,
             object::Machine::Arm64 | object::Machine::X86_64 => 8,
             object::Machine::Other => mem::size_of::<usize>() as u8,
         };
