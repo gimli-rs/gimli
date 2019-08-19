@@ -504,6 +504,8 @@ DwAt(u64) {
     DW_AT_GNU_pubnames = 0x2134,
     DW_AT_GNU_pubtypes = 0x2135,
     DW_AT_GNU_discriminator = 0x2136,
+    DW_AT_GNU_locviews = 0x2137,
+    DW_AT_GNU_entry_view = 0x2138,
 
 // Conflict with Sun.
 // DW_AT_VMS_rtnbeg_pd_address = 0x2201,
@@ -721,6 +723,7 @@ DwLle(u8) {
     DW_LLE_base_address = 0x06,
     DW_LLE_start_end = 0x07,
     DW_LLE_start_length = 0x08,
+    DW_LLE_GNU_view_pair = 0x09,
 });
 
 dw!(
