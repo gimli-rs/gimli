@@ -41,3 +41,7 @@ write = ["std", "indexmap"]
 std = ["fallible-iterator/std", "stable_deref_trait/std"]
 alloc = ["fallible-iterator/alloc", "stable_deref_trait/alloc"]
 default = ["read", "write", "std"]
+
+[profile.bench]
+debug = true
+codegen-units = 1
