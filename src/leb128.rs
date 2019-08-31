@@ -87,6 +87,29 @@ pub mod read {
         }
     }
 
+    /// Read an LEB128 u16 from the given `Reader` and
+    /// return it or an error if reading failed.
+    pub fn u16<R: Reader>(r: &mut R) -> Result<u16> {
+        let byte = r.read_u8()?;
+        let mut result = u16::from(low_bits_of_byte(byte));
+        if byte & CONTINUATION_BIT == 0 {
+            return Ok(result);
+        }
+
+        let byte = r.read_u8()?;
+        result |= u16::from(low_bits_of_byte(byte)) << 7;
+        if byte & CONTINUATION_BIT == 0 {
+            return Ok(result);
+        }
+
+        let byte = r.read_u8()?;
+        if byte > 0x03 {
+            return Err(Error::BadUnsignedLeb128);
+        }
+        result += u16::from(byte) << 14;
+        Ok(result)
+    }
+
     /// Read a signed LEB128 number from the given `Reader` and
     /// return it or an error if reading failed.
     pub fn signed<R: Reader>(r: &mut R) -> Result<i64> {
@@ -515,5 +538,37 @@ mod tests {
             read::unsigned(&mut readable).expect("Should read first number"),
             1u64
         );
+    }
+
+    #[test]
+    fn test_read_u16() {
+        for (buf, val) in [
+            (&[2][..], 2),
+            (&[0x7f][..], 0x7f),
+            (&[0x80, 1][..], 0x80),
+            (&[0x81, 1][..], 0x81),
+            (&[0x82, 1][..], 0x82),
+            (&[0xff, 0x7f][..], 0x3fff),
+            (&[0x80, 0x80, 1][..], 0x4000),
+            (&[0xff, 0xff, 1][..], 0x7fff),
+            (&[0xff, 0xff, 3][..], 0xffff),
+        ]
+        .iter()
+        {
+            let mut readable = EndianSlice::new(buf, NativeEndian);
+            assert_eq!(*val, read::u16(&mut readable).expect("Should read number"));
+        }
+
+        for buf in [
+            &[0x80][..],
+            &[0x80, 0x80][..],
+            &[0x80, 0x80, 4][..],
+            &[0x80, 0x80, 0x80, 3][..],
+        ]
+        .iter()
+        {
+            let mut readable = EndianSlice::new(buf, NativeEndian);
+            assert!(read::u16(&mut readable).is_err(), format!("{:?}", buf));
+        }
     }
 }

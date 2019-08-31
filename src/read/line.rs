@@ -1695,7 +1695,7 @@ impl FileEntryFormat {
                 path_count += 1;
             }
 
-            let form = constants::DwForm(input.read_uleb128()?);
+            let form = constants::DwForm(input.read_uleb128_u16()?);
 
             format.push(FileEntryFormat { content_type, form });
         }

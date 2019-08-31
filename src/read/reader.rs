@@ -391,6 +391,11 @@ pub trait Reader: Debug + Clone {
         leb128::read::unsigned(self)
     }
 
+    /// Read an unsigned LEB128 encoded u16.
+    fn read_uleb128_u16(&mut self) -> Result<u16> {
+        leb128::read::u16(self)
+    }
+
     /// Read a signed LEB128 encoded integer.
     fn read_sleb128(&mut self) -> Result<i64> {
         leb128::read::signed(self)

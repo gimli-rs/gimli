@@ -163,7 +163,7 @@ dw!(
 /// The tag encodings for DIE attributes.
 ///
 /// See Section 7.5.3, Table 7.3.
-DwTag(u64) {
+DwTag(u16) {
     DW_TAG_null = 0x00,
 
     DW_TAG_array_type = 0x01,
@@ -308,7 +308,7 @@ dw!(
 /// The attribute encodings for DIE attributes.
 ///
 /// See Section 7.5.4, Table 7.5.
-DwAt(u64) {
+DwAt(u16) {
     DW_AT_null = 0x00,
 
     DW_AT_sibling = 0x01,
@@ -617,7 +617,7 @@ dw!(
 /// The attribute form encodings for DIE attributes.
 ///
 /// See Section 7.5.6, Table 7.6.
-DwForm(u64) {
+DwForm(u16) {
     DW_FORM_null = 0x00,
 
     DW_FORM_addr = 0x01,

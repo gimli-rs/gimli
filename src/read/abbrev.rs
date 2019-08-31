@@ -230,7 +230,7 @@ impl Abbreviation {
 
     /// Parse an abbreviation's tag.
     fn parse_tag<R: Reader>(input: &mut R) -> Result<constants::DwTag> {
-        let val = input.read_uleb128()?;
+        let val = input.read_uleb128_u16()?;
         if val == 0 {
             Err(Error::AbbreviationTagZero)
         } else {
@@ -373,7 +373,7 @@ impl AttributeSpecification {
 
     /// Parse an attribute's form.
     fn parse_form<R: Reader>(input: &mut R) -> Result<constants::DwForm> {
-        let val = input.read_uleb128()?;
+        let val = input.read_uleb128_u16()?;
         if val == 0 {
             Err(Error::AttributeFormZero)
         } else {
@@ -384,10 +384,10 @@ impl AttributeSpecification {
     /// Parse an attribute specification. Returns `None` for the null attribute
     /// specification, `Some` for an actual attribute specification.
     fn parse<R: Reader>(input: &mut R) -> Result<Option<AttributeSpecification>> {
-        let name = input.read_uleb128()?;
+        let name = input.read_uleb128_u16()?;
         if name == 0 {
             // Parse the null attribute specification.
-            let form = input.read_uleb128()?;
+            let form = input.read_uleb128_u16()?;
             return if form == 0 {
                 Ok(None)
             } else {
@@ -428,7 +428,7 @@ pub mod tests {
 
     impl AbbrevSectionMethods for Section {
         fn abbrev(self, code: u64, tag: constants::DwTag, children: constants::DwChildren) -> Self {
-            self.uleb(code).uleb(tag.0).D8(children.0)
+            self.uleb(code).uleb(tag.0.into()).D8(children.0)
         }
 
         fn abbrev_null(self) -> Self {
@@ -436,12 +436,12 @@ pub mod tests {
         }
 
         fn abbrev_attr(self, name: constants::DwAt, form: constants::DwForm) -> Self {
-            self.uleb(name.0).uleb(form.0)
+            self.uleb(name.0.into()).uleb(form.0.into())
         }
 
         fn abbrev_attr_implicit_const(self, name: constants::DwAt, value: i64) -> Self {
-            self.uleb(name.0)
-                .uleb(constants::DW_FORM_implicit_const.0)
+            self.uleb(name.0.into())
+                .uleb(constants::DW_FORM_implicit_const.0.into())
                 .sleb(value)
         }
 
@@ -509,17 +509,17 @@ pub mod tests {
 
     #[test]
     fn test_abbreviations_insert() {
-        fn abbrev(code: u64) -> Abbreviation {
+        fn abbrev(code: u16) -> Abbreviation {
             Abbreviation::new(
-                code,
+                code.into(),
                 constants::DwTag(code),
                 constants::DW_CHILDREN_no,
                 vec![],
             )
         }
 
-        fn assert_abbrev(abbrevs: &Abbreviations, code: u64) {
-            let abbrev = abbrevs.get(code).unwrap();
+        fn assert_abbrev(abbrevs: &Abbreviations, code: u16) {
+            let abbrev = abbrevs.get(code.into()).unwrap();
             assert_eq!(abbrev.tag(), constants::DwTag(code));
         }
 
@@ -579,7 +579,7 @@ pub mod tests {
         fn abbrev(code: u64) -> Abbreviation {
             Abbreviation::new(
                 code,
-                constants::DwTag(code),
+                constants::DwTag(code as u16),
                 constants::DW_CHILDREN_no,
                 vec![],
             )
@@ -587,7 +587,7 @@ pub mod tests {
 
         fn assert_abbrev(abbrevs: &Abbreviations, code: u64) {
             let abbrev = abbrevs.get(code).unwrap();
-            assert_eq!(abbrev.tag(), constants::DwTag(code));
+            assert_eq!(abbrev.tag(), constants::DwTag(code as u16));
         }
 
         let mut abbrevs = Abbreviations::empty();
