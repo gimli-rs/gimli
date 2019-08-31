@@ -3128,6 +3128,7 @@ mod tests {
     };
     use crate::test_util::GimliSectionMethods;
     use crate::vec::Vec;
+    use smallvec::smallvec;
     use std;
     use std::cell::Cell;
     use test_assembler::{Endian, Label, LabelMaker, Section};
@@ -4445,7 +4446,7 @@ mod tests {
             42,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_yes,
-            vec![
+            smallvec![
                 AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
                 AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr, None),
                 AttributeSpecification::new(
@@ -4556,7 +4557,7 @@ mod tests {
             42,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_yes,
-            vec![
+            smallvec![
                 AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
                 AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr, None),
                 AttributeSpecification::new(

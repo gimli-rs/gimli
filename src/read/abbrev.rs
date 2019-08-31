@@ -2,6 +2,7 @@
 
 use crate::collections::btree_map;
 use crate::vec::Vec;
+use smallvec::SmallVec;
 
 use crate::common::{DebugAbbrevOffset, SectionId};
 use crate::constants;
@@ -173,6 +174,9 @@ impl Abbreviations {
     }
 }
 
+// Length of 5 based on benchmark results for both x86-64 and i686.
+type Attributes = SmallVec<[AttributeSpecification; 5]>;
+
 /// An abbreviation describes the shape of a `DebuggingInformationEntry`'s type:
 /// its code, tag type, whether it has children, and its set of attributes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,7 +184,7 @@ pub struct Abbreviation {
     code: u64,
     tag: constants::DwTag,
     has_children: constants::DwChildren,
-    attributes: Vec<AttributeSpecification>,
+    attributes: Attributes,
 }
 
 impl Abbreviation {
@@ -193,7 +197,7 @@ impl Abbreviation {
         code: u64,
         tag: constants::DwTag,
         has_children: constants::DwChildren,
-        attributes: Vec<AttributeSpecification>,
+        attributes: Attributes,
     ) -> Abbreviation {
         assert_ne!(code, 0);
         Abbreviation {
@@ -251,8 +255,8 @@ impl Abbreviation {
 
     /// Parse a series of attribute specifications, terminated by a null attribute
     /// specification.
-    fn parse_attributes<R: Reader>(input: &mut R) -> Result<Vec<AttributeSpecification>> {
-        let mut attrs = Vec::new();
+    fn parse_attributes<R: Reader>(input: &mut R) -> Result<Attributes> {
+        let mut attrs = SmallVec::new();
 
         while let Some(attr) = AttributeSpecification::parse(input)? {
             attrs.push(attr);
@@ -414,6 +418,7 @@ pub mod tests {
     use crate::endianity::LittleEndian;
     use crate::read::{EndianSlice, Error};
     use crate::test_util::GimliSectionMethods;
+    use smallvec::smallvec;
     #[cfg(target_pointer_width = "32")]
     use std::u32;
     use test_assembler::Section;
@@ -473,7 +478,7 @@ pub mod tests {
             1,
             constants::DW_TAG_compile_unit,
             constants::DW_CHILDREN_yes,
-            vec![
+            smallvec![
                 AttributeSpecification::new(
                     constants::DW_AT_producer,
                     constants::DW_FORM_strp,
@@ -491,7 +496,7 @@ pub mod tests {
             2,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
-            vec![AttributeSpecification::new(
+            smallvec![AttributeSpecification::new(
                 constants::DW_AT_name,
                 constants::DW_FORM_string,
                 None,
@@ -514,7 +519,7 @@ pub mod tests {
                 code.into(),
                 constants::DwTag(code),
                 constants::DW_CHILDREN_no,
-                vec![],
+                smallvec![],
             )
         }
 
@@ -581,7 +586,7 @@ pub mod tests {
                 code,
                 constants::DwTag(code as u16),
                 constants::DW_CHILDREN_no,
-                vec![],
+                smallvec![],
             )
         }
 
@@ -624,7 +629,7 @@ pub mod tests {
             1,
             constants::DW_TAG_compile_unit,
             constants::DW_CHILDREN_yes,
-            vec![
+            smallvec![
                 AttributeSpecification::new(
                     constants::DW_AT_producer,
                     constants::DW_FORM_strp,
@@ -642,7 +647,7 @@ pub mod tests {
             2,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
-            vec![AttributeSpecification::new(
+            smallvec![AttributeSpecification::new(
                 constants::DW_AT_name,
                 constants::DW_FORM_string,
                 None,
@@ -728,7 +733,7 @@ pub mod tests {
             1,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
-            vec![AttributeSpecification::new(
+            smallvec![AttributeSpecification::new(
                 constants::DW_AT_name,
                 constants::DW_FORM_string,
                 None,
@@ -756,7 +761,7 @@ pub mod tests {
             1,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
-            vec![AttributeSpecification::new(
+            smallvec![AttributeSpecification::new(
                 constants::DW_AT_name,
                 constants::DW_FORM_implicit_const,
                 Some(-42),
