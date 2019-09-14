@@ -1112,8 +1112,7 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w)?;
         }
         gimli::AttributeValue::Flag(true) => {
-            // We don't record what the value was, so assume 1.
-            writeln!(w, "yes(1)")?;
+            writeln!(w, "yes")?;
         }
         gimli::AttributeValue::Flag(false) => {
             writeln!(w, "no")?;
@@ -1130,26 +1129,23 @@ fn dump_attr_value<R: Reader, W: Write>(
         }
         gimli::AttributeValue::UnitRef(offset) => {
             write!(w, "0x{:08x}", offset.0)?;
-            let goff = match offset.to_unit_section_offset(unit) {
-                UnitSectionOffset::DebugInfoOffset(o) => {
-                    write!(w, "<.debug_info+")?;
-                    o.0
+            match offset.to_unit_section_offset(unit) {
+                UnitSectionOffset::DebugInfoOffset(goff) => {
+                    write!(w, "<.debug_info+0x{:08x}>", goff.0)?;
                 }
-                UnitSectionOffset::DebugTypesOffset(o) => {
-                    write!(w, "<.debug_types+")?;
-                    o.0
+                UnitSectionOffset::DebugTypesOffset(goff) => {
+                    write!(w, "<.debug_types+0x{:08x}>", goff.0)?;
                 }
-            };
-            writeln!(w, "0x{:08x}>", goff)?;
+            }
         }
-        gimli::AttributeValue::DebugInfoRef(gimli::DebugInfoOffset(offset)) => {
-            writeln!(w, "<.debug_info+0x{:08x}>", offset)?;
+        gimli::AttributeValue::DebugInfoRef(offset) => {
+            writeln!(w, "<.debug_info+0x{:08x}>", offset.0)?;
         }
-        gimli::AttributeValue::DebugInfoRefSup(gimli::DebugInfoOffset(offset)) => {
-            writeln!(w, "<.debug_info(sup)+0x{:08x}>", offset)?;
+        gimli::AttributeValue::DebugInfoRefSup(offset) => {
+            writeln!(w, "<.debug_info(sup)+0x{:08x}>", offset.0)?;
         }
-        gimli::AttributeValue::DebugLineRef(gimli::DebugLineOffset(offset)) => {
-            writeln!(w, "0x{:08x}", offset)?;
+        gimli::AttributeValue::DebugLineRef(offset) => {
+            writeln!(w, "<.debug_line+0x{:08x}>", offset.0)?;
         }
         gimli::AttributeValue::LocationListsRef(offset) => {
             dump_loc_list(w, offset, unit, dwarf)?;
@@ -1161,8 +1157,11 @@ fn dump_attr_value<R: Reader, W: Write>(
             let offset = dwarf.locations_offset(unit, index)?;
             dump_loc_list(w, offset, unit, dwarf)?;
         }
-        gimli::AttributeValue::DebugMacinfoRef(gimli::DebugMacinfoOffset(offset)) => {
-            writeln!(w, "{}", offset)?;
+        gimli::AttributeValue::DebugMacinfoRef(offset) => {
+            writeln!(w, "<.debug_macinfo+0x{:08x}>", offset.0)?;
+        }
+        gimli::AttributeValue::DebugMacroRef(offset) => {
+            writeln!(w, "<.debug_macro+0x{:08x}>", offset.0)?;
         }
         gimli::AttributeValue::RangeListsRef(offset) => {
             dump_range_list(w, offset, unit, dwarf)?;

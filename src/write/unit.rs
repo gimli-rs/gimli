@@ -3,8 +3,8 @@ use std::ops::{Deref, DerefMut};
 use std::{slice, usize};
 
 use crate::common::{
-    DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugStrOffset,
-    DebugTypeSignature, Encoding, Format, SectionId, UnitSectionOffset,
+    DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugMacroOffset,
+    DebugStrOffset, DebugTypeSignature, Encoding, Format, SectionId, UnitSectionOffset,
 };
 use crate::constants;
 use crate::write::{
@@ -734,7 +734,7 @@ pub enum AttributeValue {
 
     /// An offset into the `.debug_info` section of the supplementary object file.
     ///
-    /// It is the user's responsibility to ensure the offset is valid.
+    /// The API does not currently assist with generating this offset.
     /// This variant will be removed from the API once support for writing
     /// supplementary object files is implemented.
     DebugInfoRefSup(DebugInfoOffset),
@@ -747,17 +747,24 @@ pub enum AttributeValue {
 
     /// An offset into the `.debug_macinfo` section.
     ///
-    /// It is the user's responsibility to ensure the offset is valid.
+    /// The API does not currently assist with generating this offset.
     /// This variant will be removed from the API once support for writing
     /// `.debug_macinfo` sections is implemented.
     DebugMacinfoRef(DebugMacinfoOffset),
+
+    /// An offset into the `.debug_macro` section.
+    ///
+    /// The API does not currently assist with generating this offset.
+    /// This variant will be removed from the API once support for writing
+    /// `.debug_macro` sections is implemented.
+    DebugMacroRef(DebugMacroOffset),
 
     /// A reference to a range list.
     RangeListRef(RangeListId),
 
     /// A type signature.
     ///
-    /// It is the user's responsibility to ensure the signature is valid.
+    /// The API does not currently assist with generating this signature.
     /// This variant will be removed from the API once support for writing
     /// `.debug_types` sections is implemented.
     DebugTypesRef(DebugTypeSignature),
@@ -767,7 +774,7 @@ pub enum AttributeValue {
 
     /// An offset into the `.debug_str` section of the supplementary object file.
     ///
-    /// It is the user's responsibility to ensure the offset is valid.
+    /// The API does not currently assist with generating this offset.
     /// This variant will be removed from the API once support for writing
     /// supplementary object files is implemented.
     DebugStrRefSup(DebugStrOffset),
@@ -862,6 +869,7 @@ impl AttributeValue {
             AttributeValue::LineProgramRef
             | AttributeValue::LocationListRef(_)
             | AttributeValue::DebugMacinfoRef(_)
+            | AttributeValue::DebugMacroRef(_)
             | AttributeValue::RangeListRef(_) => {
                 if encoding.version == 2 || encoding.version == 3 {
                     match encoding.format {
@@ -1020,6 +1028,12 @@ impl AttributeValue {
                     debug_assert_form!(constants::DW_FORM_sec_offset);
                 }
                 w.write_offset(val.0, SectionId::DebugMacinfo, unit.format().word_size())?;
+            }
+            AttributeValue::DebugMacroRef(val) => {
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_sec_offset);
+                }
+                w.write_offset(val.0, SectionId::DebugMacro, unit.format().word_size())?;
             }
             AttributeValue::RangeListRef(val) => {
                 if unit.version() >= 4 {
@@ -1442,6 +1456,7 @@ pub(crate) mod convert {
                     }
                 }
                 read::AttributeValue::DebugMacinfoRef(val) => AttributeValue::DebugMacinfoRef(val),
+                read::AttributeValue::DebugMacroRef(val) => AttributeValue::DebugMacroRef(val),
                 read::AttributeValue::LocationListsRef(val) => {
                     let iter = context
                         .dwarf
@@ -2010,6 +2025,11 @@ mod tests {
                         (
                             constants::DW_AT_macro_info,
                             AttributeValue::DebugMacinfoRef(DebugMacinfoOffset(0x1234)),
+                            read::AttributeValue::SecOffset(0x1234),
+                        ),
+                        (
+                            constants::DW_AT_macros,
+                            AttributeValue::DebugMacroRef(DebugMacroOffset(0x1234)),
                             read::AttributeValue::SecOffset(0x1234),
                         ),
                         (
