@@ -1107,24 +1107,29 @@ impl Augmentation {
             "Augmentation::parse should only be called if we have an augmentation"
         );
 
-        let first = augmentation_str.read_u8()?;
-        if first != b'z' {
-            return Err(Error::UnknownAugmentation);
-        }
-
         let mut augmentation = Augmentation::default();
 
-        let augmentation_length = input.read_uleb128().and_then(R::Offset::from_u64)?;
-        let rest = &mut input.split(augmentation_length)?;
+        let mut parsed_first = false;
+        let mut data = None;
 
         while !augmentation_str.is_empty() {
             let ch = augmentation_str.read_u8()?;
             match ch {
+                b'z' => {
+                    if parsed_first {
+                        return Err(Error::UnknownAugmentation);
+                    }
+
+                    let augmentation_length = input.read_uleb128().and_then(R::Offset::from_u64)?;
+                    data = Some(input.split(augmentation_length)?);
+                }
                 b'L' => {
+                    let rest = data.as_mut().ok_or(Error::UnknownAugmentation)?;
                     let encoding = parse_pointer_encoding(rest)?;
                     augmentation.lsda = Some(encoding);
                 }
                 b'P' => {
+                    let rest = data.as_mut().ok_or(Error::UnknownAugmentation)?;
                     let encoding = parse_pointer_encoding(rest)?;
                     let parameters = PointerEncodingParameters {
                         bases: &bases.eh_frame,
@@ -1137,12 +1142,15 @@ impl Augmentation {
                     augmentation.personality = Some((encoding, personality));
                 }
                 b'R' => {
+                    let rest = data.as_mut().ok_or(Error::UnknownAugmentation)?;
                     let encoding = parse_pointer_encoding(rest)?;
                     augmentation.fde_address_encoding = Some(encoding);
                 }
                 b'S' => augmentation.is_signal_trampoline = true,
                 _ => return Err(Error::UnknownAugmentation),
             }
+
+            parsed_first = true;
         }
 
         Ok(augmentation)
@@ -6155,6 +6163,23 @@ mod tests {
         assert_eq!(
             Augmentation::parse(augmentation, &bases, address_size, &section, input),
             Err(Error::UnknownAugmentation)
+        );
+    }
+
+    #[test]
+    fn test_augmentation_parse_just_signal_trampoline() {
+        let aug_str = &mut EndianSlice::new(b"S", LittleEndian);
+        let bases = Default::default();
+        let address_size = 8;
+        let section = EhFrame::new(&[], LittleEndian);
+        let input = &mut EndianSlice::new(&[], LittleEndian);
+
+        let mut augmentation = Augmentation::default();
+        augmentation.is_signal_trampoline = true;
+
+        assert_eq!(
+            Augmentation::parse(aug_str, &bases, address_size, &section, input),
+            Ok(augmentation)
         );
     }
 
