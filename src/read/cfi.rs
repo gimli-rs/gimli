@@ -6171,8 +6171,8 @@ mod tests {
         let aug_str = &mut EndianSlice::new(b"S", LittleEndian);
         let bases = Default::default();
         let address_size = 8;
-        let section = EhFrame::new(&[], NativeEndian);
-        let input = &mut EndianSlice::new(&[], NativeEndian);
+        let section = EhFrame::new(&[], LittleEndian);
+        let input = &mut EndianSlice::new(&[], LittleEndian);
 
         let mut augmentation = Augmentation::default();
         augmentation.is_signal_trampoline = true;
