@@ -5477,7 +5477,7 @@ mod tests {
             (Register(0), RegisterRule::Offset(8)),
             (Register(3), RegisterRule::Offset(4)),
         ]
-        .into_iter()
+        .iter()
         .collect();
         assert_eq!(table.ctx.initial_rules, expected_initial_rules);
 
@@ -5495,7 +5495,7 @@ mod tests {
                     (Register(0), RegisterRule::Offset(8)),
                     (Register(3), RegisterRule::Offset(4)),
                 ]
-                .into_iter()
+                .iter()
                 .collect(),
             };
             assert_eq!(Some(&expected), row);
@@ -5515,7 +5515,7 @@ mod tests {
                     (Register(0), RegisterRule::Offset(-16)),
                     (Register(3), RegisterRule::Offset(4)),
                 ]
-                .into_iter()
+                .iter()
                 .collect(),
             };
             assert_eq!(Some(&expected), row);
@@ -5535,7 +5535,7 @@ mod tests {
                     (Register(0), RegisterRule::Offset(-16)),
                     (Register(3), RegisterRule::Offset(-4)),
                 ]
-                .into_iter()
+                .iter()
                 .collect(),
             };
             assert_eq!(Some(&expected), row);
@@ -5556,7 +5556,7 @@ mod tests {
                     (Register(3), RegisterRule::Offset(-4)),
                     (Register(5), RegisterRule::Offset(4)),
                 ]
-                .into_iter()
+                .iter()
                 .collect(),
             };
             assert_eq!(Some(&expected), row);
@@ -5687,7 +5687,7 @@ mod tests {
                     offset: -12,
                 },
                 registers: [(Register(0), RegisterRule::Offset(-16))]
-                    .into_iter()
+                    .iter()
                     .collect(),
             }
         );
