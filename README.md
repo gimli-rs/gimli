@@ -18,7 +18,7 @@
 
 * **Cross-platform:** `gimli` makes no assumptions about what kind of object
   file you're working with. The flipside to that is that it's up to you to
-  provide an ELF loader on Linux or Mach-O loader on OSX.
+  provide an ELF loader on Linux or Mach-O loader on macOS.
 
   * Unsure which object file parser to use? Try the cross-platform
   [`object`](https://github.com/gimli-rs/object) crate. See the
@@ -33,7 +33,7 @@ Add this to your `Cargo.toml`:
 gimli = "0.19.0"
 ```
 
-The minimum supported rust version is 1.32.0.
+The minimum supported Rust version is 1.32.0.
 
 ## Documentation
 
@@ -48,14 +48,14 @@ The minimum supported rust version is 1.32.0.
   * [An `addr2line` clone](https://github.com/gimli-rs/addr2line)
 
   * [`ddbug`](https://github.com/philipc/ddbug), a utility giving insight into
-    code generation by making debugging information readable
+    code generation by making debugging information readable.
 
   * [`dwprod`](https://github.com/fitzgen/dwprod), a tiny utility to list the
     compilers used to create each compilation unit within a shared library or
-    executable (via `DW_AT_producer`)
+    executable (via `DW_AT_producer`).
 
   * [`dwarf-validate`](./examples/dwarf-validate.rs), a program to validate the
-    integrity of some DWARF and its references between sections and ocmpilation
+    integrity of some DWARF and its references between sections and compilation
     units.
 
 ## License
