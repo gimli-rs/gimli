@@ -5686,9 +5686,7 @@ mod tests {
                     register: Register(4),
                     offset: -12,
                 },
-                registers: [(Register(0), RegisterRule::Offset(-16))]
-                    .iter()
-                    .collect(),
+                registers: [(Register(0), RegisterRule::Offset(-16))].iter().collect(),
             }
         );
     }
