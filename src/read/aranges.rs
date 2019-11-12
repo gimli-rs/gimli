@@ -61,7 +61,8 @@ impl<T: Copy + Ord> PartialOrd for ArangeEntry<T> {
 impl<T: Copy + Ord> Ord for ArangeEntry<T> {
     fn cmp(&self, other: &ArangeEntry<T>) -> Ordering {
         // The expected comparison, but ignore header.
-        self.segment.cmp(&other.segment)
+        self.segment
+            .cmp(&other.segment)
             .then(self.address.cmp(&other.address))
             .then(self.length.cmp(&other.length))
     }

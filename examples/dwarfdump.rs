@@ -584,7 +584,7 @@ fn dump_eh_frame<R: Reader, W: Write>(
     w: &mut W,
     eh_frame: &gimli::EhFrame<R>,
     bases: &gimli::BaseAddresses,
-    register_name: &Fn(gimli::Register) -> Cow<'static, str>,
+    register_name: &dyn Fn(gimli::Register) -> Cow<'static, str>,
 ) -> Result<()> {
     // TODO: Print "__eh_frame" here on macOS, and more generally use the
     // section that we're actually looking at, which is what the canonical
@@ -674,7 +674,7 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
     w: &mut W,
     mut insns: gimli::CallFrameInstructionIter<R>,
     is_initial: bool,
-    register_name: &Fn(gimli::Register) -> Cow<'static, str>,
+    register_name: &dyn Fn(gimli::Register) -> Cow<'static, str>,
 ) -> Result<()> {
     use gimli::CallFrameInstruction::*;
 
@@ -1323,7 +1323,14 @@ fn dump_exprloc<R: Reader, W: Write>(
                 writeln!(w, "WARNING: unsupported register {}", register)?;
                 return Ok(());
             }
-            otherwise => panic!("Unexpected Operation::parse result: {:?}", otherwise),
+            Err(gimli::Error::UnexpectedEof(_)) => {
+                writeln!(w, "WARNING: truncated or malformed expression")?;
+                return Ok(());
+            }
+            Err(e) => {
+                writeln!(w, "WARNING: unexpected operation parse error: {}", e)?;
+                return Ok(());
+            }
         }
     }
     Ok(())
