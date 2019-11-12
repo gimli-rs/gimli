@@ -1323,7 +1323,14 @@ fn dump_exprloc<R: Reader, W: Write>(
                 writeln!(w, "WARNING: unsupported register {}", register)?;
                 return Ok(());
             }
-            otherwise => panic!("Unexpected Operation::parse result: {:?}", otherwise),
+            Err(gimli::Error::UnexpectedEof(_)) => {
+                writeln!(w, "WARNING: truncated or malformed expression")?;
+                return Ok(());
+            }
+            otherwise => {
+                writeln!(w, "WARNING: unexpected operation parse result: {:?}", otherwise)?;
+                return Ok(());
+            }
         }
     }
     Ok(())
