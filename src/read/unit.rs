@@ -2082,12 +2082,7 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
 /// Can be [used with
 /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
 #[derive(Clone, Copy, Debug)]
-pub struct AttrsIter<'abbrev, 'entry, 'unit, R>
-where
-    'abbrev: 'entry,
-    'unit: 'entry,
-    R: Reader,
-{
+pub struct AttrsIter<'abbrev, 'entry, 'unit, R: Reader> {
     input: R,
     attributes: &'abbrev [AttributeSpecification],
     entry: &'entry DebuggingInformationEntry<'abbrev, 'unit, R>,
@@ -2671,12 +2666,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
 /// The root node of a tree can be obtained
 /// via [`EntriesTree::root`](./struct.EntriesTree.html#method.root).
 #[derive(Debug)]
-pub struct EntriesTreeNode<'abbrev, 'unit, 'tree, R>
-where
-    'abbrev: 'tree,
-    'unit: 'tree,
-    R: Reader,
-{
+pub struct EntriesTreeNode<'abbrev, 'unit, 'tree, R: Reader> {
     tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
     depth: isize,
 }
@@ -2711,12 +2701,7 @@ impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeNode<'abbrev, 'unit, 'tree, R>
 /// The items returned by this iterator are also `EntriesTreeNode`s,
 /// which allow recursive traversal of grandchildren, etc.
 #[derive(Debug)]
-pub struct EntriesTreeIter<'abbrev, 'unit, 'tree, R>
-where
-    'abbrev: 'tree,
-    'unit: 'tree,
-    R: Reader,
-{
+pub struct EntriesTreeIter<'abbrev, 'unit, 'tree, R: Reader> {
     tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
     depth: isize,
     empty: bool,
