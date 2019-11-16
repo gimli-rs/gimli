@@ -159,28 +159,24 @@ fn add_relocations(
         let offset = offset as usize;
         match relocation.kind() {
             object::RelocationKind::Absolute => {
-                if let Some(symbol) = file.symbol_by_index(relocation.symbol()) {
-                    match file.format() {
-                        object::Format::Elf32 | object::Format::Elf64 => {
+                match relocation.target() {
+                    object::RelocationTarget::Symbol(symbol_idx) => {
+                        if let Some(symbol) = file.symbol_by_index(symbol_idx) {
                             let addend = symbol.address().wrapping_add(relocation.addend() as u64);
                             relocation.set_addend(addend as i64);
-                        }
-                        object::Format::MachO32 | object::Format::MachO64 => {}
-                        object::Format::Pe32 | object::Format::Pe64 | object::Format::Wasm => {
-                            println!("File format {:?} is not yet supported.", file.format());
-                            std::process::exit(1);
+                        } else {
+                            println!(
+                                "Relocation with invalid symbol for section {} at offset 0x{:08x}",
+                                section.name().unwrap(),
+                                offset
+                            );
                         }
                     }
-                    if relocations.insert(offset, relocation).is_some() {
-                        println!(
-                            "Multiple relocations for section {} at offset 0x{:08x}",
-                            section.name().unwrap(),
-                            offset
-                        );
-                    }
-                } else {
+                    object::RelocationTarget::Section(_section_idx) => {}
+                }
+                if relocations.insert(offset, relocation).is_some() {
                     println!(
-                        "Relocation with invalid symbol for section {} at offset 0x{:08x}",
+                        "Multiple relocations for section {} at offset 0x{:08x}",
                         section.name().unwrap(),
                         offset
                     );
@@ -523,19 +519,19 @@ where
     let out = io::stdout();
     if flags.eh_frame {
         // TODO: this might be better based on the file format.
-        let address_size = match file.machine() {
-            object::Machine::Arm | object::Machine::Mips | object::Machine::X86 => 4,
-            object::Machine::Arm64 | object::Machine::X86_64 => 8,
-            object::Machine::Other => mem::size_of::<usize>() as u8,
-        };
+        let address_size = file
+            .architecture()
+            .pointer_width()
+            .map(|w| w.bytes())
+            .unwrap_or(mem::size_of::<usize>() as u8);
 
         fn register_name_none(_: gimli::Register) -> Option<&'static str> {
             None
         }
-        let arch_register_name = match file.machine() {
-            object::Machine::Arm | object::Machine::Arm64 => gimli::Arm::register_name,
-            object::Machine::X86 => gimli::X86::register_name,
-            object::Machine::X86_64 => gimli::X86_64::register_name,
+        let arch_register_name = match file.architecture() {
+            target_lexicon::Architecture::Arm(_) | target_lexicon::Architecture::Aarch64(_) => gimli::Arm::register_name,
+            target_lexicon::Architecture::I386 | target_lexicon::Architecture::I586 | target_lexicon::Architecture::I686 => gimli::X86::register_name,
+            target_lexicon::Architecture::X86_64 => gimli::X86_64::register_name,
             _ => register_name_none,
         };
         let register_name = |register| match arch_register_name(register) {
