@@ -160,8 +160,17 @@ fn add_relocations(
         match relocation.kind() {
             object::RelocationKind::Absolute => {
                 if let Some(symbol) = file.symbol_by_index(relocation.symbol()) {
-                    let addend = symbol.address().wrapping_add(relocation.addend() as u64);
-                    relocation.set_addend(addend as i64);
+                    match file.format() {
+                        object::Format::Elf32 | object::Format::Elf64 => {
+                            let addend = symbol.address().wrapping_add(relocation.addend() as u64);
+                            relocation.set_addend(addend as i64);
+                        }
+                        object::Format::MachO32 | object::Format::MachO64 => {}
+                        object::Format::Pe32 | object::Format::Pe64 | object::Format::Wasm => {
+                            println!("File format {:?} is not yet supported.", file.format());
+                            std::process::exit(1);
+                        }
+                    }
                     if relocations.insert(offset, relocation).is_some() {
                         println!(
                             "Multiple relocations for section {} at offset 0x{:08x}",
@@ -935,7 +944,7 @@ fn dump_types<R: Reader, W: Write>(
         let unit = match dwarf.type_unit(header) {
             Ok(unit) => unit,
             Err(err) => {
-                writeln_error(w, dwarf, err.into(), "Failed to parse unit root entry")?;
+                writeln_error(w, dwarf, err.into(), "Failed to parse type unit root entry")?;
                 continue;
             }
         };
@@ -1754,7 +1763,7 @@ fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<
         let unit = match dwarf.unit(header) {
             Ok(unit) => unit,
             Err(err) => {
-                writeln_error(w, dwarf, err.into(), "Failed to parse unit root entry")?;
+                writeln_error(w, dwarf, err.into(), "Failed to parse unit root entry for dump_line")?;
                 continue;
             }
         };
