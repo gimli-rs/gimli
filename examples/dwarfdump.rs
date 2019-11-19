@@ -529,8 +529,12 @@ where
             None
         }
         let arch_register_name = match file.architecture() {
-            target_lexicon::Architecture::Arm(_) | target_lexicon::Architecture::Aarch64(_) => gimli::Arm::register_name,
-            target_lexicon::Architecture::I386 | target_lexicon::Architecture::I586 | target_lexicon::Architecture::I686 => gimli::X86::register_name,
+            target_lexicon::Architecture::Arm(_) | target_lexicon::Architecture::Aarch64(_) => {
+                gimli::Arm::register_name
+            }
+            target_lexicon::Architecture::I386
+            | target_lexicon::Architecture::I586
+            | target_lexicon::Architecture::I686 => gimli::X86::register_name,
             target_lexicon::Architecture::X86_64 => gimli::X86_64::register_name,
             _ => register_name_none,
         };
@@ -1759,7 +1763,12 @@ fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<
         let unit = match dwarf.unit(header) {
             Ok(unit) => unit,
             Err(err) => {
-                writeln_error(w, dwarf, err.into(), "Failed to parse unit root entry for dump_line")?;
+                writeln_error(
+                    w,
+                    dwarf,
+                    err.into(),
+                    "Failed to parse unit root entry for dump_line",
+                )?;
                 continue;
             }
         };
