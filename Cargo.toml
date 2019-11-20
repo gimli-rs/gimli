@@ -21,6 +21,7 @@ arrayvec = { version = "0.4.6", default-features = false }
 byteorder = { version = "1.0", default-features = false }
 fallible-iterator = { version = "0.2.0", default-features = false }
 indexmap = { version = "1.0.2", optional = true }
+smallvec = { version = "0.6.10", default-features = false }
 stable_deref_trait = { version = "1.1.0", default-features = false }
 
 [dev-dependencies]
@@ -41,3 +42,7 @@ write = ["std", "indexmap"]
 std = ["fallible-iterator/std", "stable_deref_trait/std"]
 alloc = ["fallible-iterator/alloc", "stable_deref_trait/alloc"]
 default = ["read", "write", "std"]
+
+[profile.bench]
+debug = true
+codegen-units = 1

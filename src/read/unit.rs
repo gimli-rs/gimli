@@ -1862,7 +1862,7 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
     loop {
         let value = match form {
             constants::DW_FORM_indirect => {
-                let dynamic_form = input.read_uleb128()?;
+                let dynamic_form = input.read_uleb128_u16()?;
                 form = constants::DwForm(dynamic_form);
                 continue;
             }
@@ -3128,6 +3128,7 @@ mod tests {
     };
     use crate::test_util::GimliSectionMethods;
     use crate::vec::Vec;
+    use smallvec::smallvec;
     use std;
     use std::cell::Cell;
     use test_assembler::{Endian, Label, LabelMaker, Section};
@@ -4416,7 +4417,7 @@ mod tests {
 
         let bytes_written = {
             let mut writable = &mut buf[..];
-            leb128::write::unsigned(&mut writable, constants::DW_FORM_udata.0)
+            leb128::write::unsigned(&mut writable, constants::DW_FORM_udata.0.into())
                 .expect("should write udata")
                 + leb128::write::unsigned(&mut writable, 9_999_999).expect("should write value")
         };
@@ -4445,7 +4446,7 @@ mod tests {
             42,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_yes,
-            vec![
+            smallvec![
                 AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
                 AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr, None),
                 AttributeSpecification::new(
@@ -4556,7 +4557,7 @@ mod tests {
             42,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_yes,
-            vec![
+            smallvec![
                 AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
                 AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr, None),
                 AttributeSpecification::new(

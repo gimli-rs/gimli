@@ -61,7 +61,7 @@ impl Abbreviation {
 
     /// Write the abbreviation to the `.debug_abbrev` section.
     pub fn write<W: Writer>(&self, w: &mut DebugAbbrev<W>) -> Result<()> {
-        w.write_uleb128(self.tag.0)?;
+        w.write_uleb128(self.tag.0.into())?;
         w.write_u8(if self.has_children {
             constants::DW_CHILDREN_yes.0
         } else {
@@ -94,8 +94,8 @@ impl AttributeSpecification {
     /// Write the attribute specification to the `.debug_abbrev` section.
     #[inline]
     pub fn write<W: Writer>(&self, w: &mut DebugAbbrev<W>) -> Result<()> {
-        w.write_uleb128(self.name.0)?;
-        w.write_uleb128(self.form.0)
+        w.write_uleb128(self.name.0.into())?;
+        w.write_uleb128(self.form.0.into())
     }
 }
 

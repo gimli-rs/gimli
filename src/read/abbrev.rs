@@ -2,6 +2,7 @@
 
 use crate::collections::btree_map;
 use crate::vec::Vec;
+use smallvec::SmallVec;
 
 use crate::common::{DebugAbbrevOffset, SectionId};
 use crate::constants;
@@ -173,6 +174,9 @@ impl Abbreviations {
     }
 }
 
+// Length of 5 based on benchmark results for both x86-64 and i686.
+type Attributes = SmallVec<[AttributeSpecification; 5]>;
+
 /// An abbreviation describes the shape of a `DebuggingInformationEntry`'s type:
 /// its code, tag type, whether it has children, and its set of attributes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,7 +184,7 @@ pub struct Abbreviation {
     code: u64,
     tag: constants::DwTag,
     has_children: constants::DwChildren,
-    attributes: Vec<AttributeSpecification>,
+    attributes: Attributes,
 }
 
 impl Abbreviation {
@@ -193,7 +197,7 @@ impl Abbreviation {
         code: u64,
         tag: constants::DwTag,
         has_children: constants::DwChildren,
-        attributes: Vec<AttributeSpecification>,
+        attributes: Attributes,
     ) -> Abbreviation {
         assert_ne!(code, 0);
         Abbreviation {
@@ -230,7 +234,7 @@ impl Abbreviation {
 
     /// Parse an abbreviation's tag.
     fn parse_tag<R: Reader>(input: &mut R) -> Result<constants::DwTag> {
-        let val = input.read_uleb128()?;
+        let val = input.read_uleb128_u16()?;
         if val == 0 {
             Err(Error::AbbreviationTagZero)
         } else {
@@ -251,8 +255,8 @@ impl Abbreviation {
 
     /// Parse a series of attribute specifications, terminated by a null attribute
     /// specification.
-    fn parse_attributes<R: Reader>(input: &mut R) -> Result<Vec<AttributeSpecification>> {
-        let mut attrs = Vec::new();
+    fn parse_attributes<R: Reader>(input: &mut R) -> Result<Attributes> {
+        let mut attrs = SmallVec::new();
 
         while let Some(attr) = AttributeSpecification::parse(input)? {
             attrs.push(attr);
@@ -373,7 +377,7 @@ impl AttributeSpecification {
 
     /// Parse an attribute's form.
     fn parse_form<R: Reader>(input: &mut R) -> Result<constants::DwForm> {
-        let val = input.read_uleb128()?;
+        let val = input.read_uleb128_u16()?;
         if val == 0 {
             Err(Error::AttributeFormZero)
         } else {
@@ -384,10 +388,10 @@ impl AttributeSpecification {
     /// Parse an attribute specification. Returns `None` for the null attribute
     /// specification, `Some` for an actual attribute specification.
     fn parse<R: Reader>(input: &mut R) -> Result<Option<AttributeSpecification>> {
-        let name = input.read_uleb128()?;
+        let name = input.read_uleb128_u16()?;
         if name == 0 {
             // Parse the null attribute specification.
-            let form = input.read_uleb128()?;
+            let form = input.read_uleb128_u16()?;
             return if form == 0 {
                 Ok(None)
             } else {
@@ -414,6 +418,7 @@ pub mod tests {
     use crate::endianity::LittleEndian;
     use crate::read::{EndianSlice, Error};
     use crate::test_util::GimliSectionMethods;
+    use smallvec::smallvec;
     #[cfg(target_pointer_width = "32")]
     use std::u32;
     use test_assembler::Section;
@@ -428,7 +433,7 @@ pub mod tests {
 
     impl AbbrevSectionMethods for Section {
         fn abbrev(self, code: u64, tag: constants::DwTag, children: constants::DwChildren) -> Self {
-            self.uleb(code).uleb(tag.0).D8(children.0)
+            self.uleb(code).uleb(tag.0.into()).D8(children.0)
         }
 
         fn abbrev_null(self) -> Self {
@@ -436,12 +441,12 @@ pub mod tests {
         }
 
         fn abbrev_attr(self, name: constants::DwAt, form: constants::DwForm) -> Self {
-            self.uleb(name.0).uleb(form.0)
+            self.uleb(name.0.into()).uleb(form.0.into())
         }
 
         fn abbrev_attr_implicit_const(self, name: constants::DwAt, value: i64) -> Self {
-            self.uleb(name.0)
-                .uleb(constants::DW_FORM_implicit_const.0)
+            self.uleb(name.0.into())
+                .uleb(constants::DW_FORM_implicit_const.0.into())
                 .sleb(value)
         }
 
@@ -473,7 +478,7 @@ pub mod tests {
             1,
             constants::DW_TAG_compile_unit,
             constants::DW_CHILDREN_yes,
-            vec![
+            smallvec![
                 AttributeSpecification::new(
                     constants::DW_AT_producer,
                     constants::DW_FORM_strp,
@@ -491,7 +496,7 @@ pub mod tests {
             2,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
-            vec![AttributeSpecification::new(
+            smallvec![AttributeSpecification::new(
                 constants::DW_AT_name,
                 constants::DW_FORM_string,
                 None,
@@ -509,17 +514,17 @@ pub mod tests {
 
     #[test]
     fn test_abbreviations_insert() {
-        fn abbrev(code: u64) -> Abbreviation {
+        fn abbrev(code: u16) -> Abbreviation {
             Abbreviation::new(
-                code,
+                code.into(),
                 constants::DwTag(code),
                 constants::DW_CHILDREN_no,
-                vec![],
+                smallvec![],
             )
         }
 
-        fn assert_abbrev(abbrevs: &Abbreviations, code: u64) {
-            let abbrev = abbrevs.get(code).unwrap();
+        fn assert_abbrev(abbrevs: &Abbreviations, code: u16) {
+            let abbrev = abbrevs.get(code.into()).unwrap();
             assert_eq!(abbrev.tag(), constants::DwTag(code));
         }
 
@@ -579,15 +584,15 @@ pub mod tests {
         fn abbrev(code: u64) -> Abbreviation {
             Abbreviation::new(
                 code,
-                constants::DwTag(code),
+                constants::DwTag(code as u16),
                 constants::DW_CHILDREN_no,
-                vec![],
+                smallvec![],
             )
         }
 
         fn assert_abbrev(abbrevs: &Abbreviations, code: u64) {
             let abbrev = abbrevs.get(code).unwrap();
-            assert_eq!(abbrev.tag(), constants::DwTag(code));
+            assert_eq!(abbrev.tag(), constants::DwTag(code as u16));
         }
 
         let mut abbrevs = Abbreviations::empty();
@@ -624,7 +629,7 @@ pub mod tests {
             1,
             constants::DW_TAG_compile_unit,
             constants::DW_CHILDREN_yes,
-            vec![
+            smallvec![
                 AttributeSpecification::new(
                     constants::DW_AT_producer,
                     constants::DW_FORM_strp,
@@ -642,7 +647,7 @@ pub mod tests {
             2,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
-            vec![AttributeSpecification::new(
+            smallvec![AttributeSpecification::new(
                 constants::DW_AT_name,
                 constants::DW_FORM_string,
                 None,
@@ -728,7 +733,7 @@ pub mod tests {
             1,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
-            vec![AttributeSpecification::new(
+            smallvec![AttributeSpecification::new(
                 constants::DW_AT_name,
                 constants::DW_FORM_string,
                 None,
@@ -756,7 +761,7 @@ pub mod tests {
             1,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
-            vec![AttributeSpecification::new(
+            smallvec![AttributeSpecification::new(
                 constants::DW_AT_name,
                 constants::DW_FORM_implicit_const,
                 Some(-42),
