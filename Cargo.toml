@@ -17,7 +17,7 @@ travis-ci = { repository = "gimli-rs/gimli" }
 coveralls = { repository = "gimli-rs/gimli" }
 
 [dependencies]
-arrayvec = { version = "0.4.6", default-features = false }
+arrayvec = { version = "0.5.1", default-features = false }
 byteorder = { version = "1.0", default-features = false }
 fallible-iterator = { version = "0.2.0", default-features = false }
 indexmap = { version = "1.0.2", optional = true }
