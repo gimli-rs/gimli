@@ -8,7 +8,7 @@ use std::{u16, u8};
 use crate::common::{
     DebugAbbrevOffset, DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineOffset,
     DebugLineStrOffset, DebugLocListsBase, DebugLocListsIndex, DebugMacinfoOffset,
-    DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
+    DebugMacroOffset, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
     DebugStrOffsetsIndex, DebugTypeSignature, DebugTypesOffset, Encoding, Format,
     LocationListsOffset, RangeListsOffset, SectionId,
 };
@@ -1067,6 +1067,9 @@ where
     /// An offset into the `.debug_macinfo` section.
     DebugMacinfoRef(DebugMacinfoOffset<Offset>),
 
+    /// An offset into the `.debug_macro` section.
+    DebugMacroRef(DebugMacroOffset<Offset>),
+
     /// An offset into the `.debug_ranges` section.
     RangeListsRef(RangeListsOffset<Offset>),
 
@@ -1165,12 +1168,12 @@ impl<R: Reader> Attribute<R> {
     /// converts the attribute value to a normalized form based on the attribute
     /// name.
     ///
-    /// See "Figure 20. Attribute encodings" and "Figure 21. Attribute form encodings".
+    /// See "Table 7.5: Attribute encodings" and "Table 7.6: Attribute form encodings".
     #[allow(clippy::cyclomatic_complexity)]
     #[allow(clippy::match_same_arms)]
     pub fn value(&self) -> AttributeValue<R> {
-        // Figure 20 shows the possible attribute classes for each name.
-        // Figure 21 shows the possible attribute classes for each form.
+        // Table 7.5 shows the possible attribute classes for each name.
+        // Table 7.6 shows the possible attribute classes for each form.
         // For each attribute name, we need to match on the form, and
         // convert it to one of the classes that is allowed for both
         // the name and the form.
@@ -1184,9 +1187,17 @@ impl<R: Reader> Attribute<R> {
         // provide strict checking of the forms for each class.  For now,
         // they simply provide a way to document the allowed classes for
         // each name.
+
+        // DW_FORM_addr
+        // DW_FORM_addrx
+        // DW_FORM_addrx1
+        // DW_FORM_addrx2
+        // DW_FORM_addrx3
+        // DW_FORM_addrx4
         macro_rules! address {
             () => {};
         }
+        // DW_FORM_sec_offset
         macro_rules! addrptr {
             () => {
                 if let Some(offset) = self.offset_value() {
@@ -1194,9 +1205,21 @@ impl<R: Reader> Attribute<R> {
                 }
             };
         }
+        // DW_FORM_block
+        // DW_FORM_block1
+        // DW_FORM_block2
+        // DW_FORM_block4
         macro_rules! block {
             () => {};
         }
+        // DW_FORM_sdata
+        // DW_FORM_udata
+        // DW_FORM_data1
+        // DW_FORM_data2
+        // DW_FORM_data4
+        // DW_FORM_data8
+        // DW_FORM_data16
+        // DW_FORM_implicit_const
         macro_rules! constant {
             ($value:ident, $variant:ident) => {
                 if let Some(value) = self.$value() {
@@ -1209,6 +1232,7 @@ impl<R: Reader> Attribute<R> {
                 }
             };
         }
+        // DW_FORM_exprloc
         macro_rules! exprloc {
             () => {
                 if let Some(value) = self.exprloc_value() {
@@ -1216,9 +1240,12 @@ impl<R: Reader> Attribute<R> {
                 }
             };
         }
+        // DW_FORM_flag
+        // DW_FORM_flag_present
         macro_rules! flag {
             () => {};
         }
+        // DW_FORM_sec_offset
         macro_rules! lineptr {
             () => {
                 if let Some(offset) = self.offset_value() {
@@ -1227,6 +1254,8 @@ impl<R: Reader> Attribute<R> {
             };
         }
         // This also covers `loclist` in DWARF version 5.
+        // DW_FORM_sec_offset
+        // DW_FORM_loclistx
         macro_rules! loclistptr {
             () => {
                 // DebugLocListsIndex is also an allowed form in DWARF version 5.
@@ -1235,6 +1264,7 @@ impl<R: Reader> Attribute<R> {
                 }
             };
         }
+        // DW_FORM_sec_offset
         macro_rules! loclistsptr {
             () => {
                 if let Some(offset) = self.offset_value() {
@@ -1242,17 +1272,39 @@ impl<R: Reader> Attribute<R> {
                 }
             };
         }
-        macro_rules! macptr {
+        // DWARF version <= 4.
+        // DW_FORM_sec_offset
+        macro_rules! macinfoptr {
             () => {
                 if let Some(offset) = self.offset_value() {
                     return AttributeValue::DebugMacinfoRef(DebugMacinfoOffset(offset));
                 }
             };
         }
+        // DWARF version >= 5.
+        // DW_FORM_sec_offset
+        macro_rules! macroptr {
+            () => {
+                if let Some(offset) = self.offset_value() {
+                    return AttributeValue::DebugMacroRef(DebugMacroOffset(offset));
+                }
+            };
+        }
+        // DW_FORM_ref_addr
+        // DW_FORM_ref1
+        // DW_FORM_ref2
+        // DW_FORM_ref4
+        // DW_FORM_ref8
+        // DW_FORM_ref_udata
+        // DW_FORM_ref_sig8
+        // DW_FORM_ref_sup4
+        // DW_FORM_ref_sup8
         macro_rules! reference {
             () => {};
         }
         // This also covers `rnglist` in DWARF version 5.
+        // DW_FORM_sec_offset
+        // DW_FORM_rnglistx
         macro_rules! rangelistptr {
             () => {
                 // DebugRngListsIndex is also an allowed form in DWARF version 5.
@@ -1261,6 +1313,7 @@ impl<R: Reader> Attribute<R> {
                 }
             };
         }
+        // DW_FORM_sec_offset
         macro_rules! rnglistsptr {
             () => {
                 if let Some(offset) = self.offset_value() {
@@ -1268,9 +1321,19 @@ impl<R: Reader> Attribute<R> {
                 }
             };
         }
+        // DW_FORM_string
+        // DW_FORM_strp
+        // DW_FORM_strx
+        // DW_FORM_strx1
+        // DW_FORM_strx2
+        // DW_FORM_strx3
+        // DW_FORM_strx4
+        // DW_FORM_strp_sup
+        // DW_FORM_line_strp
         macro_rules! string {
             () => {};
         }
+        // DW_FORM_sec_offset
         macro_rules! stroffsetsptr {
             () => {
                 if let Some(offset) = self.offset_value() {
@@ -1330,6 +1393,7 @@ impl<R: Reader> Attribute<R> {
             constants::DW_AT_string_length => {
                 exprloc!();
                 loclistptr!();
+                reference!();
             }
             constants::DW_AT_common_reference => {
                 reference!();
@@ -1346,7 +1410,9 @@ impl<R: Reader> Attribute<R> {
                 reference!();
             }
             constants::DW_AT_default_value => {
+                // TODO: constant: sign depends on DW_AT_type.
                 reference!();
+                flag!();
             }
             constants::DW_AT_inline => {
                 constant!(u8_value, Inline, DwInl);
@@ -1445,7 +1511,7 @@ impl<R: Reader> Attribute<R> {
                 constant!(u8_value, IdentifierCase, DwId);
             }
             constants::DW_AT_macro_info => {
-                macptr!();
+                macinfoptr!();
             }
             constants::DW_AT_namelist_item => {
                 reference!();
@@ -1500,6 +1566,7 @@ impl<R: Reader> Attribute<R> {
                 reference!();
             }
             constants::DW_AT_entry_pc => {
+                // TODO: constant
                 address!();
             }
             constants::DW_AT_use_UTF8 => {
@@ -1589,6 +1656,16 @@ impl<R: Reader> Attribute<R> {
             constants::DW_AT_linkage_name => {
                 string!();
             }
+            constants::DW_AT_string_length_bit_size => {
+                // TODO: constant
+            }
+            constants::DW_AT_string_length_byte_size => {
+                // TODO: constant
+            }
+            constants::DW_AT_rank => {
+                // TODO: constant
+                exprloc!();
+            }
             constants::DW_AT_str_offsets_base => {
                 stroffsetsptr!();
             }
@@ -1597,6 +1674,72 @@ impl<R: Reader> Attribute<R> {
             }
             constants::DW_AT_rnglists_base => {
                 rnglistsptr!();
+            }
+            constants::DW_AT_dwo_name => {
+                string!();
+            }
+            constants::DW_AT_reference => {
+                flag!();
+            }
+            constants::DW_AT_rvalue_reference => {
+                flag!();
+            }
+            constants::DW_AT_macros => {
+                macroptr!();
+            }
+            constants::DW_AT_call_all_calls => {
+                flag!();
+            }
+            constants::DW_AT_call_all_source_calls => {
+                flag!();
+            }
+            constants::DW_AT_call_all_tail_calls => {
+                flag!();
+            }
+            constants::DW_AT_call_return_pc => {
+                address!();
+            }
+            constants::DW_AT_call_value => {
+                exprloc!();
+            }
+            constants::DW_AT_call_origin => {
+                exprloc!();
+            }
+            constants::DW_AT_call_parameter => {
+                reference!();
+            }
+            constants::DW_AT_call_pc => {
+                address!();
+            }
+            constants::DW_AT_call_tail_call => {
+                flag!();
+            }
+            constants::DW_AT_call_target => {
+                exprloc!();
+            }
+            constants::DW_AT_call_target_clobbered => {
+                exprloc!();
+            }
+            constants::DW_AT_call_data_location => {
+                exprloc!();
+            }
+            constants::DW_AT_call_data_value => {
+                exprloc!();
+            }
+            constants::DW_AT_noreturn => {
+                flag!();
+            }
+            constants::DW_AT_alignment => {
+                // TODO: constant
+            }
+            constants::DW_AT_export_symbols => {
+                flag!();
+            }
+            constants::DW_AT_deleted => {
+                flag!();
+            }
+            constants::DW_AT_defaulted => {
+                // TODO: constant
             }
             constants::DW_AT_loclists_base => {
                 loclistsptr!();
@@ -1841,6 +1984,7 @@ fn allow_section_offset(name: constants::DwAt, version: u16) -> bool {
         | constants::DW_AT_start_scope
         | constants::DW_AT_frame_base
         | constants::DW_AT_macro_info
+        | constants::DW_AT_macros
         | constants::DW_AT_segment
         | constants::DW_AT_static_link
         | constants::DW_AT_use_location
