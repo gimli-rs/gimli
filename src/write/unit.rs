@@ -2151,8 +2151,7 @@ mod tests {
 
                         let spec = read::AttributeSpecification::new(*name, form, None);
                         let mut r = read::EndianSlice::new(debug_info.slice(), LittleEndian);
-                        let (read_attr, _) =
-                            read::parse_attribute(&mut r, &from_unit, &[spec]).unwrap();
+                        let read_attr = read::parse_attribute(&mut r, encoding, spec).unwrap();
                         let read_value = &read_attr.raw_value();
                         // read::AttributeValue is invariant in the lifetime of R.
                         // The lifetimes here are all okay, so transmute it.
@@ -2636,8 +2635,7 @@ mod tests {
 
                         let spec = read::AttributeSpecification::new(*name, form, None);
                         let mut r = read::EndianSlice::new(debug_info.slice(), LittleEndian);
-                        let (read_attr, _) =
-                            read::parse_attribute(&mut r, &from_unit, &[spec]).unwrap();
+                        let read_attr = read::parse_attribute(&mut r, encoding, spec).unwrap();
                         let read_value = &read_attr.raw_value();
                         // read::AttributeValue is invariant in the lifetime of R.
                         // The lifetimes here are all okay, so transmute it.

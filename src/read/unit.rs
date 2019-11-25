@@ -1995,13 +1995,11 @@ fn allow_section_offset(name: constants::DwAt, version: u16) -> bool {
     }
 }
 
-pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
+pub(crate) fn parse_attribute<'unit, R: Reader>(
     input: &mut R,
-    unit: &'unit UnitHeader<R>,
-    mut specs: &'abbrev [AttributeSpecification],
-) -> Result<(Attribute<R>, &'abbrev [AttributeSpecification])> {
-    let spec = specs[0];
-    specs = &specs[1..];
+    encoding: Encoding,
+    spec: AttributeSpecification,
+) -> Result<Attribute<R>> {
     let mut form = spec.form();
     loop {
         let value = match form {
@@ -2011,7 +2009,7 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 continue;
             }
             constants::DW_FORM_addr => {
-                let addr = input.read_address(unit.address_size())?;
+                let addr = input.read_address(encoding.address_size)?;
                 AttributeValue::Addr(addr)
             }
             constants::DW_FORM_block1 => {
@@ -2041,8 +2039,8 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
             constants::DW_FORM_data4 => {
                 // DWARF version 2/3 may use DW_FORM_data4/8 for section offsets.
                 // Ensure we handle relocations here.
-                if unit.format() == Format::Dwarf32
-                    && allow_section_offset(spec.name(), unit.version())
+                if encoding.format == Format::Dwarf32
+                    && allow_section_offset(spec.name(), encoding.version)
                 {
                     let offset = input.read_offset(Format::Dwarf32)?;
                     AttributeValue::SecOffset(offset)
@@ -2054,8 +2052,8 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
             constants::DW_FORM_data8 => {
                 // DWARF version 2/3 may use DW_FORM_data4/8 for section offsets.
                 // Ensure we handle relocations here.
-                if unit.format() == Format::Dwarf64
-                    && allow_section_offset(spec.name(), unit.version())
+                if encoding.format == Format::Dwarf64
+                    && allow_section_offset(spec.name(), encoding.version)
                 {
                     let offset = input.read_offset(Format::Dwarf64)?;
                     AttributeValue::SecOffset(offset)
@@ -2090,7 +2088,7 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 AttributeValue::Flag(true)
             }
             constants::DW_FORM_sec_offset => {
-                let offset = input.read_offset(unit.format())?;
+                let offset = input.read_offset(encoding.format)?;
                 AttributeValue::SecOffset(offset)
             }
             constants::DW_FORM_ref1 => {
@@ -2117,10 +2115,10 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 // This is an offset, but DWARF version 2 specifies that DW_FORM_ref_addr
                 // has the same size as an address on the target system.  This was changed
                 // in DWARF version 3.
-                let offset = if unit.version() == 2 {
-                    input.read_sized_offset(unit.address_size())?
+                let offset = if encoding.version == 2 {
+                    input.read_sized_offset(encoding.address_size)?
                 } else {
-                    input.read_offset(unit.format())?
+                    input.read_offset(encoding.format)?
                 };
                 AttributeValue::DebugInfoRef(DebugInfoOffset(offset))
             }
@@ -2137,7 +2135,7 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 AttributeValue::DebugInfoRefSup(DebugInfoOffset(offset))
             }
             constants::DW_FORM_GNU_ref_alt => {
-                let offset = input.read_offset(unit.format())?;
+                let offset = input.read_offset(encoding.format)?;
                 AttributeValue::DebugInfoRefSup(DebugInfoOffset(offset))
             }
             constants::DW_FORM_string => {
@@ -2145,15 +2143,15 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
                 AttributeValue::String(string)
             }
             constants::DW_FORM_strp => {
-                let offset = input.read_offset(unit.format())?;
+                let offset = input.read_offset(encoding.format)?;
                 AttributeValue::DebugStrRef(DebugStrOffset(offset))
             }
             constants::DW_FORM_strp_sup | constants::DW_FORM_GNU_strp_alt => {
-                let offset = input.read_offset(unit.format())?;
+                let offset = input.read_offset(encoding.format)?;
                 AttributeValue::DebugStrRefSup(DebugStrOffset(offset))
             }
             constants::DW_FORM_line_strp => {
-                let offset = input.read_offset(unit.format())?;
+                let offset = input.read_offset(encoding.format)?;
                 AttributeValue::DebugLineStrRef(DebugLineStrOffset(offset))
             }
             constants::DW_FORM_implicit_const => AttributeValue::Sdata(spec.implicit_const_value()),
@@ -2213,7 +2211,7 @@ pub(crate) fn parse_attribute<'unit, 'abbrev, R: Reader>(
             name: spec.name(),
             value,
         };
-        return Ok((attr, specs));
+        return Ok(attr);
     }
 }
 
@@ -2257,9 +2255,11 @@ impl<'abbrev, 'entry, 'unit, R: Reader> AttrsIter<'abbrev, 'entry, 'unit, R> {
             return Ok(None);
         }
 
-        match parse_attribute(&mut self.input, self.entry.unit, &self.attributes[..]) {
-            Ok((attr, rest_attr)) => {
-                self.attributes = rest_attr;
+        let spec = self.attributes[0];
+        let rest_spec = &self.attributes[1..];
+        match parse_attribute(&mut self.input, self.entry.unit.encoding(), spec) {
+            Ok(attr) => {
+                self.attributes = rest_spec;
                 Ok(Some(attr))
             }
             Err(e) => {
@@ -3922,10 +3922,9 @@ mod tests {
             let (format, version, name, form, mut input, expect_raw, expect_value) = *test;
             unit.encoding.format = format;
             unit.encoding.version = version;
-            let spec = vec![AttributeSpecification::new(name, form, None)];
-            let attribute = parse_attribute(&mut input, &unit, &spec[..])
-                .expect("Should parse attribute")
-                .0;
+            let spec = AttributeSpecification::new(name, form, None);
+            let attribute =
+                parse_attribute(&mut input, unit.encoding(), spec).expect("Should parse attribute");
             assert_eq!(attribute.raw_value(), expect_raw);
             assert_eq!(attribute.value(), expect_value);
         }
@@ -4013,11 +4012,7 @@ mod tests {
     ) where
         Endian: Endianity,
     {
-        let spec = vec![AttributeSpecification::new(
-            constants::DW_AT_low_pc,
-            form,
-            None,
-        )];
+        let spec = AttributeSpecification::new(constants::DW_AT_low_pc, form, None);
 
         let expect = Attribute {
             name: constants::DW_AT_low_pc,
@@ -4025,8 +4020,8 @@ mod tests {
         };
 
         let rest = &mut EndianSlice::new(buf, Endian::default());
-        match parse_attribute(rest, unit, &spec[..]) {
-            Ok((attr, _)) => {
+        match parse_attribute(rest, unit.encoding(), spec) {
+            Ok(attr) => {
                 assert_eq!(attr, expect);
                 assert_eq!(*rest, EndianSlice::new(&buf[len..], Endian::default()));
             }
