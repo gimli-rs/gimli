@@ -62,8 +62,16 @@ fn impl_bench_parsing_debug_info<R: Reader>(
         let mut cursor = unit.entries(&abbrevs);
         while let Some((_, entry)) = cursor.next_dfs().expect("Should parse next dfs") {
             let mut attrs = entry.attrs();
-            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
-                test::black_box(&attr);
+            loop {
+                match attrs.next() {
+                    Ok(Some(ref attr)) => {
+                        test::black_box(attr);
+                    }
+                    Ok(None) => break,
+                    e @ Err(_) => {
+                        e.expect("Should parse entry's attribute");
+                    }
+                }
             }
         }
     }
@@ -123,8 +131,16 @@ fn bench_parsing_debug_info_tree(b: &mut test::Bencher) {
 fn parse_debug_info_tree<R: Reader>(node: EntriesTreeNode<R>) {
     {
         let mut attrs = node.entry().attrs();
-        while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
-            test::black_box(&attr);
+        loop {
+            match attrs.next() {
+                Ok(Some(ref attr)) => {
+                    test::black_box(attr);
+                }
+                Ok(None) => break,
+                e @ Err(_) => {
+                    e.expect("Should parse entry's attribute");
+                }
+            }
         }
     }
     let mut children = node.children();
@@ -158,8 +174,14 @@ fn bench_parsing_debug_info_raw(b: &mut test::Bencher) {
                     .expect("Should parse abbreviation code")
                 {
                     for spec in abbrev.attributes().iter().cloned() {
-                        let attr = raw.read_attribute(spec).expect("Should parse attribute");
-                        test::black_box(&attr);
+                        match raw.read_attribute(spec) {
+                            Ok(ref attr) => {
+                                test::black_box(attr);
+                            }
+                            e @ Err(_) => {
+                                e.expect("Should parse attribute");
+                            }
+                        }
                     }
                 }
             }
