@@ -134,6 +134,40 @@ fn parse_debug_info_tree<R: Reader>(node: EntriesTreeNode<R>) {
 }
 
 #[bench]
+fn bench_parsing_debug_info_raw(b: &mut test::Bencher) {
+    let debug_abbrev = read_section("debug_abbrev");
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
+
+    let debug_info = read_section("debug_info");
+
+    b.iter(|| {
+        let debug_info = DebugInfo::new(&debug_info, LittleEndian);
+
+        let mut iter = debug_info.units();
+        while let Some(unit) = iter.next().expect("Should parse compilation unit") {
+            let abbrevs = unit
+                .abbreviations(&debug_abbrev)
+                .expect("Should parse abbreviations");
+
+            let mut raw = unit
+                .entries_raw(&abbrevs, None)
+                .expect("Should have entries");
+            while !raw.is_empty() {
+                if let Some(abbrev) = raw
+                    .read_abbreviation()
+                    .expect("Should parse abbreviation code")
+                {
+                    for spec in abbrev.attributes().iter().cloned() {
+                        let attr = raw.read_attribute(spec).expect("Should parse attribute");
+                        test::black_box(&attr);
+                    }
+                }
+            }
+        }
+    });
+}
+
+#[bench]
 fn bench_parsing_debug_aranges(b: &mut test::Bencher) {
     let debug_aranges = read_section("debug_aranges");
     let debug_aranges = DebugAranges::new(&debug_aranges, LittleEndian);

@@ -338,6 +338,15 @@ where
         self.header.entries_tree(abbreviations, offset)
     }
 
+    /// Read the raw data that defines the Debugging Information Entries.
+    pub fn entries_raw<'me, 'abbrev>(
+        &'me self,
+        abbreviations: &'abbrev Abbreviations,
+        offset: Option<UnitOffset<R::Offset>>,
+    ) -> Result<EntriesRaw<'abbrev, 'me, R>> {
+        self.header.entries_raw(abbreviations, offset)
+    }
+
     /// Parse this compilation unit's abbreviations.
     ///
     /// ```
@@ -641,6 +650,24 @@ where
             None => self.entries_buf.clone(),
         };
         Ok(EntriesTree::new(input, self, abbreviations))
+    }
+
+    /// Read the raw data that defines the Debugging Information Entries.
+    pub fn entries_raw<'me, 'abbrev>(
+        &'me self,
+        abbreviations: &'abbrev Abbreviations,
+        offset: Option<UnitOffset<R::Offset>>,
+    ) -> Result<EntriesRaw<'abbrev, 'me, R>> {
+        let input = match offset {
+            Some(offset) => self.range_from(offset..)?,
+            None => self.entries_buf.clone(),
+        };
+        Ok(EntriesRaw {
+            input,
+            unit: self,
+            abbreviations,
+            depth: 0,
+        })
     }
 
     /// Parse this unit's abbreviations.
@@ -2279,6 +2306,122 @@ impl<'abbrev, 'entry, 'unit, R: Reader> FallibleIterator for AttrsIter<'abbrev, 
     }
 }
 
+/// A raw reader of the data that defines the Debugging Information Entries.
+///
+/// `EntriesRaw` provides primitives to read the components of Debugging Information
+/// Entries (DIEs). A DIE consists of an abbreviation code (read with `read_abbreviation`)
+/// followed by a number of attributes (read with `read_attribute`).
+/// The user must provide the control flow to read these correctly.
+/// In particular, all attributes must always be read before reading another
+/// abbreviation code.
+///
+/// `EntriesRaw` lacks some features of `EntriesCursor`, such as the ability to skip
+/// to the next sibling DIE. However, this also allows it to optimize better, since it
+/// does not need to perform the extra bookkeeping required to support these features,
+/// and thus it is suitable for cases where performance is important.
+///
+/// ## Example Usage
+/// ```rust,no_run
+/// # fn example() -> Result<(), gimli::Error> {
+/// # let debug_info = gimli::DebugInfo::new(&[], gimli::LittleEndian);
+/// # let get_some_unit = || debug_info.units().next().unwrap().unwrap();
+/// let unit = get_some_unit();
+/// # let debug_abbrev = gimli::DebugAbbrev::new(&[], gimli::LittleEndian);
+/// # let get_abbrevs_for_unit = |_| unit.abbreviations(&debug_abbrev).unwrap();
+/// let abbrevs = get_abbrevs_for_unit(&unit);
+///
+/// let mut entries = unit.entries_raw(&abbrevs, None)?;
+/// while !entries.is_empty() {
+///     let abbrev = if let Some(abbrev) = entries.read_abbreviation()? {
+///         abbrev
+///     } else {
+///         // Null entry with no attributes.
+///         continue
+///     };
+///     match abbrev.tag() {
+///         gimli::DW_TAG_subprogram => {
+///             // Loop over attributes for DIEs we care about.
+///             for spec in abbrev.attributes() {
+///                 let attr = entries.read_attribute(*spec)?;
+///                 match attr.name() {
+///                     // Handle attributes.
+///                     _ => {}
+///                 }
+///             }
+///         }
+///         _ => {
+///             // Skip attributes for DIEs we don't care about.
+///             for spec in abbrev.attributes() {
+///                 entries.read_attribute(*spec)?;
+///             }
+///         }
+///     }
+/// }
+/// # unreachable!()
+/// # }
+/// ```
+#[derive(Clone, Debug)]
+pub struct EntriesRaw<'abbrev, 'unit, R>
+where
+    R: Reader,
+{
+    input: R,
+    unit: &'unit UnitHeader<R>,
+    abbreviations: &'abbrev Abbreviations,
+    depth: isize,
+}
+
+impl<'abbrev, 'unit, R: Reader> EntriesRaw<'abbrev, 'unit, R> {
+    /// Return true if there is no more input.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.input.is_empty()
+    }
+
+    /// Return the unit offset at which the reader will read next.
+    ///
+    /// If you want the offset of the next entry, then this must be called prior to reading
+    /// the next entry.
+    pub fn next_offset(&self) -> UnitOffset<R::Offset> {
+        UnitOffset(self.unit.header_size() + self.input.offset_from(&self.unit.entries_buf))
+    }
+
+    /// Return the depth of the next entry.
+    ///
+    /// This depth is updated when `read_abbreviation` is called, and is updated
+    /// based on null entries and the `has_children` field in the abbreviation.
+    #[inline]
+    pub fn next_depth(&self) -> isize {
+        self.depth
+    }
+
+    /// Read an abbreviation code and lookup the corresponding `Abbreviation`.
+    ///
+    /// Returns `Ok(None)` for null entries.
+    #[inline]
+    pub fn read_abbreviation(&mut self) -> Result<Option<&'abbrev Abbreviation>> {
+        let code = self.input.read_uleb128()?;
+        if code == 0 {
+            self.depth -= 1;
+            return Ok(None);
+        };
+        let abbrev = self
+            .abbreviations
+            .get(code)
+            .ok_or(Error::UnknownAbbreviation)?;
+        if abbrev.has_children() {
+            self.depth += 1;
+        }
+        Ok(Some(abbrev))
+    }
+
+    /// Read an attribute.
+    #[inline]
+    pub fn read_attribute(&mut self, spec: AttributeSpecification) -> Result<Attribute<R>> {
+        parse_attribute(&mut self.input, self.unit.encoding(), spec)
+    }
+}
+
 /// A cursor into the Debugging Information Entries tree for a compilation unit.
 ///
 /// The `EntriesCursor` can traverse the DIE tree in DFS order using `next_dfs()`,
@@ -3158,6 +3301,15 @@ where
         offset: Option<UnitOffset<R::Offset>>,
     ) -> Result<EntriesTree<'abbrev, 'me, R>> {
         self.header.entries_tree(abbreviations, offset)
+    }
+
+    /// Read the raw data that defines the Debugging Information Entries.
+    pub fn entries_raw<'me, 'abbrev>(
+        &'me self,
+        abbreviations: &'abbrev Abbreviations,
+        offset: Option<UnitOffset<R::Offset>>,
+    ) -> Result<EntriesRaw<'abbrev, 'me, R>> {
+        self.header.entries_raw(abbreviations, offset)
     }
 
     /// Parse this type unit's abbreviations.
@@ -5531,6 +5683,146 @@ mod tests {
         assert_entry(iter.next(), "2a");
         assert_entry(iter.next(), "2b");
         assert_null(iter.next());
+    }
+
+    #[test]
+    fn test_entries_raw() {
+        fn assert_abbrev<'input, 'abbrev, 'unit, Endian>(
+            entries: &mut EntriesRaw<'abbrev, 'unit, EndianSlice<'input, Endian>>,
+            tag: DwTag,
+        ) -> &'abbrev Abbreviation
+        where
+            Endian: Endianity,
+        {
+            let abbrev = entries
+                .read_abbreviation()
+                .expect("Should parse abbrev")
+                .expect("Should have abbrev");
+            assert_eq!(abbrev.tag(), tag);
+            abbrev
+        }
+
+        fn assert_null<'input, 'abbrev, 'unit, Endian>(
+            entries: &mut EntriesRaw<'abbrev, 'unit, EndianSlice<'input, Endian>>,
+        ) where
+            Endian: Endianity,
+        {
+            match entries.read_abbreviation() {
+                Ok(None) => {}
+                otherwise => {
+                    assert!(false, format!("Unexpected parse result = {:#?}", otherwise));
+                }
+            }
+        }
+
+        fn assert_attr<'input, 'abbrev, 'unit, Endian>(
+            entries: &mut EntriesRaw<'abbrev, 'unit, EndianSlice<'input, Endian>>,
+            spec: Option<AttributeSpecification>,
+            name: DwAt,
+            value: &str,
+        ) where
+            Endian: Endianity,
+        {
+            let spec = spec.expect("Should have attribute specification");
+            let attr = entries
+                .read_attribute(spec)
+                .expect("Should parse attribute");
+            assert_eq!(attr.name(), name);
+            assert_eq!(
+                attr.value(),
+                AttributeValue::String(EndianSlice::new(value.as_bytes(), Endian::default()))
+            );
+        }
+
+        #[rustfmt::skip]
+        let section = Section::with_endian(Endian::Little)
+            .abbrev(1, DW_TAG_subprogram, DW_CHILDREN_yes)
+                .abbrev_attr(DW_AT_name, DW_FORM_string)
+                .abbrev_attr(DW_AT_linkage_name, DW_FORM_string)
+                .abbrev_attr_null()
+            .abbrev(2, DW_TAG_variable, DW_CHILDREN_no)
+                .abbrev_attr(DW_AT_name, DW_FORM_string)
+                .abbrev_attr_null()
+            .abbrev_null();
+        let abbrevs_buf = section.get_contents().unwrap();
+        let debug_abbrev = DebugAbbrev::new(&abbrevs_buf, LittleEndian);
+
+        #[rustfmt::skip]
+        let section = Section::with_endian(Endian::Little)
+            .die(1, |s| s.attr_string("f1").attr_string("l1"))
+                .die(2, |s| s.attr_string("v1"))
+                .die(2, |s| s.attr_string("v2"))
+                .die(1, |s| s.attr_string("f2").attr_string("l2"))
+                    .die_null()
+                .die_null();
+        let entries_buf = section.get_contents().unwrap();
+
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 4,
+            address_size: 4,
+        };
+        let mut unit = CompilationUnitHeader {
+            header: UnitHeader {
+                encoding,
+                unit_length: 0,
+                debug_abbrev_offset: DebugAbbrevOffset(0),
+                entries_buf: EndianSlice::new(&entries_buf, LittleEndian),
+            },
+            offset: DebugInfoOffset(0),
+        };
+        let section = Section::with_endian(Endian::Little).comp_unit(&mut unit);
+        let info_buf = section.get_contents().unwrap();
+        let debug_info = DebugInfo::new(&info_buf, LittleEndian);
+
+        let unit = debug_info
+            .units()
+            .next()
+            .expect("should have a unit result")
+            .expect("and it should be ok");
+
+        let abbrevs = unit
+            .abbreviations(&debug_abbrev)
+            .expect("Should parse abbreviations");
+
+        let mut entries = unit
+            .entries_raw(&abbrevs, None)
+            .expect("Should have entries");
+
+        assert_eq!(entries.next_depth(), 0);
+        let abbrev = assert_abbrev(&mut entries, DW_TAG_subprogram);
+        let mut attrs = abbrev.attributes().iter().copied();
+        assert_attr(&mut entries, attrs.next(), DW_AT_name, "f1");
+        assert_attr(&mut entries, attrs.next(), DW_AT_linkage_name, "l1");
+        assert!(attrs.next().is_none());
+
+        assert_eq!(entries.next_depth(), 1);
+        let abbrev = assert_abbrev(&mut entries, DW_TAG_variable);
+        let mut attrs = abbrev.attributes().iter().copied();
+        assert_attr(&mut entries, attrs.next(), DW_AT_name, "v1");
+        assert!(attrs.next().is_none());
+
+        assert_eq!(entries.next_depth(), 1);
+        let abbrev = assert_abbrev(&mut entries, DW_TAG_variable);
+        let mut attrs = abbrev.attributes().iter().copied();
+        assert_attr(&mut entries, attrs.next(), DW_AT_name, "v2");
+        assert!(attrs.next().is_none());
+
+        assert_eq!(entries.next_depth(), 1);
+        let abbrev = assert_abbrev(&mut entries, DW_TAG_subprogram);
+        let mut attrs = abbrev.attributes().iter().copied();
+        assert_attr(&mut entries, attrs.next(), DW_AT_name, "f2");
+        assert_attr(&mut entries, attrs.next(), DW_AT_linkage_name, "l2");
+        assert!(attrs.next().is_none());
+
+        assert_eq!(entries.next_depth(), 2);
+        assert_null(&mut entries);
+
+        assert_eq!(entries.next_depth(), 1);
+        assert_null(&mut entries);
+
+        assert_eq!(entries.next_depth(), 0);
+        assert!(entries.is_empty());
     }
 
     #[test]

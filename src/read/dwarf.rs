@@ -10,9 +10,10 @@ use crate::constants;
 use crate::read::{
     Abbreviations, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter, DebugAbbrev,
     DebugAddr, DebugInfo, DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes,
-    DebuggingInformationEntry, EntriesCursor, EntriesTree, Error, IncompleteLineProgram,
-    LocListIter, LocationLists, Range, RangeLists, Reader, ReaderOffset, ReaderOffsetId, Result,
-    RngListIter, Section, TypeUnitHeader, TypeUnitHeadersIter, UnitHeader, UnitOffset,
+    DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree, Error,
+    IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists, Reader, ReaderOffset,
+    ReaderOffsetId, Result, RngListIter, Section, TypeUnitHeader, TypeUnitHeadersIter, UnitHeader,
+    UnitOffset,
 };
 use crate::string::String;
 
@@ -651,6 +652,12 @@ impl<R: Reader> Unit<R> {
     #[inline]
     pub fn entries_tree(&self, offset: Option<UnitOffset<R::Offset>>) -> Result<EntriesTree<R>> {
         self.header.entries_tree(&self.abbreviations, offset)
+    }
+
+    /// Read the raw data that defines the Debugging Information Entries.
+    #[inline]
+    pub fn entries_raw(&self, offset: Option<UnitOffset<R::Offset>>) -> Result<EntriesRaw<R>> {
+        self.header.entries_raw(&self.abbreviations, offset)
     }
 }
 
