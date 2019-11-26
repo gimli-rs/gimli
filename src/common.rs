@@ -2,9 +2,9 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Format {
     /// 64-bit DWARF
-    Dwarf64,
+    Dwarf64 = 8,
     /// 32-bit DWARF
-    Dwarf32,
+    Dwarf32 = 4,
 }
 
 impl Format {
@@ -31,17 +31,20 @@ impl Format {
 ///
 /// This is intended to be small enough to pass by value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// `address_size` and `format` are used more often than `version`, so keep
+// them first.
+#[repr(C)]
 pub struct Encoding {
+    /// The size of an address.
+    pub address_size: u8,
+
+    // The size of a segment selector.
+    // TODO: pub segment_size: u8,
     /// Whether the DWARF format is 32- or 64-bit.
     pub format: Format,
 
     /// The DWARF version of the header.
     pub version: u16,
-
-    /// The size of an address.
-    pub address_size: u8,
-    // The size of a segment selector.
-    // TODO: pub segment_size: u8,
 }
 
 /// Encoding parameters for a line number program.
