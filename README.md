@@ -41,7 +41,9 @@ The minimum supported Rust version is 1.32.0.
 
 * Example programs:
 
-  * [A simple parser](./examples/simple.rs)
+  * [A simple `.debug_info` parser](./examples/simple.rs)
+
+  * [A simple `.debug_line` parser](./examples/simple_line.rs)
 
   * [A `dwarfdump` clone](./examples/dwarfdump.rs)
 
