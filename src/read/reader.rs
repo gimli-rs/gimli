@@ -1,7 +1,7 @@
-use crate::borrow::Cow;
-use std::fmt::Debug;
-use std::hash::Hash;
-use std::ops::{Add, AddAssign, Sub};
+use alloc::borrow::Cow;
+use core::fmt::Debug;
+use core::hash::Hash;
+use core::ops::{Add, AddAssign, Sub};
 
 use crate::common::Format;
 use crate::endianity::Endianity;

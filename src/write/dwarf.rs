@@ -1,4 +1,4 @@
-use crate::vec::Vec;
+use alloc::vec::Vec;
 
 use crate::common::Encoding;
 use crate::write::{

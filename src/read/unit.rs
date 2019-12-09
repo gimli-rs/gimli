@@ -1,9 +1,9 @@
 //! Functions for parsing DWARF `.debug_info` and `.debug_types` sections.
 
+use core::cell::Cell;
+use core::ops::{Range, RangeFrom, RangeTo};
+use core::{u16, u8};
 use fallible_iterator::FallibleIterator;
-use std::cell::Cell;
-use std::ops::{Range, RangeFrom, RangeTo};
-use std::{u16, u8};
 
 use crate::common::{
     DebugAbbrevOffset, DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineOffset,
@@ -225,7 +225,7 @@ impl<R: Reader> FallibleIterator for CompilationUnitHeadersIter<R> {
     type Item = CompilationUnitHeader<R>;
     type Error = Error;
 
-    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         CompilationUnitHeadersIter::next(self)
     }
 }
@@ -2301,7 +2301,7 @@ impl<'abbrev, 'entry, 'unit, R: Reader> FallibleIterator for AttrsIter<'abbrev, 
     type Item = Attribute<R>;
     type Error = Error;
 
-    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         AttrsIter::next(self)
     }
 }
@@ -3166,7 +3166,7 @@ impl<R: Reader> FallibleIterator for TypeUnitHeadersIter<R> {
     type Item = TypeUnitHeader<R>;
     type Error = Error;
 
-    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         TypeUnitHeadersIter::next(self)
     }
 }
@@ -3412,6 +3412,8 @@ fn parse_type_unit_header<R: Reader>(
 }
 
 #[cfg(test)]
+// Tests require leb128::write.
+#[cfg(feature = "write")]
 mod tests {
     use super::*;
     use crate::constants;
@@ -3423,10 +3425,9 @@ mod tests {
         Abbreviation, AttributeSpecification, DebugAbbrev, EndianSlice, Error, Result,
     };
     use crate::test_util::GimliSectionMethods;
-    use crate::vec::Vec;
+    use alloc::vec::Vec;
+    use core::cell::Cell;
     use smallvec::smallvec;
-    use std;
-    use std::cell::Cell;
     use test_assembler::{Endian, Label, LabelMaker, Section};
 
     // Mixin methods for `Section` to help define binary test data.
@@ -4092,26 +4093,26 @@ mod tests {
         )] = &[
             (AttributeValue::Data1(1), Some(1), Some(1)),
             (
-                AttributeValue::Data1(std::u8::MAX),
+                AttributeValue::Data1(core::u8::MAX),
                 Some(u64::from(std::u8::MAX)),
                 Some(-1),
             ),
             (AttributeValue::Data2(1), Some(1), Some(1)),
             (
-                AttributeValue::Data2(std::u16::MAX),
+                AttributeValue::Data2(core::u16::MAX),
                 Some(u64::from(std::u16::MAX)),
                 Some(-1),
             ),
             (AttributeValue::Data4(1), Some(1), Some(1)),
             (
-                AttributeValue::Data4(std::u32::MAX),
+                AttributeValue::Data4(core::u32::MAX),
                 Some(u64::from(std::u32::MAX)),
                 Some(-1),
             ),
             (AttributeValue::Data8(1), Some(1), Some(1)),
             (
-                AttributeValue::Data8(std::u64::MAX),
-                Some(std::u64::MAX),
+                AttributeValue::Data8(core::u64::MAX),
+                Some(core::u64::MAX),
                 Some(-1),
             ),
             (AttributeValue::Sdata(1), Some(1), Some(1)),
@@ -4178,8 +4179,7 @@ mod tests {
                 assert_eq!(*rest, EndianSlice::new(&buf[len..], Endian::default()));
             }
             otherwise => {
-                println!("Unexpected parse result = {:#?}", otherwise);
-                assert!(false);
+                assert!(false, "Unexpected parse result = {:#?}", otherwise);
             }
         };
     }
@@ -4779,8 +4779,7 @@ mod tests {
                 );
             }
             otherwise => {
-                println!("Unexpected parse result = {:#?}", otherwise);
-                assert!(false);
+                assert!(false, "Unexpected parse result = {:#?}", otherwise);
             }
         }
 
@@ -4797,8 +4796,7 @@ mod tests {
                 );
             }
             otherwise => {
-                println!("Unexpected parse result = {:#?}", otherwise);
-                assert!(false);
+                assert!(false, "Unexpected parse result = {:#?}", otherwise);
             }
         }
 
@@ -4815,8 +4813,7 @@ mod tests {
                 );
             }
             otherwise => {
-                println!("Unexpected parse result = {:#?}", otherwise);
-                assert!(false);
+                assert!(false, "Unexpected parse result = {:#?}", otherwise);
             }
         }
 
@@ -4887,8 +4884,7 @@ mod tests {
                 );
             }
             otherwise => {
-                println!("Unexpected parse result = {:#?}", otherwise);
-                assert!(false);
+                assert!(false, "Unexpected parse result = {:#?}", otherwise);
             }
         }
 
@@ -5500,8 +5496,7 @@ mod tests {
         match cursor {
             Err(Error::OffsetOutOfBounds) => {}
             otherwise => {
-                println!("Unexpected result = {:#?}", otherwise);
-                assert!(false);
+                assert!(false, "Unexpected parse result = {:#?}", otherwise);
             }
         }
     }
@@ -5580,8 +5575,7 @@ mod tests {
             match node {
                 Ok(None) => {}
                 otherwise => {
-                    println!("Unexpected parse result = {:#?}", otherwise);
-                    assert!(false);
+                    assert!(false, "Unexpected parse result = {:#?}", otherwise);
                 }
             }
         }
@@ -5710,7 +5704,7 @@ mod tests {
             match entries.read_abbreviation() {
                 Ok(None) => {}
                 otherwise => {
-                    assert!(false, format!("Unexpected parse result = {:#?}", otherwise));
+                    assert!(false, "Unexpected parse result = {:#?}", otherwise);
                 }
             }
         }

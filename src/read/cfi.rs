@@ -1,10 +1,10 @@
-use crate::boxed::Box;
+use alloc::boxed::Box;
 use arrayvec::ArrayVec;
+use core::cmp::{Ord, Ordering};
+use core::fmt::Debug;
+use core::iter::FromIterator;
+use core::mem;
 use fallible_iterator::FallibleIterator;
-use std::cmp::{Ord, Ordering};
-use std::fmt::Debug;
-use std::iter::FromIterator;
-use std::mem;
 
 use crate::common::{DebugFrameOffset, EhFrameOffset, Encoding, Format, Register, SectionId};
 use crate::constants::{self, DwEhPe};
@@ -309,10 +309,10 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     /// # Example
     ///
     /// ```
-    /// # use gimli::{BaseAddresses, EhFrame, ParsedEhFrameHdr, EndianRcSlice, NativeEndian, Error, UnwindSection};
+    /// # use gimli::{BaseAddresses, EhFrame, ParsedEhFrameHdr, EndianSlice, NativeEndian, Error, UnwindSection};
     /// # fn foo() -> Result<(), Error> {
-    /// # let eh_frame: EhFrame<EndianRcSlice<NativeEndian>> = unreachable!();
-    /// # let eh_frame_hdr: ParsedEhFrameHdr<EndianRcSlice<NativeEndian>> = unimplemented!();
+    /// # let eh_frame: EhFrame<EndianSlice<NativeEndian>> = unreachable!();
+    /// # let eh_frame_hdr: ParsedEhFrameHdr<EndianSlice<NativeEndian>> = unimplemented!();
     /// # let addr = 0;
     /// # let bases = unimplemented!();
     /// let table = eh_frame_hdr.table().unwrap();
@@ -986,7 +986,7 @@ where
     type Item = CieOrFde<'bases, Section, R>;
     type Error = Error;
 
-    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         CfiEntriesIter::next(self)
     }
 }
@@ -2410,7 +2410,7 @@ impl<R> Eq for RegisterRuleMap<R> where R: Reader + Eq {}
 
 /// An unordered iterator for register rules.
 #[derive(Debug, Clone)]
-pub struct RegisterRuleIter<'iter, R>(::std::slice::Iter<'iter, (Register, RegisterRule<R>)>)
+pub struct RegisterRuleIter<'iter, R>(::core::slice::Iter<'iter, (Register, RegisterRule<R>)>)
 where
     R: Reader;
 
@@ -3165,7 +3165,7 @@ impl<'a, R: Reader> FallibleIterator for CallFrameInstructionIter<'a, R> {
     type Item = CallFrameInstruction<R>;
     type Error = Error;
 
-    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         CallFrameInstructionIter::next(self)
     }
 }
@@ -3318,10 +3318,10 @@ mod tests {
         EndianSlice, Error, Expression, Pointer, ReaderOffsetId, Result, Section as ReadSection,
     };
     use crate::test_util::GimliSectionMethods;
-    use crate::vec::Vec;
-    use std::marker::PhantomData;
-    use std::mem;
-    use std::u64;
+    use alloc::vec::Vec;
+    use core::marker::PhantomData;
+    use core::mem;
+    use core::u64;
     use test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};
 
     // Ensure each test tries to read the same section kind that it wrote.
@@ -6053,7 +6053,7 @@ mod tests {
     fn test_eh_frame_resolve_cie_offset_underflow() {
         let buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         assert_eq!(
-            resolve_cie_offset(&buf, ::std::usize::MAX),
+            resolve_cie_offset(&buf, ::core::usize::MAX),
             Err(Error::OffsetOutOfBounds)
         );
     }
@@ -6646,7 +6646,7 @@ mod tests {
     #[test]
     #[cfg(target_pointer_width = "64")]
     fn size_of_unwind_ctx() {
-        use std::mem;
+        use core::mem;
         let size = mem::size_of::<UnwindContext<EndianSlice<NativeEndian>>>();
         let max_size = 5416;
         if size > max_size {
@@ -6657,7 +6657,7 @@ mod tests {
     #[test]
     #[cfg(target_pointer_width = "64")]
     fn size_of_register_rule_map() {
-        use std::mem;
+        use core::mem;
         let size = mem::size_of::<RegisterRuleMap<EndianSlice<NativeEndian>>>();
         let max_size = 1040;
         if size > max_size {

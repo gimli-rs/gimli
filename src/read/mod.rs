@@ -160,8 +160,8 @@
 //! # fn main() {}
 //! ```
 
-use std::fmt::{self, Debug};
-use std::result;
+use core::fmt::{self, Debug};
+use core::result;
 #[cfg(feature = "std")]
 use std::{error, io};
 
@@ -383,7 +383,7 @@ pub enum Error {
 
 impl fmt::Display for Error {
     #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> ::core::result::Result<(), fmt::Error> {
         Debug::fmt(self, f)
     }
 }
@@ -565,9 +565,9 @@ pub trait Section<R>: From<R> {
     }
 
     /// Try to load the section using the given loader function.
-    fn load<F, E>(f: F) -> std::result::Result<Self, E>
+    fn load<F, E>(f: F) -> core::result::Result<Self, E>
     where
-        F: FnOnce(SectionId) -> std::result::Result<R, E>,
+        F: FnOnce(SectionId) -> core::result::Result<R, E>,
     {
         f(Self::id()).map(From::from)
     }

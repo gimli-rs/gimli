@@ -1,6 +1,6 @@
 //! Definitions for values used in DWARF expressions.
 
-use std::mem;
+use core::mem;
 
 use crate::constants;
 use crate::read::{AttributeValue, DebuggingInformationEntry, Error, Reader, Result};

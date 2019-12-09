@@ -1,14 +1,14 @@
 //! Defining custom `Reader`s quickly.
 
-use crate::borrow::Cow;
-use crate::rc::Rc;
-use crate::string::String;
-use crate::Arc;
+use alloc::borrow::Cow;
+use alloc::rc::Rc;
+use alloc::string::String;
+use alloc::sync::Arc;
+use core::fmt::Debug;
+use core::ops::{Deref, Index, Range, RangeFrom, RangeTo};
+use core::slice;
+use core::str;
 use stable_deref_trait::CloneStableDeref;
-use std::fmt::Debug;
-use std::ops::{Deref, Index, Range, RangeFrom, RangeTo};
-use std::slice;
-use std::str;
 
 use crate::endianity::Endianity;
 use crate::read::{Error, Reader, ReaderOffsetId, Result};
@@ -17,11 +17,13 @@ use crate::read::{Error, Reader, ReaderOffsetId, Result};
 /// endianity.
 ///
 /// ```
+/// # #[cfg(feature = "std")] {
 /// use std::rc::Rc;
 ///
 /// let buf = Rc::from(&[1, 2, 3, 4][..]);
 /// let reader = gimli::EndianRcSlice::new(buf, gimli::NativeEndian);
 /// # let _ = reader;
+/// # }
 /// ```
 pub type EndianRcSlice<Endian> = EndianReader<Endian, Rc<[u8]>>;
 
@@ -29,11 +31,13 @@ pub type EndianRcSlice<Endian> = EndianReader<Endian, Rc<[u8]>>;
 /// endianity.
 ///
 /// ```
+/// # #[cfg(feature = "std")] {
 /// use std::sync::Arc;
 ///
 /// let buf = Arc::from(&[1, 2, 3, 4][..]);
 /// let reader = gimli::EndianArcSlice::new(buf, gimli::NativeEndian);
 /// # let _ = reader;
+/// # }
 /// ```
 pub type EndianArcSlice<Endian> = EndianReader<Endian, Arc<[u8]>>;
 
@@ -251,6 +255,7 @@ where
     /// new `EndianReader`.
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use gimli::{EndianReader, LittleEndian};
     /// use std::sync::Arc;
     ///
@@ -258,6 +263,7 @@ where
     /// let reader = EndianReader::new(buf.clone(), LittleEndian);
     /// assert_eq!(reader.range(1..3),
     ///            EndianReader::new(&buf[1..3], LittleEndian));
+    /// # }
     /// ```
     ///
     /// # Panics
@@ -274,6 +280,7 @@ where
     /// `EndianReader`.
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use gimli::{EndianReader, LittleEndian};
     /// use std::sync::Arc;
     ///
@@ -281,6 +288,7 @@ where
     /// let reader = EndianReader::new(buf.clone(), LittleEndian);
     /// assert_eq!(reader.range_from(2..),
     ///            EndianReader::new(&buf[2..], LittleEndian));
+    /// # }
     /// ```
     ///
     /// # Panics
@@ -296,6 +304,7 @@ where
     /// `EndianReader`.
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// use gimli::{EndianReader, LittleEndian};
     /// use std::sync::Arc;
     ///
@@ -303,6 +312,7 @@ where
     /// let reader = EndianReader::new(buf.clone(), LittleEndian);
     /// assert_eq!(reader.range_to(..3),
     ///            EndianReader::new(&buf[..3], LittleEndian));
+    /// # }
     /// ```
     ///
     /// # Panics

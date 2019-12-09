@@ -25,7 +25,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(missing_docs)]
 
-use std::fmt;
+use core::fmt;
 
 // The `dw!` macro turns this:
 //

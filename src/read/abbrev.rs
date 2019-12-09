@@ -1,7 +1,7 @@
 //! Functions for parsing DWARF debugging abbreviations.
 
-use crate::collections::btree_map;
-use crate::vec::Vec;
+use alloc::collections::btree_map;
+use alloc::vec::Vec;
 use smallvec::SmallVec;
 
 use crate::common::{DebugAbbrevOffset, SectionId};
@@ -122,7 +122,7 @@ impl Abbreviations {
     /// Returns `Ok` if it is the first abbreviation in the set with its code,
     /// `Err` if the code is a duplicate and there already exists an
     /// abbreviation in the set with the given abbreviation's code.
-    fn insert(&mut self, abbrev: Abbreviation) -> ::std::result::Result<(), ()> {
+    fn insert(&mut self, abbrev: Abbreviation) -> ::core::result::Result<(), ()> {
         let code_usize = abbrev.code as usize;
         if code_usize as u64 == abbrev.code {
             // Optimize for sequential abbreviation codes by storing them
@@ -418,9 +418,9 @@ pub mod tests {
     use crate::endianity::LittleEndian;
     use crate::read::{EndianSlice, Error};
     use crate::test_util::GimliSectionMethods;
-    use smallvec::smallvec;
     #[cfg(target_pointer_width = "32")]
-    use std::u32;
+    use core::u32;
+    use smallvec::smallvec;
     use test_assembler::Section;
 
     pub trait AbbrevSectionMethods {

@@ -31,9 +31,8 @@ script: ./ci/script.sh
 
 env:
   matrix:
-    - GIMLI_JOB="test"              GIMLI_PROFILE=
-    - GIMLI_JOB="build"             GIMLI_PROFILE="--no-default-features --features read,std"
-    - GIMLI_JOB="build"             GIMLI_PROFILE="--no-default-features --features write"
+    - GIMLI_JOB="test"
+    - GIMLI_JOB="features"
 
 matrix:
   fast_finish: true
@@ -42,17 +41,14 @@ matrix:
     - rust: nightly
       os: linux
       sudo: required
-      env: GIMLI_JOB="coverage"     GIMLI_PROFILE=
+      env: GIMLI_JOB="coverage"
     # Building docs only needs to happen on one os and only on stable.
     - rust: stable
       os: linux
-      env: GIMLI_JOB="doc"          GIMLI_PROFILE=
+      env: GIMLI_JOB="doc"
     # Benching should only happen on nightly.
     - rust: nightly
-      env: GIMLI_JOB="bench"        GIMLI_PROFILE=
-    # The no-std/alloc build should only happen on nightly.
-    - rust: nightly
-      env: GIMLI_JOB="alloc"        GIMLI_PROFILE=
+      env: GIMLI_JOB="bench"
     # Build a 32 bit target.
     - rust: stable
       sudo: required
@@ -60,7 +56,6 @@ matrix:
       env:
         - TARGET=i686-unknown-linux-gnu
         - GIMLI_JOB=cross
-        - GIMLI_PROFILE=
     # Build a big-endian target.
     - rust: stable
       sudo: required
@@ -68,6 +63,3 @@ matrix:
       env:
         - TARGET=powerpc64-unknown-linux-gnu
         - GIMLI_JOB=cross
-        - GIMLI_PROFILE=
-  allow_failures:
-    - env: GIMLI_JOB="alloc"        GIMLI_PROFILE=

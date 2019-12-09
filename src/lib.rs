@@ -11,15 +11,10 @@
 //! * `std`: Enabled by default. Use the `std` library. Disabling this feature
 //! allows using `gimli` in embedded environments that do not have access to
 //! `std`. Note that even when `std` is disabled, `gimli` still requires an
-//! implementation of the `alloc` crate, and you must enable the `nightly`
-//! feature.
+//! implementation of the `alloc` crate.
 //!
-//! * `alloc`: Nightly only. Enables usage of the unstable, nightly-only
-//! `#![feature(alloc)]` Rust feature that allows `gimli` to use boxes and
-//! collection types in a `#[no_std]` environment.
-//!
-//! * `read`: Enabled by default. Enables the `read` module. Requires
-//! either `alloc` or `std` to also be enabled.
+//! * `read`: Enabled by default. Enables the `read` module. Use of `std` is
+//! optional.
 //!
 //! * `write`: Enabled by default. Enables the `write` module. Automatically
 //! enables `std` too.
@@ -40,43 +35,16 @@
 // False positives when block expressions are used inside an assertion.
 #![allow(clippy::panic_params)]
 #![no_std]
-#![cfg_attr(feature = "alloc", feature(alloc))]
+
+#[allow(unused_imports)]
+#[macro_use]
+extern crate alloc;
 
 #[cfg(feature = "std")]
 #[macro_use]
 extern crate std;
 
-#[cfg(not(feature = "std"))]
-#[macro_use]
-extern crate alloc;
-#[cfg(not(feature = "std"))]
-#[macro_use]
-extern crate core as std;
-
-#[cfg(feature = "std")]
-mod imports {
-    pub use std::borrow;
-    pub use std::boxed;
-    pub use std::collections;
-    pub use std::rc;
-    pub use std::string;
-    pub use std::sync::Arc;
-    pub use std::vec;
-}
-
-#[cfg(not(feature = "std"))]
-mod imports {
-    pub use alloc::borrow;
-    pub use alloc::boxed;
-    pub use alloc::collections;
-    pub use alloc::rc;
-    pub use alloc::string;
-    pub use alloc::sync::Arc;
-    pub use alloc::vec;
-}
-
-use crate::imports::*;
-
+#[cfg(feature = "read")]
 pub use stable_deref_trait::{CloneStableDeref, StableDeref};
 
 mod common;

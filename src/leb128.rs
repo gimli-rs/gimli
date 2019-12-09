@@ -7,6 +7,7 @@
 //! Read and write signed integers:
 //!
 //! ```
+//! # #[cfg(all(feature = "read", feature = "write"))] {
 //! use gimli::{EndianSlice, NativeEndian, leb128};
 //!
 //! let mut buf = [0; 1024];
@@ -21,11 +22,13 @@
 //! let mut readable = EndianSlice::new(&buf[..], NativeEndian);
 //! let val = leb128::read::signed(&mut readable).expect("Should read number");
 //! assert_eq!(val, -12345);
+//! # }
 //! ```
 //!
 //! Or read and write unsigned integers:
 //!
 //! ```
+//! # #[cfg(all(feature = "read", feature = "write"))] {
 //! use gimli::{EndianSlice, NativeEndian, leb128};
 //!
 //! let mut buf = [0; 1024];
@@ -38,9 +41,8 @@
 //! let mut readable = EndianSlice::new(&buf[..], NativeEndian);
 //! let val = leb128::read::unsigned(&mut readable).expect("Should read number");
 //! assert_eq!(val, 98765);
+//! # }
 //! ```
-
-use std;
 
 const CONTINUATION_BIT: u8 = 1 << 7;
 const SIGN_BIT: u8 = 1 << 6;
@@ -53,7 +55,7 @@ fn low_bits_of_byte(byte: u8) -> u8 {
 #[inline]
 #[allow(dead_code)]
 fn low_bits_of_u64(val: u64) -> u8 {
-    let byte = val & u64::from(std::u8::MAX);
+    let byte = val & u64::from(core::u8::MAX);
     low_bits_of_byte(byte as u8)
 }
 
@@ -208,12 +210,11 @@ pub mod write {
 }
 
 #[cfg(test)]
+#[cfg(all(feature = "read", feature = "write"))]
 mod tests {
     use super::{low_bits_of_byte, low_bits_of_u64, read, write, CONTINUATION_BIT};
     use crate::endianity::NativeEndian;
     use crate::read::{EndianSlice, Error, ReaderOffsetId};
-    use std;
-    use std::io;
 
     trait ResultExt {
         fn map_eof(self, input: &[u8]) -> Self;
@@ -395,7 +396,7 @@ mod tests {
         let mut buf = [0; 1];
         let mut writable = &mut buf[..];
         match write::unsigned(&mut writable, 128) {
-            Err(e) => assert_eq!(e.kind(), io::ErrorKind::WriteZero),
+            Err(e) => assert_eq!(e.kind(), std::io::ErrorKind::WriteZero),
             otherwise => panic!("Unexpected: {:?}", otherwise),
         }
     }
@@ -405,7 +406,7 @@ mod tests {
         let mut buf = [0; 1];
         let mut writable = &mut buf[..];
         match write::signed(&mut writable, 128) {
-            Err(e) => assert_eq!(e.kind(), io::ErrorKind::WriteZero),
+            Err(e) => assert_eq!(e.kind(), std::io::ErrorKind::WriteZero),
             otherwise => panic!("Unexpected: {:?}", otherwise),
         }
     }
@@ -427,7 +428,7 @@ mod tests {
         for i in -513..513 {
             inner(i);
         }
-        inner(std::i64::MIN);
+        inner(core::i64::MIN);
     }
 
     #[test]
@@ -568,7 +569,7 @@ mod tests {
         .iter()
         {
             let mut readable = EndianSlice::new(buf, NativeEndian);
-            assert!(read::u16(&mut readable).is_err(), format!("{:?}", buf));
+            assert!(read::u16(&mut readable).is_err(), "{:?}", buf);
         }
     }
 }
