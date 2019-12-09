@@ -1,3 +1,5 @@
+#![cfg(all(feature = "read", feature = "write"))]
+
 use std::env;
 use std::fs::File;
 use std::io::Read;

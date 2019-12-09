@@ -136,7 +136,7 @@ impl<R: Reader> FallibleIterator for PubNamesEntryIter<R> {
     type Item = PubNamesEntry<R>;
     type Error = Error;
 
-    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         self.0.next()
     }
 }

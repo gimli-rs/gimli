@@ -1,8 +1,5 @@
 #![allow(missing_docs)]
 
-use crate::vec::Vec;
-
-use crate::leb128;
 use crate::Format;
 use test_assembler::{Label, Section};
 
@@ -15,16 +12,20 @@ pub trait GimliSectionMethods {
 }
 
 impl GimliSectionMethods for Section {
-    fn sleb(self, val: i64) -> Self {
-        let mut buf = Vec::new();
-        let written = leb128::write::signed(&mut buf, val).unwrap();
-        self.append_bytes(&buf[0..written])
+    fn sleb(mut self, mut val: i64) -> Self {
+        while val & !0x3f != 0 && val | 0x3f != -1 {
+            self = self.D8(val as u8 | 0x80);
+            val >>= 7;
+        }
+        self.D8(val as u8 & 0x7f)
     }
 
-    fn uleb(self, val: u64) -> Self {
-        let mut buf = Vec::new();
-        let written = leb128::write::unsigned(&mut buf, val).unwrap();
-        self.append_bytes(&buf[0..written])
+    fn uleb(mut self, mut val: u64) -> Self {
+        while val & !0x7f != 0 {
+            self = self.D8(val as u8 | 0x80);
+            val >>= 7;
+        }
+        self.D8(val as u8)
     }
 
     fn initial_length(self, format: Format, length: &Label, start: &Label) -> Self {

@@ -1,9 +1,7 @@
-use crate::collections::hash_map;
-use crate::vec::Vec;
+use alloc::vec::Vec;
 use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
 
-use crate::collections::HashMap;
 use crate::common::{DebugFrameOffset, EhFrameOffset, Encoding, Format, Register, SectionId};
 use crate::constants;
 use crate::write::{Address, BaseId, Error, Expression, Result, Section, Writer};
@@ -586,6 +584,7 @@ pub(crate) mod convert {
     use super::*;
     use crate::read::{self, Reader};
     use crate::write::{ConvertError, ConvertResult};
+    use std::collections::{hash_map, HashMap};
 
     impl FrameTable {
         /// Create a frame table by reading the data in the given section.
@@ -835,6 +834,7 @@ pub(crate) mod convert {
 }
 
 #[cfg(test)]
+#[cfg(feature = "read")]
 mod tests {
     use super::*;
     use crate::arch::X86_64;

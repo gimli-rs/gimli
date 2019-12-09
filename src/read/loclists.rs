@@ -470,7 +470,7 @@ impl<R: Reader> FallibleIterator for RawLocListIter<R> {
     type Item = RawLocListEntry<R>;
     type Error = Error;
 
-    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         RawLocListIter::next(self)
     }
 }
@@ -582,7 +582,7 @@ impl<R: Reader> FallibleIterator for LocListIter<R> {
     type Item = LocationListEntry<R>;
     type Error = Error;
 
-    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         LocListIter::next(self)
     }
 }

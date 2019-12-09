@@ -1,6 +1,6 @@
+use core::cmp::Ordering;
+use core::marker::PhantomData;
 use fallible_iterator::FallibleIterator;
-use std::cmp::Ordering;
-use std::marker::PhantomData;
 
 use crate::common::{DebugInfoOffset, Encoding, SectionId};
 use crate::endianity::Endianity;
@@ -250,7 +250,7 @@ impl<R: Reader> FallibleIterator for ArangeEntryIter<R> {
     type Item = ArangeEntry<R::Offset>;
     type Error = Error;
 
-    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         self.0.next()
     }
 }

@@ -1,6 +1,6 @@
-use crate::vec::Vec;
-use std::fmt;
-use std::result;
+use alloc::vec::Vec;
+use core::fmt;
+use core::result;
 
 use crate::common::{
     DebugLineOffset, DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsIndex, Encoding, Format,
@@ -1886,7 +1886,7 @@ mod tests {
     use crate::endianity::LittleEndian;
     use crate::read::{EndianSlice, Error};
     use crate::test_util::GimliSectionMethods;
-    use std::u8;
+    use core::u8;
     use test_assembler::{Endian, Label, LabelMaker, Section};
 
     #[test]
@@ -2953,7 +2953,6 @@ mod tests {
 
             let header = LineProgramHeader::parse(input, DebugLineOffset(0), 0, None, None)
                 .expect("should parse header ok");
-            println!("{:?}", header);
 
             assert_eq!(header.raw_program_buf().slice(), expected_program);
             assert_eq!(input.slice(), expected_rest);

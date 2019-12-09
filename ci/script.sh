@@ -3,16 +3,11 @@
 set -ex
 
 case "$GIMLI_JOB" in
-    "build")
-        cargo build $GIMLI_PROFILE
-        cargo build --release $GIMLI_PROFILE
-        ;;
-
     "test")
-        cargo build $GIMLI_PROFILE
-        cargo test $GIMLI_PROFILE
-        cargo build --release $GIMLI_PROFILE
-        cargo test --release $GIMLI_PROFILE
+        cargo build
+        cargo test
+        cargo build --release
+        cargo test --release
         case "$TRAVIS_OS_NAME" in
             "osx")
                 with_debug_info=$(find ./target/debug -type f | grep DWARF | grep gimli | head -n 1)
@@ -28,14 +23,15 @@ case "$GIMLI_JOB" in
         cargo run --release --example dwarfdump -- "$with_debug_info" > /dev/null
         ;;
 
-    "doc")
-        cargo doc
+    "features")
+        cargo test --no-default-features
+        cargo test --no-default-features --features read
+        cargo test --no-default-features --features read,std
+        cargo test --no-default-features --features write
         ;;
 
-    "alloc")
-        test "$TRAVIS_RUST_VERSION" == "nightly"
-        cargo build           --no-default-features --features read,alloc $GIMLI_PROFILE
-        cargo build --release --no-default-features --features read,alloc $GIMLI_PROFILE
+    "doc")
+        cargo doc
         ;;
 
     "bench")
@@ -50,7 +46,7 @@ case "$GIMLI_JOB" in
     "cross")
         rustup target add $TARGET
         cargo install cross --force
-        cross test --target $TARGET $GIMLI_PROFILE
+        cross test --target $TARGET
         ;;
 
     *)

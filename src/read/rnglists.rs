@@ -439,7 +439,7 @@ impl<R: Reader> FallibleIterator for RawRngListIter<R> {
     type Item = RawRngListEntry<R::Offset>;
     type Error = Error;
 
-    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         RawRngListIter::next(self)
     }
 }
@@ -533,7 +533,7 @@ impl<R: Reader> FallibleIterator for RngListIter<R> {
     type Item = Range;
     type Error = Error;
 
-    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         RngListIter::next(self)
     }
 }

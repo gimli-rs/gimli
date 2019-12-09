@@ -1,4 +1,4 @@
-use crate::vec::Vec;
+use alloc::vec::Vec;
 use std::mem;
 
 use crate::endianity::Endianity;

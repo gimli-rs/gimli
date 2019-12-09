@@ -1,4 +1,4 @@
-use crate::vec::Vec;
+use alloc::vec::Vec;
 use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
 
@@ -106,6 +106,7 @@ define_section!(
 );
 
 #[cfg(test)]
+#[cfg(feature = "read")]
 mod tests {
     use super::*;
     use crate::constants;

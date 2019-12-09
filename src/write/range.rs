@@ -1,4 +1,4 @@
-use crate::vec::Vec;
+use alloc::vec::Vec;
 use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
 
@@ -301,6 +301,7 @@ mod convert {
 }
 
 #[cfg(test)]
+#[cfg(feature = "read")]
 mod tests {
     use super::*;
     use crate::common::{

@@ -1,7 +1,7 @@
 //! Functions for parsing and evaluating DWARF expressions.
 
-use crate::vec::Vec;
-use std::mem;
+use alloc::vec::Vec;
+use core::mem;
 
 use crate::common::{DebugAddrIndex, DebugInfoOffset, Encoding, Register};
 use crate::constants;
@@ -1783,6 +1783,8 @@ impl<R: Reader> Evaluation<R> {
 }
 
 #[cfg(test)]
+// Tests require leb128::write.
+#[cfg(feature = "write")]
 mod tests {
     use super::*;
     use crate::common::Format;
@@ -1791,7 +1793,7 @@ mod tests {
     use crate::leb128;
     use crate::read::{EndianSlice, Error, Result, UnitOffset};
     use crate::test_util::GimliSectionMethods;
-    use std::usize;
+    use core::usize;
     use test_assembler::{Endian, Section};
 
     fn encoding4() -> Encoding {

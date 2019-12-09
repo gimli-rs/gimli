@@ -1,4 +1,4 @@
-use crate::vec::Vec;
+use alloc::vec::Vec;
 use std::ops::{Deref, DerefMut};
 use std::{slice, usize};
 
@@ -9,9 +9,9 @@ use crate::common::{
 use crate::constants;
 use crate::write::{
     Abbreviation, AbbreviationTable, Address, AttributeSpecification, BaseId, DebugLineStrOffsets,
-    DebugStrOffsets, Error, FileId, LineProgram, LineStringId, LocationList, LocationListId,
-    LocationListOffsets, LocationListTable, RangeList, RangeListId, RangeListOffsets,
-    RangeListTable, Result, Section, Sections, StringId, Writer,
+    DebugStrOffsets, Error, FileId, LineProgram, LineStringId, LocationListId, LocationListOffsets,
+    LocationListTable, RangeListId, RangeListOffsets, RangeListTable, Result, Section, Sections,
+    StringId, Writer,
 };
 
 define_id!(UnitId, "An identifier for a unit in a `UnitTable`.");
@@ -1183,9 +1183,9 @@ impl UnitOffsets {
 #[cfg(feature = "read")]
 pub(crate) mod convert {
     use super::*;
-    use crate::collections::HashMap;
     use crate::read::{self, Reader};
-    use crate::write::{self, ConvertError, ConvertResult};
+    use crate::write::{self, ConvertError, ConvertResult, LocationList, RangeList};
+    use std::collections::HashMap;
 
     pub(crate) struct ConvertUnitContext<'a, R: Reader<Offset = usize>> {
         pub dwarf: &'a read::Dwarf<R>,
@@ -1565,6 +1565,7 @@ pub(crate) mod convert {
 }
 
 #[cfg(test)]
+#[cfg(feature = "read")]
 mod tests {
     use super::*;
     use crate::common::{
@@ -1574,7 +1575,8 @@ mod tests {
     use crate::read;
     use crate::write::{
         DebugLine, DebugLineStr, DebugStr, EndianVec, LineString, LineStringTable, Location,
-        LocationListTable, Range, RangeListOffsets, RangeListTable, StringTable,
+        LocationList, LocationListTable, Range, RangeList, RangeListOffsets, RangeListTable,
+        StringTable,
     };
     use crate::LittleEndian;
     use std::mem;

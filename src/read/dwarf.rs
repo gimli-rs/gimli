@@ -1,3 +1,4 @@
+use alloc::string::String;
 use fallible_iterator::FallibleIterator;
 
 use crate::common::{
@@ -15,7 +16,6 @@ use crate::read::{
     ReaderOffsetId, Result, RngListIter, Section, TypeUnitHeader, TypeUnitHeadersIter, UnitHeader,
     UnitOffset,
 };
-use crate::string::String;
 
 /// All of the commonly used DWARF sections, and other common information.
 #[derive(Debug, Default)]
@@ -64,10 +64,10 @@ impl<T> Dwarf<T> {
     /// The provided callback functions may either directly return a `Reader` instance
     /// (such as `EndianSlice`), or they may return some other type and then convert
     /// that type into a `Reader` using `Dwarf::borrow`.
-    pub fn load<F1, F2, E>(mut section: F1, mut sup: F2) -> std::result::Result<Self, E>
+    pub fn load<F1, F2, E>(mut section: F1, mut sup: F2) -> core::result::Result<Self, E>
     where
-        F1: FnMut(SectionId) -> std::result::Result<T, E>,
-        F2: FnMut(SectionId) -> std::result::Result<T, E>,
+        F1: FnMut(SectionId) -> core::result::Result<T, E>,
+        F2: FnMut(SectionId) -> core::result::Result<T, E>,
     {
         // Section types are inferred.
         let debug_loc = Section::load(&mut section)?;
@@ -742,7 +742,7 @@ impl<R: Reader> FallibleIterator for RangeIter<R> {
     type Error = Error;
 
     #[inline]
-    fn next(&mut self) -> ::std::result::Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         RangeIter::next(self)
     }
 }

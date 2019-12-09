@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use crate::common::{DebugInfoOffset, Format};
 use crate::read::{parse_debug_info_offset, Error, Reader, ReaderOffset, Result, UnitOffset};

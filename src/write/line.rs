@@ -1,4 +1,4 @@
-use crate::vec::Vec;
+use alloc::vec::Vec;
 use indexmap::{IndexMap, IndexSet};
 use std::ops::{Deref, DerefMut};
 
@@ -927,6 +927,8 @@ mod id {
 
         /// The id for file index 0 in DWARF version 5.
         /// Only used when converting.
+        // Used for tests only.
+        #[allow(unused)]
         pub(super) fn zero() -> Self {
             FileId(0)
         }
@@ -1146,6 +1148,7 @@ mod convert {
 }
 
 #[cfg(test)]
+#[cfg(feature = "read")]
 mod tests {
     use super::*;
     use crate::read;

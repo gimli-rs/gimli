@@ -2,7 +2,7 @@
 
 use byteorder;
 use byteorder::ByteOrder;
-use std::fmt::Debug;
+use core::fmt::Debug;
 
 /// A trait describing the endianity of some buffer.
 pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
