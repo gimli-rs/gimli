@@ -21,7 +21,7 @@ arrayvec = { version = "0.5.0", default-features = false }
 byteorder = { version = "1.0", default-features = false }
 fallible-iterator = { version = "0.2.0", default-features = false }
 indexmap = { version = "1.0.2", optional = true }
-smallvec = { version = "0.6.10", default-features = false }
+smallvec = { version = "1.0.0", default-features = false }
 stable_deref_trait = { version = "1.1.0", default-features = false, optional = true }
 
 [dev-dependencies]
