@@ -1,8 +1,10 @@
+//! A simple example of parsing `.debug_info`.
+
 use object::Object;
 use std::{borrow, env, fs};
 
 fn main() {
-    for path in env::args() {
+    for path in env::args().skip(1) {
         let file = fs::File::open(&path).unwrap();
         let mmap = unsafe { memmap::Mmap::map(&file).unwrap() };
         let object = object::File::parse(&*mmap).unwrap();
