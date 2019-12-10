@@ -51,6 +51,10 @@ name = "simple"
 required-features = ["read"]
 
 [[example]]
+name = "simple_line"
+required-features = ["read"]
+
+[[example]]
 name = "dwarfdump"
 required-features = ["read", "std"]
 
