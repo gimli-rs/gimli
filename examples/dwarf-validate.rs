@@ -6,7 +6,6 @@ use object::Object;
 use rayon::prelude::*;
 use std::borrow::{Borrow, Cow};
 use std::env;
-use std::error;
 use std::fs;
 use std::io::{self, BufWriter, Write};
 use std::iter::Iterator;
@@ -48,11 +47,7 @@ fn main() {
         let file = match fs::File::open(&path) {
             Ok(file) => file,
             Err(err) => {
-                eprintln!(
-                    "Failed to open file '{}': {}",
-                    path.display(),
-                    error::Error::description(&err)
-                );
+                eprintln!("Failed to open file '{}': {}", path.display(), err);
                 errors += 1;
                 continue;
             }
@@ -150,8 +145,7 @@ fn validate_info<W, R>(
             Err(err) => {
                 w.error(format!(
                     "Can't read unit header at offset {:#x}, stopping reading units: {}",
-                    last_offset,
-                    error::Error::description(&err)
+                    last_offset, err
                 ));
                 break;
             }
@@ -174,7 +168,7 @@ fn validate_info<W, R>(
                 w.error(format!(
                     "Invalid abbrevs for unit {:#x}: {}",
                     unit.offset().0,
-                    error::Error::description(&err)
+                    &err
                 ));
                 return ret;
             }
@@ -187,7 +181,7 @@ fn validate_info<W, R>(
                     w.error(format!(
                         "Invalid DIE for unit {:#x}: {}",
                         unit.offset().0,
-                        error::Error::description(&err)
+                        &err
                     ));
                     return ret;
                 }
@@ -204,7 +198,7 @@ fn validate_info<W, R>(
                             "Invalid attribute for unit {:#x} at DIE {:#x}: {}",
                             unit.offset().0,
                             entry.offset().0,
-                            error::Error::description(&err)
+                            &err
                         ));
                         return ret;
                     }
