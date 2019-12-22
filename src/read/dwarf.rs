@@ -459,7 +459,7 @@ impl<R: Reader> Dwarf<R> {
                 Some((sup, section, offset)) => {
                     return format!(
                         "{} at {}{}+0x{:x}",
-                        err.description(),
+                        err,
                         section.name(),
                         if sup { "(sup)" } else { "" },
                         offset.into_u64(),

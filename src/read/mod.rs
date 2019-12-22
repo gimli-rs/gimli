@@ -384,7 +384,7 @@ pub enum Error {
 impl fmt::Display for Error {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> ::core::result::Result<(), fmt::Error> {
-        Debug::fmt(self, f)
+        write!(f, "{}", self.description())
     }
 }
 
@@ -527,11 +527,7 @@ impl Error {
 }
 
 #[cfg(feature = "std")]
-impl error::Error for Error {
-    fn description(&self) -> &str {
-        Error::description(self)
-    }
-}
+impl error::Error for Error {}
 
 #[cfg(feature = "std")]
 impl From<io::Error> for Error {
