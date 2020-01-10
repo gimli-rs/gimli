@@ -2,6 +2,55 @@
 
 --------------------------------------------------------------------------------
 
+## 0.20.0
+
+Released 2020/01/11.
+
+### Breaking changes
+
+* Changed type of `DwTag`, `DwAt`, and `DwForm` constants.
+  [#451](https://github.com/gimli-rs/gimli/pull/451)
+
+* Added `read/write::AttributeValue::DebugMacroRef`, and returned where
+  required in `read::Attribute::value`. Added `SectionId::DebugMacro`.
+  [#454](https://github.com/gimli-rs/gimli/pull/454)
+
+* Deleted `alloc` feature, and fixed `no-std` builds with stable rust.
+  [#459](https://github.com/gimli-rs/gimli/pull/459)
+
+* Deleted `read::Error::description`, and changed `<read::Error as Display>`
+  to display what was previously the description.
+  [#462](https://github.com/gimli-rs/gimli/pull/462)
+
+### Added
+
+* Added GNU view constants.
+  [#434](https://github.com/gimli-rs/gimli/pull/434)
+
+* Added `read::EntriesRaw` for low level DIE parsing.
+  [#455](https://github.com/gimli-rs/gimli/pull/455)
+
+* Added `examples/simple-line.rs`.
+  [#460](https://github.com/gimli-rs/gimli/pull/460)
+
+### Fixed
+
+* Fixed handling of CFI augmentations without data.
+  [#438](https://github.com/gimli-rs/gimli/pull/438)
+
+* dwarfdump: fix panic for malformed expressions.
+  [#447](https://github.com/gimli-rs/gimli/pull/447)
+
+* dwarfdump: fix handling of Mach-O relocations.
+  [#449](https://github.com/gimli-rs/gimli/pull/449)
+
+### Changed
+
+* Improved abbreviation parsing performance.
+  [#451](https://github.com/gimli-rs/gimli/pull/451)
+
+--------------------------------------------------------------------------------
+
 ## 0.19.0
 
 Released 2019/07/08.
