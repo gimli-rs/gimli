@@ -16,8 +16,8 @@
 //! * `read`: Enabled by default. Enables the `read` module. Use of `std` is
 //! optional.
 //!
-//! * `write`: Enabled by default. Enables the `write` module. Automatically
-//! enables `std` too.
+//! * `write`: Enabled by default. Enables the `write` module. Always uses
+//! the `std` library.
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
 // Selectively enable rust 2018 warnings
@@ -40,7 +40,7 @@
 #[macro_use]
 extern crate alloc;
 
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", feature = "write"))]
 #[macro_use]
 extern crate std;
 
