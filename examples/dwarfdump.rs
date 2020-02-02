@@ -1137,6 +1137,7 @@ fn dump_attr_value<R: Reader, W: Write>(
                     write!(w, "<.debug_types+0x{:08x}>", goff.0)?;
                 }
             }
+            writeln!(w)?;
         }
         gimli::AttributeValue::DebugInfoRef(offset) => {
             writeln!(w, "<.debug_info+0x{:08x}>", offset.0)?;
