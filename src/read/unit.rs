@@ -2737,7 +2737,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// ```
     pub fn next_sibling(
         &mut self,
-    ) -> Result<Option<(&DebuggingInformationEntry<'abbrev, 'unit, R>)>> {
+    ) -> Result<Option<&DebuggingInformationEntry<'abbrev, 'unit, R>>> {
         if self.current().is_none() {
             // We're already at the null for the end of the sibling list.
             return Ok(None);
