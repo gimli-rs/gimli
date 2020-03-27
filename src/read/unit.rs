@@ -4045,6 +4045,15 @@ mod tests {
             (
                 Format::Dwarf32,
                 4,
+                constants::DW_AT_stmt_list,
+                constants::DW_FORM_sec_offset,
+                data4,
+                AttributeValue::SecOffset(0x0102_0304),
+                AttributeValue::DebugLineRef(DebugLineOffset(0x0102_0304)),
+            ),
+            (
+                Format::Dwarf32,
+                4,
                 constants::DW_AT_addr_base,
                 constants::DW_FORM_sec_offset,
                 data4,
