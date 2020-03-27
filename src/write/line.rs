@@ -467,12 +467,14 @@ impl LineProgram {
 
     fn op_advance(&self) -> u64 {
         debug_assert!(self.row.address_offset >= self.prev_row.address_offset);
-        debug_assert_eq!(
-            self.row.address_offset % u64::from(self.line_encoding.minimum_instruction_length),
-            0
-        );
-        let address_advance = (self.row.address_offset - self.prev_row.address_offset)
-            / u64::from(self.line_encoding.minimum_instruction_length);
+        let mut address_advance = self.row.address_offset - self.prev_row.address_offset;
+        if self.line_encoding.minimum_instruction_length != 1 {
+            debug_assert_eq!(
+                self.row.address_offset % u64::from(self.line_encoding.minimum_instruction_length),
+                0
+            );
+            address_advance /= u64::from(self.line_encoding.minimum_instruction_length);
+        }
         address_advance * u64::from(self.line_encoding.maximum_operations_per_instruction)
             + self.row.op_index
             - self.prev_row.op_index
