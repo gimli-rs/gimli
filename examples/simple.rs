@@ -1,6 +1,6 @@
 //! A simple example of parsing `.debug_info`.
 
-use object::Object;
+use object::{Object, ObjectSection};
 use std::{borrow, env, fs};
 
 fn main() {
@@ -20,9 +20,12 @@ fn main() {
 fn dump_file(object: &object::File, endian: gimli::RunTimeEndian) -> Result<(), gimli::Error> {
     // Load a section and return as `Cow<[u8]>`.
     let load_section = |id: gimli::SectionId| -> Result<borrow::Cow<[u8]>, gimli::Error> {
-        Ok(object
-            .section_data_by_name(id.name())
-            .unwrap_or(borrow::Cow::Borrowed(&[][..])))
+        match object.section_by_name(id.name()) {
+            Some(ref section) => {
+                Ok(section.uncompressed_data().unwrap_or(borrow::Cow::Borrowed(&[][..])))
+            }
+            None => Ok(borrow::Cow::Borrowed(&[][..])),
+        }
     };
     // Load a supplementary section. We don't have a supplementary object file,
     // so always return an empty slice.

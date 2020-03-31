@@ -2,7 +2,7 @@
 #![allow(unknown_lints)]
 
 use gimli::{AttributeValue, CompilationUnitHeader};
-use object::Object;
+use object::{Object, ObjectSection};
 use rayon::prelude::*;
 use std::borrow::{Borrow, Cow};
 use std::env;
@@ -106,9 +106,12 @@ where
         'file: 'input,
         'a: 'file,
     {
-        let data = file
-            .section_data_by_name(S::section_name())
-            .unwrap_or(Cow::Borrowed(&[]));
+        let data = match file.section_by_name(S::section_name()) {
+            Some(ref section) => {
+                section.uncompressed_data().unwrap_or(Cow::Borrowed(&[][..]))
+            }
+            None => Cow::Borrowed(&[][..]),
+        };
         let data_ref = (*arena.alloc(data)).borrow();
         S::from(gimli::EndianSlice::new(data_ref, endian))
     }
