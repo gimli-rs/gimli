@@ -23,6 +23,7 @@ use typed_arena::Arena;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     GimliError(gimli::Error),
+    ObjectError(object::read::Error),
     IoError,
 }
 
@@ -45,6 +46,7 @@ fn writeln_error<W: Write, R: Reader>(
         msg,
         match err {
             Error::GimliError(err) => dwarf.format_error(err),
+            Error::ObjectError(err) => format!("{}:{:?}", "An object error occurred while reading", err),
             Error::IoError => "An I/O error occurred while writing.".to_string(),
         }
     )
@@ -60,6 +62,12 @@ impl From<io::Error> for Error {
     fn from(_: io::Error) -> Self {
         Error::IoError
     }
+}
+
+impl From<object::read::Error> for Error {
+  fn from(err: object::read::Error) -> Self {
+    Error::ObjectError(err)
+  }
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -161,15 +169,18 @@ fn add_relocations(
             object::RelocationKind::Absolute => {
                 match relocation.target() {
                     object::RelocationTarget::Symbol(symbol_idx) => {
-                        if let Some(symbol) = file.symbol_by_index(symbol_idx) {
-                            let addend = symbol.address().wrapping_add(relocation.addend() as u64);
-                            relocation.set_addend(addend as i64);
-                        } else {
-                            println!(
-                                "Relocation with invalid symbol for section {} at offset 0x{:08x}",
-                                section.name().unwrap(),
-                                offset
-                            );
+                        match file.symbol_by_index(symbol_idx) {
+                            Ok(symbol) => {
+                                let addend = symbol.address().wrapping_add(relocation.addend() as u64);
+                                relocation.set_addend(addend as i64);
+                            }
+                            Err(_) => {
+                                println!(
+                                    "Relocation with invalid symbol for section {} at offset 0x{:08x}",
+                                    section.name().unwrap(),
+                                    offset
+                                );
+                            }
                         }
                     }
                     object::RelocationTarget::Section(_section_idx) => {}
@@ -491,7 +502,7 @@ where
         let data = match file.section_by_name(id.name()) {
             Some(ref section) => {
                 add_relocations(&mut relocations, file, section);
-                section.uncompressed_data()
+                section.uncompressed_data()?
             }
             // Use a non-zero capacity so that `ReaderOffsetId`s are unique.
             None => Cow::Owned(Vec::with_capacity(1)),
