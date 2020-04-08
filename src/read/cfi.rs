@@ -1016,12 +1016,23 @@ where
     R: Reader,
     Section: UnwindSection<R>,
 {
-    let offset = input.offset_from(section.section());
-    let (length, format) = input.read_initial_length()?;
+    let (offset, length, format) = loop {
+        let offset = input.offset_from(section.section());
+        let (length, format) = input.read_initial_length()?;
 
-    if Section::length_value_is_end_of_entries(length) {
-        return Ok(None);
-    }
+        if Section::length_value_is_end_of_entries(length) {
+            return Ok(None);
+        }
+
+        // Hack: skip zero padding inserted by buggy compilers/linkers.
+        // We require that the padding is a multiple of 32-bits, otherwise
+        // there is no reliable way to determine when the padding ends. This
+        // should be okay since CFI entries must be aligned to the address size.
+
+        if length.into_u64() != 0 || format != Format::Dwarf32 {
+            break (offset, length, format);
+        }
+    };
 
     let mut rest = input.split(length)?;
     let cie_offset_base = rest.offset_from(section.section());
