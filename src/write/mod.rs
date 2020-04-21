@@ -175,6 +175,8 @@ pub enum Error {
     InitialLengthOverflow,
     /// The address is invalid.
     InvalidAddress,
+    /// The reference is invalid.
+    InvalidReference,
     /// A requested feature requires a different DWARF version.
     NeedVersion(u16),
     /// Strings in line number program have mismatched forms.
@@ -209,6 +211,7 @@ impl fmt::Display for Error {
                 "The unit length is too large for the requested DWARF format."
             ),
             Error::InvalidAddress => write!(f, "The address is invalid."),
+            Error::InvalidReference => write!(f, "The reference is invalid."),
             Error::NeedVersion(version) => write!(
                 f,
                 "A requested feature requires a DWARF version {}.",
@@ -263,6 +266,20 @@ pub enum Address {
     },
 }
 
+/// A reference to a `.debug_info` entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Reference {
+    /// An external symbol.
+    ///
+    /// The meaning of this value is decided by the writer, but
+    /// will typically be an index into a symbol table.
+    Symbol(usize),
+    /// An entry in the same section.
+    ///
+    /// This only supports references in units that are emitted together.
+    Entry(UnitId, UnitEntryId),
+}
+
 // This type is only used in debug assertions.
 #[cfg(not(debug_assertions))]
 type BaseId = ();
@@ -312,6 +329,10 @@ mod convert {
         InvalidLineBase,
         /// A `.debug_line` reference is invalid.
         InvalidLineRef,
+        /// A `.debug_info` unit entry reference is invalid.
+        InvalidUnitRef,
+        /// A `.debug_info` reference is invalid.
+        InvalidDebugInfoRef,
         /// Invalid relative address in a range list.
         InvalidRangeRelativeAddress,
         /// Writing this CFI instruction is not implemented yet.
@@ -349,6 +370,8 @@ mod convert {
                 InvalidDirectoryIndex => write!(f, "A `.debug_line` directory index is invalid."),
                 InvalidLineBase => write!(f, "A `.debug_line` line base is invalid."),
                 InvalidLineRef => write!(f, "A `.debug_line` reference is invalid."),
+                InvalidUnitRef => write!(f, "A `.debug_info` unit entry reference is invalid."),
+                InvalidDebugInfoRef => write!(f, "A `.debug_info` reference is invalid."),
                 InvalidRangeRelativeAddress => {
                     write!(f, "Invalid relative address in a range list.")
                 }

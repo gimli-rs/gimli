@@ -10,8 +10,8 @@ use crate::constants;
 use crate::write::{
     Abbreviation, AbbreviationTable, Address, AttributeSpecification, BaseId, DebugLineStrOffsets,
     DebugStrOffsets, Error, FileId, LineProgram, LineStringId, LocationListId, LocationListOffsets,
-    LocationListTable, RangeListId, RangeListOffsets, RangeListTable, Result, Section, Sections,
-    StringId, Writer,
+    LocationListTable, RangeListId, RangeListOffsets, RangeListTable, Reference, Result, Section,
+    Sections, StringId, Writer,
 };
 
 define_id!(UnitId, "An identifier for a unit in a `UnitTable`.");
@@ -718,11 +718,11 @@ pub enum AttributeValue {
     /// An attribute that is always present.
     FlagPresent,
 
-    /// A reference to a `DebuggingInformationEntry` in the this unit.
-    ThisUnitEntryRef(UnitEntryId),
+    /// A reference to a `DebuggingInformationEntry` in this unit.
+    UnitRef(UnitEntryId),
 
     /// A reference to a `DebuggingInformationEntry` in a potentially different unit.
-    AnyUnitEntryRef((UnitId, UnitEntryId)),
+    DebugInfoRef(Reference),
 
     /// A reference to the current `.debug_info` section, but possibly a different
     /// unit from the current one.
@@ -850,7 +850,7 @@ impl AttributeValue {
             AttributeValue::Exprloc(_) => constants::DW_FORM_exprloc,
             AttributeValue::Flag(_) => constants::DW_FORM_flag,
             AttributeValue::FlagPresent => constants::DW_FORM_flag_present,
-            AttributeValue::ThisUnitEntryRef(_) => {
+            AttributeValue::UnitRef(_) => {
                 // Using a fixed size format lets us write a placeholder before we know
                 // the value.
                 match encoding.format {
@@ -858,7 +858,7 @@ impl AttributeValue {
                     Format::Dwarf64 => constants::DW_FORM_ref8,
                 }
             }
-            AttributeValue::AnyUnitEntryRef(_) => constants::DW_FORM_ref_addr,
+            AttributeValue::DebugInfoRef(_) => constants::DW_FORM_ref_addr,
             AttributeValue::DebugInfoRefSup(_) => {
                 // TODO: should this depend on the size of supplementary section?
                 match encoding.format {
@@ -972,7 +972,7 @@ impl AttributeValue {
             AttributeValue::FlagPresent => {
                 debug_assert_form!(constants::DW_FORM_flag_present);
             }
-            AttributeValue::ThisUnitEntryRef(id) => {
+            AttributeValue::UnitRef(id) => {
                 match unit.format() {
                     Format::Dwarf32 => debug_assert_form!(constants::DW_FORM_ref4),
                     Format::Dwarf64 => debug_assert_form!(constants::DW_FORM_ref8),
@@ -980,15 +980,20 @@ impl AttributeValue {
                 unit_refs.push((w.offset(), id));
                 w.write_udata(0, unit.format().word_size())?;
             }
-            AttributeValue::AnyUnitEntryRef(id) => {
+            AttributeValue::DebugInfoRef(reference) => {
                 debug_assert_form!(constants::DW_FORM_ref_addr);
                 let size = if unit.version() == 2 {
                     unit.address_size()
                 } else {
                     unit.format().word_size()
                 };
-                debug_info_refs.push((w.offset(), id, size));
-                w.write_udata(0, size)?;
+                match reference {
+                    Reference::Symbol(symbol) => w.write_reference(symbol, size)?,
+                    Reference::Entry(unit, entry) => {
+                        debug_info_refs.push((w.offset(), (unit, entry), size));
+                        w.write_udata(0, size)?;
+                    }
+                }
             }
             AttributeValue::DebugInfoRefSup(val) => {
                 match unit.format() {
@@ -1251,9 +1256,10 @@ pub(crate) mod convert {
                         };
                         if let Some(id) = id {
                             if id.0 == unit_id {
-                                attr.value = AttributeValue::ThisUnitEntryRef(id.1)
+                                attr.value = AttributeValue::UnitRef(id.1)
                             } else {
-                                attr.value = AttributeValue::AnyUnitEntryRef(id)
+                                attr.value =
+                                    AttributeValue::DebugInfoRef(Reference::Entry(id.0, id.1))
                             }
                         }
                     }
@@ -1443,6 +1449,7 @@ pub(crate) mod convert {
                     AttributeValue::UnitSectionRef(val.to_unit_section_offset(context.unit))
                 }
                 read::AttributeValue::DebugInfoRef(val) => {
+                    // TODO: support relocation of this value
                     AttributeValue::UnitSectionRef(UnitSectionOffset::DebugInfoOffset(val))
                 }
                 read::AttributeValue::DebugInfoRefSup(val) => AttributeValue::DebugInfoRefSup(val),
@@ -2224,7 +2231,7 @@ mod tests {
             },
             LineProgram::none(),
         ));
-        assert_eq!(unit_id1, UnitId::new(units.base_id, 0));
+        assert_eq!(unit_id1, units.id(0));
         let unit_id2 = units.add(Unit::new(
             Encoding {
                 version: 2,
@@ -2233,7 +2240,7 @@ mod tests {
             },
             LineProgram::none(),
         ));
-        assert_eq!(unit_id2, UnitId::new(units.base_id, 1));
+        assert_eq!(unit_id2, units.id(1));
         let unit1_child1 = UnitEntryId::new(units.get(unit_id1).base_id, 1);
         let unit1_child2 = UnitEntryId::new(units.get(unit_id1).base_id, 2);
         let unit2_child1 = UnitEntryId::new(units.get(unit_id2).base_id, 1);
@@ -2247,16 +2254,13 @@ mod tests {
             assert_eq!(child_id2, unit1_child2);
             {
                 let child1 = unit1.get_mut(child_id1);
-                child1.set(
-                    constants::DW_AT_type,
-                    AttributeValue::ThisUnitEntryRef(child_id2),
-                );
+                child1.set(constants::DW_AT_type, AttributeValue::UnitRef(child_id2));
             }
             {
                 let child2 = unit1.get_mut(child_id2);
                 child2.set(
                     constants::DW_AT_type,
-                    AttributeValue::AnyUnitEntryRef((unit_id2, unit2_child1)),
+                    AttributeValue::DebugInfoRef(Reference::Entry(unit_id2, unit2_child1)),
                 );
             }
         }
@@ -2269,16 +2273,13 @@ mod tests {
             assert_eq!(child_id2, unit2_child2);
             {
                 let child1 = unit2.get_mut(child_id1);
-                child1.set(
-                    constants::DW_AT_type,
-                    AttributeValue::ThisUnitEntryRef(child_id2),
-                );
+                child1.set(constants::DW_AT_type, AttributeValue::UnitRef(child_id2));
             }
             {
                 let child2 = unit2.get_mut(child_id2);
                 child2.set(
                     constants::DW_AT_type,
-                    AttributeValue::AnyUnitEntryRef((unit_id1, unit1_child1)),
+                    AttributeValue::DebugInfoRef(Reference::Entry(unit_id1, unit1_child1)),
                 );
             }
         }
@@ -2370,9 +2371,9 @@ mod tests {
         .unwrap();
         assert_eq!(convert_units.count(), units.count());
 
-        for unit_id in 0..convert_units.count() {
-            let unit = units.get(UnitId::new(units.base_id, unit_id));
-            let convert_unit = convert_units.get(UnitId::new(convert_units.base_id, unit_id));
+        for i in 0..convert_units.count() {
+            let unit = units.get(units.id(i));
+            let convert_unit = convert_units.get(convert_units.id(i));
             assert_eq!(convert_unit.version(), unit.version());
             assert_eq!(convert_unit.address_size(), unit.address_size());
             assert_eq!(convert_unit.format(), unit.format());
@@ -2392,16 +2393,13 @@ mod tests {
                 assert_eq!(convert_attr.name, attr.name);
                 match (convert_attr.value.clone(), attr.value.clone()) {
                     (
-                        AttributeValue::AnyUnitEntryRef(convert_id),
-                        AttributeValue::AnyUnitEntryRef(id),
+                        AttributeValue::DebugInfoRef(Reference::Entry(convert_unit, convert_entry)),
+                        AttributeValue::DebugInfoRef(Reference::Entry(unit, entry)),
                     ) => {
-                        assert_eq!((convert_id.0).index, (id.0).index);
-                        assert_eq!((convert_id.1).index, (id.1).index);
+                        assert_eq!(convert_unit.index, unit.index);
+                        assert_eq!(convert_entry.index, entry.index);
                     }
-                    (
-                        AttributeValue::ThisUnitEntryRef(convert_id),
-                        AttributeValue::ThisUnitEntryRef(id),
-                    ) => {
+                    (AttributeValue::UnitRef(convert_id), AttributeValue::UnitRef(id)) => {
                         assert_eq!(convert_id.index, id.index);
                     }
                     (convert_value, value) => assert_eq!(convert_value, value),
@@ -2415,16 +2413,13 @@ mod tests {
                 assert_eq!(convert_attr.name, attr.name);
                 match (convert_attr.value.clone(), attr.value.clone()) {
                     (
-                        AttributeValue::AnyUnitEntryRef(convert_id),
-                        AttributeValue::AnyUnitEntryRef(id),
+                        AttributeValue::DebugInfoRef(Reference::Entry(convert_unit, convert_entry)),
+                        AttributeValue::DebugInfoRef(Reference::Entry(unit, entry)),
                     ) => {
-                        assert_eq!((convert_id.0).index, (id.0).index);
-                        assert_eq!((convert_id.1).index, (id.1).index);
+                        assert_eq!(convert_unit.index, unit.index);
+                        assert_eq!(convert_entry.index, entry.index);
                     }
-                    (
-                        AttributeValue::ThisUnitEntryRef(convert_id),
-                        AttributeValue::ThisUnitEntryRef(id),
-                    ) => {
+                    (AttributeValue::UnitRef(convert_id), AttributeValue::UnitRef(id)) => {
                         assert_eq!(convert_id.index, id.index);
                     }
                     (convert_value, value) => assert_eq!(convert_value, value),
