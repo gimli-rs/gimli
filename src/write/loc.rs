@@ -396,6 +396,7 @@ mod tests {
         ConvertUnitContext, EndianVec, LineStringTable, RangeListTable, StringTable,
     };
     use crate::LittleEndian;
+    use std::collections::HashMap;
 
     #[test]
     fn test_loc_list() {
@@ -484,6 +485,7 @@ mod tests {
                         base_address: Address::Constant(0),
                         line_program_offset: None,
                         line_program_files: Vec::new(),
+                        entry_ids: &HashMap::new(),
                     };
                     let convert_loc_list = LocationList::from(read_loc_list, &context).unwrap();
 

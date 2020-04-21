@@ -724,14 +724,6 @@ pub enum AttributeValue {
     /// A reference to a `DebuggingInformationEntry` in a potentially different unit.
     DebugInfoRef(Reference),
 
-    /// A reference to the current `.debug_info` section, but possibly a different
-    /// unit from the current one.
-    ///
-    /// This is an internal attribute that must only be used when converting an
-    /// existing `.debug_info` section.
-    #[doc(hidden)]
-    UnitSectionRef(UnitSectionOffset),
-
     /// An offset into the `.debug_info` section of the supplementary object file.
     ///
     /// The API does not currently assist with generating this offset.
@@ -900,9 +892,6 @@ impl AttributeValue {
             | AttributeValue::FileIndex(_)
             | AttributeValue::Udata(_) => constants::DW_FORM_udata,
             AttributeValue::Sdata(_) => constants::DW_FORM_sdata,
-            AttributeValue::UnitSectionRef(_) => {
-                return Err(Error::InvalidAttributeValue);
-            }
         };
         Ok(form)
     }
@@ -1132,9 +1121,6 @@ impl AttributeValue {
                 debug_assert_form!(constants::DW_FORM_udata);
                 w.write_uleb128(val.map(FileId::raw).unwrap_or(0))?;
             }
-            AttributeValue::UnitSectionRef(_) => {
-                return Err(Error::InvalidAttributeValue);
-            }
         }
         Ok(())
     }
@@ -1192,6 +1178,15 @@ pub(crate) mod convert {
     use crate::write::{self, ConvertError, ConvertResult, LocationList, RangeList};
     use std::collections::HashMap;
 
+    pub(crate) struct ConvertUnit<R: Reader<Offset = usize>> {
+        from_unit: read::Unit<R>,
+        base_id: BaseId,
+        encoding: Encoding,
+        entries: Vec<DebuggingInformationEntry>,
+        entry_offsets: Vec<read::UnitOffset>,
+        root: UnitEntryId,
+    }
+
     pub(crate) struct ConvertUnitContext<'a, R: Reader<Offset = usize>> {
         pub dwarf: &'a read::Dwarf<R>,
         pub unit: &'a read::Unit<R>,
@@ -1203,6 +1198,7 @@ pub(crate) mod convert {
         pub base_address: Address,
         pub line_program_offset: Option<DebugLineOffset>,
         pub line_program_files: Vec<FileId>,
+        pub entry_ids: &'a HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
     }
 
     impl UnitTable {
@@ -1223,16 +1219,27 @@ pub(crate) mod convert {
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<UnitTable> {
             let base_id = BaseId::default();
-            let mut units = Vec::new();
-            let mut unit_entry_offsets = HashMap::new();
+            let mut unit_entries = Vec::new();
+            let mut entry_ids = HashMap::new();
 
             let mut from_units = dwarf.units();
             while let Some(from_unit) = from_units.next()? {
-                let unit_id = UnitId::new(base_id, units.len());
-                units.push(Unit::from(
+                let unit_id = UnitId::new(base_id, unit_entries.len());
+                unit_entries.push(Unit::convert_entries(
                     from_unit,
                     unit_id,
-                    &mut unit_entry_offsets,
+                    &mut entry_ids,
+                    dwarf,
+                )?);
+            }
+
+            // Attributes must be converted in a separate pass so that we can handle
+            // references to other compilation units.
+            let mut units = Vec::new();
+            for unit_entries in unit_entries.drain(..) {
+                units.push(Unit::convert_attributes(
+                    unit_entries,
+                    &entry_ids,
                     dwarf,
                     line_strings,
                     strings,
@@ -1240,52 +1247,62 @@ pub(crate) mod convert {
                 )?);
             }
 
-            // Convert all DebugInfoOffset to UnitEntryId
-            for (unit_id, unit) in units.iter_mut().enumerate() {
-                let unit_id = UnitId::new(base_id, unit_id);
-                for entry in &mut unit.entries {
-                    for attr in &mut entry.attrs {
-                        let id = match attr.value {
-                            AttributeValue::UnitSectionRef(ref offset) => {
-                                match unit_entry_offsets.get(offset) {
-                                    Some(id) => Some(*id),
-                                    None => return Err(ConvertError::InvalidDebugInfoOffset),
-                                }
-                            }
-                            _ => None,
-                        };
-                        if let Some(id) = id {
-                            if id.0 == unit_id {
-                                attr.value = AttributeValue::UnitRef(id.1)
-                            } else {
-                                attr.value =
-                                    AttributeValue::DebugInfoRef(Reference::Entry(id.0, id.1))
-                            }
-                        }
-                    }
-                }
-            }
-
             Ok(UnitTable { base_id, units })
         }
     }
 
     impl Unit {
-        /// Create a unit by reading the data in the given sections.
+        /// Create a unit by reading the data in the input sections.
+        ///
+        /// Does not add entry attributes.
         #[allow(clippy::too_many_arguments)]
-        pub(crate) fn from<R: Reader<Offset = usize>>(
+        pub(crate) fn convert_entries<R: Reader<Offset = usize>>(
             from_header: read::CompilationUnitHeader<R>,
             unit_id: UnitId,
-            unit_entry_offsets: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
+            entry_ids: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
+            dwarf: &read::Dwarf<R>,
+        ) -> ConvertResult<ConvertUnit<R>> {
+            let base_id = BaseId::default();
+
+            let from_unit = dwarf.unit(from_header)?;
+            let encoding = from_unit.encoding();
+
+            let mut entries = Vec::new();
+            let mut entry_offsets = Vec::new();
+
+            let mut from_tree = from_unit.entries_tree(None)?;
+            let from_root = from_tree.root()?;
+            let root = DebuggingInformationEntry::convert_entry(
+                from_root,
+                &from_unit,
+                base_id,
+                &mut entries,
+                &mut entry_offsets,
+                entry_ids,
+                None,
+                unit_id,
+            )?;
+
+            Ok(ConvertUnit {
+                from_unit,
+                base_id,
+                encoding,
+                entries,
+                entry_offsets,
+                root,
+            })
+        }
+
+        /// Create entry attributes by reading the data in the input sections.
+        fn convert_attributes<R: Reader<Offset = usize>>(
+            unit: ConvertUnit<R>,
+            entry_ids: &HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
             dwarf: &read::Dwarf<R>,
             line_strings: &mut write::LineStringTable,
             strings: &mut write::StringTable,
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<Unit> {
-            let base_id = BaseId::default();
-
-            let from_unit = dwarf.unit(from_header)?;
-            let encoding = from_unit.encoding();
+            let from_unit = unit.from_unit;
             let base_address =
                 convert_address(from_unit.low_pc).ok_or(ConvertError::InvalidAddress)?;
 
@@ -1308,90 +1325,92 @@ pub(crate) mod convert {
 
             let mut ranges = RangeListTable::default();
             let mut locations = LocationListTable::default();
-            let mut entries = Vec::new();
-            let root = {
-                let mut context = ConvertUnitContext {
-                    dwarf,
-                    unit: &from_unit,
-                    line_strings,
-                    strings,
-                    ranges: &mut ranges,
-                    locations: &mut locations,
-                    convert_address,
-                    base_address,
-                    line_program_offset,
-                    line_program_files,
-                };
-                let mut from_tree = from_unit.entries_tree(None)?;
-                let from_root = from_tree.root()?;
-                DebuggingInformationEntry::from(
-                    &mut context,
-                    from_root,
-                    base_id,
-                    &mut entries,
-                    None,
-                    unit_id,
-                    unit_entry_offsets,
-                )?
+
+            let mut context = ConvertUnitContext {
+                entry_ids,
+                dwarf,
+                unit: &from_unit,
+                line_strings,
+                strings,
+                ranges: &mut ranges,
+                locations: &mut locations,
+                convert_address,
+                base_address,
+                line_program_offset,
+                line_program_files,
             };
 
+            let mut entries = unit.entries;
+            for entry in &mut entries {
+                entry.convert_attributes(&mut context, &unit.entry_offsets)?;
+            }
+
             Ok(Unit {
-                base_id,
-                encoding,
+                base_id: unit.base_id,
+                encoding: unit.encoding,
                 line_program,
                 ranges,
                 locations,
                 entries,
-                root,
+                root: unit.root,
             })
         }
     }
 
     impl DebuggingInformationEntry {
-        /// Create an entry by reading the data in the given sections.
-        fn from<R: Reader<Offset = usize>>(
-            context: &mut ConvertUnitContext<R>,
+        /// Create an entry by reading the data in the input sections.
+        ///
+        /// Does not add the entry attributes.
+        fn convert_entry<R: Reader<Offset = usize>>(
             from: read::EntriesTreeNode<R>,
+            from_unit: &read::Unit<R>,
             base_id: BaseId,
             entries: &mut Vec<DebuggingInformationEntry>,
+            entry_offsets: &mut Vec<read::UnitOffset>,
+            entry_ids: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
             parent: Option<UnitEntryId>,
             unit_id: UnitId,
-            unit_entry_offsets: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
         ) -> ConvertResult<UnitEntryId> {
-            let id = {
-                let from = from.entry();
-                let entry = DebuggingInformationEntry::new(base_id, entries, parent, from.tag());
-                let entry = &mut entries[entry.index];
-
-                let offset = from.offset().to_unit_section_offset(context.unit);
-                unit_entry_offsets.insert(offset, (unit_id, entry.id));
-
-                let mut from_attrs = from.attrs();
-                while let Some(from_attr) = from_attrs.next()? {
-                    if from_attr.name() == constants::DW_AT_sibling {
-                        // This may point to a null entry, so we have to treat it differently.
-                        entry.set_sibling(true);
-                    } else if let Some(attr) = Attribute::from(context, &from_attr)? {
-                        entry.set(attr.name, attr.value);
-                    }
-                }
-
-                entry.id
-            };
+            let from_entry = from.entry();
+            let id = DebuggingInformationEntry::new(base_id, entries, parent, from_entry.tag());
+            let offset = from_entry.offset();
+            entry_offsets.push(offset);
+            entry_ids.insert(offset.to_unit_section_offset(from_unit), (unit_id, id));
 
             let mut from_children = from.children();
             while let Some(from_child) = from_children.next()? {
-                DebuggingInformationEntry::from(
-                    context,
+                DebuggingInformationEntry::convert_entry(
                     from_child,
+                    from_unit,
                     base_id,
                     entries,
+                    entry_offsets,
+                    entry_ids,
                     Some(id),
                     unit_id,
-                    unit_entry_offsets,
                 )?;
             }
             Ok(id)
+        }
+
+        /// Create an entry's attributes by reading the data in the input sections.
+        fn convert_attributes<R: Reader<Offset = usize>>(
+            &mut self,
+            context: &mut ConvertUnitContext<R>,
+            entry_offsets: &[read::UnitOffset],
+        ) -> ConvertResult<()> {
+            let offset = entry_offsets[self.id.index];
+            let from = context.unit.entry(offset)?;
+            let mut from_attrs = from.attrs();
+            while let Some(from_attr) = from_attrs.next()? {
+                if from_attr.name() == constants::DW_AT_sibling {
+                    // This may point to a null entry, so we have to treat it differently.
+                    self.set_sibling(true);
+                } else if let Some(attr) = Attribute::from(context, &from_attr)? {
+                    self.set(attr.name, attr.value);
+                }
+            }
+            Ok(())
         }
     }
 
@@ -1446,11 +1465,22 @@ pub(crate) mod convert {
                     }
                 }
                 read::AttributeValue::UnitRef(val) => {
-                    AttributeValue::UnitSectionRef(val.to_unit_section_offset(context.unit))
+                    if !context.unit.header.is_valid_offset(val) {
+                        return Err(ConvertError::InvalidUnitRef);
+                    }
+                    let id = context
+                        .entry_ids
+                        .get(&val.to_unit_section_offset(context.unit))
+                        .ok_or(ConvertError::InvalidUnitRef)?;
+                    AttributeValue::UnitRef(id.1)
                 }
                 read::AttributeValue::DebugInfoRef(val) => {
                     // TODO: support relocation of this value
-                    AttributeValue::UnitSectionRef(UnitSectionOffset::DebugInfoOffset(val))
+                    let id = context
+                        .entry_ids
+                        .get(&UnitSectionOffset::DebugInfoOffset(val))
+                        .ok_or(ConvertError::InvalidDebugInfoRef)?;
+                    AttributeValue::DebugInfoRef(Reference::Entry(id.0, id.1))
                 }
                 read::AttributeValue::DebugInfoRefSup(val) => AttributeValue::DebugInfoRefSup(val),
                 read::AttributeValue::DebugLineRef(val) => {
@@ -1586,6 +1616,7 @@ mod tests {
         StringTable,
     };
     use crate::LittleEndian;
+    use std::collections::HashMap;
     use std::mem;
 
     #[test]
@@ -2208,6 +2239,7 @@ mod tests {
                             base_address: Address::Constant(0),
                             line_program_offset: None,
                             line_program_files: Vec::new(),
+                            entry_ids: &HashMap::new(),
                         };
 
                         let convert_attr =
@@ -2669,6 +2701,7 @@ mod tests {
                             base_address: Address::Constant(0),
                             line_program_offset: Some(line_program_offset),
                             line_program_files: line_program_files.clone(),
+                            entry_ids: &HashMap::new(),
                         };
 
                         let convert_attr =

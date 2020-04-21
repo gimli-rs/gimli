@@ -314,6 +314,7 @@ mod tests {
         StringTable,
     };
     use crate::LittleEndian;
+    use std::collections::HashMap;
 
     #[test]
     fn test_range() {
@@ -394,6 +395,7 @@ mod tests {
                         base_address: Address::Constant(0),
                         line_program_offset: None,
                         line_program_files: Vec::new(),
+                        entry_ids: &HashMap::new(),
                     };
                     let convert_range_list = RangeList::from(read_range_list, &context).unwrap();
 
