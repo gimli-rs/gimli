@@ -2305,9 +2305,21 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
 // `RegisterRule::Undefined`, we never store a register's rule in this vec if it
 // is undefined and save a little bit more space and do a little fewer
 // comparisons that way.
+//
+// The maximum number of rules preallocated by libunwind is 97 for AArch64, 128
+// for ARM, and even 188 for MIPS. It is extremely unlikely to encounter this
+// many register rules in practice.
+//
+// See:
+// - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-x86_64/dwarf-config.h#L36
+// - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-aarch64/dwarf-config.h#L32
+// - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-arm/dwarf-config.h#L31
+// - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-mips/dwarf-config.h#L31
+//
+// TODO: Consider using const generics for the array size.
 #[derive(Clone, Debug)]
 struct RegisterRuleMap<R: Reader> {
-    rules: ArrayVec<[(Register, RegisterRule<R>); 32]>,
+    rules: ArrayVec<[(Register, RegisterRule<R>); 192]>,
 }
 
 impl<R: Reader> Default for RegisterRuleMap<R> {
@@ -6659,7 +6671,7 @@ mod tests {
     fn size_of_unwind_ctx() {
         use core::mem;
         let size = mem::size_of::<UnwindContext<EndianSlice<NativeEndian>>>();
-        let max_size = 5416;
+        let max_size = 30968;
         if size > max_size {
             assert_eq!(size, max_size);
         }
@@ -6670,7 +6682,7 @@ mod tests {
     fn size_of_register_rule_map() {
         use core::mem;
         let size = mem::size_of::<RegisterRuleMap<EndianSlice<NativeEndian>>>();
-        let max_size = 1040;
+        let max_size = 6152;
         if size > max_size {
             assert_eq!(size, max_size);
         }
