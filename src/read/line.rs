@@ -1669,7 +1669,7 @@ where
     }
 }
 
-/// The format of a compononent of an include directory or file name entry.
+/// The format of a component of an include directory or file name entry.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct FileEntryFormat {
     /// The type of information that is represented by the component.
