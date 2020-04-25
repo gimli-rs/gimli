@@ -7,6 +7,7 @@ use crate::common::{
     DebugStrOffset, DebugTypeSignature, Encoding, Format, SectionId, UnitSectionOffset,
 };
 use crate::constants;
+use crate::leb128::write::{sleb128_size, uleb128_size};
 use crate::write::{
     Abbreviation, AbbreviationTable, Address, AttributeSpecification, BaseId, DebugLineStrOffsets,
     DebugStrOffsets, Error, FileId, LineProgram, LineStringId, LocationListId, LocationListOffsets,
@@ -304,9 +305,8 @@ impl Unit {
             base_id: self.base_id,
             unit: w.offset(),
             // Entries can be written in any order, so create the complete vec now.
-            entries: vec![DebugInfoOffset(0); self.entries.len()],
+            entries: vec![EntryOffset::none(); self.entries.len()],
         };
-        let mut unit_refs = Vec::new();
 
         let length_offset = w.write_initial_length(self.format())?;
         let length_base = w.len();
@@ -331,6 +331,20 @@ impl Unit {
             return Err(Error::UnsupportedVersion(self.version()));
         }
 
+        // Calculate all DIE offsets, so that we are able to output references to them.
+        // However, references to base types in expressions use ULEB128, so base types
+        // must be moved to the front before we can calculate offsets.
+        self.reorder_base_types();
+        let mut offset = w.len();
+        self.entries[self.root.index].calculate_offsets(
+            self,
+            &mut offset,
+            &mut offsets,
+            abbrevs,
+        )?;
+
+        let w = &mut sections.debug_info;
+        let mut unit_refs = Vec::new();
         self.entries[self.root.index].write(
             w,
             self,
@@ -349,17 +363,33 @@ impl Unit {
         w.write_initial_length_at(length_offset, length, self.format())?;
 
         for (offset, entry) in unit_refs {
-            let entry_offset = offsets.entry(entry).0;
-            debug_assert_ne!(entry_offset, 0);
             // This does not need relocation.
             w.write_udata_at(
                 offset.0,
-                (entry_offset - offsets.unit.0) as u64,
+                offsets.unit_offset(entry),
                 self.format().word_size(),
             )?;
         }
 
         Ok(offsets)
+    }
+
+    /// Reorder base types to come first so that typed stack operations
+    /// can get their offset.
+    fn reorder_base_types(&mut self) {
+        let root = &self.entries[self.root.index];
+        let mut root_children = Vec::with_capacity(root.children.len());
+        for entry in &root.children {
+            if self.entries[entry.index].tag == constants::DW_TAG_base_type {
+                root_children.push(*entry);
+            }
+        }
+        for entry in &root.children {
+            if self.entries[entry.index].tag != constants::DW_TAG_base_type {
+                root_children.push(*entry);
+            }
+        }
+        self.entries[self.root.index].children = root_children;
     }
 }
 
@@ -524,6 +554,37 @@ impl DebuggingInformationEntry {
         ))
     }
 
+    fn calculate_offsets(
+        &self,
+        unit: &Unit,
+        offset: &mut usize,
+        offsets: &mut UnitOffsets,
+        abbrevs: &mut AbbreviationTable,
+    ) -> Result<()> {
+        offsets.entries[self.id.index].offset = DebugInfoOffset(*offset);
+        offsets.entries[self.id.index].abbrev = abbrevs.add(self.abbreviation(unit.encoding())?);
+        *offset += self.size(unit, offsets);
+        if !self.children.is_empty() {
+            for child in &self.children {
+                unit.entries[child.index].calculate_offsets(unit, offset, offsets, abbrevs)?;
+            }
+            // Null child
+            *offset += 1;
+        }
+        Ok(())
+    }
+
+    fn size(&self, unit: &Unit, offsets: &UnitOffsets) -> usize {
+        let mut size = uleb128_size(offsets.abbrev(self.id));
+        if self.sibling && !self.children.is_empty() {
+            size += unit.format().word_size() as usize;
+        }
+        for attr in &self.attrs {
+            size += attr.value.size(unit, offsets);
+        }
+        size
+    }
+
     /// Write the entry to the given sections.
     #[allow(clippy::too_many_arguments)]
     fn write<W: Writer>(
@@ -540,9 +601,8 @@ impl DebuggingInformationEntry {
         unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
         debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
     ) -> Result<()> {
-        offsets.entries[self.id.index] = w.offset();
-        let code = abbrevs.add(self.abbreviation(unit.encoding())?);
-        w.write_uleb128(code)?;
+        debug_assert_eq!(offsets.debug_info_offset(self.id), w.offset());
+        w.write_uleb128(offsets.abbrev(self.id))?;
 
         let sibling_offset = if self.sibling && !self.children.is_empty() {
             let offset = w.offset();
@@ -896,6 +956,185 @@ impl AttributeValue {
         Ok(form)
     }
 
+    fn size(&self, unit: &Unit, offsets: &UnitOffsets) -> usize {
+        macro_rules! debug_assert_form {
+            ($form:expr) => {
+                debug_assert_eq!(self.form(unit.encoding()).unwrap(), $form)
+            };
+        }
+        match *self {
+            AttributeValue::Address(_) => {
+                debug_assert_form!(constants::DW_FORM_addr);
+                unit.address_size() as usize
+            }
+            AttributeValue::Block(ref val) => {
+                debug_assert_form!(constants::DW_FORM_block);
+                uleb128_size(val.len() as u64) + val.len()
+            }
+            AttributeValue::Data1(_) => {
+                debug_assert_form!(constants::DW_FORM_data1);
+                1
+            }
+            AttributeValue::Data2(_) => {
+                debug_assert_form!(constants::DW_FORM_data2);
+                2
+            }
+            AttributeValue::Data4(_) => {
+                debug_assert_form!(constants::DW_FORM_data4);
+                4
+            }
+            AttributeValue::Data8(_) => {
+                debug_assert_form!(constants::DW_FORM_data8);
+                8
+            }
+            AttributeValue::Sdata(val) => {
+                debug_assert_form!(constants::DW_FORM_sdata);
+                sleb128_size(val)
+            }
+            AttributeValue::Udata(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val)
+            }
+            AttributeValue::Exprloc(ref val) => {
+                debug_assert_form!(constants::DW_FORM_exprloc);
+                let size = val.0.len();
+                uleb128_size(size as u64) + size
+            }
+            AttributeValue::Flag(_) => {
+                debug_assert_form!(constants::DW_FORM_flag);
+                1
+            }
+            AttributeValue::FlagPresent => {
+                debug_assert_form!(constants::DW_FORM_flag_present);
+                0
+            }
+            AttributeValue::UnitRef(_) => {
+                match unit.format() {
+                    Format::Dwarf32 => debug_assert_form!(constants::DW_FORM_ref4),
+                    Format::Dwarf64 => debug_assert_form!(constants::DW_FORM_ref8),
+                }
+                unit.format().word_size() as usize
+            }
+            AttributeValue::DebugInfoRef(_) => {
+                debug_assert_form!(constants::DW_FORM_ref_addr);
+                if unit.version() == 2 {
+                    unit.address_size() as usize
+                } else {
+                    unit.format().word_size() as usize
+                }
+            }
+            AttributeValue::DebugInfoRefSup(_) => {
+                match unit.format() {
+                    Format::Dwarf32 => debug_assert_form!(constants::DW_FORM_ref_sup4),
+                    Format::Dwarf64 => debug_assert_form!(constants::DW_FORM_ref_sup8),
+                }
+                unit.format().word_size() as usize
+            }
+            AttributeValue::LineProgramRef => {
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_sec_offset);
+                }
+                unit.format().word_size() as usize
+            }
+            AttributeValue::LocationListRef(_) => {
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_sec_offset);
+                }
+                unit.format().word_size() as usize
+            }
+            AttributeValue::DebugMacinfoRef(_) => {
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_sec_offset);
+                }
+                unit.format().word_size() as usize
+            }
+            AttributeValue::DebugMacroRef(_) => {
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_sec_offset);
+                }
+                unit.format().word_size() as usize
+            }
+            AttributeValue::RangeListRef(_) => {
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_sec_offset);
+                }
+                unit.format().word_size() as usize
+            }
+            AttributeValue::DebugTypesRef(_) => {
+                debug_assert_form!(constants::DW_FORM_ref_sig8);
+                8
+            }
+            AttributeValue::StringRef(_) => {
+                debug_assert_form!(constants::DW_FORM_strp);
+                unit.format().word_size() as usize
+            }
+            AttributeValue::DebugStrRefSup(_) => {
+                debug_assert_form!(constants::DW_FORM_strp_sup);
+                unit.format().word_size() as usize
+            }
+            AttributeValue::LineStringRef(_) => {
+                debug_assert_form!(constants::DW_FORM_line_strp);
+                unit.format().word_size() as usize
+            }
+            AttributeValue::String(ref val) => {
+                debug_assert_form!(constants::DW_FORM_string);
+                val.len() + 1
+            }
+            AttributeValue::Encoding(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::DecimalSign(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::Endianity(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::Accessibility(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::Visibility(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::Virtuality(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::Language(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::AddressClass(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::IdentifierCase(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::CallingConvention(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::Inline(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::Ordering(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::FileIndex(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.map(FileId::raw).unwrap_or(0))
+            }
+        }
+    }
+
     /// Write the attribute value to the given sections.
     #[allow(clippy::cyclomatic_complexity, clippy::too_many_arguments)]
     fn write<W: Writer>(
@@ -1151,7 +1390,7 @@ impl DebugInfoOffsets {
     #[inline]
     pub fn entry(&self, unit: UnitId, entry: UnitEntryId) -> DebugInfoOffset {
         debug_assert_eq!(self.base_id, unit.base_id);
-        self.units[unit.index].entry(entry)
+        self.units[unit.index].debug_info_offset(entry)
     }
 }
 
@@ -1160,14 +1399,46 @@ impl DebugInfoOffsets {
 pub(crate) struct UnitOffsets {
     base_id: BaseId,
     unit: DebugInfoOffset,
-    entries: Vec<DebugInfoOffset>,
+    entries: Vec<EntryOffset>,
 }
 
 impl UnitOffsets {
+    /// Get the .debug_info offset for the given entry.
     #[inline]
-    fn entry(&self, entry: UnitEntryId) -> DebugInfoOffset {
+    fn debug_info_offset(&self, entry: UnitEntryId) -> DebugInfoOffset {
         debug_assert_eq!(self.base_id, entry.base_id);
-        self.entries[entry.index]
+        let offset = self.entries[entry.index].offset;
+        debug_assert_ne!(offset.0, 0);
+        offset
+    }
+
+    /// Get the unit offset for the given entry.
+    #[inline]
+    pub(crate) fn unit_offset(&self, entry: UnitEntryId) -> u64 {
+        let offset = self.debug_info_offset(entry);
+        (offset.0 - self.unit.0) as u64
+    }
+
+    /// Get the abbreviation code for the given entry.
+    #[inline]
+    pub(crate) fn abbrev(&self, entry: UnitEntryId) -> u64 {
+        debug_assert_eq!(self.base_id, entry.base_id);
+        self.entries[entry.index].abbrev
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct EntryOffset {
+    offset: DebugInfoOffset,
+    abbrev: u64,
+}
+
+impl EntryOffset {
+    fn none() -> Self {
+        EntryOffset {
+            offset: DebugInfoOffset(0),
+            abbrev: 0,
+        }
     }
 }
 

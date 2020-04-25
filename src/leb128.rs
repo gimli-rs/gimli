@@ -45,6 +45,7 @@
 //! ```
 
 const CONTINUATION_BIT: u8 = 1 << 7;
+#[cfg(feature = "read")]
 const SIGN_BIT: u8 = 1 << 6;
 
 #[inline]
@@ -176,6 +177,18 @@ pub mod write {
         }
     }
 
+    /// Return the size of the LEB128 encoding of the given unsigned number.
+    pub fn uleb128_size(mut val: u64) -> usize {
+        let mut size = 0;
+        loop {
+            val >>= 7;
+            size += 1;
+            if val == 0 {
+                return size;
+            }
+        }
+    }
+
     /// Write the given signed number using the LEB128 encoding to the given
     /// `std::io::Write`able. Returns the number of bytes written to `w`, or an
     /// error if writing failed.
@@ -204,6 +217,20 @@ pub mod write {
 
             if done {
                 return Ok(bytes_written);
+            }
+        }
+    }
+
+    /// Return the size of the LEB128 encoding of the given signed number.
+    pub fn sleb128_size(mut val: i64) -> usize {
+        let mut size = 0;
+        loop {
+            val >>= 6;
+            let done = val == 0 || val == -1;
+            val >>= 1;
+            size += 1;
+            if done {
+                return size;
             }
         }
     }
