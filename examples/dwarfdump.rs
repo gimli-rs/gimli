@@ -1377,14 +1377,17 @@ fn dump_op<R: Reader, W: Write>(
         gimli::Operation::Skip { target } => {
             write!(w, " {}", target)?;
         }
-        gimli::Operation::Literal { value } => match dwop {
+        gimli::Operation::SignedConstant { value } => match dwop {
             gimli::DW_OP_const1s
             | gimli::DW_OP_const2s
             | gimli::DW_OP_const4s
             | gimli::DW_OP_const8s
             | gimli::DW_OP_consts => {
-                write!(w, " {}", value as i64)?;
+                write!(w, " {}", value)?;
             }
+            _ => {}
+        },
+        gimli::Operation::UnsignedConstant { value } => match dwop {
             gimli::DW_OP_const1u
             | gimli::DW_OP_const2u
             | gimli::DW_OP_const4u
