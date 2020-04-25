@@ -1315,14 +1315,14 @@ fn dump_exprloc<R: Reader, W: Write>(
     while pc.len() != 0 {
         let mut op_pc = pc.clone();
         let dwop = gimli::DwOp(op_pc.read_u8()?);
-        match gimli::Operation::parse(&mut pc, &data.0, encoding) {
+        match gimli::Operation::parse(&mut pc, encoding) {
             Ok(op) => {
                 if space {
                     write!(w, " ")?;
                 } else {
                     space = true;
                 }
-                dump_op(w, encoding, dwop, op, &pc)?;
+                dump_op(w, encoding, dwop, op)?;
             }
             Err(gimli::Error::InvalidExpression(op)) => {
                 writeln!(w, "WARNING: unsupported operation 0x{:02x}", op.0)?;
@@ -1350,7 +1350,6 @@ fn dump_op<R: Reader, W: Write>(
     encoding: gimli::Encoding,
     dwop: gimli::DwOp,
     op: gimli::Operation<R>,
-    newpc: &R,
 ) -> Result<()> {
     write!(w, "{}", dwop)?;
     match op {
@@ -1373,12 +1372,10 @@ fn dump_op<R: Reader, W: Write>(
             write!(w, " {}", value as i64)?;
         }
         gimli::Operation::Bra { target } => {
-            let offset = newpc.len() as isize - target.len() as isize;
-            write!(w, " {}", offset)?;
+            write!(w, " {}", target)?;
         }
         gimli::Operation::Skip { target } => {
-            let offset = newpc.len() as isize - target.len() as isize;
-            write!(w, " {}", offset)?;
+            write!(w, " {}", target)?;
         }
         gimli::Operation::Literal { value } => match dwop {
             gimli::DW_OP_const1s

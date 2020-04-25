@@ -95,8 +95,8 @@ where
     Xor,
     /// Branch to the target location if the top of stack is nonzero.
     Bra {
-        /// The target bytecode.
-        target: R,
+        /// The relative offset to the target bytecode.
+        target: i16,
     },
     /// Compare the top two stack values for equality.
     Eq,
@@ -112,8 +112,8 @@ where
     Ne,
     /// Unconditional branch to the target location.
     Skip {
-        /// The target bytecode.
-        target: R,
+        /// The relative offset to the target bytecode.
+        target: i16,
     },
     /// Push a constant value on the stack.  This handles multiple
     /// DWARF opcodes.
@@ -364,7 +364,7 @@ where
     /// `bytes` points to a the operation to decode.  It should point into
     /// the same array as `bytecode`, which should be the entire
     /// expression.
-    pub fn parse(bytes: &mut R, bytecode: &R, encoding: Encoding) -> Result<Operation<R, Offset>> {
+    pub fn parse(bytes: &mut R, encoding: Encoding) -> Result<Operation<R, Offset>> {
         let opcode = bytes.read_u8()?;
         let name = constants::DwOp(opcode);
         match name {
@@ -466,10 +466,8 @@ where
             constants::DW_OP_shra => Ok(Operation::Shra),
             constants::DW_OP_xor => Ok(Operation::Xor),
             constants::DW_OP_bra => {
-                let value = bytes.read_i16()?;
-                Ok(Operation::Bra {
-                    target: compute_pc(bytes, bytecode, value)?,
-                })
+                let target = bytes.read_i16()?;
+                Ok(Operation::Bra { target })
             }
             constants::DW_OP_eq => Ok(Operation::Eq),
             constants::DW_OP_ge => Ok(Operation::Ge),
@@ -478,10 +476,8 @@ where
             constants::DW_OP_lt => Ok(Operation::Lt),
             constants::DW_OP_ne => Ok(Operation::Ne),
             constants::DW_OP_skip => {
-                let value = bytes.read_i16()?;
-                Ok(Operation::Skip {
-                    target: compute_pc(bytes, bytecode, value)?,
-                })
+                let target = bytes.read_i16()?;
+                Ok(Operation::Skip { target })
             }
             constants::DW_OP_lit0
             | constants::DW_OP_lit1
@@ -1042,7 +1038,7 @@ impl<R: Reader> Evaluation<R> {
 
     #[allow(clippy::cyclomatic_complexity)]
     fn evaluate_one_operation(&mut self) -> Result<OperationEvaluationResult<R>> {
-        let operation = Operation::parse(&mut self.pc, &self.bytecode, self.encoding)?;
+        let operation = Operation::parse(&mut self.pc, self.encoding)?;
 
         match operation {
             Operation::Deref {
@@ -1189,7 +1185,7 @@ impl<R: Reader> Evaluation<R> {
                 let entry = self.pop()?;
                 let v = entry.to_u64(self.addr_mask)?;
                 if v != 0 {
-                    self.pc = target.clone();
+                    self.pc = compute_pc(&self.pc, &self.bytecode, target)?;
                 }
             }
 
@@ -1230,8 +1226,8 @@ impl<R: Reader> Evaluation<R> {
                 self.push(result);
             }
 
-            Operation::Skip { ref target } => {
-                self.pc = target.clone();
+            Operation::Skip { target } => {
+                self.pc = compute_pc(&self.pc, &self.bytecode, target)?;
             }
 
             Operation::Literal { value } => {
@@ -1739,7 +1735,7 @@ impl<R: Reader> Evaluation<R> {
                     } else {
                         // If there are more operations, then the next operation must
                         // be a Piece.
-                        match Operation::parse(&mut self.pc, &self.bytecode, self.encoding)? {
+                        match Operation::parse(&mut self.pc, self.encoding)? {
                             Operation::Piece {
                                 size_in_bits,
                                 bit_offset,
@@ -1842,7 +1838,7 @@ mod tests {
     ) {
         let buf = EndianSlice::new(input, LittleEndian);
         let mut pc = buf;
-        let value = Operation::parse(&mut pc, &buf, encoding);
+        let value = Operation::parse(&mut pc, encoding);
         match value {
             Ok(val) => {
                 assert_eq!(val, *expect);
@@ -1852,22 +1848,10 @@ mod tests {
         }
     }
 
-    fn check_op_parse_failure(input: &[u8], expect: Error, encoding: Encoding) {
-        let buf = EndianSlice::new(input, LittleEndian);
-        let mut pc = buf;
-        match Operation::parse(&mut pc, &buf, encoding) {
-            Err(x) => {
-                assert_eq!(x, expect);
-            }
-
-            _ => panic!("Unexpected result"),
-        }
-    }
-
     fn check_op_parse_eof(input: &[u8], encoding: Encoding) {
         let buf = EndianSlice::new(input, LittleEndian);
         let mut pc = buf;
-        match Operation::parse(&mut pc, &buf, encoding) {
+        match Operation::parse(&mut pc, encoding) {
             Err(Error::UnexpectedEof(id)) => {
                 assert!(buf.lookup_offset_id(id).is_some());
             }
@@ -2094,67 +2078,21 @@ mod tests {
                     offset: DieReference::UnitRef(UnitOffset(1138)),
                 },
             ),
+            (
+                constants::DW_OP_bra,
+                (-23i16) as u16,
+                Operation::Bra { target: -23 },
+            ),
+            (
+                constants::DW_OP_skip,
+                (-23i16) as u16,
+                Operation::Skip { target: -23 },
+            ),
         ];
 
         for item in inputs.iter() {
             let (opcode, arg, ref result) = *item;
             check_op_parse(|s| s.D8(opcode.0).L16(arg), result, encoding);
-        }
-    }
-
-    #[test]
-    fn test_op_parse_branches() {
-        // Doesn't matter for this test.
-        const ENCODING: Encoding = Encoding {
-            format: Format::Dwarf32,
-            version: 4,
-            address_size: 4,
-        };
-
-        let inputs = [constants::DW_OP_bra, constants::DW_OP_skip];
-
-        fn check_one_branch(input: &[u8], target: &[u8]) {
-            // Test sanity checking.
-            assert!(input.len() >= 3);
-
-            let expect = if input[0] == constants::DW_OP_bra.0 {
-                Operation::Bra {
-                    target: EndianSlice::new(target, LittleEndian),
-                }
-            } else {
-                assert!(input[0] == constants::DW_OP_skip.0);
-                Operation::Skip {
-                    target: EndianSlice::new(target, LittleEndian),
-                }
-            };
-
-            check_op_parse(|s| s.append_bytes(input), &expect, ENCODING);
-        }
-
-        for opcode in inputs.iter() {
-            // Branch to start.
-            let input = [opcode.0, 0xfd, 0xff];
-            check_one_branch(&input[..], &input[..]);
-
-            // Branch to middle of an instruction -- ok as far as DWARF is
-            // concerned.
-            let input = [opcode.0, 0xfe, 0xff];
-            check_one_branch(&input[..], &input[1..]);
-
-            // Branch to end.  DWARF is silent on this but it seems valid
-            // to branch to just after the last operation.
-            let input = [opcode.0, 0, 0];
-            check_one_branch(&input[..], &input[3..]);
-
-            // Invalid branches.
-            let input = [opcode.0, 2, 0];
-            check_op_parse_failure(&input[..], Error::BadBranchTarget(5), ENCODING);
-            let input = [opcode.0, 0xfc, 0xff];
-            check_op_parse_failure(
-                &input[..],
-                Error::BadBranchTarget(usize::MAX as u64),
-                ENCODING,
-            );
         }
     }
 
