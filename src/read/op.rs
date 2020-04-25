@@ -885,6 +885,42 @@ impl<R: Reader> Expression<R> {
     pub fn evaluation(self, encoding: Encoding) -> Evaluation<R> {
         Evaluation::new(self.0, encoding)
     }
+
+    /// Return an iterator for the operations in the expression.
+    pub fn operations(self, encoding: Encoding) -> OperationIter<R> {
+        OperationIter {
+            input: self.0,
+            encoding,
+        }
+    }
+}
+
+/// An iterator for the operations in an expression.
+#[derive(Debug, Clone, Copy)]
+pub struct OperationIter<R: Reader> {
+    input: R,
+    encoding: Encoding,
+}
+
+impl<R: Reader> OperationIter<R> {
+    /// Read the next operation in an expression.
+    pub fn next(&mut self) -> Result<Option<Operation<R>>> {
+        if self.input.is_empty() {
+            return Ok(None);
+        }
+        match Operation::parse(&mut self.input, self.encoding) {
+            Ok(op) => Ok(Some(op)),
+            Err(e) => {
+                self.input.empty();
+                Err(e)
+            }
+        }
+    }
+
+    /// Return the current byte offset of the iterator.
+    pub fn offset_from(&self, expression: &Expression<R>) -> R::Offset {
+        self.input.offset_from(&expression.0)
+    }
 }
 
 /// A DWARF expression evaluator.

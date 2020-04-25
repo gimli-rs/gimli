@@ -87,17 +87,17 @@ impl DwarfUnit {
         let abbrev_offset = sections.debug_abbrev.offset();
         let mut abbrevs = AbbreviationTable::default();
 
-        let mut debug_info_refs = Vec::new();
         self.unit.write(
             sections,
             abbrev_offset,
             &mut abbrevs,
             &line_strings,
             &strings,
-            &mut debug_info_refs,
         )?;
         // None should exist because we didn't give out any UnitId.
-        assert!(debug_info_refs.is_empty());
+        assert!(sections.debug_info_refs.is_empty());
+        assert!(sections.debug_loc_refs.is_empty());
+        assert!(sections.debug_loclists_refs.is_empty());
 
         abbrevs.write(&mut sections.debug_abbrev)?;
         Ok(())

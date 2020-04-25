@@ -10,19 +10,14 @@ use crate::constants;
 use crate::leb128::write::{sleb128_size, uleb128_size};
 use crate::write::{
     Abbreviation, AbbreviationTable, Address, AttributeSpecification, BaseId, DebugLineStrOffsets,
-    DebugStrOffsets, Error, FileId, LineProgram, LineStringId, LocationListId, LocationListOffsets,
-    LocationListTable, RangeListId, RangeListOffsets, RangeListTable, Reference, Result, Section,
-    Sections, StringId, Writer,
+    DebugStrOffsets, Error, Expression, FileId, LineProgram, LineStringId, LocationListId,
+    LocationListOffsets, LocationListTable, RangeListId, RangeListOffsets, RangeListTable,
+    Reference, Result, Section, Sections, StringId, Writer,
 };
 
 define_id!(UnitId, "An identifier for a unit in a `UnitTable`.");
 
 define_id!(UnitEntryId, "An identifier for an entry in a `Unit`.");
-
-/// The bytecode for a DWARF expression or location description.
-// TODO: this needs to be a `Vec<Op>` so we can handle relocations
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Expression(pub Vec<u8>);
 
 /// A table of units that will be stored in the `.debug_info` section.
 #[derive(Debug, Default)]
@@ -93,7 +88,6 @@ impl UnitTable {
         line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
     ) -> Result<DebugInfoOffsets> {
-        let mut debug_info_refs = Vec::new();
         let mut offsets = DebugInfoOffsets {
             base_id: self.base_id,
             units: Vec::new(),
@@ -109,25 +103,42 @@ impl UnitTable {
                 &mut abbrevs,
                 line_strings,
                 strings,
-                &mut debug_info_refs,
             )?);
 
             abbrevs.write(&mut sections.debug_abbrev)?;
         }
 
-        for (offset, (unit, entry), size) in debug_info_refs {
-            let entry_offset = offsets.entry(unit, entry).0;
-            debug_assert_ne!(entry_offset, 0);
-            sections.debug_info.write_offset_at(
-                offset.0,
-                entry_offset,
-                SectionId::DebugInfo,
-                size,
-            )?;
-        }
+        write_section_refs(
+            &mut sections.debug_info_refs,
+            &mut sections.debug_info.0,
+            &offsets,
+        )?;
+        write_section_refs(
+            &mut sections.debug_loc_refs,
+            &mut sections.debug_loc.0,
+            &offsets,
+        )?;
+        write_section_refs(
+            &mut sections.debug_loclists_refs,
+            &mut sections.debug_loclists.0,
+            &offsets,
+        )?;
 
         Ok(offsets)
     }
+}
+
+fn write_section_refs<W: Writer>(
+    references: &mut Vec<DebugInfoReference>,
+    w: &mut W,
+    offsets: &DebugInfoOffsets,
+) -> Result<()> {
+    for r in references.drain(..) {
+        let entry_offset = offsets.entry(r.unit, r.entry).0;
+        debug_assert_ne!(entry_offset, 0);
+        w.write_offset_at(r.offset, entry_offset, SectionId::DebugInfo, r.size)?;
+    }
+    Ok(())
 }
 
 /// A unit's debugging information.
@@ -280,7 +291,6 @@ impl Unit {
         abbrevs: &mut AbbreviationTable,
         line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
-        debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
     ) -> Result<UnitOffsets> {
         let line_program = if self.line_program_in_use() {
             self.entries[self.root.index]
@@ -295,8 +305,6 @@ impl Unit {
             self.entries[self.root.index].delete(constants::DW_AT_stmt_list);
             None
         };
-        let range_lists = self.ranges.write(sections, self.encoding)?;
-        let loc_lists = self.locations.write(sections, self.encoding)?;
 
         // TODO: use .debug_types for type units in DWARF v4.
         let w = &mut sections.debug_info;
@@ -343,10 +351,18 @@ impl Unit {
             abbrevs,
         )?;
 
+        let range_lists = self.ranges.write(sections, self.encoding)?;
+        // Location lists can't be written until we have DIE offsets.
+        let loc_lists = self
+            .locations
+            .write(sections, self.encoding, Some(&offsets))?;
+
         let w = &mut sections.debug_info;
         let mut unit_refs = Vec::new();
         self.entries[self.root.index].write(
             w,
+            &mut sections.debug_info_refs,
+            &mut unit_refs,
             self,
             &mut offsets,
             abbrevs,
@@ -355,8 +371,6 @@ impl Unit {
             strings,
             &range_lists,
             &loc_lists,
-            &mut unit_refs,
-            debug_info_refs,
         )?;
 
         let length = (w.len() - length_base) as u64;
@@ -590,6 +604,8 @@ impl DebuggingInformationEntry {
     fn write<W: Writer>(
         &self,
         w: &mut DebugInfo<W>,
+        debug_info_refs: &mut Vec<DebugInfoReference>,
+        unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
         unit: &Unit,
         offsets: &mut UnitOffsets,
         abbrevs: &mut AbbreviationTable,
@@ -598,8 +614,6 @@ impl DebuggingInformationEntry {
         strings: &DebugStrOffsets,
         range_lists: &RangeListOffsets,
         loc_lists: &LocationListOffsets,
-        unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
-        debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
     ) -> Result<()> {
         debug_assert_eq!(offsets.debug_info_offset(self.id), w.offset());
         w.write_uleb128(offsets.abbrev(self.id))?;
@@ -613,16 +627,17 @@ impl DebuggingInformationEntry {
         };
 
         for attr in &self.attrs {
-            attr.write(
+            attr.value.write(
                 w,
+                debug_info_refs,
+                unit_refs,
                 unit,
+                offsets,
                 line_program,
                 line_strings,
                 strings,
                 range_lists,
                 loc_lists,
-                unit_refs,
-                debug_info_refs,
             )?;
         }
 
@@ -630,6 +645,8 @@ impl DebuggingInformationEntry {
             for child in &self.children {
                 unit.entries[child.index].write(
                     w,
+                    debug_info_refs,
+                    unit_refs,
                     unit,
                     offsets,
                     abbrevs,
@@ -638,8 +655,6 @@ impl DebuggingInformationEntry {
                     strings,
                     range_lists,
                     loc_lists,
-                    unit_refs,
-                    debug_info_refs,
                 )?;
             }
             // Null child
@@ -688,34 +703,6 @@ impl Attribute {
             self.name,
             self.value.form(encoding)?,
         ))
-    }
-
-    /// Write the attribute to the given sections.
-    #[inline]
-    #[allow(clippy::too_many_arguments)]
-    fn write<W: Writer>(
-        &self,
-        w: &mut DebugInfo<W>,
-        unit: &Unit,
-        line_program: Option<DebugLineOffset>,
-        line_strings: &DebugLineStrOffsets,
-        strings: &DebugStrOffsets,
-        range_lists: &RangeListOffsets,
-        loc_lists: &LocationListOffsets,
-        unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
-        debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
-    ) -> Result<()> {
-        self.value.write(
-            w,
-            unit,
-            line_program,
-            line_strings,
-            strings,
-            range_lists,
-            loc_lists,
-            unit_refs,
-            debug_info_refs,
-        )
     }
 }
 
@@ -997,7 +984,7 @@ impl AttributeValue {
             }
             AttributeValue::Exprloc(ref val) => {
                 debug_assert_form!(constants::DW_FORM_exprloc);
-                let size = val.0.len();
+                let size = val.size(unit.encoding(), Some(offsets));
                 uleb128_size(size as u64) + size
             }
             AttributeValue::Flag(_) => {
@@ -1140,14 +1127,15 @@ impl AttributeValue {
     fn write<W: Writer>(
         &self,
         w: &mut DebugInfo<W>,
+        debug_info_refs: &mut Vec<DebugInfoReference>,
+        unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
         unit: &Unit,
+        offsets: &UnitOffsets,
         line_program: Option<DebugLineOffset>,
         line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
         range_lists: &RangeListOffsets,
         loc_lists: &LocationListOffsets,
-        unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
-        debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
     ) -> Result<()> {
         macro_rules! debug_assert_form {
             ($form:expr) => {
@@ -1190,8 +1178,13 @@ impl AttributeValue {
             }
             AttributeValue::Exprloc(ref val) => {
                 debug_assert_form!(constants::DW_FORM_exprloc);
-                w.write_uleb128(val.0.len() as u64)?;
-                w.write(&val.0)?;
+                w.write_uleb128(val.size(unit.encoding(), Some(offsets)) as u64)?;
+                val.write(
+                    &mut w.0,
+                    Some(debug_info_refs),
+                    unit.encoding(),
+                    Some(offsets),
+                )?;
             }
             AttributeValue::Flag(val) => {
                 debug_assert_form!(constants::DW_FORM_flag);
@@ -1218,7 +1211,12 @@ impl AttributeValue {
                 match reference {
                     Reference::Symbol(symbol) => w.write_reference(symbol, size)?,
                     Reference::Entry(unit, entry) => {
-                        debug_info_refs.push((w.offset(), (unit, entry), size));
+                        debug_info_refs.push(DebugInfoReference {
+                            offset: w.len(),
+                            unit,
+                            entry,
+                            size,
+                        });
                         w.write_udata(0, size)?;
                     }
                 }
@@ -1379,6 +1377,12 @@ pub struct DebugInfoOffsets {
 }
 
 impl DebugInfoOffsets {
+    #[cfg(test)]
+    pub(crate) fn unit_offsets(&self, unit: UnitId) -> &UnitOffsets {
+        debug_assert_eq!(self.base_id, unit.base_id);
+        &self.units[unit.index]
+    }
+
     /// Get the `.debug_info` section offset for the given unit.
     #[inline]
     pub fn unit(&self, unit: UnitId) -> DebugInfoOffset {
@@ -1403,9 +1407,18 @@ pub(crate) struct UnitOffsets {
 }
 
 impl UnitOffsets {
+    #[cfg(test)]
+    fn none() -> Self {
+        UnitOffsets {
+            base_id: BaseId::default(),
+            unit: DebugInfoOffset(0),
+            entries: Vec::new(),
+        }
+    }
+
     /// Get the .debug_info offset for the given entry.
     #[inline]
-    fn debug_info_offset(&self, entry: UnitEntryId) -> DebugInfoOffset {
+    pub(crate) fn debug_info_offset(&self, entry: UnitEntryId) -> DebugInfoOffset {
         debug_assert_eq!(self.base_id, entry.base_id);
         let offset = self.entries[entry.index].offset;
         debug_assert_ne!(offset.0, 0);
@@ -1440,6 +1453,19 @@ impl EntryOffset {
             abbrev: 0,
         }
     }
+}
+
+/// A reference to a `.debug_info` entry that has yet to be resolved.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DebugInfoReference {
+    /// The offset within the section of the reference.
+    pub offset: usize,
+    /// The size of the reference.
+    pub size: u8,
+    /// The unit containing the entry.
+    pub unit: UnitId,
+    /// The entry being referenced.
+    pub entry: UnitEntryId,
 }
 
 #[cfg(feature = "read")]
@@ -1717,9 +1743,16 @@ pub(crate) mod convert {
                 read::AttributeValue::Data8(val) => AttributeValue::Data8(val),
                 read::AttributeValue::Sdata(val) => AttributeValue::Sdata(val),
                 read::AttributeValue::Udata(val) => AttributeValue::Udata(val),
-                // TODO: addresses and offsets in expressions need special handling.
-                read::AttributeValue::Exprloc(read::Expression(val)) => {
-                    AttributeValue::Exprloc(Expression(val.to_slice()?.into()))
+                read::AttributeValue::Exprloc(expression) => {
+                    let expression = Expression::from(
+                        expression,
+                        context.unit.encoding(),
+                        Some(context.dwarf),
+                        Some(context.unit),
+                        Some(context.entry_ids),
+                        context.convert_address,
+                    )?;
+                    AttributeValue::Exprloc(expression)
                 }
                 // TODO: it would be nice to preserve the flag form.
                 read::AttributeValue::Flag(val) => AttributeValue::Flag(val),
@@ -2200,18 +2233,6 @@ mod tests {
         let mut strings = StringTable::default();
         strings.add("string one");
         let string_id = strings.add("string two");
-        let mut ranges = RangeListTable::default();
-        let range_id = ranges.add(RangeList(vec![Range::StartEnd {
-            begin: Address::Constant(0x1234),
-            end: Address::Constant(0x2345),
-        }]));
-        let mut locations = LocationListTable::default();
-        let loc_id = locations.add(LocationList(vec![Location::StartEnd {
-            begin: Address::Constant(0x1234),
-            end: Address::Constant(0x2345),
-            data: Expression(vec![1, 0, 0, 0]),
-        }]));
-
         let mut debug_str = DebugStr::from(EndianVec::new(LittleEndian));
         let debug_str_offsets = strings.write(&mut debug_str).unwrap();
         let read_debug_str = read::DebugStr::new(debug_str.slice(), LittleEndian);
@@ -2227,6 +2248,26 @@ mod tests {
         let data = vec![1, 2, 3, 4];
         let read_data = read::EndianSlice::new(&[1, 2, 3, 4], LittleEndian);
 
+        let mut expression = Expression::new();
+        expression.op_constu(57);
+        let read_expression = read::Expression(read::EndianSlice::new(
+            &[constants::DW_OP_constu.0, 57],
+            LittleEndian,
+        ));
+
+        let mut ranges = RangeListTable::default();
+        let range_id = ranges.add(RangeList(vec![Range::StartEnd {
+            begin: Address::Constant(0x1234),
+            end: Address::Constant(0x2345),
+        }]));
+
+        let mut locations = LocationListTable::default();
+        let loc_id = locations.add(LocationList(vec![Location::StartEnd {
+            begin: Address::Constant(0x1234),
+            end: Address::Constant(0x2345),
+            data: expression.clone(),
+        }]));
+
         for &version in &[2, 3, 4, 5] {
             for &address_size in &[4, 8] {
                 for &format in &[Format::Dwarf32, Format::Dwarf64] {
@@ -2238,7 +2279,7 @@ mod tests {
 
                     let mut sections = Sections::new(EndianVec::new(LittleEndian));
                     let range_list_offsets = ranges.write(&mut sections, encoding).unwrap();
-                    let loc_list_offsets = locations.write(&mut sections, encoding).unwrap();
+                    let loc_list_offsets = locations.write(&mut sections, encoding, None).unwrap();
 
                     let read_debug_ranges =
                         read::DebugRanges::new(sections.debug_ranges.slice(), LittleEndian);
@@ -2308,8 +2349,8 @@ mod tests {
                         ),
                         (
                             constants::DW_AT_name,
-                            AttributeValue::Exprloc(Expression(data.clone())),
-                            read::AttributeValue::Exprloc(read::Expression(read_data)),
+                            AttributeValue::Exprloc(expression.clone()),
+                            read::AttributeValue::Exprloc(read_expression),
                         ),
                         (
                             constants::DW_AT_name,
@@ -2443,22 +2484,25 @@ mod tests {
                             value: value.clone(),
                         };
 
+                        let offsets = UnitOffsets::none();
                         let line_program_offset = None;
-                        let mut unit_refs = Vec::new();
                         let mut debug_info_refs = Vec::new();
+                        let mut unit_refs = Vec::new();
                         let mut debug_info = DebugInfo::from(EndianVec::new(LittleEndian));
-                        attr.write(
-                            &mut debug_info,
-                            &unit,
-                            line_program_offset,
-                            &debug_line_str_offsets,
-                            &debug_str_offsets,
-                            &range_list_offsets,
-                            &loc_list_offsets,
-                            &mut unit_refs,
-                            &mut debug_info_refs,
-                        )
-                        .unwrap();
+                        attr.value
+                            .write(
+                                &mut debug_info,
+                                &mut debug_info_refs,
+                                &mut unit_refs,
+                                &unit,
+                                &offsets,
+                                line_program_offset,
+                                &debug_line_str_offsets,
+                                &debug_str_offsets,
+                                &range_list_offsets,
+                                &loc_list_offsets,
+                            )
+                            .unwrap();
 
                         let spec = read::AttributeSpecification::new(*name, form, None);
                         let mut r = read::EndianSlice::new(debug_info.slice(), LittleEndian);
@@ -2905,9 +2949,7 @@ mod tests {
                         let mut ranges = RangeListTable::default();
                         let mut locations = LocationListTable::default();
                         let mut strings = StringTable::default();
-                        let debug_str_offsets = DebugStrOffsets::none();
                         let mut line_strings = LineStringTable::default();
-                        let debug_line_str_offsets = DebugLineStrOffsets::none();
 
                         let form = value.form(encoding).unwrap();
                         let attr = Attribute {
@@ -2915,23 +2957,28 @@ mod tests {
                             value: value.clone(),
                         };
 
-                        let mut unit_refs = Vec::new();
                         let mut debug_info_refs = Vec::new();
+                        let mut unit_refs = Vec::new();
                         let mut debug_info = DebugInfo::from(EndianVec::new(LittleEndian));
+                        let offsets = UnitOffsets::none();
+                        let debug_line_str_offsets = DebugLineStrOffsets::none();
+                        let debug_str_offsets = DebugStrOffsets::none();
                         let range_list_offsets = RangeListOffsets::none();
                         let loc_list_offsets = LocationListOffsets::none();
-                        attr.write(
-                            &mut debug_info,
-                            &unit,
-                            Some(line_program_offset),
-                            &debug_line_str_offsets,
-                            &debug_str_offsets,
-                            &range_list_offsets,
-                            &loc_list_offsets,
-                            &mut unit_refs,
-                            &mut debug_info_refs,
-                        )
-                        .unwrap();
+                        attr.value
+                            .write(
+                                &mut debug_info,
+                                &mut debug_info_refs,
+                                &mut unit_refs,
+                                &unit,
+                                &offsets,
+                                Some(line_program_offset),
+                                &debug_line_str_offsets,
+                                &debug_str_offsets,
+                                &range_list_offsets,
+                                &loc_list_offsets,
+                            )
+                            .unwrap();
 
                         let spec = read::AttributeSpecification::new(*name, form, None);
                         let mut r = read::EndianSlice::new(debug_info.slice(), LittleEndian);

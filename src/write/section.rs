@@ -1,10 +1,11 @@
 use std::ops::DerefMut;
 use std::result;
+use std::vec::Vec;
 
 use crate::common::SectionId;
 use crate::write::{
-    DebugAbbrev, DebugInfo, DebugLine, DebugLineStr, DebugLoc, DebugLocLists, DebugRanges,
-    DebugRngLists, DebugStr, Writer,
+    DebugAbbrev, DebugInfo, DebugInfoReference, DebugLine, DebugLineStr, DebugLoc, DebugLocLists,
+    DebugRanges, DebugRngLists, DebugStr, Writer,
 };
 
 macro_rules! define_section {
@@ -84,6 +85,12 @@ pub struct Sections<W: Writer> {
     pub debug_loclists: DebugLocLists<W>,
     /// The `.debug_str` section.
     pub debug_str: DebugStr<W>,
+    /// Unresolved references in the `.debug_info` section.
+    pub(crate) debug_info_refs: Vec<DebugInfoReference>,
+    /// Unresolved references in the `.debug_loc` section.
+    pub(crate) debug_loc_refs: Vec<DebugInfoReference>,
+    /// Unresolved references in the `.debug_loclists` section.
+    pub(crate) debug_loclists_refs: Vec<DebugInfoReference>,
 }
 
 impl<W: Writer + Clone> Sections<W> {
@@ -99,6 +106,9 @@ impl<W: Writer + Clone> Sections<W> {
             debug_loc: DebugLoc(section.clone()),
             debug_loclists: DebugLocLists(section.clone()),
             debug_str: DebugStr(section.clone()),
+            debug_info_refs: Vec::new(),
+            debug_loc_refs: Vec::new(),
+            debug_loclists_refs: Vec::new(),
         }
     }
 }

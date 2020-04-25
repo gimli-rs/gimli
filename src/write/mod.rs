@@ -144,11 +144,14 @@ pub use self::dwarf::*;
 mod line;
 pub use self::line::*;
 
-mod range;
-pub use self::range::*;
-
 mod loc;
 pub use self::loc::*;
+
+mod op;
+pub use self::op::*;
+
+mod range;
+pub use self::range::*;
 
 mod str;
 pub use self::str::*;
@@ -191,6 +194,10 @@ pub enum Error {
     InvalidFrameDataOffset(i32),
     /// Unsupported eh_frame pointer encoding.
     UnsupportedPointerEncoding(constants::DwEhPe),
+    /// Unsupported reference in CFI expression.
+    UnsupportedCfiExpressionReference,
+    /// Unsupported forward reference in expression.
+    UnsupportedExpressionForwardReference,
 }
 
 impl fmt::Display for Error {
@@ -237,6 +244,12 @@ impl fmt::Display for Error {
             ),
             Error::UnsupportedPointerEncoding(eh_pe) => {
                 write!(f, "Unsupported eh_frame pointer encoding ({}).", eh_pe)
+            }
+            Error::UnsupportedCfiExpressionReference => {
+                write!(f, "Unsupported reference in CFI expression.")
+            }
+            Error::UnsupportedExpressionForwardReference => {
+                write!(f, "Unsupported forward reference in expression.")
             }
         }
     }
@@ -339,6 +352,10 @@ mod convert {
         UnsupportedCfiInstruction,
         /// Writing indirect pointers is not implemented yet.
         UnsupportedIndirectAddress,
+        /// Writing this expression operation is not implemented yet.
+        UnsupportedOperation,
+        /// Operation branch target is invalid.
+        InvalidBranchTarget,
     }
 
     impl fmt::Display for ConvertError {
@@ -381,6 +398,11 @@ mod convert {
                 UnsupportedIndirectAddress => {
                     write!(f, "Writing indirect pointers is not implemented yet.")
                 }
+                UnsupportedOperation => write!(
+                    f,
+                    "Writing this expression operation is not implemented yet."
+                ),
+                InvalidBranchTarget => write!(f, "Operation branch target is invalid."),
             }
         }
     }
