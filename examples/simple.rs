@@ -21,9 +21,9 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian) -> Result<(), 
     // Load a section and return as `Cow<[u8]>`.
     let load_section = |id: gimli::SectionId| -> Result<borrow::Cow<[u8]>, gimli::Error> {
         match object.section_by_name(id.name()) {
-            Some(ref section) => {
-                Ok(section.uncompressed_data().unwrap_or(borrow::Cow::Borrowed(&[][..])))
-            }
+            Some(ref section) => Ok(section
+                .uncompressed_data()
+                .unwrap_or(borrow::Cow::Borrowed(&[][..]))),
             None => Ok(borrow::Cow::Borrowed(&[][..])),
         }
     };

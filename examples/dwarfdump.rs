@@ -46,7 +46,8 @@ fn writeln_error<W: Write, R: Reader>(
         msg,
         match err {
             Error::GimliError(err) => dwarf.format_error(err),
-            Error::ObjectError(err) => format!("{}:{:?}", "An object error occurred while reading", err),
+            Error::ObjectError(err) =>
+                format!("{}:{:?}", "An object error occurred while reading", err),
             Error::IoError => "An I/O error occurred while writing.".to_string(),
         }
     )
@@ -65,9 +66,9 @@ impl From<io::Error> for Error {
 }
 
 impl From<object::read::Error> for Error {
-  fn from(err: object::read::Error) -> Self {
-    Error::ObjectError(err)
-  }
+    fn from(err: object::read::Error) -> Self {
+        Error::ObjectError(err)
+    }
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -171,7 +172,8 @@ fn add_relocations(
                     object::RelocationTarget::Symbol(symbol_idx) => {
                         match file.symbol_by_index(symbol_idx) {
                             Ok(symbol) => {
-                                let addend = symbol.address().wrapping_add(relocation.addend() as u64);
+                                let addend =
+                                    symbol.address().wrapping_add(relocation.addend() as u64);
                                 relocation.set_addend(addend as i64);
                             }
                             Err(_) => {

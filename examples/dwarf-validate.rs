@@ -107,9 +107,9 @@ where
         'a: 'file,
     {
         let data = match file.section_by_name(S::section_name()) {
-            Some(ref section) => {
-                section.uncompressed_data().unwrap_or(Cow::Borrowed(&[][..]))
-            }
+            Some(ref section) => section
+                .uncompressed_data()
+                .unwrap_or(Cow::Borrowed(&[][..])),
             None => Cow::Borrowed(&[][..]),
         };
         let data_ref = (*arena.alloc(data)).borrow();
