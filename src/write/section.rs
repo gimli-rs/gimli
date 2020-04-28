@@ -4,8 +4,8 @@ use std::vec::Vec;
 
 use crate::common::SectionId;
 use crate::write::{
-    DebugAbbrev, DebugInfo, DebugInfoReference, DebugLine, DebugLineStr, DebugLoc, DebugLocLists,
-    DebugRanges, DebugRngLists, DebugStr, Writer,
+    DebugAbbrev, DebugFrame, DebugInfo, DebugInfoReference, DebugLine, DebugLineStr, DebugLoc,
+    DebugLocLists, DebugRanges, DebugRngLists, DebugStr, EhFrame, Writer,
 };
 
 macro_rules! define_section {
@@ -85,6 +85,10 @@ pub struct Sections<W: Writer> {
     pub debug_loclists: DebugLocLists<W>,
     /// The `.debug_str` section.
     pub debug_str: DebugStr<W>,
+    /// The `.debug_frame` section.
+    pub debug_frame: DebugFrame<W>,
+    /// The `.eh_frame` section.
+    pub eh_frame: EhFrame<W>,
     /// Unresolved references in the `.debug_info` section.
     pub(crate) debug_info_refs: Vec<DebugInfoReference>,
     /// Unresolved references in the `.debug_loc` section.
@@ -106,6 +110,8 @@ impl<W: Writer + Clone> Sections<W> {
             debug_loc: DebugLoc(section.clone()),
             debug_loclists: DebugLocLists(section.clone()),
             debug_str: DebugStr(section.clone()),
+            debug_frame: DebugFrame(section.clone()),
+            eh_frame: EhFrame(section.clone()),
             debug_info_refs: Vec::new(),
             debug_loc_refs: Vec::new(),
             debug_loclists_refs: Vec::new(),
@@ -134,6 +140,8 @@ impl<W: Writer> Sections<W> {
         f!(self.debug_loc)?;
         f!(self.debug_loclists)?;
         f!(self.debug_info)?;
+        f!(self.debug_frame)?;
+        f!(self.eh_frame)?;
         Ok(())
     }
 
@@ -157,6 +165,8 @@ impl<W: Writer> Sections<W> {
         f!(self.debug_loc)?;
         f!(self.debug_loclists)?;
         f!(self.debug_info)?;
+        f!(self.debug_frame)?;
+        f!(self.eh_frame)?;
         Ok(())
     }
 }
