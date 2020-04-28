@@ -3,7 +3,10 @@ use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
 
 use crate::common::{Encoding, LocationListsOffset, SectionId};
-use crate::write::{Address, BaseId, Error, Expression, Result, Section, Sections, Writer};
+use crate::write::{
+    Address, BaseId, DebugInfoReference, Error, Expression, Result, Section, Sections, UnitOffsets,
+    Writer,
+};
 
 define_section!(
     DebugLoc,
@@ -45,14 +48,25 @@ impl LocationListTable {
         &self,
         sections: &mut Sections<W>,
         encoding: Encoding,
+        unit_offsets: Option<&UnitOffsets>,
     ) -> Result<LocationListOffsets> {
         if self.locations.is_empty() {
             return Ok(LocationListOffsets::none());
         }
 
         match encoding.version {
-            2..=4 => self.write_loc(&mut sections.debug_loc, encoding.address_size),
-            5 => self.write_loclists(&mut sections.debug_loclists, encoding),
+            2..=4 => self.write_loc(
+                &mut sections.debug_loc,
+                &mut sections.debug_loc_refs,
+                encoding,
+                unit_offsets,
+            ),
+            5 => self.write_loclists(
+                &mut sections.debug_loclists,
+                &mut sections.debug_loclists_refs,
+                encoding,
+                unit_offsets,
+            ),
             _ => Err(Error::UnsupportedVersion(encoding.version)),
         }
     }
@@ -61,8 +75,11 @@ impl LocationListTable {
     fn write_loc<W: Writer>(
         &self,
         w: &mut DebugLoc<W>,
-        address_size: u8,
+        refs: &mut Vec<DebugInfoReference>,
+        encoding: Encoding,
+        unit_offsets: Option<&UnitOffsets>,
     ) -> Result<LocationListOffsets> {
+        let address_size = encoding.address_size;
         let mut offsets = Vec::new();
         for loc_list in self.locations.iter() {
             offsets.push(w.offset());
@@ -86,8 +103,7 @@ impl LocationListTable {
                         }
                         w.write_udata(begin, address_size)?;
                         w.write_udata(end, address_size)?;
-                        w.write_u16(data.0.len() as u16)?;
-                        w.write(&data.0)?;
+                        write_expression(&mut w.0, refs, encoding, unit_offsets, data)?;
                     }
                     Location::StartEnd {
                         begin,
@@ -99,8 +115,7 @@ impl LocationListTable {
                         }
                         w.write_address(begin, address_size)?;
                         w.write_address(end, address_size)?;
-                        w.write_u16(data.0.len() as u16)?;
-                        w.write(&data.0)?;
+                        write_expression(&mut w.0, refs, encoding, unit_offsets, data)?;
                     }
                     Location::StartLength {
                         begin,
@@ -119,8 +134,7 @@ impl LocationListTable {
                         }
                         w.write_address(begin, address_size)?;
                         w.write_address(end, address_size)?;
-                        w.write_u16(data.0.len() as u16)?;
-                        w.write(&data.0)?;
+                        write_expression(&mut w.0, refs, encoding, unit_offsets, data)?;
                     }
                     Location::DefaultLocation { .. } => {
                         return Err(Error::InvalidRange);
@@ -140,7 +154,9 @@ impl LocationListTable {
     fn write_loclists<W: Writer>(
         &self,
         w: &mut DebugLocLists<W>,
+        refs: &mut Vec<DebugInfoReference>,
         encoding: Encoding,
+        unit_offsets: Option<&UnitOffsets>,
     ) -> Result<LocationListOffsets> {
         let mut offsets = Vec::new();
 
@@ -173,8 +189,7 @@ impl LocationListTable {
                         w.write_u8(crate::constants::DW_LLE_offset_pair.0)?;
                         w.write_uleb128(begin)?;
                         w.write_uleb128(end)?;
-                        w.write_uleb128(data.0.len() as u64)?;
-                        w.write(&data.0)?;
+                        write_expression(&mut w.0, refs, encoding, unit_offsets, data)?;
                     }
                     Location::StartEnd {
                         begin,
@@ -184,8 +199,7 @@ impl LocationListTable {
                         w.write_u8(crate::constants::DW_LLE_start_end.0)?;
                         w.write_address(begin, encoding.address_size)?;
                         w.write_address(end, encoding.address_size)?;
-                        w.write_uleb128(data.0.len() as u64)?;
-                        w.write(&data.0)?;
+                        write_expression(&mut w.0, refs, encoding, unit_offsets, data)?;
                     }
                     Location::StartLength {
                         begin,
@@ -195,13 +209,11 @@ impl LocationListTable {
                         w.write_u8(crate::constants::DW_LLE_start_length.0)?;
                         w.write_address(begin, encoding.address_size)?;
                         w.write_uleb128(length)?;
-                        w.write_uleb128(data.0.len() as u64)?;
-                        w.write(&data.0)?;
+                        write_expression(&mut w.0, refs, encoding, unit_offsets, data)?;
                     }
                     Location::DefaultLocation { ref data } => {
                         w.write_u8(crate::constants::DW_LLE_default_location.0)?;
-                        w.write_uleb128(data.0.len() as u64)?;
-                        w.write(&data.0)?;
+                        write_expression(&mut w.0, refs, encoding, unit_offsets, data)?;
                     }
                 }
             }
@@ -265,6 +277,23 @@ pub enum Location {
     },
 }
 
+fn write_expression<W: Writer>(
+    w: &mut W,
+    refs: &mut Vec<DebugInfoReference>,
+    encoding: Encoding,
+    unit_offsets: Option<&UnitOffsets>,
+    val: &Expression,
+) -> Result<()> {
+    let size = val.size(encoding, unit_offsets) as u64;
+    if encoding.version <= 4 {
+        w.write_udata(size, 2)?;
+    } else {
+        w.write_uleb128(size)?;
+    }
+    val.write(w, Some(refs), encoding, unit_offsets)?;
+    Ok(())
+}
+
 #[cfg(feature = "read")]
 mod convert {
     use super::*;
@@ -281,6 +310,16 @@ mod convert {
             let mut have_base_address = context.base_address != Address::Constant(0);
             let convert_address =
                 |x| (context.convert_address)(x).ok_or(ConvertError::InvalidAddress);
+            let convert_expression = |x| {
+                Expression::from(
+                    x,
+                    context.unit.encoding(),
+                    Some(context.dwarf),
+                    Some(context.unit),
+                    Some(context.entry_ids),
+                    context.convert_address,
+                )
+            };
             let mut loc_list = Vec::new();
             while let Some(from_loc) = from.next()? {
                 let loc = match from_loc {
@@ -288,7 +327,7 @@ mod convert {
                         // These were parsed as addresses, even if they are offsets.
                         let begin = convert_address(begin)?;
                         let end = convert_address(end)?;
-                        let data = Expression(data.0.to_slice()?.into());
+                        let data = convert_expression(data)?;
                         match (begin, end) {
                             (Address::Constant(begin_offset), Address::Constant(end_offset)) => {
                                 if have_base_address {
@@ -324,7 +363,7 @@ mod convert {
                     read::RawLocListEntry::StartxEndx { begin, end, data } => {
                         let begin = convert_address(context.dwarf.address(context.unit, begin)?)?;
                         let end = convert_address(context.dwarf.address(context.unit, end)?)?;
-                        let data = Expression(data.0.to_slice()?.into());
+                        let data = convert_expression(data)?;
                         Location::StartEnd { begin, end, data }
                     }
                     read::RawLocListEntry::StartxLength {
@@ -333,7 +372,7 @@ mod convert {
                         data,
                     } => {
                         let begin = convert_address(context.dwarf.address(context.unit, begin)?)?;
-                        let data = Expression(data.0.to_slice()?.into());
+                        let data = convert_expression(data)?;
                         Location::StartLength {
                             begin,
                             length,
@@ -341,13 +380,13 @@ mod convert {
                         }
                     }
                     read::RawLocListEntry::OffsetPair { begin, end, data } => {
-                        let data = Expression(data.0.to_slice()?.into());
+                        let data = convert_expression(data)?;
                         Location::OffsetPair { begin, end, data }
                     }
                     read::RawLocListEntry::StartEnd { begin, end, data } => {
                         let begin = convert_address(begin)?;
                         let end = convert_address(end)?;
-                        let data = Expression(data.0.to_slice()?.into());
+                        let data = convert_expression(data)?;
                         Location::StartEnd { begin, end, data }
                     }
                     read::RawLocListEntry::StartLength {
@@ -356,7 +395,7 @@ mod convert {
                         data,
                     } => {
                         let begin = convert_address(begin)?;
-                        let data = Expression(data.0.to_slice()?.into());
+                        let data = convert_expression(data)?;
                         Location::StartLength {
                             begin,
                             length,
@@ -364,7 +403,7 @@ mod convert {
                         }
                     }
                     read::RawLocListEntry::DefaultLocation { data } => {
-                        let data = Expression(data.0.to_slice()?.into());
+                        let data = convert_expression(data)?;
                         Location::DefaultLocation { data }
                     }
                 };
@@ -396,11 +435,14 @@ mod tests {
         ConvertUnitContext, EndianVec, LineStringTable, RangeListTable, StringTable,
     };
     use crate::LittleEndian;
+    use std::collections::HashMap;
 
     #[test]
     fn test_loc_list() {
         let mut line_strings = LineStringTable::default();
         let mut strings = StringTable::default();
+        let mut expression = Expression::new();
+        expression.op_constu(0);
 
         for &version in &[2, 3, 4, 5] {
             for &address_size in &[4, 8] {
@@ -415,12 +457,12 @@ mod tests {
                         Location::StartLength {
                             begin: Address::Constant(6666),
                             length: 7777,
-                            data: Expression(vec![1, 0, 0, 0]),
+                            data: expression.clone(),
                         },
                         Location::StartEnd {
                             begin: Address::Constant(4444),
                             end: Address::Constant(5555),
-                            data: Expression(vec![2, 0, 0, 0]),
+                            data: expression.clone(),
                         },
                         Location::BaseAddress {
                             address: Address::Constant(1111),
@@ -428,12 +470,12 @@ mod tests {
                         Location::OffsetPair {
                             begin: 2222,
                             end: 3333,
-                            data: Expression(vec![3, 0, 0, 0]),
+                            data: expression.clone(),
                         },
                     ]);
                     if version >= 5 {
                         loc_list.0.push(Location::DefaultLocation {
-                            data: Expression(vec![4, 0, 0, 0]),
+                            data: expression.clone(),
                         });
                     }
 
@@ -441,7 +483,9 @@ mod tests {
                     let loc_list_id = locations.add(loc_list.clone());
 
                     let mut sections = Sections::new(EndianVec::new(LittleEndian));
-                    let loc_list_offsets = locations.write(&mut sections, encoding).unwrap();
+                    let loc_list_offsets = locations.write(&mut sections, encoding, None).unwrap();
+                    assert!(sections.debug_loc_refs.is_empty());
+                    assert!(sections.debug_loclists_refs.is_empty());
 
                     let read_debug_loc =
                         read::DebugLoc::new(sections.debug_loc.slice(), LittleEndian);
@@ -484,6 +528,7 @@ mod tests {
                         base_address: Address::Constant(0),
                         line_program_offset: None,
                         line_program_files: Vec::new(),
+                        entry_ids: &HashMap::new(),
                     };
                     let convert_loc_list = LocationList::from(read_loc_list, &context).unwrap();
 
@@ -491,7 +536,7 @@ mod tests {
                         loc_list.0[0] = Location::StartEnd {
                             begin: Address::Constant(6666),
                             end: Address::Constant(6666 + 7777),
-                            data: Expression(vec![1, 0, 0, 0]),
+                            data: expression.clone(),
                         };
                     }
                     assert_eq!(loc_list, convert_loc_list);

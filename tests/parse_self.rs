@@ -32,7 +32,7 @@ fn read_section(section: &str) -> Vec<u8> {
 fn parse_expression<R: Reader>(expr: Expression<R>, encoding: Encoding) {
     let mut pc = expr.0.clone();
     while !pc.is_empty() {
-        Operation::parse(&mut pc, &expr.0, encoding).expect("Should parse operation");
+        Operation::parse(&mut pc, encoding).expect("Should parse operation");
     }
 
     // Also attempt to evaluate some of it.

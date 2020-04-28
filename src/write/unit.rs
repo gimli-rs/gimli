@@ -7,21 +7,17 @@ use crate::common::{
     DebugStrOffset, DebugTypeSignature, Encoding, Format, SectionId, UnitSectionOffset,
 };
 use crate::constants;
+use crate::leb128::write::{sleb128_size, uleb128_size};
 use crate::write::{
     Abbreviation, AbbreviationTable, Address, AttributeSpecification, BaseId, DebugLineStrOffsets,
-    DebugStrOffsets, Error, FileId, LineProgram, LineStringId, LocationListId, LocationListOffsets,
-    LocationListTable, RangeListId, RangeListOffsets, RangeListTable, Result, Section, Sections,
-    StringId, Writer,
+    DebugStrOffsets, Error, Expression, FileId, LineProgram, LineStringId, LocationListId,
+    LocationListOffsets, LocationListTable, RangeListId, RangeListOffsets, RangeListTable,
+    Reference, Result, Section, Sections, StringId, Writer,
 };
 
 define_id!(UnitId, "An identifier for a unit in a `UnitTable`.");
 
 define_id!(UnitEntryId, "An identifier for an entry in a `Unit`.");
-
-/// The bytecode for a DWARF expression or location description.
-// TODO: this needs to be a `Vec<Op>` so we can handle relocations
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Expression(pub Vec<u8>);
 
 /// A table of units that will be stored in the `.debug_info` section.
 #[derive(Debug, Default)]
@@ -92,7 +88,6 @@ impl UnitTable {
         line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
     ) -> Result<DebugInfoOffsets> {
-        let mut debug_info_refs = Vec::new();
         let mut offsets = DebugInfoOffsets {
             base_id: self.base_id,
             units: Vec::new(),
@@ -108,25 +103,42 @@ impl UnitTable {
                 &mut abbrevs,
                 line_strings,
                 strings,
-                &mut debug_info_refs,
             )?);
 
             abbrevs.write(&mut sections.debug_abbrev)?;
         }
 
-        for (offset, (unit, entry), size) in debug_info_refs {
-            let entry_offset = offsets.entry(unit, entry).0;
-            debug_assert_ne!(entry_offset, 0);
-            sections.debug_info.write_offset_at(
-                offset.0,
-                entry_offset,
-                SectionId::DebugInfo,
-                size,
-            )?;
-        }
+        write_section_refs(
+            &mut sections.debug_info_refs,
+            &mut sections.debug_info.0,
+            &offsets,
+        )?;
+        write_section_refs(
+            &mut sections.debug_loc_refs,
+            &mut sections.debug_loc.0,
+            &offsets,
+        )?;
+        write_section_refs(
+            &mut sections.debug_loclists_refs,
+            &mut sections.debug_loclists.0,
+            &offsets,
+        )?;
 
         Ok(offsets)
     }
+}
+
+fn write_section_refs<W: Writer>(
+    references: &mut Vec<DebugInfoReference>,
+    w: &mut W,
+    offsets: &DebugInfoOffsets,
+) -> Result<()> {
+    for r in references.drain(..) {
+        let entry_offset = offsets.entry(r.unit, r.entry).0;
+        debug_assert_ne!(entry_offset, 0);
+        w.write_offset_at(r.offset, entry_offset, SectionId::DebugInfo, r.size)?;
+    }
+    Ok(())
 }
 
 /// A unit's debugging information.
@@ -279,7 +291,6 @@ impl Unit {
         abbrevs: &mut AbbreviationTable,
         line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
-        debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
     ) -> Result<UnitOffsets> {
         let line_program = if self.line_program_in_use() {
             self.entries[self.root.index]
@@ -294,8 +305,6 @@ impl Unit {
             self.entries[self.root.index].delete(constants::DW_AT_stmt_list);
             None
         };
-        let range_lists = self.ranges.write(sections, self.encoding)?;
-        let loc_lists = self.locations.write(sections, self.encoding)?;
 
         // TODO: use .debug_types for type units in DWARF v4.
         let w = &mut sections.debug_info;
@@ -304,9 +313,8 @@ impl Unit {
             base_id: self.base_id,
             unit: w.offset(),
             // Entries can be written in any order, so create the complete vec now.
-            entries: vec![DebugInfoOffset(0); self.entries.len()],
+            entries: vec![EntryOffset::none(); self.entries.len()],
         };
-        let mut unit_refs = Vec::new();
 
         let length_offset = w.write_initial_length(self.format())?;
         let length_base = w.len();
@@ -331,8 +339,30 @@ impl Unit {
             return Err(Error::UnsupportedVersion(self.version()));
         }
 
+        // Calculate all DIE offsets, so that we are able to output references to them.
+        // However, references to base types in expressions use ULEB128, so base types
+        // must be moved to the front before we can calculate offsets.
+        self.reorder_base_types();
+        let mut offset = w.len();
+        self.entries[self.root.index].calculate_offsets(
+            self,
+            &mut offset,
+            &mut offsets,
+            abbrevs,
+        )?;
+
+        let range_lists = self.ranges.write(sections, self.encoding)?;
+        // Location lists can't be written until we have DIE offsets.
+        let loc_lists = self
+            .locations
+            .write(sections, self.encoding, Some(&offsets))?;
+
+        let w = &mut sections.debug_info;
+        let mut unit_refs = Vec::new();
         self.entries[self.root.index].write(
             w,
+            &mut sections.debug_info_refs,
+            &mut unit_refs,
             self,
             &mut offsets,
             abbrevs,
@@ -341,25 +371,39 @@ impl Unit {
             strings,
             &range_lists,
             &loc_lists,
-            &mut unit_refs,
-            debug_info_refs,
         )?;
 
         let length = (w.len() - length_base) as u64;
         w.write_initial_length_at(length_offset, length, self.format())?;
 
         for (offset, entry) in unit_refs {
-            let entry_offset = offsets.entry(entry).0;
-            debug_assert_ne!(entry_offset, 0);
             // This does not need relocation.
             w.write_udata_at(
                 offset.0,
-                (entry_offset - offsets.unit.0) as u64,
+                offsets.unit_offset(entry),
                 self.format().word_size(),
             )?;
         }
 
         Ok(offsets)
+    }
+
+    /// Reorder base types to come first so that typed stack operations
+    /// can get their offset.
+    fn reorder_base_types(&mut self) {
+        let root = &self.entries[self.root.index];
+        let mut root_children = Vec::with_capacity(root.children.len());
+        for entry in &root.children {
+            if self.entries[entry.index].tag == constants::DW_TAG_base_type {
+                root_children.push(*entry);
+            }
+        }
+        for entry in &root.children {
+            if self.entries[entry.index].tag != constants::DW_TAG_base_type {
+                root_children.push(*entry);
+            }
+        }
+        self.entries[self.root.index].children = root_children;
     }
 }
 
@@ -524,11 +568,44 @@ impl DebuggingInformationEntry {
         ))
     }
 
+    fn calculate_offsets(
+        &self,
+        unit: &Unit,
+        offset: &mut usize,
+        offsets: &mut UnitOffsets,
+        abbrevs: &mut AbbreviationTable,
+    ) -> Result<()> {
+        offsets.entries[self.id.index].offset = DebugInfoOffset(*offset);
+        offsets.entries[self.id.index].abbrev = abbrevs.add(self.abbreviation(unit.encoding())?);
+        *offset += self.size(unit, offsets);
+        if !self.children.is_empty() {
+            for child in &self.children {
+                unit.entries[child.index].calculate_offsets(unit, offset, offsets, abbrevs)?;
+            }
+            // Null child
+            *offset += 1;
+        }
+        Ok(())
+    }
+
+    fn size(&self, unit: &Unit, offsets: &UnitOffsets) -> usize {
+        let mut size = uleb128_size(offsets.abbrev(self.id));
+        if self.sibling && !self.children.is_empty() {
+            size += unit.format().word_size() as usize;
+        }
+        for attr in &self.attrs {
+            size += attr.value.size(unit, offsets);
+        }
+        size
+    }
+
     /// Write the entry to the given sections.
     #[allow(clippy::too_many_arguments)]
     fn write<W: Writer>(
         &self,
         w: &mut DebugInfo<W>,
+        debug_info_refs: &mut Vec<DebugInfoReference>,
+        unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
         unit: &Unit,
         offsets: &mut UnitOffsets,
         abbrevs: &mut AbbreviationTable,
@@ -537,12 +614,9 @@ impl DebuggingInformationEntry {
         strings: &DebugStrOffsets,
         range_lists: &RangeListOffsets,
         loc_lists: &LocationListOffsets,
-        unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
-        debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
     ) -> Result<()> {
-        offsets.entries[self.id.index] = w.offset();
-        let code = abbrevs.add(self.abbreviation(unit.encoding())?);
-        w.write_uleb128(code)?;
+        debug_assert_eq!(offsets.debug_info_offset(self.id), w.offset());
+        w.write_uleb128(offsets.abbrev(self.id))?;
 
         let sibling_offset = if self.sibling && !self.children.is_empty() {
             let offset = w.offset();
@@ -553,16 +627,17 @@ impl DebuggingInformationEntry {
         };
 
         for attr in &self.attrs {
-            attr.write(
+            attr.value.write(
                 w,
+                debug_info_refs,
+                unit_refs,
                 unit,
+                offsets,
                 line_program,
                 line_strings,
                 strings,
                 range_lists,
                 loc_lists,
-                unit_refs,
-                debug_info_refs,
             )?;
         }
 
@@ -570,6 +645,8 @@ impl DebuggingInformationEntry {
             for child in &self.children {
                 unit.entries[child.index].write(
                     w,
+                    debug_info_refs,
+                    unit_refs,
                     unit,
                     offsets,
                     abbrevs,
@@ -578,8 +655,6 @@ impl DebuggingInformationEntry {
                     strings,
                     range_lists,
                     loc_lists,
-                    unit_refs,
-                    debug_info_refs,
                 )?;
             }
             // Null child
@@ -628,34 +703,6 @@ impl Attribute {
             self.name,
             self.value.form(encoding)?,
         ))
-    }
-
-    /// Write the attribute to the given sections.
-    #[inline]
-    #[allow(clippy::too_many_arguments)]
-    fn write<W: Writer>(
-        &self,
-        w: &mut DebugInfo<W>,
-        unit: &Unit,
-        line_program: Option<DebugLineOffset>,
-        line_strings: &DebugLineStrOffsets,
-        strings: &DebugStrOffsets,
-        range_lists: &RangeListOffsets,
-        loc_lists: &LocationListOffsets,
-        unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
-        debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
-    ) -> Result<()> {
-        self.value.write(
-            w,
-            unit,
-            line_program,
-            line_strings,
-            strings,
-            range_lists,
-            loc_lists,
-            unit_refs,
-            debug_info_refs,
-        )
     }
 }
 
@@ -718,19 +765,11 @@ pub enum AttributeValue {
     /// An attribute that is always present.
     FlagPresent,
 
-    /// A reference to a `DebuggingInformationEntry` in the this unit.
-    ThisUnitEntryRef(UnitEntryId),
+    /// A reference to a `DebuggingInformationEntry` in this unit.
+    UnitRef(UnitEntryId),
 
     /// A reference to a `DebuggingInformationEntry` in a potentially different unit.
-    AnyUnitEntryRef((UnitId, UnitEntryId)),
-
-    /// A reference to the current `.debug_info` section, but possibly a different
-    /// unit from the current one.
-    ///
-    /// This is an internal attribute that must only be used when converting an
-    /// existing `.debug_info` section.
-    #[doc(hidden)]
-    UnitSectionRef(UnitSectionOffset),
+    DebugInfoRef(Reference),
 
     /// An offset into the `.debug_info` section of the supplementary object file.
     ///
@@ -850,7 +889,7 @@ impl AttributeValue {
             AttributeValue::Exprloc(_) => constants::DW_FORM_exprloc,
             AttributeValue::Flag(_) => constants::DW_FORM_flag,
             AttributeValue::FlagPresent => constants::DW_FORM_flag_present,
-            AttributeValue::ThisUnitEntryRef(_) => {
+            AttributeValue::UnitRef(_) => {
                 // Using a fixed size format lets us write a placeholder before we know
                 // the value.
                 match encoding.format {
@@ -858,7 +897,7 @@ impl AttributeValue {
                     Format::Dwarf64 => constants::DW_FORM_ref8,
                 }
             }
-            AttributeValue::AnyUnitEntryRef(_) => constants::DW_FORM_ref_addr,
+            AttributeValue::DebugInfoRef(_) => constants::DW_FORM_ref_addr,
             AttributeValue::DebugInfoRefSup(_) => {
                 // TODO: should this depend on the size of supplementary section?
                 match encoding.format {
@@ -900,11 +939,187 @@ impl AttributeValue {
             | AttributeValue::FileIndex(_)
             | AttributeValue::Udata(_) => constants::DW_FORM_udata,
             AttributeValue::Sdata(_) => constants::DW_FORM_sdata,
-            AttributeValue::UnitSectionRef(_) => {
-                return Err(Error::InvalidAttributeValue);
-            }
         };
         Ok(form)
+    }
+
+    fn size(&self, unit: &Unit, offsets: &UnitOffsets) -> usize {
+        macro_rules! debug_assert_form {
+            ($form:expr) => {
+                debug_assert_eq!(self.form(unit.encoding()).unwrap(), $form)
+            };
+        }
+        match *self {
+            AttributeValue::Address(_) => {
+                debug_assert_form!(constants::DW_FORM_addr);
+                unit.address_size() as usize
+            }
+            AttributeValue::Block(ref val) => {
+                debug_assert_form!(constants::DW_FORM_block);
+                uleb128_size(val.len() as u64) + val.len()
+            }
+            AttributeValue::Data1(_) => {
+                debug_assert_form!(constants::DW_FORM_data1);
+                1
+            }
+            AttributeValue::Data2(_) => {
+                debug_assert_form!(constants::DW_FORM_data2);
+                2
+            }
+            AttributeValue::Data4(_) => {
+                debug_assert_form!(constants::DW_FORM_data4);
+                4
+            }
+            AttributeValue::Data8(_) => {
+                debug_assert_form!(constants::DW_FORM_data8);
+                8
+            }
+            AttributeValue::Sdata(val) => {
+                debug_assert_form!(constants::DW_FORM_sdata);
+                sleb128_size(val)
+            }
+            AttributeValue::Udata(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val)
+            }
+            AttributeValue::Exprloc(ref val) => {
+                debug_assert_form!(constants::DW_FORM_exprloc);
+                let size = val.size(unit.encoding(), Some(offsets));
+                uleb128_size(size as u64) + size
+            }
+            AttributeValue::Flag(_) => {
+                debug_assert_form!(constants::DW_FORM_flag);
+                1
+            }
+            AttributeValue::FlagPresent => {
+                debug_assert_form!(constants::DW_FORM_flag_present);
+                0
+            }
+            AttributeValue::UnitRef(_) => {
+                match unit.format() {
+                    Format::Dwarf32 => debug_assert_form!(constants::DW_FORM_ref4),
+                    Format::Dwarf64 => debug_assert_form!(constants::DW_FORM_ref8),
+                }
+                unit.format().word_size() as usize
+            }
+            AttributeValue::DebugInfoRef(_) => {
+                debug_assert_form!(constants::DW_FORM_ref_addr);
+                if unit.version() == 2 {
+                    unit.address_size() as usize
+                } else {
+                    unit.format().word_size() as usize
+                }
+            }
+            AttributeValue::DebugInfoRefSup(_) => {
+                match unit.format() {
+                    Format::Dwarf32 => debug_assert_form!(constants::DW_FORM_ref_sup4),
+                    Format::Dwarf64 => debug_assert_form!(constants::DW_FORM_ref_sup8),
+                }
+                unit.format().word_size() as usize
+            }
+            AttributeValue::LineProgramRef => {
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_sec_offset);
+                }
+                unit.format().word_size() as usize
+            }
+            AttributeValue::LocationListRef(_) => {
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_sec_offset);
+                }
+                unit.format().word_size() as usize
+            }
+            AttributeValue::DebugMacinfoRef(_) => {
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_sec_offset);
+                }
+                unit.format().word_size() as usize
+            }
+            AttributeValue::DebugMacroRef(_) => {
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_sec_offset);
+                }
+                unit.format().word_size() as usize
+            }
+            AttributeValue::RangeListRef(_) => {
+                if unit.version() >= 4 {
+                    debug_assert_form!(constants::DW_FORM_sec_offset);
+                }
+                unit.format().word_size() as usize
+            }
+            AttributeValue::DebugTypesRef(_) => {
+                debug_assert_form!(constants::DW_FORM_ref_sig8);
+                8
+            }
+            AttributeValue::StringRef(_) => {
+                debug_assert_form!(constants::DW_FORM_strp);
+                unit.format().word_size() as usize
+            }
+            AttributeValue::DebugStrRefSup(_) => {
+                debug_assert_form!(constants::DW_FORM_strp_sup);
+                unit.format().word_size() as usize
+            }
+            AttributeValue::LineStringRef(_) => {
+                debug_assert_form!(constants::DW_FORM_line_strp);
+                unit.format().word_size() as usize
+            }
+            AttributeValue::String(ref val) => {
+                debug_assert_form!(constants::DW_FORM_string);
+                val.len() + 1
+            }
+            AttributeValue::Encoding(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::DecimalSign(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::Endianity(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::Accessibility(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::Visibility(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::Virtuality(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::Language(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::AddressClass(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::IdentifierCase(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::CallingConvention(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::Inline(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::Ordering(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.0 as u64)
+            }
+            AttributeValue::FileIndex(val) => {
+                debug_assert_form!(constants::DW_FORM_udata);
+                uleb128_size(val.map(FileId::raw).unwrap_or(0))
+            }
+        }
     }
 
     /// Write the attribute value to the given sections.
@@ -912,14 +1127,15 @@ impl AttributeValue {
     fn write<W: Writer>(
         &self,
         w: &mut DebugInfo<W>,
+        debug_info_refs: &mut Vec<DebugInfoReference>,
+        unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
         unit: &Unit,
+        offsets: &UnitOffsets,
         line_program: Option<DebugLineOffset>,
         line_strings: &DebugLineStrOffsets,
         strings: &DebugStrOffsets,
         range_lists: &RangeListOffsets,
         loc_lists: &LocationListOffsets,
-        unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
-        debug_info_refs: &mut Vec<(DebugInfoOffset, (UnitId, UnitEntryId), u8)>,
     ) -> Result<()> {
         macro_rules! debug_assert_form {
             ($form:expr) => {
@@ -962,8 +1178,13 @@ impl AttributeValue {
             }
             AttributeValue::Exprloc(ref val) => {
                 debug_assert_form!(constants::DW_FORM_exprloc);
-                w.write_uleb128(val.0.len() as u64)?;
-                w.write(&val.0)?;
+                w.write_uleb128(val.size(unit.encoding(), Some(offsets)) as u64)?;
+                val.write(
+                    &mut w.0,
+                    Some(debug_info_refs),
+                    unit.encoding(),
+                    Some(offsets),
+                )?;
             }
             AttributeValue::Flag(val) => {
                 debug_assert_form!(constants::DW_FORM_flag);
@@ -972,7 +1193,7 @@ impl AttributeValue {
             AttributeValue::FlagPresent => {
                 debug_assert_form!(constants::DW_FORM_flag_present);
             }
-            AttributeValue::ThisUnitEntryRef(id) => {
+            AttributeValue::UnitRef(id) => {
                 match unit.format() {
                     Format::Dwarf32 => debug_assert_form!(constants::DW_FORM_ref4),
                     Format::Dwarf64 => debug_assert_form!(constants::DW_FORM_ref8),
@@ -980,15 +1201,25 @@ impl AttributeValue {
                 unit_refs.push((w.offset(), id));
                 w.write_udata(0, unit.format().word_size())?;
             }
-            AttributeValue::AnyUnitEntryRef(id) => {
+            AttributeValue::DebugInfoRef(reference) => {
                 debug_assert_form!(constants::DW_FORM_ref_addr);
                 let size = if unit.version() == 2 {
                     unit.address_size()
                 } else {
                     unit.format().word_size()
                 };
-                debug_info_refs.push((w.offset(), id, size));
-                w.write_udata(0, size)?;
+                match reference {
+                    Reference::Symbol(symbol) => w.write_reference(symbol, size)?,
+                    Reference::Entry(unit, entry) => {
+                        debug_info_refs.push(DebugInfoReference {
+                            offset: w.len(),
+                            unit,
+                            entry,
+                            size,
+                        });
+                        w.write_udata(0, size)?;
+                    }
+                }
             }
             AttributeValue::DebugInfoRefSup(val) => {
                 match unit.format() {
@@ -1127,9 +1358,6 @@ impl AttributeValue {
                 debug_assert_form!(constants::DW_FORM_udata);
                 w.write_uleb128(val.map(FileId::raw).unwrap_or(0))?;
             }
-            AttributeValue::UnitSectionRef(_) => {
-                return Err(Error::InvalidAttributeValue);
-            }
         }
         Ok(())
     }
@@ -1149,6 +1377,12 @@ pub struct DebugInfoOffsets {
 }
 
 impl DebugInfoOffsets {
+    #[cfg(test)]
+    pub(crate) fn unit_offsets(&self, unit: UnitId) -> &UnitOffsets {
+        debug_assert_eq!(self.base_id, unit.base_id);
+        &self.units[unit.index]
+    }
+
     /// Get the `.debug_info` section offset for the given unit.
     #[inline]
     pub fn unit(&self, unit: UnitId) -> DebugInfoOffset {
@@ -1160,7 +1394,7 @@ impl DebugInfoOffsets {
     #[inline]
     pub fn entry(&self, unit: UnitId, entry: UnitEntryId) -> DebugInfoOffset {
         debug_assert_eq!(self.base_id, unit.base_id);
-        self.units[unit.index].entry(entry)
+        self.units[unit.index].debug_info_offset(entry)
     }
 }
 
@@ -1169,15 +1403,69 @@ impl DebugInfoOffsets {
 pub(crate) struct UnitOffsets {
     base_id: BaseId,
     unit: DebugInfoOffset,
-    entries: Vec<DebugInfoOffset>,
+    entries: Vec<EntryOffset>,
 }
 
 impl UnitOffsets {
-    #[inline]
-    fn entry(&self, entry: UnitEntryId) -> DebugInfoOffset {
-        debug_assert_eq!(self.base_id, entry.base_id);
-        self.entries[entry.index]
+    #[cfg(test)]
+    fn none() -> Self {
+        UnitOffsets {
+            base_id: BaseId::default(),
+            unit: DebugInfoOffset(0),
+            entries: Vec::new(),
+        }
     }
+
+    /// Get the .debug_info offset for the given entry.
+    #[inline]
+    pub(crate) fn debug_info_offset(&self, entry: UnitEntryId) -> DebugInfoOffset {
+        debug_assert_eq!(self.base_id, entry.base_id);
+        let offset = self.entries[entry.index].offset;
+        debug_assert_ne!(offset.0, 0);
+        offset
+    }
+
+    /// Get the unit offset for the given entry.
+    #[inline]
+    pub(crate) fn unit_offset(&self, entry: UnitEntryId) -> u64 {
+        let offset = self.debug_info_offset(entry);
+        (offset.0 - self.unit.0) as u64
+    }
+
+    /// Get the abbreviation code for the given entry.
+    #[inline]
+    pub(crate) fn abbrev(&self, entry: UnitEntryId) -> u64 {
+        debug_assert_eq!(self.base_id, entry.base_id);
+        self.entries[entry.index].abbrev
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct EntryOffset {
+    offset: DebugInfoOffset,
+    abbrev: u64,
+}
+
+impl EntryOffset {
+    fn none() -> Self {
+        EntryOffset {
+            offset: DebugInfoOffset(0),
+            abbrev: 0,
+        }
+    }
+}
+
+/// A reference to a `.debug_info` entry that has yet to be resolved.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DebugInfoReference {
+    /// The offset within the section of the reference.
+    pub offset: usize,
+    /// The size of the reference.
+    pub size: u8,
+    /// The unit containing the entry.
+    pub unit: UnitId,
+    /// The entry being referenced.
+    pub entry: UnitEntryId,
 }
 
 #[cfg(feature = "read")]
@@ -1186,6 +1474,15 @@ pub(crate) mod convert {
     use crate::read::{self, Reader};
     use crate::write::{self, ConvertError, ConvertResult, LocationList, RangeList};
     use std::collections::HashMap;
+
+    pub(crate) struct ConvertUnit<R: Reader<Offset = usize>> {
+        from_unit: read::Unit<R>,
+        base_id: BaseId,
+        encoding: Encoding,
+        entries: Vec<DebuggingInformationEntry>,
+        entry_offsets: Vec<read::UnitOffset>,
+        root: UnitEntryId,
+    }
 
     pub(crate) struct ConvertUnitContext<'a, R: Reader<Offset = usize>> {
         pub dwarf: &'a read::Dwarf<R>,
@@ -1198,6 +1495,7 @@ pub(crate) mod convert {
         pub base_address: Address,
         pub line_program_offset: Option<DebugLineOffset>,
         pub line_program_files: Vec<FileId>,
+        pub entry_ids: &'a HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
     }
 
     impl UnitTable {
@@ -1218,16 +1516,27 @@ pub(crate) mod convert {
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<UnitTable> {
             let base_id = BaseId::default();
-            let mut units = Vec::new();
-            let mut unit_entry_offsets = HashMap::new();
+            let mut unit_entries = Vec::new();
+            let mut entry_ids = HashMap::new();
 
             let mut from_units = dwarf.units();
             while let Some(from_unit) = from_units.next()? {
-                let unit_id = UnitId::new(base_id, units.len());
-                units.push(Unit::from(
+                let unit_id = UnitId::new(base_id, unit_entries.len());
+                unit_entries.push(Unit::convert_entries(
                     from_unit,
                     unit_id,
-                    &mut unit_entry_offsets,
+                    &mut entry_ids,
+                    dwarf,
+                )?);
+            }
+
+            // Attributes must be converted in a separate pass so that we can handle
+            // references to other compilation units.
+            let mut units = Vec::new();
+            for unit_entries in unit_entries.drain(..) {
+                units.push(Unit::convert_attributes(
+                    unit_entries,
+                    &entry_ids,
                     dwarf,
                     line_strings,
                     strings,
@@ -1235,51 +1544,62 @@ pub(crate) mod convert {
                 )?);
             }
 
-            // Convert all DebugInfoOffset to UnitEntryId
-            for (unit_id, unit) in units.iter_mut().enumerate() {
-                let unit_id = UnitId::new(base_id, unit_id);
-                for entry in &mut unit.entries {
-                    for attr in &mut entry.attrs {
-                        let id = match attr.value {
-                            AttributeValue::UnitSectionRef(ref offset) => {
-                                match unit_entry_offsets.get(offset) {
-                                    Some(id) => Some(*id),
-                                    None => return Err(ConvertError::InvalidDebugInfoOffset),
-                                }
-                            }
-                            _ => None,
-                        };
-                        if let Some(id) = id {
-                            if id.0 == unit_id {
-                                attr.value = AttributeValue::ThisUnitEntryRef(id.1)
-                            } else {
-                                attr.value = AttributeValue::AnyUnitEntryRef(id)
-                            }
-                        }
-                    }
-                }
-            }
-
             Ok(UnitTable { base_id, units })
         }
     }
 
     impl Unit {
-        /// Create a unit by reading the data in the given sections.
+        /// Create a unit by reading the data in the input sections.
+        ///
+        /// Does not add entry attributes.
         #[allow(clippy::too_many_arguments)]
-        pub(crate) fn from<R: Reader<Offset = usize>>(
+        pub(crate) fn convert_entries<R: Reader<Offset = usize>>(
             from_header: read::CompilationUnitHeader<R>,
             unit_id: UnitId,
-            unit_entry_offsets: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
+            entry_ids: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
+            dwarf: &read::Dwarf<R>,
+        ) -> ConvertResult<ConvertUnit<R>> {
+            let base_id = BaseId::default();
+
+            let from_unit = dwarf.unit(from_header)?;
+            let encoding = from_unit.encoding();
+
+            let mut entries = Vec::new();
+            let mut entry_offsets = Vec::new();
+
+            let mut from_tree = from_unit.entries_tree(None)?;
+            let from_root = from_tree.root()?;
+            let root = DebuggingInformationEntry::convert_entry(
+                from_root,
+                &from_unit,
+                base_id,
+                &mut entries,
+                &mut entry_offsets,
+                entry_ids,
+                None,
+                unit_id,
+            )?;
+
+            Ok(ConvertUnit {
+                from_unit,
+                base_id,
+                encoding,
+                entries,
+                entry_offsets,
+                root,
+            })
+        }
+
+        /// Create entry attributes by reading the data in the input sections.
+        fn convert_attributes<R: Reader<Offset = usize>>(
+            unit: ConvertUnit<R>,
+            entry_ids: &HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
             dwarf: &read::Dwarf<R>,
             line_strings: &mut write::LineStringTable,
             strings: &mut write::StringTable,
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<Unit> {
-            let base_id = BaseId::default();
-
-            let from_unit = dwarf.unit(from_header)?;
-            let encoding = from_unit.encoding();
+            let from_unit = unit.from_unit;
             let base_address =
                 convert_address(from_unit.low_pc).ok_or(ConvertError::InvalidAddress)?;
 
@@ -1302,90 +1622,92 @@ pub(crate) mod convert {
 
             let mut ranges = RangeListTable::default();
             let mut locations = LocationListTable::default();
-            let mut entries = Vec::new();
-            let root = {
-                let mut context = ConvertUnitContext {
-                    dwarf,
-                    unit: &from_unit,
-                    line_strings,
-                    strings,
-                    ranges: &mut ranges,
-                    locations: &mut locations,
-                    convert_address,
-                    base_address,
-                    line_program_offset,
-                    line_program_files,
-                };
-                let mut from_tree = from_unit.entries_tree(None)?;
-                let from_root = from_tree.root()?;
-                DebuggingInformationEntry::from(
-                    &mut context,
-                    from_root,
-                    base_id,
-                    &mut entries,
-                    None,
-                    unit_id,
-                    unit_entry_offsets,
-                )?
+
+            let mut context = ConvertUnitContext {
+                entry_ids,
+                dwarf,
+                unit: &from_unit,
+                line_strings,
+                strings,
+                ranges: &mut ranges,
+                locations: &mut locations,
+                convert_address,
+                base_address,
+                line_program_offset,
+                line_program_files,
             };
 
+            let mut entries = unit.entries;
+            for entry in &mut entries {
+                entry.convert_attributes(&mut context, &unit.entry_offsets)?;
+            }
+
             Ok(Unit {
-                base_id,
-                encoding,
+                base_id: unit.base_id,
+                encoding: unit.encoding,
                 line_program,
                 ranges,
                 locations,
                 entries,
-                root,
+                root: unit.root,
             })
         }
     }
 
     impl DebuggingInformationEntry {
-        /// Create an entry by reading the data in the given sections.
-        fn from<R: Reader<Offset = usize>>(
-            context: &mut ConvertUnitContext<R>,
+        /// Create an entry by reading the data in the input sections.
+        ///
+        /// Does not add the entry attributes.
+        fn convert_entry<R: Reader<Offset = usize>>(
             from: read::EntriesTreeNode<R>,
+            from_unit: &read::Unit<R>,
             base_id: BaseId,
             entries: &mut Vec<DebuggingInformationEntry>,
+            entry_offsets: &mut Vec<read::UnitOffset>,
+            entry_ids: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
             parent: Option<UnitEntryId>,
             unit_id: UnitId,
-            unit_entry_offsets: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
         ) -> ConvertResult<UnitEntryId> {
-            let id = {
-                let from = from.entry();
-                let entry = DebuggingInformationEntry::new(base_id, entries, parent, from.tag());
-                let entry = &mut entries[entry.index];
-
-                let offset = from.offset().to_unit_section_offset(context.unit);
-                unit_entry_offsets.insert(offset, (unit_id, entry.id));
-
-                let mut from_attrs = from.attrs();
-                while let Some(from_attr) = from_attrs.next()? {
-                    if from_attr.name() == constants::DW_AT_sibling {
-                        // This may point to a null entry, so we have to treat it differently.
-                        entry.set_sibling(true);
-                    } else if let Some(attr) = Attribute::from(context, &from_attr)? {
-                        entry.set(attr.name, attr.value);
-                    }
-                }
-
-                entry.id
-            };
+            let from_entry = from.entry();
+            let id = DebuggingInformationEntry::new(base_id, entries, parent, from_entry.tag());
+            let offset = from_entry.offset();
+            entry_offsets.push(offset);
+            entry_ids.insert(offset.to_unit_section_offset(from_unit), (unit_id, id));
 
             let mut from_children = from.children();
             while let Some(from_child) = from_children.next()? {
-                DebuggingInformationEntry::from(
-                    context,
+                DebuggingInformationEntry::convert_entry(
                     from_child,
+                    from_unit,
                     base_id,
                     entries,
+                    entry_offsets,
+                    entry_ids,
                     Some(id),
                     unit_id,
-                    unit_entry_offsets,
                 )?;
             }
             Ok(id)
+        }
+
+        /// Create an entry's attributes by reading the data in the input sections.
+        fn convert_attributes<R: Reader<Offset = usize>>(
+            &mut self,
+            context: &mut ConvertUnitContext<R>,
+            entry_offsets: &[read::UnitOffset],
+        ) -> ConvertResult<()> {
+            let offset = entry_offsets[self.id.index];
+            let from = context.unit.entry(offset)?;
+            let mut from_attrs = from.attrs();
+            while let Some(from_attr) = from_attrs.next()? {
+                if from_attr.name() == constants::DW_AT_sibling {
+                    // This may point to a null entry, so we have to treat it differently.
+                    self.set_sibling(true);
+                } else if let Some(attr) = Attribute::from(context, &from_attr)? {
+                    self.set(attr.name, attr.value);
+                }
+            }
+            Ok(())
         }
     }
 
@@ -1421,9 +1743,16 @@ pub(crate) mod convert {
                 read::AttributeValue::Data8(val) => AttributeValue::Data8(val),
                 read::AttributeValue::Sdata(val) => AttributeValue::Sdata(val),
                 read::AttributeValue::Udata(val) => AttributeValue::Udata(val),
-                // TODO: addresses and offsets in expressions need special handling.
-                read::AttributeValue::Exprloc(read::Expression(val)) => {
-                    AttributeValue::Exprloc(Expression(val.to_slice()?.into()))
+                read::AttributeValue::Exprloc(expression) => {
+                    let expression = Expression::from(
+                        expression,
+                        context.unit.encoding(),
+                        Some(context.dwarf),
+                        Some(context.unit),
+                        Some(context.entry_ids),
+                        context.convert_address,
+                    )?;
+                    AttributeValue::Exprloc(expression)
                 }
                 // TODO: it would be nice to preserve the flag form.
                 read::AttributeValue::Flag(val) => AttributeValue::Flag(val),
@@ -1440,10 +1769,22 @@ pub(crate) mod convert {
                     }
                 }
                 read::AttributeValue::UnitRef(val) => {
-                    AttributeValue::UnitSectionRef(val.to_unit_section_offset(context.unit))
+                    if !context.unit.header.is_valid_offset(val) {
+                        return Err(ConvertError::InvalidUnitRef);
+                    }
+                    let id = context
+                        .entry_ids
+                        .get(&val.to_unit_section_offset(context.unit))
+                        .ok_or(ConvertError::InvalidUnitRef)?;
+                    AttributeValue::UnitRef(id.1)
                 }
                 read::AttributeValue::DebugInfoRef(val) => {
-                    AttributeValue::UnitSectionRef(UnitSectionOffset::DebugInfoOffset(val))
+                    // TODO: support relocation of this value
+                    let id = context
+                        .entry_ids
+                        .get(&UnitSectionOffset::DebugInfoOffset(val))
+                        .ok_or(ConvertError::InvalidDebugInfoRef)?;
+                    AttributeValue::DebugInfoRef(Reference::Entry(id.0, id.1))
                 }
                 read::AttributeValue::DebugInfoRefSup(val) => AttributeValue::DebugInfoRefSup(val),
                 read::AttributeValue::DebugLineRef(val) => {
@@ -1579,6 +1920,7 @@ mod tests {
         StringTable,
     };
     use crate::LittleEndian;
+    use std::collections::HashMap;
     use std::mem;
 
     #[test]
@@ -1891,18 +2233,6 @@ mod tests {
         let mut strings = StringTable::default();
         strings.add("string one");
         let string_id = strings.add("string two");
-        let mut ranges = RangeListTable::default();
-        let range_id = ranges.add(RangeList(vec![Range::StartEnd {
-            begin: Address::Constant(0x1234),
-            end: Address::Constant(0x2345),
-        }]));
-        let mut locations = LocationListTable::default();
-        let loc_id = locations.add(LocationList(vec![Location::StartEnd {
-            begin: Address::Constant(0x1234),
-            end: Address::Constant(0x2345),
-            data: Expression(vec![1, 0, 0, 0]),
-        }]));
-
         let mut debug_str = DebugStr::from(EndianVec::new(LittleEndian));
         let debug_str_offsets = strings.write(&mut debug_str).unwrap();
         let read_debug_str = read::DebugStr::new(debug_str.slice(), LittleEndian);
@@ -1918,6 +2248,26 @@ mod tests {
         let data = vec![1, 2, 3, 4];
         let read_data = read::EndianSlice::new(&[1, 2, 3, 4], LittleEndian);
 
+        let mut expression = Expression::new();
+        expression.op_constu(57);
+        let read_expression = read::Expression(read::EndianSlice::new(
+            &[constants::DW_OP_constu.0, 57],
+            LittleEndian,
+        ));
+
+        let mut ranges = RangeListTable::default();
+        let range_id = ranges.add(RangeList(vec![Range::StartEnd {
+            begin: Address::Constant(0x1234),
+            end: Address::Constant(0x2345),
+        }]));
+
+        let mut locations = LocationListTable::default();
+        let loc_id = locations.add(LocationList(vec![Location::StartEnd {
+            begin: Address::Constant(0x1234),
+            end: Address::Constant(0x2345),
+            data: expression.clone(),
+        }]));
+
         for &version in &[2, 3, 4, 5] {
             for &address_size in &[4, 8] {
                 for &format in &[Format::Dwarf32, Format::Dwarf64] {
@@ -1929,7 +2279,7 @@ mod tests {
 
                     let mut sections = Sections::new(EndianVec::new(LittleEndian));
                     let range_list_offsets = ranges.write(&mut sections, encoding).unwrap();
-                    let loc_list_offsets = locations.write(&mut sections, encoding).unwrap();
+                    let loc_list_offsets = locations.write(&mut sections, encoding, None).unwrap();
 
                     let read_debug_ranges =
                         read::DebugRanges::new(sections.debug_ranges.slice(), LittleEndian);
@@ -1999,8 +2349,8 @@ mod tests {
                         ),
                         (
                             constants::DW_AT_name,
-                            AttributeValue::Exprloc(Expression(data.clone())),
-                            read::AttributeValue::Exprloc(read::Expression(read_data)),
+                            AttributeValue::Exprloc(expression.clone()),
+                            read::AttributeValue::Exprloc(read_expression),
                         ),
                         (
                             constants::DW_AT_name,
@@ -2134,22 +2484,25 @@ mod tests {
                             value: value.clone(),
                         };
 
+                        let offsets = UnitOffsets::none();
                         let line_program_offset = None;
-                        let mut unit_refs = Vec::new();
                         let mut debug_info_refs = Vec::new();
+                        let mut unit_refs = Vec::new();
                         let mut debug_info = DebugInfo::from(EndianVec::new(LittleEndian));
-                        attr.write(
-                            &mut debug_info,
-                            &unit,
-                            line_program_offset,
-                            &debug_line_str_offsets,
-                            &debug_str_offsets,
-                            &range_list_offsets,
-                            &loc_list_offsets,
-                            &mut unit_refs,
-                            &mut debug_info_refs,
-                        )
-                        .unwrap();
+                        attr.value
+                            .write(
+                                &mut debug_info,
+                                &mut debug_info_refs,
+                                &mut unit_refs,
+                                &unit,
+                                &offsets,
+                                line_program_offset,
+                                &debug_line_str_offsets,
+                                &debug_str_offsets,
+                                &range_list_offsets,
+                                &loc_list_offsets,
+                            )
+                            .unwrap();
 
                         let spec = read::AttributeSpecification::new(*name, form, None);
                         let mut r = read::EndianSlice::new(debug_info.slice(), LittleEndian);
@@ -2201,6 +2554,7 @@ mod tests {
                             base_address: Address::Constant(0),
                             line_program_offset: None,
                             line_program_files: Vec::new(),
+                            entry_ids: &HashMap::new(),
                         };
 
                         let convert_attr =
@@ -2224,7 +2578,7 @@ mod tests {
             },
             LineProgram::none(),
         ));
-        assert_eq!(unit_id1, UnitId::new(units.base_id, 0));
+        assert_eq!(unit_id1, units.id(0));
         let unit_id2 = units.add(Unit::new(
             Encoding {
                 version: 2,
@@ -2233,7 +2587,7 @@ mod tests {
             },
             LineProgram::none(),
         ));
-        assert_eq!(unit_id2, UnitId::new(units.base_id, 1));
+        assert_eq!(unit_id2, units.id(1));
         let unit1_child1 = UnitEntryId::new(units.get(unit_id1).base_id, 1);
         let unit1_child2 = UnitEntryId::new(units.get(unit_id1).base_id, 2);
         let unit2_child1 = UnitEntryId::new(units.get(unit_id2).base_id, 1);
@@ -2247,16 +2601,13 @@ mod tests {
             assert_eq!(child_id2, unit1_child2);
             {
                 let child1 = unit1.get_mut(child_id1);
-                child1.set(
-                    constants::DW_AT_type,
-                    AttributeValue::ThisUnitEntryRef(child_id2),
-                );
+                child1.set(constants::DW_AT_type, AttributeValue::UnitRef(child_id2));
             }
             {
                 let child2 = unit1.get_mut(child_id2);
                 child2.set(
                     constants::DW_AT_type,
-                    AttributeValue::AnyUnitEntryRef((unit_id2, unit2_child1)),
+                    AttributeValue::DebugInfoRef(Reference::Entry(unit_id2, unit2_child1)),
                 );
             }
         }
@@ -2269,16 +2620,13 @@ mod tests {
             assert_eq!(child_id2, unit2_child2);
             {
                 let child1 = unit2.get_mut(child_id1);
-                child1.set(
-                    constants::DW_AT_type,
-                    AttributeValue::ThisUnitEntryRef(child_id2),
-                );
+                child1.set(constants::DW_AT_type, AttributeValue::UnitRef(child_id2));
             }
             {
                 let child2 = unit2.get_mut(child_id2);
                 child2.set(
                     constants::DW_AT_type,
-                    AttributeValue::AnyUnitEntryRef((unit_id1, unit1_child1)),
+                    AttributeValue::DebugInfoRef(Reference::Entry(unit_id1, unit1_child1)),
                 );
             }
         }
@@ -2370,9 +2718,9 @@ mod tests {
         .unwrap();
         assert_eq!(convert_units.count(), units.count());
 
-        for unit_id in 0..convert_units.count() {
-            let unit = units.get(UnitId::new(units.base_id, unit_id));
-            let convert_unit = convert_units.get(UnitId::new(convert_units.base_id, unit_id));
+        for i in 0..convert_units.count() {
+            let unit = units.get(units.id(i));
+            let convert_unit = convert_units.get(convert_units.id(i));
             assert_eq!(convert_unit.version(), unit.version());
             assert_eq!(convert_unit.address_size(), unit.address_size());
             assert_eq!(convert_unit.format(), unit.format());
@@ -2392,16 +2740,13 @@ mod tests {
                 assert_eq!(convert_attr.name, attr.name);
                 match (convert_attr.value.clone(), attr.value.clone()) {
                     (
-                        AttributeValue::AnyUnitEntryRef(convert_id),
-                        AttributeValue::AnyUnitEntryRef(id),
+                        AttributeValue::DebugInfoRef(Reference::Entry(convert_unit, convert_entry)),
+                        AttributeValue::DebugInfoRef(Reference::Entry(unit, entry)),
                     ) => {
-                        assert_eq!((convert_id.0).index, (id.0).index);
-                        assert_eq!((convert_id.1).index, (id.1).index);
+                        assert_eq!(convert_unit.index, unit.index);
+                        assert_eq!(convert_entry.index, entry.index);
                     }
-                    (
-                        AttributeValue::ThisUnitEntryRef(convert_id),
-                        AttributeValue::ThisUnitEntryRef(id),
-                    ) => {
+                    (AttributeValue::UnitRef(convert_id), AttributeValue::UnitRef(id)) => {
                         assert_eq!(convert_id.index, id.index);
                     }
                     (convert_value, value) => assert_eq!(convert_value, value),
@@ -2415,16 +2760,13 @@ mod tests {
                 assert_eq!(convert_attr.name, attr.name);
                 match (convert_attr.value.clone(), attr.value.clone()) {
                     (
-                        AttributeValue::AnyUnitEntryRef(convert_id),
-                        AttributeValue::AnyUnitEntryRef(id),
+                        AttributeValue::DebugInfoRef(Reference::Entry(convert_unit, convert_entry)),
+                        AttributeValue::DebugInfoRef(Reference::Entry(unit, entry)),
                     ) => {
-                        assert_eq!((convert_id.0).index, (id.0).index);
-                        assert_eq!((convert_id.1).index, (id.1).index);
+                        assert_eq!(convert_unit.index, unit.index);
+                        assert_eq!(convert_entry.index, entry.index);
                     }
-                    (
-                        AttributeValue::ThisUnitEntryRef(convert_id),
-                        AttributeValue::ThisUnitEntryRef(id),
-                    ) => {
+                    (AttributeValue::UnitRef(convert_id), AttributeValue::UnitRef(id)) => {
                         assert_eq!(convert_id.index, id.index);
                     }
                     (convert_value, value) => assert_eq!(convert_value, value),
@@ -2607,9 +2949,7 @@ mod tests {
                         let mut ranges = RangeListTable::default();
                         let mut locations = LocationListTable::default();
                         let mut strings = StringTable::default();
-                        let debug_str_offsets = DebugStrOffsets::none();
                         let mut line_strings = LineStringTable::default();
-                        let debug_line_str_offsets = DebugLineStrOffsets::none();
 
                         let form = value.form(encoding).unwrap();
                         let attr = Attribute {
@@ -2617,23 +2957,28 @@ mod tests {
                             value: value.clone(),
                         };
 
-                        let mut unit_refs = Vec::new();
                         let mut debug_info_refs = Vec::new();
+                        let mut unit_refs = Vec::new();
                         let mut debug_info = DebugInfo::from(EndianVec::new(LittleEndian));
+                        let offsets = UnitOffsets::none();
+                        let debug_line_str_offsets = DebugLineStrOffsets::none();
+                        let debug_str_offsets = DebugStrOffsets::none();
                         let range_list_offsets = RangeListOffsets::none();
                         let loc_list_offsets = LocationListOffsets::none();
-                        attr.write(
-                            &mut debug_info,
-                            &unit,
-                            Some(line_program_offset),
-                            &debug_line_str_offsets,
-                            &debug_str_offsets,
-                            &range_list_offsets,
-                            &loc_list_offsets,
-                            &mut unit_refs,
-                            &mut debug_info_refs,
-                        )
-                        .unwrap();
+                        attr.value
+                            .write(
+                                &mut debug_info,
+                                &mut debug_info_refs,
+                                &mut unit_refs,
+                                &unit,
+                                &offsets,
+                                Some(line_program_offset),
+                                &debug_line_str_offsets,
+                                &debug_str_offsets,
+                                &range_list_offsets,
+                                &loc_list_offsets,
+                            )
+                            .unwrap();
 
                         let spec = read::AttributeSpecification::new(*name, form, None);
                         let mut r = read::EndianSlice::new(debug_info.slice(), LittleEndian);
@@ -2674,6 +3019,7 @@ mod tests {
                             base_address: Address::Constant(0),
                             line_program_offset: Some(line_program_offset),
                             line_program_files: line_program_files.clone(),
+                            entry_ids: &HashMap::new(),
                         };
 
                         let convert_attr =

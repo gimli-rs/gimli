@@ -634,6 +634,11 @@ impl<R: Reader> Unit<R> {
         self.header.encoding()
     }
 
+    /// Read the `DebuggingInformationEntry` at the given offset.
+    pub fn entry(&self, offset: UnitOffset<R::Offset>) -> Result<DebuggingInformationEntry<R>> {
+        self.header.entry(&self.abbreviations, offset)
+    }
+
     /// Navigate this unit's `DebuggingInformationEntry`s.
     #[inline]
     pub fn entries(&self) -> EntriesCursor<R> {
@@ -694,6 +699,8 @@ impl<T: ReaderOffset> UnitSectionOffset<T> {
 impl<T: ReaderOffset> UnitOffset<T> {
     /// Convert an offset to be relative to the start of the .debug_info section,
     /// instead of relative to the start of the given compilation unit.
+    ///
+    /// Does not check that the offset is valid.
     pub fn to_unit_section_offset<R>(&self, unit: &Unit<R>) -> UnitSectionOffset<T>
     where
         R: Reader<Offset = T>,

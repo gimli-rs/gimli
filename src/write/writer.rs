@@ -32,6 +32,7 @@ pub trait Writer {
     ///
     /// If the writer supports relocations, then it must provide its own implementation
     /// of this method.
+    // TODO: use write_reference instead?
     fn write_address(&mut self, address: Address, size: u8) -> Result<()> {
         match address {
             Address::Constant(val) => self.write_udata(val, size),
@@ -118,6 +119,14 @@ pub trait Writer {
         size: u8,
     ) -> Result<()> {
         self.write_udata_at(offset, val as u64, size)
+    }
+
+    /// Write a reference to a symbol.
+    ///
+    /// If the writer supports symbols, then it must provide its own implementation
+    /// of this method.
+    fn write_reference(&mut self, _symbol: usize, _size: u8) -> Result<()> {
+        Err(Error::InvalidReference)
     }
 
     /// Write a u8.

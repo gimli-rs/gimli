@@ -91,7 +91,7 @@ fn test_convert_debug_info() {
     assert_eq!(debug_abbrev_data.len(), 9701);
     assert_eq!(debug_line_data.len(), 105_797);
     assert_eq!(debug_ranges_data.len(), 155_712);
-    assert_eq!(debug_loc_data.len(), 245_768);
+    assert_eq!(debug_loc_data.len(), 245_168);
     assert_eq!(debug_str_data.len(), 144_731);
 
     // Convert new sections

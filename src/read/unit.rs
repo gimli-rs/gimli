@@ -310,6 +310,15 @@ where
         self.header.header_size()
     }
 
+    /// Read the `DebuggingInformationEntry` at the given offset.
+    pub fn entry<'me, 'abbrev>(
+        &'me self,
+        abbreviations: &'abbrev Abbreviations,
+        offset: UnitOffset<R::Offset>,
+    ) -> Result<DebuggingInformationEntry<'abbrev, 'me, R>> {
+        self.header.entry(abbreviations, offset)
+    }
+
     /// Navigate this compilation unit's `DebuggingInformationEntry`s.
     pub fn entries<'me, 'abbrev>(
         &'me self,
@@ -605,6 +614,17 @@ where
         let mut input = self.entries_buf.clone();
         input.truncate(end)?;
         Ok(input)
+    }
+
+    /// Read the `DebuggingInformationEntry` at the given offset.
+    pub fn entry<'me, 'abbrev>(
+        &'me self,
+        abbreviations: &'abbrev Abbreviations,
+        offset: UnitOffset<R::Offset>,
+    ) -> Result<DebuggingInformationEntry<'abbrev, 'me, R>> {
+        let mut input = self.range_from(offset..)?;
+        let entry = DebuggingInformationEntry::parse(&mut input, self, abbreviations)?;
+        entry.ok_or(Error::NoEntryAtGivenOffset)
     }
 
     /// Navigate this unit's `DebuggingInformationEntry`s.

@@ -439,7 +439,7 @@ fn bench_parsing_debug_info_expressions(b: &mut test::Bencher) {
         for &(expression, encoding) in &*expressions {
             let mut pc = expression.0;
             while !pc.is_empty() {
-                Operation::parse(&mut pc, &expression.0, encoding).expect("Should parse operation");
+                Operation::parse(&mut pc, encoding).expect("Should parse operation");
             }
         }
     });
@@ -536,7 +536,7 @@ fn bench_parsing_debug_loc_expressions(b: &mut test::Bencher) {
         for &(expression, encoding) in &*expressions {
             let mut pc = expression.0;
             while !pc.is_empty() {
-                Operation::parse(&mut pc, &expression.0, encoding).expect("Should parse operation");
+                Operation::parse(&mut pc, encoding).expect("Should parse operation");
             }
         }
     });

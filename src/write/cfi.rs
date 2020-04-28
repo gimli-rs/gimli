@@ -251,7 +251,7 @@ impl CommonInformationEntry {
         }
 
         for instruction in &self.instructions {
-            instruction.write(w, self)?;
+            instruction.write(w, encoding, self)?;
         }
 
         write_nop(
@@ -357,7 +357,7 @@ impl FrameDescriptionEntry {
         for (offset, instruction) in &self.instructions {
             write_advance_loc(w, cie.code_alignment_factor, prev_offset, *offset)?;
             prev_offset = *offset;
-            instruction.write(w, cie)?;
+            instruction.write(w, encoding, cie)?;
         }
 
         write_nop(
@@ -413,7 +413,12 @@ pub enum CallFrameInstruction {
 }
 
 impl CallFrameInstruction {
-    fn write<W: Writer>(&self, w: &mut W, cie: &CommonInformationEntry) -> Result<()> {
+    fn write<W: Writer>(
+        &self,
+        w: &mut W,
+        encoding: Encoding,
+        cie: &CommonInformationEntry,
+    ) -> Result<()> {
         match *self {
             CallFrameInstruction::Cfa(register, offset) => {
                 if offset < 0 {
@@ -445,8 +450,8 @@ impl CallFrameInstruction {
             }
             CallFrameInstruction::CfaExpression(ref expression) => {
                 w.write_u8(constants::DW_CFA_def_cfa_expression.0)?;
-                w.write_uleb128(expression.0.len() as u64)?;
-                w.write(&expression.0)?;
+                w.write_uleb128(expression.size(encoding, None) as u64)?;
+                expression.write(w, None, encoding, None)?;
             }
             CallFrameInstruction::Restore(register) => {
                 if register.0 < 0x40 {
@@ -499,14 +504,14 @@ impl CallFrameInstruction {
             CallFrameInstruction::Expression(register, ref expression) => {
                 w.write_u8(constants::DW_CFA_expression.0)?;
                 w.write_uleb128(register.0.into())?;
-                w.write_uleb128(expression.0.len() as u64)?;
-                w.write(&expression.0)?;
+                w.write_uleb128(expression.size(encoding, None) as u64)?;
+                expression.write(w, None, encoding, None)?;
             }
             CallFrameInstruction::ValExpression(register, ref expression) => {
                 w.write_u8(constants::DW_CFA_val_expression.0)?;
                 w.write_uleb128(register.0.into())?;
-                w.write_uleb128(expression.0.len() as u64)?;
-                w.write(&expression.0)?;
+                w.write_uleb128(expression.size(encoding, None) as u64)?;
+                expression.write(w, None, encoding, None)?;
             }
             CallFrameInstruction::RememberState => {
                 w.write_u8(constants::DW_CFA_remember_state.0)?;
@@ -675,9 +680,12 @@ pub(crate) mod convert {
             let mut offset = 0;
             let mut from_instructions = from_cie.instructions(frame, bases);
             while let Some(from_instruction) = from_instructions.next()? {
-                if let Some(instruction) =
-                    CallFrameInstruction::from(from_instruction, from_cie, &mut offset)?
-                {
+                if let Some(instruction) = CallFrameInstruction::from(
+                    from_instruction,
+                    from_cie,
+                    convert_address,
+                    &mut offset,
+                )? {
                     cie.instructions.push(instruction);
                 }
             }
@@ -716,9 +724,12 @@ pub(crate) mod convert {
             let mut offset = 0;
             let mut from_instructions = from_fde.instructions(frame, bases);
             while let Some(from_instruction) = from_instructions.next()? {
-                if let Some(instruction) =
-                    CallFrameInstruction::from(from_instruction, from_cie, &mut offset)?
-                {
+                if let Some(instruction) = CallFrameInstruction::from(
+                    from_instruction,
+                    from_cie,
+                    convert_address,
+                    &mut offset,
+                )? {
                     fde.instructions.push((offset, instruction));
                 }
             }
@@ -731,8 +742,11 @@ pub(crate) mod convert {
         fn from<R: Reader<Offset = usize>>(
             from_instruction: read::CallFrameInstruction<R>,
             from_cie: &read::CommonInformationEntry<R>,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
             offset: &mut u32,
         ) -> ConvertResult<Option<CallFrameInstruction>> {
+            let convert_expression =
+                |x| Expression::from(x, from_cie.encoding(), None, None, None, convert_address);
             // TODO: validate integer type conversions
             Ok(Some(match from_instruction {
                 read::CallFrameInstruction::SetLoc { .. } => {
@@ -764,8 +778,7 @@ pub(crate) mod convert {
                     CallFrameInstruction::CfaOffset(offset as i32)
                 }
                 read::CallFrameInstruction::DefCfaExpression { expression } => {
-                    let expression = Expression(expression.0.to_slice()?.into());
-                    CallFrameInstruction::CfaExpression(expression)
+                    CallFrameInstruction::CfaExpression(convert_expression(expression)?)
                 }
                 read::CallFrameInstruction::Undefined { register } => {
                     CallFrameInstruction::Undefined(register)
@@ -808,17 +821,11 @@ pub(crate) mod convert {
                 read::CallFrameInstruction::Expression {
                     register,
                     expression,
-                } => {
-                    let expression = Expression(expression.0.to_slice()?.into());
-                    CallFrameInstruction::Expression(register, expression)
-                }
+                } => CallFrameInstruction::Expression(register, convert_expression(expression)?),
                 read::CallFrameInstruction::ValExpression {
                     register,
                     expression,
-                } => {
-                    let expression = Expression(expression.0.to_slice()?.into());
-                    CallFrameInstruction::ValExpression(register, expression)
-                }
+                } => CallFrameInstruction::ValExpression(register, convert_expression(expression)?),
                 read::CallFrameInstruction::Restore { register } => {
                     CallFrameInstruction::Restore(register)
                 }
@@ -922,6 +929,9 @@ mod tests {
 
     #[test]
     fn test_frame_instruction() {
+        let mut expression = Expression::new();
+        expression.op_constu(0);
+
         let cie_instructions = [
             CallFrameInstruction::Cfa(X86_64::RSP, 8),
             CallFrameInstruction::Offset(X86_64::RA, -8),
@@ -934,10 +944,7 @@ mod tests {
             (4, CallFrameInstruction::CfaOffset(8)),
             (4, CallFrameInstruction::CfaOffset(0)),
             (4, CallFrameInstruction::CfaOffset(-8)),
-            (
-                6,
-                CallFrameInstruction::CfaExpression(Expression(vec![1, 2, 3])),
-            ),
+            (6, CallFrameInstruction::CfaExpression(expression.clone())),
             (8, CallFrameInstruction::Restore(Register(1))),
             (8, CallFrameInstruction::Restore(Register(101))),
             (10, CallFrameInstruction::Undefined(Register(2))),
@@ -949,11 +956,11 @@ mod tests {
             (18, CallFrameInstruction::Register(Register(6), Register(7))),
             (
                 20,
-                CallFrameInstruction::Expression(Register(8), Expression(vec![2, 3, 4])),
+                CallFrameInstruction::Expression(Register(8), expression.clone()),
             ),
             (
                 22,
-                CallFrameInstruction::ValExpression(Register(9), Expression(vec![3, 4, 5])),
+                CallFrameInstruction::ValExpression(Register(9), expression.clone()),
             ),
             (24 + 0x80, CallFrameInstruction::RememberState),
             (26 + 0x280, CallFrameInstruction::RestoreState),

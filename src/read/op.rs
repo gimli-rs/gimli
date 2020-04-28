@@ -95,8 +95,8 @@ where
     Xor,
     /// Branch to the target location if the top of stack is nonzero.
     Bra {
-        /// The target bytecode.
-        target: R,
+        /// The relative offset to the target bytecode.
+        target: i16,
     },
     /// Compare the top two stack values for equality.
     Eq,
@@ -112,14 +112,20 @@ where
     Ne,
     /// Unconditional branch to the target location.
     Skip {
-        /// The target bytecode.
-        target: R,
+        /// The relative offset to the target bytecode.
+        target: i16,
     },
-    /// Push a constant value on the stack.  This handles multiple
+    /// Push an unsigned constant value on the stack.  This handles multiple
     /// DWARF opcodes.
-    Literal {
+    UnsignedConstant {
         /// The value to push.
         value: u64,
+    },
+    /// Push a signed constant value on the stack.  This handles multiple
+    /// DWARF opcodes.
+    SignedConstant {
+        /// The value to push.
+        value: i64,
     },
     /// Indicate that this piece's location is in the given register.
     /// Completes the piece or expression.
@@ -364,7 +370,7 @@ where
     /// `bytes` points to a the operation to decode.  It should point into
     /// the same array as `bytecode`, which should be the entire
     /// expression.
-    pub fn parse(bytes: &mut R, bytecode: &R, encoding: Encoding) -> Result<Operation<R, Offset>> {
+    pub fn parse(bytes: &mut R, encoding: Encoding) -> Result<Operation<R, Offset>> {
         let opcode = bytes.read_u8()?;
         let name = constants::DwOp(opcode);
         match name {
@@ -379,59 +385,55 @@ where
             }),
             constants::DW_OP_const1u => {
                 let value = bytes.read_u8()?;
-                Ok(Operation::Literal {
+                Ok(Operation::UnsignedConstant {
                     value: u64::from(value),
                 })
             }
             constants::DW_OP_const1s => {
                 let value = bytes.read_i8()?;
-                Ok(Operation::Literal {
-                    value: value as u64,
+                Ok(Operation::SignedConstant {
+                    value: i64::from(value),
                 })
             }
             constants::DW_OP_const2u => {
                 let value = bytes.read_u16()?;
-                Ok(Operation::Literal {
+                Ok(Operation::UnsignedConstant {
                     value: u64::from(value),
                 })
             }
             constants::DW_OP_const2s => {
                 let value = bytes.read_i16()?;
-                Ok(Operation::Literal {
-                    value: value as u64,
+                Ok(Operation::SignedConstant {
+                    value: i64::from(value),
                 })
             }
             constants::DW_OP_const4u => {
                 let value = bytes.read_u32()?;
-                Ok(Operation::Literal {
+                Ok(Operation::UnsignedConstant {
                     value: u64::from(value),
                 })
             }
             constants::DW_OP_const4s => {
                 let value = bytes.read_i32()?;
-                Ok(Operation::Literal {
-                    value: value as u64,
+                Ok(Operation::SignedConstant {
+                    value: i64::from(value),
                 })
             }
             constants::DW_OP_const8u => {
                 let value = bytes.read_u64()?;
-                Ok(Operation::Literal { value })
+                Ok(Operation::UnsignedConstant { value })
             }
             constants::DW_OP_const8s => {
                 let value = bytes.read_i64()?;
-                Ok(Operation::Literal {
-                    value: value as u64,
-                })
+                Ok(Operation::SignedConstant { value })
             }
             constants::DW_OP_constu => {
                 let value = bytes.read_uleb128()?;
-                Ok(Operation::Literal { value })
+                Ok(Operation::UnsignedConstant { value })
             }
             constants::DW_OP_consts => {
                 let value = bytes.read_sleb128()?;
-                Ok(Operation::Literal {
-                    value: value as u64,
-                })
+                Ok(Operation::SignedConstant { value })
             }
             constants::DW_OP_dup => Ok(Operation::Pick { index: 0 }),
             constants::DW_OP_drop => Ok(Operation::Drop),
@@ -466,10 +468,8 @@ where
             constants::DW_OP_shra => Ok(Operation::Shra),
             constants::DW_OP_xor => Ok(Operation::Xor),
             constants::DW_OP_bra => {
-                let value = bytes.read_i16()?;
-                Ok(Operation::Bra {
-                    target: compute_pc(bytes, bytecode, value)?,
-                })
+                let target = bytes.read_i16()?;
+                Ok(Operation::Bra { target })
             }
             constants::DW_OP_eq => Ok(Operation::Eq),
             constants::DW_OP_ge => Ok(Operation::Ge),
@@ -478,10 +478,8 @@ where
             constants::DW_OP_lt => Ok(Operation::Lt),
             constants::DW_OP_ne => Ok(Operation::Ne),
             constants::DW_OP_skip => {
-                let value = bytes.read_i16()?;
-                Ok(Operation::Skip {
-                    target: compute_pc(bytes, bytecode, value)?,
-                })
+                let target = bytes.read_i16()?;
+                Ok(Operation::Skip { target })
             }
             constants::DW_OP_lit0
             | constants::DW_OP_lit1
@@ -514,7 +512,7 @@ where
             | constants::DW_OP_lit28
             | constants::DW_OP_lit29
             | constants::DW_OP_lit30
-            | constants::DW_OP_lit31 => Ok(Operation::Literal {
+            | constants::DW_OP_lit31 => Ok(Operation::UnsignedConstant {
                 value: (opcode - constants::DW_OP_lit0.0).into(),
             }),
             constants::DW_OP_reg0
@@ -887,6 +885,42 @@ impl<R: Reader> Expression<R> {
     pub fn evaluation(self, encoding: Encoding) -> Evaluation<R> {
         Evaluation::new(self.0, encoding)
     }
+
+    /// Return an iterator for the operations in the expression.
+    pub fn operations(self, encoding: Encoding) -> OperationIter<R> {
+        OperationIter {
+            input: self.0,
+            encoding,
+        }
+    }
+}
+
+/// An iterator for the operations in an expression.
+#[derive(Debug, Clone, Copy)]
+pub struct OperationIter<R: Reader> {
+    input: R,
+    encoding: Encoding,
+}
+
+impl<R: Reader> OperationIter<R> {
+    /// Read the next operation in an expression.
+    pub fn next(&mut self) -> Result<Option<Operation<R>>> {
+        if self.input.is_empty() {
+            return Ok(None);
+        }
+        match Operation::parse(&mut self.input, self.encoding) {
+            Ok(op) => Ok(Some(op)),
+            Err(e) => {
+                self.input.empty();
+                Err(e)
+            }
+        }
+    }
+
+    /// Return the current byte offset of the iterator.
+    pub fn offset_from(&self, expression: &Expression<R>) -> R::Offset {
+        self.input.offset_from(&expression.0)
+    }
 }
 
 /// A DWARF expression evaluator.
@@ -1042,7 +1076,7 @@ impl<R: Reader> Evaluation<R> {
 
     #[allow(clippy::cyclomatic_complexity)]
     fn evaluate_one_operation(&mut self) -> Result<OperationEvaluationResult<R>> {
-        let operation = Operation::parse(&mut self.pc, &self.bytecode, self.encoding)?;
+        let operation = Operation::parse(&mut self.pc, self.encoding)?;
 
         match operation {
             Operation::Deref {
@@ -1189,7 +1223,7 @@ impl<R: Reader> Evaluation<R> {
                 let entry = self.pop()?;
                 let v = entry.to_u64(self.addr_mask)?;
                 if v != 0 {
-                    self.pc = target.clone();
+                    self.pc = compute_pc(&self.pc, &self.bytecode, target)?;
                 }
             }
 
@@ -1230,12 +1264,16 @@ impl<R: Reader> Evaluation<R> {
                 self.push(result);
             }
 
-            Operation::Skip { ref target } => {
-                self.pc = target.clone();
+            Operation::Skip { target } => {
+                self.pc = compute_pc(&self.pc, &self.bytecode, target)?;
             }
 
-            Operation::Literal { value } => {
+            Operation::UnsignedConstant { value } => {
                 self.push(Value::Generic(value));
+            }
+
+            Operation::SignedConstant { value } => {
+                self.push(Value::Generic(value as u64));
             }
 
             Operation::RegisterOffset {
@@ -1739,7 +1777,7 @@ impl<R: Reader> Evaluation<R> {
                     } else {
                         // If there are more operations, then the next operation must
                         // be a Piece.
-                        match Operation::parse(&mut self.pc, &self.bytecode, self.encoding)? {
+                        match Operation::parse(&mut self.pc, self.encoding)? {
                             Operation::Piece {
                                 size_in_bits,
                                 bit_offset,
@@ -1842,7 +1880,7 @@ mod tests {
     ) {
         let buf = EndianSlice::new(input, LittleEndian);
         let mut pc = buf;
-        let value = Operation::parse(&mut pc, &buf, encoding);
+        let value = Operation::parse(&mut pc, encoding);
         match value {
             Ok(val) => {
                 assert_eq!(val, *expect);
@@ -1852,22 +1890,10 @@ mod tests {
         }
     }
 
-    fn check_op_parse_failure(input: &[u8], expect: Error, encoding: Encoding) {
-        let buf = EndianSlice::new(input, LittleEndian);
-        let mut pc = buf;
-        match Operation::parse(&mut pc, &buf, encoding) {
-            Err(x) => {
-                assert_eq!(x, expect);
-            }
-
-            _ => panic!("Unexpected result"),
-        }
-    }
-
     fn check_op_parse_eof(input: &[u8], encoding: Encoding) {
         let buf = EndianSlice::new(input, LittleEndian);
         let mut pc = buf;
-        match Operation::parse(&mut pc, &buf, encoding) {
+        match Operation::parse(&mut pc, encoding) {
             Err(Error::UnexpectedEof(id)) => {
                 assert!(buf.lookup_offset_id(id).is_some());
             }
@@ -1941,38 +1967,38 @@ mod tests {
             (constants::DW_OP_le, Operation::Le),
             (constants::DW_OP_lt, Operation::Lt),
             (constants::DW_OP_ne, Operation::Ne),
-            (constants::DW_OP_lit0, Operation::Literal { value: 0 }),
-            (constants::DW_OP_lit1, Operation::Literal { value: 1 }),
-            (constants::DW_OP_lit2, Operation::Literal { value: 2 }),
-            (constants::DW_OP_lit3, Operation::Literal { value: 3 }),
-            (constants::DW_OP_lit4, Operation::Literal { value: 4 }),
-            (constants::DW_OP_lit5, Operation::Literal { value: 5 }),
-            (constants::DW_OP_lit6, Operation::Literal { value: 6 }),
-            (constants::DW_OP_lit7, Operation::Literal { value: 7 }),
-            (constants::DW_OP_lit8, Operation::Literal { value: 8 }),
-            (constants::DW_OP_lit9, Operation::Literal { value: 9 }),
-            (constants::DW_OP_lit10, Operation::Literal { value: 10 }),
-            (constants::DW_OP_lit11, Operation::Literal { value: 11 }),
-            (constants::DW_OP_lit12, Operation::Literal { value: 12 }),
-            (constants::DW_OP_lit13, Operation::Literal { value: 13 }),
-            (constants::DW_OP_lit14, Operation::Literal { value: 14 }),
-            (constants::DW_OP_lit15, Operation::Literal { value: 15 }),
-            (constants::DW_OP_lit16, Operation::Literal { value: 16 }),
-            (constants::DW_OP_lit17, Operation::Literal { value: 17 }),
-            (constants::DW_OP_lit18, Operation::Literal { value: 18 }),
-            (constants::DW_OP_lit19, Operation::Literal { value: 19 }),
-            (constants::DW_OP_lit20, Operation::Literal { value: 20 }),
-            (constants::DW_OP_lit21, Operation::Literal { value: 21 }),
-            (constants::DW_OP_lit22, Operation::Literal { value: 22 }),
-            (constants::DW_OP_lit23, Operation::Literal { value: 23 }),
-            (constants::DW_OP_lit24, Operation::Literal { value: 24 }),
-            (constants::DW_OP_lit25, Operation::Literal { value: 25 }),
-            (constants::DW_OP_lit26, Operation::Literal { value: 26 }),
-            (constants::DW_OP_lit27, Operation::Literal { value: 27 }),
-            (constants::DW_OP_lit28, Operation::Literal { value: 28 }),
-            (constants::DW_OP_lit29, Operation::Literal { value: 29 }),
-            (constants::DW_OP_lit30, Operation::Literal { value: 30 }),
-            (constants::DW_OP_lit31, Operation::Literal { value: 31 }),
+            (constants::DW_OP_lit0, Operation::UnsignedConstant { value: 0 }),
+            (constants::DW_OP_lit1, Operation::UnsignedConstant { value: 1 }),
+            (constants::DW_OP_lit2, Operation::UnsignedConstant { value: 2 }),
+            (constants::DW_OP_lit3, Operation::UnsignedConstant { value: 3 }),
+            (constants::DW_OP_lit4, Operation::UnsignedConstant { value: 4 }),
+            (constants::DW_OP_lit5, Operation::UnsignedConstant { value: 5 }),
+            (constants::DW_OP_lit6, Operation::UnsignedConstant { value: 6 }),
+            (constants::DW_OP_lit7, Operation::UnsignedConstant { value: 7 }),
+            (constants::DW_OP_lit8, Operation::UnsignedConstant { value: 8 }),
+            (constants::DW_OP_lit9, Operation::UnsignedConstant { value: 9 }),
+            (constants::DW_OP_lit10, Operation::UnsignedConstant { value: 10 }),
+            (constants::DW_OP_lit11, Operation::UnsignedConstant { value: 11 }),
+            (constants::DW_OP_lit12, Operation::UnsignedConstant { value: 12 }),
+            (constants::DW_OP_lit13, Operation::UnsignedConstant { value: 13 }),
+            (constants::DW_OP_lit14, Operation::UnsignedConstant { value: 14 }),
+            (constants::DW_OP_lit15, Operation::UnsignedConstant { value: 15 }),
+            (constants::DW_OP_lit16, Operation::UnsignedConstant { value: 16 }),
+            (constants::DW_OP_lit17, Operation::UnsignedConstant { value: 17 }),
+            (constants::DW_OP_lit18, Operation::UnsignedConstant { value: 18 }),
+            (constants::DW_OP_lit19, Operation::UnsignedConstant { value: 19 }),
+            (constants::DW_OP_lit20, Operation::UnsignedConstant { value: 20 }),
+            (constants::DW_OP_lit21, Operation::UnsignedConstant { value: 21 }),
+            (constants::DW_OP_lit22, Operation::UnsignedConstant { value: 22 }),
+            (constants::DW_OP_lit23, Operation::UnsignedConstant { value: 23 }),
+            (constants::DW_OP_lit24, Operation::UnsignedConstant { value: 24 }),
+            (constants::DW_OP_lit25, Operation::UnsignedConstant { value: 25 }),
+            (constants::DW_OP_lit26, Operation::UnsignedConstant { value: 26 }),
+            (constants::DW_OP_lit27, Operation::UnsignedConstant { value: 27 }),
+            (constants::DW_OP_lit28, Operation::UnsignedConstant { value: 28 }),
+            (constants::DW_OP_lit29, Operation::UnsignedConstant { value: 29 }),
+            (constants::DW_OP_lit30, Operation::UnsignedConstant { value: 30 }),
+            (constants::DW_OP_lit31, Operation::UnsignedConstant { value: 31 }),
             (constants::DW_OP_reg0, Operation::Register { register: Register(0) }),
             (constants::DW_OP_reg1, Operation::Register { register: Register(1) }),
             (constants::DW_OP_reg2, Operation::Register { register: Register(2) }),
@@ -2031,14 +2057,12 @@ mod tests {
             (
                 constants::DW_OP_const1u,
                 23,
-                Operation::Literal { value: 23 },
+                Operation::UnsignedConstant { value: 23 },
             ),
             (
                 constants::DW_OP_const1s,
                 (-23i8) as u8,
-                Operation::Literal {
-                    value: (-23i64) as u64,
-                },
+                Operation::SignedConstant { value: -23 },
             ),
             (constants::DW_OP_pick, 7, Operation::Pick { index: 7 }),
             (
@@ -2078,14 +2102,12 @@ mod tests {
             (
                 constants::DW_OP_const2u,
                 23,
-                Operation::Literal { value: 23 },
+                Operation::UnsignedConstant { value: 23 },
             ),
             (
                 constants::DW_OP_const2s,
                 (-23i16) as u16,
-                Operation::Literal {
-                    value: (-23i64) as u64,
-                },
+                Operation::SignedConstant { value: -23 },
             ),
             (
                 constants::DW_OP_call2,
@@ -2094,67 +2116,21 @@ mod tests {
                     offset: DieReference::UnitRef(UnitOffset(1138)),
                 },
             ),
+            (
+                constants::DW_OP_bra,
+                (-23i16) as u16,
+                Operation::Bra { target: -23 },
+            ),
+            (
+                constants::DW_OP_skip,
+                (-23i16) as u16,
+                Operation::Skip { target: -23 },
+            ),
         ];
 
         for item in inputs.iter() {
             let (opcode, arg, ref result) = *item;
             check_op_parse(|s| s.D8(opcode.0).L16(arg), result, encoding);
-        }
-    }
-
-    #[test]
-    fn test_op_parse_branches() {
-        // Doesn't matter for this test.
-        const ENCODING: Encoding = Encoding {
-            format: Format::Dwarf32,
-            version: 4,
-            address_size: 4,
-        };
-
-        let inputs = [constants::DW_OP_bra, constants::DW_OP_skip];
-
-        fn check_one_branch(input: &[u8], target: &[u8]) {
-            // Test sanity checking.
-            assert!(input.len() >= 3);
-
-            let expect = if input[0] == constants::DW_OP_bra.0 {
-                Operation::Bra {
-                    target: EndianSlice::new(target, LittleEndian),
-                }
-            } else {
-                assert!(input[0] == constants::DW_OP_skip.0);
-                Operation::Skip {
-                    target: EndianSlice::new(target, LittleEndian),
-                }
-            };
-
-            check_op_parse(|s| s.append_bytes(input), &expect, ENCODING);
-        }
-
-        for opcode in inputs.iter() {
-            // Branch to start.
-            let input = [opcode.0, 0xfd, 0xff];
-            check_one_branch(&input[..], &input[..]);
-
-            // Branch to middle of an instruction -- ok as far as DWARF is
-            // concerned.
-            let input = [opcode.0, 0xfe, 0xff];
-            check_one_branch(&input[..], &input[1..]);
-
-            // Branch to end.  DWARF is silent on this but it seems valid
-            // to branch to just after the last operation.
-            let input = [opcode.0, 0, 0];
-            check_one_branch(&input[..], &input[3..]);
-
-            // Invalid branches.
-            let input = [opcode.0, 2, 0];
-            check_op_parse_failure(&input[..], Error::BadBranchTarget(5), ENCODING);
-            let input = [opcode.0, 0xfc, 0xff];
-            check_op_parse_failure(
-                &input[..],
-                Error::BadBranchTarget(usize::MAX as u64),
-                ENCODING,
-            );
         }
     }
 
@@ -2174,14 +2150,12 @@ mod tests {
             (
                 constants::DW_OP_const4u,
                 0x1234_5678,
-                Operation::Literal { value: 0x1234_5678 },
+                Operation::UnsignedConstant { value: 0x1234_5678 },
             ),
             (
                 constants::DW_OP_const4s,
                 (-23i32) as u32,
-                Operation::Literal {
-                    value: (-23i32) as u64,
-                },
+                Operation::SignedConstant { value: -23 },
             ),
             (
                 constants::DW_OP_call4,
@@ -2222,16 +2196,14 @@ mod tests {
             (
                 constants::DW_OP_const8u,
                 0x1234_5678_1234_5678,
-                Operation::Literal {
+                Operation::UnsignedConstant {
                     value: 0x1234_5678_1234_5678,
                 },
             ),
             (
                 constants::DW_OP_const8s,
-                (-23i32) as u64,
-                Operation::Literal {
-                    value: (-23i32) as u64,
-                },
+                (-23i64) as u64,
+                Operation::SignedConstant { value: -23 },
             ),
             (
                 constants::DW_OP_call_ref,
@@ -2268,9 +2240,7 @@ mod tests {
             let mut inputs = vec![
                 (
                     constants::DW_OP_consts.0,
-                    Operation::Literal {
-                        value: *value as u64,
-                    },
+                    Operation::SignedConstant { value: *value },
                 ),
                 (
                     constants::DW_OP_fbreg.0,
@@ -2314,7 +2284,7 @@ mod tests {
             let mut inputs = vec![
                 (
                     constants::DW_OP_constu,
-                    Operation::Literal { value: *value },
+                    Operation::UnsignedConstant { value: *value },
                 ),
                 (
                     constants::DW_OP_plus_uconst,
