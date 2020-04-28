@@ -4,7 +4,7 @@ use std::{slice, usize};
 
 use crate::common::{
     DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugMacroOffset,
-    DebugStrOffset, DebugTypeSignature, Encoding, Format, SectionId, UnitSectionOffset,
+    DebugStrOffset, DebugTypeSignature, Encoding, Format, SectionId,
 };
 use crate::constants;
 use crate::leb128::write::{sleb128_size, uleb128_size};
@@ -1471,6 +1471,7 @@ pub(crate) struct DebugInfoReference {
 #[cfg(feature = "read")]
 pub(crate) mod convert {
     use super::*;
+    use crate::common::UnitSectionOffset;
     use crate::read::{self, Reader};
     use crate::write::{self, ConvertError, ConvertResult, LocationList, RangeList};
     use std::collections::HashMap;
@@ -1911,6 +1912,7 @@ mod tests {
     use super::*;
     use crate::common::{
         DebugAddrBase, DebugLocListsBase, DebugRngListsBase, DebugStrOffsetsBase, LineEncoding,
+        UnitSectionOffset,
     };
     use crate::constants;
     use crate::read;
