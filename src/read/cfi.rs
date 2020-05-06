@@ -468,15 +468,6 @@ pub enum CieOffsetEncoding {
     U64,
 }
 
-// Ditto about being `pub`.
-#[doc(hidden)]
-#[allow(missing_docs)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReturnAddressRegisterEncoding {
-    U8,
-    Uleb,
-}
-
 /// An offset into an `UnwindSection`.
 //
 // Needed to avoid conflicting implementations of `Into<T>`.
@@ -534,9 +525,6 @@ pub trait _UnwindSectionPrivate<R: Reader> {
     /// underflows, return `None`.
     fn resolve_cie_offset(&self, base: R::Offset, offset: R::Offset) -> Option<R::Offset>;
 
-    /// Return true if our parser is compatible with the given version.
-    fn compatible_version(version: u8) -> bool;
-
     /// Does this version of this unwind section encode address and segment
     /// sizes in its CIEs?
     fn has_address_and_segment_sizes(version: u8) -> bool;
@@ -546,10 +534,6 @@ pub trait _UnwindSectionPrivate<R: Reader> {
 
     /// The segment size to use if `has_address_and_segment_sizes` returns false.
     fn segment_size(&self) -> u8;
-
-    /// What is the encoding used for the return address register in CIEs for
-    /// this unwind section?
-    fn return_address_register_encoding(version: u8) -> ReturnAddressRegisterEncoding;
 }
 
 /// A section holding unwind information: either `.debug_frame` or
@@ -734,16 +718,6 @@ impl<R: Reader> _UnwindSectionPrivate<R> for DebugFrame<R> {
         Some(offset)
     }
 
-    fn compatible_version(version: u8) -> bool {
-        // Version 1 of `.debug_frame` corresponds to DWARF 2, and then for
-        // DWARF 3 and 4, I think they decided to just match the standard's
-        // version.
-        match version {
-            1 | 3 | 4 => true,
-            _ => false,
-        }
-    }
-
     fn has_address_and_segment_sizes(version: u8) -> bool {
         version == 4
     }
@@ -754,14 +728,6 @@ impl<R: Reader> _UnwindSectionPrivate<R> for DebugFrame<R> {
 
     fn segment_size(&self) -> u8 {
         self.segment_size
-    }
-
-    fn return_address_register_encoding(version: u8) -> ReturnAddressRegisterEncoding {
-        if version == 1 {
-            ReturnAddressRegisterEncoding::U8
-        } else {
-            ReturnAddressRegisterEncoding::Uleb
-        }
     }
 }
 
@@ -792,10 +758,6 @@ impl<R: Reader> _UnwindSectionPrivate<R> for EhFrame<R> {
         base.checked_sub(offset)
     }
 
-    fn compatible_version(version: u8) -> bool {
-        version == 1
-    }
-
     fn has_address_and_segment_sizes(_version: u8) -> bool {
         false
     }
@@ -806,10 +768,6 @@ impl<R: Reader> _UnwindSectionPrivate<R> for EhFrame<R> {
 
     fn segment_size(&self) -> u8 {
         0
-    }
-
-    fn return_address_register_encoding(_version: u8) -> ReturnAddressRegisterEncoding {
-        ReturnAddressRegisterEncoding::Uleb
     }
 }
 
@@ -1281,8 +1239,13 @@ impl<R: Reader> CommonInformationEntry<R> {
         mut rest: R,
     ) -> Result<CommonInformationEntry<R>> {
         let version = rest.read_u8()?;
-        if !Section::compatible_version(version) {
-            return Err(Error::UnknownVersion(u64::from(version)));
+
+        // Version 1 of `.debug_frame` corresponds to DWARF 2, and then for
+        // DWARF 3 and 4, I think they decided to just match the standard's
+        // version.
+        match version {
+            1 | 3 | 4 => (),
+            _ => return Err(Error::UnknownVersion(u64::from(version))),
         }
 
         let mut augmentation_string = rest.read_null_terminated_slice()?;
@@ -1298,11 +1261,10 @@ impl<R: Reader> CommonInformationEntry<R> {
         let code_alignment_factor = rest.read_uleb128()?;
         let data_alignment_factor = rest.read_sleb128()?;
 
-        let return_address_register = match Section::return_address_register_encoding(version) {
-            ReturnAddressRegisterEncoding::U8 => Register(rest.read_u8()?.into()),
-            ReturnAddressRegisterEncoding::Uleb => {
-                rest.read_uleb128().and_then(Register::from_u64)?
-            }
+        let return_address_register = if version == 1 {
+            Register(rest.read_u8()?.into())
+        } else {
+            rest.read_uleb128().and_then(Register::from_u64)?
         };
 
         let augmentation = if augmentation_string.is_empty() {
