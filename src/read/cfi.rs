@@ -1,9 +1,9 @@
 use alloc::boxed::Box;
-use arrayvec::ArrayVec;
 use core::cmp::{Ord, Ordering};
-use core::fmt::Debug;
+use core::fmt::{self, Debug};
 use core::iter::FromIterator;
-use core::mem;
+use core::mem::{self, MaybeUninit};
+use core::ptr;
 
 use crate::common::{DebugFrameOffset, EhFrameOffset, Encoding, Format, Register, SectionId};
 use crate::constants::{self, DwEhPe};
@@ -1804,15 +1804,15 @@ impl<R: Reader> UninitializedUnwindContext<R> {
 }
 
 const MAX_UNWIND_STACK_DEPTH: usize = 4;
-type UnwindContextStack<R> = ArrayVec<[UnwindTableRow<R>; MAX_UNWIND_STACK_DEPTH]>;
 
 /// An unwinding context.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq)]
 pub struct UnwindContext<R: Reader> {
     // Stack of rows. The last row is the row currently being built by the
     // program. There is always at least one row. The vast majority of CFI
     // programs will only ever have one row on the stack.
-    stack: UnwindContextStack<R>,
+    stack_storage: [UnwindTableRow<R>; MAX_UNWIND_STACK_DEPTH],
+    stack_len: usize,
 
     // If we are evaluating an FDE's instructions, then `is_initialized` will be
     // `true` and `initial_rules` will contain the initial register rules
@@ -1831,7 +1831,8 @@ pub struct UnwindContext<R: Reader> {
 impl<R: Reader> UnwindContext<R> {
     fn new() -> UnwindContext<R> {
         let mut ctx = UnwindContext {
-            stack: Default::default(),
+            stack_storage: Default::default(),
+            stack_len: 0,
             is_initialized: false,
             initial_rules: Default::default(),
         };
@@ -1839,10 +1840,18 @@ impl<R: Reader> UnwindContext<R> {
         ctx
     }
 
+    fn stack(&self) -> &[UnwindTableRow<R>] {
+        &self.stack_storage[..self.stack_len]
+    }
+
+    fn stack_mut(&mut self) -> &mut [UnwindTableRow<R>] {
+        &mut self.stack_storage[..self.stack_len]
+    }
+
     fn reset(&mut self) {
-        self.stack.clear();
-        let res = self.stack.try_push(UnwindTableRow::default());
-        debug_assert!(res.is_ok());
+        self.stack_len = 0;
+        let res = self.try_push(UnwindTableRow::default());
+        debug_assert!(res);
 
         self.initial_rules.clear();
         self.is_initialized = false;
@@ -1855,23 +1864,23 @@ impl<R: Reader> UnwindContext<R> {
     #[inline]
     fn assert_fully_uninitialized(&self) {
         assert_eq!(self.is_initialized, false);
-        assert_eq!(self.initial_rules.rules.len(), 0);
-        assert_eq!(self.stack.len(), 1);
-        assert!(self.stack[0].is_default());
+        assert_eq!(self.initial_rules.rules().len(), 0);
+        assert_eq!(self.stack().len(), 1);
+        assert!(self.stack()[0].is_default());
     }
 
     fn row(&self) -> &UnwindTableRow<R> {
-        self.stack.last().unwrap()
+        self.stack().last().unwrap()
     }
 
     fn row_mut(&mut self) -> &mut UnwindTableRow<R> {
-        self.stack.last_mut().unwrap()
+        self.stack_mut().last_mut().unwrap()
     }
 
     fn save_initial_rules(&mut self) {
         assert_eq!(self.is_initialized, false);
-        self.initial_rules
-            .clone_from(&self.stack.last().unwrap().registers);
+        let registers = &self.stack_storage[self.stack_len - 1].registers;
+        self.initial_rules.clone_from(&registers);
         self.is_initialized = true;
     }
 
@@ -1909,14 +1918,34 @@ impl<R: Reader> UnwindContext<R> {
 
     fn push_row(&mut self) -> Result<()> {
         let new_row = self.row().clone();
-        self.stack
-            .try_push(new_row)
-            .map_err(|_| Error::CfiStackFull)
+        if self.try_push(new_row) {
+            Ok(())
+        } else {
+            Err(Error::CfiStackFull)
+        }
+    }
+
+    fn try_push(&mut self, row: UnwindTableRow<R>) -> bool {
+        if self.stack_len < self.stack_storage.len() {
+            self.stack_storage[self.stack_len] = row;
+            self.stack_len += 1;
+            true
+        } else {
+            false
+        }
     }
 
     fn pop_row(&mut self) {
-        assert!(self.stack.len() > 1);
-        self.stack.pop();
+        assert!(self.stack().len() > 1);
+        self.stack_len -= 1;
+    }
+}
+
+impl<R: Reader + PartialEq> PartialEq for UnwindContext<R> {
+    fn eq(&self, other: &UnwindContext<R>) -> bool {
+        self.stack() == other.stack()
+            && self.initial_rules == other.initial_rules
+            && self.is_initialized == other.is_initialized
     }
 }
 
@@ -2010,7 +2039,7 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
         ctx: &'a mut UnwindContext<R>,
         fde: &FrameDescriptionEntry<R>,
     ) -> UnwindTable<'a, R> {
-        assert!(ctx.stack.len() >= 1);
+        assert!(ctx.stack().len() >= 1);
         UnwindTable {
             code_alignment_factor: fde.cie().code_alignment_factor(),
             data_alignment_factor: fde.cie().data_alignment_factor(),
@@ -2028,7 +2057,7 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
         ctx: &'a mut UnwindContext<R>,
         cie: &CommonInformationEntry<R>,
     ) -> UnwindTable<'a, R> {
-        assert!(ctx.stack.len() >= 1);
+        assert!(ctx.stack().len() >= 1);
         UnwindTable {
             code_alignment_factor: cie.code_alignment_factor(),
             data_alignment_factor: cie.data_alignment_factor(),
@@ -2046,7 +2075,7 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
     /// Unfortunately, this cannot be used with `FallibleIterator` because of
     /// the restricted lifetime of the yielded item.
     pub fn next_row(&mut self) -> Result<Option<&UnwindTableRow<R>>> {
-        assert!(self.ctx.stack.len() >= 1);
+        assert!(self.ctx.stack().len() >= 1);
         self.ctx.set_start_address(self.next_start_address);
 
         loop {
@@ -2232,8 +2261,8 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
                 self.ctx.push_row()?;
             }
             RestoreState => {
-                assert!(self.ctx.stack.len() > 0);
-                if self.ctx.stack.len() == 1 {
+                assert!(self.ctx.stack().len() > 0);
+                if self.ctx.stack().len() == 1 {
                     return Err(Error::PopWithEmptyStack);
                 }
                 // Pop state while preserving current location.
@@ -2279,16 +2308,43 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-mips/dwarf-config.h#L31
 //
 // TODO: Consider using const generics for the array size.
-#[derive(Clone, Debug)]
 struct RegisterRuleMap<R: Reader> {
-    rules: ArrayVec<[(Register, RegisterRule<R>); 192]>,
+    rules_storage: MaybeUninit<[(Register, RegisterRule<R>); MAX_RULES]>,
+    rules_len: usize,
+}
+
+const MAX_RULES: usize = 192;
+
+impl<R: Reader + Debug> Debug for RegisterRuleMap<R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RegisterRuleMap")
+            .field("rules", &self.rules())
+            .finish()
+    }
 }
 
 impl<R: Reader> Default for RegisterRuleMap<R> {
     fn default() -> Self {
         RegisterRuleMap {
-            rules: Default::default(),
+            rules_storage: MaybeUninit::uninit(),
+            rules_len: 0,
         }
+    }
+}
+
+impl<R: Reader + Clone> Clone for RegisterRuleMap<R> {
+    fn clone(&self) -> Self {
+        let mut new = RegisterRuleMap::default();
+        for (register, rule) in self.rules() {
+            new.push(register.clone(), rule.clone()).unwrap();
+        }
+        return new;
+    }
+}
+
+impl<R: Reader> Drop for RegisterRuleMap<R> {
+    fn drop(&mut self) {
+        self.clear();
     }
 }
 
@@ -2298,11 +2354,31 @@ impl<R: Reader> Default for RegisterRuleMap<R> {
 /// other signal-unsafe operations.
 impl<R: Reader> RegisterRuleMap<R> {
     fn is_default(&self) -> bool {
-        self.rules.len() == 0
+        self.rules_len == 0
+    }
+
+    fn rules(&self) -> &[(Register, RegisterRule<R>)] {
+        // Note that the unsafety here relies on the mutation of
+        // `self.rules_len` in `self.push` below, which guarantees that once
+        // we've pushed something the `rules_storage` is valid for that many
+        // elements.
+        unsafe {
+            core::slice::from_raw_parts(self.rules_storage.as_ptr() as *const _, self.rules_len)
+        }
+    }
+
+    fn rules_mut(&mut self) -> &mut [(Register, RegisterRule<R>)] {
+        // See the note in `rules` on safety here.
+        unsafe {
+            core::slice::from_raw_parts_mut(
+                self.rules_storage.as_mut_ptr() as *mut _,
+                self.rules_len,
+            )
+        }
     }
 
     fn get(&self, register: Register) -> RegisterRule<R> {
-        self.rules
+        self.rules()
             .iter()
             .find(|rule| rule.0 == register)
             .map(|r| {
@@ -2315,18 +2391,26 @@ impl<R: Reader> RegisterRuleMap<R> {
     fn set(&mut self, register: Register, rule: RegisterRule<R>) -> Result<()> {
         if !rule.is_defined() {
             let idx = self
-                .rules
+                .rules()
                 .iter()
                 .enumerate()
                 .find(|&(_, r)| r.0 == register)
                 .map(|(i, _)| i);
             if let Some(idx) = idx {
-                self.rules.swap_remove(idx);
+                let (a, b) = self.rules_mut().split_at_mut(idx + 1);
+                if b.len() > 0 {
+                    mem::swap(&mut a[a.len() - 1], &mut b[b.len() - 1]);
+                }
+                unsafe {
+                    let ptr = self.rules_storage.as_mut_ptr() as *mut (Register, RegisterRule<R>);
+                    ptr::drop_in_place(ptr.add(self.rules_len - 1));
+                    self.rules_len -= 1;
+                }
             }
             return Ok(());
         }
 
-        for &mut (reg, ref mut old_rule) in &mut self.rules {
+        for &mut (reg, ref mut old_rule) in self.rules_mut() {
             debug_assert!(old_rule.is_defined());
             if reg == register {
                 mem::replace(old_rule, rule);
@@ -2334,17 +2418,36 @@ impl<R: Reader> RegisterRuleMap<R> {
             }
         }
 
-        self.rules
-            .try_push((register, rule))
-            .map_err(|_| Error::TooManyRegisterRules)
+        self.push(register, rule)
     }
 
     fn clear(&mut self) {
-        self.rules.clear();
+        unsafe {
+            ptr::drop_in_place(self.rules_mut());
+            self.rules_len = 0;
+        }
     }
 
     fn iter(&self) -> RegisterRuleIter<R> {
-        RegisterRuleIter(self.rules.iter())
+        RegisterRuleIter(self.rules().iter())
+    }
+
+    fn push(&mut self, register: Register, rule: RegisterRule<R>) -> Result<()> {
+        if self.rules_len >= MAX_RULES {
+            return Err(Error::TooManyRegisterRules);
+        }
+        // The unsafety here comes from working with `MaybeUninit` to initialize
+        // our 192-element array. We're pushing a new element onto that array
+        // here. Just above we did a bounds check to make sure we actually have
+        // space to push something and here we're doing the actual memory write,
+        // along with an increment of `rules_len` which will affect the unsafe
+        // implementations of `rules` and `rules_mut` above.
+        unsafe {
+            let ptr = self.rules_storage.as_mut_ptr() as *mut (Register, RegisterRule<R>);
+            ptr::write(ptr.add(self.rules_len), (register, rule));
+            self.rules_len += 1;
+        }
+        Ok(())
     }
 }
 
@@ -2373,14 +2476,14 @@ where
     R: Reader + PartialEq,
 {
     fn eq(&self, rhs: &Self) -> bool {
-        for &(reg, ref rule) in &self.rules {
+        for &(reg, ref rule) in self.rules() {
             debug_assert!(rule.is_defined());
             if *rule != rhs.get(reg) {
                 return false;
             }
         }
 
-        for &(reg, ref rhs_rule) in &rhs.rules {
+        for &(reg, ref rhs_rule) in rhs.rules() {
             debug_assert!(rhs_rule.is_defined());
             if *rhs_rule != self.get(reg) {
                 return false;
