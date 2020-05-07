@@ -2,7 +2,9 @@
 
 use alloc::collections::btree_map;
 use alloc::vec::Vec;
-use smallvec::SmallVec;
+use core::fmt::{self, Debug};
+use core::iter::FromIterator;
+use core::ops::Deref;
 
 use crate::common::{DebugAbbrevOffset, SectionId};
 use crate::constants;
@@ -174,9 +176,6 @@ impl Abbreviations {
     }
 }
 
-// Length of 5 based on benchmark results for both x86-64 and i686.
-type Attributes = SmallVec<[AttributeSpecification; 5]>;
-
 /// An abbreviation describes the shape of a `DebuggingInformationEntry`'s type:
 /// its code, tag type, whether it has children, and its set of attributes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,7 +192,7 @@ impl Abbreviation {
     /// ### Panics
     ///
     /// Panics if `code` is `0`.
-    pub fn new(
+    pub(crate) fn new(
         code: u64,
         tag: constants::DwTag,
         has_children: constants::DwChildren,
@@ -256,7 +255,7 @@ impl Abbreviation {
     /// Parse a series of attribute specifications, terminated by a null attribute
     /// specification.
     fn parse_attributes<R: Reader>(input: &mut R) -> Result<Attributes> {
-        let mut attrs = SmallVec::new();
+        let mut attrs = Attributes::new();
 
         while let Some(attr) = AttributeSpecification::parse(input)? {
             attrs.push(attr);
@@ -278,6 +277,93 @@ impl Abbreviation {
         let attributes = Self::parse_attributes(input)?;
         let abbrev = Abbreviation::new(code, tag, has_children, attributes);
         Ok(Some(abbrev))
+    }
+}
+
+/// A list of attributes found in an `Abbreviation`
+#[derive(Clone)]
+pub(crate) enum Attributes {
+    Inline {
+        buf: [AttributeSpecification; MAX_ATTRIBUTES_INLINE],
+        len: usize,
+    },
+    Heap(Vec<AttributeSpecification>),
+}
+
+// Length of 5 based on benchmark results for both x86-64 and i686.
+const MAX_ATTRIBUTES_INLINE: usize = 5;
+
+impl Attributes {
+    /// Returns a new empty list of attributes
+    fn new() -> Attributes {
+        let default =
+            AttributeSpecification::new(constants::DW_AT_null, constants::DW_FORM_null, None);
+        Attributes::Inline {
+            buf: [default; 5],
+            len: 0,
+        }
+    }
+
+    /// Pushes a new value onto this list of attributes.
+    fn push(&mut self, attr: AttributeSpecification) {
+        match self {
+            Attributes::Heap(list) => return list.push(attr),
+            Attributes::Inline {
+                buf,
+                len: MAX_ATTRIBUTES_INLINE,
+            } => {
+                let mut list = buf.to_vec();
+                list.push(attr);
+                *self = Attributes::Heap(list);
+            }
+            Attributes::Inline { buf, len } => {
+                buf[*len] = attr;
+                *len += 1;
+            }
+        }
+    }
+}
+
+impl Debug for Attributes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (&**self).fmt(f)
+    }
+}
+
+impl PartialEq for Attributes {
+    fn eq(&self, other: &Attributes) -> bool {
+        &**self == &**other
+    }
+}
+
+impl Eq for Attributes {}
+
+impl Deref for Attributes {
+    type Target = [AttributeSpecification];
+    fn deref(&self) -> &[AttributeSpecification] {
+        match self {
+            Attributes::Inline { buf, len } => &buf[..*len],
+            Attributes::Heap(list) => list,
+        }
+    }
+}
+
+impl FromIterator<AttributeSpecification> for Attributes {
+    fn from_iter<I>(iter: I) -> Attributes
+    where
+        I: IntoIterator<Item = AttributeSpecification>,
+    {
+        let mut list = Attributes::new();
+        for item in iter {
+            list.push(item);
+        }
+        return list;
+    }
+}
+
+impl From<Vec<AttributeSpecification>> for Attributes {
+    fn from(list: Vec<AttributeSpecification>) -> Attributes {
+        Attributes::Heap(list)
     }
 }
 
@@ -420,7 +506,6 @@ pub mod tests {
     use crate::test_util::GimliSectionMethods;
     #[cfg(target_pointer_width = "32")]
     use core::u32;
-    use smallvec::smallvec;
     use test_assembler::Section;
 
     pub trait AbbrevSectionMethods {
@@ -478,7 +563,7 @@ pub mod tests {
             1,
             constants::DW_TAG_compile_unit,
             constants::DW_CHILDREN_yes,
-            smallvec![
+            vec![
                 AttributeSpecification::new(
                     constants::DW_AT_producer,
                     constants::DW_FORM_strp,
@@ -489,18 +574,20 @@ pub mod tests {
                     constants::DW_FORM_data2,
                     None,
                 ),
-            ],
+            ]
+            .into(),
         );
 
         let abbrev2 = Abbreviation::new(
             2,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
-            smallvec![AttributeSpecification::new(
+            vec![AttributeSpecification::new(
                 constants::DW_AT_name,
                 constants::DW_FORM_string,
                 None,
-            )],
+            )]
+            .into(),
         );
 
         let debug_abbrev = DebugAbbrev::new(&buf, LittleEndian);
@@ -519,7 +606,7 @@ pub mod tests {
                 code.into(),
                 constants::DwTag(code),
                 constants::DW_CHILDREN_no,
-                smallvec![],
+                vec![].into(),
             )
         }
 
@@ -586,7 +673,7 @@ pub mod tests {
                 code,
                 constants::DwTag(code as u16),
                 constants::DW_CHILDREN_no,
-                smallvec![],
+                vec![].into(),
             )
         }
 
@@ -629,7 +716,7 @@ pub mod tests {
             1,
             constants::DW_TAG_compile_unit,
             constants::DW_CHILDREN_yes,
-            smallvec![
+            vec![
                 AttributeSpecification::new(
                     constants::DW_AT_producer,
                     constants::DW_FORM_strp,
@@ -640,18 +727,20 @@ pub mod tests {
                     constants::DW_FORM_data2,
                     None,
                 ),
-            ],
+            ]
+            .into(),
         );
 
         let abbrev2 = Abbreviation::new(
             2,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
-            smallvec![AttributeSpecification::new(
+            vec![AttributeSpecification::new(
                 constants::DW_AT_name,
                 constants::DW_FORM_string,
                 None,
-            )],
+            )]
+            .into(),
         );
 
         let abbrevs = Abbreviations::parse(rest).expect("Should parse abbreviations");
@@ -733,11 +822,12 @@ pub mod tests {
             1,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
-            smallvec![AttributeSpecification::new(
+            vec![AttributeSpecification::new(
                 constants::DW_AT_name,
                 constants::DW_FORM_string,
                 None,
-            )],
+            )]
+            .into(),
         ));
 
         let abbrev = Abbreviation::parse(rest).expect("Should parse abbreviation");
@@ -761,11 +851,12 @@ pub mod tests {
             1,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_no,
-            smallvec![AttributeSpecification::new(
+            vec![AttributeSpecification::new(
                 constants::DW_AT_name,
                 constants::DW_FORM_implicit_const,
                 Some(-42),
-            )],
+            )]
+            .into(),
         ));
 
         let abbrev = Abbreviation::parse(rest).expect("Should parse abbreviation");
