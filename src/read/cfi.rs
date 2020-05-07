@@ -4,7 +4,6 @@ use core::cmp::{Ord, Ordering};
 use core::fmt::Debug;
 use core::iter::FromIterator;
 use core::mem;
-use fallible_iterator::FallibleIterator;
 
 use crate::common::{DebugFrameOffset, EhFrameOffset, Encoding, Format, Register, SectionId};
 use crate::constants::{self, DwEhPe};
@@ -936,7 +935,8 @@ where
     }
 }
 
-impl<'bases, Section, R> FallibleIterator for CfiEntriesIter<'bases, Section, R>
+#[cfg(feature = "fallible-iterator")]
+impl<'bases, Section, R> fallible_iterator::FallibleIterator for CfiEntriesIter<'bases, Section, R>
 where
     R: Reader,
     Section: UnwindSection<R>,
@@ -3146,7 +3146,8 @@ impl<'a, R: Reader> CallFrameInstructionIter<'a, R> {
     }
 }
 
-impl<'a, R: Reader> FallibleIterator for CallFrameInstructionIter<'a, R> {
+#[cfg(feature = "fallible-iterator")]
+impl<'a, R: Reader> fallible_iterator::FallibleIterator for CallFrameInstructionIter<'a, R> {
     type Item = CallFrameInstruction<R>;
     type Error = Error;
 

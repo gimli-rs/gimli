@@ -36,10 +36,10 @@ test-assembler = "0.1.3"
 typed-arena = "2"
 
 [features]
-read = ["arrayvec", "fallible-iterator", "smallvec", "stable_deref_trait"]
+read = ["arrayvec", "smallvec", "stable_deref_trait"]
 write = ["indexmap"]
 std = ["fallible-iterator/std", "stable_deref_trait/std"]
-default = ["read", "write", "std"]
+default = ["read", "write", "std", "fallible-iterator"]
 
 [profile.bench]
 debug = true

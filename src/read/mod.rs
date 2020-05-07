@@ -142,6 +142,8 @@
 //! into your code:
 //!
 //! ```
+//! # #[cfg(feature = "fallible-iterator")]
+//! # fn foo() {
 //! // Use the `FallibleIterator` trait so its methods are in scope!
 //! use fallible_iterator::FallibleIterator;
 //! use gimli::{DebugAranges, EndianSlice, LittleEndian};
@@ -156,7 +158,7 @@
 //!         // `fold` is provided by `FallibleIterator`!
 //!         .fold(0, |sum, len| Ok(sum + len))
 //! }
-//!
+//! # }
 //! # fn main() {}
 //! ```
 

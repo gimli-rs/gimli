@@ -3,7 +3,6 @@
 use core::cell::Cell;
 use core::ops::{Range, RangeFrom, RangeTo};
 use core::{u16, u8};
-use fallible_iterator::FallibleIterator;
 
 use crate::common::{
     DebugAbbrevOffset, DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineOffset,
@@ -221,7 +220,8 @@ impl<R: Reader> CompilationUnitHeadersIter<R> {
     }
 }
 
-impl<R: Reader> FallibleIterator for CompilationUnitHeadersIter<R> {
+#[cfg(feature = "fallible-iterator")]
+impl<R: Reader> fallible_iterator::FallibleIterator for CompilationUnitHeadersIter<R> {
     type Item = CompilationUnitHeader<R>;
     type Error = Error;
 
@@ -2317,7 +2317,10 @@ impl<'abbrev, 'entry, 'unit, R: Reader> AttrsIter<'abbrev, 'entry, 'unit, R> {
     }
 }
 
-impl<'abbrev, 'entry, 'unit, R: Reader> FallibleIterator for AttrsIter<'abbrev, 'entry, 'unit, R> {
+#[cfg(feature = "fallible-iterator")]
+impl<'abbrev, 'entry, 'unit, R: Reader> fallible_iterator::FallibleIterator
+    for AttrsIter<'abbrev, 'entry, 'unit, R>
+{
     type Item = Attribute<R>;
     type Error = Error;
 
@@ -3182,7 +3185,8 @@ impl<R: Reader> TypeUnitHeadersIter<R> {
     }
 }
 
-impl<R: Reader> FallibleIterator for TypeUnitHeadersIter<R> {
+#[cfg(feature = "fallible-iterator")]
+impl<R: Reader> fallible_iterator::FallibleIterator for TypeUnitHeadersIter<R> {
     type Item = TypeUnitHeader<R>;
     type Error = Error;
 
