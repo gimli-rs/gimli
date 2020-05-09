@@ -1,7 +1,6 @@
 //! Types for compile-time and run-time endianity.
 
-use byteorder;
-use byteorder::ByteOrder;
+use core::convert::TryInto;
 use core::fmt::Debug;
 
 /// A trait describing the endianity of some buffer.
@@ -22,10 +21,11 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
     /// Panics when `buf.len() < 2`.
     #[inline]
     fn read_u16(self, buf: &[u8]) -> u16 {
+        let bytes: &[u8; 2] = buf[..2].try_into().unwrap();
         if self.is_big_endian() {
-            byteorder::BigEndian::read_u16(buf)
+            u16::from_be_bytes(*bytes)
         } else {
-            byteorder::LittleEndian::read_u16(buf)
+            u16::from_le_bytes(*bytes)
         }
     }
 
@@ -36,10 +36,11 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
     /// Panics when `buf.len() < 4`.
     #[inline]
     fn read_u32(self, buf: &[u8]) -> u32 {
+        let bytes: &[u8; 4] = buf[..4].try_into().unwrap();
         if self.is_big_endian() {
-            byteorder::BigEndian::read_u32(buf)
+            u32::from_be_bytes(*bytes)
         } else {
-            byteorder::LittleEndian::read_u32(buf)
+            u32::from_le_bytes(*bytes)
         }
     }
 
@@ -50,10 +51,11 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
     /// Panics when `buf.len() < 8`.
     #[inline]
     fn read_u64(self, buf: &[u8]) -> u64 {
+        let bytes: &[u8; 8] = buf[..8].try_into().unwrap();
         if self.is_big_endian() {
-            byteorder::BigEndian::read_u64(buf)
+            u64::from_be_bytes(*bytes)
         } else {
-            byteorder::LittleEndian::read_u64(buf)
+            u64::from_le_bytes(*bytes)
         }
     }
 
@@ -64,11 +66,13 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
     /// Panics when `buf.len() < 1` or `buf.len() > 8`.
     #[inline]
     fn read_uint(&mut self, buf: &[u8]) -> u64 {
+        let mut tmp = [0; 8];
         if self.is_big_endian() {
-            byteorder::BigEndian::read_uint(buf, buf.len())
+            tmp[8 - buf.len()..].copy_from_slice(buf);
         } else {
-            byteorder::LittleEndian::read_uint(buf, buf.len())
+            tmp[..buf.len()].copy_from_slice(buf);
         }
+        self.read_u64(&tmp)
     }
 
     /// Reads a signed 16 bit integer from `buf`.
@@ -128,11 +132,12 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
     /// Panics when `buf.len() < 2`.
     #[inline]
     fn write_u16(self, buf: &mut [u8], n: u16) {
-        if self.is_big_endian() {
-            byteorder::BigEndian::write_u16(buf, n)
+        let bytes = if self.is_big_endian() {
+            n.to_be_bytes()
         } else {
-            byteorder::LittleEndian::write_u16(buf, n)
-        }
+            n.to_le_bytes()
+        };
+        buf[..2].copy_from_slice(&bytes);
     }
 
     /// Writes an unsigned 32 bit integer `n` to `buf`.
@@ -142,11 +147,12 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
     /// Panics when `buf.len() < 4`.
     #[inline]
     fn write_u32(self, buf: &mut [u8], n: u32) {
-        if self.is_big_endian() {
-            byteorder::BigEndian::write_u32(buf, n)
+        let bytes = if self.is_big_endian() {
+            n.to_be_bytes()
         } else {
-            byteorder::LittleEndian::write_u32(buf, n)
-        }
+            n.to_le_bytes()
+        };
+        buf[..4].copy_from_slice(&bytes);
     }
 
     /// Writes an unsigned 64 bit integer `n` to `buf`.
@@ -156,11 +162,12 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
     /// Panics when `buf.len() < 8`.
     #[inline]
     fn write_u64(self, buf: &mut [u8], n: u64) {
-        if self.is_big_endian() {
-            byteorder::BigEndian::write_u64(buf, n)
+        let bytes = if self.is_big_endian() {
+            n.to_be_bytes()
         } else {
-            byteorder::LittleEndian::write_u64(buf, n)
-        }
+            n.to_le_bytes()
+        };
+        buf[..8].copy_from_slice(&bytes);
     }
 }
 
