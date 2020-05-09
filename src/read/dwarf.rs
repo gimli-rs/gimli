@@ -1,5 +1,4 @@
 use alloc::string::String;
-use fallible_iterator::FallibleIterator;
 
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
@@ -744,7 +743,8 @@ impl<R: Reader> RangeIter<R> {
     }
 }
 
-impl<R: Reader> FallibleIterator for RangeIter<R> {
+#[cfg(feature = "fallible-iterator")]
+impl<R: Reader> fallible_iterator::FallibleIterator for RangeIter<R> {
     type Item = Range;
     type Error = Error;
 

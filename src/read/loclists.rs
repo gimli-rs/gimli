@@ -1,5 +1,3 @@
-use fallible_iterator::FallibleIterator;
-
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugLocListsBase, DebugLocListsIndex, Encoding, Format,
     LocationListsOffset, SectionId,
@@ -466,7 +464,8 @@ impl<R: Reader> RawLocListIter<R> {
     }
 }
 
-impl<R: Reader> FallibleIterator for RawLocListIter<R> {
+#[cfg(feature = "fallible-iterator")]
+impl<R: Reader> fallible_iterator::FallibleIterator for RawLocListIter<R> {
     type Item = RawLocListEntry<R>;
     type Error = Error;
 
@@ -578,7 +577,8 @@ impl<R: Reader> LocListIter<R> {
     }
 }
 
-impl<R: Reader> FallibleIterator for LocListIter<R> {
+#[cfg(feature = "fallible-iterator")]
+impl<R: Reader> fallible_iterator::FallibleIterator for LocListIter<R> {
     type Item = LocationListEntry<R>;
     type Error = Error;
 

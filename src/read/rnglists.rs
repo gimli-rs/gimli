@@ -1,5 +1,3 @@
-use fallible_iterator::FallibleIterator;
-
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugRngListsBase, DebugRngListsIndex, Encoding, Format,
     RangeListsOffset, SectionId,
@@ -435,7 +433,8 @@ impl<R: Reader> RawRngListIter<R> {
     }
 }
 
-impl<R: Reader> FallibleIterator for RawRngListIter<R> {
+#[cfg(feature = "fallible-iterator")]
+impl<R: Reader> fallible_iterator::FallibleIterator for RawRngListIter<R> {
     type Item = RawRngListEntry<R::Offset>;
     type Error = Error;
 
@@ -529,7 +528,8 @@ impl<R: Reader> RngListIter<R> {
     }
 }
 
-impl<R: Reader> FallibleIterator for RngListIter<R> {
+#[cfg(feature = "fallible-iterator")]
+impl<R: Reader> fallible_iterator::FallibleIterator for RngListIter<R> {
     type Item = Range;
     type Error = Error;
 

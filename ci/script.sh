@@ -26,6 +26,7 @@ case "$GIMLI_JOB" in
     "features")
         cargo test --no-default-features
         cargo test --no-default-features --features read
+        cargo test --no-default-features --features read,fallible-iterator
         cargo test --no-default-features --features read,std
         cargo test --no-default-features --features write
         ;;

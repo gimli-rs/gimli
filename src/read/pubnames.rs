@@ -1,9 +1,7 @@
-use fallible_iterator::FallibleIterator;
-
 use crate::common::{DebugInfoOffset, SectionId};
 use crate::endianity::Endianity;
 use crate::read::lookup::{DebugLookup, LookupEntryIter, PubStuffEntry, PubStuffParser};
-use crate::read::{EndianSlice, Error, Reader, Result, Section, UnitOffset};
+use crate::read::{EndianSlice, Reader, Result, Section, UnitOffset};
 
 /// A single parsed pubname.
 #[derive(Debug, Clone)]
@@ -132,9 +130,10 @@ impl<R: Reader> PubNamesEntryIter<R> {
     }
 }
 
-impl<R: Reader> FallibleIterator for PubNamesEntryIter<R> {
+#[cfg(feature = "fallible-iterator")]
+impl<R: Reader> fallible_iterator::FallibleIterator for PubNamesEntryIter<R> {
     type Item = PubNamesEntry<R>;
-    type Error = Error;
+    type Error = crate::read::Error;
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         self.0.next()
