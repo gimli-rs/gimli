@@ -44,7 +44,7 @@ extern crate alloc;
 #[macro_use]
 extern crate std;
 
-#[cfg(feature = "read")]
+#[cfg(feature = "stable_deref_trait")]
 pub use stable_deref_trait::{CloneStableDeref, StableDeref};
 
 mod common;
