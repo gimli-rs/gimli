@@ -912,7 +912,6 @@ mod tests {
         Abbreviation, AttributeSpecification, DebuggingInformationEntry, EndianSlice, UnitHeader,
         UnitOffset,
     };
-    use smallvec::smallvec;
 
     #[test]
     #[rustfmt::skip]
@@ -933,7 +932,7 @@ mod tests {
             42,
             constants::DW_TAG_base_type,
             constants::DW_CHILDREN_no,
-            smallvec![
+            vec![
                 AttributeSpecification::new(
                     constants::DW_AT_byte_size,
                     constants::DW_FORM_udata,
@@ -949,7 +948,7 @@ mod tests {
                     constants::DW_FORM_udata,
                     None,
                 ),
-            ],
+            ].into(),
         );
 
         for &(attrs, result) in &[

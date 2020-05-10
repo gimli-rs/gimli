@@ -3451,7 +3451,6 @@ mod tests {
     use crate::test_util::GimliSectionMethods;
     use alloc::vec::Vec;
     use core::cell::Cell;
-    use smallvec::smallvec;
     use test_assembler::{Endian, Label, LabelMaker, Section};
 
     // Mixin methods for `Section` to help define binary test data.
@@ -4770,7 +4769,7 @@ mod tests {
             42,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_yes,
-            smallvec![
+            vec![
                 AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
                 AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr, None),
                 AttributeSpecification::new(
@@ -4778,7 +4777,8 @@ mod tests {
                     constants::DW_FORM_addr,
                     None,
                 ),
-            ],
+            ]
+            .into(),
         );
 
         // "foo", 42, 1337, 4 dangling bytes of 0xaa where children would be
@@ -4878,7 +4878,7 @@ mod tests {
             42,
             constants::DW_TAG_subprogram,
             constants::DW_CHILDREN_yes,
-            smallvec![
+            vec![
                 AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
                 AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr, None),
                 AttributeSpecification::new(
@@ -4886,7 +4886,8 @@ mod tests {
                     constants::DW_FORM_addr,
                     None,
                 ),
-            ],
+            ]
+            .into(),
         );
 
         // "foo"
