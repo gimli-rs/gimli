@@ -182,7 +182,9 @@ pub use self::dwarf::*;
 mod endian_slice;
 pub use self::endian_slice::*;
 
+#[cfg(feature = "endian-reader")]
 mod endian_reader;
+#[cfg(feature = "endian-reader")]
 pub use self::endian_reader::*;
 
 mod reader;

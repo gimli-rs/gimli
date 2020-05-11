@@ -28,6 +28,8 @@ case "$GIMLI_JOB" in
         cargo test --no-default-features --features read
         cargo test --no-default-features --features read,fallible-iterator
         cargo test --no-default-features --features read,std
+        cargo test --no-default-features --features read,endian-reader
+        cargo test --no-default-features --features read,endian-reader,std
         cargo test --no-default-features --features write
         ;;
 

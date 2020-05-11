@@ -1,4 +1,4 @@
-#![cfg(all(feature = "read", feature = "std"))]
+#![cfg(all(feature = "read", feature = "std", feature = "endian-reader"))]
 
 use gimli::{
     AttributeValue, DebugAbbrev, DebugAddr, DebugAddrBase, DebugAranges, DebugInfo, DebugLine,
