@@ -2,6 +2,63 @@
 
 --------------------------------------------------------------------------------
 
+## 0.21.0
+
+Released 2020/05/12.
+
+### Breaking changes
+
+* Minimum Rust version increased to 1.38.0.
+
+* Replaced `read::Operation::Literal` with `Operation::UnsignedConstant` and `Operation::SignedConstant`.
+  Changed `read::Operation::Bra` and `read::Operation::Skip` to contain the target offset instead of the bytecode.
+  [#479](https://github.com/gimli-rs/gimli/pull/479)
+
+* Changed `write::Expression` to support references. Existing users can convert to use `Expression::raw`.
+  [#479](https://github.com/gimli-rs/gimli/pull/479)
+
+* Replaced `write::AttributeValue::AnyUnitEntryRef` with `DebugInfoRef`.
+  Renamed `write::AttributeValue::ThisUnitEntryRef` to `UnitRef`.
+  [#479](https://github.com/gimli-rs/gimli/pull/479)
+
+* Added more optional features: `endian-reader` and `fallible-iterator`.
+  [#495](https://github.com/gimli-rs/gimli/pull/495)
+  [#498](https://github.com/gimli-rs/gimli/pull/498)
+
+### Added
+
+* Added `read::Expression::operations`
+  [#479](https://github.com/gimli-rs/gimli/pull/479)
+
+### Fixed
+
+* Fixed newlines in `dwarfdump` example.
+  [#470](https://github.com/gimli-rs/gimli/pull/470)
+
+* Ignore zero terminators when reading `.debug_frame` sections.
+  [#486](https://github.com/gimli-rs/gimli/pull/486)
+
+* Increase the number of CFI register rules supported by `read::UnwindContext`.
+  [#487](https://github.com/gimli-rs/gimli/pull/487)
+
+* Fixed version handling and return register encoding when reading `.eh_frame` sections.
+  [#493](https://github.com/gimli-rs/gimli/pull/493)
+
+### Changed
+
+* Added `EhFrame` and `DebugFrame` to `write::Sections`.
+  [#492](https://github.com/gimli-rs/gimli/pull/492)
+
+* Improved performance of `write::LineProgram::generate_row`.
+  [#476](https://github.com/gimli-rs/gimli/pull/476)
+
+* Removed use of the `byteorder`, `arrayvec` and `smallvec` crates.
+  [#494](https://github.com/gimli-rs/gimli/pull/494)
+  [#496](https://github.com/gimli-rs/gimli/pull/496)
+  [#497](https://github.com/gimli-rs/gimli/pull/497)
+
+--------------------------------------------------------------------------------
+
 ## 0.20.0
 
 Released 2020/01/11.
