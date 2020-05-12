@@ -3,7 +3,7 @@
 
 use fallible_iterator::FallibleIterator;
 use gimli::{CompilationUnitHeader, Section, UnitOffset, UnitSectionOffset, UnwindSection};
-use object::{target_lexicon, Object, ObjectSection};
+use object::{Object, ObjectSection};
 use regex::bytes::Regex;
 use std::borrow::{Borrow, Cow};
 use std::cmp::min;
@@ -534,7 +534,7 @@ where
         // TODO: this might be better based on the file format.
         let address_size = file
             .architecture()
-            .pointer_width()
+            .address_size()
             .map(|w| w.bytes())
             .unwrap_or(mem::size_of::<usize>() as u8);
 
@@ -542,13 +542,9 @@ where
             None
         }
         let arch_register_name = match file.architecture() {
-            target_lexicon::Architecture::Arm(_) | target_lexicon::Architecture::Aarch64(_) => {
-                gimli::Arm::register_name
-            }
-            target_lexicon::Architecture::I386
-            | target_lexicon::Architecture::I586
-            | target_lexicon::Architecture::I686 => gimli::X86::register_name,
-            target_lexicon::Architecture::X86_64 => gimli::X86_64::register_name,
+            object::Architecture::Arm | object::Architecture::Aarch64 => gimli::Arm::register_name,
+            object::Architecture::I386 => gimli::X86::register_name,
+            object::Architecture::X86_64 => gimli::X86_64::register_name,
             _ => register_name_none,
         };
         let register_name = |register| match arch_register_name(register) {

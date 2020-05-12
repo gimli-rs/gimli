@@ -1,14 +1,14 @@
 [package]
+name = "gimli"
+version = "0.21.0"
 authors = ["Nick Fitzgerald <fitzgen@gmail.com>", "Philip Craig <philipjcraig@gmail.com>"]
 categories = ["development-tools::debugging", "development-tools::profiling", "parser-implementations"]
 description = "A library for reading and writing the DWARF debugging format."
 documentation = "https://docs.rs/gimli"
 keywords = ["DWARF", "debug", "ELF", "eh_frame"]
 license = "Apache-2.0/MIT"
-name = "gimli"
 readme = "./README.md"
 repository = "https://github.com/gimli-rs/gimli"
-version = "0.20.0"
 exclude = ["/ci/*", "/releases/*", "/.travis.yml"]
 edition = "2018"
 
@@ -26,7 +26,7 @@ crossbeam = "0.7.1"
 getopts = "0.2"
 memmap = "0.7"
 num_cpus = "1"
-object = "0.18"
+object = "0.19"
 rayon = "1.0"
 regex = "1"
 test-assembler = "0.1.3"
