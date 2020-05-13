@@ -2201,7 +2201,12 @@ pub(crate) fn parse_attribute<'unit, R: Reader>(
                 let offset = input.read_offset(encoding.format)?;
                 AttributeValue::DebugLineStrRef(DebugLineStrOffset(offset))
             }
-            constants::DW_FORM_implicit_const => AttributeValue::Sdata(spec.implicit_const_value()),
+            constants::DW_FORM_implicit_const => {
+                let data = spec
+                    .implicit_const_value()
+                    .ok_or(Error::InvalidImplicitConst)?;
+                AttributeValue::Sdata(data)
+            }
             constants::DW_FORM_strx | constants::DW_FORM_GNU_str_index => {
                 let index = input.read_uleb128().and_then(R::Offset::from_u64)?;
                 AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
@@ -4749,6 +4754,27 @@ mod tests {
         let form = constants::DW_FORM_indirect;
         let value = AttributeValue::Udata(9_999_999);
         test_parse_attribute(&buf, bytes_written, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_indirect_implicit_const() {
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 4,
+            address_size: 4,
+        };
+        let mut buf = [0; 100];
+        let mut writable = &mut buf[..];
+        leb128::write::unsigned(&mut writable, constants::DW_FORM_implicit_const.0.into())
+            .expect("should write implicit_const");
+
+        let input = &mut EndianSlice::new(&buf, LittleEndian);
+        let spec =
+            AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_indirect, None);
+        assert_eq!(
+            parse_attribute(input, encoding, spec),
+            Err(Error::InvalidImplicitConst)
+        );
     }
 
     #[test]

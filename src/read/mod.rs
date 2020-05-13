@@ -383,6 +383,8 @@ pub enum Error {
     MissingFileEntryFormatPath,
     /// Expected an attribute value to be a string form.
     ExpectedStringAttributeValue,
+    /// `DW_FORM_implicit_const` used in an invalid context.
+    InvalidImplicitConst,
 }
 
 impl fmt::Display for Error {
@@ -526,6 +528,7 @@ impl Error {
             Error::ExpectedStringAttributeValue => {
                 "Expected an attribute value to be a string form."
             }
+            Error::InvalidImplicitConst => "DW_FORM_implicit_const used in an invalid context.",
         }
     }
 }
