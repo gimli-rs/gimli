@@ -2413,7 +2413,7 @@ impl<R: Reader> RegisterRuleMap<R> {
         for &mut (reg, ref mut old_rule) in self.rules_mut() {
             debug_assert!(old_rule.is_defined());
             if reg == register {
-                mem::replace(old_rule, rule);
+                *old_rule = rule;
                 return Ok(());
             }
         }
