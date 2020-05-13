@@ -410,9 +410,12 @@ impl AttributeSpecification {
 
     /// Get the attribute's implicit const value.
     #[inline]
-    pub fn implicit_const_value(&self) -> i64 {
-        assert!(self.form == constants::DW_FORM_implicit_const);
-        self.implicit_const_value
+    pub fn implicit_const_value(&self) -> Option<i64> {
+        if self.form == constants::DW_FORM_implicit_const {
+            Some(self.implicit_const_value)
+        } else {
+            None
+        }
     }
 
     /// Return the size of the attribute, in bytes.
