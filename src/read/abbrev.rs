@@ -2,8 +2,10 @@
 
 use alloc::collections::btree_map;
 use alloc::vec::Vec;
+use core::convert::TryInto;
 use core::fmt::{self, Debug};
 use core::iter::FromIterator;
+use core::num::NonZeroU64;
 use core::ops::Deref;
 
 use crate::common::{DebugAbbrevOffset, SectionId};
@@ -153,13 +155,17 @@ impl Abbreviations {
 
     /// Get the abbreviation associated with the given code.
     #[inline]
-    pub fn get(&self, code: u64) -> Option<&Abbreviation> {
-        let code_usize = code as usize;
-        if code_usize as u64 == code && code_usize - 1 < self.vec.len() {
-            Some(&self.vec[code_usize - 1])
-        } else {
-            self.map.get(&code)
+    pub fn get(&self, code: NonZeroU64) -> Option<&Abbreviation> {
+        let code = code.get();
+
+        let index = code - 1;
+        if let Ok(index) = <u64 as TryInto<usize>>::try_into(index) {
+            if index < self.vec.len() {
+                return Some(&self.vec[index]);
+            }
         }
+
+        self.map.get(&code)
     }
 
     /// Parse a series of abbreviations, terminated by a null abbreviation.
@@ -598,8 +604,8 @@ pub mod tests {
         let abbrevs = debug_abbrev
             .abbreviations(debug_abbrev_offset)
             .expect("Should parse abbreviations");
-        assert_eq!(abbrevs.get(1), Some(&abbrev1));
-        assert_eq!(abbrevs.get(2), Some(&abbrev2));
+        assert_eq!(abbrevs.get(NonZeroU64::new(1).unwrap()), Some(&abbrev1));
+        assert_eq!(abbrevs.get(NonZeroU64::new(2).unwrap()), Some(&abbrev2));
     }
 
     #[test]
@@ -614,7 +620,7 @@ pub mod tests {
         }
 
         fn assert_abbrev(abbrevs: &Abbreviations, code: u16) {
-            let abbrev = abbrevs.get(code.into()).unwrap();
+            let abbrev = abbrevs.get(NonZeroU64::new(code.into()).unwrap()).unwrap();
             assert_eq!(abbrev.tag(), constants::DwTag(code));
         }
 
@@ -681,7 +687,7 @@ pub mod tests {
         }
 
         fn assert_abbrev(abbrevs: &Abbreviations, code: u64) {
-            let abbrev = abbrevs.get(code).unwrap();
+            let abbrev = abbrevs.get(NonZeroU64::new(code).unwrap()).unwrap();
             assert_eq!(abbrev.tag(), constants::DwTag(code as u16));
         }
 
@@ -690,7 +696,7 @@ pub mod tests {
 
         let wrap_code = (u32::MAX as u64 + 1) + 1;
         // `get` should not treat the wrapped code as `1`.
-        assert_eq!(abbrevs.get(wrap_code), None);
+        assert_eq!(abbrevs.get(NonZeroU64::new(wrap_code).unwrap()), None);
         // `insert` should not treat the wrapped code as `1`.
         abbrevs.insert(abbrev(wrap_code)).unwrap();
         assert_abbrev(&abbrevs, 1);
@@ -747,8 +753,8 @@ pub mod tests {
         );
 
         let abbrevs = Abbreviations::parse(rest).expect("Should parse abbreviations");
-        assert_eq!(abbrevs.get(1), Some(&abbrev1));
-        assert_eq!(abbrevs.get(2), Some(&abbrev2));
+        assert_eq!(abbrevs.get(NonZeroU64::new(1).unwrap()), Some(&abbrev1));
+        assert_eq!(abbrevs.get(NonZeroU64::new(2).unwrap()), Some(&abbrev2));
         assert_eq!(*rest, EndianSlice::new(&expected_rest, LittleEndian));
     }
 

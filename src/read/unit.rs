@@ -1,6 +1,7 @@
 //! Functions for parsing DWARF `.debug_info` and `.debug_types` sections.
 
 use core::cell::Cell;
+use core::num::NonZeroU64;
 use core::ops::{Range, RangeFrom, RangeTo};
 use core::{u16, u8};
 
@@ -1001,6 +1002,7 @@ where
         if code == 0 {
             return Ok(None);
         };
+        let code = NonZeroU64::new(code).unwrap();
         let abbrev = abbreviations.get(code).ok_or(Error::UnknownAbbreviation)?;
         Ok(Some(DebuggingInformationEntry {
             offset: UnitOffset(offset),
@@ -2433,6 +2435,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesRaw<'abbrev, 'unit, R> {
             self.depth -= 1;
             return Ok(None);
         };
+        let code = NonZeroU64::new(code).unwrap();
         let abbrev = self
             .abbreviations
             .get(code)

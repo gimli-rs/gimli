@@ -576,7 +576,8 @@ impl DebuggingInformationEntry {
         abbrevs: &mut AbbreviationTable,
     ) -> Result<()> {
         offsets.entries[self.id.index].offset = DebugInfoOffset(*offset);
-        offsets.entries[self.id.index].abbrev = abbrevs.add(self.abbreviation(unit.encoding())?);
+        offsets.entries[self.id.index].abbrev =
+            abbrevs.add(self.abbreviation(unit.encoding())?).get();
         *offset += self.size(unit, offsets);
         if !self.children.is_empty() {
             for child in &self.children {

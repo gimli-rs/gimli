@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+use core::num::NonZeroU64;
 use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
 
@@ -18,10 +19,10 @@ pub(crate) struct AbbreviationTable {
 
 impl AbbreviationTable {
     /// Add an abbreviation to the table and return its code.
-    pub fn add(&mut self, abbrev: Abbreviation) -> u64 {
+    pub fn add(&mut self, abbrev: Abbreviation) -> NonZeroU64 {
         let (code, _) = self.abbrevs.insert_full(abbrev);
         // Code must be non-zero
-        (code + 1) as u64
+        NonZeroU64::new((code + 1) as u64).unwrap()
     }
 
     /// Write the abbreviation table to the `.debug_abbrev` section.
@@ -134,9 +135,9 @@ mod tests {
             ],
         );
         let code1 = abbrevs.add(abbrev1.clone());
-        assert_eq!(code1, 1);
+        assert_eq!(code1.get(), 1);
         let code2 = abbrevs.add(abbrev2.clone());
-        assert_eq!(code2, 2);
+        assert_eq!(code2.get(), 2);
         assert_eq!(abbrevs.add(abbrev1.clone()), code1);
         assert_eq!(abbrevs.add(abbrev2.clone()), code2);
 
