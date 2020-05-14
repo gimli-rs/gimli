@@ -22,3 +22,7 @@ members = ["."]
 [[bin]]
 name = "debug_info"
 path = "fuzz_targets/debug_info.rs"
+
+[[bin]]
+name = "debug_abbrev"
+path = "fuzz_targets/debug_abbrev.rs"
