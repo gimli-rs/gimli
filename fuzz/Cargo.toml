@@ -30,3 +30,7 @@ path = "fuzz_targets/debug_abbrev.rs"
 [[bin]]
 name = "debug_line"
 path = "fuzz_targets/debug_line.rs"
+
+[[bin]]
+name = "eh_frame"
+path = "fuzz_targets/eh_frame.rs"
