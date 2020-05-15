@@ -3,6 +3,7 @@ use core::cmp::{Ord, Ordering};
 use core::fmt::{self, Debug};
 use core::iter::FromIterator;
 use core::mem::{self, MaybeUninit};
+use core::num::Wrapping;
 use core::ptr;
 
 use crate::common::{DebugFrameOffset, EhFrameOffset, Encoding, Format, Register, SectionId};
@@ -2007,8 +2008,8 @@ impl<R: Reader + PartialEq> PartialEq for UnwindContext<R> {
 /// > subroutine in the program.
 #[derive(Debug)]
 pub struct UnwindTable<'a, R: Reader> {
-    code_alignment_factor: u64,
-    data_alignment_factor: i64,
+    code_alignment_factor: Wrapping<u64>,
+    data_alignment_factor: Wrapping<i64>,
     next_start_address: u64,
     last_end_address: u64,
     returned_last_row: bool,
@@ -2041,10 +2042,10 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
     ) -> UnwindTable<'a, R> {
         assert!(ctx.stack().len() >= 1);
         UnwindTable {
-            code_alignment_factor: fde.cie().code_alignment_factor(),
-            data_alignment_factor: fde.cie().data_alignment_factor(),
+            code_alignment_factor: Wrapping(fde.cie().code_alignment_factor()),
+            data_alignment_factor: Wrapping(fde.cie().data_alignment_factor()),
             next_start_address: fde.initial_address(),
-            last_end_address: fde.initial_address() + fde.len(),
+            last_end_address: fde.initial_address().wrapping_add(fde.len()),
             returned_last_row: false,
             instructions: fde.instructions(section, bases),
             ctx,
@@ -2059,8 +2060,8 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
     ) -> UnwindTable<'a, R> {
         assert!(ctx.stack().len() >= 1);
         UnwindTable {
-            code_alignment_factor: cie.code_alignment_factor(),
-            data_alignment_factor: cie.data_alignment_factor(),
+            code_alignment_factor: Wrapping(cie.code_alignment_factor()),
+            data_alignment_factor: Wrapping(cie.data_alignment_factor()),
             next_start_address: 0,
             last_end_address: 0,
             returned_last_row: false,
@@ -2121,8 +2122,8 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
                 return Ok(true);
             }
             AdvanceLoc { delta } => {
-                let delta = u64::from(delta) * self.code_alignment_factor;
-                self.next_start_address = self.ctx.start_address() + delta;
+                let delta = Wrapping(u64::from(delta)) * self.code_alignment_factor;
+                self.next_start_address = (Wrapping(self.ctx.start_address()) + delta).0;
                 self.ctx.row_mut().end_address = self.next_start_address;
                 return Ok(true);
             }
@@ -2141,7 +2142,7 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
                 let data_align = self.data_alignment_factor;
                 self.ctx.set_cfa(CfaRule::RegisterAndOffset {
                     register,
-                    offset: factored_offset * data_align,
+                    offset: (Wrapping(factored_offset) * data_align).0,
                 });
             }
             DefCfaRegister { register } => {
@@ -2173,7 +2174,7 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
                 } = *self.ctx.cfa_mut()
                 {
                     let data_align = self.data_alignment_factor;
-                    *off = factored_offset * data_align;
+                    *off = (Wrapping(factored_offset) * data_align).0;
                 } else {
                     return Err(Error::CfiInstructionInInvalidContext);
                 }
@@ -2195,33 +2196,33 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
                 register,
                 factored_offset,
             } => {
-                let offset = factored_offset as i64 * self.data_alignment_factor;
+                let offset = Wrapping(factored_offset as i64) * self.data_alignment_factor;
                 self.ctx
-                    .set_register_rule(register, RegisterRule::Offset(offset))?;
+                    .set_register_rule(register, RegisterRule::Offset(offset.0))?;
             }
             OffsetExtendedSf {
                 register,
                 factored_offset,
             } => {
-                let offset = factored_offset * self.data_alignment_factor;
+                let offset = Wrapping(factored_offset) * self.data_alignment_factor;
                 self.ctx
-                    .set_register_rule(register, RegisterRule::Offset(offset))?;
+                    .set_register_rule(register, RegisterRule::Offset(offset.0))?;
             }
             ValOffset {
                 register,
                 factored_offset,
             } => {
-                let offset = factored_offset as i64 * self.data_alignment_factor;
+                let offset = Wrapping(factored_offset as i64) * self.data_alignment_factor;
                 self.ctx
-                    .set_register_rule(register, RegisterRule::ValOffset(offset))?;
+                    .set_register_rule(register, RegisterRule::ValOffset(offset.0))?;
             }
             ValOffsetSf {
                 register,
                 factored_offset,
             } => {
-                let offset = factored_offset * self.data_alignment_factor;
+                let offset = Wrapping(factored_offset) * self.data_alignment_factor;
                 self.ctx
-                    .set_register_rule(register, RegisterRule::ValOffset(offset))?;
+                    .set_register_rule(register, RegisterRule::ValOffset(offset.0))?;
             }
             Register {
                 dest_register,
@@ -5095,6 +5096,17 @@ mod tests {
         let mut expected = ctx.clone();
         expected.row_mut().end_address = 3 + 2 * cie.code_alignment_factor;
         let instructions = [(Ok(true), CallFrameInstruction::AdvanceLoc { delta: 2 })];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_advance_loc_overflow() {
+        let cie = make_test_cie();
+        let mut ctx = UnwindContext::new();
+        ctx.row_mut().start_address = u64::MAX;
+        let mut expected = ctx.clone();
+        expected.row_mut().end_address = 42 * cie.code_alignment_factor - 1;
+        let instructions = [(Ok(true), CallFrameInstruction::AdvanceLoc { delta: 42 })];
         assert_eval(ctx, expected, cie, None, instructions);
     }
 
