@@ -34,3 +34,7 @@ path = "fuzz_targets/debug_line.rs"
 [[bin]]
 name = "eh_frame"
 path = "fuzz_targets/eh_frame.rs"
+
+[[bin]]
+name = "debug_aranges"
+path = "fuzz_targets/debug_aranges.rs"
