@@ -98,7 +98,10 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
         // The first tuple following the header in each set begins at an offset that is
         // a multiple of the size of a single tuple (that is, the size of a segment selector
         // plus twice the size of an address).
-        let tuple_length = 2 * address_size + segment_size;
+        let tuple_length = address_size
+            .checked_mul(2)
+            .and_then(|x| x.checked_add(segment_size))
+            .ok_or(Error::InvalidAddressRange)?;
         let padding = if header_length % tuple_length == 0 {
             0
         } else {
@@ -320,6 +323,44 @@ mod tests {
                 segment_size: 4,
             }
         );
+    }
+
+    #[test]
+    fn test_parse_header_overflow_error() {
+        #[rustfmt::skip]
+        let buf = [
+            // 32-bit length = 32.
+            0x20, 0x00, 0x00, 0x00,
+            // Version.
+            0x02, 0x00,
+            // Offset.
+            0x01, 0x02, 0x03, 0x04,
+            // Address size.
+            0xff,
+            // Segment size.
+            0xff,
+            // Length to here = 12, tuple length = 20.
+            // Padding to tuple length multiple = 4.
+            0x10, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+
+            // Dummy arange tuple data.
+            0x20, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+
+            // Dummy next arange.
+            0x30, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
+
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
+
+        let error = ArangeParser::parse_header(rest).expect_err("should fail to parse header");
+        assert_eq!(error, Error::InvalidAddressRange);
     }
 
     #[test]
