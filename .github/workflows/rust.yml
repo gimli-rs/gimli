@@ -19,7 +19,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Install rustup
-      run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -- -y
+      run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile=minimal
     - name: Install rust channel
       run: |
         rustup install ${{matrix.rust_channel}}
@@ -67,7 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Install rustup
-        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -- -y
+        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile=minimal
       - run: cargo install cross
       - run: rustup target add ${{matrix.target}}
       - run: cross test --target ${{matrix.target}}
@@ -77,7 +77,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Install rustup
-        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -- -y
+        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile=minimal
       - name: Install nightly rust
         run: |
           rustup install nightly
