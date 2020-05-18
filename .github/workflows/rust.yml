@@ -22,8 +22,8 @@ jobs:
       run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -- -y
     - name: Install rust channel
       run: |
-        rustup install ${{rust_channel}}
-        rustup default ${{rust_channel}}
+        rustup install ${{matrix.rust_channel}}
+        rustup default ${{matrix.rust_channel}}
     - name: Build
       run: cargo build --verbose
     - name: Run tests
