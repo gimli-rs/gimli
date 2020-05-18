@@ -1,0 +1,95 @@
+name: Rust
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: ["ubuntu-latest"]
+        rust_channel: ["stable", "beta", "nightly", "1.38.0"]
+        include:
+          - rust_channel: "stable"
+            os: "macos-latest"
+    runs-on: ${{matrix.os}}
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install rustup
+      run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -- -y
+    - name: Install rust channel
+      run: |
+        rustup install ${{rust_channel}}
+        rustup default ${{rust_channel}}
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
+    - name: Run dwarfdump (macos)
+      if: matrix.os == "macos-latest"
+      run: |
+        cargo run --example dwarfdump -- \
+            $(find ./target/debug -type f | grep DWARF | grep gimli | head -n 1) \
+            > /dev/null
+    - name: Run dwarfdump (linux)
+      if: matrix.os == "ubuntu-latest"
+      run: |
+        cargo run --example dwarfdump -- \
+            $(find ./target/debug -type f -perm -100 | grep gimli | head -n 1) \
+            > /dev/null
+
+  features:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: cargo test --no-default-features
+      - run: cargo test --no-default-features --features read
+      - run: cargo test --no-default-features --features read,fallible-iterator
+      - run: cargo test --no-default-features --features read,std
+      - run: cargo test --no-default-features --features read,endian-reader
+      - run: cargo test --no-default-features --features read,endian-reader,std
+      - run: cargo test --no-default-features --features write
+
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: cargo bench
+
+  cross:
+    strategy:
+      matrix:
+        target: ["i686-unknown-linux-gnu"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install rustup
+        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -- -y
+      - run: cargo install cross
+      - run: rustup target add ${{matrix.target}}
+      - run: cross test --target ${{matrix.target}}
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install rustup
+        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -- -y
+      - name: Install nightly rust
+        run: |
+          rustup install nightly
+          rustup default nightly
+      - name: Install cargo tarpaulin
+        run: RUSTFLAGS="--cfg procmacro2_semver_exempt" cargo install --force cargo-tarpaulin
+      - name: Run cargo tarpaulin
+        # TODO: Hook this up to coveralls, so we actually get coverage reports.
+        run: cargo tarpaulin --verbose # --ciserver travis-ci --coveralls "$TRAVIS_JOB_ID";
+
+  doc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: cargo doc
