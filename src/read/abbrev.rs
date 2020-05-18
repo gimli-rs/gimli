@@ -2,6 +2,7 @@
 
 use alloc::collections::btree_map;
 use alloc::vec::Vec;
+use core::convert::TryFrom;
 use core::fmt::{self, Debug};
 use core::iter::FromIterator;
 use core::ops::Deref;
@@ -154,12 +155,14 @@ impl Abbreviations {
     /// Get the abbreviation associated with the given code.
     #[inline]
     pub fn get(&self, code: u64) -> Option<&Abbreviation> {
-        let code_usize = code as usize;
-        if code_usize as u64 == code && code_usize - 1 < self.vec.len() {
-            Some(&self.vec[code_usize - 1])
-        } else {
-            self.map.get(&code)
+        if let Ok(code) = usize::try_from(code) {
+            let index = code.checked_sub(1)?;
+            if index < self.vec.len() {
+                return Some(&self.vec[index]);
+            }
         }
+
+        self.map.get(&code)
     }
 
     /// Parse a series of abbreviations, terminated by a null abbreviation.
@@ -944,5 +947,19 @@ pub mod tests {
             Err(Error::AttributeFormZero) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
+    }
+
+    #[test]
+    fn test_get_abbrev_zero() {
+        let mut abbrevs = Abbreviations::empty();
+        abbrevs
+            .insert(Abbreviation::new(
+                1,
+                constants::DwTag(1),
+                constants::DW_CHILDREN_no,
+                vec![].into(),
+            ))
+            .unwrap();
+        assert!(abbrevs.get(0).is_none());
     }
 }
