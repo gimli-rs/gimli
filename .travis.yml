@@ -1,4 +1,4 @@
-sudo: false
+sudo: required
 
 language: rust
 cache:
@@ -7,15 +7,9 @@ cache:
 
 os:
 - linux
-- osx
-
-osx_image: xcode7.1
 
 rust:
-- 1.38.0
 - nightly
-- beta
-- stable
 
 addons:
   apt:
@@ -27,39 +21,6 @@ before_script:
 - echo PATH is $PATH
 - export RUST_BACKTRACE=1
 
-script: ./ci/script.sh
-
-env:
-  matrix:
-    - GIMLI_JOB="test"
-    - GIMLI_JOB="features"
-
-matrix:
-  fast_finish: true
-  include:
-    # Coverage should only run on Linux. tarpaulin currently requires nightly Rust.
-    - rust: nightly
-      os: linux
-      sudo: required
-      env: GIMLI_JOB="coverage"
-    # Building docs only needs to happen on one os and only on stable.
-    - rust: stable
-      os: linux
-      env: GIMLI_JOB="doc"
-    # Benching should only happen on nightly.
-    - rust: nightly
-      env: GIMLI_JOB="bench"
-    # Build a 32 bit target.
-    - rust: stable
-      sudo: required
-      services: docker
-      env:
-        - TARGET=i686-unknown-linux-gnu
-        - GIMLI_JOB=cross
-    # Build a big-endian target.
-    - rust: stable
-      sudo: required
-      services: docker
-      env:
-        - TARGET=powerpc64-unknown-linux-gnu
-        - GIMLI_JOB=cross
+script: |
+  RUSTFLAGS="--cfg procmacro2_semver_exempt" cargo install cargo-tarpaulin
+  cargo tarpaulin --verbose --ciserver travis-ci --coveralls "$TRAVIS_JOB_ID"
