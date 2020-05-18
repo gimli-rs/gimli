@@ -14,7 +14,7 @@ jobs:
         rust_channel: ["stable", "beta", "nightly", "1.38.0"]
         include:
           - rust_channel: "stable"
-            os: "macos-latest"
+            os: "macOS-latest"
     runs-on: ${{matrix.os}}
     steps:
     - uses: actions/checkout@v2
@@ -29,13 +29,13 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
     - name: Run dwarfdump (macos)
-      if: matrix.os == "macos-latest"
+      if: matrix.os == 'macOS-latest'
       run: |
         cargo run --example dwarfdump -- \
             $(find ./target/debug -type f | grep DWARF | grep gimli | head -n 1) \
             > /dev/null
     - name: Run dwarfdump (linux)
-      if: matrix.os == "ubuntu-latest"
+      if: matrix.os == 'ubuntu-latest'
       run: |
         cargo run --example dwarfdump -- \
             $(find ./target/debug -type f -perm -100 | grep gimli | head -n 1) \
