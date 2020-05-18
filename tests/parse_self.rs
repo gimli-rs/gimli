@@ -404,3 +404,24 @@ fn test_parse_self_eh_frame() {
         }
     }
 }
+
+#[test]
+fn test_parse_self_eh_frame_hdr() {
+    use gimli::{BaseAddresses, EhFrameHdr};
+
+    let eh_frame_hdr = read_section("eh_frame_hdr");
+    let eh_frame_hdr = EhFrameHdr::new(&eh_frame_hdr, LittleEndian);
+
+    let bases = BaseAddresses::default()
+        .set_eh_frame(0)
+        .set_eh_frame_hdr(0)
+        .set_text(0)
+        .set_got(0);
+
+    // `.eh_frame_hdr` was generated on a 64 bit machine.
+    let address_size = 8;
+
+    let _parsed_header = eh_frame_hdr
+        .parse(&bases, address_size)
+        .expect("we can parse the `.eh_frame_hdr` section OK");
+}
