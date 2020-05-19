@@ -68,7 +68,11 @@ jobs:
   cross:
     strategy:
       matrix:
-        target: ["i686-unknown-linux-gnu"]
+        target:
+          # A 32-bit target.
+          - "i686-unknown-linux-gnu"
+          # A big-endian target
+          - "powerpc64-unknown-linux-gnu"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
