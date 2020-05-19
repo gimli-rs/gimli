@@ -9,6 +9,7 @@ out to us in a GitHub issue, or ping `fitzgen` in `#rust` on `irc.mozilla.org`.
 * [Testing `gimli`](#testing)
   * [Test Coverage](#coverage)
   * [Using `test-assembler`](#test-assembler)
+  * [Fuzzing](#fuzzing)
 * [Benchmarking](#benchmarking)
 * [Style](#style)
 
@@ -80,6 +81,27 @@ We use the awesome
 construct binary test data. It makes building complex test cases readable.
 
 [Here is an example usage in `gimli`](https://github.com/gimli-rs/gimli/blob/156451f3fe6eeb2fa62b84b362c33fcb176e1171/src/loc.rs#L263)
+
+### <a id="fuzzing"></a> Fuzzing
+
+First, install `cargo fuzz`:
+
+```
+$ cargo install cargo-fuzz
+```
+
+Optionally, [set up the corpora for our fuzz targets by following these
+instructions](https://github.com/gimli-rs/gimli-libfuzzer-corpora/blob/master/README.md#using-these-corpora).
+
+Finally, run a fuzz target! In this case, we are running the `eh_frame` fuzz
+target:
+
+```
+$ cargo fuzz run eh_frame
+```
+
+The fuzz target definitions live in `fuzz/fuzz_targets/*`. You can add new ones
+via `cargo fuzz add <my_new_target>`.
 
 ## <a id="benchmarking"></a> Benchmarking
 
