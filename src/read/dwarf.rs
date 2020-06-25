@@ -608,11 +608,11 @@ impl<R: Reader> Unit<R> {
         }
 
         unit.name = match name {
-            Some(val) => Some(dwarf.attr_string(&unit, val)?),
+            Some(val) => dwarf.attr_string(&unit, val).ok(),
             None => None,
         };
         unit.comp_dir = match comp_dir {
-            Some(val) => Some(dwarf.attr_string(&unit, val)?),
+            Some(val) => dwarf.attr_string(&unit, val).ok(),
             None => None,
         };
         unit.line_program = match line_program_offset {
