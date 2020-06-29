@@ -357,8 +357,19 @@ struct Flags {
     pubnames: bool,
     pubtypes: bool,
     aranges: bool,
+    dwo: bool,
     raw: bool,
     match_units: Option<Regex>,
+}
+
+impl Flags {
+    fn section_name(&self, name: &str) -> String {
+        if self.dwo {
+            format!("{}.dwo", name)
+        } else {
+            name.to_string()
+        }
+    }
 }
 
 fn print_usage(opts: &getopts::Options) -> ! {
@@ -380,6 +391,11 @@ fn main() {
     opts.optflag("p", "", "print .debug_pubnames section");
     opts.optflag("r", "", "print .debug_aranges section");
     opts.optflag("y", "", "print .debug_pubtypes section");
+    opts.optflag(
+        "",
+        "dwo",
+        "print the .dwo versions of the selected sections",
+    );
     opts.optflag("", "raw", "print raw data values");
     opts.optopt(
         "u",
@@ -427,6 +443,9 @@ fn main() {
     if matches.opt_present("r") {
         flags.aranges = true;
         all = false;
+    }
+    if matches.opt_present("dwo") {
+        flags.dwo = true;
     }
     if matches.opt_present("raw") {
         flags.raw = true;
@@ -501,9 +520,13 @@ where
 
     let mut load_section = |id: gimli::SectionId| -> Result<_> {
         let mut relocations = RelocationMap::default();
-        let data = match file.section_by_name(id.name()) {
+        let name = flags.section_name(id.name());
+        let data = match file.section_by_name(&name) {
             Some(ref section) => {
-                add_relocations(&mut relocations, file, section);
+                // DWO sections never have relocations, so don't bother.
+                if !flags.dwo {
+                    add_relocations(&mut relocations, file, section);
+                }
                 section.uncompressed_data()?
             }
             // Use a non-zero capacity so that `ReaderOffsetId`s are unique.
