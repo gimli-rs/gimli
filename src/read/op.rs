@@ -674,13 +674,13 @@ where
                     byte_offset,
                 })
             }
-            constants::DW_OP_addrx => {
+            constants::DW_OP_addrx | constants::DW_OP_GNU_addr_index => {
                 let index = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
                 Ok(Operation::AddressIndex {
                     index: DebugAddrIndex(index),
                 })
             }
-            constants::DW_OP_constx => {
+            constants::DW_OP_constx | constants::DW_OP_GNU_const_index => {
                 let index = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
                 Ok(Operation::ConstantIndex {
                     index: DebugAddrIndex(index),

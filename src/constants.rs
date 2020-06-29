@@ -1219,6 +1219,8 @@ DwOp(u8) {
     DW_OP_GNU_convert = 0xf7,
     DW_OP_GNU_reinterpret = 0xf9,
     DW_OP_GNU_parameter_ref = 0xfa,
+    DW_OP_GNU_addr_index = 0xfb,
+    DW_OP_GNU_const_index = 0xfc,
 });
 
 dw!(
