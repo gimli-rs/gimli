@@ -241,6 +241,30 @@ impl<R: Reader> Dwarf<R> {
             .get_address(unit.encoding().address_size, unit.addr_base, index)
     }
 
+    /// Try to return an attribute value as an address.
+    ///
+    /// If the attribute value is one of:
+    ///
+    /// - a `DW_FORM_addr`
+    /// - a `DW_FORM_addrx` index into the `.debug_addr` entries for the unit
+    ///
+    /// then return the address.
+    /// Returns `None` for other forms.
+    pub fn attr_address<Header>(
+        &self,
+        unit: &Unit<Header, R>,
+        attr: AttributeValue<R>,
+    ) -> Result<Option<u64>>
+    where
+        Header: UnitHeader<R, R::Offset>,
+    {
+        match attr {
+            AttributeValue::Addr(addr) => Ok(Some(addr)),
+            AttributeValue::DebugAddrIndex(index) => self.address(unit, index).map(Some),
+            _ => Ok(None),
+        }
+    }
+
     /// Return the range list offset at the given index.
     pub fn ranges_offset(
         &self,
