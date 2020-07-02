@@ -267,4 +267,18 @@ impl SectionId {
             SectionId::DebugTypes => ".debug_types",
         }
     }
+
+    /// Returns the ELF section name for this kind, when found in a .dwo file.
+    pub fn dwo_name(self) -> Option<&'static str> {
+        Some(match self {
+            SectionId::DebugAbbrev => ".debug_abbrev.dwo",
+            SectionId::DebugInfo => ".debug_info.dwo",
+            SectionId::DebugLine => ".debug_line.dwo",
+            SectionId::DebugLocLists => ".debug_loclists.dwo",
+            SectionId::DebugMacro => ".debug_macro.dwo",
+            SectionId::DebugStr => ".debug_str.dwo",
+            SectionId::DebugStrOffsets => ".debug_str_offsets.dwo",
+            _ => return None,
+        })
+    }
 }
