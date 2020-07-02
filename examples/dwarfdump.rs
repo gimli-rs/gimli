@@ -363,11 +363,11 @@ struct Flags {
 }
 
 impl Flags {
-    fn section_name(&self, name: &str) -> String {
+    fn section_name(&self, id: gimli::SectionId) -> Option<&'static str> {
         if self.dwo {
-            format!("{}.dwo", name)
+            id.dwo_name()
         } else {
-            name.to_string()
+            Some(id.name())
         }
     }
 }
@@ -520,8 +520,8 @@ where
 
     let mut load_section = |id: gimli::SectionId| -> Result<_> {
         let mut relocations = RelocationMap::default();
-        let name = flags.section_name(id.name());
-        let data = match file.section_by_name(&name) {
+        let name = flags.section_name(id);
+        let data = match name.and_then(|name| file.section_by_name(&name)) {
             Some(ref section) => {
                 // DWO sections never have relocations, so don't bother.
                 if !flags.dwo {
