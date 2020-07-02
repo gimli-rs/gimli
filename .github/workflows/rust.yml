@@ -129,7 +129,7 @@ jobs:
           # A 32-bit target.
           - "i686-unknown-linux-gnu"
           # A big-endian target
-          - "powerpc64-unknown-linux-gnu"
+          - "mips64-unknown-linux-gnuabi64"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
