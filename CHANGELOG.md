@@ -2,6 +2,51 @@
 
 --------------------------------------------------------------------------------
 
+## 0.22.0
+
+Released 2020/07/03.
+
+### Breaking changes
+
+* Fixed `UnitHeader::size_of_header` for DWARF 5 units.
+  [#518](https://github.com/gimli-rs/gimli/pull/518)
+
+### Added
+
+* Added fuzz targets in CI.
+  [#512](https://github.com/gimli-rs/gimli/pull/512)
+
+* Added read support for `DW_OP_GNU_addr_index` and `DW_OP_GNU_const_index`.
+  [#516](https://github.com/gimli-rs/gimli/pull/516)
+
+* Added `.dwo` support to dwarfdump.
+  [#516](https://github.com/gimli-rs/gimli/pull/516)
+
+* Added `SectionId::dwo_name` and `Section::dwo_section_name`.
+  [#517](https://github.com/gimli-rs/gimli/pull/517)
+
+### Fixed
+
+* Fixed panic when reading `DW_FORM_indirect` combined with `DW_FORM_implicit_const`.
+  [#502](https://github.com/gimli-rs/gimli/pull/502)
+
+* Fixed panic for `read::Abbreviations::get(0)`.
+  [#505](https://github.com/gimli-rs/gimli/pull/505)
+
+* Fixed arithmetic overflow when reading `.debug_line`.
+  [#508](https://github.com/gimli-rs/gimli/pull/508)
+
+* Fixed arithmetic overflow when reading CFI.
+  [#509](https://github.com/gimli-rs/gimli/pull/509)
+
+* Fixed arithmetic overflow and division by zero when reading `.debug_aranges`.
+  [#510](https://github.com/gimli-rs/gimli/pull/510)
+
+* Don't return error from `read::Unit::new` when `DW_AT_name` or `DW_AT_comp_dir` is missing.
+  [#515](https://github.com/gimli-rs/gimli/pull/515)
+
+--------------------------------------------------------------------------------
+
 ## 0.21.0
 
 Released 2020/05/12.
