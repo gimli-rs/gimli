@@ -8,12 +8,11 @@ use crate::common::{
 };
 use crate::constants;
 use crate::read::{
-    Abbreviations, AttributeValue, CompilationUnitHeader, CompilationUnitHeadersIter, DebugAbbrev,
-    DebugAddr, DebugInfo, DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes,
+    Abbreviations, AttributeValue, DebugAbbrev, DebugAddr, DebugInfo, DebugInfoUnitHeadersIter,
+    DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes, DebugTypesUnitHeadersIter,
     DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree, Error,
     IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists, Reader, ReaderOffset,
-    ReaderOffsetId, Result, RngListIter, Section, TypeUnitHeader, TypeUnitHeadersIter, UnitHeader,
-    UnitOffset,
+    ReaderOffsetId, Result, RngListIter, Section, UnitHeader, UnitOffset,
 };
 
 /// All of the commonly used DWARF sections, and other common information.
@@ -135,19 +134,18 @@ impl<T> Dwarf<T> {
 }
 
 impl<R: Reader> Dwarf<R> {
-    /// Iterate the compilation- and partial-unit headers in the
-    /// `.debug_info` section.
+    /// Iterate the unit headers in the `.debug_info` section.
     ///
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     #[inline]
-    pub fn units(&self) -> CompilationUnitHeadersIter<R> {
+    pub fn units(&self) -> DebugInfoUnitHeadersIter<R> {
         self.debug_info.units()
     }
 
-    /// Construct a new `Unit` from the given compilation unit header.
+    /// Construct a new `Unit` from the given unit header.
     #[inline]
-    pub fn unit(&self, header: CompilationUnitHeader<R>) -> Result<Unit<R>> {
+    pub fn unit(&self, header: UnitHeader<R>) -> Result<Unit<R>> {
         Unit::new(self, header)
     }
 
@@ -156,27 +154,14 @@ impl<R: Reader> Dwarf<R> {
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
     #[inline]
-    pub fn type_units(&self) -> TypeUnitHeadersIter<R> {
+    pub fn type_units(&self) -> DebugTypesUnitHeadersIter<R> {
         self.debug_types.units()
-    }
-
-    /// Construct a new `Unit` from the given type unit header.
-    #[inline]
-    pub fn type_unit(&self, header: TypeUnitHeader<R>) -> Result<Unit<R>> {
-        Unit::new_type_unit(self, header)
     }
 
     /// Parse the abbreviations for a compilation unit.
     // TODO: provide caching of abbreviations
     #[inline]
-    pub fn abbreviations(&self, unit: &CompilationUnitHeader<R>) -> Result<Abbreviations> {
-        unit.abbreviations(&self.debug_abbrev)
-    }
-
-    /// Parse the abbreviations for a type unit.
-    // TODO: provide caching of abbreviations
-    #[inline]
-    pub fn type_abbreviations(&self, unit: &TypeUnitHeader<R>) -> Result<Abbreviations> {
+    pub fn abbreviations(&self, unit: &UnitHeader<R>) -> Result<Abbreviations> {
         unit.abbreviations(&self.debug_abbrev)
     }
 
@@ -480,9 +465,6 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    /// The section offset of the unit.
-    pub offset: UnitSectionOffset<Offset>,
-
     /// The header of the unit.
     pub header: UnitHeader<R, Offset>,
 
@@ -515,34 +497,11 @@ where
 }
 
 impl<R: Reader> Unit<R> {
-    /// Construct a new `Unit` from the given compilation unit header.
+    /// Construct a new `Unit` from the given unit header.
     #[inline]
-    pub fn new(dwarf: &Dwarf<R>, header: CompilationUnitHeader<R>) -> Result<Self> {
-        Self::new_internal(
-            dwarf,
-            UnitSectionOffset::DebugInfoOffset(header.offset()),
-            header.header(),
-        )
-    }
-
-    /// Construct a new `Unit` from the given type unit header.
-    #[inline]
-    pub fn new_type_unit(dwarf: &Dwarf<R>, header: TypeUnitHeader<R>) -> Result<Self> {
-        Self::new_internal(
-            dwarf,
-            UnitSectionOffset::DebugTypesOffset(header.offset()),
-            header.header(),
-        )
-    }
-
-    fn new_internal(
-        dwarf: &Dwarf<R>,
-        offset: UnitSectionOffset<R::Offset>,
-        header: UnitHeader<R>,
-    ) -> Result<Self> {
+    pub fn new(dwarf: &Dwarf<R>, header: UnitHeader<R>) -> Result<Self> {
         let abbreviations = header.abbreviations(&dwarf.debug_abbrev)?;
         let mut unit = Unit {
-            offset,
             header,
             abbreviations,
             name: None,
@@ -673,7 +632,7 @@ impl<T: ReaderOffset> UnitSectionOffset<T> {
     where
         R: Reader<Offset = T>,
     {
-        let (offset, unit_offset) = match (self, unit.offset) {
+        let (offset, unit_offset) = match (self, unit.header.offset()) {
             (
                 UnitSectionOffset::DebugInfoOffset(offset),
                 UnitSectionOffset::DebugInfoOffset(unit_offset),
@@ -704,12 +663,12 @@ impl<T: ReaderOffset> UnitOffset<T> {
     where
         R: Reader<Offset = T>,
     {
-        match unit.offset {
+        match unit.header.offset() {
             UnitSectionOffset::DebugInfoOffset(unit_offset) => {
-                UnitSectionOffset::DebugInfoOffset(DebugInfoOffset(unit_offset.0 + self.0))
+                DebugInfoOffset(unit_offset.0 + self.0).into()
             }
             UnitSectionOffset::DebugTypesOffset(unit_offset) => {
-                UnitSectionOffset::DebugTypesOffset(DebugTypesOffset(unit_offset.0 + self.0))
+                DebugTypesOffset(unit_offset.0 + self.0).into()
             }
         }
     }

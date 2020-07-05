@@ -46,7 +46,10 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian) -> Result<(), 
     // Iterate over the compilation units.
     let mut iter = dwarf.units();
     while let Some(header) = iter.next()? {
-        println!("Unit at <.debug_info+0x{:x}>", header.offset().0);
+        println!(
+            "Unit at <.debug_info+0x{:x}>",
+            header.offset().as_debug_info_offset().unwrap().0
+        );
         let unit = dwarf.unit(header)?;
 
         // Iterate over the Debugging Information Entries (DIEs) in the unit.

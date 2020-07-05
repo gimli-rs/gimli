@@ -1,7 +1,7 @@
 // Allow clippy lints when building without clippy.
 #![allow(unknown_lints)]
 
-use gimli::{AttributeValue, CompilationUnitHeader};
+use gimli::{AttributeValue, UnitHeader};
 use object::{Object, ObjectSection};
 use rayon::prelude::*;
 use std::borrow::{Borrow, Cow};
@@ -155,13 +155,14 @@ fn validate_info<W, R>(
             Ok(None) => break,
             Ok(Some(u)) => u,
         };
-        last_offset = u.offset().0 + u.length_including_self();
+        last_offset = u.offset().as_debug_info_offset().unwrap().0 + u.length_including_self();
         units.push(u);
     }
-    let process_unit = |unit: CompilationUnitHeader<R>| -> UnitSummary {
+    let process_unit = |unit: UnitHeader<R>| -> UnitSummary {
+        let unit_offset = unit.offset().as_debug_info_offset().unwrap();
         let mut ret = UnitSummary {
             internally_valid: false,
-            offset: unit.offset(),
+            offset: unit_offset,
             die_offsets: Vec::new(),
             global_die_references: Vec::new(),
         };
@@ -170,8 +171,7 @@ fn validate_info<W, R>(
             Err(err) => {
                 w.error(format!(
                     "Invalid abbrevs for unit {:#x}: {}",
-                    unit.offset().0,
-                    &err
+                    unit_offset.0, &err
                 ));
                 return ret;
             }
@@ -183,8 +183,7 @@ fn validate_info<W, R>(
                 Err(err) => {
                     w.error(format!(
                         "Invalid DIE for unit {:#x}: {}",
-                        unit.offset().0,
-                        &err
+                        unit_offset.0, &err
                     ));
                     return ret;
                 }
@@ -199,7 +198,7 @@ fn validate_info<W, R>(
                     Err(err) => {
                         w.error(format!(
                             "Invalid attribute for unit {:#x} at DIE {:#x}: {}",
-                            unit.offset().0,
+                            unit_offset.0,
                             entry.offset().0,
                             &err
                         ));
@@ -228,9 +227,7 @@ fn validate_info<W, R>(
             if ret.die_offsets.binary_search(&to).is_err() {
                 w.error(format!(
                     "Invalid intra-unit reference in unit {:#x} from DIE {:#x} to {:#x}",
-                    unit.offset().0,
-                    from.0,
-                    to.0
+                    unit_offset.0, from.0, to.0
                 ));
             }
         }

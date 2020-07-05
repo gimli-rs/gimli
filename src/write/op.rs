@@ -1014,7 +1014,7 @@ mod tests {
     use super::*;
     use crate::common::{
         DebugAbbrevOffset, DebugAddrBase, DebugInfoOffset, DebugLocListsBase, DebugRngListsBase,
-        DebugStrOffsetsBase, Format, SectionId, UnitSectionOffset,
+        DebugStrOffsetsBase, Format, SectionId,
     };
     use crate::read;
     use crate::write::{
@@ -1506,11 +1506,12 @@ mod tests {
 
                     // Fake the unit.
                     let unit = read::Unit {
-                        offset: UnitSectionOffset::DebugInfoOffset(DebugInfoOffset(0)),
                         header: read::UnitHeader::new(
                             encoding,
                             0,
+                            read::UnitType::Compilation,
                             DebugAbbrevOffset(0),
+                            DebugInfoOffset(0).into(),
                             read::EndianSlice::new(&[], LittleEndian),
                         ),
                         abbreviations: read::Abbreviations::default(),
@@ -1525,10 +1526,7 @@ mod tests {
                     };
 
                     let mut entry_ids = HashMap::new();
-                    entry_ids.insert(
-                        UnitSectionOffset::DebugInfoOffset(debug_info_offset),
-                        (unit_id, entry_id),
-                    );
+                    entry_ids.insert(debug_info_offset.into(), (unit_id, entry_id));
                     let convert_expression = Expression::from(
                         read_expression,
                         encoding,

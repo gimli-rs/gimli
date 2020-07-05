@@ -306,7 +306,7 @@ mod tests {
     use super::*;
     use crate::common::{
         DebugAbbrevOffset, DebugAddrBase, DebugInfoOffset, DebugLocListsBase, DebugRngListsBase,
-        DebugStrOffsetsBase, Format, UnitSectionOffset,
+        DebugStrOffsetsBase, Format,
     };
     use crate::read;
     use crate::write::{
@@ -367,11 +367,12 @@ mod tests {
                         ..Default::default()
                     };
                     let unit = read::Unit {
-                        offset: UnitSectionOffset::DebugInfoOffset(DebugInfoOffset(0)),
                         header: read::UnitHeader::new(
                             encoding,
                             0,
+                            read::UnitType::Compilation,
                             DebugAbbrevOffset(0),
+                            DebugInfoOffset(0).into(),
                             read::EndianSlice::default(),
                         ),
                         abbreviations: read::Abbreviations::default(),
