@@ -2,7 +2,7 @@
 #![allow(unknown_lints)]
 
 use fallible_iterator::FallibleIterator;
-use gimli::{CompilationUnitHeader, Section, UnitOffset, UnitSectionOffset, UnwindSection};
+use gimli::{Section, UnitHeader, UnitOffset, UnitSectionOffset, UnitType, UnwindSection};
 use object::{Object, ObjectSection};
 use regex::bytes::Regex;
 use std::borrow::{Borrow, Cow};
@@ -920,11 +920,11 @@ where
             return Ok(());
         }
     };
-    let process_unit = |header: CompilationUnitHeader<R>, buf: &mut Vec<u8>| -> Result<()> {
+    let process_unit = |header: UnitHeader<R>, buf: &mut Vec<u8>| -> Result<()> {
         writeln!(
             buf,
             "\nUNIT<header overall offset = 0x{:08x}>:",
-            header.offset().0,
+            header.offset().as_debug_info_offset().unwrap().0,
         )?;
 
         let unit = match dwarf.unit(header) {
@@ -966,14 +966,21 @@ fn dump_types<R: Reader, W: Write>(
         writeln!(
             w,
             "\nUNIT<header overall offset = 0x{:08x}>:",
-            header.offset().0,
+            header.offset().as_debug_types_offset().unwrap().0,
         )?;
         write!(w, "  signature        = ")?;
-        dump_type_signature(w, header.type_signature())?;
+        let (type_signature, type_offset) = match header.type_() {
+            UnitType::Type {
+                type_signature,
+                type_offset,
+            } => (type_signature, type_offset),
+            _ => unreachable!(), // No other units allowed in .debug_types.
+        };
+        dump_type_signature(w, type_signature)?;
         writeln!(w)?;
-        writeln!(w, "  typeoffset       = 0x{:08x}", header.type_offset().0,)?;
+        writeln!(w, "  typeoffset       = 0x{:08x}", type_offset.0,)?;
 
-        let unit = match dwarf.type_unit(header) {
+        let unit = match dwarf.unit(header) {
             Ok(unit) => unit,
             Err(err) => {
                 writeln_error(w, dwarf, err.into(), "Failed to parse type unit root entry")?;
@@ -1790,7 +1797,7 @@ fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<
         writeln!(
             w,
             "\n.debug_line: line number info for unit at .debug_info offset 0x{:08x}",
-            header.offset().0
+            header.offset().as_debug_info_offset().unwrap().0
         )?;
         let unit = match dwarf.unit(header) {
             Ok(unit) => unit,

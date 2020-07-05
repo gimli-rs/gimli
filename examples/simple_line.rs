@@ -48,7 +48,7 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian) -> Result<(), 
     while let Some(header) = iter.next()? {
         println!(
             "Line number info for unit at <.debug_info+0x{:x}>",
-            header.offset().0
+            header.offset().as_debug_info_offset().unwrap().0
         );
         let unit = dwarf.unit(header)?;
 

@@ -1555,7 +1555,7 @@ pub(crate) mod convert {
         /// Does not add entry attributes.
         #[allow(clippy::too_many_arguments)]
         pub(crate) fn convert_entries<R: Reader<Offset = usize>>(
-            from_header: read::CompilationUnitHeader<R>,
+            from_header: read::UnitHeader<R>,
             unit_id: UnitId,
             entry_ids: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
             dwarf: &read::Dwarf<R>,
@@ -1912,7 +1912,6 @@ mod tests {
     use super::*;
     use crate::common::{
         DebugAddrBase, DebugLocListsBase, DebugRngListsBase, DebugStrOffsetsBase, LineEncoding,
-        UnitSectionOffset,
     };
     use crate::constants;
     use crate::read;
@@ -2304,7 +2303,9 @@ mod tests {
                     let from_unit = read::UnitHeader::new(
                         encoding,
                         0,
+                        read::UnitType::Compilation,
                         DebugAbbrevOffset(0),
+                        DebugInfoOffset(0).into(),
                         read::EndianSlice::new(&[], LittleEndian),
                     );
 
@@ -2532,7 +2533,6 @@ mod tests {
                         };
 
                         let unit = read::Unit {
-                            offset: UnitSectionOffset::DebugInfoOffset(DebugInfoOffset(0)),
                             header: from_unit,
                             abbreviations: read::Abbreviations::default(),
                             name: None,
@@ -2652,7 +2652,10 @@ mod tests {
         let mut read_units = dwarf.units();
         {
             let read_unit1 = read_units.next().unwrap().unwrap();
-            assert_eq!(read_unit1.offset(), debug_info_offsets.unit(unit_id1));
+            assert_eq!(
+                read_unit1.offset(),
+                debug_info_offsets.unit(unit_id1).into()
+            );
 
             let abbrevs = dwarf.abbreviations(&read_unit1).unwrap();
             let mut read_entries = read_unit1.entries(&abbrevs);
@@ -2681,7 +2684,10 @@ mod tests {
         }
         {
             let read_unit2 = read_units.next().unwrap().unwrap();
-            assert_eq!(read_unit2.offset(), debug_info_offsets.unit(unit_id2));
+            assert_eq!(
+                read_unit2.offset(),
+                debug_info_offsets.unit(unit_id2).into()
+            );
 
             let abbrevs = dwarf.abbreviations(&read_unit2).unwrap();
             let mut read_entries = read_unit2.entries(&abbrevs);
@@ -2818,7 +2824,7 @@ mod tests {
         }
 
         fn check_sibling<R: read::Reader<Offset = usize>>(
-            unit: &read::CompilationUnitHeader<R>,
+            unit: &read::UnitHeader<R>,
             debug_abbrev: &read::DebugAbbrev<R>,
         ) {
             let abbrevs = unit.abbreviations(debug_abbrev).unwrap();
@@ -2926,7 +2932,9 @@ mod tests {
                     let from_unit = read::UnitHeader::new(
                         encoding,
                         0,
+                        read::UnitType::Compilation,
                         DebugAbbrevOffset(0),
+                        DebugInfoOffset(0).into(),
                         read::EndianSlice::new(&[], LittleEndian),
                     );
 
@@ -2997,7 +3005,6 @@ mod tests {
                         assert_eq!(read_value, expect_value);
 
                         let unit = read::Unit {
-                            offset: UnitSectionOffset::DebugInfoOffset(DebugInfoOffset(0)),
                             header: from_unit,
                             abbreviations: read::Abbreviations::default(),
                             name: None,

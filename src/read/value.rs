@@ -906,11 +906,11 @@ impl Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{DebugAbbrevOffset, Encoding, Format};
+    use crate::common::{DebugAbbrevOffset, DebugInfoOffset, Encoding, Format};
     use crate::endianity::LittleEndian;
     use crate::read::{
         Abbreviation, AttributeSpecification, DebuggingInformationEntry, EndianSlice, UnitHeader,
-        UnitOffset,
+        UnitOffset, UnitType,
     };
 
     #[test]
@@ -924,7 +924,9 @@ mod tests {
         let unit = UnitHeader::new(
             encoding,
             7,
+            UnitType::Compilation,
             DebugAbbrevOffset(0),
+            DebugInfoOffset(0).into(),
             EndianSlice::new(&[], LittleEndian),
         );
 
