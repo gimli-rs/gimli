@@ -269,6 +269,21 @@ where
     },
 }
 
+impl<Offset> UnitType<Offset>
+where
+    Offset: ReaderOffset,
+{
+    // TODO: This will be used by the DWARF writing code once it
+    // supports unit types other than simple compilation units.
+    #[allow(unused)]
+    pub(crate) fn dw_ut(&self) -> constants::DwUt {
+        match self {
+            UnitType::Compilation => constants::DW_UT_compile,
+            UnitType::Type { .. } => constants::DW_UT_type,
+        }
+    }
+}
+
 /// The common fields for the headers of compilation units and
 /// type units.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3118,7 +3133,7 @@ mod tests {
                 5 => section
                     .mark(&start)
                     .L16(unit.version())
-                    .D8(constants::DW_UT_compile.0)
+                    .D8(unit.type_().dw_ut().0)
                     .D8(unit.address_size())
                     .offset(unit.debug_abbrev_offset.0, unit.format()),
                 _ => unreachable!(),
@@ -3575,6 +3590,71 @@ mod tests {
 
         assert_eq!(
             parse_unit_header(rest, DebugTypesOffset(0).into()),
+            Ok(expected_unit)
+        );
+        assert_eq!(*rest, EndianSlice::new(expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_v5_type_unit_header_32_ok() {
+        let expected_rest = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 5,
+            address_size: 8,
+        };
+        let mut expected_unit = UnitHeader {
+            encoding,
+            unit_length: 0,
+            unit_type: UnitType::Type {
+                type_signature: DebugTypeSignature(0xdead_beef_dead_beef),
+                type_offset: UnitOffset(0x7856_3412),
+            },
+            debug_abbrev_offset: DebugAbbrevOffset(0x0807_0605),
+            unit_offset: DebugInfoOffset(0).into(),
+            entries_buf: EndianSlice::new(expected_rest, LittleEndian),
+        };
+        let section = Section::with_endian(Endian::Little)
+            .unit(&mut expected_unit)
+            .append_bytes(expected_rest);
+        let buf = section.get_contents().unwrap();
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
+
+        assert_eq!(
+            parse_unit_header(rest, DebugInfoOffset(0).into()),
+            Ok(expected_unit)
+        );
+        assert_eq!(*rest, EndianSlice::new(expected_rest, LittleEndian));
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_v5_type_unit_header_64_ok() {
+        let expected_rest = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let encoding = Encoding {
+            format: Format::Dwarf64,
+            version: 5,
+            address_size: 8,
+        };
+        let mut expected_unit = UnitHeader {
+            encoding,
+            unit_length: 0,
+            unit_type: UnitType::Type {
+                type_signature: DebugTypeSignature(0xdead_beef_dead_beef),
+                type_offset: UnitOffset(0x7856_3412_7856_3412),
+            },
+            debug_abbrev_offset: DebugAbbrevOffset(0x0807_0605),
+            unit_offset: DebugInfoOffset(0).into(),
+            entries_buf: EndianSlice::new(expected_rest, LittleEndian),
+        };
+        let section = Section::with_endian(Endian::Little)
+            .unit(&mut expected_unit)
+            .append_bytes(expected_rest);
+        let buf = section.get_contents().unwrap();
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
+
+        assert_eq!(
+            parse_unit_header(rest, DebugInfoOffset(0).into()),
             Ok(expected_unit)
         );
         assert_eq!(*rest, EndianSlice::new(expected_rest, LittleEndian));
