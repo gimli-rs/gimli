@@ -141,7 +141,7 @@ impl<R: Reader> DebugInfo<R> {
     pub fn header_from_offset(&self, offset: DebugInfoOffset<R::Offset>) -> Result<UnitHeader<R>> {
         let input = &mut self.debug_info_section.clone();
         input.skip(offset.0)?;
-        parse_unit_header_from_debug_info(input, offset)
+        parse_unit_header(input, offset.into())
     }
 }
 
@@ -202,7 +202,7 @@ impl<R: Reader> DebugInfoUnitHeadersIter<R> {
             Ok(None)
         } else {
             let len = self.input.len();
-            match parse_unit_header_from_debug_info(&mut self.input, self.offset) {
+            match parse_unit_header(&mut self.input, self.offset.into()) {
                 Ok(header) => {
                     self.offset.0 += len - self.input.len();
                     Ok(Some(header))
@@ -279,7 +279,7 @@ where
 {
     encoding: Encoding,
     unit_length: Offset,
-    type_: UnitType<Offset>,
+    unit_type: UnitType<Offset>,
     debug_abbrev_offset: DebugAbbrevOffset<Offset>,
     unit_offset: UnitSectionOffset<Offset>,
     entries_buf: R,
@@ -295,7 +295,7 @@ where
     pub fn new(
         encoding: Encoding,
         unit_length: Offset,
-        type_: UnitType<Offset>,
+        unit_type: UnitType<Offset>,
         debug_abbrev_offset: DebugAbbrevOffset<Offset>,
         unit_offset: UnitSectionOffset<Offset>,
         entries_buf: R,
@@ -303,7 +303,7 @@ where
         UnitHeader {
             encoding,
             unit_length,
-            type_,
+            unit_type,
             debug_abbrev_offset,
             unit_offset,
             entries_buf,
@@ -330,7 +330,7 @@ where
         let debug_abbrev_offset_size = self.encoding.format.word_size() as usize;
         let address_size_size = 1;
         let unit_type_size = if self.encoding.version == 5 { 1 } else { 0 };
-        let type_specific_size = match self.type_ {
+        let type_specific_size = match self.unit_type {
             UnitType::Compilation => 0,
             UnitType::Type { .. } => {
                 let type_signature_size = 8;
@@ -371,7 +371,7 @@ where
 
     /// Get the UnitType of this unit.
     pub fn type_(&self) -> UnitType<Offset> {
-        self.type_
+        self.unit_type
     }
 
     /// The offset into the `.debug_abbrev` section for this compilation unit's
@@ -529,34 +529,31 @@ where
 fn parse_unit_header<R, Offset>(
     input: &mut R,
     unit_offset: UnitSectionOffset<Offset>,
-    dwarf4_equivalent_unit_type: constants::DwUt,
 ) -> Result<UnitHeader<R>>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    // Before DWARF5, all units in the .debug_info section are compilation
-    // units, and all units in the .debug_types section are type units.
-    assert!(
-        dwarf4_equivalent_unit_type == constants::DW_UT_compile
-            || dwarf4_equivalent_unit_type == constants::DW_UT_type
-    );
-
     let (unit_length, format) = input.read_initial_length()?;
     let mut rest = input.split(unit_length)?;
 
     let version = rest.read_u16()?;
     let abbrev_offset;
     let address_size;
-    let type_;
+    let unit_type;
     // DWARF 1 was very different, and is obsolete, so isn't supported by this
     // reader.
     if 2 <= version && version <= 4 {
         abbrev_offset = parse_debug_abbrev_offset(&mut rest, format)?;
         address_size = rest.read_u8()?;
-        type_ = dwarf4_equivalent_unit_type;
+        // Before DWARF5, all units in the .debug_info section are compilation
+        // units, and all units in the .debug_types section are type units.
+        unit_type = match unit_offset {
+            UnitSectionOffset::DebugInfoOffset(_) => constants::DW_UT_compile,
+            UnitSectionOffset::DebugTypesOffset(_) => constants::DW_UT_type,
+        };
     } else if version == 5 {
-        type_ = parse_unit_type(&mut rest)?;
+        unit_type = parse_unit_type(&mut rest)?;
         address_size = rest.read_u8()?;
         abbrev_offset = parse_debug_abbrev_offset(&mut rest, format)?;
     } else {
@@ -568,7 +565,8 @@ where
         address_size,
     };
 
-    let type_ = match type_ {
+    // Parse any data specific to this type of unit.
+    let unit_type = match unit_type {
         constants::DW_UT_compile => UnitType::Compilation,
         constants::DW_UT_type => {
             let type_signature = parse_type_signature(&mut rest)?;
@@ -584,23 +582,11 @@ where
     Ok(UnitHeader::new(
         encoding,
         unit_length,
-        type_,
+        unit_type,
         abbrev_offset,
         unit_offset,
         rest,
     ))
-}
-
-/// Parse a unit header from the .debug_info section.
-fn parse_unit_header_from_debug_info<R, Offset>(
-    input: &mut R,
-    offset: DebugInfoOffset<Offset>,
-) -> Result<UnitHeader<R>>
-where
-    R: Reader<Offset = Offset>,
-    Offset: ReaderOffset,
-{
-    parse_unit_header(input, offset.into(), constants::DW_UT_compile)
 }
 
 /// A Debugging Information Entry (DIE).
@@ -3051,7 +3037,7 @@ impl<R: Reader> DebugTypesUnitHeadersIter<R> {
             Ok(None)
         } else {
             let len = self.input.len();
-            match parse_unit_header_from_debug_types(&mut self.input, self.offset) {
+            match parse_unit_header(&mut self.input, self.offset.into()) {
                 Ok(header) => {
                     self.offset.0 += len - self.input.len();
                     Ok(Some(header))
@@ -3073,14 +3059,6 @@ impl<R: Reader> fallible_iterator::FallibleIterator for DebugTypesUnitHeadersIte
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         DebugTypesUnitHeadersIter::next(self)
     }
-}
-
-/// Parse a unit header from the .debug_types section.
-fn parse_unit_header_from_debug_types<R: Reader>(
-    input: &mut R,
-    offset: DebugTypesOffset<R::Offset>,
-) -> Result<UnitHeader<R>> {
-    parse_unit_header(input, offset.into(), constants::DW_UT_type)
 }
 
 #[cfg(test)]
@@ -3318,7 +3296,7 @@ mod tests {
                 address_size: 8,
             },
             unit_length: 0,
-            type_: UnitType::Compilation,
+            unit_type: UnitType::Compilation,
             debug_abbrev_offset: DebugAbbrevOffset(0x0102_0304_0506_0708),
             unit_offset: DebugInfoOffset(0).into(),
             entries_buf: EndianSlice::new(expected_rest, LittleEndian),
@@ -3330,7 +3308,7 @@ mod tests {
                 address_size: 4,
             },
             unit_length: 0,
-            type_: UnitType::Compilation,
+            unit_type: UnitType::Compilation,
             debug_abbrev_offset: DebugAbbrevOffset(0x0807_0605),
             unit_offset: DebugInfoOffset(0).into(),
             entries_buf: EndianSlice::new(expected_rest, LittleEndian),
@@ -3353,7 +3331,7 @@ mod tests {
         let buf = [0x02, 0x00, 0x00, 0x00, 0xab, 0xcd];
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
-        match parse_unit_header_from_debug_info(rest, DebugInfoOffset(0)) {
+        match parse_unit_header(rest, DebugInfoOffset(0).into()) {
             Err(Error::UnknownVersion(0xcdab)) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -3361,7 +3339,7 @@ mod tests {
         let buf = [0x02, 0x00, 0x00, 0x00, 0x1, 0x0];
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
-        match parse_unit_header_from_debug_info(rest, DebugInfoOffset(0)) {
+        match parse_unit_header(rest, DebugInfoOffset(0).into()) {
             Err(Error::UnknownVersion(1)) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -3372,7 +3350,7 @@ mod tests {
         let buf = [0x01, 0x00, 0x00, 0x00, 0x04];
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
-        match parse_unit_header_from_debug_info(rest, DebugInfoOffset(0)) {
+        match parse_unit_header(rest, DebugInfoOffset(0).into()) {
             Err(Error::UnexpectedEof(_)) => assert!(true),
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
@@ -3389,7 +3367,7 @@ mod tests {
         let mut expected_unit = UnitHeader {
             encoding,
             unit_length: 0,
-            type_: UnitType::Compilation,
+            unit_type: UnitType::Compilation,
             debug_abbrev_offset: DebugAbbrevOffset(0x0807_0605),
             unit_offset: DebugInfoOffset(0).into(),
             entries_buf: EndianSlice::new(expected_rest, LittleEndian),
@@ -3401,7 +3379,7 @@ mod tests {
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
         assert_eq!(
-            parse_unit_header_from_debug_info(rest, DebugInfoOffset(0)),
+            parse_unit_header(rest, DebugInfoOffset(0).into()),
             Ok(expected_unit)
         );
         assert_eq!(*rest, EndianSlice::new(expected_rest, LittleEndian));
@@ -3419,7 +3397,7 @@ mod tests {
         let mut expected_unit = UnitHeader {
             encoding,
             unit_length: 0,
-            type_: UnitType::Compilation,
+            unit_type: UnitType::Compilation,
             debug_abbrev_offset: DebugAbbrevOffset(0x0102_0304_0506_0708),
             unit_offset: DebugInfoOffset(0).into(),
             entries_buf: EndianSlice::new(expected_rest, LittleEndian),
@@ -3431,7 +3409,7 @@ mod tests {
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
         assert_eq!(
-            parse_unit_header_from_debug_info(rest, DebugInfoOffset(0)),
+            parse_unit_header(rest, DebugInfoOffset(0).into()),
             Ok(expected_unit)
         );
         assert_eq!(*rest, EndianSlice::new(expected_rest, LittleEndian));
@@ -3448,7 +3426,7 @@ mod tests {
         let mut expected_unit = UnitHeader {
             encoding,
             unit_length: 0,
-            type_: UnitType::Compilation,
+            unit_type: UnitType::Compilation,
             debug_abbrev_offset: DebugAbbrevOffset(0x0807_0605),
             unit_offset: DebugInfoOffset(0).into(),
             entries_buf: EndianSlice::new(expected_rest, LittleEndian),
@@ -3460,7 +3438,7 @@ mod tests {
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
         assert_eq!(
-            parse_unit_header_from_debug_info(rest, DebugInfoOffset(0)),
+            parse_unit_header(rest, DebugInfoOffset(0).into()),
             Ok(expected_unit)
         );
         assert_eq!(*rest, EndianSlice::new(expected_rest, LittleEndian));
@@ -3478,7 +3456,7 @@ mod tests {
         let mut expected_unit = UnitHeader {
             encoding,
             unit_length: 0,
-            type_: UnitType::Compilation,
+            unit_type: UnitType::Compilation,
             debug_abbrev_offset: DebugAbbrevOffset(0x0102_0304_0506_0708),
             unit_offset: DebugInfoOffset(0).into(),
             entries_buf: EndianSlice::new(expected_rest, LittleEndian),
@@ -3490,7 +3468,7 @@ mod tests {
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
         assert_eq!(
-            parse_unit_header_from_debug_info(rest, DebugInfoOffset(0)),
+            parse_unit_header(rest, DebugInfoOffset(0).into()),
             Ok(expected_unit)
         );
         assert_eq!(*rest, EndianSlice::new(expected_rest, LittleEndian));
@@ -3548,7 +3526,7 @@ mod tests {
         let mut expected_unit = UnitHeader {
             encoding,
             unit_length: 0,
-            type_: UnitType::Type {
+            unit_type: UnitType::Type {
                 type_signature: DebugTypeSignature(0xdead_beef_dead_beef),
                 type_offset: UnitOffset(0x7856_3412),
             },
@@ -3563,7 +3541,7 @@ mod tests {
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
         assert_eq!(
-            parse_unit_header_from_debug_types(rest, DebugTypesOffset(0)),
+            parse_unit_header(rest, DebugTypesOffset(0).into()),
             Ok(expected_unit)
         );
         assert_eq!(*rest, EndianSlice::new(expected_rest, LittleEndian));
@@ -3581,7 +3559,7 @@ mod tests {
         let mut expected_unit = UnitHeader {
             encoding,
             unit_length: 0,
-            type_: UnitType::Type {
+            unit_type: UnitType::Type {
                 type_signature: DebugTypeSignature(0xdead_beef_dead_beef),
                 type_offset: UnitOffset(0x7856_3412_7856_3412),
             },
@@ -3596,7 +3574,7 @@ mod tests {
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
         assert_eq!(
-            parse_unit_header_from_debug_types(rest, DebugTypesOffset(0)),
+            parse_unit_header(rest, DebugTypesOffset(0).into()),
             Ok(expected_unit)
         );
         assert_eq!(*rest, EndianSlice::new(expected_rest, LittleEndian));
@@ -4756,7 +4734,7 @@ mod tests {
         let mut unit = UnitHeader {
             encoding,
             unit_length: 0,
-            type_: UnitType::Compilation,
+            unit_type: UnitType::Compilation,
             debug_abbrev_offset: DebugAbbrevOffset(0),
             unit_offset: DebugInfoOffset(0).into(),
             entries_buf: EndianSlice::new(&entries_buf, LittleEndian),
@@ -4782,7 +4760,7 @@ mod tests {
         let mut unit = UnitHeader {
             encoding,
             unit_length: 0,
-            type_: UnitType::Compilation,
+            unit_type: UnitType::Compilation,
             debug_abbrev_offset: DebugAbbrevOffset(0),
             unit_offset: DebugInfoOffset(0).into(),
             entries_buf: EndianSlice::new(&entries_buf, LittleEndian),
@@ -5108,7 +5086,7 @@ mod tests {
         let mut unit = UnitHeader {
             encoding,
             unit_length: 0,
-            type_: UnitType::Compilation,
+            unit_type: UnitType::Compilation,
             debug_abbrev_offset: DebugAbbrevOffset(0),
             unit_offset: DebugInfoOffset(0).into(),
             entries_buf: EndianSlice::new(&[], LittleEndian),
@@ -5147,7 +5125,7 @@ mod tests {
         let mut unit = UnitHeader {
             encoding,
             unit_length: 0,
-            type_: UnitType::Type {
+            unit_type: UnitType::Type {
                 type_signature: DebugTypeSignature(0),
                 type_offset: UnitOffset(0),
             },
@@ -5301,7 +5279,7 @@ mod tests {
         let mut unit = UnitHeader {
             encoding,
             unit_length: 0,
-            type_: UnitType::Compilation,
+            unit_type: UnitType::Compilation,
             debug_abbrev_offset: DebugAbbrevOffset(0),
             unit_offset: DebugInfoOffset(0).into(),
             entries_buf: EndianSlice::new(&[], LittleEndian),
@@ -5467,7 +5445,7 @@ mod tests {
         let mut unit = UnitHeader {
             encoding,
             unit_length: 0,
-            type_: UnitType::Compilation,
+            unit_type: UnitType::Compilation,
             debug_abbrev_offset: DebugAbbrevOffset(0),
             unit_offset: DebugInfoOffset(0).into(),
             entries_buf: EndianSlice::new(&entries_buf, LittleEndian),
@@ -5538,7 +5516,7 @@ mod tests {
         let mut unit = UnitHeader {
             encoding,
             unit_length: 0,
-            type_: UnitType::Compilation,
+            unit_type: UnitType::Compilation,
             debug_abbrev_offset: DebugAbbrevOffset(0),
             unit_offset: DebugInfoOffset(0).into(),
             entries_buf: EndianSlice::new(entries, LittleEndian),
@@ -5587,7 +5565,7 @@ mod tests {
         let mut unit = UnitHeader {
             encoding,
             unit_length: 0,
-            type_: UnitType::Type {
+            unit_type: UnitType::Type {
                 type_signature: DebugTypeSignature(0),
                 type_offset: UnitOffset(0),
             },
@@ -5640,7 +5618,7 @@ mod tests {
         let mut unit = UnitHeader {
             encoding,
             unit_length: 0,
-            type_: UnitType::Compilation,
+            unit_type: UnitType::Compilation,
             debug_abbrev_offset: DebugAbbrevOffset(0),
             unit_offset: DebugInfoOffset(0).into(),
             entries_buf: EndianSlice::new(&[], LittleEndian),
