@@ -1560,6 +1560,10 @@ pub(crate) mod convert {
             entry_ids: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
             dwarf: &read::Dwarf<R>,
         ) -> ConvertResult<ConvertUnit<R>> {
+            match from_header.type_() {
+                read::UnitType::Compilation => (),
+                _ => return Err(ConvertError::UnsupportedUnitType),
+            }
             let base_id = BaseId::default();
 
             let from_unit = dwarf.unit(from_header)?;

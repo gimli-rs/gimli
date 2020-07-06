@@ -356,6 +356,8 @@ mod convert {
         UnsupportedOperation,
         /// Operation branch target is invalid.
         InvalidBranchTarget,
+        /// Writing this unit type is not supported yet.
+        UnsupportedUnitType,
     }
 
     impl fmt::Display for ConvertError {
@@ -403,6 +405,7 @@ mod convert {
                     "Writing this expression operation is not implemented yet."
                 ),
                 InvalidBranchTarget => write!(f, "Operation branch target is invalid."),
+                UnsupportedUnitType => write!(f, "Writing this unit type is not supported yet."),
             }
         }
     }
