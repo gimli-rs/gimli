@@ -4,7 +4,7 @@ use std::{slice, usize};
 
 use crate::common::{
     DebugAbbrevOffset, DebugInfoOffset, DebugLineOffset, DebugMacinfoOffset, DebugMacroOffset,
-    DebugStrOffset, DebugTypeSignature, Encoding, Format, SectionId,
+    DebugStrOffset, DebugTypeSignature, DwoId, Encoding, Format, SectionId,
 };
 use crate::constants;
 use crate::leb128::write::{sleb128_size, uleb128_size};
@@ -1560,6 +1560,10 @@ pub(crate) mod convert {
             entry_ids: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
             dwarf: &read::Dwarf<R>,
         ) -> ConvertResult<ConvertUnit<R>> {
+            match from_header.type_() {
+                read::UnitType::Compilation => (),
+                _ => return Err(ConvertError::UnsupportedUnitType),
+            }
             let base_id = BaseId::default();
 
             let from_unit = dwarf.unit(from_header)?;
@@ -1900,6 +1904,7 @@ pub(crate) mod convert {
                 read::AttributeValue::SecOffset(_) => {
                     return Err(ConvertError::InvalidAttributeValue);
                 }
+                read::AttributeValue::DwoId(DwoId(val)) => AttributeValue::Udata(val),
             };
             Ok(Some(to))
         }

@@ -314,3 +314,8 @@ impl SectionId {
         })
     }
 }
+
+/// An optionally-provided implementation-defined compilation unit ID to enable
+/// split DWARF and linking a split compilation unit back together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DwoId(pub u64);

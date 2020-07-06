@@ -927,6 +927,27 @@ where
             header.offset().as_debug_info_offset().unwrap().0,
         )?;
 
+        match header.type_() {
+            UnitType::Compilation | UnitType::Partial => (),
+            UnitType::Type {
+                type_signature,
+                type_offset,
+            }
+            | UnitType::SplitType {
+                type_signature,
+                type_offset,
+            } => {
+                write!(buf, "  signature        = ")?;
+                dump_type_signature(buf, type_signature)?;
+                writeln!(buf)?;
+                writeln!(buf, "  typeoffset       = 0x{:08x}", type_offset.0,)?;
+            }
+            UnitType::Skeleton(dwo_id) | UnitType::SplitCompilation(dwo_id) => {
+                write!(buf, "  dwo_id           = ")?;
+                writeln!(buf, "0x{:016x}", dwo_id.0)?;
+            }
+        }
+
         let unit = match dwarf.unit(header) {
             Ok(unit) => unit,
             Err(err) => {
@@ -1292,6 +1313,9 @@ fn dump_attr_value<R: Reader, W: Write>(
             write!(w, "0x{:08x}", value)?;
             dump_file_index(w, value, unit, dwarf)?;
             writeln!(w)?;
+        }
+        gimli::AttributeValue::DwoId(value) => {
+            writeln!(w, "0x{:016x}", value.0)?;
         }
     }
 
