@@ -932,6 +932,10 @@ where
             UnitType::Type {
                 type_signature,
                 type_offset,
+            }
+            | UnitType::SplitType {
+                type_signature,
+                type_offset,
             } => {
                 write!(buf, "  signature        = ")?;
                 dump_type_signature(buf, type_signature)?;
