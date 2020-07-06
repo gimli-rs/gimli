@@ -1654,10 +1654,12 @@ impl<R: Reader> Attribute<R> {
             constants::DW_AT_str_offsets_base => {
                 stroffsetsptr!();
             }
-            constants::DW_AT_addr_base => {
+            constants::DW_AT_addr_base |
+            constants::DW_AT_GNU_addr_base => {
                 addrptr!();
             }
-            constants::DW_AT_rnglists_base => {
+            constants::DW_AT_rnglists_base |
+            constants::DW_AT_GNU_ranges_base => {
                 rnglistsptr!();
             }
             constants::DW_AT_dwo_name => {

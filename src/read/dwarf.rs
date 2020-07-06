@@ -563,7 +563,7 @@ impl<R: Reader> Unit<R> {
                             unit.str_offsets_base = base;
                         }
                     }
-                    constants::DW_AT_addr_base => {
+                    constants::DW_AT_addr_base | constants::DW_AT_GNU_addr_base => {
                         if let AttributeValue::DebugAddrBase(base) = attr.value() {
                             unit.addr_base = base;
                         }
@@ -573,7 +573,7 @@ impl<R: Reader> Unit<R> {
                             unit.loclists_base = base;
                         }
                     }
-                    constants::DW_AT_rnglists_base => {
+                    constants::DW_AT_rnglists_base | constants::DW_AT_GNU_ranges_base => {
                         if let AttributeValue::DebugRngListsBase(base) = attr.value() {
                             unit.rnglists_base = base;
                         }
