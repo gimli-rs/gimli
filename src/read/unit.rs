@@ -8,7 +8,7 @@ use crate::common::{
     DebugAbbrevOffset, DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineOffset,
     DebugLineStrOffset, DebugLocListsBase, DebugLocListsIndex, DebugMacinfoOffset,
     DebugMacroOffset, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
-    DebugStrOffsetsIndex, DebugTypeSignature, DebugTypesOffset, Encoding, Format,
+    DebugStrOffsetsIndex, DebugTypeSignature, DebugTypesOffset, DwoId, Encoding, Format,
     LocationListsOffset, RangeListsOffset, SectionId, UnitSectionOffset,
 };
 use crate::constants;
@@ -270,6 +270,18 @@ where
     /// A unit with type `DW_UT_partial`. The root DIE of this unit should be a
     /// `DW_TAG_partial_unit`.
     Partial,
+    /// A unit with type `DW_UT_skeleton`. The enclosed dwo_id can be used to
+    /// link this with the corresponding `SplitCompilation` unit in a dwo file.
+    /// NB: The non-standard GNU split DWARF extension to DWARF 4 will instead
+    /// be a `Compilation` unit with the dwo_id present as an attribute on the
+    /// root DIE.
+    Skeleton(DwoId),
+    /// A unit with type `DW_UT_split_compile`. The enclosed dwo_id can be used to
+    /// link this with the corresponding `Skeleton` unit in the original binary.
+    /// NB: The non-standard GNU split DWARF extension to DWARF 4 will instead
+    /// be a `Compilation` unit with the dwo_id present as an attribute on the
+    /// root DIE.
+    SplitCompilation(DwoId),
 }
 
 impl<Offset> UnitType<Offset>
@@ -284,6 +296,8 @@ where
             UnitType::Compilation => constants::DW_UT_compile,
             UnitType::Type { .. } => constants::DW_UT_type,
             UnitType::Partial => constants::DW_UT_partial,
+            UnitType::Skeleton(_) => constants::DW_UT_skeleton,
+            UnitType::SplitCompilation(_) => constants::DW_UT_split_compile,
         }
     }
 }
@@ -356,6 +370,7 @@ where
                 let type_offset_size = self.encoding.format.word_size() as usize;
                 type_signature_size + type_offset_size
             }
+            UnitType::Skeleton(_) | UnitType::SplitCompilation(_) => 8,
         };
 
         unit_length_size
@@ -596,6 +611,14 @@ where
             }
         }
         constants::DW_UT_partial => UnitType::Partial,
+        constants::DW_UT_skeleton => {
+            let dwo_id = parse_dwo_id(&mut rest)?;
+            UnitType::Skeleton(dwo_id)
+        }
+        constants::DW_UT_split_compile => {
+            let dwo_id = parse_dwo_id(&mut rest)?;
+            UnitType::SplitCompilation(dwo_id)
+        }
         _ => return Err(Error::UnsupportedUnitType),
     };
 
@@ -607,6 +630,11 @@ where
         unit_offset,
         rest,
     ))
+}
+
+/// Parse a dwo_id from a header
+fn parse_dwo_id<R: Reader>(input: &mut R) -> Result<DwoId> {
+    Ok(DwoId(input.read_u64()?))
 }
 
 /// A Debugging Information Entry (DIE).
@@ -1068,6 +1096,10 @@ where
     /// An index into the filename entries from the line number information
     /// table for the compilation unit containing this value.
     FileIndex(u64),
+
+    /// An implementation-defined identifier uniquely identifying a compilation
+    /// unit.
+    DwoId(DwoId),
 }
 
 /// An attribute in a `DebuggingInformationEntry`, consisting of a name and
@@ -1266,6 +1298,14 @@ impl<R: Reader> Attribute<R> {
             () => {
                 if let Some(offset) = self.offset_value() {
                     return AttributeValue::DebugStrOffsetsBase(DebugStrOffsetsBase(offset));
+                }
+            };
+        }
+        // This isn't a separate form but it's useful to distinguish it from a generic udata.
+        macro_rules! dwoid {
+            () => {
+                if let Some(value) = self.udata_value() {
+                    return AttributeValue::DwoId(DwoId(value));
                 }
             };
         }
@@ -1671,6 +1711,9 @@ impl<R: Reader> Attribute<R> {
             }
             constants::DW_AT_loclists_base => {
                 loclistsptr!();
+            }
+            constants::DW_AT_GNU_dwo_id => {
+                dwoid!();
             }
             _ => {}
         }
@@ -3162,6 +3205,10 @@ mod tests {
                         .L64(type_signature.0)
                         .offset(type_offset.0, unit.format())
                 }
+                UnitType::Skeleton(dwo_id) | UnitType::SplitCompilation(dwo_id) => {
+                    unit.unit_offset = DebugInfoOffset(size as usize).into();
+                    section.L64(dwo_id.0)
+                }
             };
 
             let section = section.append_bytes(unit.entries_buf.into()).mark(&end);
@@ -3536,6 +3583,124 @@ mod tests {
             encoding,
             unit_length: 0,
             unit_type: UnitType::Partial,
+            debug_abbrev_offset: DebugAbbrevOffset(0x0102_0304_0506_0708),
+            unit_offset: DebugInfoOffset(0).into(),
+            entries_buf: EndianSlice::new(expected_rest, LittleEndian),
+        };
+        let section = Section::with_endian(Endian::Little)
+            .unit(&mut expected_unit)
+            .append_bytes(expected_rest);
+        let buf = section.get_contents().unwrap();
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
+
+        assert_eq!(
+            parse_unit_header(rest, DebugInfoOffset(0).into()),
+            Ok(expected_unit)
+        );
+        assert_eq!(*rest, EndianSlice::new(expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_v5_skeleton_unit_header_32_ok() {
+        let expected_rest = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 5,
+            address_size: 4,
+        };
+        let mut expected_unit = UnitHeader {
+            encoding,
+            unit_length: 0,
+            unit_type: UnitType::Skeleton(DwoId(0x0706_5040_0302_1000)),
+            debug_abbrev_offset: DebugAbbrevOffset(0x0807_0605),
+            unit_offset: DebugInfoOffset(0).into(),
+            entries_buf: EndianSlice::new(expected_rest, LittleEndian),
+        };
+        let section = Section::with_endian(Endian::Little)
+            .unit(&mut expected_unit)
+            .append_bytes(expected_rest);
+        let buf = section.get_contents().unwrap();
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
+
+        assert_eq!(
+            parse_unit_header(rest, DebugInfoOffset(0).into()),
+            Ok(expected_unit)
+        );
+        assert_eq!(*rest, EndianSlice::new(expected_rest, LittleEndian));
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_v5_skeleton_unit_header_64_ok() {
+        let expected_rest = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let encoding = Encoding {
+            format: Format::Dwarf64,
+            version: 5,
+            address_size: 8,
+        };
+        let mut expected_unit = UnitHeader {
+            encoding,
+            unit_length: 0,
+            unit_type: UnitType::Skeleton(DwoId(0x0706_5040_0302_1000)),
+            debug_abbrev_offset: DebugAbbrevOffset(0x0102_0304_0506_0708),
+            unit_offset: DebugInfoOffset(0).into(),
+            entries_buf: EndianSlice::new(expected_rest, LittleEndian),
+        };
+        let section = Section::with_endian(Endian::Little)
+            .unit(&mut expected_unit)
+            .append_bytes(expected_rest);
+        let buf = section.get_contents().unwrap();
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
+
+        assert_eq!(
+            parse_unit_header(rest, DebugInfoOffset(0).into()),
+            Ok(expected_unit)
+        );
+        assert_eq!(*rest, EndianSlice::new(expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_v5_split_compilation_unit_header_32_ok() {
+        let expected_rest = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 5,
+            address_size: 4,
+        };
+        let mut expected_unit = UnitHeader {
+            encoding,
+            unit_length: 0,
+            unit_type: UnitType::SplitCompilation(DwoId(0x0706_5040_0302_1000)),
+            debug_abbrev_offset: DebugAbbrevOffset(0x0807_0605),
+            unit_offset: DebugInfoOffset(0).into(),
+            entries_buf: EndianSlice::new(expected_rest, LittleEndian),
+        };
+        let section = Section::with_endian(Endian::Little)
+            .unit(&mut expected_unit)
+            .append_bytes(expected_rest);
+        let buf = section.get_contents().unwrap();
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
+
+        assert_eq!(
+            parse_unit_header(rest, DebugInfoOffset(0).into()),
+            Ok(expected_unit)
+        );
+        assert_eq!(*rest, EndianSlice::new(expected_rest, LittleEndian));
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_v5_split_compilation_unit_header_64_ok() {
+        let expected_rest = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let encoding = Encoding {
+            format: Format::Dwarf64,
+            version: 5,
+            address_size: 8,
+        };
+        let mut expected_unit = UnitHeader {
+            encoding,
+            unit_length: 0,
+            unit_type: UnitType::SplitCompilation(DwoId(0x0706_5040_0302_1000)),
             debug_abbrev_offset: DebugAbbrevOffset(0x0102_0304_0506_0708),
             unit_offset: DebugInfoOffset(0).into(),
             entries_buf: EndianSlice::new(expected_rest, LittleEndian),
