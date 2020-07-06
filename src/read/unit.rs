@@ -267,6 +267,9 @@ where
         /// The offset within this type unit where the type is defined.
         type_offset: UnitOffset<Offset>,
     },
+    /// A unit with type `DW_UT_partial`. The root DIE of this unit should be a
+    /// `DW_TAG_partial_unit`.
+    Partial,
 }
 
 impl<Offset> UnitType<Offset>
@@ -280,6 +283,7 @@ where
         match self {
             UnitType::Compilation => constants::DW_UT_compile,
             UnitType::Type { .. } => constants::DW_UT_type,
+            UnitType::Partial => constants::DW_UT_partial,
         }
     }
 }
@@ -346,7 +350,7 @@ where
         let address_size_size = 1;
         let unit_type_size = if self.encoding.version == 5 { 1 } else { 0 };
         let type_specific_size = match self.unit_type {
-            UnitType::Compilation => 0,
+            UnitType::Compilation | UnitType::Partial => 0,
             UnitType::Type { .. } => {
                 let type_signature_size = 8;
                 let type_offset_size = self.encoding.format.word_size() as usize;
@@ -591,6 +595,7 @@ where
                 type_offset,
             }
         }
+        constants::DW_UT_partial => UnitType::Partial,
         _ => return Err(Error::UnsupportedUnitType),
     };
 
@@ -3140,7 +3145,7 @@ mod tests {
             };
 
             let section = match unit.type_() {
-                UnitType::Compilation => {
+                UnitType::Compilation | UnitType::Partial => {
                     unit.unit_offset = DebugInfoOffset(size as usize).into();
                     section
                 }
@@ -3472,6 +3477,65 @@ mod tests {
             encoding,
             unit_length: 0,
             unit_type: UnitType::Compilation,
+            debug_abbrev_offset: DebugAbbrevOffset(0x0102_0304_0506_0708),
+            unit_offset: DebugInfoOffset(0).into(),
+            entries_buf: EndianSlice::new(expected_rest, LittleEndian),
+        };
+        let section = Section::with_endian(Endian::Little)
+            .unit(&mut expected_unit)
+            .append_bytes(expected_rest);
+        let buf = section.get_contents().unwrap();
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
+
+        assert_eq!(
+            parse_unit_header(rest, DebugInfoOffset(0).into()),
+            Ok(expected_unit)
+        );
+        assert_eq!(*rest, EndianSlice::new(expected_rest, LittleEndian));
+    }
+
+    #[test]
+    fn test_parse_v5_partial_unit_header_32_ok() {
+        let expected_rest = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 5,
+            address_size: 4,
+        };
+        let mut expected_unit = UnitHeader {
+            encoding,
+            unit_length: 0,
+            unit_type: UnitType::Partial,
+            debug_abbrev_offset: DebugAbbrevOffset(0x0807_0605),
+            unit_offset: DebugInfoOffset(0).into(),
+            entries_buf: EndianSlice::new(expected_rest, LittleEndian),
+        };
+        let section = Section::with_endian(Endian::Little)
+            .unit(&mut expected_unit)
+            .append_bytes(expected_rest);
+        let buf = section.get_contents().unwrap();
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
+
+        assert_eq!(
+            parse_unit_header(rest, DebugInfoOffset(0).into()),
+            Ok(expected_unit)
+        );
+        assert_eq!(*rest, EndianSlice::new(expected_rest, LittleEndian));
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_parse_v5_partial_unit_header_64_ok() {
+        let expected_rest = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let encoding = Encoding {
+            format: Format::Dwarf64,
+            version: 5,
+            address_size: 8,
+        };
+        let mut expected_unit = UnitHeader {
+            encoding,
+            unit_length: 0,
+            unit_type: UnitType::Partial,
             debug_abbrev_offset: DebugAbbrevOffset(0x0102_0304_0506_0708),
             unit_offset: DebugInfoOffset(0).into(),
             entries_buf: EndianSlice::new(expected_rest, LittleEndian),
