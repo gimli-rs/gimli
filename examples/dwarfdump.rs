@@ -1184,6 +1184,7 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "<.debug_addr+0x{:08x}>", base.0)?;
         }
         gimli::AttributeValue::DebugAddrIndex(index) => {
+            write!(w, "(indirect address, index {:#x}): ", index.0)?;
             let address = dwarf.address(unit, index)?;
             writeln!(w, "0x{:08x}", address)?;
         }
@@ -1215,6 +1216,7 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "<.debug_loclists+0x{:08x}>", base.0)?;
         }
         gimli::AttributeValue::DebugLocListsIndex(index) => {
+            write!(w, "(indirect location list, index {:#x}): ", index.0)?;
             let offset = dwarf.locations_offset(unit, index)?;
             dump_loc_list(w, offset, unit, dwarf)?;
         }
@@ -1231,6 +1233,7 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "<.debug_rnglists+0x{:08x}>", base.0)?;
         }
         gimli::AttributeValue::DebugRngListsIndex(index) => {
+            write!(w, "(indirect range list, index {:#x}): ", index.0)?;
             let offset = dwarf.ranges_offset(unit, index)?;
             dump_range_list(w, offset, unit, dwarf)?;
         }
@@ -1252,6 +1255,7 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "<.debug_str_offsets+0x{:08x}>", base.0)?;
         }
         gimli::AttributeValue::DebugStrOffsetsIndex(index) => {
+            write!(w, "(indirect string, index {:#x}): ", index.0)?;
             let offset = dwarf.debug_str_offsets.get_str_offset(
                 unit.encoding().format,
                 unit.str_offsets_base,
