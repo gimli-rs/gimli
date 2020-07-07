@@ -306,6 +306,9 @@ impl SectionId {
             SectionId::DebugAbbrev => ".debug_abbrev.dwo",
             SectionId::DebugInfo => ".debug_info.dwo",
             SectionId::DebugLine => ".debug_line.dwo",
+            // The debug_loc section can be present in the dwo when using the
+            // GNU split-dwarf extension to DWARF4.
+            SectionId::DebugLoc => ".debug_loc.dwo",
             SectionId::DebugLocLists => ".debug_loclists.dwo",
             SectionId::DebugMacro => ".debug_macro.dwo",
             SectionId::DebugStr => ".debug_str.dwo",

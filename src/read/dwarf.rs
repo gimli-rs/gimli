@@ -639,6 +639,15 @@ impl<R: Reader> Unit<R> {
     pub fn entries_raw(&self, offset: Option<UnitOffset<R::Offset>>) -> Result<EntriesRaw<R>> {
         self.header.entries_raw(&self.abbreviations, offset)
     }
+
+    /// Copy attributes that are subject to relocation from another unit. This is intended
+    /// to be used to copy attributes from a skeleton compilation unit to the corresponding
+    /// split compilation unit.
+    pub fn copy_relocated_attributes(&mut self, other: &Unit<R>) {
+        self.low_pc = other.low_pc;
+        self.addr_base = other.addr_base;
+        self.rnglists_base = other.rnglists_base;
+    }
 }
 
 impl<T: ReaderOffset> UnitSectionOffset<T> {
