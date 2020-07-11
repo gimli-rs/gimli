@@ -311,6 +311,7 @@ impl SectionId {
             SectionId::DebugLoc => ".debug_loc.dwo",
             SectionId::DebugLocLists => ".debug_loclists.dwo",
             SectionId::DebugMacro => ".debug_macro.dwo",
+            SectionId::DebugRngLists => ".debug_rnglists.dwo",
             SectionId::DebugStr => ".debug_str.dwo",
             SectionId::DebugStrOffsets => ".debug_str_offsets.dwo",
             _ => return None,
