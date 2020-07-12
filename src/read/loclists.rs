@@ -388,9 +388,15 @@ pub enum RawLocListEntry<R: Reader> {
     },
 }
 
-fn parse_data<R: Reader>(input: &mut R) -> Result<Expression<R>> {
-    let len = R::Offset::from_u64(input.read_uleb128()?)?;
-    Ok(Expression(input.split(len)?))
+fn parse_data<R: Reader>(input: &mut R, encoding: Encoding) -> Result<Expression<R>> {
+    if encoding.version >= 5 {
+        let len = R::Offset::from_u64(input.read_uleb128()?)?;
+        Ok(Expression(input.split(len)?))
+    } else {
+        // In the GNU split-dwarf extension this is a fixed 2 byte value.
+        let len = R::Offset::from_u16(input.read_u16()?);
+        Ok(Expression(input.split(len)?))
+    }
 }
 
 impl<R: Reader> RawLocListEntry<R> {
@@ -421,20 +427,25 @@ impl<R: Reader> RawLocListEntry<R> {
                 constants::DW_LLE_startx_endx => Some(RawLocListEntry::StartxEndx {
                     begin: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
                     end: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
-                    data: parse_data(input)?,
+                    data: parse_data(input, encoding)?,
                 }),
                 constants::DW_LLE_startx_length => Some(RawLocListEntry::StartxLength {
                     begin: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
-                    length: input.read_uleb128()?,
-                    data: parse_data(input)?,
+                    length: if encoding.version >= 5 {
+                        input.read_uleb128()?
+                    } else {
+                        // In the GNU split-dwarf extension this is a fixed 4 byte value.
+                        input.read_u32()? as u64
+                    },
+                    data: parse_data(input, encoding)?,
                 }),
                 constants::DW_LLE_offset_pair => Some(RawLocListEntry::OffsetPair {
                     begin: input.read_uleb128()?,
                     end: input.read_uleb128()?,
-                    data: parse_data(input)?,
+                    data: parse_data(input, encoding)?,
                 }),
                 constants::DW_LLE_default_location => Some(RawLocListEntry::DefaultLocation {
-                    data: parse_data(input)?,
+                    data: parse_data(input, encoding)?,
                 }),
                 constants::DW_LLE_base_address => Some(RawLocListEntry::BaseAddress {
                     addr: input.read_address(encoding.address_size)?,
@@ -442,12 +453,12 @@ impl<R: Reader> RawLocListEntry<R> {
                 constants::DW_LLE_start_end => Some(RawLocListEntry::StartEnd {
                     begin: input.read_address(encoding.address_size)?,
                     end: input.read_address(encoding.address_size)?,
-                    data: parse_data(input)?,
+                    data: parse_data(input, encoding)?,
                 }),
                 constants::DW_LLE_start_length => Some(RawLocListEntry::StartLength {
                     begin: input.read_address(encoding.address_size)?,
                     length: input.read_uleb128()?,
-                    data: parse_data(input)?,
+                    data: parse_data(input, encoding)?,
                 }),
                 _ => {
                     return Err(Error::InvalidAddressRange);
