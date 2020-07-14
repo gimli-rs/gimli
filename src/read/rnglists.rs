@@ -1,5 +1,5 @@
 use crate::common::{
-    DebugAddrBase, DebugAddrIndex, DebugRngListsBase, DebugRngListsIndex, Encoding,
+    DebugAddrBase, DebugAddrIndex, DebugRngListsBase, DebugRngListsIndex, DwarfFileType, Encoding,
     RangeListsOffset, SectionId,
 };
 use crate::constants;
@@ -103,6 +103,27 @@ impl<R> From<R> for DebugRngLists<R> {
 
 #[allow(unused)]
 pub(crate) type RngListsHeader = ListsHeader;
+
+impl<Offset> DebugRngListsBase<Offset>
+where
+    Offset: ReaderOffset,
+{
+    /// Returns a `DebugRngListsBase` with the default value of DW_AT_rnglists_base
+    /// for the given `Encoding` and `DwarfFileType`.
+    pub fn default_for_encoding_and_file(
+        encoding: Encoding,
+        file_type: DwarfFileType,
+    ) -> DebugRngListsBase<Offset> {
+        if encoding.version >= 5 && file_type == DwarfFileType::Dwo {
+            // In .dwo files, the compiler omits the DW_AT_rnglists_base attribute (because there is
+            // only a single unit in the file) but we must skip past the header, which the attribute
+            // would normally do for us.
+            DebugRngListsBase(Offset::from_u8(RngListsHeader::size_for_encoding(encoding)))
+        } else {
+            DebugRngListsBase(Offset::from_u8(0))
+        }
+    }
+}
 
 /// The DWARF data found in `.debug_ranges` and `.debug_rnglists` sections.
 #[derive(Debug, Default, Clone, Copy)]

@@ -3,8 +3,8 @@ use alloc::string::String;
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
     DebugLocListsIndex, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
-    DebugStrOffsetsIndex, DebugTypesOffset, Encoding, LocationListsOffset, RangeListsOffset,
-    SectionId, UnitSectionOffset,
+    DebugStrOffsetsIndex, DebugTypesOffset, DwarfFileType, Encoding, LocationListsOffset,
+    RangeListsOffset, SectionId, UnitSectionOffset,
 };
 use crate::constants;
 use crate::read::{
@@ -14,23 +14,6 @@ use crate::read::{
     IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists, Reader, ReaderOffset,
     ReaderOffsetId, Result, RngListIter, Section, UnitHeader, UnitOffset,
 };
-
-/// The "type" of file with DWARF debugging information. This determines, among other things,
-/// which files DWARF sections should be loaded from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DwarfFileType {
-    /// A normal executable or object file.
-    Main,
-    /// A .dwo split DWARF file.
-    Dwo,
-    // TODO: Supplementary files, .dwps?
-}
-
-impl Default for DwarfFileType {
-    fn default() -> Self {
-        DwarfFileType::Main
-    }
-}
 
 /// All of the commonly used DWARF sections, and other common information.
 #[derive(Debug, Default)]
@@ -541,17 +524,26 @@ impl<R: Reader> Unit<R> {
     pub fn new(dwarf: &Dwarf<R>, header: UnitHeader<R>) -> Result<Self> {
         let abbreviations = header.abbreviations(&dwarf.debug_abbrev)?;
         let mut unit = Unit {
-            header,
             abbreviations,
             name: None,
             comp_dir: None,
             low_pc: 0,
-            // Defaults to 0 for GNU extensions.
-            str_offsets_base: DebugStrOffsetsBase(R::Offset::from_u8(0)),
+            str_offsets_base: DebugStrOffsetsBase::default_for_encoding_and_file(
+                header.encoding(),
+                dwarf.file_type,
+            ),
+            // NB: Because the .debug_addr section never lives in a .dwo, we can assume its base is always 0 or provided.
             addr_base: DebugAddrBase(R::Offset::from_u8(0)),
-            loclists_base: DebugLocListsBase(R::Offset::from_u8(0)),
-            rnglists_base: DebugRngListsBase(R::Offset::from_u8(0)),
+            loclists_base: DebugLocListsBase::default_for_encoding_and_file(
+                header.encoding(),
+                dwarf.file_type,
+            ),
+            rnglists_base: DebugRngListsBase::default_for_encoding_and_file(
+                header.encoding(),
+                dwarf.file_type,
+            ),
             line_program: None,
+            header,
         };
         let mut name = None;
         let mut comp_dir = None;
