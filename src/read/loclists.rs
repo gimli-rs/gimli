@@ -1,12 +1,12 @@
 use crate::common::{
-    DebugAddrBase, DebugAddrIndex, DebugLocListsBase, DebugLocListsIndex, Encoding, Format,
+    DebugAddrBase, DebugAddrIndex, DebugLocListsBase, DebugLocListsIndex, Encoding,
     LocationListsOffset, SectionId,
 };
 use crate::constants;
 use crate::endianity::Endianity;
 use crate::read::{
-    DebugAddr, EndianSlice, Error, Expression, Range, RawRange, Reader, ReaderOffset,
-    ReaderOffsetId, Result, Section,
+    lists::ListsHeader, DebugAddr, EndianSlice, Error, Expression, Range, RawRange, Reader,
+    ReaderOffset, ReaderOffsetId, Result, Section,
 };
 
 /// The raw contents of the `.debug_loc` section.
@@ -100,63 +100,8 @@ impl<R> From<R> for DebugLocLists<R> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct LocListsHeader {
-    encoding: Encoding,
-    offset_entry_count: u32,
-}
-
-impl Default for LocListsHeader {
-    fn default() -> Self {
-        LocListsHeader {
-            encoding: Encoding {
-                format: Format::Dwarf32,
-                version: 5,
-                address_size: 0,
-            },
-            offset_entry_count: 0,
-        }
-    }
-}
-
-impl LocListsHeader {
-    /// Return the serialized size of the table header.
-    #[allow(dead_code)]
-    #[inline]
-    fn size(self) -> u8 {
-        // initial_length + version + address_size + segment_selector_size + offset_entry_count
-        self.encoding.format.initial_length_size() + 2 + 1 + 1 + 4
-    }
-}
-
-// TODO: add an iterator over headers in the .debug_loclists section
-#[allow(dead_code)]
-fn parse_header<R: Reader>(input: &mut R) -> Result<LocListsHeader> {
-    let (length, format) = input.read_initial_length()?;
-    input.truncate(length)?;
-
-    let version = input.read_u16()?;
-    if version != 5 {
-        return Err(Error::UnknownVersion(u64::from(version)));
-    }
-
-    let address_size = input.read_u8()?;
-    let segment_selector_size = input.read_u8()?;
-    if segment_selector_size != 0 {
-        return Err(Error::UnsupportedSegmentSize);
-    }
-    let offset_entry_count = input.read_u32()?;
-
-    let encoding = Encoding {
-        format,
-        version,
-        address_size,
-    };
-    Ok(LocListsHeader {
-        encoding,
-        offset_entry_count,
-    })
-}
+#[allow(unused)]
+pub(crate) type LocListsHeader = ListsHeader;
 
 /// The DWARF data found in `.debug_loc` and `.debug_loclists` sections.
 #[derive(Debug, Default, Clone, Copy)]
@@ -600,6 +545,7 @@ pub struct LocationListEntry<R: Reader> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::Format;
     use crate::endianity::LittleEndian;
     use crate::read::{EndianSlice, Range};
     use crate::test_util::GimliSectionMethods;
