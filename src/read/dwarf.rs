@@ -660,7 +660,9 @@ impl<R: Reader> Unit<R> {
     pub fn copy_relocated_attributes(&mut self, other: &Unit<R>) {
         self.low_pc = other.low_pc;
         self.addr_base = other.addr_base;
-        self.rnglists_base = other.rnglists_base;
+        if self.header.version() < 5 {
+            self.rnglists_base = other.rnglists_base;
+        }
     }
 }
 
