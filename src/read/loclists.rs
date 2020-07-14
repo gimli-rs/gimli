@@ -1462,4 +1462,53 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_loclists_gnu_v4_split_dwarf() {
+        #[rustfmt::skip]
+        let buf = [
+            0x03, // DW_LLE_startx_length
+            0x00, // ULEB encoded b7
+            0x08, 0x00, 0x00, 0x00, // Fixed 4 byte length of 8
+            0x03, 0x00, // Fixed two byte length of the location
+            0x11, 0x00, // DW_OP_constu 0
+            0x9f, // DW_OP_stack_value
+            // Padding data
+            //0x99, 0x99, 0x99, 0x99
+        ];
+        let data_buf = [0x11, 0x00, 0x9f];
+        let expected_data = EndianSlice::new(&data_buf, LittleEndian);
+        let debug_loc = DebugLoc::new(&buf, LittleEndian);
+        let debug_loclists = DebugLocLists::new(&[], LittleEndian);
+        let loclists = LocationLists::new(debug_loc, debug_loclists);
+        let debug_addr =
+            &DebugAddr::from(EndianSlice::new(&[0x01, 0x02, 0x03, 0x04], LittleEndian));
+        let debug_addr_base = DebugAddrBase(0);
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 4,
+            address_size: 4,
+        };
+
+        // An invalid location range.
+        let mut locations = loclists
+            .locations_dwo(
+                LocationListsOffset(0x0),
+                encoding,
+                0,
+                debug_addr,
+                debug_addr_base,
+            )
+            .unwrap();
+        assert_eq!(
+            locations.next(),
+            Ok(Some(LocationListEntry {
+                range: Range {
+                    begin: 0x0403_0201,
+                    end: 0x0403_0209
+                },
+                data: Expression(expected_data),
+            }))
+        );
+    }
 }
