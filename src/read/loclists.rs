@@ -196,6 +196,25 @@ impl<R: Reader> LocationLists<R> {
         ))
     }
 
+    /// Similar to `locations`, but with special handling for .dwo files.
+    /// This should only been used when this `LocationLists` was loaded from a
+    /// .dwo file.
+    pub fn locations_dwo(
+        &self,
+        offset: LocationListsOffset<R::Offset>,
+        unit_encoding: Encoding,
+        base_address: u64,
+        debug_addr: &DebugAddr<R>,
+        debug_addr_base: DebugAddrBase<R::Offset>,
+    ) -> Result<LocListIter<R>> {
+        Ok(LocListIter::new(
+            self.raw_locations_dwo(offset, unit_encoding)?,
+            base_address,
+            debug_addr.clone(),
+            debug_addr_base,
+        ))
+    }
+
     /// Iterate over the raw `LocationListEntry`s starting at the given offset.
     ///
     /// The `unit_encoding` must match the compilation unit that the
@@ -211,13 +230,37 @@ impl<R: Reader> LocationLists<R> {
         offset: LocationListsOffset<R::Offset>,
         unit_encoding: Encoding,
     ) -> Result<RawLocListIter<R>> {
+        let (mut input, format) = if unit_encoding.version <= 4 {
+            (self.debug_loc.section.clone(), LocListsFormat::Bare)
+        } else {
+            (self.debug_loclists.section.clone(), LocListsFormat::LLE)
+        };
+        input.skip(offset.0)?;
+        Ok(RawLocListIter::new(input, unit_encoding, format))
+    }
+
+    /// Similar to `raw_locations`, but with special handling for .dwo files.
+    /// This should only been used when this `LocationLists` was loaded from a
+    /// .dwo file.
+    pub fn raw_locations_dwo(
+        &self,
+        offset: LocationListsOffset<R::Offset>,
+        unit_encoding: Encoding,
+    ) -> Result<RawLocListIter<R>> {
         let mut input = if unit_encoding.version <= 4 {
+            // In the GNU split dwarf extension the locations are present in the
+            // .debug_loc section but are encoded with the DW_LLE values used
+            // for the DWARF 5 .debug_loclists section.
             self.debug_loc.section.clone()
         } else {
             self.debug_loclists.section.clone()
         };
         input.skip(offset.0)?;
-        Ok(RawLocListIter::new(input, unit_encoding))
+        Ok(RawLocListIter::new(
+            input,
+            unit_encoding,
+            LocListsFormat::LLE,
+        ))
     }
 
     /// Returns the `.debug_loclists` offset at the given `base` and `index`.
@@ -251,6 +294,15 @@ impl<R: Reader> LocationLists<R> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LocListsFormat {
+    /// The bare location list format used before DWARF 5.
+    Bare,
+    /// The DW_LLE encoded range list format used in DWARF 5 and the non-standard GNU
+    /// split dwarf extension.
+    LLE,
+}
+
 /// A raw iterator over a location list.
 ///
 /// This iterator does not perform any processing of the location entries,
@@ -259,6 +311,7 @@ impl<R: Reader> LocationLists<R> {
 pub struct RawLocListIter<R: Reader> {
     input: R,
     encoding: Encoding,
+    format: LocListsFormat,
 }
 
 /// A raw entry in .debug_loclists.
@@ -342,70 +395,76 @@ fn parse_data<R: Reader>(input: &mut R) -> Result<Expression<R>> {
 
 impl<R: Reader> RawLocListEntry<R> {
     /// Parse a location list entry from `.debug_loclists`
-    fn parse(input: &mut R, encoding: Encoding) -> Result<Option<Self>> {
-        if encoding.version < 5 {
-            let range = RawRange::parse(input, encoding.address_size)?;
-            return Ok(if range.is_end() {
-                None
-            } else if range.is_base_address(encoding.address_size) {
-                Some(RawLocListEntry::BaseAddress { addr: range.end })
-            } else {
-                let len = R::Offset::from_u16(input.read_u16()?);
-                let data = Expression(input.split(len)?);
-                Some(RawLocListEntry::AddressOrOffsetPair {
-                    begin: range.begin,
-                    end: range.end,
-                    data,
-                })
-            });
-        }
-        Ok(match constants::DwLle(input.read_u8()?) {
-            constants::DW_LLE_end_of_list => None,
-            constants::DW_LLE_base_addressx => Some(RawLocListEntry::BaseAddressx {
-                addr: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
-            }),
-            constants::DW_LLE_startx_endx => Some(RawLocListEntry::StartxEndx {
-                begin: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
-                end: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
-                data: parse_data(input)?,
-            }),
-            constants::DW_LLE_startx_length => Some(RawLocListEntry::StartxLength {
-                begin: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
-                length: input.read_uleb128()?,
-                data: parse_data(input)?,
-            }),
-            constants::DW_LLE_offset_pair => Some(RawLocListEntry::OffsetPair {
-                begin: input.read_uleb128()?,
-                end: input.read_uleb128()?,
-                data: parse_data(input)?,
-            }),
-            constants::DW_LLE_default_location => Some(RawLocListEntry::DefaultLocation {
-                data: parse_data(input)?,
-            }),
-            constants::DW_LLE_base_address => Some(RawLocListEntry::BaseAddress {
-                addr: input.read_address(encoding.address_size)?,
-            }),
-            constants::DW_LLE_start_end => Some(RawLocListEntry::StartEnd {
-                begin: input.read_address(encoding.address_size)?,
-                end: input.read_address(encoding.address_size)?,
-                data: parse_data(input)?,
-            }),
-            constants::DW_LLE_start_length => Some(RawLocListEntry::StartLength {
-                begin: input.read_address(encoding.address_size)?,
-                length: input.read_uleb128()?,
-                data: parse_data(input)?,
-            }),
-            _ => {
-                return Err(Error::InvalidAddressRange);
+    fn parse(input: &mut R, encoding: Encoding, format: LocListsFormat) -> Result<Option<Self>> {
+        match format {
+            LocListsFormat::Bare => {
+                let range = RawRange::parse(input, encoding.address_size)?;
+                return Ok(if range.is_end() {
+                    None
+                } else if range.is_base_address(encoding.address_size) {
+                    Some(RawLocListEntry::BaseAddress { addr: range.end })
+                } else {
+                    let len = R::Offset::from_u16(input.read_u16()?);
+                    let data = Expression(input.split(len)?);
+                    Some(RawLocListEntry::AddressOrOffsetPair {
+                        begin: range.begin,
+                        end: range.end,
+                        data,
+                    })
+                });
             }
-        })
+            LocListsFormat::LLE => Ok(match constants::DwLle(input.read_u8()?) {
+                constants::DW_LLE_end_of_list => None,
+                constants::DW_LLE_base_addressx => Some(RawLocListEntry::BaseAddressx {
+                    addr: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
+                }),
+                constants::DW_LLE_startx_endx => Some(RawLocListEntry::StartxEndx {
+                    begin: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
+                    end: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
+                    data: parse_data(input)?,
+                }),
+                constants::DW_LLE_startx_length => Some(RawLocListEntry::StartxLength {
+                    begin: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
+                    length: input.read_uleb128()?,
+                    data: parse_data(input)?,
+                }),
+                constants::DW_LLE_offset_pair => Some(RawLocListEntry::OffsetPair {
+                    begin: input.read_uleb128()?,
+                    end: input.read_uleb128()?,
+                    data: parse_data(input)?,
+                }),
+                constants::DW_LLE_default_location => Some(RawLocListEntry::DefaultLocation {
+                    data: parse_data(input)?,
+                }),
+                constants::DW_LLE_base_address => Some(RawLocListEntry::BaseAddress {
+                    addr: input.read_address(encoding.address_size)?,
+                }),
+                constants::DW_LLE_start_end => Some(RawLocListEntry::StartEnd {
+                    begin: input.read_address(encoding.address_size)?,
+                    end: input.read_address(encoding.address_size)?,
+                    data: parse_data(input)?,
+                }),
+                constants::DW_LLE_start_length => Some(RawLocListEntry::StartLength {
+                    begin: input.read_address(encoding.address_size)?,
+                    length: input.read_uleb128()?,
+                    data: parse_data(input)?,
+                }),
+                _ => {
+                    return Err(Error::InvalidAddressRange);
+                }
+            }),
+        }
     }
 }
 
 impl<R: Reader> RawLocListIter<R> {
     /// Construct a `RawLocListIter`.
-    pub fn new(input: R, encoding: Encoding) -> RawLocListIter<R> {
-        RawLocListIter { input, encoding }
+    fn new(input: R, encoding: Encoding, format: LocListsFormat) -> RawLocListIter<R> {
+        RawLocListIter {
+            input,
+            encoding,
+            format,
+        }
     }
 
     /// Advance the iterator to the next location.
@@ -414,7 +473,7 @@ impl<R: Reader> RawLocListIter<R> {
             return Ok(None);
         }
 
-        match RawLocListEntry::parse(&mut self.input, self.encoding) {
+        match RawLocListEntry::parse(&mut self.input, self.encoding, self.format) {
             Ok(entry) => {
                 if entry.is_none() {
                     self.input.empty();
