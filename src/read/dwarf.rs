@@ -15,6 +15,23 @@ use crate::read::{
     ReaderOffsetId, Result, RngListIter, Section, UnitHeader, UnitOffset,
 };
 
+/// The "type" of file with DWARF debugging information. This determines, among other things,
+/// which files DWARF sections should be loaded from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DwarfFileType {
+    /// A normal executable or object file.
+    Main,
+    /// A .dwo split DWARF file.
+    Dwo,
+    // TODO: Supplementary files, .dwps?
+}
+
+impl Default for DwarfFileType {
+    fn default() -> Self {
+        DwarfFileType::Main
+    }
+}
+
 /// All of the commonly used DWARF sections, and other common information.
 #[derive(Debug, Default)]
 pub struct Dwarf<R> {
@@ -50,6 +67,9 @@ pub struct Dwarf<R> {
 
     /// The range lists in the `.debug_ranges` and `.debug_rnglists` sections.
     pub ranges: RangeLists<R>,
+
+    /// The type of this file.
+    pub file_type: DwarfFileType,
 }
 
 impl<T> Dwarf<T> {
@@ -84,6 +104,7 @@ impl<T> Dwarf<T> {
             debug_types: Section::load(&mut section)?,
             locations: LocationLists::new(debug_loc, debug_loclists),
             ranges: RangeLists::new(debug_ranges, debug_rnglists),
+            file_type: DwarfFileType::Main,
         })
     }
 
@@ -129,6 +150,7 @@ impl<T> Dwarf<T> {
             debug_types: self.debug_types.borrow(&mut borrow),
             locations: self.locations.borrow(&mut borrow),
             ranges: self.ranges.borrow(&mut borrow),
+            file_type: self.file_type,
         }
     }
 }
