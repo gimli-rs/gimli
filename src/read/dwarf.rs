@@ -381,13 +381,22 @@ impl<R: Reader> Dwarf<R> {
         unit: &Unit<R>,
         offset: LocationListsOffset<R::Offset>,
     ) -> Result<LocListIter<R>> {
-        self.locations.locations(
-            offset,
-            unit.encoding(),
-            unit.low_pc,
-            &self.debug_addr,
-            unit.addr_base,
-        )
+        match self.file_type {
+            DwarfFileType::Main => self.locations.locations(
+                offset,
+                unit.encoding(),
+                unit.low_pc,
+                &self.debug_addr,
+                unit.addr_base,
+            ),
+            DwarfFileType::Dwo => self.locations.locations_dwo(
+                offset,
+                unit.encoding(),
+                unit.low_pc,
+                &self.debug_addr,
+                unit.addr_base,
+            ),
+        }
     }
 
     /// Try to return an attribute value as a location list offset.
