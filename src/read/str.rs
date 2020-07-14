@@ -1,5 +1,6 @@
 use crate::common::{
-    DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex, SectionId,
+    DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex, DwarfFileType,
+    Encoding, SectionId,
 };
 use crate::endianity::Endianity;
 use crate::read::{EndianSlice, Reader, ReaderOffset, Result, Section};
@@ -170,6 +171,30 @@ impl<R> Section<R> for DebugStrOffsets<R> {
 impl<R> From<R> for DebugStrOffsets<R> {
     fn from(section: R) -> Self {
         DebugStrOffsets { section }
+    }
+}
+
+impl<Offset> DebugStrOffsetsBase<Offset>
+where
+    Offset: ReaderOffset,
+{
+    /// Returns a `DebugStrOffsetsBase` with the default value of DW_AT_str_offsets_base
+    /// for the given `Encoding` and `DwarfFileType`.
+    pub fn default_for_encoding_and_file(
+        encoding: Encoding,
+        file_type: DwarfFileType,
+    ) -> DebugStrOffsetsBase<Offset> {
+        if encoding.version >= 5 && file_type == DwarfFileType::Dwo {
+            // In .dwo files, the compiler omits the DW_AT_str_offsets_base attribute (because there is
+            // only a single unit in the file) but we must skip past the header, which the attribute
+            // would normally do for us.
+            // initial_length_size + version + 2 bytes of padding.
+            DebugStrOffsetsBase(Offset::from_u8(
+                encoding.format.initial_length_size() + 2 + 2,
+            ))
+        } else {
+            DebugStrOffsetsBase(Offset::from_u8(0))
+        }
     }
 }
 

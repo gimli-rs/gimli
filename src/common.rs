@@ -311,6 +311,7 @@ impl SectionId {
             SectionId::DebugLoc => ".debug_loc.dwo",
             SectionId::DebugLocLists => ".debug_loclists.dwo",
             SectionId::DebugMacro => ".debug_macro.dwo",
+            SectionId::DebugRngLists => ".debug_rnglists.dwo",
             SectionId::DebugStr => ".debug_str.dwo",
             SectionId::DebugStrOffsets => ".debug_str_offsets.dwo",
             _ => return None,
@@ -322,3 +323,20 @@ impl SectionId {
 /// split DWARF and linking a split compilation unit back together.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DwoId(pub u64);
+
+/// The "type" of file with DWARF debugging information. This determines, among other things,
+/// which files DWARF sections should be loaded from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DwarfFileType {
+    /// A normal executable or object file.
+    Main,
+    /// A .dwo split DWARF file.
+    Dwo,
+    // TODO: Supplementary files, .dwps?
+}
+
+impl Default for DwarfFileType {
+    fn default() -> Self {
+        DwarfFileType::Main
+    }
+}

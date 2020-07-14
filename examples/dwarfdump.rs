@@ -550,7 +550,10 @@ where
         reader: Default::default(),
     };
 
-    let dwarf = gimli::Dwarf::load(&mut load_section, |_| Ok(no_reader.clone())).unwrap();
+    let mut dwarf = gimli::Dwarf::load(&mut load_section, |_| Ok(no_reader.clone())).unwrap();
+    if flags.dwo {
+        dwarf.file_type = gimli::DwarfFileType::Dwo;
+    }
 
     let out = io::stdout();
     if flags.eh_frame {

@@ -3,8 +3,8 @@ use alloc::string::String;
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
     DebugLocListsIndex, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
-    DebugStrOffsetsIndex, DebugTypesOffset, Encoding, LocationListsOffset, RangeListsOffset,
-    SectionId, UnitSectionOffset,
+    DebugStrOffsetsIndex, DebugTypesOffset, DwarfFileType, Encoding, LocationListsOffset,
+    RangeListsOffset, SectionId, UnitSectionOffset,
 };
 use crate::constants;
 use crate::read::{
@@ -50,6 +50,9 @@ pub struct Dwarf<R> {
 
     /// The range lists in the `.debug_ranges` and `.debug_rnglists` sections.
     pub ranges: RangeLists<R>,
+
+    /// The type of this file.
+    pub file_type: DwarfFileType,
 }
 
 impl<T> Dwarf<T> {
@@ -84,6 +87,7 @@ impl<T> Dwarf<T> {
             debug_types: Section::load(&mut section)?,
             locations: LocationLists::new(debug_loc, debug_loclists),
             ranges: RangeLists::new(debug_ranges, debug_rnglists),
+            file_type: DwarfFileType::Main,
         })
     }
 
@@ -129,6 +133,7 @@ impl<T> Dwarf<T> {
             debug_types: self.debug_types.borrow(&mut borrow),
             locations: self.locations.borrow(&mut borrow),
             ranges: self.ranges.borrow(&mut borrow),
+            file_type: self.file_type,
         }
     }
 }
@@ -376,13 +381,22 @@ impl<R: Reader> Dwarf<R> {
         unit: &Unit<R>,
         offset: LocationListsOffset<R::Offset>,
     ) -> Result<LocListIter<R>> {
-        self.locations.locations(
-            offset,
-            unit.encoding(),
-            unit.low_pc,
-            &self.debug_addr,
-            unit.addr_base,
-        )
+        match self.file_type {
+            DwarfFileType::Main => self.locations.locations(
+                offset,
+                unit.encoding(),
+                unit.low_pc,
+                &self.debug_addr,
+                unit.addr_base,
+            ),
+            DwarfFileType::Dwo => self.locations.locations_dwo(
+                offset,
+                unit.encoding(),
+                unit.low_pc,
+                &self.debug_addr,
+                unit.addr_base,
+            ),
+        }
     }
 
     /// Try to return an attribute value as a location list offset.
@@ -519,17 +533,26 @@ impl<R: Reader> Unit<R> {
     pub fn new(dwarf: &Dwarf<R>, header: UnitHeader<R>) -> Result<Self> {
         let abbreviations = header.abbreviations(&dwarf.debug_abbrev)?;
         let mut unit = Unit {
-            header,
             abbreviations,
             name: None,
             comp_dir: None,
             low_pc: 0,
-            // Defaults to 0 for GNU extensions.
-            str_offsets_base: DebugStrOffsetsBase(R::Offset::from_u8(0)),
+            str_offsets_base: DebugStrOffsetsBase::default_for_encoding_and_file(
+                header.encoding(),
+                dwarf.file_type,
+            ),
+            // NB: Because the .debug_addr section never lives in a .dwo, we can assume its base is always 0 or provided.
             addr_base: DebugAddrBase(R::Offset::from_u8(0)),
-            loclists_base: DebugLocListsBase(R::Offset::from_u8(0)),
-            rnglists_base: DebugRngListsBase(R::Offset::from_u8(0)),
+            loclists_base: DebugLocListsBase::default_for_encoding_and_file(
+                header.encoding(),
+                dwarf.file_type,
+            ),
+            rnglists_base: DebugRngListsBase::default_for_encoding_and_file(
+                header.encoding(),
+                dwarf.file_type,
+            ),
             line_program: None,
+            header,
         };
         let mut name = None;
         let mut comp_dir = None;
@@ -646,7 +669,9 @@ impl<R: Reader> Unit<R> {
     pub fn copy_relocated_attributes(&mut self, other: &Unit<R>) {
         self.low_pc = other.low_pc;
         self.addr_base = other.addr_base;
-        self.rnglists_base = other.rnglists_base;
+        if self.header.version() < 5 {
+            self.rnglists_base = other.rnglists_base;
+        }
     }
 }
 

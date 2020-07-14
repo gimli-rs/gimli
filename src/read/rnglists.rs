@@ -1,11 +1,12 @@
 use crate::common::{
-    DebugAddrBase, DebugAddrIndex, DebugRngListsBase, DebugRngListsIndex, Encoding, Format,
+    DebugAddrBase, DebugAddrIndex, DebugRngListsBase, DebugRngListsIndex, DwarfFileType, Encoding,
     RangeListsOffset, SectionId,
 };
 use crate::constants;
 use crate::endianity::Endianity;
 use crate::read::{
-    DebugAddr, EndianSlice, Error, Reader, ReaderOffset, ReaderOffsetId, Result, Section,
+    lists::ListsHeader, DebugAddr, EndianSlice, Error, Reader, ReaderOffset, ReaderOffsetId,
+    Result, Section,
 };
 
 /// The raw contents of the `.debug_ranges` section.
@@ -100,62 +101,28 @@ impl<R> From<R> for DebugRngLists<R> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct RngListsHeader {
-    encoding: Encoding,
-    offset_entry_count: u32,
-}
+#[allow(unused)]
+pub(crate) type RngListsHeader = ListsHeader;
 
-impl Default for RngListsHeader {
-    fn default() -> Self {
-        RngListsHeader {
-            encoding: Encoding {
-                format: Format::Dwarf32,
-                version: 5,
-                address_size: 0,
-            },
-            offset_entry_count: 0,
+impl<Offset> DebugRngListsBase<Offset>
+where
+    Offset: ReaderOffset,
+{
+    /// Returns a `DebugRngListsBase` with the default value of DW_AT_rnglists_base
+    /// for the given `Encoding` and `DwarfFileType`.
+    pub fn default_for_encoding_and_file(
+        encoding: Encoding,
+        file_type: DwarfFileType,
+    ) -> DebugRngListsBase<Offset> {
+        if encoding.version >= 5 && file_type == DwarfFileType::Dwo {
+            // In .dwo files, the compiler omits the DW_AT_rnglists_base attribute (because there is
+            // only a single unit in the file) but we must skip past the header, which the attribute
+            // would normally do for us.
+            DebugRngListsBase(Offset::from_u8(RngListsHeader::size_for_encoding(encoding)))
+        } else {
+            DebugRngListsBase(Offset::from_u8(0))
         }
     }
-}
-
-impl RngListsHeader {
-    /// Return the serialized size of the table header.
-    #[allow(dead_code)]
-    #[inline]
-    fn size(self) -> u8 {
-        // initial_length + version + address_size + segment_selector_size + offset_entry_count
-        self.encoding.format.initial_length_size() + 2 + 1 + 1 + 4
-    }
-}
-
-// TODO: add an iterator over headers in the .debug_rnglists section
-#[allow(dead_code)]
-fn parse_header<R: Reader>(input: &mut R) -> Result<RngListsHeader> {
-    let (length, format) = input.read_initial_length()?;
-    input.truncate(length)?;
-
-    let version = input.read_u16()?;
-    if version != 5 {
-        return Err(Error::UnknownVersion(u64::from(version)));
-    }
-
-    let address_size = input.read_u8()?;
-    let segment_selector_size = input.read_u8()?;
-    if segment_selector_size != 0 {
-        return Err(Error::UnsupportedSegmentSize);
-    }
-    let offset_entry_count = input.read_u32()?;
-
-    let encoding = Encoding {
-        format,
-        version,
-        address_size,
-    };
-    Ok(RngListsHeader {
-        encoding,
-        offset_entry_count,
-    })
 }
 
 /// The DWARF data found in `.debug_ranges` and `.debug_rnglists` sections.
@@ -245,13 +212,13 @@ impl<R: Reader> RangeLists<R> {
         offset: RangeListsOffset<R::Offset>,
         unit_encoding: Encoding,
     ) -> Result<RawRngListIter<R>> {
-        let mut input = if unit_encoding.version <= 4 {
-            self.debug_ranges.section.clone()
+        let (mut input, format) = if unit_encoding.version <= 4 {
+            (self.debug_ranges.section.clone(), RangeListsFormat::Bare)
         } else {
-            self.debug_rnglists.section.clone()
+            (self.debug_rnglists.section.clone(), RangeListsFormat::RLE)
         };
         input.skip(offset.0)?;
-        Ok(RawRngListIter::new(input, unit_encoding))
+        Ok(RawRngListIter::new(input, unit_encoding, format))
     }
 
     /// Returns the `.debug_rnglists` offset at the given `base` and `index`.
@@ -288,6 +255,14 @@ impl<R: Reader> RangeLists<R> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RangeListsFormat {
+    /// The bare range list format used before DWARF 5.
+    Bare,
+    /// The DW_RLE encoded range list format used in DWARF 5.
+    RLE,
+}
+
 /// A raw iterator over an address range list.
 ///
 /// This iterator does not perform any processing of the range entries,
@@ -296,6 +271,7 @@ impl<R: Reader> RangeLists<R> {
 pub struct RawRngListIter<R: Reader> {
     input: R,
     encoding: Encoding,
+    format: RangeListsFormat,
 }
 
 /// A raw entry in .debug_rnglists
@@ -357,59 +333,69 @@ pub enum RawRngListEntry<T> {
 
 impl<T: ReaderOffset> RawRngListEntry<T> {
     /// Parse a range entry from `.debug_rnglists`
-    fn parse<R: Reader<Offset = T>>(input: &mut R, encoding: Encoding) -> Result<Option<Self>> {
-        if encoding.version < 5 {
-            let range = RawRange::parse(input, encoding.address_size)?;
-            return Ok(if range.is_end() {
-                None
-            } else if range.is_base_address(encoding.address_size) {
-                Some(RawRngListEntry::BaseAddress { addr: range.end })
-            } else {
-                Some(RawRngListEntry::AddressOrOffsetPair {
-                    begin: range.begin,
-                    end: range.end,
-                })
-            });
-        }
-        Ok(match constants::DwRle(input.read_u8()?) {
-            constants::DW_RLE_end_of_list => None,
-            constants::DW_RLE_base_addressx => Some(RawRngListEntry::BaseAddressx {
-                addr: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
-            }),
-            constants::DW_RLE_startx_endx => Some(RawRngListEntry::StartxEndx {
-                begin: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
-                end: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
-            }),
-            constants::DW_RLE_startx_length => Some(RawRngListEntry::StartxLength {
-                begin: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
-                length: input.read_uleb128()?,
-            }),
-            constants::DW_RLE_offset_pair => Some(RawRngListEntry::OffsetPair {
-                begin: input.read_uleb128()?,
-                end: input.read_uleb128()?,
-            }),
-            constants::DW_RLE_base_address => Some(RawRngListEntry::BaseAddress {
-                addr: input.read_address(encoding.address_size)?,
-            }),
-            constants::DW_RLE_start_end => Some(RawRngListEntry::StartEnd {
-                begin: input.read_address(encoding.address_size)?,
-                end: input.read_address(encoding.address_size)?,
-            }),
-            constants::DW_RLE_start_length => Some(RawRngListEntry::StartLength {
-                begin: input.read_address(encoding.address_size)?,
-                length: input.read_uleb128()?,
-            }),
-            _ => {
-                return Err(Error::InvalidAddressRange);
+    fn parse<R: Reader<Offset = T>>(
+        input: &mut R,
+        encoding: Encoding,
+        format: RangeListsFormat,
+    ) -> Result<Option<Self>> {
+        match format {
+            RangeListsFormat::Bare => {
+                let range = RawRange::parse(input, encoding.address_size)?;
+                return Ok(if range.is_end() {
+                    None
+                } else if range.is_base_address(encoding.address_size) {
+                    Some(RawRngListEntry::BaseAddress { addr: range.end })
+                } else {
+                    Some(RawRngListEntry::AddressOrOffsetPair {
+                        begin: range.begin,
+                        end: range.end,
+                    })
+                });
             }
-        })
+            RangeListsFormat::RLE => Ok(match constants::DwRle(input.read_u8()?) {
+                constants::DW_RLE_end_of_list => None,
+                constants::DW_RLE_base_addressx => Some(RawRngListEntry::BaseAddressx {
+                    addr: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
+                }),
+                constants::DW_RLE_startx_endx => Some(RawRngListEntry::StartxEndx {
+                    begin: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
+                    end: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
+                }),
+                constants::DW_RLE_startx_length => Some(RawRngListEntry::StartxLength {
+                    begin: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
+                    length: input.read_uleb128()?,
+                }),
+                constants::DW_RLE_offset_pair => Some(RawRngListEntry::OffsetPair {
+                    begin: input.read_uleb128()?,
+                    end: input.read_uleb128()?,
+                }),
+                constants::DW_RLE_base_address => Some(RawRngListEntry::BaseAddress {
+                    addr: input.read_address(encoding.address_size)?,
+                }),
+                constants::DW_RLE_start_end => Some(RawRngListEntry::StartEnd {
+                    begin: input.read_address(encoding.address_size)?,
+                    end: input.read_address(encoding.address_size)?,
+                }),
+                constants::DW_RLE_start_length => Some(RawRngListEntry::StartLength {
+                    begin: input.read_address(encoding.address_size)?,
+                    length: input.read_uleb128()?,
+                }),
+                _ => {
+                    return Err(Error::InvalidAddressRange);
+                }
+            }),
+        }
     }
 }
 
 impl<R: Reader> RawRngListIter<R> {
     /// Construct a `RawRngListIter`.
-    fn new(input: R, encoding: Encoding) -> RawRngListIter<R> {
-        RawRngListIter { input, encoding }
+    fn new(input: R, encoding: Encoding, format: RangeListsFormat) -> RawRngListIter<R> {
+        RawRngListIter {
+            input,
+            encoding,
+            format,
+        }
     }
 
     /// Advance the iterator to the next range.
@@ -418,7 +404,7 @@ impl<R: Reader> RawRngListIter<R> {
             return Ok(None);
         }
 
-        match RawRngListEntry::parse(&mut self.input, self.encoding) {
+        match RawRngListEntry::parse(&mut self.input, self.encoding, self.format) {
             Ok(range) => {
                 if range.is_none() {
                     self.input.empty();
@@ -600,6 +586,7 @@ impl Range {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::Format;
     use crate::endianity::LittleEndian;
     use crate::test_util::GimliSectionMethods;
     use test_assembler::{Endian, Label, LabelMaker, Section};

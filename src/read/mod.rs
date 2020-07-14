@@ -199,6 +199,8 @@ pub use self::aranges::*;
 mod line;
 pub use self::line::*;
 
+mod lists;
+
 mod loclists;
 pub use self::loclists::*;
 
