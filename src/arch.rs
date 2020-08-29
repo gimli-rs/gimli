@@ -19,6 +19,16 @@ macro_rules! registers {
                     _ => return None,
                 }
             }
+
+	    /// Converts a register name into a register number.
+	    pub fn name_to_register(value: &str) -> Option<Register> {
+		match value {
+                    $(
+                        $disp => Some(Self::$name),
+                    )+
+                    _ => return None,
+		}
+	    }
         }
     };
 }
