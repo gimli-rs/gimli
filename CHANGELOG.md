@@ -2,6 +2,42 @@
 
 --------------------------------------------------------------------------------
 
+## 0.23.0
+
+Released 2020/10/27.
+
+### Breaking changes
+
+* Added more variants to `read::UnitType`.
+  Added `read::AttributeValue::DwoId`
+  [#521](https://github.com/gimli-rs/gimli/pull/521)
+
+* Replaced `CompilationUnitHeader` and `TypeUnitHeader` with `UnitHeader`.
+  Replaced `CompilationUnitHeadersIter` with `DebugInfoUnitHeadersIter`.
+  Replaced `TypeUnitHeadersIter` with `DebugTypesUnitHeadersIter`.
+  [#523](https://github.com/gimli-rs/gimli/pull/523)
+
+
+### Added
+
+* Added read support for split DWARF.
+  [#527](https://github.com/gimli-rs/gimli/pull/527)
+  [#529](https://github.com/gimli-rs/gimli/pull/529)
+
+* Added `read::Dwarf::attr_address`.
+  [#524](https://github.com/gimli-rs/gimli/pull/524)
+
+* Added read support for `DW_AT_GNU_addr_base` and `DW_AT_GNU_ranges_base`.
+  [#525](https://github.com/gimli-rs/gimli/pull/525)
+
+* dwarfdump: Display index values for attributes.
+  [#526](https://github.com/gimli-rs/gimli/pull/526)
+
+* Added `name_to_register`.
+  [#532](https://github.com/gimli-rs/gimli/pull/532)
+
+--------------------------------------------------------------------------------
+
 ## 0.22.0
 
 Released 2020/07/03.
