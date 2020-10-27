@@ -3,7 +3,7 @@
 
 use fallible_iterator::FallibleIterator;
 use gimli::{Section, UnitHeader, UnitOffset, UnitSectionOffset, UnitType, UnwindSection};
-use object::{Object, ObjectSection};
+use object::{Object, ObjectSection, ObjectSymbol};
 use regex::bytes::Regex;
 use std::borrow::{Borrow, Cow};
 use std::cmp::min;

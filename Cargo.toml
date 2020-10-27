@@ -28,11 +28,11 @@ alloc = { version = '1.0.0', optional = true, package = 'rustc-std-workspace-all
 compiler_builtins = { version = '0.1.2', optional = true }
 
 [dev-dependencies]
-crossbeam = "0.7.1"
+crossbeam = "0.8"
 getopts = "0.2"
 memmap = "0.7"
 num_cpus = "1"
-object = "0.20"
+object = "0.22"
 rayon = "1.0"
 regex = "1"
 test-assembler = "0.1.3"
