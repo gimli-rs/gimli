@@ -4,8 +4,8 @@ use crate::read::{EndianSlice, Error, Reader, ReaderOffset, Result, Section};
 
 /// The `DebugAranges` struct represents the DWARF address range information
 /// found in the `.debug_aranges` section.
-#[derive(Debug, Clone)]
-pub struct DebugAranges<R: Reader> {
+#[derive(Debug, Default, Clone, Copy)]
+pub struct DebugAranges<R> {
     section: R,
 }
 
@@ -46,7 +46,31 @@ impl<R: Reader> DebugAranges<R> {
     }
 }
 
-impl<R: Reader> Section<R> for DebugAranges<R> {
+impl<T> DebugAranges<T> {
+    /// Create a `DebugAranges` section that references the data in `self`.
+    ///
+    /// This is useful when `R` implements `Reader` but `T` does not.
+    ///
+    /// ## Example Usage
+    ///
+    /// ```rust,no_run
+    /// # let load_section = || unimplemented!();
+    /// // Read the DWARF section into a `Vec` with whatever object loader you're using.
+    /// let owned_section: gimli::DebugAranges<Vec<u8>> = load_section();
+    /// // Create a reference to the DWARF section.
+    /// let section = owned_section.borrow(|section| {
+    ///     gimli::EndianSlice::new(&section, gimli::LittleEndian)
+    /// });
+    /// ```
+    pub fn borrow<'a, F, R>(&'a self, mut borrow: F) -> DebugAranges<R>
+    where
+        F: FnMut(&'a T) -> R,
+    {
+        borrow(&self.section).into()
+    }
+}
+
+impl<R> Section<R> for DebugAranges<R> {
     fn id() -> SectionId {
         SectionId::DebugAranges
     }
@@ -56,7 +80,7 @@ impl<R: Reader> Section<R> for DebugAranges<R> {
     }
 }
 
-impl<R: Reader> From<R> for DebugAranges<R> {
+impl<R> From<R> for DebugAranges<R> {
     fn from(section: R) -> Self {
         DebugAranges { section }
     }
