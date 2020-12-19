@@ -1,6 +1,6 @@
 use crate::common::{DebugArangesOffset, DebugInfoOffset, Encoding, SectionId};
 use crate::endianity::Endianity;
-use crate::read::{EndianSlice, Error, Reader, ReaderOffset, Result, Section};
+use crate::read::{EndianSlice, Error, Range, Reader, ReaderOffset, Result, Section};
 
 /// The `DebugAranges` struct represents the DWARF address range information
 /// found in the `.debug_aranges` section.
@@ -355,6 +355,15 @@ impl ArangeEntry {
     #[inline]
     pub fn length(&self) -> u64 {
         self.length
+    }
+
+    /// Return the range.
+    #[inline]
+    pub fn range(&self) -> Range {
+        Range {
+            begin: self.address,
+            end: self.address.wrapping_add(self.length),
+        }
     }
 }
 

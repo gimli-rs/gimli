@@ -2124,16 +2124,15 @@ fn dump_aranges<R: Reader, W: Write>(
         )?;
         let mut aranges = header.entries();
         while let Some(arange) = aranges.next()? {
-            let start = arange.address();
-            let end = start.wrapping_add(arange.length());
+            let range = arange.range();
             if let Some(segment) = arange.segment() {
                 writeln!(
                     w,
                     "[0x{:016x},  0x{:016x}) segment 0x{:x}",
-                    start, end, segment
+                    range.begin, range.end, segment
                 )?;
             } else {
-                writeln!(w, "[0x{:016x},  0x{:016x})", start, end)?;
+                writeln!(w, "[0x{:016x},  0x{:016x})", range.begin, range.end)?;
             }
         }
     }
