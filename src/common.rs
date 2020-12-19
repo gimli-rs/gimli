@@ -99,6 +99,10 @@ pub struct DebugAddrBase<T = usize>(pub T);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DebugAddrIndex<T = usize>(pub T);
 
+/// An offset into the `.debug_aranges` section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebugArangesOffset<T = usize>(pub T);
+
 /// An offset into the `.debug_info` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct DebugInfoOffset<T = usize>(pub T);

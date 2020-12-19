@@ -1,4 +1,4 @@
-use crate::common::{DebugInfoOffset, Encoding, SectionId};
+use crate::common::{DebugArangesOffset, DebugInfoOffset, Encoding, SectionId};
 use crate::endianity::Endianity;
 use crate::read::{EndianSlice, Error, Reader, ReaderOffset, Result, Section};
 
@@ -42,7 +42,15 @@ impl<R: Reader> DebugAranges<R> {
     pub fn headers(&self) -> ArangeHeaderIter<R> {
         ArangeHeaderIter {
             input: self.section.clone(),
+            offset: DebugArangesOffset(R::Offset::from_u8(0)),
         }
+    }
+
+    /// Get the header at the given offset.
+    pub fn header(&self, offset: DebugArangesOffset<R::Offset>) -> Result<ArangeHeader<R>> {
+        let mut input = self.section.clone();
+        input.skip(offset.0)?;
+        ArangeHeader::parse(&mut input, offset)
     }
 }
 
@@ -90,6 +98,7 @@ impl<R> From<R> for DebugAranges<R> {
 #[derive(Clone, Debug)]
 pub struct ArangeHeaderIter<R: Reader> {
     input: R,
+    offset: DebugArangesOffset<R::Offset>,
 }
 
 impl<R: Reader> ArangeHeaderIter<R> {
@@ -99,8 +108,12 @@ impl<R: Reader> ArangeHeaderIter<R> {
             return Ok(None);
         }
 
-        match ArangeHeader::parse(&mut self.input) {
-            Ok(header) => Ok(Some(header)),
+        let len = self.input.len();
+        match ArangeHeader::parse(&mut self.input, self.offset) {
+            Ok(header) => {
+                self.offset.0 += len - self.input.len();
+                Ok(Some(header))
+            }
             Err(e) => {
                 self.input.empty();
                 Err(e)
@@ -128,9 +141,10 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
+    offset: DebugArangesOffset<Offset>,
     encoding: Encoding,
     length: Offset,
-    offset: DebugInfoOffset<Offset>,
+    debug_info_offset: DebugInfoOffset<Offset>,
     segment_size: u8,
     entries: R,
 }
@@ -140,7 +154,7 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    fn parse(input: &mut R) -> Result<Self> {
+    fn parse(input: &mut R, offset: DebugArangesOffset<Offset>) -> Result<Self> {
         let (length, format) = input.read_initial_length()?;
         let mut rest = input.split(length)?;
 
@@ -149,7 +163,7 @@ where
             return Err(Error::UnknownVersion(u64::from(version)));
         }
 
-        let offset = rest.read_offset(format).map(DebugInfoOffset)?;
+        let debug_info_offset = rest.read_offset(format).map(DebugInfoOffset)?;
         let address_size = rest.read_u8()?;
         let segment_size = rest.read_u8()?;
 
@@ -180,12 +194,19 @@ where
             // TODO: segment_size
         };
         Ok(ArangeHeader {
+            offset,
             encoding,
             length,
-            offset,
+            debug_info_offset,
             segment_size,
             entries: rest,
         })
+    }
+
+    /// Return the offset of this header within the `.debug_aranges` section.
+    #[inline]
+    pub fn offset(&self) -> DebugArangesOffset<Offset> {
+        self.offset
     }
 
     /// Return the length of this set of entries, including the header.
@@ -209,7 +230,7 @@ where
     /// Return the offset into the .debug_info section for this set of arange entries.
     #[inline]
     pub fn debug_info_offset(&self) -> DebugInfoOffset<Offset> {
-        self.offset
+        self.debug_info_offset
     }
 
     /// Return the arange entries in this set.
@@ -345,6 +366,60 @@ mod tests {
     use crate::read::EndianSlice;
 
     #[test]
+    fn test_iterate_headers() {
+        #[rustfmt::skip]
+        let buf = [
+            // 32-bit length = 28.
+            0x1c, 0x00, 0x00, 0x00,
+            // Version.
+            0x02, 0x00,
+            // Offset.
+            0x01, 0x02, 0x03, 0x04,
+            // Address size.
+            0x04,
+            // Segment size.
+            0x00,
+            // Dummy padding and arange tuples.
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+            // 32-bit length = 36.
+            0x24, 0x00, 0x00, 0x00,
+            // Version.
+            0x02, 0x00,
+            // Offset.
+            0x11, 0x12, 0x13, 0x14,
+            // Address size.
+            0x04,
+            // Segment size.
+            0x00,
+            // Dummy padding and arange tuples.
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+
+        let debug_aranges = DebugAranges::new(&buf, LittleEndian);
+        let mut headers = debug_aranges.headers();
+
+        let header = headers
+            .next()
+            .expect("should parse header ok")
+            .expect("should have a header");
+        assert_eq!(header.offset(), DebugArangesOffset(0));
+        assert_eq!(header.debug_info_offset(), DebugInfoOffset(0x0403_0201));
+
+        let header = headers
+            .next()
+            .expect("should parse header ok")
+            .expect("should have a header");
+        assert_eq!(header.offset(), DebugArangesOffset(0x20));
+        assert_eq!(header.debug_info_offset(), DebugInfoOffset(0x1413_1211));
+    }
+
+    #[test]
     fn test_parse_header_ok() {
         #[rustfmt::skip]
         let buf = [
@@ -378,7 +453,8 @@ mod tests {
 
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
-        let header = ArangeHeader::parse(rest).expect("should parse header ok");
+        let header =
+            ArangeHeader::parse(rest, DebugArangesOffset(0x10)).expect("should parse header ok");
 
         assert_eq!(
             *rest,
@@ -387,13 +463,14 @@ mod tests {
         assert_eq!(
             header,
             ArangeHeader {
+                offset: DebugArangesOffset(0x10),
                 encoding: Encoding {
                     format: Format::Dwarf32,
                     version: 2,
                     address_size: 8,
                 },
                 length: 0x20,
-                offset: DebugInfoOffset(0x0403_0201),
+                debug_info_offset: DebugInfoOffset(0x0403_0201),
                 segment_size: 4,
                 entries: EndianSlice::new(&buf[buf.len() - 32..buf.len() - 16], LittleEndian),
             }
@@ -434,7 +511,8 @@ mod tests {
 
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
-        let error = ArangeHeader::parse(rest).expect_err("should fail to parse header");
+        let error = ArangeHeader::parse(rest, DebugArangesOffset(0x10))
+            .expect_err("should fail to parse header");
         assert_eq!(error, Error::InvalidAddressRange);
     }
 
@@ -473,7 +551,8 @@ mod tests {
 
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
-        let error = ArangeHeader::parse(rest).expect_err("should fail to parse header");
+        let error = ArangeHeader::parse(rest, DebugArangesOffset(0x10))
+            .expect_err("should fail to parse header");
         assert_eq!(error, Error::InvalidAddressRange);
     }
 
