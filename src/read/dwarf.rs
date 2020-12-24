@@ -8,11 +8,11 @@ use crate::common::{
 };
 use crate::constants;
 use crate::read::{
-    Abbreviations, AttributeValue, DebugAbbrev, DebugAddr, DebugInfo, DebugInfoUnitHeadersIter,
-    DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes, DebugTypesUnitHeadersIter,
-    DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree, Error,
-    IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists, Reader, ReaderOffset,
-    ReaderOffsetId, Result, RngListIter, Section, UnitHeader, UnitOffset,
+    Abbreviations, AttributeValue, DebugAbbrev, DebugAddr, DebugAranges, DebugInfo,
+    DebugInfoUnitHeadersIter, DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes,
+    DebugTypesUnitHeadersIter, DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree,
+    Error, IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists, Reader,
+    ReaderOffset, ReaderOffsetId, Result, RngListIter, Section, UnitHeader, UnitOffset,
 };
 
 /// All of the commonly used DWARF sections, and other common information.
@@ -23,6 +23,9 @@ pub struct Dwarf<R> {
 
     /// The `.debug_addr` section.
     pub debug_addr: DebugAddr<R>,
+
+    /// The `.debug_aranges` section.
+    pub debug_aranges: DebugAranges<R>,
 
     /// The `.debug_info` section.
     pub debug_info: DebugInfo<R>,
@@ -78,6 +81,7 @@ impl<T> Dwarf<T> {
         Ok(Dwarf {
             debug_abbrev: Section::load(&mut section)?,
             debug_addr: Section::load(&mut section)?,
+            debug_aranges: Section::load(&mut section)?,
             debug_info: Section::load(&mut section)?,
             debug_line: Section::load(&mut section)?,
             debug_line_str: Section::load(&mut section)?,
@@ -124,6 +128,7 @@ impl<T> Dwarf<T> {
         Dwarf {
             debug_abbrev: self.debug_abbrev.borrow(&mut borrow),
             debug_addr: self.debug_addr.borrow(&mut borrow),
+            debug_aranges: self.debug_aranges.borrow(&mut borrow),
             debug_info: self.debug_info.borrow(&mut borrow),
             debug_line: self.debug_line.borrow(&mut borrow),
             debug_line_str: self.debug_line_str.borrow(&mut borrow),
@@ -448,6 +453,7 @@ impl<R: Reader> Dwarf<R> {
     pub fn lookup_offset_id(&self, id: ReaderOffsetId) -> Option<(bool, SectionId, R::Offset)> {
         None.or_else(|| self.debug_abbrev.lookup_offset_id(id))
             .or_else(|| self.debug_addr.lookup_offset_id(id))
+            .or_else(|| self.debug_aranges.lookup_offset_id(id))
             .or_else(|| self.debug_info.lookup_offset_id(id))
             .or_else(|| self.debug_line.lookup_offset_id(id))
             .or_else(|| self.debug_line_str.lookup_offset_id(id))

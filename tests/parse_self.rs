@@ -295,9 +295,12 @@ fn test_parse_self_debug_aranges() {
     let debug_aranges = read_section("debug_aranges");
     let debug_aranges = DebugAranges::new(&debug_aranges, LittleEndian);
 
-    let mut aranges = debug_aranges.items();
-    while let Some(_) = aranges.next().expect("Should parse arange OK") {
-        // Not really anything else we can check right now.
+    let mut headers = debug_aranges.headers();
+    while let Some(header) = headers.next().expect("Should parse arange header OK") {
+        let mut entries = header.entries();
+        while let Some(_) = entries.next().expect("Should parse arange entry OK") {
+            // Not really anything else we can check right now.
+        }
     }
 }
 

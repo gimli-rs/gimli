@@ -1,85 +1,160 @@
-use core::cmp::Ordering;
-use core::marker::PhantomData;
-
-use crate::common::{DebugInfoOffset, Encoding, SectionId};
+use crate::common::{DebugArangesOffset, DebugInfoOffset, Encoding, SectionId};
 use crate::endianity::Endianity;
-use crate::read::lookup::{DebugLookup, LookupEntryIter, LookupParser};
-use crate::read::{
-    parse_debug_info_offset, EndianSlice, Error, Reader, ReaderOffset, Result, Section,
-};
+use crate::read::{EndianSlice, Error, Range, Reader, ReaderOffset, Result, Section};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ArangeHeader<T = usize> {
-    encoding: Encoding,
-    length: T,
-    offset: DebugInfoOffset<T>,
-    segment_size: u8,
+/// The `DebugAranges` struct represents the DWARF address range information
+/// found in the `.debug_aranges` section.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct DebugAranges<R> {
+    section: R,
 }
 
-/// A single parsed arange.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ArangeEntry<T: Copy = usize> {
-    segment: Option<u64>,
-    address: u64,
-    length: u64,
-    unit_header_offset: DebugInfoOffset<T>,
-}
-
-impl<T: Copy> ArangeEntry<T> {
-    /// Return the segment selector of this arange.
-    #[inline]
-    pub fn segment(&self) -> Option<u64> {
-        self.segment
-    }
-
-    /// Return the beginning address of this arange.
-    #[inline]
-    pub fn address(&self) -> u64 {
-        self.address
-    }
-
-    /// Return the length of this arange.
-    #[inline]
-    pub fn length(&self) -> u64 {
-        self.length
-    }
-
-    /// Return the offset into the .debug_info section for this arange.
-    #[inline]
-    pub fn debug_info_offset(&self) -> DebugInfoOffset<T> {
-        self.unit_header_offset
+impl<'input, Endian> DebugAranges<EndianSlice<'input, Endian>>
+where
+    Endian: Endianity,
+{
+    /// Construct a new `DebugAranges` instance from the data in the `.debug_aranges`
+    /// section.
+    ///
+    /// It is the caller's responsibility to read the `.debug_aranges` section and
+    /// present it as a `&[u8]` slice. That means using some ELF loader on
+    /// Linux, a Mach-O loader on OSX, etc.
+    ///
+    /// ```
+    /// use gimli::{DebugAranges, LittleEndian};
+    ///
+    /// # let buf = [];
+    /// # let read_debug_aranges_section = || &buf;
+    /// let debug_aranges =
+    ///     DebugAranges::new(read_debug_aranges_section(), LittleEndian);
+    /// ```
+    pub fn new(section: &'input [u8], endian: Endian) -> Self {
+        DebugAranges {
+            section: EndianSlice::new(section, endian),
+        }
     }
 }
 
-impl<T: Copy + Ord> PartialOrd for ArangeEntry<T> {
-    fn partial_cmp(&self, other: &ArangeEntry<T>) -> Option<Ordering> {
-        Some(self.cmp(other))
+impl<R: Reader> DebugAranges<R> {
+    /// Iterate the sets of entries in the `.debug_aranges` section.
+    ///
+    /// Each set of entries belongs to a single unit.
+    pub fn headers(&self) -> ArangeHeaderIter<R> {
+        ArangeHeaderIter {
+            input: self.section.clone(),
+            offset: DebugArangesOffset(R::Offset::from_u8(0)),
+        }
+    }
+
+    /// Get the header at the given offset.
+    pub fn header(&self, offset: DebugArangesOffset<R::Offset>) -> Result<ArangeHeader<R>> {
+        let mut input = self.section.clone();
+        input.skip(offset.0)?;
+        ArangeHeader::parse(&mut input, offset)
     }
 }
 
-impl<T: Copy + Ord> Ord for ArangeEntry<T> {
-    fn cmp(&self, other: &ArangeEntry<T>) -> Ordering {
-        // The expected comparison, but ignore header.
-        self.segment
-            .cmp(&other.segment)
-            .then(self.address.cmp(&other.address))
-            .then(self.length.cmp(&other.length))
+impl<T> DebugAranges<T> {
+    /// Create a `DebugAranges` section that references the data in `self`.
+    ///
+    /// This is useful when `R` implements `Reader` but `T` does not.
+    ///
+    /// ## Example Usage
+    ///
+    /// ```rust,no_run
+    /// # let load_section = || unimplemented!();
+    /// // Read the DWARF section into a `Vec` with whatever object loader you're using.
+    /// let owned_section: gimli::DebugAranges<Vec<u8>> = load_section();
+    /// // Create a reference to the DWARF section.
+    /// let section = owned_section.borrow(|section| {
+    ///     gimli::EndianSlice::new(&section, gimli::LittleEndian)
+    /// });
+    /// ```
+    pub fn borrow<'a, F, R>(&'a self, mut borrow: F) -> DebugAranges<R>
+    where
+        F: FnMut(&'a T) -> R,
+    {
+        borrow(&self.section).into()
     }
 }
 
+impl<R> Section<R> for DebugAranges<R> {
+    fn id() -> SectionId {
+        SectionId::DebugAranges
+    }
+
+    fn reader(&self) -> &R {
+        &self.section
+    }
+}
+
+impl<R> From<R> for DebugAranges<R> {
+    fn from(section: R) -> Self {
+        DebugAranges { section }
+    }
+}
+
+/// An iterator over the headers of a `.debug_aranges` section.
 #[derive(Clone, Debug)]
-struct ArangeParser<R: Reader> {
-    // This struct is never instantiated.
-    phantom: PhantomData<R>,
+pub struct ArangeHeaderIter<R: Reader> {
+    input: R,
+    offset: DebugArangesOffset<R::Offset>,
 }
 
-impl<R: Reader> LookupParser<R> for ArangeParser<R> {
-    type Header = ArangeHeader<R::Offset>;
-    type Entry = ArangeEntry<R::Offset>;
+impl<R: Reader> ArangeHeaderIter<R> {
+    /// Advance the iterator to the next header.
+    pub fn next(&mut self) -> Result<Option<ArangeHeader<R>>> {
+        if self.input.is_empty() {
+            return Ok(None);
+        }
 
-    /// Parse an arange set header. Returns a tuple of the aranges to be
-    /// parsed for this set, and the newly created ArangeHeader struct.
-    fn parse_header(input: &mut R) -> Result<(R, Self::Header)> {
+        let len = self.input.len();
+        match ArangeHeader::parse(&mut self.input, self.offset) {
+            Ok(header) => {
+                self.offset.0 += len - self.input.len();
+                Ok(Some(header))
+            }
+            Err(e) => {
+                self.input.empty();
+                Err(e)
+            }
+        }
+    }
+}
+
+#[cfg(feature = "fallible-iterator")]
+impl<R: Reader> fallible_iterator::FallibleIterator for ArangeHeaderIter<R> {
+    type Item = ArangeHeader<R>;
+    type Error = Error;
+
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
+        ArangeHeaderIter::next(self)
+    }
+}
+
+/// A header for a set of entries in the `.debug_arange` section.
+///
+/// These entries all belong to a single unit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArangeHeader<R, Offset = <R as Reader>::Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
+    offset: DebugArangesOffset<Offset>,
+    encoding: Encoding,
+    length: Offset,
+    debug_info_offset: DebugInfoOffset<Offset>,
+    segment_size: u8,
+    entries: R,
+}
+
+impl<R, Offset> ArangeHeader<R, Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
+    fn parse(input: &mut R, offset: DebugArangesOffset<Offset>) -> Result<Self> {
         let (length, format) = input.read_initial_length()?;
         let mut rest = input.split(length)?;
 
@@ -88,7 +163,7 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
             return Err(Error::UnknownVersion(u64::from(version)));
         }
 
-        let offset = parse_debug_info_offset(&mut rest, format)?;
+        let debug_info_offset = rest.read_offset(format).map(DebugInfoOffset)?;
         let address_size = rest.read_u8()?;
         let segment_size = rest.read_u8()?;
 
@@ -118,21 +193,120 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
             address_size,
             // TODO: segment_size
         };
-        Ok((
-            rest,
-            ArangeHeader {
-                encoding,
-                length,
-                offset,
-                segment_size,
-            },
-        ))
+        Ok(ArangeHeader {
+            offset,
+            encoding,
+            length,
+            debug_info_offset,
+            segment_size,
+            entries: rest,
+        })
     }
 
+    /// Return the offset of this header within the `.debug_aranges` section.
+    #[inline]
+    pub fn offset(&self) -> DebugArangesOffset<Offset> {
+        self.offset
+    }
+
+    /// Return the length of this set of entries, including the header.
+    #[inline]
+    pub fn length(&self) -> Offset {
+        self.length
+    }
+
+    /// Return the encoding parameters for this set of entries.
+    #[inline]
+    pub fn encoding(&self) -> Encoding {
+        self.encoding
+    }
+
+    /// Return the segment size for this set of entries.
+    #[inline]
+    pub fn segment_size(&self) -> u8 {
+        self.segment_size
+    }
+
+    /// Return the offset into the .debug_info section for this set of arange entries.
+    #[inline]
+    pub fn debug_info_offset(&self) -> DebugInfoOffset<Offset> {
+        self.debug_info_offset
+    }
+
+    /// Return the arange entries in this set.
+    #[inline]
+    pub fn entries(&self) -> ArangeEntryIter<R> {
+        ArangeEntryIter {
+            input: self.entries.clone(),
+            encoding: self.encoding,
+            segment_size: self.segment_size,
+        }
+    }
+}
+
+/// An iterator over the aranges from a `.debug_aranges` section.
+///
+/// Can be [used with
+/// `FallibleIterator`](./index.html#using-with-fallibleiterator).
+#[derive(Debug, Clone)]
+pub struct ArangeEntryIter<R: Reader> {
+    input: R,
+    encoding: Encoding,
+    segment_size: u8,
+}
+
+impl<R: Reader> ArangeEntryIter<R> {
+    /// Advance the iterator and return the next arange.
+    ///
+    /// Returns the newly parsed arange as `Ok(Some(arange))`. Returns `Ok(None)`
+    /// when iteration is complete and all aranges have already been parsed and
+    /// yielded. If an error occurs while parsing the next arange, then this error
+    /// is returned as `Err(e)`, and all subsequent calls return `Ok(None)`.
+    pub fn next(&mut self) -> Result<Option<ArangeEntry>> {
+        if self.input.is_empty() {
+            return Ok(None);
+        }
+
+        match ArangeEntry::parse(&mut self.input, self.encoding, self.segment_size) {
+            Ok(Some(entry)) => Ok(Some(entry)),
+            Ok(None) => {
+                self.input.empty();
+                Ok(None)
+            }
+            Err(e) => {
+                self.input.empty();
+                Err(e)
+            }
+        }
+    }
+}
+
+#[cfg(feature = "fallible-iterator")]
+impl<R: Reader> fallible_iterator::FallibleIterator for ArangeEntryIter<R> {
+    type Item = ArangeEntry;
+    type Error = Error;
+
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
+        ArangeEntryIter::next(self)
+    }
+}
+
+/// A single parsed arange.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ArangeEntry {
+    segment: Option<u64>,
+    address: u64,
+    length: u64,
+}
+
+impl ArangeEntry {
     /// Parse a single arange. Return `None` for the null arange, `Some` for an actual arange.
-    fn parse_entry(input: &mut R, header: &Self::Header) -> Result<Option<Self::Entry>> {
-        let address_size = header.encoding.address_size;
-        let segment_size = header.segment_size; // May be zero!
+    fn parse<R: Reader>(
+        input: &mut R,
+        encoding: Encoding,
+        segment_size: u8,
+    ) -> Result<Option<Self>> {
+        let address_size = encoding.address_size;
 
         let tuple_length = R::Offset::from_u8(2 * address_size + segment_size);
         if tuple_length > input.len() {
@@ -149,10 +323,10 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
         let length = input.read_address(address_size)?;
 
         match (segment, address, length) {
-            // There may be multiple sets of tuples, each terminated by a zero tuple.
-            // It's not clear what purpose these zero tuples serve.  For now, we
-            // simply skip them.
-            (0, 0, 0) => Self::parse_entry(input, header),
+            // This is meant to be a null terminator, but in practice it can occur
+            // before the end, possibly due to a linker omitting a function and
+            // leaving an unrelocated entry.
+            (0, 0, 0) => Self::parse(input, encoding, segment_size),
             _ => Ok(Some(ArangeEntry {
                 segment: if segment_size != 0 {
                     Some(segment)
@@ -161,103 +335,35 @@ impl<R: Reader> LookupParser<R> for ArangeParser<R> {
                 },
                 address,
                 length,
-                unit_header_offset: header.offset,
             })),
         }
     }
-}
 
-/// The `DebugAranges` struct represents the DWARF address range information
-/// found in the `.debug_aranges` section.
-#[derive(Debug, Clone)]
-pub struct DebugAranges<R: Reader>(DebugLookup<R, ArangeParser<R>>);
-
-impl<'input, Endian> DebugAranges<EndianSlice<'input, Endian>>
-where
-    Endian: Endianity,
-{
-    /// Construct a new `DebugAranges` instance from the data in the `.debug_aranges`
-    /// section.
-    ///
-    /// It is the caller's responsibility to read the `.debug_aranges` section and
-    /// present it as a `&[u8]` slice. That means using some ELF loader on
-    /// Linux, a Mach-O loader on OSX, etc.
-    ///
-    /// ```
-    /// use gimli::{DebugAranges, LittleEndian};
-    ///
-    /// # let buf = [];
-    /// # let read_debug_aranges_section = || &buf;
-    /// let debug_aranges =
-    ///     DebugAranges::new(read_debug_aranges_section(), LittleEndian);
-    /// ```
-    pub fn new(debug_aranges_section: &'input [u8], endian: Endian) -> Self {
-        Self::from(EndianSlice::new(debug_aranges_section, endian))
-    }
-}
-
-impl<R: Reader> DebugAranges<R> {
-    /// Iterate the aranges in the `.debug_aranges` section.
-    ///
-    /// ```
-    /// use gimli::{DebugAranges, EndianSlice, LittleEndian};
-    ///
-    /// # let buf = [];
-    /// # let read_debug_aranges_section = || &buf;
-    /// let debug_aranges = DebugAranges::new(read_debug_aranges_section(), LittleEndian);
-    ///
-    /// let mut iter = debug_aranges.items();
-    /// while let Some(arange) = iter.next().unwrap() {
-    ///     println!("arange starts at {}, has length {}", arange.address(), arange.length());
-    /// }
-    /// ```
-    pub fn items(&self) -> ArangeEntryIter<R> {
-        ArangeEntryIter(self.0.items())
-    }
-}
-
-impl<R: Reader> Section<R> for DebugAranges<R> {
-    fn id() -> SectionId {
-        SectionId::DebugAranges
+    /// Return the segment selector of this arange.
+    #[inline]
+    pub fn segment(&self) -> Option<u64> {
+        self.segment
     }
 
-    fn reader(&self) -> &R {
-        self.0.reader()
+    /// Return the beginning address of this arange.
+    #[inline]
+    pub fn address(&self) -> u64 {
+        self.address
     }
-}
 
-impl<R: Reader> From<R> for DebugAranges<R> {
-    fn from(debug_aranges_section: R) -> Self {
-        DebugAranges(DebugLookup::from(debug_aranges_section))
+    /// Return the length of this arange.
+    #[inline]
+    pub fn length(&self) -> u64 {
+        self.length
     }
-}
 
-/// An iterator over the aranges from a `.debug_aranges` section.
-///
-/// Can be [used with
-/// `FallibleIterator`](./index.html#using-with-fallibleiterator).
-#[derive(Debug, Clone)]
-pub struct ArangeEntryIter<R: Reader>(LookupEntryIter<R, ArangeParser<R>>);
-
-impl<R: Reader> ArangeEntryIter<R> {
-    /// Advance the iterator and return the next arange.
-    ///
-    /// Returns the newly parsed arange as `Ok(Some(arange))`. Returns `Ok(None)`
-    /// when iteration is complete and all aranges have already been parsed and
-    /// yielded. If an error occurs while parsing the next arange, then this error
-    /// is returned as `Err(e)`, and all subsequent calls return `Ok(None)`.
-    pub fn next(&mut self) -> Result<Option<ArangeEntry<R::Offset>>> {
-        self.0.next()
-    }
-}
-
-#[cfg(feature = "fallible-iterator")]
-impl<R: Reader> fallible_iterator::FallibleIterator for ArangeEntryIter<R> {
-    type Item = ArangeEntry<R::Offset>;
-    type Error = Error;
-
-    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
-        self.0.next()
+    /// Return the range.
+    #[inline]
+    pub fn range(&self) -> Range {
+        Range {
+            begin: self.address,
+            end: self.address.wrapping_add(self.length),
+        }
     }
 }
 
@@ -266,8 +372,61 @@ mod tests {
     use super::*;
     use crate::common::{DebugInfoOffset, Format};
     use crate::endianity::LittleEndian;
-    use crate::read::lookup::LookupParser;
     use crate::read::EndianSlice;
+
+    #[test]
+    fn test_iterate_headers() {
+        #[rustfmt::skip]
+        let buf = [
+            // 32-bit length = 28.
+            0x1c, 0x00, 0x00, 0x00,
+            // Version.
+            0x02, 0x00,
+            // Offset.
+            0x01, 0x02, 0x03, 0x04,
+            // Address size.
+            0x04,
+            // Segment size.
+            0x00,
+            // Dummy padding and arange tuples.
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+            // 32-bit length = 36.
+            0x24, 0x00, 0x00, 0x00,
+            // Version.
+            0x02, 0x00,
+            // Offset.
+            0x11, 0x12, 0x13, 0x14,
+            // Address size.
+            0x04,
+            // Segment size.
+            0x00,
+            // Dummy padding and arange tuples.
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+
+        let debug_aranges = DebugAranges::new(&buf, LittleEndian);
+        let mut headers = debug_aranges.headers();
+
+        let header = headers
+            .next()
+            .expect("should parse header ok")
+            .expect("should have a header");
+        assert_eq!(header.offset(), DebugArangesOffset(0));
+        assert_eq!(header.debug_info_offset(), DebugInfoOffset(0x0403_0201));
+
+        let header = headers
+            .next()
+            .expect("should parse header ok")
+            .expect("should have a header");
+        assert_eq!(header.offset(), DebugArangesOffset(0x20));
+        assert_eq!(header.debug_info_offset(), DebugInfoOffset(0x1413_1211));
+    }
 
     #[test]
     fn test_parse_header_ok() {
@@ -303,27 +462,26 @@ mod tests {
 
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
-        let (tuples, header) = ArangeParser::parse_header(rest).expect("should parse header ok");
+        let header =
+            ArangeHeader::parse(rest, DebugArangesOffset(0x10)).expect("should parse header ok");
 
         assert_eq!(
             *rest,
             EndianSlice::new(&buf[buf.len() - 16..], LittleEndian)
         );
         assert_eq!(
-            tuples,
-            EndianSlice::new(&buf[buf.len() - 32..buf.len() - 16], LittleEndian)
-        );
-        assert_eq!(
             header,
             ArangeHeader {
+                offset: DebugArangesOffset(0x10),
                 encoding: Encoding {
                     format: Format::Dwarf32,
                     version: 2,
                     address_size: 8,
                 },
                 length: 0x20,
-                offset: DebugInfoOffset(0x0403_0201),
+                debug_info_offset: DebugInfoOffset(0x0403_0201),
                 segment_size: 4,
+                entries: EndianSlice::new(&buf[buf.len() - 32..buf.len() - 16], LittleEndian),
             }
         );
     }
@@ -362,7 +520,8 @@ mod tests {
 
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
-        let error = ArangeParser::parse_header(rest).expect_err("should fail to parse header");
+        let error = ArangeHeader::parse(rest, DebugArangesOffset(0x10))
+            .expect_err("should fail to parse header");
         assert_eq!(error, Error::InvalidAddressRange);
     }
 
@@ -401,25 +560,23 @@ mod tests {
 
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
-        let error = ArangeParser::parse_header(rest).expect_err("should fail to parse header");
+        let error = ArangeHeader::parse(rest, DebugArangesOffset(0x10))
+            .expect_err("should fail to parse header");
         assert_eq!(error, Error::InvalidAddressRange);
     }
 
     #[test]
     fn test_parse_entry_ok() {
-        let header = ArangeHeader {
-            encoding: Encoding {
-                format: Format::Dwarf32,
-                version: 2,
-                address_size: 4,
-            },
-            length: 0,
-            offset: DebugInfoOffset(0),
-            segment_size: 0,
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 2,
+            address_size: 4,
         };
+        let segment_size = 0;
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
-        let entry = ArangeParser::parse_entry(rest, &header).expect("should parse entry ok");
+        let entry =
+            ArangeEntry::parse(rest, encoding, segment_size).expect("should parse entry ok");
         assert_eq!(*rest, EndianSlice::new(&buf[buf.len() - 1..], LittleEndian));
         assert_eq!(
             entry,
@@ -427,23 +584,18 @@ mod tests {
                 segment: None,
                 address: 0x0403_0201,
                 length: 0x0807_0605,
-                unit_header_offset: header.offset,
             })
         );
     }
 
     #[test]
     fn test_parse_entry_segment() {
-        let header = ArangeHeader {
-            encoding: Encoding {
-                format: Format::Dwarf32,
-                version: 2,
-                address_size: 4,
-            },
-            length: 0,
-            offset: DebugInfoOffset(0),
-            segment_size: 8,
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 2,
+            address_size: 4,
         };
+        let segment_size = 8;
         #[rustfmt::skip]
         let buf = [
             // Segment.
@@ -456,7 +608,8 @@ mod tests {
             0x09
         ];
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
-        let entry = ArangeParser::parse_entry(rest, &header).expect("should parse entry ok");
+        let entry =
+            ArangeEntry::parse(rest, encoding, segment_size).expect("should parse entry ok");
         assert_eq!(*rest, EndianSlice::new(&buf[buf.len() - 1..], LittleEndian));
         assert_eq!(
             entry,
@@ -464,23 +617,18 @@ mod tests {
                 segment: Some(0x1817_1615_1413_1211),
                 address: 0x0403_0201,
                 length: 0x0807_0605,
-                unit_header_offset: header.offset,
             })
         );
     }
 
     #[test]
     fn test_parse_entry_zero() {
-        let header = ArangeHeader {
-            encoding: Encoding {
-                format: Format::Dwarf32,
-                version: 2,
-                address_size: 4,
-            },
-            length: 0,
-            offset: DebugInfoOffset(0),
-            segment_size: 0,
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 2,
+            address_size: 4,
         };
+        let segment_size = 0;
         #[rustfmt::skip]
         let buf = [
             // Zero tuple.
@@ -493,7 +641,8 @@ mod tests {
             0x09
         ];
         let rest = &mut EndianSlice::new(&buf, LittleEndian);
-        let entry = ArangeParser::parse_entry(rest, &header).expect("should parse entry ok");
+        let entry =
+            ArangeEntry::parse(rest, encoding, segment_size).expect("should parse entry ok");
         assert_eq!(*rest, EndianSlice::new(&buf[buf.len() - 1..], LittleEndian));
         assert_eq!(
             entry,
@@ -501,7 +650,6 @@ mod tests {
                 segment: None,
                 address: 0x0403_0201,
                 length: 0x0807_0605,
-                unit_header_offset: header.offset,
             })
         );
     }

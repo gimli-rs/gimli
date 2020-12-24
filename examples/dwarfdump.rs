@@ -615,7 +615,7 @@ where
     }
     if flags.aranges {
         let debug_aranges = &gimli::Section::load(&mut load_section).unwrap();
-        dump_aranges(w, debug_aranges, &dwarf.debug_info)?;
+        dump_aranges(w, debug_aranges)?;
     }
     if flags.pubtypes {
         let debug_pubtypes = &gimli::Section::load(&mut load_section).unwrap();
@@ -2108,36 +2108,33 @@ fn dump_pubtypes<R: Reader, W: Write>(
 fn dump_aranges<R: Reader, W: Write>(
     w: &mut W,
     debug_aranges: &gimli::DebugAranges<R>,
-    debug_info: &gimli::DebugInfo<R>,
 ) -> Result<()> {
     writeln!(w, "\n.debug_aranges")?;
 
-    let mut cu_die_offset = gimli::DebugInfoOffset(0);
-    let mut prev_cu_offset = None;
-    let mut aranges = debug_aranges.items();
-    while let Some(arange) = aranges.next()? {
-        let cu_offset = arange.debug_info_offset();
-        if Some(cu_offset) != prev_cu_offset {
-            let cu = debug_info.header_from_offset(cu_offset)?;
-            cu_die_offset = gimli::DebugInfoOffset(cu_offset.0 + cu.header_size());
-            prev_cu_offset = Some(cu_offset);
-        }
-        if let Some(segment) = arange.segment() {
-            write!(
-                w,
-                "arange starts at seg,off 0x{:08x},0x{:08x}, ",
-                segment,
-                arange.address()
-            )?;
-        } else {
-            write!(w, "arange starts at 0x{:08x}, ", arange.address())?;
-        }
+    let mut headers = debug_aranges.headers();
+    while let Some(header) = headers.next()? {
         writeln!(
             w,
-            "length of 0x{:08x}, cu_die_offset = 0x{:08x}",
-            arange.length(),
-            cu_die_offset.0
+            "Address Range Header: length = 0x{:08x}, version = 0x{:04x}, cu_offset = 0x{:08x}, addr_size = 0x{:02x}, seg_size = 0x{:02x}",
+            header.length(),
+            header.encoding().version,
+            header.debug_info_offset().0,
+            header.encoding().address_size,
+            header.segment_size(),
         )?;
+        let mut aranges = header.entries();
+        while let Some(arange) = aranges.next()? {
+            let range = arange.range();
+            if let Some(segment) = arange.segment() {
+                writeln!(
+                    w,
+                    "[0x{:016x},  0x{:016x}) segment 0x{:x}",
+                    range.begin, range.end, segment
+                )?;
+            } else {
+                writeln!(w, "[0x{:016x},  0x{:016x})", range.begin, range.end)?;
+            }
+        }
     }
     Ok(())
 }

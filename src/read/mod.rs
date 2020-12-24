@@ -151,8 +151,10 @@
 //! fn find_sum_of_address_range_lengths(aranges: DebugAranges<EndianSlice<LittleEndian>>)
 //!     -> gimli::Result<u64>
 //! {
-//!     // `DebugAranges::items` returns a `FallibleIterator`!
-//!     aranges.items()
+//!     // `DebugAranges::headers` returns a `FallibleIterator`!
+//!     aranges.headers()
+//!         // `flat_map` is provided by `FallibleIterator`!
+//!         .flat_map(|header| Ok(header.entries()))
 //!         // `map` is provided by `FallibleIterator`!
 //!         .map(|arange| Ok(arange.length()))
 //!         // `fold` is provided by `FallibleIterator`!
