@@ -8,165 +8,6 @@ use crate::read::{
     parse_debug_info_offset, EndianSlice, Error, Reader, ReaderOffset, Result, Section,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ArangeHeader<T = usize> {
-    encoding: Encoding,
-    length: T,
-    offset: DebugInfoOffset<T>,
-    segment_size: u8,
-}
-
-/// A single parsed arange.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ArangeEntry<T: Copy = usize> {
-    segment: Option<u64>,
-    address: u64,
-    length: u64,
-    unit_header_offset: DebugInfoOffset<T>,
-}
-
-impl<T: Copy> ArangeEntry<T> {
-    /// Return the segment selector of this arange.
-    #[inline]
-    pub fn segment(&self) -> Option<u64> {
-        self.segment
-    }
-
-    /// Return the beginning address of this arange.
-    #[inline]
-    pub fn address(&self) -> u64 {
-        self.address
-    }
-
-    /// Return the length of this arange.
-    #[inline]
-    pub fn length(&self) -> u64 {
-        self.length
-    }
-
-    /// Return the offset into the .debug_info section for this arange.
-    #[inline]
-    pub fn debug_info_offset(&self) -> DebugInfoOffset<T> {
-        self.unit_header_offset
-    }
-}
-
-impl<T: Copy + Ord> PartialOrd for ArangeEntry<T> {
-    fn partial_cmp(&self, other: &ArangeEntry<T>) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<T: Copy + Ord> Ord for ArangeEntry<T> {
-    fn cmp(&self, other: &ArangeEntry<T>) -> Ordering {
-        // The expected comparison, but ignore header.
-        self.segment
-            .cmp(&other.segment)
-            .then(self.address.cmp(&other.address))
-            .then(self.length.cmp(&other.length))
-    }
-}
-
-#[derive(Clone, Debug)]
-struct ArangeParser<R: Reader> {
-    // This struct is never instantiated.
-    phantom: PhantomData<R>,
-}
-
-impl<R: Reader> LookupParser<R> for ArangeParser<R> {
-    type Header = ArangeHeader<R::Offset>;
-    type Entry = ArangeEntry<R::Offset>;
-
-    /// Parse an arange set header. Returns a tuple of the aranges to be
-    /// parsed for this set, and the newly created ArangeHeader struct.
-    fn parse_header(input: &mut R) -> Result<(R, Self::Header)> {
-        let (length, format) = input.read_initial_length()?;
-        let mut rest = input.split(length)?;
-
-        let version = rest.read_u16()?;
-        if version != 2 {
-            return Err(Error::UnknownVersion(u64::from(version)));
-        }
-
-        let offset = parse_debug_info_offset(&mut rest, format)?;
-        let address_size = rest.read_u8()?;
-        let segment_size = rest.read_u8()?;
-
-        // unit_length + version + offset + address_size + segment_size
-        let header_length = format.initial_length_size() + 2 + format.word_size() + 1 + 1;
-
-        // The first tuple following the header in each set begins at an offset that is
-        // a multiple of the size of a single tuple (that is, the size of a segment selector
-        // plus twice the size of an address).
-        let tuple_length = address_size
-            .checked_mul(2)
-            .and_then(|x| x.checked_add(segment_size))
-            .ok_or(Error::InvalidAddressRange)?;
-        if tuple_length == 0 {
-            return Err(Error::InvalidAddressRange)?;
-        }
-        let padding = if header_length % tuple_length == 0 {
-            0
-        } else {
-            tuple_length - header_length % tuple_length
-        };
-        rest.skip(R::Offset::from_u8(padding))?;
-
-        let encoding = Encoding {
-            format,
-            version,
-            address_size,
-            // TODO: segment_size
-        };
-        Ok((
-            rest,
-            ArangeHeader {
-                encoding,
-                length,
-                offset,
-                segment_size,
-            },
-        ))
-    }
-
-    /// Parse a single arange. Return `None` for the null arange, `Some` for an actual arange.
-    fn parse_entry(input: &mut R, header: &Self::Header) -> Result<Option<Self::Entry>> {
-        let address_size = header.encoding.address_size;
-        let segment_size = header.segment_size; // May be zero!
-
-        let tuple_length = R::Offset::from_u8(2 * address_size + segment_size);
-        if tuple_length > input.len() {
-            input.empty();
-            return Ok(None);
-        }
-
-        let segment = if segment_size != 0 {
-            input.read_address(segment_size)?
-        } else {
-            0
-        };
-        let address = input.read_address(address_size)?;
-        let length = input.read_address(address_size)?;
-
-        match (segment, address, length) {
-            // There may be multiple sets of tuples, each terminated by a zero tuple.
-            // It's not clear what purpose these zero tuples serve.  For now, we
-            // simply skip them.
-            (0, 0, 0) => Self::parse_entry(input, header),
-            _ => Ok(Some(ArangeEntry {
-                segment: if segment_size != 0 {
-                    Some(segment)
-                } else {
-                    None
-                },
-                address,
-                length,
-                unit_header_offset: header.offset,
-            })),
-        }
-    }
-}
-
 /// The `DebugAranges` struct represents the DWARF address range information
 /// found in the `.debug_aranges` section.
 #[derive(Debug, Clone)]
@@ -232,6 +73,87 @@ impl<R: Reader> From<R> for DebugAranges<R> {
     }
 }
 
+#[derive(Clone, Debug)]
+struct ArangeParser<R: Reader> {
+    // This struct is never instantiated.
+    phantom: PhantomData<R>,
+}
+
+impl<R: Reader> LookupParser<R> for ArangeParser<R> {
+    type Header = ArangeHeader<R::Offset>;
+    type Entry = ArangeEntry<R::Offset>;
+
+    fn parse_header(input: &mut R) -> Result<(R, Self::Header)> {
+        ArangeHeader::parse(input)
+    }
+
+    fn parse_entry(input: &mut R, header: &Self::Header) -> Result<Option<Self::Entry>> {
+        ArangeEntry::parse(input, header)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ArangeHeader<T = usize> {
+    encoding: Encoding,
+    length: T,
+    offset: DebugInfoOffset<T>,
+    segment_size: u8,
+}
+
+impl<T: ReaderOffset> ArangeHeader<T> {
+    /// Parse an arange set header. Returns a tuple of the aranges to be
+    /// parsed for this set, and the newly created ArangeHeader struct.
+    fn parse<R: Reader<Offset = T>>(input: &mut R) -> Result<(R, Self)> {
+        let (length, format) = input.read_initial_length()?;
+        let mut rest = input.split(length)?;
+
+        let version = rest.read_u16()?;
+        if version != 2 {
+            return Err(Error::UnknownVersion(u64::from(version)));
+        }
+
+        let offset = parse_debug_info_offset(&mut rest, format)?;
+        let address_size = rest.read_u8()?;
+        let segment_size = rest.read_u8()?;
+
+        // unit_length + version + offset + address_size + segment_size
+        let header_length = format.initial_length_size() + 2 + format.word_size() + 1 + 1;
+
+        // The first tuple following the header in each set begins at an offset that is
+        // a multiple of the size of a single tuple (that is, the size of a segment selector
+        // plus twice the size of an address).
+        let tuple_length = address_size
+            .checked_mul(2)
+            .and_then(|x| x.checked_add(segment_size))
+            .ok_or(Error::InvalidAddressRange)?;
+        if tuple_length == 0 {
+            return Err(Error::InvalidAddressRange)?;
+        }
+        let padding = if header_length % tuple_length == 0 {
+            0
+        } else {
+            tuple_length - header_length % tuple_length
+        };
+        rest.skip(R::Offset::from_u8(padding))?;
+
+        let encoding = Encoding {
+            format,
+            version,
+            address_size,
+            // TODO: segment_size
+        };
+        Ok((
+            rest,
+            ArangeHeader {
+                encoding,
+                length,
+                offset,
+                segment_size,
+            },
+        ))
+    }
+}
+
 /// An iterator over the aranges from a `.debug_aranges` section.
 ///
 /// Can be [used with
@@ -258,6 +180,99 @@ impl<R: Reader> fallible_iterator::FallibleIterator for ArangeEntryIter<R> {
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         self.0.next()
+    }
+}
+
+/// A single parsed arange.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArangeEntry<T: Copy = usize> {
+    segment: Option<u64>,
+    address: u64,
+    length: u64,
+    unit_header_offset: DebugInfoOffset<T>,
+}
+
+impl<T: ReaderOffset> ArangeEntry<T> {
+    /// Parse a single arange. Return `None` for the null arange, `Some` for an actual arange.
+    fn parse<R: Reader<Offset = T>>(
+        input: &mut R,
+        header: &ArangeHeader<T>,
+    ) -> Result<Option<Self>> {
+        let address_size = header.encoding.address_size;
+        let segment_size = header.segment_size; // May be zero!
+
+        let tuple_length = R::Offset::from_u8(2 * address_size + segment_size);
+        if tuple_length > input.len() {
+            input.empty();
+            return Ok(None);
+        }
+
+        let segment = if segment_size != 0 {
+            input.read_address(segment_size)?
+        } else {
+            0
+        };
+        let address = input.read_address(address_size)?;
+        let length = input.read_address(address_size)?;
+
+        match (segment, address, length) {
+            // There may be multiple sets of tuples, each terminated by a zero tuple.
+            // It's not clear what purpose these zero tuples serve.  For now, we
+            // simply skip them.
+            (0, 0, 0) => Self::parse(input, header),
+            _ => Ok(Some(ArangeEntry {
+                segment: if segment_size != 0 {
+                    Some(segment)
+                } else {
+                    None
+                },
+                address,
+                length,
+                unit_header_offset: header.offset,
+            })),
+        }
+    }
+}
+
+impl<T: Copy> ArangeEntry<T> {
+    /// Return the segment selector of this arange.
+    #[inline]
+    pub fn segment(&self) -> Option<u64> {
+        self.segment
+    }
+
+    /// Return the beginning address of this arange.
+    #[inline]
+    pub fn address(&self) -> u64 {
+        self.address
+    }
+
+    /// Return the length of this arange.
+    #[inline]
+    pub fn length(&self) -> u64 {
+        self.length
+    }
+
+    /// Return the offset into the .debug_info section for this arange.
+    #[inline]
+    pub fn debug_info_offset(&self) -> DebugInfoOffset<T> {
+        self.unit_header_offset
+    }
+}
+
+impl<T: Copy + Ord> PartialOrd for ArangeEntry<T> {
+    fn partial_cmp(&self, other: &ArangeEntry<T>) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T: Copy + Ord> Ord for ArangeEntry<T> {
+    fn cmp(&self, other: &ArangeEntry<T>) -> Ordering {
+        // The expected comparison, but ignore header.
+        self.segment
+            .cmp(&other.segment)
+            .then(self.address.cmp(&other.address))
+            .then(self.length.cmp(&other.length))
     }
 }
 
