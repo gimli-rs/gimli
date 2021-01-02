@@ -334,14 +334,19 @@ impl<R: Reader> Dwarf<R> {
         while let Some(attr) = attrs.next()? {
             match attr.name() {
                 constants::DW_AT_low_pc => {
-                    if let AttributeValue::Addr(val) = attr.value() {
-                        low_pc = Some(val);
-                    }
+                    low_pc = Some(
+                        self.attr_address(unit, attr.value())?
+                            .ok_or(Error::UnsupportedAttributeForm)?,
+                    );
                 }
                 constants::DW_AT_high_pc => match attr.value() {
-                    AttributeValue::Addr(val) => high_pc = Some(val),
                     AttributeValue::Udata(val) => size = Some(val),
-                    _ => return Err(Error::UnsupportedAttributeForm),
+                    attr => {
+                        high_pc = Some(
+                            self.attr_address(unit, attr)?
+                                .ok_or(Error::UnsupportedAttributeForm)?,
+                        );
+                    }
                 },
                 constants::DW_AT_ranges => {
                     if let Some(list) = self.attr_ranges(unit, attr.value())? {
@@ -563,6 +568,7 @@ impl<R: Reader> Unit<R> {
         let mut name = None;
         let mut comp_dir = None;
         let mut line_program_offset = None;
+        let mut low_pc_attr = None;
 
         {
             let mut cursor = unit.header.entries(&unit.abbreviations);
@@ -578,9 +584,7 @@ impl<R: Reader> Unit<R> {
                         comp_dir = Some(attr.value());
                     }
                     constants::DW_AT_low_pc => {
-                        if let AttributeValue::Addr(address) = attr.value() {
-                            unit.low_pc = address;
-                        }
+                        low_pc_attr = Some(attr.value());
                     }
                     constants::DW_AT_stmt_list => {
                         if let AttributeValue::DebugLineRef(offset) = attr.value() {
@@ -629,6 +633,11 @@ impl<R: Reader> Unit<R> {
             )?),
             None => None,
         };
+        if let Some(low_pc_attr) = low_pc_attr {
+            if let Some(addr) = dwarf.attr_address(&unit, low_pc_attr)? {
+                unit.low_pc = addr;
+            }
+        }
         Ok(unit)
     }
 
