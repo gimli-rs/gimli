@@ -1,4 +1,5 @@
 use alloc::borrow::Cow;
+use core::convert::TryInto;
 use core::fmt::Debug;
 use core::hash::Hash;
 use core::ops::{Add, AddAssign, Sub};
@@ -389,6 +390,13 @@ pub trait Reader: Debug + Clone {
     /// Read an unsigned LEB128 encoded integer.
     fn read_uleb128(&mut self) -> Result<u64> {
         leb128::read::unsigned(self)
+    }
+
+    /// Read an unsigned LEB128 encoded u32.
+    fn read_uleb128_u32(&mut self) -> Result<u32> {
+        leb128::read::unsigned(self)?
+            .try_into()
+            .map_err(|_| Error::BadUnsignedLeb128)
     }
 
     /// Read an unsigned LEB128 encoded u16.

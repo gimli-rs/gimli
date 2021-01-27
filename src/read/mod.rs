@@ -320,6 +320,8 @@ pub enum Error {
     /// An unrecognized operation was found while parsing a DWARF
     /// expression.
     InvalidExpression(constants::DwOp),
+    /// An unsupported operation was found while evaluating a DWARF expression.
+    UnsupportedEvaluation,
     /// The expression had a piece followed by an expression
     /// terminator without a piece.
     InvalidPiece,
@@ -470,6 +472,7 @@ impl Error {
             Error::NotEnoughStackItems => "Not enough items on stack when evaluating expression",
             Error::TooManyIterations => "Too many iterations to evaluate DWARF expression",
             Error::InvalidExpression(_) => "Invalid opcode in DWARF expression",
+            Error::UnsupportedEvaluation => "Unsupported operation when evaluating expression",
             Error::InvalidPiece => {
                 "DWARF expression has piece followed by non-piece expression at end"
             }

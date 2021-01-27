@@ -240,6 +240,21 @@ impl Expression {
         self.operations.push(Operation::ParameterRef(entry));
     }
 
+    /// Add a `DW_OP_WASM_location 0x0` operation to the expression.
+    pub fn op_wasm_local(&mut self, index: u32) {
+        self.operations.push(Operation::WasmLocal(index));
+    }
+
+    /// Add a `DW_OP_WASM_location 0x1` operation to the expression.
+    pub fn op_wasm_global(&mut self, index: u32) {
+        self.operations.push(Operation::WasmGlobal(index));
+    }
+
+    /// Add a `DW_OP_WASM_location 0x2` operation to the expression.
+    pub fn op_wasm_stack(&mut self, index: u32) {
+        self.operations.push(Operation::WasmStack(index));
+    }
+
     pub(crate) fn size(&self, encoding: Encoding, unit_offsets: Option<&UnitOffsets>) -> usize {
         let mut size = 0;
         for operation in &self.operations {
@@ -472,6 +487,18 @@ enum Operation {
     ///
     /// Represents `DW_OP_GNU_parameter_ref`.
     ParameterRef(UnitEntryId),
+    /// The index of a local in the currently executing function.
+    ///
+    /// Represents `DW_OP_WASM_location 0x00`.
+    WasmLocal(u32),
+    /// The index of a global.
+    ///
+    /// Represents `DW_OP_WASM_location 0x01`.
+    WasmGlobal(u32),
+    /// The index of an item on the operand stack.
+    ///
+    /// Represents `DW_OP_WASM_location 0x02`.
+    WasmStack(u32),
 }
 
 impl Operation {
@@ -551,6 +578,9 @@ impl Operation {
                 bit_offset,
             } => uleb128_size(size_in_bits) + uleb128_size(bit_offset),
             Operation::ParameterRef(_) => 4,
+            Operation::WasmLocal(index)
+            | Operation::WasmGlobal(index)
+            | Operation::WasmStack(index) => 1 + uleb128_size(index.into()),
         }
     }
 
@@ -782,6 +812,18 @@ impl Operation {
                 w.write_u8(constants::DW_OP_GNU_parameter_ref.0)?;
                 w.write_udata(entry_offset(entry)?, 4)?;
             }
+            Operation::WasmLocal(index) => {
+                w.write(&[constants::DW_OP_WASM_location.0, 0])?;
+                w.write_uleb128(index.into())?;
+            }
+            Operation::WasmGlobal(index) => {
+                w.write(&[constants::DW_OP_WASM_location.0, 1])?;
+                w.write_uleb128(index.into())?;
+            }
+            Operation::WasmStack(index) => {
+                w.write(&[constants::DW_OP_WASM_location.0, 2])?;
+                w.write_uleb128(index.into())?;
+            }
         }
         Ok(())
     }
@@ -1000,6 +1042,9 @@ pub(crate) mod convert {
                             Operation::Reinterpret(Some(entry))
                         }
                     }
+                    read::Operation::WasmLocal { index } => Operation::WasmLocal(index),
+                    read::Operation::WasmGlobal { index } => Operation::WasmGlobal(index),
+                    read::Operation::WasmStack { index } => Operation::WasmStack(index),
                 };
                 operations.push(operation);
             }
@@ -1448,6 +1493,21 @@ mod tests {
                                 read::Operation::Reinterpret {
                                     base_type: entry_offset,
                                 },
+                            ),
+                            (
+                                &|x| x.op_wasm_local(1000),
+                                Operation::WasmLocal(1000),
+                                read::Operation::WasmLocal { index: 1000 },
+                            ),
+                            (
+                                &|x| x.op_wasm_global(1000),
+                                Operation::WasmGlobal(1000),
+                                read::Operation::WasmGlobal { index: 1000 },
+                            ),
+                            (
+                                &|x| x.op_wasm_stack(1000),
+                                Operation::WasmStack(1000),
+                                read::Operation::WasmStack { index: 1000 },
                             ),
                         ];
 

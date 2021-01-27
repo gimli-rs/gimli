@@ -1383,8 +1383,7 @@ fn dump_exprloc<R: Reader, W: Write>(
     let mut pc = data.0.clone();
     let mut space = false;
     while pc.len() != 0 {
-        let mut op_pc = pc.clone();
-        let dwop = gimli::DwOp(op_pc.read_u8()?);
+        let pc_clone = pc.clone();
         match gimli::Operation::parse(&mut pc, encoding) {
             Ok(op) => {
                 if space {
@@ -1392,7 +1391,7 @@ fn dump_exprloc<R: Reader, W: Write>(
                 } else {
                     space = true;
                 }
-                dump_op(w, encoding, dwop, op)?;
+                dump_op(w, encoding, pc_clone, op)?;
             }
             Err(gimli::Error::InvalidExpression(op)) => {
                 writeln!(w, "WARNING: unsupported operation 0x{:02x}", op.0)?;
@@ -1418,9 +1417,10 @@ fn dump_exprloc<R: Reader, W: Write>(
 fn dump_op<R: Reader, W: Write>(
     w: &mut W,
     encoding: gimli::Encoding,
-    dwop: gimli::DwOp,
+    mut pc: R,
     op: gimli::Operation<R>,
 ) -> Result<()> {
+    let dwop = gimli::DwOp(pc.read_u8()?);
     write!(w, "{}", dwop)?;
     match op {
         gimli::Operation::Deref {
@@ -1552,6 +1552,12 @@ fn dump_op<R: Reader, W: Write>(
         }
         gimli::Operation::Reinterpret { base_type } => {
             write!(w, " type 0x{:08x}", base_type.0)?;
+        }
+        gimli::Operation::WasmLocal { index }
+        | gimli::Operation::WasmGlobal { index }
+        | gimli::Operation::WasmStack { index } => {
+            let wasmop = pc.read_u8()?;
+            write!(w, " 0x{:x} 0x{:x}", wasmop, index)?;
         }
         gimli::Operation::Drop
         | gimli::Operation::Swap
