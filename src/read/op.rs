@@ -128,6 +128,7 @@ where
         value: i64,
     },
     /// Indicate that this piece's location is in the given register.
+    ///
     /// Completes the piece or expression.
     Register {
         /// The register number.
@@ -174,20 +175,23 @@ where
         /// next byte boundary.
         bit_offset: Option<u64>,
     },
-    /// Represents `DW_OP_implicit_value`.
     /// The object has no location, but has a known constant value.
+    ///
+    /// Represents `DW_OP_implicit_value`.
     /// Completes the piece or expression.
     ImplicitValue {
         /// The implicit value to use.
         data: R,
     },
-    /// Represents `DW_OP_stack_value`.
     /// The object has no location, but its value is at the top of the stack.
+    ///
+    /// Represents `DW_OP_stack_value`.
     /// Completes the piece or expression.
     StackValue,
-    /// Represents `DW_OP_implicit_pointer`. The object is a pointer to
-    /// a value which has no actual location, such as an implicit value or
-    /// a stack value.
+    /// The object is a pointer to a value which has no actual location,
+    /// such as an implicit value or a stack value.
+    ///
+    /// Represents `DW_OP_implicit_pointer`.
     /// Completes the piece or expression.
     ImplicitPointer {
         /// The `.debug_info` offset of the value that this is an implicit pointer into.
@@ -195,60 +199,94 @@ where
         /// The byte offset into the value that the implicit pointer points to.
         byte_offset: i64,
     },
-    /// Represents `DW_OP_entry_value`. Evaluate an expression at the entry to
-    /// the current subprogram, and push it on the stack.
+    /// Evaluate an expression at the entry to the current subprogram, and push it on the stack.
+    ///
+    /// Represents `DW_OP_entry_value`.
     EntryValue {
         /// The expression to be evaluated.
         expression: R,
     },
-    /// Represents `DW_OP_GNU_parameter_ref`. This represents a parameter that was
-    /// optimized out. The offset points to the definition of the parameter, and is
+    /// This represents a parameter that was optimized out.
+    ///
+    /// The offset points to the definition of the parameter, and is
     /// matched to the `DW_TAG_GNU_call_site_parameter` in the caller that also
     /// points to the same definition of the parameter.
+    ///
+    /// Represents `DW_OP_GNU_parameter_ref`.
     ParameterRef {
         /// The DIE to use.
         offset: UnitOffset<Offset>,
     },
-    /// Represents `DW_OP_addr`.
     /// Relocate the address if needed, and push it on the stack.
+    ///
+    /// Represents `DW_OP_addr`.
     Address {
         /// The offset to add.
         address: u64,
     },
-    /// Represents `DW_OP_addrx`.
     /// Read the address at the given index in `.debug_addr, relocate the address if needed,
     /// and push it on the stack.
+    ///
+    /// Represents `DW_OP_addrx`.
     AddressIndex {
         /// The index of the address in `.debug_addr`.
         index: DebugAddrIndex<Offset>,
     },
-    /// Represents `DW_OP_constx`.
     /// Read the address at the given index in `.debug_addr, and push it on the stack.
     /// Do not relocate the address.
+    ///
+    /// Represents `DW_OP_constx`.
     ConstantIndex {
         /// The index of the address in `.debug_addr`.
         index: DebugAddrIndex<Offset>,
     },
-    /// Represents `DW_OP_const_type`.
     /// Interpret the value bytes as a constant of a given type, and push it on the stack.
+    ///
+    /// Represents `DW_OP_const_type`.
     TypedLiteral {
         /// The DIE of the base type.
         base_type: UnitOffset<Offset>,
         /// The value bytes.
         value: R,
     },
-    /// Represents `DW_OP_convert`.
     /// Pop the top stack entry, convert it to a different type, and push it on the stack.
+    ///
+    /// Represents `DW_OP_convert`.
     Convert {
         /// The DIE of the base type.
         base_type: UnitOffset<Offset>,
     },
-    /// Represents `DW_OP_reinterpret`.
     /// Pop the top stack entry, reinterpret the bits in its value as a different type,
     /// and push it on the stack.
+    ///
+    /// Represents `DW_OP_reinterpret`.
     Reinterpret {
         /// The DIE of the base type.
         base_type: UnitOffset<Offset>,
+    },
+    /// The index of a local in the currently executing function.
+    ///
+    /// Represents `DW_OP_WASM_location 0x00`.
+    /// Completes the piece or expression.
+    WasmLocal {
+        /// The index of the local.
+        index: u32,
+    },
+    /// The index of a global.
+    ///
+    /// Represents `DW_OP_WASM_location 0x01` or `DW_OP_WASM_location 0x03`.
+    /// Completes the piece or expression.
+    WasmGlobal {
+        /// The index of the global.
+        index: u32,
+    },
+    /// The index of an item on the operand stack.
+    ///
+    /// Represents `DW_OP_WASM_location 0x02`.
+    /// Completes the piece or expression.
+    WasmStack {
+        /// The index of the stack item. 0 is the bottom of the operand stack.
+        index: u32,
     },
 }
 
@@ -745,7 +783,25 @@ where
                     base_type: UnitOffset(base_type),
                 })
             }
-
+            constants::DW_OP_WASM_location => match bytes.read_u8()? {
+                0x0 => {
+                    let index = bytes.read_uleb128_u32()?;
+                    Ok(Operation::WasmLocal { index })
+                }
+                0x1 => {
+                    let index = bytes.read_uleb128_u32()?;
+                    Ok(Operation::WasmGlobal { index })
+                }
+                0x2 => {
+                    let index = bytes.read_uleb128_u32()?;
+                    Ok(Operation::WasmStack { index })
+                }
+                0x3 => {
+                    let index = bytes.read_u32()?;
+                    Ok(Operation::WasmGlobal { index })
+                }
+                _ => Err(Error::InvalidExpression(name)),
+            },
             _ => Err(Error::InvalidExpression(name)),
         }
     }
@@ -1430,6 +1486,11 @@ impl<R: Reader> Evaluation<R> {
                     EvaluationWaiting::Reinterpret,
                     EvaluationResult::RequiresBaseType(base_type),
                 ));
+            }
+            Operation::WasmLocal { .. }
+            | Operation::WasmGlobal { .. }
+            | Operation::WasmStack { .. } => {
+                return Err(Error::UnsupportedEvaluation);
             }
         }
 
@@ -2609,6 +2670,33 @@ mod tests {
             },
             encoding4(),
         )
+    }
+
+    #[test]
+    fn test_op_wasm() {
+        // Doesn't matter for this test.
+        let encoding = encoding4();
+
+        check_op_parse(
+            |s| s.D8(constants::DW_OP_WASM_location.0).D8(0).uleb(1000),
+            &Operation::WasmLocal { index: 1000 },
+            encoding,
+        );
+        check_op_parse(
+            |s| s.D8(constants::DW_OP_WASM_location.0).D8(1).uleb(1000),
+            &Operation::WasmGlobal { index: 1000 },
+            encoding,
+        );
+        check_op_parse(
+            |s| s.D8(constants::DW_OP_WASM_location.0).D8(2).uleb(1000),
+            &Operation::WasmStack { index: 1000 },
+            encoding,
+        );
+        check_op_parse(
+            |s| s.D8(constants::DW_OP_WASM_location.0).D8(3).D32(1000),
+            &Operation::WasmGlobal { index: 1000 },
+            encoding,
+        );
     }
 
     enum AssemblerEntry {
