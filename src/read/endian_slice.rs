@@ -305,7 +305,7 @@ where
     #[inline]
     fn read_slice(&mut self, buf: &mut [u8]) -> Result<()> {
         let slice = self.read_slice(buf.len())?;
-        buf.clone_from_slice(slice);
+        buf.copy_from_slice(slice);
         Ok(())
     }
 }
