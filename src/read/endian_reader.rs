@@ -469,7 +469,7 @@ where
     fn read_slice(&mut self, buf: &mut [u8]) -> Result<()> {
         match self.range.read_slice(buf.len()) {
             Some(slice) => {
-                buf.clone_from_slice(slice);
+                buf.copy_from_slice(slice);
                 Ok(())
             }
             None => Err(Error::UnexpectedEof(self.offset_id())),
