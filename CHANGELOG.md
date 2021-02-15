@@ -2,6 +2,18 @@
 
 --------------------------------------------------------------------------------
 
+## 0.24.0
+
+Not yet released
+
+### Breaking changes
+
+* `read::LineRow::line` now returns Option<NonZeroU64>.
+  The `read::ColumnType::Column` variant now contains a NonZeroU64.
+  [#551](https://github.com/gimli-rs/gimli/pull/551)
+
+--------------------------------------------------------------------------------
+
 ## 0.23.0
 
 Released 2020/10/27.

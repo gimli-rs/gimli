@@ -84,10 +84,13 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian) -> Result<(), 
 
                     // Determine line/column. DWARF line/column is never 0, so we use that
                     // but other applications may want to display this differently.
-                    let line = row.line().unwrap_or(0);
+                    let line = match row.line() {
+                        Some(line) => line.get(),
+                        None => 0,
+                    };
                     let column = match row.column() {
                         gimli::ColumnType::LeftEdge => 0,
-                        gimli::ColumnType::Column(x) => x,
+                        gimli::ColumnType::Column(column) => column.get(),
                     };
 
                     println!("{:x} {}:{}:{}", row.address(), path.display(), line, column);

@@ -1102,10 +1102,13 @@ mod convert {
                                     }
                                     files[file as usize]
                                 };
-                                program.row().line = from_row.line().unwrap_or(0);
+                                program.row().line = match from_row.line() {
+                                    Some(line) => line.get(),
+                                    None => 0,
+                                };
                                 program.row().column = match from_row.column() {
                                     read::ColumnType::LeftEdge => 0,
-                                    read::ColumnType::Column(val) => val,
+                                    read::ColumnType::Column(val) => val.get(),
                                 };
                                 program.row().discriminator = from_row.discriminator();
                                 program.row().is_statement = from_row.is_stmt();
@@ -1801,7 +1804,7 @@ mod tests {
                             {
                                 let row = rows.next_row().unwrap().unwrap().1;
                                 address = row.address();
-                                line = row.line().unwrap();
+                                line = row.line().unwrap().get();
                             }
                             assert_eq!(address, 0x1000);
                             assert_eq!(line, 0x10000);
@@ -1812,11 +1815,11 @@ mod tests {
                                     address_advance * u64::from(minimum_instruction_length)
                                 );
                                 assert_eq!(
-                                    (row.line().unwrap() as i64) - (line as i64),
+                                    (row.line().unwrap().get() as i64) - (line as i64),
                                     line_advance
                                 );
                                 address = row.address();
-                                line = row.line().unwrap();
+                                line = row.line().unwrap().get();
                             }
                             let row = rows.next_row().unwrap().unwrap().1;
                             assert!(row.end_sequence());

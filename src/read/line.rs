@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 use core::fmt;
-use core::num::Wrapping;
+use core::num::{NonZeroU64, Wrapping};
 use core::result;
 
 use crate::common::{
@@ -713,13 +713,10 @@ impl LineRow {
     /// "An unsigned integer indicating a source line number. Lines are numbered
     /// beginning at 1. The compiler may emit the value 0 in cases where an
     /// instruction cannot be attributed to any source line."
+    /// Line number values of 0 are represented as `None`.
     #[inline]
-    pub fn line(&self) -> Option<u64> {
-        if self.line.0 == 0 {
-            None
-        } else {
-            Some(self.line.0)
-        }
+    pub fn line(&self) -> Option<NonZeroU64> {
+        NonZeroU64::new(self.line.0)
     }
 
     /// "An unsigned integer indicating a column number within a source
@@ -727,11 +724,9 @@ impl LineRow {
     /// indicate that a statement begins at the “left edge” of the line."
     #[inline]
     pub fn column(&self) -> ColumnType {
-        if self.column == 0 {
-            ColumnType::LeftEdge
-        } else {
-            ColumnType::Column(self.column)
-        }
+        NonZeroU64::new(self.column)
+            .map(ColumnType::Column)
+            .unwrap_or(ColumnType::LeftEdge)
     }
 
     /// "A boolean indicating that the current instruction is a recommended
@@ -996,7 +991,7 @@ pub enum ColumnType {
     /// line.
     LeftEdge,
     /// A column number, whose range begins at 1.
-    Column(u64),
+    Column(NonZeroU64),
 }
 
 /// Deprecated. `LineNumberSequence` has been renamed to `LineSequence`.

@@ -1991,9 +1991,12 @@ fn dump_line_program<R: Reader, W: Write>(
         let mut rows = program.rows();
         let mut file_index = 0;
         while let Some((header, row)) = rows.next_row()? {
-            let line = row.line().unwrap_or(0);
+            let line = match row.line() {
+                Some(line) => line.get(),
+                None => 0,
+            };
             let column = match row.column() {
-                gimli::ColumnType::Column(column) => column,
+                gimli::ColumnType::Column(column) => column.get(),
                 gimli::ColumnType::LeftEdge => 0,
             };
             write!(w, "0x{:08x}  [{:4},{:2}]", row.address(), line, column)?;
