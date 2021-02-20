@@ -177,7 +177,7 @@ fn add_relocations(
                                 relocation.set_addend(addend as i64);
                             }
                             Err(_) => {
-                                println!(
+                                eprintln!(
                                     "Relocation with invalid symbol for section {} at offset 0x{:08x}",
                                     section.name().unwrap(),
                                     offset
@@ -188,7 +188,7 @@ fn add_relocations(
                     object::RelocationTarget::Section(_section_idx) => {}
                 }
                 if relocations.insert(offset, relocation).is_some() {
-                    println!(
+                    eprintln!(
                         "Multiple relocations for section {} at offset 0x{:08x}",
                         section.name().unwrap(),
                         offset
@@ -196,7 +196,7 @@ fn add_relocations(
                 }
             }
             _ => {
-                println!(
+                eprintln!(
                     "Unsupported relocation for section {} at offset 0x{:08x}",
                     section.name().unwrap(),
                     offset
@@ -403,6 +403,7 @@ fn main() {
         "print compilation units whose output matches a regex",
         "REGEX",
     );
+    opts.optopt("", "sup", "path to supplementary object file", "PATH");
 
     let matches = match opts.parse(env::args().skip(1)) {
         Ok(m) => m,
@@ -463,7 +464,34 @@ fn main() {
         match Regex::new(&r) {
             Ok(r) => Some(r),
             Err(e) => {
-                println!("Invalid regular expression {}: {}", r, e);
+                eprintln!("Invalid regular expression {}: {}", r, e);
+                process::exit(1);
+            }
+        }
+    } else {
+        None
+    };
+
+    let sup_mmap;
+    let sup_file = if let Some(sup_path) = matches.opt_str("sup") {
+        let file = match fs::File::open(&sup_path) {
+            Ok(file) => file,
+            Err(err) => {
+                eprintln!("Failed to open file '{}': {}", sup_path, err);
+                process::exit(1);
+            }
+        };
+        sup_mmap = match unsafe { memmap::Mmap::map(&file) } {
+            Ok(mmap) => mmap,
+            Err(err) => {
+                eprintln!("Failed to map file '{}': {}", sup_path, err);
+                process::exit(1);
+            }
+        };
+        match object::File::parse(&*sup_mmap) {
+            Ok(file) => Some(file),
+            Err(err) => {
+                eprintln!("Failed to parse file '{}': {}", sup_path, err);
                 process::exit(1);
             }
         }
@@ -480,21 +508,21 @@ fn main() {
         let file = match fs::File::open(&file_path) {
             Ok(file) => file,
             Err(err) => {
-                println!("Failed to open file '{}': {}", file_path, err);
+                eprintln!("Failed to open file '{}': {}", file_path, err);
                 continue;
             }
         };
         let file = match unsafe { memmap::Mmap::map(&file) } {
             Ok(mmap) => mmap,
             Err(err) => {
-                println!("Failed to map file '{}': {}", file_path, err);
+                eprintln!("Failed to map file '{}': {}", file_path, err);
                 continue;
             }
         };
         let file = match object::File::parse(&*file) {
             Ok(file) => file,
             Err(err) => {
-                println!("Failed to parse file '{}': {}", file_path, err);
+                eprintln!("Failed to parse file '{}': {}", file_path, err);
                 continue;
             }
         };
@@ -504,53 +532,77 @@ fn main() {
         } else {
             gimli::RunTimeEndian::Big
         };
-        let ret = dump_file(&file, endian, &flags);
+        let ret = dump_file(&file, sup_file.as_ref(), endian, &flags);
         match ret {
             Ok(_) => (),
-            Err(err) => println!("Failed to dump '{}': {}", file_path, err,),
+            Err(err) => eprintln!("Failed to dump '{}': {}", file_path, err,),
         }
     }
 }
 
-fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags) -> Result<()>
+fn load_file_section<'input, 'arena, Endian: gimli::Endianity>(
+    id: gimli::SectionId,
+    file: &object::File<'input>,
+    endian: Endian,
+    flags: &Flags,
+    arena_data: &'arena Arena<Cow<'input, [u8]>>,
+    arena_relocations: &'arena Arena<RelocationMap>,
+) -> Result<Relocate<'arena, gimli::EndianSlice<'arena, Endian>>> {
+    let mut relocations = RelocationMap::default();
+    let name = flags.section_name(id);
+    let data = match name.and_then(|name| file.section_by_name(&name)) {
+        Some(ref section) => {
+            // DWO sections never have relocations, so don't bother.
+            if !flags.dwo {
+                add_relocations(&mut relocations, file, section);
+            }
+            section.uncompressed_data()?
+        }
+        // Use a non-zero capacity so that `ReaderOffsetId`s are unique.
+        None => Cow::Owned(Vec::with_capacity(1)),
+    };
+    let data_ref = (*arena_data.alloc(data)).borrow();
+    let reader = gimli::EndianSlice::new(data_ref, endian);
+    let section = reader;
+    let relocations = (*arena_relocations.alloc(relocations)).borrow();
+    Ok(Relocate {
+        relocations,
+        section,
+        reader,
+    })
+}
+
+fn dump_file<Endian>(
+    file: &object::File,
+    sup_file: Option<&object::File>,
+    endian: Endian,
+    flags: &Flags,
+) -> Result<()>
 where
     Endian: gimli::Endianity + Send + Sync,
 {
-    let arena = (Arena::new(), Arena::new());
+    let arena_data = Arena::new();
+    let arena_relocations = Arena::new();
 
     let mut load_section = |id: gimli::SectionId| -> Result<_> {
-        let mut relocations = RelocationMap::default();
-        let name = flags.section_name(id);
-        let data = match name.and_then(|name| file.section_by_name(&name)) {
-            Some(ref section) => {
-                // DWO sections never have relocations, so don't bother.
-                if !flags.dwo {
-                    add_relocations(&mut relocations, file, section);
-                }
-                section.uncompressed_data()?
-            }
-            // Use a non-zero capacity so that `ReaderOffsetId`s are unique.
-            None => Cow::Owned(Vec::with_capacity(1)),
-        };
-        let data_ref = (*arena.0.alloc(data)).borrow();
-        let reader = gimli::EndianSlice::new(data_ref, endian);
-        let section = reader;
-        let relocations = (*arena.1.alloc(relocations)).borrow();
-        Ok(Relocate {
-            relocations,
-            section,
-            reader,
-        })
+        load_file_section(id, file, endian, flags, &arena_data, &arena_relocations)
     };
 
-    let no_relocations = (*arena.1.alloc(RelocationMap::default())).borrow();
+    let no_relocations = (*arena_relocations.alloc(RelocationMap::default())).borrow();
     let no_reader = Relocate {
         relocations: no_relocations,
         section: Default::default(),
         reader: Default::default(),
     };
+    let mut load_sup_section = |id: gimli::SectionId| -> Result<_> {
+        sup_file
+            .map(|sup_file| {
+                load_file_section(id, sup_file, endian, flags, &arena_data, &arena_relocations)
+            })
+            .unwrap_or_else(|| Ok(no_reader.clone()))
+    };
 
-    let mut dwarf = gimli::Dwarf::load(&mut load_section, |_| Ok(no_reader.clone())).unwrap();
+    let mut dwarf = gimli::Dwarf::load(&mut load_section, &mut load_sup_section).unwrap();
     if flags.dwo {
         dwarf.file_type = gimli::DwarfFileType::Dwo;
     }
@@ -1252,7 +1304,11 @@ fn dump_attr_value<R: Reader, W: Write>(
             }
         }
         gimli::AttributeValue::DebugStrRefSup(offset) => {
-            writeln!(w, "<.debug_str(sup)+0x{:08x}>", offset.0)?;
+            if let Ok(s) = dwarf.debug_str_sup.get_str(offset) {
+                writeln!(w, "{}", s.to_string_lossy()?)?;
+            } else {
+                writeln!(w, "<.debug_str(sup)+0x{:08x}>", offset.0)?;
+            }
         }
         gimli::AttributeValue::DebugStrOffsetsBase(base) => {
             writeln!(w, "<.debug_str_offsets+0x{:08x}>", base.0)?;
