@@ -177,7 +177,7 @@ fn add_relocations(
                                 relocation.set_addend(addend as i64);
                             }
                             Err(_) => {
-                                println!(
+                                eprintln!(
                                     "Relocation with invalid symbol for section {} at offset 0x{:08x}",
                                     section.name().unwrap(),
                                     offset
@@ -188,7 +188,7 @@ fn add_relocations(
                     object::RelocationTarget::Section(_section_idx) => {}
                 }
                 if relocations.insert(offset, relocation).is_some() {
-                    println!(
+                    eprintln!(
                         "Multiple relocations for section {} at offset 0x{:08x}",
                         section.name().unwrap(),
                         offset
@@ -196,7 +196,7 @@ fn add_relocations(
                 }
             }
             _ => {
-                println!(
+                eprintln!(
                     "Unsupported relocation for section {} at offset 0x{:08x}",
                     section.name().unwrap(),
                     offset
@@ -464,7 +464,7 @@ fn main() {
         match Regex::new(&r) {
             Ok(r) => Some(r),
             Err(e) => {
-                println!("Invalid regular expression {}: {}", r, e);
+                eprintln!("Invalid regular expression {}: {}", r, e);
                 process::exit(1);
             }
         }
@@ -477,21 +477,21 @@ fn main() {
         let file = match fs::File::open(&sup_path) {
             Ok(file) => file,
             Err(err) => {
-                println!("Failed to open file '{}': {}", sup_path, err);
+                eprintln!("Failed to open file '{}': {}", sup_path, err);
                 process::exit(1);
             }
         };
         sup_mmap = match unsafe { memmap::Mmap::map(&file) } {
             Ok(mmap) => mmap,
             Err(err) => {
-                println!("Failed to map file '{}': {}", sup_path, err);
+                eprintln!("Failed to map file '{}': {}", sup_path, err);
                 process::exit(1);
             }
         };
         match object::File::parse(&*sup_mmap) {
             Ok(file) => Some(file),
             Err(err) => {
-                println!("Failed to parse file '{}': {}", sup_path, err);
+                eprintln!("Failed to parse file '{}': {}", sup_path, err);
                 process::exit(1);
             }
         }
@@ -508,21 +508,21 @@ fn main() {
         let file = match fs::File::open(&file_path) {
             Ok(file) => file,
             Err(err) => {
-                println!("Failed to open file '{}': {}", file_path, err);
+                eprintln!("Failed to open file '{}': {}", file_path, err);
                 continue;
             }
         };
         let file = match unsafe { memmap::Mmap::map(&file) } {
             Ok(mmap) => mmap,
             Err(err) => {
-                println!("Failed to map file '{}': {}", file_path, err);
+                eprintln!("Failed to map file '{}': {}", file_path, err);
                 continue;
             }
         };
         let file = match object::File::parse(&*file) {
             Ok(file) => file,
             Err(err) => {
-                println!("Failed to parse file '{}': {}", file_path, err);
+                eprintln!("Failed to parse file '{}': {}", file_path, err);
                 continue;
             }
         };
@@ -535,7 +535,7 @@ fn main() {
         let ret = dump_file(&file, sup_file.as_ref(), endian, &flags);
         match ret {
             Ok(_) => (),
-            Err(err) => println!("Failed to dump '{}': {}", file_path, err,),
+            Err(err) => eprintln!("Failed to dump '{}': {}", file_path, err,),
         }
     }
 }
