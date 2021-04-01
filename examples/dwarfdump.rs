@@ -587,24 +587,18 @@ where
     let mut load_section = |id: gimli::SectionId| -> Result<_> {
         load_file_section(id, file, endian, flags, &arena_data, &arena_relocations)
     };
-
-    let no_relocations = (*arena_relocations.alloc(RelocationMap::default())).borrow();
-    let no_reader = Relocate {
-        relocations: no_relocations,
-        section: Default::default(),
-        reader: Default::default(),
-    };
-    let mut load_sup_section = |id: gimli::SectionId| -> Result<_> {
-        sup_file
-            .map(|sup_file| {
-                load_file_section(id, sup_file, endian, flags, &arena_data, &arena_relocations)
-            })
-            .unwrap_or_else(|| Ok(no_reader.clone()))
-    };
-
-    let mut dwarf = gimli::Dwarf::load(&mut load_section, &mut load_sup_section).unwrap();
+    let mut dwarf = gimli::Dwarf::load(&mut load_section)?;
     if flags.dwo {
         dwarf.file_type = gimli::DwarfFileType::Dwo;
+    }
+
+    if let Some(sup_file) = sup_file {
+        let mut load_sup_section = |id: gimli::SectionId| -> Result<_> {
+            // Note: we really only need the `.debug_str` section,
+            // but for now we load them all.
+            load_file_section(id, sup_file, endian, flags, &arena_data, &arena_relocations)
+        };
+        dwarf.load_sup(&mut load_sup_section)?;
     }
 
     let out = io::stdout();
@@ -1304,7 +1298,10 @@ fn dump_attr_value<R: Reader, W: Write>(
             }
         }
         gimli::AttributeValue::DebugStrRefSup(offset) => {
-            if let Ok(s) = dwarf.debug_str_sup.get_str(offset) {
+            if let Some(s) = dwarf
+                .sup()
+                .and_then(|sup| sup.debug_str.get_str(offset).ok())
+            {
                 writeln!(w, "{}", s.to_string_lossy()?)?;
             } else {
                 writeln!(w, "<.debug_str(sup)+0x{:08x}>", offset.0)?;

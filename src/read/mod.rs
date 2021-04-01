@@ -17,7 +17,8 @@
 //! // These closures should return a `Reader` instance (e.g. `EndianSlice`).
 //! let loader = |section: gimli::SectionId| { get_file_section_reader(section.name()) };
 //! let sup_loader = |section: gimli::SectionId| { get_sup_file_section_reader(section.name()) };
-//! let dwarf = gimli::Dwarf::load(loader, sup_loader)?;
+//! let mut dwarf = gimli::Dwarf::load(loader)?;
+//! dwarf.load_sup(sup_loader)?;
 //!
 //! // Iterate over all compilation units.
 //! let mut iter = dwarf.units();
