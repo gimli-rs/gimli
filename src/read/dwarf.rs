@@ -1,4 +1,5 @@
 use alloc::string::String;
+use alloc::sync::Arc;
 
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
@@ -42,9 +43,6 @@ pub struct Dwarf<R> {
     /// The `.debug_str_offsets` section.
     pub debug_str_offsets: DebugStrOffsets<R>,
 
-    /// The `.debug_str` section for a supplementary object file.
-    pub debug_str_sup: DebugStr<R>,
-
     /// The `.debug_types` section.
     pub debug_types: DebugTypes<R>,
 
@@ -56,22 +54,26 @@ pub struct Dwarf<R> {
 
     /// The type of this file.
     pub file_type: DwarfFileType,
+
+    /// The DWARF sections for a supplementary object file.
+    pub sup: Option<Arc<Dwarf<R>>>,
 }
 
 impl<T> Dwarf<T> {
-    /// Try to load the DWARF sections using the given loader functions.
+    /// Try to load the DWARF sections using the given loader function.
     ///
-    /// `section` loads a DWARF section from the main object file.
-    /// `sup` loads a DWARF sections from the supplementary object file.
-    /// These functions should return an empty section if the section does not exist.
+    /// `section` loads a DWARF section from the object file.
+    /// It should return an empty section if the section does not exist.
     ///
-    /// The provided callback functions may either directly return a `Reader` instance
-    /// (such as `EndianSlice`), or they may return some other type and then convert
+    /// `section` may either directly return a `Reader` instance (such as
+    /// `EndianSlice`), or it may return some other type and then convert
     /// that type into a `Reader` using `Dwarf::borrow`.
-    pub fn load<F1, F2, E>(mut section: F1, mut sup: F2) -> core::result::Result<Self, E>
+    ///
+    /// After loading, the user should set the `file_type` field and
+    /// call `load_sup` if required.
+    pub fn load<F, E>(mut section: F) -> core::result::Result<Self, E>
     where
-        F1: FnMut(SectionId) -> core::result::Result<T, E>,
-        F2: FnMut(SectionId) -> core::result::Result<T, E>,
+        F: FnMut(SectionId) -> core::result::Result<T, E>,
     {
         // Section types are inferred.
         let debug_loc = Section::load(&mut section)?;
@@ -87,12 +89,25 @@ impl<T> Dwarf<T> {
             debug_line_str: Section::load(&mut section)?,
             debug_str: Section::load(&mut section)?,
             debug_str_offsets: Section::load(&mut section)?,
-            debug_str_sup: Section::load(&mut sup)?,
             debug_types: Section::load(&mut section)?,
             locations: LocationLists::new(debug_loc, debug_loclists),
             ranges: RangeLists::new(debug_ranges, debug_rnglists),
             file_type: DwarfFileType::Main,
+            sup: None,
         })
+    }
+
+    /// Load the DWARF sections from the supplementary object file.
+    ///
+    /// `section` operates the same as for `load`.
+    ///
+    /// Sets `self.sup`, replacing any previous value.
+    pub fn load_sup<F, E>(&mut self, section: F) -> core::result::Result<(), E>
+    where
+        F: FnMut(SectionId) -> core::result::Result<T, E>,
+    {
+        self.sup = Some(Arc::new(Self::load(section)?));
+        Ok(())
     }
 
     /// Create a `Dwarf` structure that references the data in `self`.
@@ -111,9 +126,10 @@ impl<T> Dwarf<T> {
     /// ```rust,no_run
     /// # fn example() -> Result<(), gimli::Error> {
     /// # let loader = |name| -> Result<_, gimli::Error> { unimplemented!() };
-    /// # let sup_loader = |name| { unimplemented!() };
+    /// # let sup_loader = |name| -> Result<_, gimli::Error> { unimplemented!() };
     /// // Read the DWARF sections into `Vec`s with whatever object loader you're using.
-    /// let owned_dwarf: gimli::Dwarf<Vec<u8>> = gimli::Dwarf::load(loader, sup_loader)?;
+    /// let mut owned_dwarf: gimli::Dwarf<Vec<u8>> = gimli::Dwarf::load(loader)?;
+    /// owned_dwarf.load_sup(sup_loader)?;
     /// // Create references to the DWARF sections.
     /// let dwarf = owned_dwarf.borrow(|section| {
     ///     gimli::EndianSlice::new(&section, gimli::LittleEndian)
@@ -134,12 +150,17 @@ impl<T> Dwarf<T> {
             debug_line_str: self.debug_line_str.borrow(&mut borrow),
             debug_str: self.debug_str.borrow(&mut borrow),
             debug_str_offsets: self.debug_str_offsets.borrow(&mut borrow),
-            debug_str_sup: self.debug_str_sup.borrow(&mut borrow),
             debug_types: self.debug_types.borrow(&mut borrow),
             locations: self.locations.borrow(&mut borrow),
             ranges: self.ranges.borrow(&mut borrow),
             file_type: self.file_type,
+            sup: self.sup().map(|sup| Arc::new(sup.borrow(borrow))),
         }
+    }
+
+    /// Return a reference to the DWARF sections for supplementary object file.
+    pub fn sup(&self) -> Option<&Dwarf<T>> {
+        self.sup.as_ref().map(Arc::as_ref)
     }
 }
 
@@ -216,7 +237,13 @@ impl<R: Reader> Dwarf<R> {
         match attr {
             AttributeValue::String(string) => Ok(string),
             AttributeValue::DebugStrRef(offset) => self.debug_str.get_str(offset),
-            AttributeValue::DebugStrRefSup(offset) => self.debug_str_sup.get_str(offset),
+            AttributeValue::DebugStrRefSup(offset) => {
+                if let Some(sup) = self.sup() {
+                    sup.debug_str.get_str(offset)
+                } else {
+                    Err(Error::ExpectedStringAttributeValue)
+                }
+            }
             AttributeValue::DebugLineStrRef(offset) => self.debug_line_str.get_str(offset),
             AttributeValue::DebugStrOffsetsIndex(index) => {
                 let offset = self.debug_str_offsets.get_str_offset(
@@ -469,9 +496,9 @@ impl<R: Reader> Dwarf<R> {
             .or_else(|| self.ranges.lookup_offset_id(id))
             .map(|(id, offset)| (false, id, offset))
             .or_else(|| {
-                self.debug_str_sup
-                    .lookup_offset_id(id)
-                    .map(|(id, offset)| (true, id, offset))
+                self.sup()
+                    .and_then(|sup| sup.lookup_offset_id(id))
+                    .map(|(_, id, offset)| (true, id, offset))
             })
     }
 
@@ -805,8 +832,10 @@ mod tests {
 
     #[test]
     fn test_format_error() {
-        let owned_dwarf =
-            Dwarf::load(|_| -> Result<_> { Ok(vec![1, 2]) }, |_| Ok(vec![1, 2])).unwrap();
+        let mut owned_dwarf = Dwarf::load(|_| -> Result<_> { Ok(vec![1, 2]) }).unwrap();
+        owned_dwarf
+            .load_sup(|_| -> Result<_> { Ok(vec![1, 2]) })
+            .unwrap();
         let dwarf = owned_dwarf.borrow(|section| EndianSlice::new(&section, LittleEndian));
 
         match dwarf.debug_str.get_str(DebugStrOffset(1)) {
@@ -818,7 +847,7 @@ mod tests {
                 );
             }
         }
-        match dwarf.debug_str_sup.get_str(DebugStrOffset(1)) {
+        match dwarf.sup().unwrap().debug_str.get_str(DebugStrOffset(1)) {
             Ok(r) => panic!("Unexpected str {:?}", r),
             Err(e) => {
                 assert_eq!(
