@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         os: ["ubuntu-latest"]
-        rust_channel: ["stable", "beta", "nightly", "1.38.0"]
+        rust_channel: ["stable", "beta", "nightly", "1.42.0"]
         include:
           - rust_channel: "stable"
             os: "macOS-latest"
