@@ -4,13 +4,42 @@
 
 ## 0.24.0
 
-Not yet released
+Released 2021/05/01.
 
 ### Breaking changes
 
-* `read::LineRow::line` now returns Option<NonZeroU64>.
-  The `read::ColumnType::Column` variant now contains a NonZeroU64.
+* Minimum Rust version increased to 1.42.0.
+
+* Added `read::Dwarf::debug_aranges`.
+  [#539](https://github.com/gimli-rs/gimli/pull/539)
+
+* Replaced `read::DebugAranges::items` with `read::DebugAranges::headers`.
+  [#539](https://github.com/gimli-rs/gimli/pull/539)
+
+* Added `read::Operation::Wasm*`.
+  [#546](https://github.com/gimli-rs/gimli/pull/546)
+
+* `read::LineRow::line` now returns `Option<NonZeroU64>`.
+  The `read::ColumnType::Column` variant now contains a `NonZeroU64`.
   [#551](https://github.com/gimli-rs/gimli/pull/551)
+
+* Replaced `read::Dwarf::debug_str_sup` with `read::Dwarf::sup`.
+  Deleted `sup` parameter of `read::Dwarf::load`.
+  Added `read::Dwarf::load_sup`.
+  [#554](https://github.com/gimli-rs/gimli/pull/554)
+
+### Added
+
+* dwarfdump: Supplementary object file support.
+  [#552](https://github.com/gimli-rs/gimli/pull/552)
+
+### Changed
+
+* Support `DW_FORM_addrx*` for `DW_AT_low_pc`/`DW_AT_high_pc` in `read::Dwarf`.
+  [#541](https://github.com/gimli-rs/gimli/pull/541)
+
+* Performance improvement in `EndianReader`.
+  [#549](https://github.com/gimli-rs/gimli/pull/549)
 
 --------------------------------------------------------------------------------
 
