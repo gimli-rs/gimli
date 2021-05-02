@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         os: ["ubuntu-latest"]
-        rust_channel: ["stable", "beta", "nightly", "1.38.0"]
+        rust_channel: ["stable", "beta", "nightly", "1.42.0"]
         include:
           - rust_channel: "stable"
             os: "macOS-latest"
@@ -138,6 +138,19 @@ jobs:
       - run: cargo install cross
       - run: rustup target add ${{matrix.target}}
       - run: cross test --target ${{matrix.target}}
+
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install rustup
+        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile=minimal
+      - name: Install rust
+        run: |
+          rustup install stable
+          rustup default stable
+          rustup component add rustfmt
+      - run: cargo fmt --all -- --check
 
   coverage:
     runs-on: ubuntu-latest
