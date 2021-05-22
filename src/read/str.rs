@@ -205,6 +205,29 @@ pub struct DebugLineStr<R> {
     section: R,
 }
 
+impl<'input, Endian> DebugLineStr<EndianSlice<'input, Endian>>
+where
+    Endian: Endianity,
+{
+    /// Construct a new `DebugLineStr` instance from the data in the `.debug_line_str`
+    /// section.
+    ///
+    /// It is the caller's responsibility to read the `.debug_line_str` section and
+    /// present it as a `&[u8]` slice. That means using some ELF loader on
+    /// Linux, a Mach-O loader on OSX, etc.
+    ///
+    /// ```
+    /// use gimli::{DebugLineStr, LittleEndian};
+    ///
+    /// # let buf = [0x00, 0x01, 0x02, 0x03];
+    /// # let read_debug_line_str_section_somehow = || &buf;
+    /// let debug_str = DebugLineStr::new(read_debug_line_str_section_somehow(), LittleEndian);
+    /// ```
+    pub fn new(debug_line_str_section: &'input [u8], endian: Endian) -> Self {
+        Self::from(EndianSlice::new(debug_line_str_section, endian))
+    }
+}
+
 impl<R: Reader> DebugLineStr<R> {
     /// Lookup a string from the `.debug_line_str` section by DebugLineStrOffset.
     pub fn get_str(&self, offset: DebugLineStrOffset<R::Offset>) -> Result<R> {
