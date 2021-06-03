@@ -1607,12 +1607,12 @@ impl<R: Reader> FrameDescriptionEntry<R> {
 
     /// Return the table of unwind information for this FDE.
     #[inline]
-    pub fn rows<'a, Section: UnwindSection<R>>(
+    pub fn rows<'a, 'ctx, Section: UnwindSection<R>>(
         &self,
         section: &'a Section,
         bases: &'a BaseAddresses,
-        ctx: &'a mut UninitializedUnwindContext<R>,
-    ) -> Result<UnwindTable<'a, R>> {
+        ctx: &'ctx mut UninitializedUnwindContext<R>,
+    ) -> Result<UnwindTable<'a, 'ctx, R>> {
         UnwindTable::new(section, bases, ctx, self)
     }
 
@@ -2007,29 +2007,30 @@ impl<R: Reader + PartialEq> PartialEq for UnwindContext<R> {
 /// > recording just the differences starting at the beginning address of each
 /// > subroutine in the program.
 #[derive(Debug)]
-pub struct UnwindTable<'a, R: Reader> {
+pub struct UnwindTable<'a, 'ctx, R: Reader> {
     code_alignment_factor: Wrapping<u64>,
     data_alignment_factor: Wrapping<i64>,
     next_start_address: u64,
     last_end_address: u64,
     returned_last_row: bool,
+    current_row_valid: bool,
     instructions: CallFrameInstructionIter<'a, R>,
-    ctx: &'a mut UnwindContext<R>,
+    ctx: &'ctx mut UnwindContext<R>,
 }
 
 /// # Signal Safe Methods
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
-impl<'a, R: Reader> UnwindTable<'a, R> {
+impl<'a, 'ctx, R: Reader> UnwindTable<'a, 'ctx, R> {
     /// Construct a new `UnwindTable` for the given
     /// `FrameDescriptionEntry`'s CFI unwinding program.
     pub fn new<Section: UnwindSection<R>>(
         section: &'a Section,
         bases: &'a BaseAddresses,
-        ctx: &'a mut UninitializedUnwindContext<R>,
+        ctx: &'ctx mut UninitializedUnwindContext<R>,
         fde: &FrameDescriptionEntry<R>,
-    ) -> Result<UnwindTable<'a, R>> {
+    ) -> Result<UnwindTable<'a, 'ctx, R>> {
         let ctx = ctx.initialize(section, bases, fde.cie())?;
         Ok(Self::new_for_fde(section, bases, ctx, fde))
     }
@@ -2037,9 +2038,9 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
     fn new_for_fde<Section: UnwindSection<R>>(
         section: &'a Section,
         bases: &'a BaseAddresses,
-        ctx: &'a mut UnwindContext<R>,
+        ctx: &'ctx mut UnwindContext<R>,
         fde: &FrameDescriptionEntry<R>,
-    ) -> UnwindTable<'a, R> {
+    ) -> UnwindTable<'a, 'ctx, R> {
         assert!(ctx.stack().len() >= 1);
         UnwindTable {
             code_alignment_factor: Wrapping(fde.cie().code_alignment_factor()),
@@ -2047,6 +2048,7 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
             next_start_address: fde.initial_address(),
             last_end_address: fde.initial_address().wrapping_add(fde.len()),
             returned_last_row: false,
+            current_row_valid: false,
             instructions: fde.instructions(section, bases),
             ctx,
         }
@@ -2055,9 +2057,9 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
     fn new_for_cie<Section: UnwindSection<R>>(
         section: &'a Section,
         bases: &'a BaseAddresses,
-        ctx: &'a mut UnwindContext<R>,
+        ctx: &'ctx mut UnwindContext<R>,
         cie: &CommonInformationEntry<R>,
-    ) -> UnwindTable<'a, R> {
+    ) -> UnwindTable<'a, 'ctx, R> {
         assert!(ctx.stack().len() >= 1);
         UnwindTable {
             code_alignment_factor: Wrapping(cie.code_alignment_factor()),
@@ -2065,6 +2067,7 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
             next_start_address: 0,
             last_end_address: 0,
             returned_last_row: false,
+            current_row_valid: false,
             instructions: cie.instructions(section, bases),
             ctx,
         }
@@ -2078,6 +2081,7 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
     pub fn next_row(&mut self) -> Result<Option<&UnwindTableRow<R>>> {
         assert!(self.ctx.stack().len() >= 1);
         self.ctx.set_start_address(self.next_start_address);
+        self.current_row_valid = false;
 
         loop {
             match self.instructions.next() {
@@ -2092,15 +2096,26 @@ impl<'a, R: Reader> UnwindTable<'a, R> {
                     row.end_address = self.last_end_address;
 
                     self.returned_last_row = true;
+                    self.current_row_valid = true;
                     return Ok(Some(row));
                 }
 
                 Ok(Some(instruction)) => {
                     if self.evaluate(instruction)? {
+                        self.current_row_valid = true;
                         return Ok(Some(self.ctx.row()));
                     }
                 }
             };
+        }
+    }
+
+    /// Returns the current row with the lifetime of the context.
+    pub fn into_current_row(self) -> Option<&'ctx UnwindTableRow<R>> {
+        if self.current_row_valid {
+            Some(self.ctx.row())
+        } else {
+            None
         }
     }
 
