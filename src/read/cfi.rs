@@ -369,14 +369,14 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     ///
     /// You must provide a function to get the associated CIE. See
     /// `PartialFrameDescriptionEntry::parse` for more information.
-    pub fn unwind_info_for_address<F>(
+    pub fn unwind_info_for_address<'ctx, F>(
         &self,
         frame: &EhFrame<R>,
         bases: &BaseAddresses,
-        ctx: &mut UninitializedUnwindContext<R>,
+        ctx: &'ctx mut UninitializedUnwindContext<R>,
         address: u64,
         get_cie: F,
-    ) -> Result<UnwindTableRow<R>>
+    ) -> Result<&'ctx UnwindTableRow<R>>
     where
         F: FnMut(
             &EhFrame<R>,
@@ -676,13 +676,13 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// # }
     /// ```
     #[inline]
-    fn unwind_info_for_address<F>(
+    fn unwind_info_for_address<'ctx, F>(
         &self,
         bases: &BaseAddresses,
-        ctx: &mut UninitializedUnwindContext<R>,
+        ctx: &'ctx mut UninitializedUnwindContext<R>,
         address: u64,
         get_cie: F,
-    ) -> Result<UnwindTableRow<R>>
+    ) -> Result<&'ctx UnwindTableRow<R>>
     where
         F: FnMut(&Self, &BaseAddresses, Self::Offset) -> Result<CommonInformationEntry<R>>,
     {
@@ -1622,17 +1622,17 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     /// context in the form `Ok((unwind_info, context))`. If not found,
     /// `Err(gimli::Error::NoUnwindInfoForAddress)` is returned. If parsing or
     /// CFI evaluation fails, the error is returned.
-    pub fn unwind_info_for_address<Section: UnwindSection<R>>(
+    pub fn unwind_info_for_address<'ctx, Section: UnwindSection<R>>(
         &self,
         section: &Section,
         bases: &BaseAddresses,
-        ctx: &mut UninitializedUnwindContext<R>,
+        ctx: &'ctx mut UninitializedUnwindContext<R>,
         address: u64,
-    ) -> Result<UnwindTableRow<R>> {
+    ) -> Result<&'ctx UnwindTableRow<R>> {
         let mut table = self.rows(section, bases, ctx)?;
         while let Some(row) = table.next_row()? {
             if row.contains(address) {
-                return Ok(row.clone());
+                return Ok(table.ctx.row());
             }
         }
         Err(Error::NoUnwindInfoForAddress)
@@ -5793,7 +5793,7 @@ mod tests {
         let unwind_info = result.unwrap();
 
         assert_eq!(
-            unwind_info,
+            *unwind_info,
             UnwindTableRow {
                 start_address: fde1.initial_address() + 100,
                 end_address: fde1.initial_address() + fde1.len(),
