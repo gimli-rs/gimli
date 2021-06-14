@@ -158,8 +158,12 @@ where
         let (length, format) = input.read_initial_length()?;
         let mut rest = input.split(length)?;
 
+        // Check the version. The DWARF 5 spec says that this is always 2, but version 3
+        // has been observed in the wild, potentially due to a bug; see
+        // https://github.com/gimli-rs/gimli/issues/559 for more information.
+        // lldb allows versions 2 through 5, possibly by mistake.
         let version = rest.read_u16()?;
-        if version != 2 {
+        if version != 2 && version != 3 {
             return Err(Error::UnknownVersion(u64::from(version)));
         }
 
