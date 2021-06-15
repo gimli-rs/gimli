@@ -831,6 +831,13 @@ mod tests {
     }
 
     #[test]
+    fn test_send() {
+        fn assert_is_send<T: Send>() {}
+        assert_is_send::<Dwarf<EndianSlice<LittleEndian>>>();
+        assert_is_send::<Unit<EndianSlice<LittleEndian>>>();
+    }
+
+    #[test]
     fn test_format_error() {
         let mut owned_dwarf = Dwarf::load(|_| -> Result<_> { Ok(vec![1, 2]) }).unwrap();
         owned_dwarf
