@@ -353,6 +353,7 @@ struct Flags {
     eh_frame: bool,
     goff: bool,
     info: bool,
+    info_offset: Option<gimli::DebugInfoOffset>,
     line: bool,
     pubnames: bool,
     pubtypes: bool,
@@ -386,7 +387,12 @@ fn main() {
         "print .eh-frame exception handling frame information",
     );
     opts.optflag("G", "", "show global die offsets");
-    opts.optflag("i", "", "print .debug_info and .debug_types sections");
+    opts.optflagopt(
+        "i",
+        "debug-info",
+        "print .debug_info and .debug_types sections",
+        "offset",
+    );
     opts.optflag("l", "", "print .debug_line section");
     opts.optflag("p", "", "print .debug_pubnames section");
     opts.optflag("r", "", "print .debug_aranges section");
@@ -427,6 +433,24 @@ fn main() {
     }
     if matches.opt_present("i") {
         flags.info = true;
+        if let Some(offset) = matches.opt_str("i") {
+            let offset = match offset
+                .get(2..)
+                .and_then(|o| usize::from_str_radix(o, 16).ok())
+            {
+                Some(offset) => offset,
+                None => {
+                    writeln!(
+                        &mut io::stderr(),
+                        "Could not parse offset argument '{}'",
+                        offset
+                    )
+                    .ok();
+                    print_usage(&opts);
+                }
+            };
+            flags.info_offset = Some(gimli::DebugInfoOffset(offset));
+        }
         all = false;
     }
     if matches.opt_present("l") {
@@ -970,30 +994,37 @@ where
         }
     };
     let process_unit = |header: UnitHeader<R>, buf: &mut Vec<u8>| -> Result<()> {
-        writeln!(
-            buf,
-            "\nUNIT<header overall offset = 0x{:08x}>:",
-            header.offset().as_debug_info_offset().unwrap().0,
-        )?;
+        let header_offset = header.offset().as_debug_info_offset().unwrap();
+        if flags
+            .info_offset
+            .map(|o| o == header_offset)
+            .unwrap_or(true)
+        {
+            writeln!(
+                buf,
+                "\nUNIT<header overall offset = 0x{:08x}>:",
+                header_offset.0,
+            )?;
 
-        match header.type_() {
-            UnitType::Compilation | UnitType::Partial => (),
-            UnitType::Type {
-                type_signature,
-                type_offset,
-            }
-            | UnitType::SplitType {
-                type_signature,
-                type_offset,
-            } => {
-                write!(buf, "  signature        = ")?;
-                dump_type_signature(buf, type_signature)?;
-                writeln!(buf)?;
-                writeln!(buf, "  typeoffset       = 0x{:08x}", type_offset.0,)?;
-            }
-            UnitType::Skeleton(dwo_id) | UnitType::SplitCompilation(dwo_id) => {
-                write!(buf, "  dwo_id           = ")?;
-                writeln!(buf, "0x{:016x}", dwo_id.0)?;
+            match header.type_() {
+                UnitType::Compilation | UnitType::Partial => (),
+                UnitType::Type {
+                    type_signature,
+                    type_offset,
+                }
+                | UnitType::SplitType {
+                    type_signature,
+                    type_offset,
+                } => {
+                    write!(buf, "  signature        = ")?;
+                    dump_type_signature(buf, type_signature)?;
+                    writeln!(buf)?;
+                    writeln!(buf, "  typeoffset       = 0x{:08x}", type_offset.0,)?;
+                }
+                UnitType::Skeleton(dwo_id) | UnitType::SplitCompilation(dwo_id) => {
+                    write!(buf, "  dwo_id           = ")?;
+                    writeln!(buf, "0x{:016x}", dwo_id.0)?;
+                }
             }
         }
 
@@ -1102,9 +1133,22 @@ fn dump_entries<R: Reader, W: Write>(
     let mut spaces_buf = String::new();
 
     let mut depth = 0;
+    let mut processing_subtree = false;
     let mut entries = unit.entries();
     while let Some((delta_depth, entry)) = entries.next_dfs()? {
         depth += delta_depth;
+        if let Some(o) = flags.info_offset {
+            if o == entry.offset().to_debug_info_offset(&unit.header).unwrap() {
+                processing_subtree = true;
+                depth = 0;
+            } else if processing_subtree == true {
+                if depth <= 0 {
+                    break;
+                }
+            } else {
+                continue;
+            }
+        }
         assert!(depth >= 0);
         let mut indent = depth as usize * 2 + 2;
         write!(w, "<{}{}>", if depth < 10 { " " } else { "" }, depth)?;
