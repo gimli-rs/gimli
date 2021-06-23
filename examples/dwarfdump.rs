@@ -185,7 +185,7 @@ fn add_relocations(
                             }
                         }
                     }
-                    object::RelocationTarget::Section(_) | object::RelocationTarget::Absolute => {}
+                    _ => {}
                 }
                 if relocations.insert(offset, relocation).is_some() {
                     eprintln!(
