@@ -49,9 +49,13 @@ default = ["read", "write", "std", "fallible-iterator", "endian-reader"]
 # stable interface of this crate.
 rustc-dep-of-std = ['core', 'alloc', 'compiler_builtins']
 
+[profile.test]
+split-debuginfo = 'packed'
+
 [profile.bench]
 debug = true
 codegen-units = 1
+split-debuginfo = 'packed'
 
 [[example]]
 name = "simple"
