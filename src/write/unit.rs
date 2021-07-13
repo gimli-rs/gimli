@@ -545,6 +545,15 @@ impl DebuggingInformationEntry {
         self.children.iter()
     }
 
+    /// Delete a child entry and all of its children.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is invalid.
+    pub fn delete_child(&mut self, id: UnitEntryId) {
+        self.children.retain(|&child| child != id);
+    }
+
     /// Return the type abbreviation for this DIE.
     fn abbreviation(&self, encoding: Encoding) -> Result<Abbreviation> {
         let mut attrs = Vec::new();
@@ -2809,6 +2818,14 @@ mod tests {
             add_child(unit, child1, constants::DW_TAG_variable, "grandchild1");
             add_child(unit, root, constants::DW_TAG_subprogram, "child2");
             add_child(unit, root, constants::DW_TAG_subprogram, "child3");
+
+            // These entries will be deleted before writing the sections
+            let child4 = add_child(unit, root, constants::DW_TAG_subprogram, "child4");
+            let child5 = add_child(unit, root, constants::DW_TAG_subprogram, "child5");
+            let grandchild5 = add_child(unit, child5, constants::DW_TAG_variable, "grandchild5");
+            unit.get_mut(root).delete_child(child4);
+            // Deleting `child5` deletes `grandchild5` as well
+            unit.get_mut(root).delete_child(child5);
         }
 
         fn next_child<R: read::Reader<Offset = usize>>(
@@ -2843,8 +2860,15 @@ mod tests {
             let (offset2, sibling2) = next_child(&mut entries);
             // child3
             let (_, _) = next_child(&mut entries);
+            // Check that deleted children aren't in entries
+            let no_child4 = entries.next_dfs().unwrap().is_none();
+            let no_child5 = entries.next_dfs().unwrap().is_none();
+            let no_grandchild5 = entries.next_dfs().unwrap().is_none();
             assert_eq!(sibling1, Some(offset2));
             assert_eq!(sibling2, None);
+            assert!(no_child4);
+            assert!(no_child5);
+            assert!(no_grandchild5);
         }
 
         let encoding = Encoding {
