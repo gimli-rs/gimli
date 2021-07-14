@@ -17,6 +17,7 @@ use std::iter::Iterator;
 use std::mem;
 use std::process;
 use std::result;
+use std::slice;
 use std::sync::{Condvar, Mutex};
 use typed_arena::Arena;
 
@@ -358,18 +359,9 @@ struct Flags {
     pubtypes: bool,
     aranges: bool,
     dwo: bool,
+    dwo_parent: Option<object::File<'static>>,
     raw: bool,
     match_units: Option<Regex>,
-}
-
-impl Flags {
-    fn section_name(&self, id: gimli::SectionId) -> Option<&'static str> {
-        if self.dwo {
-            id.dwo_name()
-        } else {
-            Some(id.name())
-        }
-    }
 }
 
 fn print_usage(opts: &getopts::Options) -> ! {
@@ -395,6 +387,12 @@ fn main() {
         "",
         "dwo",
         "print the .dwo versions of the selected sections",
+    );
+    opts.optopt(
+        "",
+        "dwo-parent",
+        "use the specified file as the parent of the dwo (e.g. for .debug_addr)",
+        "library path",
     );
     opts.optflag("", "raw", "print raw data values");
     opts.optopt(
@@ -472,32 +470,43 @@ fn main() {
         None
     };
 
-    let sup_mmap;
-    let sup_file = if let Some(sup_path) = matches.opt_str("sup") {
-        let file = match fs::File::open(&sup_path) {
+    let load_file = |path| {
+        let file = match fs::File::open(&path) {
             Ok(file) => file,
             Err(err) => {
-                eprintln!("Failed to open file '{}': {}", sup_path, err);
+                eprintln!("Failed to open file '{}': {}", path, err);
                 process::exit(1);
             }
         };
-        sup_mmap = match unsafe { memmap::Mmap::map(&file) } {
+        let mmap = match unsafe { memmap::Mmap::map(&file) } {
             Ok(mmap) => mmap,
             Err(err) => {
-                eprintln!("Failed to map file '{}': {}", sup_path, err);
+                eprintln!("Failed to map file '{}': {}", path, err);
                 process::exit(1);
             }
         };
-        match object::File::parse(&*sup_mmap) {
+        let mmap_ptr = mmap.as_ptr();
+        let mmap_len = mmap.len();
+        mem::forget(mmap);
+        match object::File::parse(unsafe { slice::from_raw_parts(mmap_ptr, mmap_len) }) {
             Ok(file) => Some(file),
             Err(err) => {
-                eprintln!("Failed to parse file '{}': {}", sup_path, err);
+                eprintln!("Failed to parse file '{}': {}", path, err);
                 process::exit(1);
             }
         }
+    };
+
+    let sup_file = if let Some(sup_path) = matches.opt_str("sup") {
+        load_file(sup_path)
     } else {
         None
     };
+    flags.dwo_parent = matches.opt_str("dwo-parent").and_then(load_file);
+    if flags.dwo_parent.is_some() && !flags.dwo {
+        eprintln!("--dwo-parent also requires --dwo");
+        process::exit(1);
+    }
 
     for file_path in &matches.free {
         if matches.free.len() != 1 {
@@ -544,16 +553,21 @@ fn load_file_section<'input, 'arena, Endian: gimli::Endianity>(
     id: gimli::SectionId,
     file: &object::File<'input>,
     endian: Endian,
-    flags: &Flags,
+    is_dwo: bool,
     arena_data: &'arena Arena<Cow<'input, [u8]>>,
     arena_relocations: &'arena Arena<RelocationMap>,
 ) -> Result<Relocate<'arena, gimli::EndianSlice<'arena, Endian>>> {
     let mut relocations = RelocationMap::default();
-    let name = flags.section_name(id);
+    let name = if is_dwo {
+        id.dwo_name()
+    } else {
+        Some(id.name())
+    };
+
     let data = match name.and_then(|name| file.section_by_name(&name)) {
         Some(ref section) => {
             // DWO sections never have relocations, so don't bother.
-            if !flags.dwo {
+            if !is_dwo {
                 add_relocations(&mut relocations, file, section);
             }
             section.uncompressed_data()?
@@ -585,18 +599,39 @@ where
     let arena_relocations = Arena::new();
 
     let mut load_section = |id: gimli::SectionId| -> Result<_> {
-        load_file_section(id, file, endian, flags, &arena_data, &arena_relocations)
+        load_file_section(id, file, endian, flags.dwo, &arena_data, &arena_relocations)
     };
     let mut dwarf = gimli::Dwarf::load(&mut load_section)?;
+    let mut load_dwo_parent_section = None;
     if flags.dwo {
         dwarf.file_type = gimli::DwarfFileType::Dwo;
+
+        if let Some(dwo_parent_file) = flags.dwo_parent.as_ref() {
+            let arena_data = &arena_data;
+            let arena_relocations = &arena_relocations;
+            load_dwo_parent_section = Some(move |id: gimli::SectionId| -> Result<_> {
+                load_file_section(
+                    id,
+                    dwo_parent_file,
+                    endian,
+                    false,
+                    arena_data,
+                    arena_relocations,
+                )
+            });
+            dwarf.debug_addr = gimli::Section::load(load_dwo_parent_section.as_mut().unwrap())?;
+            dwarf.ranges = gimli::RangeLists::new(
+                gimli::Section::load(load_dwo_parent_section.as_mut().unwrap())?,
+                gimli::Section::load(load_dwo_parent_section.as_mut().unwrap())?,
+            );
+        }
     }
 
     if let Some(sup_file) = sup_file {
         let mut load_sup_section = |id: gimli::SectionId| -> Result<_> {
             // Note: we really only need the `.debug_str` section,
             // but for now we load them all.
-            load_file_section(id, sup_file, endian, flags, &arena_data, &arena_relocations)
+            load_file_section(id, sup_file, endian, false, &arena_data, &arena_relocations)
         };
         dwarf.load_sup(&mut load_sup_section)?;
     }
@@ -647,7 +682,40 @@ where
         )?;
     }
     if flags.info {
-        dump_info(&dwarf, flags)?;
+        let dwo_parent_headers = if let Some(loader) = load_dwo_parent_section.as_mut() {
+            let dwarf = gimli::Dwarf::load(loader)?;
+            match dwarf
+                .units()
+                .map(|unit_header| dwarf.unit(unit_header))
+                .filter_map(|unit| {
+                    let dwo_id = match unit.header.type_() {
+                        gimli::UnitType::Skeleton(dwo_id) => dwo_id,
+                        gimli::UnitType::Compilation => {
+                            let mut entries = unit.entries();
+                            let (_, this) = entries.next_dfs()?.unwrap();
+                            match this.attr_value(gimli::constants::DW_AT_GNU_dwo_id)? {
+                                Some(gimli::AttributeValue::DwoId(dwo_id)) => dwo_id,
+                                Some(_) => unreachable!(),
+                                None => return Ok(None),
+                            }
+                        }
+                        _ => return Ok(None),
+                    };
+
+                    Ok(Some((dwo_id, unit)))
+                })
+                .collect()
+            {
+                Ok(units) => units,
+                Err(err) => {
+                    eprintln!("Failed to process --dwo-parent units: {}", err);
+                    return Ok(());
+                }
+            }
+        } else {
+            HashMap::new()
+        };
+        dump_info(&dwarf, dwo_parent_headers, flags)?;
         dump_types(&mut BufWriter::new(out.lock()), &dwarf, flags)?;
         writeln!(&mut out.lock())?;
     }
@@ -950,7 +1018,11 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
     }
 }
 
-fn dump_info<R: Reader>(dwarf: &gimli::Dwarf<R>, flags: &Flags) -> Result<()>
+fn dump_info<R: Reader>(
+    dwarf: &gimli::Dwarf<R>,
+    dwo_parent_headers: HashMap<gimli::DwoId, gimli::Unit<R>>,
+    flags: &Flags,
+) -> Result<()>
 where
     R::Endian: Send + Sync,
 {
@@ -997,13 +1069,48 @@ where
             }
         }
 
-        let unit = match dwarf.unit(header) {
+        let mut unit = match dwarf.unit(header) {
             Ok(unit) => unit,
             Err(err) => {
                 writeln_error(buf, dwarf, err.into(), "Failed to parse unit root entry")?;
                 return Ok(());
             }
         };
+
+        if flags.dwo {
+            if let Some(dwo_id) = match unit.header.type_() {
+                UnitType::SplitCompilation(dwo_id) => Some(dwo_id),
+                UnitType::Compilation => {
+                    let mut entries = unit.entries();
+                    let this = match entries.next_dfs() {
+                        Ok(v) => v.unwrap().1,
+                        Err(err) => {
+                            writeln_error(buf, dwarf, err.into(), "Failed to load CU root unit")?;
+                            return Ok(());
+                        }
+                    };
+                    match this.attr_value(gimli::constants::DW_AT_GNU_dwo_id) {
+                        Ok(None) => None,
+                        Ok(Some(gimli::AttributeValue::DwoId(v))) => Some(v),
+                        Ok(Some(_)) => unreachable!(),
+                        Err(err) => {
+                            writeln_error(
+                                buf,
+                                dwarf,
+                                err.into(),
+                                "Failed to parse DW_AT_GNU_dwo_id",
+                            )?;
+                            return Ok(());
+                        }
+                    }
+                }
+                _ => None,
+            } {
+                if let Some(parent_unit) = dwo_parent_headers.get(&dwo_id) {
+                    unit.copy_relocated_attributes(parent_unit);
+                }
+            }
+        }
 
         let entries_result = dump_entries(buf, unit, dwarf, flags);
         if let Err(err) = entries_result {
