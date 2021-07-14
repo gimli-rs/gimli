@@ -297,6 +297,12 @@ impl<R: Reader> Dwarf<R> {
         unit: &Unit<R>,
         offset: RangeListsOffset<R::Offset>,
     ) -> Result<RngListIter<R>> {
+        let offset = if self.file_type == DwarfFileType::Dwo && unit.header.version() < 5 {
+            RangeListsOffset(offset.0.wrapping_add(unit.rnglists_base.0))
+        } else {
+            offset
+        };
+
         self.ranges.ranges(
             offset,
             unit.encoding(),
@@ -312,6 +318,11 @@ impl<R: Reader> Dwarf<R> {
         unit: &Unit<R>,
         offset: RangeListsOffset<R::Offset>,
     ) -> Result<RawRngListIter<R>> {
+        let offset = if self.file_type == DwarfFileType::Dwo && unit.header.version() < 5 {
+            RangeListsOffset(offset.0.wrapping_add(unit.rnglists_base.0))
+        } else {
+            offset
+        };
         self.ranges.raw_ranges(offset, unit.encoding())
     }
 
