@@ -1757,7 +1757,7 @@ fn dump_loc_list<R: Reader, W: Write>(
     unit: &gimli::Unit<R>,
     dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
-    let raw_locations = dwarf.locations.raw_locations(offset, unit.encoding())?;
+    let raw_locations = dwarf.raw_locations(unit, offset)?;
     let raw_locations: Vec<_> = raw_locations.collect()?;
     let mut locations = dwarf.locations(unit, offset)?;
     writeln!(
@@ -1885,7 +1885,7 @@ fn dump_range_list<R: Reader, W: Write>(
     unit: &gimli::Unit<R>,
     dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
-    let raw_ranges = dwarf.ranges.raw_ranges(offset, unit.encoding())?;
+    let raw_ranges = dwarf.raw_ranges(unit, offset)?;
     let raw_ranges: Vec<_> = raw_ranges.collect()?;
     let mut ranges = dwarf.ranges(unit, offset)?;
     writeln!(
