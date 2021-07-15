@@ -6,7 +6,7 @@ use gimli::{
     AttributeValue, DebugAbbrev, DebugAddr, DebugAddrBase, DebugAranges, DebugInfo, DebugLine,
     DebugLineOffset, DebugLoc, DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges,
     DebugRngLists, Encoding, EndianSlice, EntriesTreeNode, Expression, LittleEndian, LocationLists,
-    Operation, RangeLists, Reader, ReaderOffset,
+    Operation, RangeLists, RangeListsOffset, Reader, ReaderOffset,
 };
 use std::env;
 use std::fs::File;
@@ -384,7 +384,7 @@ fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
             let mut attrs = entry.attrs();
             while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
                 if let gimli::AttributeValue::RangeListsRef(offset) = attr.value() {
-                    offsets.push((offset, unit.encoding(), low_pc));
+                    offsets.push((RangeListsOffset(offset.0), unit.encoding(), low_pc));
                 }
             }
         }

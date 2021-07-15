@@ -9,7 +9,7 @@ use crate::common::{
     DebugLineStrOffset, DebugLocListsBase, DebugLocListsIndex, DebugMacinfoOffset,
     DebugMacroOffset, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
     DebugStrOffsetsIndex, DebugTypeSignature, DebugTypesOffset, DwoId, Encoding, Format,
-    LocationListsOffset, RangeListsOffset, SectionId, UnitSectionOffset,
+    LocationListsOffset, RawRangeListsOffset, SectionId, UnitSectionOffset,
 };
 use crate::constants;
 use crate::endianity::Endianity;
@@ -1044,7 +1044,7 @@ where
     DebugMacroRef(DebugMacroOffset<Offset>),
 
     /// An offset into the `.debug_ranges` section.
-    RangeListsRef(RangeListsOffset<Offset>),
+    RangeListsRef(RawRangeListsOffset<Offset>),
 
     /// An offset to a set of offsets in the `.debug_rnglists` section.
     DebugRngListsBase(DebugRngListsBase<Offset>),
@@ -1286,7 +1286,7 @@ impl<R: Reader> Attribute<R> {
             () => {
                 // DebugRngListsIndex is also an allowed form in DWARF version 5.
                 if let Some(offset) = self.offset_value() {
-                    return AttributeValue::RangeListsRef(RangeListsOffset(offset));
+                    return AttributeValue::RangeListsRef(RawRangeListsOffset(offset));
                 }
             };
         }
