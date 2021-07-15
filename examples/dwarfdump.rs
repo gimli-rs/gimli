@@ -17,7 +17,6 @@ use std::iter::Iterator;
 use std::mem;
 use std::process;
 use std::result;
-use std::slice;
 use std::sync::{Condvar, Mutex};
 use typed_arena::Arena;
 
@@ -350,7 +349,7 @@ impl<'a, R: gimli::Reader<Offset = usize>> gimli::Reader for Relocate<'a, R> {
 impl<'a, R: Reader> Reader for Relocate<'a, R> {}
 
 #[derive(Default)]
-struct Flags {
+struct Flags<'a> {
     eh_frame: bool,
     goff: bool,
     info: bool,
@@ -359,7 +358,8 @@ struct Flags {
     pubtypes: bool,
     aranges: bool,
     dwo: bool,
-    dwo_parent: Option<object::File<'static>>,
+    dwo_parent: Option<object::File<'a>>,
+    sup: Option<object::File<'a>>,
     raw: bool,
     match_units: Option<Regex>,
 }
@@ -470,6 +470,7 @@ fn main() {
         None
     };
 
+    let arena_mmap = Arena::new();
     let load_file = |path| {
         let file = match fs::File::open(&path) {
             Ok(file) => file,
@@ -485,10 +486,8 @@ fn main() {
                 process::exit(1);
             }
         };
-        let mmap_ptr = mmap.as_ptr();
-        let mmap_len = mmap.len();
-        mem::forget(mmap);
-        match object::File::parse(unsafe { slice::from_raw_parts(mmap_ptr, mmap_len) }) {
+        let mmap_ref = (*arena_mmap.alloc(mmap)).borrow();
+        match object::File::parse(&**mmap_ref) {
             Ok(file) => Some(file),
             Err(err) => {
                 eprintln!("Failed to parse file '{}': {}", path, err);
@@ -497,11 +496,7 @@ fn main() {
         }
     };
 
-    let sup_file = if let Some(sup_path) = matches.opt_str("sup") {
-        load_file(sup_path)
-    } else {
-        None
-    };
+    flags.sup = matches.opt_str("sup").and_then(load_file);
     flags.dwo_parent = matches.opt_str("dwo-parent").and_then(load_file);
     if flags.dwo_parent.is_some() && !flags.dwo {
         eprintln!("--dwo-parent also requires --dwo");
@@ -541,7 +536,7 @@ fn main() {
         } else {
             gimli::RunTimeEndian::Big
         };
-        let ret = dump_file(&file, sup_file.as_ref(), endian, &flags);
+        let ret = dump_file(&file, endian, &flags);
         match ret {
             Ok(_) => (),
             Err(err) => eprintln!("Failed to dump '{}': {}", file_path, err,),
@@ -586,12 +581,7 @@ fn load_file_section<'input, 'arena, Endian: gimli::Endianity>(
     })
 }
 
-fn dump_file<Endian>(
-    file: &object::File,
-    sup_file: Option<&object::File>,
-    endian: Endian,
-    flags: &Flags,
-) -> Result<()>
+fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags) -> Result<()>
 where
     Endian: gimli::Endianity + Send + Sync,
 {
@@ -627,7 +617,7 @@ where
         }
     }
 
-    if let Some(sup_file) = sup_file {
+    if let Some(sup_file) = flags.sup.as_ref() {
         let mut load_sup_section = |id: gimli::SectionId| -> Result<_> {
             // Note: we really only need the `.debug_str` section,
             // but for now we load them all.
