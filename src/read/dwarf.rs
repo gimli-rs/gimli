@@ -12,8 +12,9 @@ use crate::read::{
     Abbreviations, AttributeValue, DebugAbbrev, DebugAddr, DebugAranges, DebugInfo,
     DebugInfoUnitHeadersIter, DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes,
     DebugTypesUnitHeadersIter, DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree,
-    Error, IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists, Reader,
-    ReaderOffset, ReaderOffsetId, Result, RngListIter, Section, UnitHeader, UnitOffset,
+    Error, IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists, RawLocListIter,
+    RawRngListIter, Reader, ReaderOffset, ReaderOffsetId, Result, RngListIter, Section, UnitHeader,
+    UnitOffset,
 };
 
 /// All of the commonly used DWARF sections, and other common information.
@@ -296,6 +297,12 @@ impl<R: Reader> Dwarf<R> {
         unit: &Unit<R>,
         offset: RangeListsOffset<R::Offset>,
     ) -> Result<RngListIter<R>> {
+        let offset = if self.file_type == DwarfFileType::Dwo && unit.header.version() < 5 {
+            RangeListsOffset(offset.0.wrapping_add(unit.rnglists_base.0))
+        } else {
+            offset
+        };
+
         self.ranges.ranges(
             offset,
             unit.encoding(),
@@ -303,6 +310,20 @@ impl<R: Reader> Dwarf<R> {
             &self.debug_addr,
             unit.addr_base,
         )
+    }
+
+    /// Iterate over the `RawRngListEntry`ies starting at the given offset.
+    pub fn raw_ranges(
+        &self,
+        unit: &Unit<R>,
+        offset: RangeListsOffset<R::Offset>,
+    ) -> Result<RawRngListIter<R>> {
+        let offset = if self.file_type == DwarfFileType::Dwo && unit.header.version() < 5 {
+            RangeListsOffset(offset.0.wrapping_add(unit.rnglists_base.0))
+        } else {
+            offset
+        };
+        self.ranges.raw_ranges(offset, unit.encoding())
     }
 
     /// Try to return an attribute value as a range list offset.
@@ -433,6 +454,18 @@ impl<R: Reader> Dwarf<R> {
                 &self.debug_addr,
                 unit.addr_base,
             ),
+        }
+    }
+
+    /// Iterate over the raw `LocationListEntry`s starting at the given offset.
+    pub fn raw_locations(
+        &self,
+        unit: &Unit<R>,
+        offset: LocationListsOffset<R::Offset>,
+    ) -> Result<RawLocListIter<R>> {
+        match self.file_type {
+            DwarfFileType::Main => self.locations.raw_locations(offset, unit.encoding()),
+            DwarfFileType::Dwo => self.locations.raw_locations_dwo(offset, unit.encoding()),
         }
     }
 
