@@ -4,8 +4,8 @@ use alloc::sync::Arc;
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
     DebugLocListsIndex, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
-    DebugStrOffsetsIndex, DebugTypesOffset, DwarfFileType, Encoding, LocationListsOffset,
-    RangeListsOffset, SectionId, UnitSectionOffset,
+    DebugStrOffsetsIndex, DebugTypesOffset, DwarfFileType, DwoId, Encoding, LocationListsOffset,
+    RangeListsOffset, RawRangeListsOffset, SectionId, UnitSectionOffset,
 };
 use crate::constants;
 use crate::read::{
@@ -14,7 +14,7 @@ use crate::read::{
     DebugTypesUnitHeadersIter, DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree,
     Error, IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists, RawLocListIter,
     RawRngListIter, Reader, ReaderOffset, ReaderOffsetId, Result, RngListIter, Section, UnitHeader,
-    UnitOffset,
+    UnitOffset, UnitType,
 };
 
 /// All of the commonly used DWARF sections, and other common information.
@@ -281,6 +281,21 @@ impl<R: Reader> Dwarf<R> {
         }
     }
 
+    /// Return the range list offset for the given raw offset.
+    ///
+    /// This handles adding `DW_AT_GNU_ranges_base` if required.
+    pub fn ranges_offset_from_raw(
+        &self,
+        unit: &Unit<R>,
+        offset: RawRangeListsOffset<R::Offset>,
+    ) -> RangeListsOffset<R::Offset> {
+        if self.file_type == DwarfFileType::Dwo && unit.header.version() < 5 {
+            RangeListsOffset(offset.0.wrapping_add(unit.rnglists_base.0))
+        } else {
+            RangeListsOffset(offset.0)
+        }
+    }
+
     /// Return the range list offset at the given index.
     pub fn ranges_offset(
         &self,
@@ -297,12 +312,6 @@ impl<R: Reader> Dwarf<R> {
         unit: &Unit<R>,
         offset: RangeListsOffset<R::Offset>,
     ) -> Result<RngListIter<R>> {
-        let offset = if self.file_type == DwarfFileType::Dwo && unit.header.version() < 5 {
-            RangeListsOffset(offset.0.wrapping_add(unit.rnglists_base.0))
-        } else {
-            offset
-        };
-
         self.ranges.ranges(
             offset,
             unit.encoding(),
@@ -318,11 +327,6 @@ impl<R: Reader> Dwarf<R> {
         unit: &Unit<R>,
         offset: RangeListsOffset<R::Offset>,
     ) -> Result<RawRngListIter<R>> {
-        let offset = if self.file_type == DwarfFileType::Dwo && unit.header.version() < 5 {
-            RangeListsOffset(offset.0.wrapping_add(unit.rnglists_base.0))
-        } else {
-            offset
-        };
         self.ranges.raw_ranges(offset, unit.encoding())
     }
 
@@ -341,7 +345,9 @@ impl<R: Reader> Dwarf<R> {
         attr: AttributeValue<R>,
     ) -> Result<Option<RangeListsOffset<R::Offset>>> {
         match attr {
-            AttributeValue::RangeListsRef(offset) => Ok(Some(offset)),
+            AttributeValue::RangeListsRef(offset) => {
+                Ok(Some(self.ranges_offset_from_raw(unit, offset)))
+            }
             AttributeValue::DebugRngListsIndex(index) => self.ranges_offset(unit, index).map(Some),
             _ => Ok(None),
         }
@@ -596,6 +602,9 @@ where
 
     /// The line number program of the unit.
     pub line_program: Option<IncompleteLineProgram<R, Offset>>,
+
+    /// The DWO ID of a skeleton unit or split compilation unit.
+    pub dwo_id: Option<DwoId>,
 }
 
 impl<R: Reader> Unit<R> {
@@ -623,6 +632,10 @@ impl<R: Reader> Unit<R> {
                 dwarf.file_type,
             ),
             line_program: None,
+            dwo_id: match header.type_() {
+                UnitType::Skeleton(dwo_id) | UnitType::SplitCompilation(dwo_id) => Some(dwo_id),
+                _ => None,
+            },
             header,
         };
         let mut name = None;
@@ -669,6 +682,13 @@ impl<R: Reader> Unit<R> {
                     constants::DW_AT_rnglists_base | constants::DW_AT_GNU_ranges_base => {
                         if let AttributeValue::DebugRngListsBase(base) = attr.value() {
                             unit.rnglists_base = base;
+                        }
+                    }
+                    constants::DW_AT_GNU_dwo_id => {
+                        if unit.dwo_id.is_none() {
+                            if let AttributeValue::DwoId(dwo_id) = attr.value() {
+                                unit.dwo_id = Some(dwo_id);
+                            }
                         }
                     }
                     _ => {}

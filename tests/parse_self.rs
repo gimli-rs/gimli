@@ -3,7 +3,8 @@
 use gimli::{
     AttributeValue, DebugAbbrev, DebugAddr, DebugAddrBase, DebugAranges, DebugInfo, DebugLine,
     DebugLoc, DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges, DebugRngLists, DebugStr,
-    Encoding, EndianSlice, Expression, LittleEndian, LocationLists, Operation, RangeLists, Reader,
+    Encoding, EndianSlice, Expression, LittleEndian, LocationLists, Operation, RangeLists,
+    RangeListsOffset, Reader,
 };
 use std::collections::hash_map::HashMap;
 use std::env;
@@ -274,7 +275,7 @@ fn test_parse_self_debug_ranges() {
                 if let AttributeValue::RangeListsRef(offset) = attr.value() {
                     let mut ranges = rnglists
                         .ranges(
-                            offset,
+                            RangeListsOffset(offset.0),
                             unit.encoding(),
                             low_pc,
                             &debug_addr,

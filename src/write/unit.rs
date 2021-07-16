@@ -1827,11 +1827,9 @@ pub(crate) mod convert {
                     let loc_id = context.locations.add(loc_list);
                     AttributeValue::LocationListRef(loc_id)
                 }
-                read::AttributeValue::RangeListsRef(val) => {
-                    let iter = context
-                        .dwarf
-                        .ranges
-                        .raw_ranges(val, context.unit.encoding())?;
+                read::AttributeValue::RangeListsRef(offset) => {
+                    let offset = context.dwarf.ranges_offset_from_raw(context.unit, offset);
+                    let iter = context.dwarf.raw_ranges(context.unit, offset)?;
                     let range_list = RangeList::from(iter, context)?;
                     let range_id = context.ranges.add(range_list);
                     AttributeValue::RangeListRef(range_id)
@@ -2548,6 +2546,7 @@ mod tests {
                             loclists_base: DebugLocListsBase(0),
                             rnglists_base: DebugRngListsBase(0),
                             line_program: None,
+                            dwo_id: None,
                         };
 
                         let mut context = convert::ConvertUnitContext {
@@ -3020,6 +3019,7 @@ mod tests {
                             loclists_base: DebugLocListsBase(0),
                             rnglists_base: DebugRngListsBase(0),
                             line_program: None,
+                            dwo_id: None,
                         };
 
                         let mut context = convert::ConvertUnitContext {
