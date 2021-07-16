@@ -613,23 +613,7 @@ where
             dwo_parent_units = match dwo_parent
                 .units()
                 .map(|unit_header| dwo_parent.unit(unit_header))
-                .filter_map(|unit| {
-                    let dwo_id = match unit.header.type_() {
-                        gimli::UnitType::Skeleton(dwo_id) => dwo_id,
-                        gimli::UnitType::Compilation => {
-                            let mut entries = unit.entries();
-                            let (_, this) = entries.next_dfs()?.unwrap();
-                            match this.attr_value(gimli::constants::DW_AT_GNU_dwo_id)? {
-                                Some(gimli::AttributeValue::DwoId(dwo_id)) => dwo_id,
-                                Some(_) => unreachable!(),
-                                None => return Ok(None),
-                            }
-                        }
-                        _ => return Ok(None),
-                    };
-
-                    Ok(Some((dwo_id, unit)))
-                })
+                .filter_map(|unit| Ok(unit.dwo_id.map(|dwo_id| (dwo_id, unit))))
                 .collect()
             {
                 Ok(units) => units,
@@ -1059,34 +1043,7 @@ where
         };
 
         if flags.dwo {
-            if let Some(dwo_id) = match unit.header.type_() {
-                UnitType::SplitCompilation(dwo_id) => Some(dwo_id),
-                UnitType::Compilation => {
-                    let mut entries = unit.entries();
-                    let this = match entries.next_dfs() {
-                        Ok(v) => v.unwrap().1,
-                        Err(err) => {
-                            writeln_error(buf, dwarf, err.into(), "Failed to load CU root unit")?;
-                            return Ok(());
-                        }
-                    };
-                    match this.attr_value(gimli::constants::DW_AT_GNU_dwo_id) {
-                        Ok(None) => None,
-                        Ok(Some(gimli::AttributeValue::DwoId(v))) => Some(v),
-                        Ok(Some(_)) => unreachable!(),
-                        Err(err) => {
-                            writeln_error(
-                                buf,
-                                dwarf,
-                                err.into(),
-                                "Failed to parse DW_AT_GNU_dwo_id",
-                            )?;
-                            return Ok(());
-                        }
-                    }
-                }
-                _ => None,
-            } {
+            if let Some(dwo_id) = unit.dwo_id {
                 if let Some(parent_unit) = dwo_parent_units.get(&dwo_id) {
                     unit.copy_relocated_attributes(parent_unit);
                 }

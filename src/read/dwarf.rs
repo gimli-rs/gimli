@@ -4,7 +4,7 @@ use alloc::sync::Arc;
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
     DebugLocListsIndex, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
-    DebugStrOffsetsIndex, DebugTypesOffset, DwarfFileType, Encoding, LocationListsOffset,
+    DebugStrOffsetsIndex, DebugTypesOffset, DwarfFileType, DwoId, Encoding, LocationListsOffset,
     RangeListsOffset, RawRangeListsOffset, SectionId, UnitSectionOffset,
 };
 use crate::constants;
@@ -14,7 +14,7 @@ use crate::read::{
     DebugTypesUnitHeadersIter, DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree,
     Error, IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists, RawLocListIter,
     RawRngListIter, Reader, ReaderOffset, ReaderOffsetId, Result, RngListIter, Section, UnitHeader,
-    UnitOffset,
+    UnitOffset, UnitType,
 };
 
 /// All of the commonly used DWARF sections, and other common information.
@@ -602,6 +602,9 @@ where
 
     /// The line number program of the unit.
     pub line_program: Option<IncompleteLineProgram<R, Offset>>,
+
+    /// The DWO ID of a skeleton unit or split compilation unit.
+    pub dwo_id: Option<DwoId>,
 }
 
 impl<R: Reader> Unit<R> {
@@ -629,6 +632,10 @@ impl<R: Reader> Unit<R> {
                 dwarf.file_type,
             ),
             line_program: None,
+            dwo_id: match header.type_() {
+                UnitType::Skeleton(dwo_id) | UnitType::SplitCompilation(dwo_id) => Some(dwo_id),
+                _ => None,
+            },
             header,
         };
         let mut name = None;
@@ -675,6 +682,13 @@ impl<R: Reader> Unit<R> {
                     constants::DW_AT_rnglists_base | constants::DW_AT_GNU_ranges_base => {
                         if let AttributeValue::DebugRngListsBase(base) = attr.value() {
                             unit.rnglists_base = base;
+                        }
+                    }
+                    constants::DW_AT_GNU_dwo_id => {
+                        if unit.dwo_id.is_none() {
+                            if let AttributeValue::DwoId(dwo_id) = attr.value() {
+                                unit.dwo_id = Some(dwo_id);
+                            }
                         }
                     }
                     _ => {}

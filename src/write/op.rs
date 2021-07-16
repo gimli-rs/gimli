@@ -1583,6 +1583,7 @@ mod tests {
                         loclists_base: DebugLocListsBase(0),
                         rnglists_base: DebugRngListsBase(0),
                         line_program: None,
+                        dwo_id: None,
                     };
 
                     let mut entry_ids = HashMap::new();
