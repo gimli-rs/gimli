@@ -2819,13 +2819,17 @@ mod tests {
             add_child(unit, root, constants::DW_TAG_subprogram, "child2");
             add_child(unit, root, constants::DW_TAG_subprogram, "child3");
 
-            // These entries will be deleted before writing the sections
+            // Some of the following children will be deleted before writing the sections
             let child4 = add_child(unit, root, constants::DW_TAG_subprogram, "child4");
-            let child5 = add_child(unit, root, constants::DW_TAG_subprogram, "child5");
-            let grandchild5 = add_child(unit, child5, constants::DW_TAG_variable, "grandchild5");
+
+            // This will not be deleted to check that deleting interleaved children works
+            add_child(unit, root, constants::DW_TAG_subprogram, "child5");
+
+            let child6 = add_child(unit, root, constants::DW_TAG_subprogram, "child6");
+            add_child(unit, child6, constants::DW_TAG_variable, "grandchild6");
             unit.get_mut(root).delete_child(child4);
-            // Deleting `child5` deletes `grandchild5` as well
-            unit.get_mut(root).delete_child(child5);
+            // Deleting `child6` deletes `grandchild6` as well
+            unit.get_mut(root).delete_child(child6);
         }
 
         fn next_child<R: read::Reader<Offset = usize>>(
@@ -2860,15 +2864,20 @@ mod tests {
             let (offset2, sibling2) = next_child(&mut entries);
             // child3
             let (_, _) = next_child(&mut entries);
-            // Check that deleted children aren't in entries
-            let no_child4 = entries.next_dfs().unwrap().is_none();
-            let no_child5 = entries.next_dfs().unwrap().is_none();
-            let no_grandchild5 = entries.next_dfs().unwrap().is_none();
+            // Get `child5`'s name to ensure it was not deleted
+            let (_, child5) = entries.next_dfs().unwrap().unwrap();
+            let child5_name = child5.attr_value(constants::DW_AT_name).unwrap().unwrap();
+            let child5_name = if let read::AttributeValue::String(s) = child5_name {
+                s.to_string().unwrap().into_owned()
+            } else {
+                panic!("Name attribute is not a String")
+            };
+            // Check that deleted children and grandchildren aren't in `entries` anymore
+            let none_remain = entries.next_dfs().unwrap().is_none();
             assert_eq!(sibling1, Some(offset2));
             assert_eq!(sibling2, None);
-            assert!(no_child4);
-            assert!(no_child5);
-            assert!(no_grandchild5);
+            assert_eq!(child5_name.as_str(), "child5");
+            assert!(none_remain);
         }
 
         let encoding = Encoding {
