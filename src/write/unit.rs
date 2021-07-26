@@ -546,10 +546,6 @@ impl DebuggingInformationEntry {
     }
 
     /// Delete a child entry and all of its children.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `id` is invalid.
     pub fn delete_child(&mut self, id: UnitEntryId) {
         self.children.retain(|&child| child != id);
     }
@@ -1928,9 +1924,9 @@ mod tests {
     use crate::constants;
     use crate::read;
     use crate::write::{
-        DebugLine, DebugLineStr, DebugStr, EndianVec, LineString, LineStringTable, Location,
-        LocationList, LocationListTable, Range, RangeList, RangeListOffsets, RangeListTable,
-        StringTable,
+        DebugLine, DebugLineStr, DebugStr, DwarfUnit, EndianVec, LineString, LineStringTable,
+        Location, LocationList, LocationListTable, Range, RangeList, RangeListOffsets,
+        RangeListTable, StringTable,
     };
     use crate::LittleEndian;
     use std::collections::HashMap;
@@ -2818,18 +2814,6 @@ mod tests {
             add_child(unit, child1, constants::DW_TAG_variable, "grandchild1");
             add_child(unit, root, constants::DW_TAG_subprogram, "child2");
             add_child(unit, root, constants::DW_TAG_subprogram, "child3");
-
-            // Some of the following children will be deleted before writing the sections
-            let child4 = add_child(unit, root, constants::DW_TAG_subprogram, "child4");
-
-            // This will not be deleted to check that deleting interleaved children works
-            add_child(unit, root, constants::DW_TAG_subprogram, "child5");
-
-            let child6 = add_child(unit, root, constants::DW_TAG_subprogram, "child6");
-            add_child(unit, child6, constants::DW_TAG_variable, "grandchild6");
-            unit.get_mut(root).delete_child(child4);
-            // Deleting `child6` deletes `grandchild6` as well
-            unit.get_mut(root).delete_child(child6);
         }
 
         fn next_child<R: read::Reader<Offset = usize>>(
@@ -2864,20 +2848,8 @@ mod tests {
             let (offset2, sibling2) = next_child(&mut entries);
             // child3
             let (_, _) = next_child(&mut entries);
-            // Get `child5`'s name to ensure it was not deleted
-            let (_, child5) = entries.next_dfs().unwrap().unwrap();
-            let child5_name = child5.attr_value(constants::DW_AT_name).unwrap().unwrap();
-            let child5_name = if let read::AttributeValue::String(s) = child5_name {
-                s.to_string().unwrap().into_owned()
-            } else {
-                panic!("Name attribute is not a String")
-            };
-            // Check that deleted children and grandchildren aren't in `entries` anymore
-            let none_remain = entries.next_dfs().unwrap().is_none();
             assert_eq!(sibling1, Some(offset2));
             assert_eq!(sibling2, None);
-            assert_eq!(child5_name.as_str(), "child5");
-            assert!(none_remain);
         }
 
         let encoding = Encoding {
@@ -3114,5 +3086,72 @@ mod tests {
                 .unwrap();
             assert_eq!(!used, sections.debug_line.slice().is_empty());
         }
+    }
+
+    #[test]
+    fn test_delete_child() {
+        fn set_name(unit: &mut Unit, id: UnitEntryId, name: &str) {
+            let entry = unit.get_mut(id);
+            entry.set(constants::DW_AT_name, AttributeValue::String(name.into()));
+        }
+        fn check_name<R: read::Reader>(
+            entry: &read::DebuggingInformationEntry<R>,
+            debug_str: &read::DebugStr<R>,
+            name: &str,
+        ) {
+            let name_attr = entry.attr(constants::DW_AT_name).unwrap().unwrap();
+            let entry_name = name_attr.string_value(debug_str).unwrap();
+            let entry_name_str = entry_name.to_string().unwrap();
+            assert_eq!(entry_name_str, name);
+        }
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 4,
+            address_size: 8,
+        };
+        let mut dwarf = DwarfUnit::new(encoding);
+        let root = dwarf.unit.root();
+
+        // Add and delete entries in the root unit
+        let child1 = dwarf.unit.add(root, constants::DW_TAG_subprogram);
+        set_name(&mut dwarf.unit, child1, "child1");
+        let grandchild1 = dwarf.unit.add(child1, constants::DW_TAG_variable);
+        set_name(&mut dwarf.unit, grandchild1, "grandchild1");
+        let child2 = dwarf.unit.add(root, constants::DW_TAG_subprogram);
+        set_name(&mut dwarf.unit, child2, "child2");
+        // This deletes both `child1` and its child `grandchild1`
+        dwarf.unit.get_mut(root).delete_child(child1);
+        let child3 = dwarf.unit.add(root, constants::DW_TAG_subprogram);
+        set_name(&mut dwarf.unit, child3, "child3");
+        let child4 = dwarf.unit.add(root, constants::DW_TAG_subprogram);
+        set_name(&mut dwarf.unit, child4, "child4");
+        let grandchild4 = dwarf.unit.add(child4, constants::DW_TAG_variable);
+        set_name(&mut dwarf.unit, grandchild4, "grandchild4");
+        dwarf.unit.get_mut(child4).delete_child(grandchild4);
+
+        let mut sections = Sections::new(EndianVec::new(LittleEndian));
+
+        // Write DWARF data which should only include `child2`, `child3` and `child4`
+        dwarf.write(&mut sections).unwrap();
+
+        let read_debug_info = read::DebugInfo::new(sections.debug_info.slice(), LittleEndian);
+        let read_debug_abbrev = read::DebugAbbrev::new(sections.debug_abbrev.slice(), LittleEndian);
+        let read_debug_str = read::DebugStr::new(sections.debug_str.slice(), LittleEndian);
+        let read_unit = read_debug_info.units().next().unwrap().unwrap();
+        let abbrevs = read_unit.abbreviations(&read_debug_abbrev).unwrap();
+        let mut entries = read_unit.entries(&abbrevs);
+        // root
+        entries.next_dfs().unwrap().unwrap();
+        // child2
+        let (_, read_child2) = entries.next_dfs().unwrap().unwrap();
+        check_name(read_child2, &read_debug_str, "child2");
+        // child3
+        let (_, read_child3) = entries.next_dfs().unwrap().unwrap();
+        check_name(read_child3, &read_debug_str, "child3");
+        // child4
+        let (_, read_child4) = entries.next_dfs().unwrap().unwrap();
+        check_name(read_child4, &read_debug_str, "child4");
+        // There should be no more entries
+        assert!(entries.next_dfs().unwrap().is_none());
     }
 }
