@@ -2,6 +2,54 @@
 
 --------------------------------------------------------------------------------
 
+## 0.25.0
+
+Released 2021/07/26.
+
+### Breaking changes
+
+* `read::FrameDescriptionEntry::unwind_info_for_address` now returns a reference
+  instead of cloning.
+  [#557](https://github.com/gimli-rs/gimli/pull/557)
+
+* `read::AttributeValue::RangeListsRef` now contains a `RawRangeListsOffset`
+  to allow handling of GNU split DWARF extensions.
+  Use `read::Dwarf::ranges_offset_from_raw` to handle it.
+  [#568](https://github.com/gimli-rs/gimli/pull/568)
+  [#569](https://github.com/gimli-rs/gimli/pull/569)
+
+* Added `read::Unit::dwo_id`.
+  [#569](https://github.com/gimli-rs/gimli/pull/569)
+
+### Changed
+
+* `.debug_aranges` parsing now accepts version 3.
+  [#560](https://github.com/gimli-rs/gimli/pull/560)
+
+* `read::Dwarf::attr_ranges_offset` and its callers now handle GNU split DWARF extensions.
+  [#568](https://github.com/gimli-rs/gimli/pull/568)
+  [#569](https://github.com/gimli-rs/gimli/pull/569)
+
+### Added
+
+* Added `read::DebugLineStr::new`.
+  [#556](https://github.com/gimli-rs/gimli/pull/556)
+
+* Added `read::UnwindTable::into_current_row`.
+  [#557](https://github.com/gimli-rs/gimli/pull/557)
+
+* Added more `DW_LANG` constants.
+  [#565](https://github.com/gimli-rs/gimli/pull/565)
+
+* dwarfdump: added DWO parent support.
+  [#568](https://github.com/gimli-rs/gimli/pull/568)
+
+* Added `read::Dwarf` methods: `ranges_offset_from_raw`, `raw_ranges`, and `raw_locations`.
+  [#568](https://github.com/gimli-rs/gimli/pull/568)
+  [#569](https://github.com/gimli-rs/gimli/pull/569)
+
+--------------------------------------------------------------------------------
+
 ## 0.24.0
 
 Released 2021/05/01.
