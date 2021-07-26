@@ -64,39 +64,39 @@ jobs:
           name: fuzz-targets
           path: fuzz/target/x86_64-unknown-linux-gnu/release/eh_*
 
-  run_fuzz_targets:
-    strategy:
-      matrix:
-        fuzz_target: ["debug_abbrev", "debug_aranges", "debug_info", "debug_line", "eh_frame", "eh_frame_hdr"]
-    name: "Run `${{matrix.fuzz_target}}` fuzz target"
-    needs: build_fuzz_targets
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone the fuzz corpora
-        uses: actions/checkout@v2
-        with:
-          repository: gimli-rs/gimli-libfuzzer-corpora
-          path: corpora
-      - name: Download fuzz targets
-        uses: actions/download-artifact@v1
-        with:
-          name: fuzz-targets
+  #run_fuzz_targets:
+    #strategy:
+      #matrix:
+        #fuzz_target: ["debug_abbrev", "debug_aranges", "debug_info", "debug_line", "eh_frame", "eh_frame_hdr"]
+    #name: "Run `${{matrix.fuzz_target}}` fuzz target"
+    #needs: build_fuzz_targets
+    #runs-on: ubuntu-latest
+    #steps:
+      #- name: Clone the fuzz corpora
+        #uses: actions/checkout@v2
+        #with:
+          #repository: gimli-rs/gimli-libfuzzer-corpora
+          #path: corpora
+      #- name: Download fuzz targets
+        #uses: actions/download-artifact@v1
+        #with:
+          #name: fuzz-targets
         # Note: -max_total_time=300 == 300 seconds == 5 minutes.
-      - name: "Run `${{matrix.fuzz_target}}` fuzz target"
-        run: |
-          mkdir ${{matrix.fuzz_target}}_artifacts
-          chmod +x ./fuzz-targets/${{matrix.fuzz_target}}
-          ./fuzz-targets/${{matrix.fuzz_target}} ./corpora/${{matrix.fuzz_target}} \
-              -max_total_time=300 \
-              -artifact_prefix=./${{matrix.fuzz_target}}_artifacts/
+      #- name: "Run `${{matrix.fuzz_target}}` fuzz target"
+        #run: |
+          #mkdir ${{matrix.fuzz_target}}_artifacts
+          #chmod +x ./fuzz-targets/${{matrix.fuzz_target}}
+          #./fuzz-targets/${{matrix.fuzz_target}} ./corpora/${{matrix.fuzz_target}} \
+              #-max_total_time=300 \
+              #-artifact_prefix=./${{matrix.fuzz_target}}_artifacts/
       # If fuzzing finds a new crash/panic/etc, upload the input artifacts so we
       # can debug them.
-      - name: Upload fuzz artifacts
-        if: failure()
-        uses: actions/upload-artifact@v2
-        with:
-          name: ${{matrix.fuzz_target}}_artifacts
-          path: ./${{matrix.fuzz_target}}_artifacts
+      #- name: Upload fuzz artifacts
+        #if: failure()
+        #uses: actions/upload-artifact@v2
+        #with:
+          #name: ${{matrix.fuzz_target}}_artifacts
+          #path: ./${{matrix.fuzz_target}}_artifacts
 
   features:
     runs-on: ubuntu-latest
