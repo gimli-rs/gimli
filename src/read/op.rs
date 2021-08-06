@@ -1867,12 +1867,11 @@ impl<R: Reader> Evaluation<R> {
         // If no pieces have been seen, use the stack top as the
         // result.
         if self.result.is_empty() {
-            let entry = self.pop()?;
-            let addr = entry.to_u64(self.addr_mask)?;
+            let value = self.pop()?;
             self.result.push(Piece {
                 size_in_bits: None,
                 bit_offset: None,
-                location: Location::Address { address: addr },
+                location: Location::Value { value },
             });
         }
 
@@ -3542,8 +3541,8 @@ mod tests {
         let result = [Piece {
             size_in_bits: None,
             bit_offset: None,
-            location: Location::Address {
-                address: 0x1234_5678,
+            location: Location::Value {
+                value: Value::Generic(0x1234_5678),
             },
         }];
 
@@ -3813,7 +3812,7 @@ mod tests {
         let result = [Piece {
             size_in_bits: None,
             bit_offset: None,
-            location: Location::Address { address: 7 },
+            location: Location::Value { value: Value::Generic(7) },
         }];
 
         check_eval(&program, Ok(&result), encoding4());
@@ -3939,6 +3938,13 @@ mod tests {
                 ][..],
                 Value::F32(1.0),
             ),
+            (
+                &[
+                    Op(DW_OP_breg5), Sleb(0x8),
+                    Op(DW_OP_deref)
+                ][..],
+                Value::Generic(((5 /*reg num*/ << 4) /*reg "val"*/ + 8 /*offset*/) << 4 /*deref mem*/),
+            )
         ];
         for &(program, value) in &tests {
             let result = [Piece {
