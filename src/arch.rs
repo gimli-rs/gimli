@@ -1,16 +1,22 @@
 use crate::common::Register;
 
 macro_rules! registers {
-    ($struct_name:ident, { $($name:ident = ($val:expr, $disp:expr)),+ $(,)? }) => {
+    ($struct_name:ident, { $($name:ident = ($val:expr, $disp:expr)),+ $(,)? }
+        $(, aliases { $($alias_name:ident = ($alias_val:expr, $alias_disp:expr)),+ $(,)? })?) => {
         #[allow(missing_docs)]
         impl $struct_name {
             $(
                 pub const $name: Register = Register($val);
             )+
+            $(
+                $(pub const $alias_name: Register = Register($alias_val);)+
+            )*
         }
 
         impl $struct_name {
             /// The name of a register, or `None` if the register number is unknown.
+            ///
+            /// Only returns the primary name for registers that alias with others.
             pub fn register_name(register: Register) -> Option<&'static str> {
                 match register {
                     $(
@@ -26,6 +32,9 @@ macro_rules! registers {
                     $(
                         $disp => Some(Self::$name),
                     )+
+                    $(
+                        $($alias_disp => Some(Self::$alias_name),)+
+                    )*
                     _ => return None,
 		}
 	    }
@@ -35,7 +44,7 @@ macro_rules! registers {
 
 /// ARM architecture specific definitions.
 ///
-/// See [DWARF for the ARM Architecture](http://infocenter.arm.com/help/topic/com.arm.doc.ihi0040b/IHI0040B_aadwarf.pdf).
+/// See [DWARF for the ARM Architecture](https://developer.arm.com/documentation/ihi0040/b/).
 #[derive(Debug, Clone, Copy)]
 pub struct Arm;
 
@@ -67,15 +76,6 @@ registers!(Arm, {
     WCGR6 = (110, "wCGR6"),
     WCGR7 = (111, "wCGR7"),
 
-    ACC0 = (104, "ACC0"),
-    ACC1 = (105, "ACC1"),
-    ACC2 = (106, "ACC2"),
-    ACC3 = (107, "ACC3"),
-    ACC4 = (108, "ACC4"),
-    ACC5 = (109, "ACC5"),
-    ACC6 = (110, "ACC6"),
-    ACC7 = (111, "ACC7"),
-
     WR0 = (112, "wR0"),
     WR1 = (113, "wR1"),
     WR2 = (114, "wR2"),
@@ -101,6 +101,49 @@ registers!(Arm, {
     WC5 = (197, "wC5"),
     WC6 = (198, "wC6"),
     WC7 = (199, "wC7"),
+
+    D0 = (256, "D0"),
+    D1 = (257, "D1"),
+    D2 = (258, "D2"),
+    D3 = (259, "D3"),
+    D4 = (260, "D4"),
+    D5 = (261, "D5"),
+    D6 = (262, "D6"),
+    D7 = (263, "D7"),
+    D8 = (264, "D8"),
+    D9 = (265, "D9"),
+    D10 = (266, "D10"),
+    D11 = (267, "D11"),
+    D12 = (268, "D12"),
+    D13 = (269, "D13"),
+    D14 = (270, "D14"),
+    D15 = (271, "D15"),
+    D16 = (272, "D16"),
+    D17 = (273, "D17"),
+    D18 = (274, "D18"),
+    D19 = (275, "D19"),
+    D20 = (276, "D20"),
+    D21 = (277, "D21"),
+    D22 = (278, "D22"),
+    D23 = (279, "D23"),
+    D24 = (280, "D24"),
+    D25 = (281, "D25"),
+    D26 = (282, "D26"),
+    D27 = (283, "D27"),
+    D28 = (284, "D28"),
+    D29 = (285, "D29"),
+    D30 = (286, "D30"),
+    D31 = (287, "D31"),
+},
+aliases {
+    ACC0 = (104, "ACC0"),
+    ACC1 = (105, "ACC1"),
+    ACC2 = (106, "ACC2"),
+    ACC3 = (107, "ACC3"),
+    ACC4 = (108, "ACC4"),
+    ACC5 = (109, "ACC5"),
+    ACC6 = (110, "ACC6"),
+    ACC7 = (111, "ACC7"),
 
     S0 = (256, "S0"),
     S1 = (256, "S1"),
@@ -135,38 +178,6 @@ registers!(Arm, {
     S30 = (271, "S30"),
     S31 = (271, "S31"),
 
-    D0 = (256, "D0"),
-    D1 = (257, "D1"),
-    D2 = (258, "D2"),
-    D3 = (259, "D3"),
-    D4 = (260, "D4"),
-    D5 = (261, "D5"),
-    D6 = (262, "D6"),
-    D7 = (263, "D7"),
-    D8 = (264, "D8"),
-    D9 = (265, "D9"),
-    D10 = (266, "D10"),
-    D11 = (267, "D11"),
-    D12 = (268, "D12"),
-    D13 = (269, "D13"),
-    D14 = (270, "D14"),
-    D15 = (271, "D15"),
-    D16 = (272, "D16"),
-    D17 = (273, "D17"),
-    D18 = (274, "D18"),
-    D19 = (275, "D19"),
-    D20 = (276, "D20"),
-    D21 = (277, "D21"),
-    D22 = (278, "D22"),
-    D23 = (279, "D23"),
-    D24 = (280, "D24"),
-    D25 = (281, "D25"),
-    D26 = (282, "D26"),
-    D27 = (283, "D27"),
-    D28 = (284, "D28"),
-    D29 = (285, "D29"),
-    D30 = (286, "D30"),
-    D31 = (287, "D31"),
 });
 
 /// ARM 64-bit (AArch64) architecture specific definitions.
