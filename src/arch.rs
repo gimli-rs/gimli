@@ -177,7 +177,6 @@ aliases {
     S29 = (270, "S29"),
     S30 = (271, "S30"),
     S31 = (271, "S31"),
-
 });
 
 /// ARM 64-bit (AArch64) architecture specific definitions.
