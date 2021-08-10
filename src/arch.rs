@@ -44,7 +44,7 @@ macro_rules! registers {
 
 /// ARM architecture specific definitions.
 ///
-/// See [DWARF for the ARM Architecture](https://developer.arm.com/documentation/ihi0040/b/).
+/// See [DWARF for the ARM Architecture](https://developer.arm.com/documentation/ihi0040/c/).
 #[derive(Debug, Clone, Copy)]
 pub struct Arm;
 
