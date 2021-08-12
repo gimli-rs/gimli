@@ -60,7 +60,7 @@ pub trait Writer {
                     constants::DW_EH_PE_pcrel => {
                         // TODO: better handling of sign
                         let offset = self.len() as u64;
-                        offset.wrapping_sub(val)
+                        val.wrapping_sub(offset)
                     }
                     _ => {
                         return Err(Error::UnsupportedPointerEncoding(eh_pe));
