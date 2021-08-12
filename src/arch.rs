@@ -48,7 +48,6 @@ macro_rules! registers {
 #[derive(Debug, Clone, Copy)]
 pub struct Arm;
 
-// TODO: add more registers.
 registers!(Arm, {
     R0 = (0, "R0"),
     R1 = (1, "R1"),
@@ -93,6 +92,41 @@ registers!(Arm, {
     WR14 = (126, "wR14"),
     WR15 = (127, "wR15"),
 
+    SPSR = (128, "SPSR"),
+    SPSR_FIQ = (129, "SPSR_FIQ"),
+    SPSR_IRQ = (130, "SPSR_IRQ"),
+    SPSR_ABT = (131, "SPSR_ABT"),
+    SPSR_UND = (132, "SPSR_UND"),
+    SPSR_SVC = (133, "SPSR_SVC"),
+
+    R8_USR = (144, "R8_USR"),
+    R9_USR = (145, "R9_USR"),
+    R10_USR = (146, "R10_USR"),
+    R11_USR = (147, "R11_USR"),
+    R12_USR = (148, "R12_USR"),
+    R13_USR = (149, "R13_USR"),
+    R14_USR = (150, "R14_USR"),
+
+    R8_FIQ = (151, "R8_FIQ"),
+    R9_FIQ = (152, "R9_FIQ"),
+    R10_FIQ = (153, "R10_FIQ"),
+    R11_FIQ = (154, "R11_FIQ"),
+    R12_FIQ = (155, "R12_FIQ"),
+    R13_FIQ = (156, "R13_FIQ"),
+    R14_FIQ = (157, "R14_FIQ"),
+
+    R13_IRQ = (158, "R13_IRQ"),
+    R14_IRQ = (159, "R14_IRQ"),
+
+    R13_ABT = (160, "R13_ABT"),
+    R14_ABT = (161, "R14_ABT"),
+
+    R13_UND = (162, "R13_UND"),
+    R14_UND = (163, "R14_UND"),
+
+    R13_SVC = (164, "R13_SVC"),
+    R14_SVC = (165, "R14_SVC"),
+
     WC0 = (192, "wC0"),
     WC1 = (193, "wC1"),
     WC2 = (194, "wC2"),
@@ -136,6 +170,10 @@ registers!(Arm, {
     D31 = (287, "D31"),
 },
 aliases {
+    SP = (13, "SP"),
+    LR = (14, "LR"),
+    PC = (15, "PC"),
+
     ACC0 = (104, "ACC0"),
     ACC1 = (105, "ACC1"),
     ACC2 = (106, "ACC2"),
