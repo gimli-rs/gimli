@@ -173,6 +173,8 @@ use std::{error, io};
 use crate::common::{Register, SectionId};
 use crate::constants;
 
+mod util;
+
 mod addr;
 pub use self::addr::*;
 
