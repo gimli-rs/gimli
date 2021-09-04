@@ -1059,7 +1059,13 @@ fn dump_unit<R: Reader, W: Write>(
             write!(w, ".debug_types+0x{:08x}", o.0)?;
         }
     }
-    writeln!(w, ">:")?;
+    writeln!(w, ">: length = 0x{:x}, format = {:?}, version = {}, address_size = {}, abbrev_offset = 0x{:x}",
+        header.unit_length(),
+        header.format(),
+        header.version(),
+        header.address_size(),
+        header.debug_abbrev_offset().0,
+    )?;
 
     match header.type_() {
         UnitType::Compilation | UnitType::Partial => (),
@@ -1074,7 +1080,7 @@ fn dump_unit<R: Reader, W: Write>(
             write!(w, "  signature        = ")?;
             dump_type_signature(w, type_signature)?;
             writeln!(w)?;
-            writeln!(w, "  typeoffset       = 0x{:08x}", type_offset.0,)?;
+            writeln!(w, "  type_offset      = 0x{:x}", type_offset.0,)?;
         }
         UnitType::Skeleton(dwo_id) | UnitType::SplitCompilation(dwo_id) => {
             write!(w, "  dwo_id           = ")?;
