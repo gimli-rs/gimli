@@ -680,8 +680,13 @@ where
         )?;
     }
     if flags.info {
-        dump_info(&dwarf, dwo_parent_units, flags)?;
-        dump_types(&mut BufWriter::new(out.lock()), &dwarf, flags)?;
+        dump_info(&dwarf, &dwo_parent_units, flags)?;
+        dump_types(
+            &mut BufWriter::new(out.lock()),
+            &dwarf,
+            &dwo_parent_units,
+            flags,
+        )?;
         writeln!(&mut out.lock())?;
     }
     let w = &mut BufWriter::new(out.lock());
@@ -985,7 +990,7 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
 
 fn dump_info<R: Reader>(
     dwarf: &gimli::Dwarf<R>,
-    dwo_parent_units: HashMap<gimli::DwoId, gimli::Unit<R>>,
+    dwo_parent_units: &HashMap<gimli::DwoId, gimli::Unit<R>>,
     flags: &Flags,
 ) -> Result<()>
 where
@@ -1007,53 +1012,7 @@ where
         }
     };
     let process_unit = |header: UnitHeader<R>, buf: &mut Vec<u8>| -> Result<()> {
-        writeln!(
-            buf,
-            "\nUNIT<header overall offset = 0x{:08x}>:",
-            header.offset().as_debug_info_offset().unwrap().0,
-        )?;
-
-        match header.type_() {
-            UnitType::Compilation | UnitType::Partial => (),
-            UnitType::Type {
-                type_signature,
-                type_offset,
-            }
-            | UnitType::SplitType {
-                type_signature,
-                type_offset,
-            } => {
-                write!(buf, "  signature        = ")?;
-                dump_type_signature(buf, type_signature)?;
-                writeln!(buf)?;
-                writeln!(buf, "  typeoffset       = 0x{:08x}", type_offset.0,)?;
-            }
-            UnitType::Skeleton(dwo_id) | UnitType::SplitCompilation(dwo_id) => {
-                write!(buf, "  dwo_id           = ")?;
-                writeln!(buf, "0x{:016x}", dwo_id.0)?;
-            }
-        }
-
-        let mut unit = match dwarf.unit(header) {
-            Ok(unit) => unit,
-            Err(err) => {
-                writeln_error(buf, dwarf, err.into(), "Failed to parse unit root entry")?;
-                return Ok(());
-            }
-        };
-
-        if flags.dwo {
-            if let Some(dwo_id) = unit.dwo_id {
-                if let Some(parent_unit) = dwo_parent_units.get(&dwo_id) {
-                    unit.copy_relocated_attributes(parent_unit);
-                }
-            }
-        }
-
-        let entries_result = dump_entries(buf, unit, dwarf, flags);
-        if let Err(err) = entries_result {
-            writeln_error(buf, dwarf, err, "Failed to dump entries")?;
-        }
+        dump_unit(buf, header, dwarf, dwo_parent_units, flags)?;
         if !flags
             .match_units
             .as_ref()
@@ -1072,40 +1031,76 @@ where
 fn dump_types<R: Reader, W: Write>(
     w: &mut W,
     dwarf: &gimli::Dwarf<R>,
+    dwo_parent_units: &HashMap<gimli::DwoId, gimli::Unit<R>>,
     flags: &Flags,
 ) -> Result<()> {
     writeln!(w, "\n.debug_types")?;
 
     let mut iter = dwarf.type_units();
     while let Some(header) = iter.next()? {
-        writeln!(
-            w,
-            "\nUNIT<header overall offset = 0x{:08x}>:",
-            header.offset().as_debug_types_offset().unwrap().0,
-        )?;
-        write!(w, "  signature        = ")?;
-        let (type_signature, type_offset) = match header.type_() {
-            UnitType::Type {
-                type_signature,
-                type_offset,
-            } => (type_signature, type_offset),
-            _ => unreachable!(), // No other units allowed in .debug_types.
-        };
-        dump_type_signature(w, type_signature)?;
-        writeln!(w)?;
-        writeln!(w, "  typeoffset       = 0x{:08x}", type_offset.0,)?;
+        dump_unit(w, header, dwarf, dwo_parent_units, flags)?;
+    }
+    Ok(())
+}
 
-        let unit = match dwarf.unit(header) {
-            Ok(unit) => unit,
-            Err(err) => {
-                writeln_error(w, dwarf, err.into(), "Failed to parse type unit root entry")?;
-                continue;
-            }
-        };
-        let entries_result = dump_entries(w, unit, dwarf, flags);
-        if let Err(err) = entries_result {
-            writeln_error(w, dwarf, err, "Failed to dump entries")?;
+fn dump_unit<R: Reader, W: Write>(
+    w: &mut W,
+    header: UnitHeader<R>,
+    dwarf: &gimli::Dwarf<R>,
+    dwo_parent_units: &HashMap<gimli::DwoId, gimli::Unit<R>>,
+    flags: &Flags,
+) -> Result<()> {
+    write!(w, "\nUNIT<")?;
+    match header.offset() {
+        UnitSectionOffset::DebugInfoOffset(o) => {
+            write!(w, ".debug_info+0x{:08x}", o.0)?;
         }
+        UnitSectionOffset::DebugTypesOffset(o) => {
+            write!(w, ".debug_types+0x{:08x}", o.0)?;
+        }
+    }
+    writeln!(w, ">:")?;
+
+    match header.type_() {
+        UnitType::Compilation | UnitType::Partial => (),
+        UnitType::Type {
+            type_signature,
+            type_offset,
+        }
+        | UnitType::SplitType {
+            type_signature,
+            type_offset,
+        } => {
+            write!(w, "  signature        = ")?;
+            dump_type_signature(w, type_signature)?;
+            writeln!(w)?;
+            writeln!(w, "  typeoffset       = 0x{:08x}", type_offset.0,)?;
+        }
+        UnitType::Skeleton(dwo_id) | UnitType::SplitCompilation(dwo_id) => {
+            write!(w, "  dwo_id           = ")?;
+            writeln!(w, "0x{:016x}", dwo_id.0)?;
+        }
+    }
+
+    let mut unit = match dwarf.unit(header) {
+        Ok(unit) => unit,
+        Err(err) => {
+            writeln_error(w, dwarf, err.into(), "Failed to parse unit root entry")?;
+            return Ok(());
+        }
+    };
+
+    if flags.dwo {
+        if let Some(dwo_id) = unit.dwo_id {
+            if let Some(parent_unit) = dwo_parent_units.get(&dwo_id) {
+                unit.copy_relocated_attributes(parent_unit);
+            }
+        }
+    }
+
+    let entries_result = dump_entries(w, unit, dwarf, flags);
+    if let Err(err) = entries_result {
+        writeln_error(w, dwarf, err, "Failed to dump entries")?;
     }
     Ok(())
 }
