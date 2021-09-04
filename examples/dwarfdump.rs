@@ -1147,23 +1147,33 @@ fn dump_entries<R: Reader, W: Write>(
 ) -> Result<()> {
     let mut spaces_buf = String::new();
 
-    let mut depth = 0;
-    let mut entries = unit.entries();
-    while let Some((delta_depth, entry)) = entries.next_dfs()? {
-        depth += delta_depth;
-        assert!(depth >= 0);
-        let mut indent = depth as usize * 2 + 2;
+    let mut entries = unit.entries_raw(None)?;
+    while !entries.is_empty() {
+        let offset = entries.next_offset();
+        let depth = entries.next_depth();
+        let abbrev = entries.read_abbreviation()?;
+
+        let mut indent = if depth >= 0 {
+            depth as usize * 2 + 2
+        } else {
+            2
+        };
         write!(w, "<{}{}>", if depth < 10 { " " } else { "" }, depth)?;
-        write_offset(w, &unit, entry.offset(), flags)?;
-        writeln!(w, "{}{}", spaces(&mut spaces_buf, indent), entry.tag())?;
+        write_offset(w, &unit, offset, flags)?;
+        writeln!(
+            w,
+            "{}{}",
+            spaces(&mut spaces_buf, indent),
+            abbrev.map(|x| x.tag()).unwrap_or(gimli::DW_TAG_null)
+        )?;
 
         indent += 18;
         if flags.goff {
             indent += GOFF_SPACES;
         }
 
-        let mut attrs = entry.attrs();
-        while let Some(attr) = attrs.next()? {
+        for spec in abbrev.map(|x| x.attributes()).unwrap_or(&[]) {
+            let attr = entries.read_attribute(*spec)?;
             w.write_all(spaces(&mut spaces_buf, indent).as_bytes())?;
             if let Some(n) = attr.name().static_string() {
                 let right_padding = 27 - std::cmp::min(27, n.len());
