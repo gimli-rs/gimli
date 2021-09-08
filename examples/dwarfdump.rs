@@ -73,22 +73,25 @@ impl From<object::read::Error> for Error {
 
 pub type Result<T> = result::Result<T, Error>;
 
-fn parallel_output<II, F>(max_workers: usize, iter: II, f: F) -> Result<()>
+fn parallel_output<W, II, F>(w: &mut W, max_workers: usize, iter: II, f: F) -> Result<()>
 where
+    W: Write + Send,
     F: Sync + Fn(II::Item, &mut Vec<u8>) -> Result<()>,
     II: IntoIterator,
     II::IntoIter: Send,
 {
-    struct ParallelOutputState<I: Iterator> {
+    struct ParallelOutputState<I, W> {
         iterator: I,
         current_worker: usize,
         result: Result<()>,
+        w: W,
     }
 
     let state = Mutex::new(ParallelOutputState {
         iterator: iter.into_iter().fuse(),
         current_worker: 0,
         result: Ok(()),
+        w,
     });
     let workers = min(max_workers, num_cpus::get());
     let mut condvars = Vec::new();
@@ -129,8 +132,7 @@ where
                             lock = condvars_ref[i].wait(lock).unwrap();
                         }
                         if lock.result.is_ok() {
-                            let out = io::stdout();
-                            let ret2 = out.lock().write_all(&v);
+                            let ret2 = lock.w.write_all(&v);
                             if ret.is_err() {
                                 lock.result = ret;
                             } else {
@@ -634,7 +636,7 @@ where
         dwarf.load_sup(&mut load_sup_section)?;
     }
 
-    let out = io::stdout();
+    let w = &mut BufWriter::new(io::stdout());
     if flags.eh_frame {
         // TODO: this might be better based on the file format.
         let address_size = file
@@ -672,24 +674,13 @@ where
         if let Some(section) = file.section_by_name(".got") {
             bases = bases.set_got(section.address());
         }
-        dump_eh_frame(
-            &mut BufWriter::new(out.lock()),
-            &eh_frame,
-            &bases,
-            &register_name,
-        )?;
+        dump_eh_frame(w, &eh_frame, &bases, &register_name)?;
     }
     if flags.info {
-        dump_info(&dwarf, &dwo_parent_units, flags)?;
-        dump_types(
-            &mut BufWriter::new(out.lock()),
-            &dwarf,
-            &dwo_parent_units,
-            flags,
-        )?;
-        writeln!(&mut out.lock())?;
+        dump_info(w, &dwarf, &dwo_parent_units, flags)?;
+        dump_types(w, &dwarf, &dwo_parent_units, flags)?;
+        writeln!(w)?;
     }
-    let w = &mut BufWriter::new(out.lock());
     if flags.line {
         dump_line(w, &dwarf)?;
     }
@@ -705,6 +696,7 @@ where
         let debug_pubtypes = &gimli::Section::load(&mut load_section).unwrap();
         dump_pubtypes(w, debug_pubtypes, &dwarf.debug_info)?;
     }
+    w.flush()?;
     Ok(())
 }
 
@@ -988,7 +980,8 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
     }
 }
 
-fn dump_info<R: Reader>(
+fn dump_info<R: Reader, W: Write + Send>(
+    w: &mut W,
     dwarf: &gimli::Dwarf<R>,
     dwo_parent_units: &HashMap<gimli::DwoId, gimli::Unit<R>>,
     flags: &Flags,
@@ -996,14 +989,13 @@ fn dump_info<R: Reader>(
 where
     R::Endian: Send + Sync,
 {
-    let out = io::stdout();
-    writeln!(&mut BufWriter::new(out.lock()), "\n.debug_info")?;
+    writeln!(w, "\n.debug_info")?;
 
     let units = match dwarf.units().collect::<Vec<_>>() {
         Ok(units) => units,
         Err(err) => {
             writeln_error(
-                &mut BufWriter::new(out.lock()),
+                w,
                 dwarf,
                 Error::GimliError(err),
                 "Failed to read unit headers",
@@ -1025,7 +1017,7 @@ where
     };
     // Don't use more than 16 cores even if available. No point in soaking hundreds
     // of cores if you happen to have them.
-    parallel_output(16, units, process_unit)
+    parallel_output(w, 16, units, process_unit)
 }
 
 fn dump_types<R: Reader, W: Write>(
