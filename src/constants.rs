@@ -91,6 +91,35 @@ macro_rules! dw {
 }
 
 dw!(
+/// The section type field in a `.dwp` unit index.
+///
+/// This is used for version 5 and later.
+///
+/// See Section 7.3.5.
+DwSect(u32) {
+    DW_SECT_INFO = 1,
+    DW_SECT_ABBREV = 3,
+    DW_SECT_LINE = 4,
+    DW_SECT_LOCLISTS = 5,
+    DW_SECT_STR_OFFSETS = 6,
+    DW_SECT_MACRO = 7,
+    DW_SECT_RNGLISTS = 8,
+});
+
+dw!(
+/// The section type field in a `.dwp` unit index with version 2.
+DwSectV2(u32) {
+    DW_SECT_V2_INFO = 1,
+    DW_SECT_V2_TYPES = 2,
+    DW_SECT_V2_ABBREV = 3,
+    DW_SECT_V2_LINE = 4,
+    DW_SECT_V2_LOC = 5,
+    DW_SECT_V2_STR_OFFSETS = 6,
+    DW_SECT_V2_MACINFO = 7,
+    DW_SECT_V2_MACRO = 8,
+});
+
+dw!(
 /// The unit type field in a unit header.
 ///
 /// See Section 7.5.1, Table 7.2.

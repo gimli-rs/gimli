@@ -360,6 +360,7 @@ struct Flags<'a> {
     pubtypes: bool,
     aranges: bool,
     dwo: bool,
+    dwp: bool,
     dwo_parent: Option<object::File<'a>>,
     sup: Option<object::File<'a>>,
     raw: bool,
@@ -390,10 +391,15 @@ fn main() {
         "dwo",
         "print the .dwo versions of the selected sections",
     );
+    opts.optflag(
+        "",
+        "dwp",
+        "print the .dwp versions of the selected sections",
+    );
     opts.optopt(
         "",
         "dwo-parent",
-        "use the specified file as the parent of the dwo (e.g. for .debug_addr)",
+        "use the specified file as the parent of the dwo or dwp (e.g. for .debug_addr)",
         "library path",
     );
     opts.optflag("", "raw", "print raw data values");
@@ -448,6 +454,9 @@ fn main() {
     if matches.opt_present("dwo") {
         flags.dwo = true;
     }
+    if matches.opt_present("dwp") {
+        flags.dwp = true;
+    }
     if matches.opt_present("raw") {
         flags.raw = true;
     }
@@ -500,8 +509,12 @@ fn main() {
 
     flags.sup = matches.opt_str("sup").and_then(load_file);
     flags.dwo_parent = matches.opt_str("dwo-parent").and_then(load_file);
-    if flags.dwo_parent.is_some() && !flags.dwo {
-        eprintln!("--dwo-parent also requires --dwo");
+    if flags.dwo_parent.is_some() && !flags.dwo && !flags.dwp {
+        eprintln!("--dwo-parent also requires --dwo or --dwp");
+        process::exit(1);
+    }
+    if flags.dwo_parent.is_none() && flags.dwp {
+        eprintln!("--dwp also requires --dwo-parent");
         process::exit(1);
     }
 
@@ -543,6 +556,21 @@ fn main() {
             Ok(_) => (),
             Err(err) => eprintln!("Failed to dump '{}': {}", file_path, err,),
         }
+    }
+}
+
+fn empty_file_section<'input, 'arena, Endian: gimli::Endianity>(
+    endian: Endian,
+    arena_relocations: &'arena Arena<RelocationMap>,
+) -> Relocate<'arena, gimli::EndianSlice<'arena, Endian>> {
+    let reader = gimli::EndianSlice::new(&[], endian);
+    let section = reader;
+    let relocations = RelocationMap::default();
+    let relocations = (*arena_relocations.alloc(relocations)).borrow();
+    Relocate {
+        relocations,
+        section,
+        reader,
     }
 }
 
@@ -590,29 +618,26 @@ where
     let arena_data = Arena::new();
     let arena_relocations = Arena::new();
 
-    let mut load_section = |id: gimli::SectionId| -> Result<_> {
-        load_file_section(id, file, endian, flags.dwo, &arena_data, &arena_relocations)
+    let dwo_parent = if let Some(dwo_parent_file) = flags.dwo_parent.as_ref() {
+        let mut load_dwo_parent_section = |id: gimli::SectionId| -> Result<_> {
+            load_file_section(
+                id,
+                dwo_parent_file,
+                endian,
+                false,
+                &arena_data,
+                &arena_relocations,
+            )
+        };
+        Some(gimli::Dwarf::load(&mut load_dwo_parent_section)?)
+    } else {
+        None
     };
-    let mut dwarf = gimli::Dwarf::load(&mut load_section)?;
-    let mut dwo_parent_units = HashMap::new();
-    if flags.dwo {
-        dwarf.file_type = gimli::DwarfFileType::Dwo;
+    let dwo_parent = dwo_parent.as_ref();
 
-        if let Some(dwo_parent_file) = flags.dwo_parent.as_ref() {
-            let mut load_dwo_parent_section = |id: gimli::SectionId| -> Result<_> {
-                load_file_section(
-                    id,
-                    dwo_parent_file,
-                    endian,
-                    false,
-                    &arena_data,
-                    &arena_relocations,
-                )
-            };
-            let dwo_parent = gimli::Dwarf::load(&mut load_dwo_parent_section)?;
-            dwarf.debug_addr = dwo_parent.debug_addr.clone();
-            dwarf.ranges = dwo_parent.ranges.clone();
-            dwo_parent_units = match dwo_parent
+    let dwo_parent_units = if let Some(dwo_parent) = dwo_parent {
+        Some(
+            match dwo_parent
                 .units()
                 .map(|unit_header| dwo_parent.unit(unit_header))
                 .filter_map(|unit| Ok(unit.dwo_id.map(|dwo_id| (dwo_id, unit))))
@@ -623,7 +648,41 @@ where
                     eprintln!("Failed to process --dwo-parent units: {}", err);
                     return Ok(());
                 }
-            }
+            },
+        )
+    } else {
+        None
+    };
+    let dwo_parent_units = dwo_parent_units.as_ref();
+
+    let mut load_section = |id: gimli::SectionId| -> Result<_> {
+        load_file_section(
+            id,
+            file,
+            endian,
+            flags.dwo || flags.dwp,
+            &arena_data,
+            &arena_relocations,
+        )
+    };
+
+    let w = &mut BufWriter::new(io::stdout());
+    if flags.dwp {
+        let empty = empty_file_section(endian, &arena_relocations);
+        let dwp = gimli::DwarfPackage::load(&mut load_section, empty)?;
+        dump_dwp(w, &dwp, dwo_parent.unwrap(), dwo_parent_units, flags)?;
+        w.flush()?;
+        return Ok(());
+    }
+
+    let mut dwarf = gimli::Dwarf::load(&mut load_section)?;
+    if flags.dwo {
+        dwarf.file_type = gimli::DwarfFileType::Dwo;
+        if let Some(dwo_parent) = dwo_parent {
+            dwarf.debug_addr = dwo_parent.debug_addr.clone();
+            dwarf
+                .ranges
+                .set_debug_ranges(dwo_parent.ranges.debug_ranges().clone());
         }
     }
 
@@ -636,15 +695,13 @@ where
         dwarf.load_sup(&mut load_sup_section)?;
     }
 
-    let w = &mut BufWriter::new(io::stdout());
     if flags.eh_frame {
         let eh_frame = gimli::EhFrame::load(&mut load_section).unwrap();
         dump_eh_frame(w, file, eh_frame)?;
     }
     if flags.info {
-        dump_info(w, &dwarf, &dwo_parent_units, flags)?;
-        dump_types(w, &dwarf, &dwo_parent_units, flags)?;
-        writeln!(w)?;
+        dump_info(w, &dwarf, dwo_parent_units, flags)?;
+        dump_types(w, &dwarf, dwo_parent_units, flags)?;
     }
     if flags.line {
         dump_line(w, &dwarf)?;
@@ -982,10 +1039,98 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
     }
 }
 
+fn dump_dwp<R: Reader, W: Write + Send>(
+    w: &mut W,
+    dwp: &gimli::DwarfPackage<R>,
+    dwo_parent: &gimli::Dwarf<R>,
+    dwo_parent_units: Option<&HashMap<gimli::DwoId, gimli::Unit<R>>>,
+    flags: &Flags,
+) -> Result<()>
+where
+    R::Endian: Send + Sync,
+{
+    if dwp.cu_index.unit_count() != 0 {
+        writeln!(
+            w,
+            "\n.debug_cu_index: version = {}, sections = {}, units = {}, slots = {}",
+            dwp.cu_index.version(),
+            dwp.cu_index.section_count(),
+            dwp.cu_index.unit_count(),
+            dwp.cu_index.slot_count(),
+        )?;
+        for i in 1..=dwp.cu_index.unit_count() {
+            writeln!(w, "\nCU index {}", i)?;
+            dump_dwp_sections(
+                w,
+                &dwp,
+                dwo_parent,
+                dwo_parent_units,
+                flags,
+                dwp.cu_index.sections(i)?,
+            )?;
+        }
+    }
+
+    if dwp.tu_index.unit_count() != 0 {
+        writeln!(
+            w,
+            "\n.debug_tu_index: version = {}, sections = {}, units = {}, slots = {}",
+            dwp.tu_index.version(),
+            dwp.tu_index.section_count(),
+            dwp.tu_index.unit_count(),
+            dwp.tu_index.slot_count(),
+        )?;
+        for i in 1..=dwp.tu_index.unit_count() {
+            writeln!(w, "\nTU index {}", i)?;
+            dump_dwp_sections(
+                w,
+                &dwp,
+                dwo_parent,
+                dwo_parent_units,
+                flags,
+                dwp.tu_index.sections(i)?,
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+fn dump_dwp_sections<R: Reader, W: Write + Send>(
+    w: &mut W,
+    dwp: &gimli::DwarfPackage<R>,
+    dwo_parent: &gimli::Dwarf<R>,
+    dwo_parent_units: Option<&HashMap<gimli::DwoId, gimli::Unit<R>>>,
+    flags: &Flags,
+    sections: gimli::UnitIndexSectionIterator<R>,
+) -> Result<()>
+where
+    R::Endian: Send + Sync,
+{
+    for section in sections.clone() {
+        writeln!(
+            w,
+            "  {}: offset = 0x{:x}, size = 0x{:x}",
+            section.section.dwo_name().unwrap(),
+            section.offset,
+            section.size
+        )?;
+    }
+    let dwarf = dwp.sections(sections, dwo_parent)?;
+    if flags.info {
+        dump_info(w, &dwarf, dwo_parent_units, flags)?;
+        dump_types(w, &dwarf, dwo_parent_units, flags)?;
+    }
+    if flags.line {
+        dump_line(w, &dwarf)?;
+    }
+    Ok(())
+}
+
 fn dump_info<R: Reader, W: Write + Send>(
     w: &mut W,
     dwarf: &gimli::Dwarf<R>,
-    dwo_parent_units: &HashMap<gimli::DwoId, gimli::Unit<R>>,
+    dwo_parent_units: Option<&HashMap<gimli::DwoId, gimli::Unit<R>>>,
     flags: &Flags,
 ) -> Result<()>
 where
@@ -1025,7 +1170,7 @@ where
 fn dump_types<R: Reader, W: Write>(
     w: &mut W,
     dwarf: &gimli::Dwarf<R>,
-    dwo_parent_units: &HashMap<gimli::DwoId, gimli::Unit<R>>,
+    dwo_parent_units: Option<&HashMap<gimli::DwoId, gimli::Unit<R>>>,
     flags: &Flags,
 ) -> Result<()> {
     writeln!(w, "\n.debug_types")?;
@@ -1041,7 +1186,7 @@ fn dump_unit<R: Reader, W: Write>(
     w: &mut W,
     header: UnitHeader<R>,
     dwarf: &gimli::Dwarf<R>,
-    dwo_parent_units: &HashMap<gimli::DwoId, gimli::Unit<R>>,
+    dwo_parent_units: Option<&HashMap<gimli::DwoId, gimli::Unit<R>>>,
     flags: &Flags,
 ) -> Result<()> {
     write!(w, "\nUNIT<")?;
@@ -1090,7 +1235,7 @@ fn dump_unit<R: Reader, W: Write>(
         }
     };
 
-    if flags.dwo {
+    if let Some(dwo_parent_units) = dwo_parent_units {
         if let Some(dwo_id) = unit.dwo_id {
             if let Some(parent_unit) = dwo_parent_units.get(&dwo_id) {
                 unit.copy_relocated_attributes(parent_unit);
