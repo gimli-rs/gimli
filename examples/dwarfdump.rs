@@ -638,43 +638,8 @@ where
 
     let w = &mut BufWriter::new(io::stdout());
     if flags.eh_frame {
-        // TODO: this might be better based on the file format.
-        let address_size = file
-            .architecture()
-            .address_size()
-            .map(|w| w.bytes())
-            .unwrap_or(mem::size_of::<usize>() as u8);
-
-        fn register_name_none(_: gimli::Register) -> Option<&'static str> {
-            None
-        }
-        let arch_register_name = match file.architecture() {
-            object::Architecture::Arm | object::Architecture::Aarch64 => gimli::Arm::register_name,
-            object::Architecture::I386 => gimli::X86::register_name,
-            object::Architecture::X86_64 => gimli::X86_64::register_name,
-            _ => register_name_none,
-        };
-        let register_name = |register| match arch_register_name(register) {
-            Some(name) => Cow::Borrowed(name),
-            None => Cow::Owned(format!("{}", register.0)),
-        };
-
-        let mut eh_frame = gimli::EhFrame::load(&mut load_section).unwrap();
-        eh_frame.set_address_size(address_size);
-        let mut bases = gimli::BaseAddresses::default();
-        if let Some(section) = file.section_by_name(".eh_frame_hdr") {
-            bases = bases.set_eh_frame_hdr(section.address());
-        }
-        if let Some(section) = file.section_by_name(".eh_frame") {
-            bases = bases.set_eh_frame(section.address());
-        }
-        if let Some(section) = file.section_by_name(".text") {
-            bases = bases.set_text(section.address());
-        }
-        if let Some(section) = file.section_by_name(".got") {
-            bases = bases.set_got(section.address());
-        }
-        dump_eh_frame(w, &eh_frame, &bases, &register_name)?;
+        let eh_frame = gimli::EhFrame::load(&mut load_section).unwrap();
+        dump_eh_frame(w, file, eh_frame)?;
     }
     if flags.info {
         dump_info(w, &dwarf, &dwo_parent_units, flags)?;
@@ -702,10 +667,45 @@ where
 
 fn dump_eh_frame<R: Reader, W: Write>(
     w: &mut W,
-    eh_frame: &gimli::EhFrame<R>,
-    bases: &gimli::BaseAddresses,
-    register_name: &dyn Fn(gimli::Register) -> Cow<'static, str>,
+    file: &object::File,
+    mut eh_frame: gimli::EhFrame<R>,
 ) -> Result<()> {
+    // TODO: this might be better based on the file format.
+    let address_size = file
+        .architecture()
+        .address_size()
+        .map(|w| w.bytes())
+        .unwrap_or(mem::size_of::<usize>() as u8);
+    eh_frame.set_address_size(address_size);
+
+    fn register_name_none(_: gimli::Register) -> Option<&'static str> {
+        None
+    }
+    let arch_register_name = match file.architecture() {
+        object::Architecture::Arm | object::Architecture::Aarch64 => gimli::Arm::register_name,
+        object::Architecture::I386 => gimli::X86::register_name,
+        object::Architecture::X86_64 => gimli::X86_64::register_name,
+        _ => register_name_none,
+    };
+    let register_name = &|register| match arch_register_name(register) {
+        Some(name) => Cow::Borrowed(name),
+        None => Cow::Owned(format!("{}", register.0)),
+    };
+
+    let mut bases = gimli::BaseAddresses::default();
+    if let Some(section) = file.section_by_name(".eh_frame_hdr") {
+        bases = bases.set_eh_frame_hdr(section.address());
+    }
+    if let Some(section) = file.section_by_name(".eh_frame") {
+        bases = bases.set_eh_frame(section.address());
+    }
+    if let Some(section) = file.section_by_name(".text") {
+        bases = bases.set_text(section.address());
+    }
+    if let Some(section) = file.section_by_name(".got") {
+        bases = bases.set_got(section.address());
+    }
+
     // TODO: Print "__eh_frame" here on macOS, and more generally use the
     // section that we're actually looking at, which is what the canonical
     // dwarfdump does.
@@ -716,7 +716,7 @@ fn dump_eh_frame<R: Reader, W: Write>(
 
     let mut cies = HashMap::new();
 
-    let mut entries = eh_frame.entries(bases);
+    let mut entries = eh_frame.entries(&bases);
     loop {
         match entries.next()? {
             None => return Ok(()),
@@ -741,7 +741,8 @@ fn dump_eh_frame<R: Reader, W: Write>(
                 if let Some(encoding) = cie.fde_address_encoding() {
                     writeln!(w, "  fde_encoding: {:#02x}", encoding.0)?;
                 }
-                dump_cfi_instructions(w, cie.instructions(eh_frame, bases), true, register_name)?;
+                let instructions = cie.instructions(&eh_frame, &bases);
+                dump_cfi_instructions(w, instructions, true, register_name)?;
                 writeln!(w)?;
             }
             Some(gimli::CieOrFde::Fde(partial)) => {
@@ -770,7 +771,8 @@ fn dump_eh_frame<R: Reader, W: Write>(
                     dump_pointer(w, lsda)?;
                     writeln!(w)?;
                 }
-                dump_cfi_instructions(w, fde.instructions(eh_frame, bases), false, register_name)?;
+                let instructions = fde.instructions(&eh_frame, &bases);
+                dump_cfi_instructions(w, instructions, false, register_name)?;
                 writeln!(w)?;
             }
         }
