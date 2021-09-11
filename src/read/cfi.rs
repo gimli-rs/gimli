@@ -1026,7 +1026,7 @@ where
 
 /// We support the z-style augmentation [defined by `.eh_frame`][ehframe].
 ///
-/// [ehframe]: http://refspecs.linuxfoundation.org/LSB_3.0.0/LSB-Core-generic/LSB-Core-generic/ehframechpt.html
+/// [ehframe]: https://refspecs.linuxfoundation.org/LSB_3.0.0/LSB-Core-generic/LSB-Core-generic/ehframechpt.html
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Augmentation {
     /// > A 'L' may be present at any position after the first character of the
