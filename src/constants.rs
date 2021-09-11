@@ -1242,7 +1242,7 @@ dw!(
 /// format of the pointer, the upper four bits describe how the encoding should
 /// be applied.
 ///
-/// Defined in http://refspecs.linux-foundation.org/LSB_4.0.0/LSB-Core-generic/LSB-Core-generic/dwarfext.html
+/// Defined in https://refspecs.linuxfoundation.org/LSB_4.0.0/LSB-Core-generic/LSB-Core-generic/dwarfext.html
 DwEhPe(u8) {
 // Format of pointer encoding.
 
