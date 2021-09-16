@@ -105,6 +105,10 @@
 //!
 //!   * [`DebugTypes`](./struct.DebugTypes.html): The `.debug_types` section.
 //!
+//!   * [`DebugCuIndex`](./struct.DebugCuIndex.html): The `.debug_cu_index` section.
+//!
+//!   * [`DebugTuIndex`](./struct.DebugTuIndex.html): The `.debug_tu_index` section.
+//!
 //!   * [`EhFrame`](./struct.EhFrame.html): The `.eh_frame` section.
 //!
 //!   * [`EhFrameHdr`](./struct.EhFrameHdr.html): The `.eh_frame_hdr` section.
@@ -198,6 +202,9 @@ pub use self::abbrev::*;
 
 mod aranges;
 pub use self::aranges::*;
+
+mod index;
+pub use self::index::*;
 
 mod line;
 pub use self::line::*;
@@ -392,6 +399,14 @@ pub enum Error {
     ExpectedStringAttributeValue,
     /// `DW_FORM_implicit_const` used in an invalid context.
     InvalidImplicitConst,
+    /// Invalid section count in `.dwp` index.
+    InvalidIndexSectionCount,
+    /// Invalid slot count in `.dwp` index.
+    InvalidIndexSlotCount,
+    /// Invalid hash row in `.dwp` index.
+    InvalidIndexRow,
+    /// Unknown section type in `.dwp` index.
+    UnknownIndexSection,
 }
 
 impl fmt::Display for Error {
@@ -537,6 +552,10 @@ impl Error {
                 "Expected an attribute value to be a string form."
             }
             Error::InvalidImplicitConst => "DW_FORM_implicit_const used in an invalid context.",
+            Error::InvalidIndexSectionCount => "Invalid section count in `.dwp` index.",
+            Error::InvalidIndexSlotCount => "Invalid slot count in `.dwp` index.",
+            Error::InvalidIndexRow => "Invalid hash row in `.dwp` index.",
+            Error::UnknownIndexSection => "Unknown section type in `.dwp` index.",
         }
     }
 }
@@ -593,6 +612,18 @@ pub trait Section<R>: From<R> {
     fn reader(&self) -> &R
     where
         R: Reader;
+
+    /// Returns the subrange of the section that is the contribution of
+    /// a unit in a `.dwp` file.
+    fn dwp_range(&self, offset: u32, size: u32) -> Result<Self>
+    where
+        R: Reader,
+    {
+        let mut data = self.reader().clone();
+        data.skip(R::Offset::from_u32(offset))?;
+        data.truncate(R::Offset::from_u32(size))?;
+        Ok(data.into())
+    }
 
     /// Returns the `Reader` for this section.
     fn lookup_offset_id(&self, id: ReaderOffsetId) -> Option<(SectionId, R::Offset)>

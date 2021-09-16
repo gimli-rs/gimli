@@ -141,6 +141,23 @@ impl<R> RangeLists<R> {
             debug_rnglists,
         }
     }
+
+    /// Return the `.debug_ranges` section.
+    pub fn debug_ranges(&self) -> &DebugRanges<R> {
+        &self.debug_ranges
+    }
+
+    /// Replace the `.debug_ranges` section.
+    ///
+    /// This is useful for `.dwo` files when using the GNU split-dwarf extension to DWARF 4.
+    pub fn set_debug_ranges(&mut self, debug_ranges: DebugRanges<R>) {
+        self.debug_ranges = debug_ranges;
+    }
+
+    /// Return the `.debug_rnglists` section.
+    pub fn debug_rnglists(&self) -> &DebugRngLists<R> {
+        &self.debug_rnglists
+    }
 }
 
 impl<T> RangeLists<T> {

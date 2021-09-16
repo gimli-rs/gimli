@@ -4,17 +4,18 @@ use alloc::sync::Arc;
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
     DebugLocListsIndex, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
-    DebugStrOffsetsIndex, DebugTypesOffset, DwarfFileType, DwoId, Encoding, LocationListsOffset,
-    RangeListsOffset, RawRangeListsOffset, SectionId, UnitSectionOffset,
+    DebugStrOffsetsIndex, DebugTypeSignature, DebugTypesOffset, DwarfFileType, DwoId, Encoding,
+    LocationListsOffset, RangeListsOffset, RawRangeListsOffset, SectionId, UnitSectionOffset,
 };
 use crate::constants;
 use crate::read::{
-    Abbreviations, AttributeValue, DebugAbbrev, DebugAddr, DebugAranges, DebugInfo,
-    DebugInfoUnitHeadersIter, DebugLine, DebugLineStr, DebugStr, DebugStrOffsets, DebugTypes,
-    DebugTypesUnitHeadersIter, DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree,
-    Error, IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists, RawLocListIter,
+    Abbreviations, AttributeValue, DebugAbbrev, DebugAddr, DebugAranges, DebugCuIndex, DebugInfo,
+    DebugInfoUnitHeadersIter, DebugLine, DebugLineStr, DebugLoc, DebugLocLists, DebugRngLists,
+    DebugStr, DebugStrOffsets, DebugTuIndex, DebugTypes, DebugTypesUnitHeadersIter,
+    DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree, Error,
+    IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists, RawLocListIter,
     RawRngListIter, Reader, ReaderOffset, ReaderOffsetId, Result, RngListIter, Section, UnitHeader,
-    UnitOffset, UnitType,
+    UnitIndex, UnitIndexSectionIterator, UnitOffset, UnitType,
 };
 
 /// All of the commonly used DWARF sections, and other common information.
@@ -562,6 +563,227 @@ impl<R: Reader> Dwarf<R> {
             _ => {}
         }
         err.description().into()
+    }
+}
+
+/// The sections from a `.dwp` file.
+#[derive(Debug)]
+pub struct DwarfPackage<R: Reader> {
+    /// The compilation unit index in the `.debug_cu_index` section.
+    pub cu_index: UnitIndex<R>,
+
+    /// The type unit index in the `.debug_tu_index` section.
+    pub tu_index: UnitIndex<R>,
+
+    /// The `.debug_abbrev.dwo` section.
+    pub debug_abbrev: DebugAbbrev<R>,
+
+    /// The `.debug_info.dwo` section.
+    pub debug_info: DebugInfo<R>,
+
+    /// The `.debug_line.dwo` section.
+    pub debug_line: DebugLine<R>,
+
+    /// The `.debug_str.dwo` section.
+    pub debug_str: DebugStr<R>,
+
+    /// The `.debug_str_offsets.dwo` section.
+    pub debug_str_offsets: DebugStrOffsets<R>,
+
+    /// The `.debug_loc.dwo` section.
+    ///
+    /// Only present when using GNU split-dwarf extension to DWARF 4.
+    pub debug_loc: DebugLoc<R>,
+
+    /// The `.debug_loclists.dwo` section.
+    pub debug_loclists: DebugLocLists<R>,
+
+    /// The `.debug_rnglists.dwo` section.
+    pub debug_rnglists: DebugRngLists<R>,
+
+    /// The `.debug_types.dwo` section.
+    ///
+    /// Only present when using GNU split-dwarf extension to DWARF 4.
+    pub debug_types: DebugTypes<R>,
+
+    /// An empty section.
+    ///
+    /// Used when creating `Dwarf<R>`.
+    pub empty: R,
+}
+
+impl<R: Reader> DwarfPackage<R> {
+    /// Try to load the `.dwp` sections using the given loader function.
+    ///
+    /// `section` loads a DWARF section from the object file.
+    /// It should return an empty section if the section does not exist.
+    pub fn load<F, E>(mut section: F, empty: R) -> core::result::Result<Self, E>
+    where
+        F: FnMut(SectionId) -> core::result::Result<R, E>,
+        E: From<Error>,
+    {
+        Ok(DwarfPackage {
+            cu_index: DebugCuIndex::load(&mut section)?.index()?,
+            tu_index: DebugTuIndex::load(&mut section)?.index()?,
+            // Section types are inferred.
+            debug_abbrev: Section::load(&mut section)?,
+            debug_info: Section::load(&mut section)?,
+            debug_line: Section::load(&mut section)?,
+            debug_str: Section::load(&mut section)?,
+            debug_str_offsets: Section::load(&mut section)?,
+            debug_loc: Section::load(&mut section)?,
+            debug_loclists: Section::load(&mut section)?,
+            debug_rnglists: Section::load(&mut section)?,
+            debug_types: Section::load(&mut section)?,
+            empty,
+        })
+    }
+
+    /// Find the compilation unit with the given DWO identifier and return its section
+    /// contributions.
+    pub fn find_cu(&self, id: DwoId, parent: &Dwarf<R>) -> Result<Option<Dwarf<R>>> {
+        let row = match self.cu_index.find(id.0) {
+            Some(row) => row,
+            None => return Ok(None),
+        };
+        self.cu_sections(row, parent).map(Some)
+    }
+
+    /// Find the type unit with the given type signature and return its section
+    /// contributions.
+    pub fn find_tu(
+        &self,
+        signature: DebugTypeSignature,
+        parent: &Dwarf<R>,
+    ) -> Result<Option<Dwarf<R>>> {
+        let row = match self.tu_index.find(signature.0) {
+            Some(row) => row,
+            None => return Ok(None),
+        };
+        self.tu_sections(row, parent).map(Some)
+    }
+
+    /// Return the section contributions of the compilation unit at the given index.
+    ///
+    /// The index must be in the range `1..cu_index.unit_count`.
+    ///
+    /// This function should only be needed by low level parsers.
+    pub fn cu_sections(&self, index: u32, parent: &Dwarf<R>) -> Result<Dwarf<R>> {
+        self.sections(self.cu_index.sections(index)?, parent)
+    }
+
+    /// Return the section contributions of the compilation unit at the given index.
+    ///
+    /// The index must be in the range `1..tu_index.unit_count`.
+    ///
+    /// This function should only be needed by low level parsers.
+    pub fn tu_sections(&self, index: u32, parent: &Dwarf<R>) -> Result<Dwarf<R>> {
+        self.sections(self.tu_index.sections(index)?, parent)
+    }
+
+    /// Return the section contributions of a unit.
+    ///
+    /// This function should only be needed by low level parsers.
+    pub fn sections(
+        &self,
+        sections: UnitIndexSectionIterator<R>,
+        parent: &Dwarf<R>,
+    ) -> Result<Dwarf<R>> {
+        let mut abbrev_offset = 0;
+        let mut abbrev_size = 0;
+        let mut info_offset = 0;
+        let mut info_size = 0;
+        let mut line_offset = 0;
+        let mut line_size = 0;
+        let mut loc_offset = 0;
+        let mut loc_size = 0;
+        let mut loclists_offset = 0;
+        let mut loclists_size = 0;
+        let mut str_offsets_offset = 0;
+        let mut str_offsets_size = 0;
+        let mut rnglists_offset = 0;
+        let mut rnglists_size = 0;
+        let mut types_offset = 0;
+        let mut types_size = 0;
+        for section in sections {
+            match section.section {
+                SectionId::DebugAbbrev => {
+                    abbrev_offset = section.offset;
+                    abbrev_size = section.size;
+                }
+                SectionId::DebugInfo => {
+                    info_offset = section.offset;
+                    info_size = section.size;
+                }
+                SectionId::DebugLine => {
+                    line_offset = section.offset;
+                    line_size = section.size;
+                }
+                SectionId::DebugLoc => {
+                    loc_offset = section.offset;
+                    loc_size = section.size;
+                }
+                SectionId::DebugLocLists => {
+                    loclists_offset = section.offset;
+                    loclists_size = section.size;
+                }
+                SectionId::DebugStrOffsets => {
+                    str_offsets_offset = section.offset;
+                    str_offsets_size = section.size;
+                }
+                SectionId::DebugRngLists => {
+                    rnglists_offset = section.offset;
+                    rnglists_size = section.size;
+                }
+                SectionId::DebugTypes => {
+                    types_offset = section.offset;
+                    types_size = section.size;
+                }
+                SectionId::DebugMacro | SectionId::DebugMacinfo => {
+                    // These are valid but we can't parse these yet.
+                }
+                _ => return Err(Error::UnknownIndexSection),
+            }
+        }
+
+        let debug_abbrev = self.debug_abbrev.dwp_range(abbrev_offset, abbrev_size)?;
+        let debug_info = self.debug_info.dwp_range(info_offset, info_size)?;
+        let debug_line = self.debug_line.dwp_range(line_offset, line_size)?;
+        let debug_loc = self.debug_loc.dwp_range(loc_offset, loc_size)?;
+        let debug_loclists = self
+            .debug_loclists
+            .dwp_range(loclists_offset, loclists_size)?;
+        let debug_str_offsets = self
+            .debug_str_offsets
+            .dwp_range(str_offsets_offset, str_offsets_size)?;
+        let debug_rnglists = self
+            .debug_rnglists
+            .dwp_range(rnglists_offset, rnglists_size)?;
+        let debug_types = self.debug_types.dwp_range(types_offset, types_size)?;
+
+        let debug_str = self.debug_str.clone();
+
+        let debug_addr = parent.debug_addr.clone();
+        let debug_ranges = parent.ranges.debug_ranges().clone();
+
+        let debug_aranges = self.empty.clone().into();
+        let debug_line_str = self.empty.clone().into();
+
+        Ok(Dwarf {
+            debug_abbrev,
+            debug_addr,
+            debug_aranges,
+            debug_info,
+            debug_line,
+            debug_line_str,
+            debug_str,
+            debug_str_offsets,
+            debug_types,
+            locations: LocationLists::new(debug_loc, debug_loclists),
+            ranges: RangeLists::new(debug_ranges, debug_rnglists),
+            file_type: DwarfFileType::Dwo,
+            sup: None,
+        })
     }
 }
 
