@@ -13,6 +13,7 @@ use crate::common::{
 };
 use crate::constants;
 use crate::endianity::Endianity;
+use crate::read::abbrev::get_attribute_size;
 use crate::read::{
     Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, DebugStr, EndianSlice, Error,
     Expression, Reader, ReaderOffset, Result, Section,
@@ -2208,6 +2209,77 @@ pub(crate) fn parse_attribute<'unit, R: Reader>(
     }
 }
 
+#[inline(always)]
+pub(crate) fn skip_attributes<'unit, R: Reader>(
+    input: &mut R,
+    encoding: Encoding,
+    specs: &[AttributeSpecification],
+) -> Result<()> {
+    let mut skip_bytes = R::Offset::from_u8(0);
+    for spec in specs {
+        let mut form = spec.form();
+        loop {
+            if let Some(len) = get_attribute_size(form, encoding) {
+                // We know the length of this attribute. Accumulate that length.
+                skip_bytes += R::Offset::from_u8(len);
+                break;
+            }
+
+            // We have encountered a variable-length attribute.
+            if skip_bytes != R::Offset::from_u8(0) {
+                // Skip the accumulated skip bytes and then read the attribute normally.
+                input.skip(skip_bytes)?;
+                skip_bytes = R::Offset::from_u8(0);
+            }
+
+            match form {
+                constants::DW_FORM_indirect => {
+                    let dynamic_form = input.read_uleb128_u16()?;
+                    form = constants::DwForm(dynamic_form);
+                    continue;
+                }
+                constants::DW_FORM_block1 => {
+                    skip_bytes = input.read_u8().map(R::Offset::from_u8)?;
+                }
+                constants::DW_FORM_block2 => {
+                    skip_bytes = input.read_u16().map(R::Offset::from_u16)?;
+                }
+                constants::DW_FORM_block4 => {
+                    skip_bytes = input.read_u32().map(R::Offset::from_u32)?;
+                }
+                constants::DW_FORM_block | constants::DW_FORM_exprloc => {
+                    skip_bytes = input.read_uleb128().and_then(R::Offset::from_u64)?;
+                }
+                constants::DW_FORM_string => {
+                    let _ = input.read_null_terminated_slice()?;
+                }
+                constants::DW_FORM_sdata => {
+                    let _ = input.read_sleb128()?;
+                }
+                constants::DW_FORM_udata
+                | constants::DW_FORM_ref_udata
+                | constants::DW_FORM_strx
+                | constants::DW_FORM_GNU_str_index
+                | constants::DW_FORM_addrx
+                | constants::DW_FORM_GNU_addr_index
+                | constants::DW_FORM_loclistx
+                | constants::DW_FORM_rnglistx => {
+                    let _ = input.read_uleb128()?;
+                }
+                _ => {
+                    return Err(Error::UnknownForm);
+                }
+            };
+            break;
+        }
+    }
+    if skip_bytes != R::Offset::from_u8(0) {
+        // Skip the remaining accumulated skip bytes.
+        input.skip(skip_bytes)?;
+    }
+    Ok(())
+}
+
 /// An iterator over a particular entry's attributes.
 ///
 /// See [the documentation for
@@ -2388,6 +2460,12 @@ impl<'abbrev, 'unit, R: Reader> EntriesRaw<'abbrev, 'unit, R> {
     #[inline]
     pub fn read_attribute(&mut self, spec: AttributeSpecification) -> Result<Attribute<R>> {
         parse_attribute(&mut self.input, self.unit.encoding(), spec)
+    }
+
+    /// Skip all the attributes of an abbreviation.
+    #[inline]
+    pub fn skip_attributes(&mut self, specs: &[AttributeSpecification]) -> Result<()> {
+        skip_attributes(&mut self.input, self.unit.encoding(), specs)
     }
 }
 

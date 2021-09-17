@@ -7,7 +7,7 @@ use core::fmt::{self, Debug};
 use core::iter::FromIterator;
 use core::ops::Deref;
 
-use crate::common::{DebugAbbrevOffset, SectionId};
+use crate::common::{DebugAbbrevOffset, Encoding, SectionId};
 use crate::constants;
 use crate::endianity::Endianity;
 use crate::read::{EndianSlice, Error, Reader, Result, Section, UnitHeader};
@@ -426,45 +426,7 @@ impl AttributeSpecification {
     /// Note that because some attributes are variably sized, the size cannot
     /// always be known without parsing, in which case we return `None`.
     pub fn size<R: Reader>(&self, header: &UnitHeader<R>) -> Option<usize> {
-        match self.form {
-            constants::DW_FORM_addr => Some(header.address_size() as usize),
-
-            constants::DW_FORM_implicit_const => Some(0),
-
-            constants::DW_FORM_flag |
-            constants::DW_FORM_flag_present |
-            constants::DW_FORM_data1 |
-            constants::DW_FORM_ref1 => Some(1),
-
-            constants::DW_FORM_data2 |
-            constants::DW_FORM_ref2 => Some(2),
-
-            constants::DW_FORM_data4 |
-            constants::DW_FORM_ref4 => Some(4),
-
-            constants::DW_FORM_data8 |
-            constants::DW_FORM_ref8 => Some(8),
-
-            constants::DW_FORM_sec_offset |
-            constants::DW_FORM_ref_addr |
-            constants::DW_FORM_ref_sig8 |
-            constants::DW_FORM_strp => Some(header.format().word_size() as usize),
-
-            // Variably sized forms.
-            constants::DW_FORM_block |
-            constants::DW_FORM_block1 |
-            constants::DW_FORM_block2 |
-            constants::DW_FORM_block4 |
-            constants::DW_FORM_exprloc |
-            constants::DW_FORM_ref_udata |
-            constants::DW_FORM_string |
-            constants::DW_FORM_sdata |
-            constants::DW_FORM_udata |
-            constants::DW_FORM_indirect |
-
-            // We don't know the size of unknown forms.
-            _ => None,
-        }
+        get_attribute_size(self.form, header.encoding()).map(usize::from)
     }
 
     /// Parse an attribute's form.
@@ -500,6 +462,75 @@ impl AttributeSpecification {
         };
         let spec = AttributeSpecification::new(name, form, implicit_const_value);
         Ok(Some(spec))
+    }
+}
+
+#[inline]
+pub(crate) fn get_attribute_size(form: constants::DwForm, encoding: Encoding) -> Option<u8> {
+    match form {
+        constants::DW_FORM_addr => Some(encoding.address_size),
+
+        constants::DW_FORM_implicit_const |
+        constants::DW_FORM_flag_present => Some(0),
+
+        constants::DW_FORM_data1
+        | constants::DW_FORM_flag
+        | constants::DW_FORM_strx1
+        | constants::DW_FORM_ref1
+        | constants::DW_FORM_addrx1 => Some(1),
+
+        constants::DW_FORM_data2
+        | constants::DW_FORM_ref2
+        | constants::DW_FORM_addrx2
+        | constants::DW_FORM_strx2 => Some(2),
+
+        constants::DW_FORM_addrx3 | constants::DW_FORM_strx3 => Some(3),
+
+        constants::DW_FORM_data4
+        | constants::DW_FORM_ref_sup4
+        | constants::DW_FORM_ref4
+        | constants::DW_FORM_strx4
+        | constants::DW_FORM_addrx4 => Some(4),
+
+        constants::DW_FORM_data8
+        | constants::DW_FORM_ref8
+        | constants::DW_FORM_ref_sig8
+        | constants::DW_FORM_ref_sup8 => Some(8),
+
+        constants::DW_FORM_data16  => Some(16),
+
+        constants::DW_FORM_sec_offset
+        | constants::DW_FORM_GNU_ref_alt
+        | constants::DW_FORM_strp
+        | constants::DW_FORM_strp_sup
+        | constants::DW_FORM_GNU_strp_alt
+        | constants::DW_FORM_line_strp => Some(encoding.format.word_size()),
+
+        constants::DW_FORM_ref_addr => {
+            // This is an offset, but DWARF version 2 specifies that DW_FORM_ref_addr
+            // has the same size as an address on the target system.  This was changed
+            // in DWARF version 3.
+            Some(if encoding.version == 2 {
+                encoding.address_size
+            } else {
+                encoding.format.word_size()
+            })
+        }
+
+        // Variably sized forms.
+        constants::DW_FORM_block |
+        constants::DW_FORM_block1 |
+        constants::DW_FORM_block2 |
+        constants::DW_FORM_block4 |
+        constants::DW_FORM_exprloc |
+        constants::DW_FORM_ref_udata |
+        constants::DW_FORM_string |
+        constants::DW_FORM_sdata |
+        constants::DW_FORM_udata |
+        constants::DW_FORM_indirect |
+
+        // We don't know the size of unknown forms.
+        _ => None,
     }
 }
 
