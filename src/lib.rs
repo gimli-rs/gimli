@@ -37,6 +37,7 @@
 #![no_std]
 
 #[allow(unused_imports)]
+#[cfg(any(feature = "read", feature = "write"))]
 #[macro_use]
 extern crate alloc;
 
@@ -62,10 +63,10 @@ pub use crate::endianity::{BigEndian, Endianity, LittleEndian, NativeEndian, Run
 
 pub mod leb128;
 
-#[cfg(feature = "read")]
+#[cfg(feature = "read-core")]
 pub mod read;
 // For backwards compat.
-#[cfg(feature = "read")]
+#[cfg(feature = "read-core")]
 pub use crate::read::*;
 
 #[cfg(feature = "write")]

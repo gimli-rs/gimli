@@ -81,9 +81,14 @@ macro_rules! dw {
                 if let Some(s) = self.static_string() {
                     f.pad(s)
                 } else {
-                    f.pad(&format!("Unknown {}: {}",
-                                   stringify!($struct_name),
-                                   self.0))
+                    #[cfg(feature = "read")]
+                    {
+                        f.pad(&format!("Unknown {}: {}", stringify!($struct_name), self.0))
+                    }
+                    #[cfg(not(feature = "read"))]
+                    {
+                        write!(f, "Unknown {}: {}", stringify!($struct_name), self.0)
+                    }
                 }
             }
         }

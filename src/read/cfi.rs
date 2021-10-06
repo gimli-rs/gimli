@@ -1,3 +1,4 @@
+#[cfg(feature = "read")]
 use alloc::vec::Vec;
 
 use core::cmp::{Ord, Ordering};
@@ -10,9 +11,9 @@ use super::util::{ArrayLike, ArrayVec};
 use crate::common::{DebugFrameOffset, EhFrameOffset, Encoding, Format, Register, SectionId};
 use crate::constants::{self, DwEhPe};
 use crate::endianity::Endianity;
-use crate::read::{
-    EndianSlice, Error, Expression, Reader, ReaderOffset, Result, Section, StoreOnHeap,
-};
+#[cfg(feature = "read")]
+use crate::read::StoreOnHeap;
+use crate::read::{EndianSlice, Error, Expression, Reader, ReaderOffset, Result, Section};
 
 /// `DebugFrame` contains the `.debug_frame` section's frame unwinding
 /// information required to unwind to and recover registers from older frames on
@@ -1738,8 +1739,13 @@ impl<R: Reader> FrameDescriptionEntry<R> {
 
 /// Specification of what storage should be used for [`UnwindContext`].
 ///
-/// Normally you would only need to use [`StoreOnHeap`], which places the stack
-/// on the heap using [`Vec`]. This is the default storage type parameter for [`UnwindContext`].
+#[cfg_attr(
+    feature = "read",
+    doc = "
+Normally you would only need to use [`StoreOnHeap`], which places the stack
+on the heap using [`Vec`]. This is the default storage type parameter for [`UnwindContext`].
+"
+)]
 ///
 /// If you need to avoid [`UnwindContext`] from allocating memory, e.g. for signal safety,
 /// you can provide you own storage specification:
@@ -1780,8 +1786,10 @@ pub trait UnwindContextStorage<R: Reader>: Sized {
     type Stack: ArrayLike<Item = UnwindTableRow<R, Self>>;
 }
 
+#[cfg(feature = "read")]
 const MAX_RULES: usize = 192;
 
+#[cfg(feature = "read")]
 impl<R: Reader> UnwindContextStorage<R> for StoreOnHeap {
     type Rules = [(Register, RegisterRule<R>); MAX_RULES];
     type Stack = Vec<UnwindTableRow<R, Self>>;
@@ -1814,7 +1822,11 @@ impl<R: Reader> UnwindContextStorage<R> for StoreOnHeap {
 /// # }
 /// ```
 #[derive(Clone, PartialEq, Eq)]
-pub struct UnwindContext<R: Reader, A: UnwindContextStorage<R> = StoreOnHeap> {
+pub struct UnwindContext<
+    R: Reader,
+    #[cfg(not(feature = "read"))] A: UnwindContextStorage<R>,
+    #[cfg(feature = "read")] A: UnwindContextStorage<R> = StoreOnHeap,
+> {
     // Stack of rows. The last row is the row currently being built by the
     // program. There is always at least one row. The vast majority of CFI
     // programs will only ever have one row on the stack.
@@ -1849,6 +1861,7 @@ impl<R: Reader, A: UnwindContextStorage<R>> Default for UnwindContext<R, A> {
     }
 }
 
+#[cfg(feature = "read")]
 impl<R: Reader> UnwindContext<R> {
     /// Construct a new call frame unwinding context.
     pub fn new() -> Self {
@@ -2036,7 +2049,13 @@ impl<R: Reader, A: UnwindContextStorage<R>> UnwindContext<R, A> {
 /// > recording just the differences starting at the beginning address of each
 /// > subroutine in the program.
 #[derive(Debug)]
-pub struct UnwindTable<'a, 'ctx, R: Reader, A: UnwindContextStorage<R> = StoreOnHeap> {
+pub struct UnwindTable<
+    'a,
+    'ctx,
+    R: Reader,
+    #[cfg(not(feature = "read"))] A: UnwindContextStorage<R>,
+    #[cfg(feature = "read")] A: UnwindContextStorage<R> = StoreOnHeap,
+> {
     code_alignment_factor: Wrapping<u64>,
     data_alignment_factor: Wrapping<i64>,
     next_start_address: u64,
@@ -2347,7 +2366,11 @@ impl<'a, 'ctx, R: Reader, A: UnwindContextStorage<R>> UnwindTable<'a, 'ctx, R, A
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-aarch64/dwarf-config.h#L32
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-arm/dwarf-config.h#L31
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-mips/dwarf-config.h#L31
-struct RegisterRuleMap<R: Reader, S: UnwindContextStorage<R> = StoreOnHeap> {
+struct RegisterRuleMap<
+    R: Reader,
+    #[cfg(not(feature = "read"))] S: UnwindContextStorage<R>,
+    #[cfg(feature = "read")] S: UnwindContextStorage<R> = StoreOnHeap,
+> {
     rules: ArrayVec<S::Rules>,
 }
 
@@ -2490,7 +2513,11 @@ impl<'iter, R: Reader> Iterator for RegisterRuleIter<'iter, R> {
 /// A row in the virtual unwind table that describes how to find the values of
 /// the registers in the *previous* frame for a range of PC addresses.
 #[derive(PartialEq, Eq)]
-pub struct UnwindTableRow<R: Reader, S: UnwindContextStorage<R> = StoreOnHeap> {
+pub struct UnwindTableRow<
+    R: Reader,
+    #[cfg(not(feature = "read"))] S: UnwindContextStorage<R>,
+    #[cfg(feature = "read")] S: UnwindContextStorage<R> = StoreOnHeap,
+> {
     start_address: u64,
     end_address: u64,
     saved_args_size: u64,

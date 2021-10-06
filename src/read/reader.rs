@@ -1,3 +1,4 @@
+#[cfg(feature = "read")]
 use alloc::borrow::Cow;
 use core::convert::TryInto;
 use core::fmt::Debug;
@@ -186,6 +187,12 @@ impl ReaderOffset for usize {
     }
 }
 
+#[cfg(not(feature = "read"))]
+pub(crate) mod seal_if_no_alloc {
+    #[derive(Debug)]
+    pub struct Sealed;
+}
+
 /// A trait for reading the data from a DWARF section.
 ///
 /// All read operations advance the section offset of the reader
@@ -251,12 +258,22 @@ pub trait Reader: Debug + Clone {
     /// `len` bytes, and `self` is advanced so that it reads the remainder.
     fn split(&mut self, len: Self::Offset) -> Result<Self>;
 
+    /// This trait cannot be implemented if "read" feature is not enabled.
+    ///
+    /// `Reader` trait has a few methods that depend on `alloc` crate.
+    /// Disallowing `Reader` trait implementation prevents a crate that only depends on
+    /// "read-core" from being broken if another crate depending on `gimli` enables
+    /// "read" feature.
+    #[cfg(not(feature = "read"))]
+    fn cannot_implement() -> seal_if_no_alloc::Sealed;
+
     /// Return all remaining data as a clone-on-write slice.
     ///
     /// The slice will be borrowed where possible, but some readers may
     /// always return an owned vector.
     ///
     /// Does not advance the reader.
+    #[cfg(feature = "read")]
     fn to_slice(&self) -> Result<Cow<[u8]>>;
 
     /// Convert all remaining data to a clone-on-write string.
@@ -267,6 +284,7 @@ pub trait Reader: Debug + Clone {
     /// Does not advance the reader.
     ///
     /// Returns an error if the data contains invalid characters.
+    #[cfg(feature = "read")]
     fn to_string(&self) -> Result<Cow<str>>;
 
     /// Convert all remaining data to a clone-on-write string, including invalid characters.
@@ -275,6 +293,7 @@ pub trait Reader: Debug + Clone {
     /// always return an owned string.
     ///
     /// Does not advance the reader.
+    #[cfg(feature = "read")]
     fn to_string_lossy(&self) -> Result<Cow<str>>;
 
     /// Read exactly `buf.len()` bytes into `buf`.

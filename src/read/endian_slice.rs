@@ -1,6 +1,8 @@
 //! Working with byte slices that have an associated endianity.
 
+#[cfg(feature = "read")]
 use alloc::borrow::Cow;
+#[cfg(feature = "read")]
 use alloc::string::String;
 use core::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 use core::str;
@@ -82,6 +84,7 @@ where
 
     /// Converts the slice to a string, including invalid characters,
     /// using `String::from_utf8_lossy`.
+    #[cfg(feature = "read")]
     #[inline]
     pub fn to_string_lossy(&self) -> Cow<'input, str> {
         String::from_utf8_lossy(self.slice)
@@ -284,11 +287,18 @@ where
         Ok(EndianSlice::new(slice, self.endian))
     }
 
+    #[cfg(not(feature = "read"))]
+    fn cannot_implement() -> super::reader::seal_if_no_alloc::Sealed {
+        super::reader::seal_if_no_alloc::Sealed
+    }
+
+    #[cfg(feature = "read")]
     #[inline]
     fn to_slice(&self) -> Result<Cow<[u8]>> {
         Ok(self.slice.into())
     }
 
+    #[cfg(feature = "read")]
     #[inline]
     fn to_string(&self) -> Result<Cow<str>> {
         match str::from_utf8(self.slice) {
@@ -297,6 +307,7 @@ where
         }
     }
 
+    #[cfg(feature = "read")]
     #[inline]
     fn to_string_lossy(&self) -> Result<Cow<str>> {
         Ok(String::from_utf8_lossy(self.slice))

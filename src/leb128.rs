@@ -45,7 +45,7 @@
 //! ```
 
 const CONTINUATION_BIT: u8 = 1 << 7;
-#[cfg(feature = "read")]
+#[cfg(feature = "read-core")]
 const SIGN_BIT: u8 = 1 << 6;
 
 #[inline]
@@ -62,7 +62,7 @@ fn low_bits_of_u64(val: u64) -> u8 {
 
 /// A module for reading signed and unsigned integers that have been LEB128
 /// encoded.
-#[cfg(feature = "read")]
+#[cfg(feature = "read-core")]
 pub mod read {
     use super::{low_bits_of_byte, CONTINUATION_BIT, SIGN_BIT};
     use crate::read::{Error, Reader, Result};

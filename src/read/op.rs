@@ -1,12 +1,15 @@
 //! Functions for parsing and evaluating DWARF expressions.
 
+#[cfg(feature = "read")]
 use alloc::vec::Vec;
 use core::mem;
 
 use super::util::{ArrayLike, ArrayVec};
 use crate::common::{DebugAddrIndex, DebugInfoOffset, Encoding, Register};
 use crate::constants;
-use crate::read::{Error, Reader, ReaderOffset, Result, StoreOnHeap, UnitOffset, Value, ValueType};
+#[cfg(feature = "read")]
+use crate::read::StoreOnHeap;
+use crate::read::{Error, Reader, ReaderOffset, Result, UnitOffset, Value, ValueType};
 
 /// A reference to a DIE, either relative to the current CU or
 /// relative to the section.
@@ -938,6 +941,7 @@ impl<R: Reader> Expression<R> {
     /// let mut eval = expression.evaluation(unit.encoding());
     /// let mut result = eval.evaluate().unwrap();
     /// ```
+    #[cfg(feature = "read")]
     #[inline]
     pub fn evaluation(self, encoding: Encoding) -> Evaluation<R> {
         Evaluation::new(self.0, encoding)
@@ -982,8 +986,13 @@ impl<R: Reader> OperationIter<R> {
 
 /// Specification of what storage should be used for [`Evaluation`].
 ///
-/// Normally you would only need to use [`StoreOnHeap`], which places the stacks and the results
-/// on the heap using [`Vec`]. This is the default storage type parameter for [`Evaluation`].
+#[cfg_attr(
+    feature = "read",
+    doc = "
+Normally you would only need to use [`StoreOnHeap`], which places the stacks and the results
+on the heap using [`Vec`]. This is the default storage type parameter for [`Evaluation`].
+"
+)]
 ///
 /// If you need to avoid [`Evaluation`] from allocating memory, e.g. for signal safety,
 /// you can provide you own storage specification:
@@ -1030,6 +1039,7 @@ pub trait EvaluationStorage<R: Reader> {
     type Result: ArrayLike<Item = Piece<R>>;
 }
 
+#[cfg(feature = "read")]
 impl<R: Reader> EvaluationStorage<R> for StoreOnHeap {
     type Stack = Vec<Value>;
     type ExpressionStack = Vec<(R, R)>;
@@ -1082,7 +1092,11 @@ impl<R: Reader> EvaluationStorage<R> for StoreOnHeap {
 /// println!("{:?}", result);
 /// ```
 #[derive(Debug)]
-pub struct Evaluation<R: Reader, S: EvaluationStorage<R> = StoreOnHeap> {
+pub struct Evaluation<
+    R: Reader,
+    #[cfg(not(feature = "read"))] S: EvaluationStorage<R>,
+    #[cfg(feature = "read")] S: EvaluationStorage<R> = StoreOnHeap,
+> {
     bytecode: R,
     encoding: Encoding,
     object_address: Option<u64>,
@@ -1108,6 +1122,7 @@ pub struct Evaluation<R: Reader, S: EvaluationStorage<R> = StoreOnHeap> {
     result: ArrayVec<S::Result>,
 }
 
+#[cfg(feature = "read")]
 impl<R: Reader> Evaluation<R> {
     /// Create a new DWARF expression evaluator.
     ///
@@ -1115,6 +1130,19 @@ impl<R: Reader> Evaluation<R> {
     /// an object address, and without a maximum number of iterations.
     pub fn new(bytecode: R, encoding: Encoding) -> Self {
         Self::new_in(bytecode, encoding)
+    }
+
+    /// Get the result of this `Evaluation`.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` has not been driven to completion.
+    pub fn result(self) -> Vec<Piece<R>> {
+        match self.state {
+            EvaluationState::Complete => self.result.into_vec(),
+            _ => {
+                panic!("Called `Evaluation::result` on an `Evaluation` that has not been completed")
+            }
+        }
     }
 }
 
@@ -1953,21 +1981,6 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
 
         self.state = EvaluationState::Complete;
         Ok(EvaluationResult::Complete)
-    }
-}
-
-impl<R: Reader> Evaluation<R, StoreOnHeap> {
-    /// Get the result of this `Evaluation`.
-    ///
-    /// # Panics
-    /// Panics if this `Evaluation` has not been driven to completion.
-    pub fn result(self) -> Vec<Piece<R>> {
-        match self.state {
-            EvaluationState::Complete => self.result.into_vec(),
-            _ => {
-                panic!("Called `Evaluation::result` on an `Evaluation` that has not been completed")
-            }
-        }
     }
 }
 

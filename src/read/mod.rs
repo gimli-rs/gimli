@@ -186,7 +186,9 @@ pub use self::addr::*;
 mod cfi;
 pub use self::cfi::*;
 
+#[cfg(feature = "read")]
 mod dwarf;
+#[cfg(feature = "read")]
 pub use self::dwarf::*;
 
 mod endian_slice;
@@ -200,7 +202,9 @@ pub use self::endian_reader::*;
 mod reader;
 pub use self::reader::*;
 
+#[cfg(feature = "read")]
 mod abbrev;
+#[cfg(feature = "read")]
 pub use self::abbrev::*;
 
 mod aranges;
@@ -209,7 +213,9 @@ pub use self::aranges::*;
 mod index;
 pub use self::index::*;
 
+#[cfg(feature = "read")]
 mod line;
+#[cfg(feature = "read")]
 pub use self::line::*;
 
 mod lists;
@@ -217,15 +223,20 @@ mod lists;
 mod loclists;
 pub use self::loclists::*;
 
+#[cfg(feature = "read")]
 mod lookup;
 
 mod op;
 pub use self::op::*;
 
+#[cfg(feature = "read")]
 mod pubnames;
+#[cfg(feature = "read")]
 pub use self::pubnames::*;
 
+#[cfg(feature = "read")]
 mod pubtypes;
+#[cfg(feature = "read")]
 pub use self::pubtypes::*;
 
 mod rnglists;
@@ -234,7 +245,13 @@ pub use self::rnglists::*;
 mod str;
 pub use self::str::*;
 
+/// An offset into the current compilation or type unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct UnitOffset<T = usize>(pub T);
+
+#[cfg(feature = "read")]
 mod unit;
+#[cfg(feature = "read")]
 pub use self::unit::*;
 
 mod value;

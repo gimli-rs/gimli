@@ -1,4 +1,6 @@
+#[cfg(feature = "read")]
 use alloc::boxed::Box;
+#[cfg(feature = "read")]
 use alloc::vec::Vec;
 use core::fmt;
 use core::mem::MaybeUninit;
@@ -70,6 +72,7 @@ macro_rules! impl_array {
 
 impl_array!(0 1 2 3 4 8 16 32 64 128 192);
 
+#[cfg(feature = "read")]
 unsafe impl<T> Sealed for Vec<T> {
     type Storage = Box<[MaybeUninit<T>]>;
 
@@ -87,6 +90,7 @@ unsafe impl<T> Sealed for Vec<T> {
     }
 }
 
+#[cfg(feature = "read")]
 impl<T> ArrayLike for Vec<T> {
     type Item = T;
 
@@ -168,6 +172,7 @@ impl<A: ArrayLike> ArrayVec<A> {
     }
 }
 
+#[cfg(feature = "read")]
 impl<T> ArrayVec<Vec<T>> {
     pub fn into_vec(mut self) -> Vec<T> {
         let storage = core::mem::replace(&mut self.storage, Box::new([]));
