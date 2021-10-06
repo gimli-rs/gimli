@@ -579,8 +579,8 @@ mod cfi {
     use fallible_iterator::FallibleIterator;
 
     use gimli::{
-        BaseAddresses, CieOrFde, EhFrame, FrameDescriptionEntry, LittleEndian,
-        UninitializedUnwindContext, UnwindSection,
+        BaseAddresses, CieOrFde, EhFrame, FrameDescriptionEntry, LittleEndian, UnwindContext,
+        UnwindSection,
     };
 
     #[bench]
@@ -677,7 +677,7 @@ mod cfi {
             .set_got(0)
             .set_text(0);
 
-        let mut ctx = UninitializedUnwindContext::new();
+        let mut ctx = Box::new(UnwindContext::new());
 
         b.iter(|| {
             let mut entries = eh_frame.entries(&bases);
@@ -773,7 +773,7 @@ mod cfi {
         let fde = get_fde_with_longest_cfi_instructions(&eh_frame, &bases);
 
         b.iter(|| {
-            let mut ctx = UninitializedUnwindContext::new();
+            let mut ctx = Box::new(UnwindContext::new());
             let mut table = fde
                 .rows(&eh_frame, &bases, &mut ctx)
                 .expect("Should initialize the ctx OK");
@@ -793,7 +793,7 @@ mod cfi {
             .set_text(0);
         let fde = get_fde_with_longest_cfi_instructions(&eh_frame, &bases);
 
-        let mut ctx = UninitializedUnwindContext::new();
+        let mut ctx = Box::new(UnwindContext::new());
 
         b.iter(|| {
             let mut table = fde
