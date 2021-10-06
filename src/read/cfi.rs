@@ -1768,12 +1768,15 @@ pub struct UnwindContext<R: Reader> {
     stack: ArrayVec<[UnwindTableRow<R>; MAX_UNWIND_STACK_DEPTH]>,
 
     // If we are evaluating an FDE's instructions, then `is_initialized` will be
-    // `true` and `initial_rules` will contain the initial register rules
+    // `true`. If `initial_rule` is `Some`, then the initial register rules are either
+    // all default rules or have just 1 non-default rule, stored in `initial_rule`.
+    // If it's `None`, `stack[0]` will contain the initial register rules
     // described by the CIE's initial instructions. These rules are used by
     // `DW_CFA_restore`. Otherwise, when we are currently evaluating a CIE's
-    // initial instructions, `is_initialized` will be `false` and
-    // `initial_rules` is not to be read from.
-    initial_rules: RegisterRuleMap<R>,
+    // initial instructions, `is_initialized` will be `false` and initial rules
+    // cannot be read.
+    initial_rule: Option<(Register, RegisterRule<R>)>,
+
     is_initialized: bool,
 }
 
@@ -1792,8 +1795,8 @@ impl<R: Reader> UnwindContext<R> {
     pub fn new() -> Self {
         let mut ctx = UnwindContext {
             stack: Default::default(),
+            initial_rule: None,
             is_initialized: false,
-            initial_rules: Default::default(),
         };
         ctx.reset();
         ctx
@@ -1813,29 +1816,16 @@ impl<R: Reader> UnwindContext<R> {
         let mut table = UnwindTable::new_for_cie(section, bases, self, cie);
         while let Some(_) = table.next_row()? {}
 
-        self.save_initial_rules();
+        self.save_initial_rules()?;
         Ok(())
     }
 
     fn reset(&mut self) {
         self.stack.clear();
-        let res = self.stack.try_push(UnwindTableRow::default());
-        debug_assert!(res.is_ok());
-
-        self.initial_rules.clear();
+        self.stack.try_push(UnwindTableRow::default()).unwrap();
+        debug_assert!(self.stack[0].is_default());
+        self.initial_rule = None;
         self.is_initialized = false;
-
-        self.assert_fully_uninitialized();
-    }
-
-    // Asserts that we are fully uninitialized, ie not initialized *and* not in
-    // the process of initializing.
-    #[inline]
-    fn assert_fully_uninitialized(&self) {
-        assert_eq!(self.is_initialized, false);
-        assert_eq!(self.initial_rules.rules.len(), 0);
-        assert_eq!(self.stack.len(), 1);
-        assert!(self.stack[0].is_default());
     }
 
     fn row(&self) -> &UnwindTableRow<R> {
@@ -1846,11 +1836,23 @@ impl<R: Reader> UnwindContext<R> {
         self.stack.last_mut().unwrap()
     }
 
-    fn save_initial_rules(&mut self) {
+    fn save_initial_rules(&mut self) -> Result<()> {
         assert_eq!(self.is_initialized, false);
-        self.initial_rules
-            .clone_from(&self.stack.last().unwrap().registers);
+        self.initial_rule = match *self.stack.last().unwrap().registers.rules {
+            // All rules are default (undefined). In this case just synthesize
+            // an undefined rule.
+            [] => Some((Register(0), RegisterRule::Undefined)),
+            [ref rule] => Some(rule.clone()),
+            _ => {
+                let rules = self.stack.last().unwrap().clone();
+                self.stack
+                    .try_insert(0, rules)
+                    .map_err(|_| Error::CfiStackFull)?;
+                None
+            }
+        };
         self.is_initialized = true;
+        Ok(())
     }
 
     fn start_address(&self) -> u64 {
@@ -1873,8 +1875,11 @@ impl<R: Reader> UnwindContext<R> {
         if !self.is_initialized {
             return None;
         }
-
-        Some(self.initial_rules.get(register))
+        Some(match self.initial_rule {
+            None => self.stack[0].registers.get(register),
+            Some((r, ref rule)) if r == register => rule.clone(),
+            _ => RegisterRule::Undefined,
+        })
     }
 
     fn set_cfa(&mut self, cfa: CfaRule<R>) {
@@ -1892,8 +1897,18 @@ impl<R: Reader> UnwindContext<R> {
             .map_err(|_| Error::CfiStackFull)
     }
 
-    fn pop_row(&mut self) {
+    #[must_use]
+    fn pop_row(&mut self) -> bool {
+        let min_size = if self.is_initialized && self.initial_rule.is_none() {
+            2
+        } else {
+            1
+        };
+        if self.stack.len() <= min_size {
+            return false;
+        }
         self.stack.pop().unwrap();
+        true
     }
 }
 
@@ -2225,12 +2240,11 @@ impl<'a, 'ctx, R: Reader> UnwindTable<'a, 'ctx, R> {
             }
             RestoreState => {
                 assert!(self.ctx.stack.len() > 0);
-                if self.ctx.stack.len() == 1 {
-                    return Err(Error::PopWithEmptyStack);
-                }
                 // Pop state while preserving current location.
                 let start_address = self.ctx.start_address();
-                self.ctx.pop_row();
+                if !self.ctx.pop_row() {
+                    return Err(Error::PopWithEmptyStack);
+                }
                 self.ctx.set_start_address(start_address);
             }
 
@@ -2331,10 +2345,6 @@ impl<R: Reader> RegisterRuleMap<R> {
         self.rules
             .try_push((register, rule))
             .map_err(|_| Error::TooManyRegisterRules)
-    }
-
-    fn clear(&mut self) {
-        self.rules.clear();
     }
 
     fn iter(&self) -> RegisterRuleIter<R> {
@@ -5311,7 +5321,7 @@ mod tests {
         let mut ctx = UnwindContext::new();
         ctx.set_register_rule(Register(0), RegisterRule::Offset(1))
             .unwrap();
-        ctx.save_initial_rules();
+        ctx.save_initial_rules().unwrap();
         let expected = ctx.clone();
         ctx.set_register_rule(Register(0), RegisterRule::Offset(2))
             .unwrap();
@@ -5459,7 +5469,6 @@ mod tests {
         let section = &DebugFrame::from(EndianSlice::default());
         let bases = &BaseAddresses::default();
         let mut ctx = Box::new(UnwindContext::new());
-        ctx.assert_fully_uninitialized();
 
         let mut table = fde
             .rows(section, bases, &mut ctx)
@@ -5471,7 +5480,7 @@ mod tests {
         ]
         .iter()
         .collect();
-        assert_eq!(table.ctx.initial_rules, expected_initial_rules);
+        assert_eq!(table.ctx.stack[0].registers, expected_initial_rules);
 
         {
             let row = table.next_row().expect("Should evaluate first row OK");
