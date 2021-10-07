@@ -1977,7 +1977,7 @@ impl<'a, 'ctx, R: Reader> UnwindTable<'a, 'ctx, R> {
         bases: &'a BaseAddresses,
         ctx: &'ctx mut UnwindContext<R>,
         fde: &FrameDescriptionEntry<R>,
-    ) -> Result<UnwindTable<'a, 'ctx, R>> {
+    ) -> Result<Self> {
         ctx.initialize(section, bases, fde.cie())?;
         Ok(Self::new_for_fde(section, bases, ctx, fde))
     }
@@ -1987,7 +1987,7 @@ impl<'a, 'ctx, R: Reader> UnwindTable<'a, 'ctx, R> {
         bases: &'a BaseAddresses,
         ctx: &'ctx mut UnwindContext<R>,
         fde: &FrameDescriptionEntry<R>,
-    ) -> UnwindTable<'a, 'ctx, R> {
+    ) -> Self {
         assert!(ctx.stack.len() >= 1);
         UnwindTable {
             code_alignment_factor: Wrapping(fde.cie().code_alignment_factor()),
@@ -2006,7 +2006,7 @@ impl<'a, 'ctx, R: Reader> UnwindTable<'a, 'ctx, R> {
         bases: &'a BaseAddresses,
         ctx: &'ctx mut UnwindContext<R>,
         cie: &CommonInformationEntry<R>,
-    ) -> UnwindTable<'a, 'ctx, R> {
+    ) -> Self {
         assert!(ctx.stack.len() >= 1);
         UnwindTable {
             code_alignment_factor: Wrapping(cie.code_alignment_factor()),
