@@ -53,7 +53,7 @@ jobs:
           rustup install nightly
           rustup default nightly
       - name: Install `cargo fuzz`
-        run: cargo install cargo-fuzz --vers "^0.7.4"
+        run: cargo install cargo-fuzz --vers "^0.11.0"
       - run: cargo fuzz build -Oa
       - uses: actions/upload-artifact@v2
         with:
