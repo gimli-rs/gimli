@@ -1,7 +1,7 @@
 #![no_main]
 
 use gimli::{
-    read::{BaseAddresses, CieOrFde, EhFrame, UninitializedUnwindContext, UnwindSection},
+    read::{BaseAddresses, CieOrFde, EhFrame, UnwindContext, UnwindSection},
     LittleEndian,
 };
 use libfuzzer_sys::fuzz_target;
@@ -9,7 +9,7 @@ use libfuzzer_sys::fuzz_target;
 fuzz_target!(|eh_frame: &[u8]| {
     let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
 
-    let mut ctx = UninitializedUnwindContext::new();
+    let mut ctx = Box::new(UnwindContext::new());
     let bases = BaseAddresses::default()
         .set_eh_frame(0)
         .set_eh_frame_hdr(0)
