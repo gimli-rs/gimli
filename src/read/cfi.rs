@@ -1,4 +1,3 @@
-use alloc::boxed::Box;
 use core::cmp::{Ord, Ordering};
 use core::fmt::Debug;
 use core::iter::FromIterator;
@@ -373,7 +372,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         &self,
         frame: &EhFrame<R>,
         bases: &BaseAddresses,
-        ctx: &'ctx mut UninitializedUnwindContext<R>,
+        ctx: &'ctx mut UnwindContext<R>,
         address: u64,
         get_cie: F,
     ) -> Result<&'ctx UnwindTableRow<R>>
@@ -637,7 +636,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// CFI evaluation fails, the error is returned.
     ///
     /// ```
-    /// use gimli::{BaseAddresses, EhFrame, EndianSlice, NativeEndian, UninitializedUnwindContext,
+    /// use gimli::{BaseAddresses, EhFrame, EndianSlice, NativeEndian, UnwindContext,
     ///             UnwindSection};
     ///
     /// # fn foo() -> gimli::Result<()> {
@@ -651,7 +650,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// let address = get_frame_pc();
     ///
     /// // This context is reusable, which cuts down on heap allocations.
-    /// let ctx = UninitializedUnwindContext::new();
+    /// let ctx = UnwindContext::new();
     ///
     /// // Optionally provide base addresses for any relative pointers. If a
     /// // base address isn't provided and a pointer is found that is relative to
@@ -679,7 +678,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     fn unwind_info_for_address<'ctx, F>(
         &self,
         bases: &BaseAddresses,
-        ctx: &'ctx mut UninitializedUnwindContext<R>,
+        ctx: &'ctx mut UnwindContext<R>,
         address: u64,
         get_cie: F,
     ) -> Result<&'ctx UnwindTableRow<R>>
@@ -1611,7 +1610,7 @@ impl<R: Reader> FrameDescriptionEntry<R> {
         &self,
         section: &'a Section,
         bases: &'a BaseAddresses,
-        ctx: &'ctx mut UninitializedUnwindContext<R>,
+        ctx: &'ctx mut UnwindContext<R>,
     ) -> Result<UnwindTable<'a, 'ctx, R>> {
         UnwindTable::new(section, bases, ctx, self)
     }
@@ -1626,7 +1625,7 @@ impl<R: Reader> FrameDescriptionEntry<R> {
         &self,
         section: &Section,
         bases: &BaseAddresses,
-        ctx: &'ctx mut UninitializedUnwindContext<R>,
+        ctx: &'ctx mut UnwindContext<R>,
         address: u64,
     ) -> Result<&'ctx UnwindTableRow<R>> {
         let mut table = self.rows(section, bases, ctx)?;
@@ -1733,25 +1732,23 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     }
 }
 
+const MAX_UNWIND_STACK_DEPTH: usize = 4;
+
 /// Common context needed when evaluating the call frame unwinding information.
 ///
+/// This structure can be large so it is advisable to place it on the heap.
 /// To avoid re-allocating the context multiple times when evaluating multiple
-/// CFI programs, it can be reused. At first, a context is uninitialized
-/// (`UninitializedUnwindContext`). It can be initialized by providing the
-/// `CommonInformationEntry` for the CFI program about to be evaluated and
-/// calling `UninitializedUnwindContext::initialize`. The result is a `&mut UnwindContext`
-/// which borrows the uninitialized context, and can be used to evaluate and run a
-/// `FrameDescriptionEntry`'s CFI program.
+/// CFI programs, it can be reused.
 ///
 /// ```
-/// use gimli::{UninitializedUnwindContext, UnwindTable};
+/// use gimli::{UnwindContext, UnwindTable};
 ///
 /// # fn foo<'a>(some_fde: gimli::FrameDescriptionEntry<gimli::EndianSlice<'a, gimli::LittleEndian>>)
 /// #            -> gimli::Result<()> {
 /// # let eh_frame: gimli::EhFrame<_> = unreachable!();
 /// # let bases = unimplemented!();
 /// // An uninitialized context.
-/// let mut ctx = UninitializedUnwindContext::new();
+/// let mut ctx = Box::new(UnwindContext::new());
 ///
 /// // Initialize the context by evaluating the CIE's initial instruction program,
 /// // and generate the unwind table.
@@ -1763,50 +1760,6 @@ impl<R: Reader> FrameDescriptionEntry<R> {
 /// # unreachable!()
 /// # }
 /// ```
-#[derive(Clone, Debug)]
-pub struct UninitializedUnwindContext<R: Reader>(Box<UnwindContext<R>>);
-
-impl<R: Reader> UninitializedUnwindContext<R> {
-    /// Construct a new call frame unwinding context.
-    pub fn new() -> UninitializedUnwindContext<R> {
-        UninitializedUnwindContext(Box::new(UnwindContext::new()))
-    }
-}
-
-impl<R: Reader> Default for UninitializedUnwindContext<R> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// # Signal Safe Methods
-///
-/// These methods are guaranteed not to allocate, acquire locks, or perform any
-/// other signal-unsafe operations.
-impl<R: Reader> UninitializedUnwindContext<R> {
-    /// Run the CIE's initial instructions, creating and return an
-    /// `UnwindContext`.
-    pub fn initialize<Section: UnwindSection<R>>(
-        &mut self,
-        section: &Section,
-        bases: &BaseAddresses,
-        cie: &CommonInformationEntry<R>,
-    ) -> Result<&mut UnwindContext<R>> {
-        if self.0.is_initialized {
-            self.0.reset();
-        }
-
-        let mut table = UnwindTable::new_for_cie(section, bases, &mut self.0, cie);
-        while let Some(_) = table.next_row()? {}
-
-        self.0.save_initial_rules();
-        Ok(&mut self.0)
-    }
-}
-
-const MAX_UNWIND_STACK_DEPTH: usize = 4;
-
-/// An unwinding context.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnwindContext<R: Reader> {
     // Stack of rows. The last row is the row currently being built by the
@@ -1824,12 +1777,19 @@ pub struct UnwindContext<R: Reader> {
     is_initialized: bool,
 }
 
+impl<R: Reader> Default for UnwindContext<R> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// # Signal Safe Methods
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
 impl<R: Reader> UnwindContext<R> {
-    fn new() -> UnwindContext<R> {
+    /// Construct a new call frame unwinding context.
+    pub fn new() -> Self {
         let mut ctx = UnwindContext {
             stack: Default::default(),
             is_initialized: false,
@@ -1837,6 +1797,24 @@ impl<R: Reader> UnwindContext<R> {
         };
         ctx.reset();
         ctx
+    }
+
+    /// Run the CIE's initial instructions and initialize this `UnwindContext`.
+    fn initialize<Section: UnwindSection<R>>(
+        &mut self,
+        section: &Section,
+        bases: &BaseAddresses,
+        cie: &CommonInformationEntry<R>,
+    ) -> Result<()> {
+        if self.is_initialized {
+            self.reset();
+        }
+
+        let mut table = UnwindTable::new_for_cie(section, bases, self, cie);
+        while let Some(_) = table.next_row()? {}
+
+        self.save_initial_rules();
+        Ok(())
     }
 
     fn reset(&mut self) {
@@ -1997,10 +1975,10 @@ impl<'a, 'ctx, R: Reader> UnwindTable<'a, 'ctx, R> {
     pub fn new<Section: UnwindSection<R>>(
         section: &'a Section,
         bases: &'a BaseAddresses,
-        ctx: &'ctx mut UninitializedUnwindContext<R>,
+        ctx: &'ctx mut UnwindContext<R>,
         fde: &FrameDescriptionEntry<R>,
-    ) -> Result<UnwindTable<'a, 'ctx, R>> {
-        let ctx = ctx.initialize(section, bases, fde.cie())?;
+    ) -> Result<Self> {
+        ctx.initialize(section, bases, fde.cie())?;
         Ok(Self::new_for_fde(section, bases, ctx, fde))
     }
 
@@ -2009,7 +1987,7 @@ impl<'a, 'ctx, R: Reader> UnwindTable<'a, 'ctx, R> {
         bases: &'a BaseAddresses,
         ctx: &'ctx mut UnwindContext<R>,
         fde: &FrameDescriptionEntry<R>,
-    ) -> UnwindTable<'a, 'ctx, R> {
+    ) -> Self {
         assert!(ctx.stack.len() >= 1);
         UnwindTable {
             code_alignment_factor: Wrapping(fde.cie().code_alignment_factor()),
@@ -2028,7 +2006,7 @@ impl<'a, 'ctx, R: Reader> UnwindTable<'a, 'ctx, R> {
         bases: &'a BaseAddresses,
         ctx: &'ctx mut UnwindContext<R>,
         cie: &CommonInformationEntry<R>,
-    ) -> UnwindTable<'a, 'ctx, R> {
+    ) -> Self {
         assert!(ctx.stack.len() >= 1);
         UnwindTable {
             code_alignment_factor: Wrapping(cie.code_alignment_factor()),
@@ -3320,6 +3298,7 @@ mod tests {
         EndianSlice, Error, Expression, Pointer, ReaderOffsetId, Result, Section as ReadSection,
     };
     use crate::test_util::GimliSectionMethods;
+    use alloc::boxed::Box;
     use alloc::vec::Vec;
     use core::marker::PhantomData;
     use core::mem;
@@ -5479,8 +5458,8 @@ mod tests {
 
         let section = &DebugFrame::from(EndianSlice::default());
         let bases = &BaseAddresses::default();
-        let mut ctx = UninitializedUnwindContext::new();
-        ctx.0.assert_fully_uninitialized();
+        let mut ctx = Box::new(UnwindContext::new());
+        ctx.assert_fully_uninitialized();
 
         let mut table = fde
             .rows(section, bases, &mut ctx)
@@ -5679,7 +5658,7 @@ mod tests {
 
         // Get the second row of the unwind table in `instrs3`.
         let bases = Default::default();
-        let mut ctx = UninitializedUnwindContext::new();
+        let mut ctx = Box::new(UnwindContext::new());
         let result = debug_frame.unwind_info_for_address(
             &bases,
             &mut ctx,
@@ -5708,7 +5687,7 @@ mod tests {
     fn test_unwind_info_for_address_not_found() {
         let debug_frame = DebugFrame::new(&[], NativeEndian);
         let bases = Default::default();
-        let mut ctx = UninitializedUnwindContext::new();
+        let mut ctx = Box::new(UnwindContext::new());
         let result = debug_frame.unwind_info_for_address(
             &bases,
             &mut ctx,
