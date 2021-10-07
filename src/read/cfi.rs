@@ -5399,6 +5399,155 @@ mod tests {
     }
 
     #[test]
+    fn test_unwind_table_cie_no_rule() {
+        #[allow(clippy::identity_op)]
+        let initial_instructions = Section::with_endian(Endian::Little)
+            // The CFA is -12 from register 4.
+            .D8(constants::DW_CFA_def_cfa_sf.0)
+            .uleb(4)
+            .sleb(-12)
+            .append_repeated(constants::DW_CFA_nop.0, 4);
+        let initial_instructions = initial_instructions.get_contents().unwrap();
+
+        let cie = CommonInformationEntry {
+            offset: 0,
+            length: 0,
+            format: Format::Dwarf32,
+            version: 4,
+            augmentation: None,
+            address_size: 8,
+            segment_size: 0,
+            code_alignment_factor: 1,
+            data_alignment_factor: 1,
+            return_address_register: Register(3),
+            initial_instructions: EndianSlice::new(&initial_instructions, LittleEndian),
+        };
+
+        let instructions = Section::with_endian(Endian::Little)
+            // A bunch of nop padding.
+            .append_repeated(constants::DW_CFA_nop.0, 8);
+        let instructions = instructions.get_contents().unwrap();
+
+        let fde = FrameDescriptionEntry {
+            offset: 0,
+            length: 0,
+            format: Format::Dwarf32,
+            cie: cie.clone(),
+            initial_segment: 0,
+            initial_address: 0,
+            address_range: 100,
+            augmentation: None,
+            instructions: EndianSlice::new(&instructions, LittleEndian),
+        };
+
+        let section = &DebugFrame::from(EndianSlice::default());
+        let bases = &BaseAddresses::default();
+        let mut ctx = Box::new(UnwindContext::new());
+
+        let mut table = fde
+            .rows(section, bases, &mut ctx)
+            .expect("Should run initial program OK");
+        assert!(table.ctx.is_initialized);
+        let expected_initial_rule = (Register(0), RegisterRule::Undefined);
+        assert_eq!(table.ctx.initial_rule, Some(expected_initial_rule));
+
+        {
+            let row = table.next_row().expect("Should evaluate first row OK");
+            let expected = UnwindTableRow {
+                start_address: 0,
+                end_address: 100,
+                saved_args_size: 0,
+                cfa: CfaRule::RegisterAndOffset {
+                    register: Register(4),
+                    offset: -12,
+                },
+                registers: [].iter().collect(),
+            };
+            assert_eq!(Some(&expected), row);
+        }
+
+        // All done!
+        assert_eq!(Ok(None), table.next_row());
+        assert_eq!(Ok(None), table.next_row());
+    }
+
+    #[test]
+    fn test_unwind_table_cie_single_rule() {
+        #[allow(clippy::identity_op)]
+        let initial_instructions = Section::with_endian(Endian::Little)
+            // The CFA is -12 from register 4.
+            .D8(constants::DW_CFA_def_cfa_sf.0)
+            .uleb(4)
+            .sleb(-12)
+            // Register 3 is 4 from the CFA.
+            .D8(constants::DW_CFA_offset.0 | 3)
+            .uleb(4)
+            .append_repeated(constants::DW_CFA_nop.0, 4);
+        let initial_instructions = initial_instructions.get_contents().unwrap();
+
+        let cie = CommonInformationEntry {
+            offset: 0,
+            length: 0,
+            format: Format::Dwarf32,
+            version: 4,
+            augmentation: None,
+            address_size: 8,
+            segment_size: 0,
+            code_alignment_factor: 1,
+            data_alignment_factor: 1,
+            return_address_register: Register(3),
+            initial_instructions: EndianSlice::new(&initial_instructions, LittleEndian),
+        };
+
+        let instructions = Section::with_endian(Endian::Little)
+            // A bunch of nop padding.
+            .append_repeated(constants::DW_CFA_nop.0, 8);
+        let instructions = instructions.get_contents().unwrap();
+
+        let fde = FrameDescriptionEntry {
+            offset: 0,
+            length: 0,
+            format: Format::Dwarf32,
+            cie: cie.clone(),
+            initial_segment: 0,
+            initial_address: 0,
+            address_range: 100,
+            augmentation: None,
+            instructions: EndianSlice::new(&instructions, LittleEndian),
+        };
+
+        let section = &DebugFrame::from(EndianSlice::default());
+        let bases = &BaseAddresses::default();
+        let mut ctx = Box::new(UnwindContext::new());
+
+        let mut table = fde
+            .rows(section, bases, &mut ctx)
+            .expect("Should run initial program OK");
+        assert!(table.ctx.is_initialized);
+        let expected_initial_rule = (Register(3), RegisterRule::Offset(4));
+        assert_eq!(table.ctx.initial_rule, Some(expected_initial_rule));
+
+        {
+            let row = table.next_row().expect("Should evaluate first row OK");
+            let expected = UnwindTableRow {
+                start_address: 0,
+                end_address: 100,
+                saved_args_size: 0,
+                cfa: CfaRule::RegisterAndOffset {
+                    register: Register(4),
+                    offset: -12,
+                },
+                registers: [(Register(3), RegisterRule::Offset(4))].iter().collect(),
+            };
+            assert_eq!(Some(&expected), row);
+        }
+
+        // All done!
+        assert_eq!(Ok(None), table.next_row());
+        assert_eq!(Ok(None), table.next_row());
+    }
+
+    #[test]
     fn test_unwind_table_next_row() {
         #[allow(clippy::identity_op)]
         let initial_instructions = Section::with_endian(Endian::Little)
@@ -5474,6 +5623,7 @@ mod tests {
             .rows(section, bases, &mut ctx)
             .expect("Should run initial program OK");
         assert!(table.ctx.is_initialized);
+        assert!(table.ctx.initial_rule.is_none());
         let expected_initial_rules: RegisterRuleMap<_> = [
             (Register(0), RegisterRule::Offset(8)),
             (Register(3), RegisterRule::Offset(4)),
