@@ -1897,18 +1897,17 @@ impl<R: Reader> UnwindContext<R> {
             .map_err(|_| Error::CfiStackFull)
     }
 
-    #[must_use]
-    fn pop_row(&mut self) -> bool {
+    fn pop_row(&mut self) -> Result<()> {
         let min_size = if self.is_initialized && self.initial_rule.is_none() {
             2
         } else {
             1
         };
         if self.stack.len() <= min_size {
-            return false;
+            return Err(Error::PopWithEmptyStack);
         }
         self.stack.pop().unwrap();
-        true
+        Ok(())
     }
 }
 
@@ -2239,12 +2238,9 @@ impl<'a, 'ctx, R: Reader> UnwindTable<'a, 'ctx, R> {
                 self.ctx.push_row()?;
             }
             RestoreState => {
-                assert!(self.ctx.stack.len() > 0);
                 // Pop state while preserving current location.
                 let start_address = self.ctx.start_address();
-                if !self.ctx.pop_row() {
-                    return Err(Error::PopWithEmptyStack);
-                }
+                self.ctx.pop_row()?;
                 self.ctx.set_start_address(start_address);
             }
 
