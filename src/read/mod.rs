@@ -178,6 +178,7 @@ use crate::common::{Register, SectionId};
 use crate::constants;
 
 mod util;
+pub use util::*;
 
 mod addr;
 pub use self::addr::*;
