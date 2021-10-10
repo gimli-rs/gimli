@@ -3,6 +3,8 @@
 use alloc::vec::Vec;
 use core::mem;
 
+use super::util::{ArrayLike, ArrayVec};
+use super::StoreOnHeap;
 use crate::common::{DebugAddrIndex, DebugInfoOffset, Encoding, Register};
 use crate::constants;
 use crate::read::{Error, Reader, ReaderOffset, Result, UnitOffset, Value, ValueType};
@@ -979,6 +981,22 @@ impl<R: Reader> OperationIter<R> {
     }
 }
 
+/// Specification of what storage should be used for [`Evaluation`].
+pub trait EvaluationStorage<R: Reader> {
+    /// The storage used for the evaluation stack.
+    type Stack: ArrayLike<Item = Value>;
+    /// The storage used for the expression stack.
+    type ExpressionStack: ArrayLike<Item = (R, R)>;
+    /// The storage used for the results.
+    type Result: ArrayLike<Item = Piece<R>>;
+}
+
+impl<R: Reader> EvaluationStorage<R> for StoreOnHeap {
+    type Stack = Vec<Value>;
+    type ExpressionStack = Vec<(R, R)>;
+    type Result = Vec<Piece<R>>;
+}
+
 /// A DWARF expression evaluator.
 ///
 /// # Usage
@@ -1025,7 +1043,7 @@ impl<R: Reader> OperationIter<R> {
 /// println!("{:?}", result);
 /// ```
 #[derive(Debug)]
-pub struct Evaluation<R: Reader> {
+pub struct Evaluation<R: Reader, S: EvaluationStorage<R> = StoreOnHeap> {
     bytecode: R,
     encoding: Encoding,
     object_address: Option<u64>,
@@ -1039,16 +1057,16 @@ pub struct Evaluation<R: Reader> {
     addr_mask: u64,
 
     // The stack.
-    stack: Vec<Value>,
+    stack: ArrayVec<S::Stack>,
 
     // The next operation to decode and evaluate.
     pc: R,
 
     // If we see a DW_OP_call* operation, the previous PC and bytecode
     // is stored here while evaluating the subroutine.
-    expression_stack: Vec<(R, R)>,
+    expression_stack: ArrayVec<S::ExpressionStack>,
 
-    result: Vec<Piece<R>>,
+    result: ArrayVec<S::Result>,
 }
 
 impl<R: Reader> Evaluation<R> {
@@ -1056,7 +1074,17 @@ impl<R: Reader> Evaluation<R> {
     ///
     /// The new evaluator is created without an initial value, without
     /// an object address, and without a maximum number of iterations.
-    pub fn new(bytecode: R, encoding: Encoding) -> Evaluation<R> {
+    pub fn new(bytecode: R, encoding: Encoding) -> Self {
+        Self::new_in(bytecode, encoding)
+    }
+}
+
+impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
+    /// Create a new DWARF expression evaluator.
+    ///
+    /// The new evaluator is created without an initial value, without
+    /// an object address, and without a maximum number of iterations.
+    pub fn new_in(bytecode: R, encoding: Encoding) -> Self {
         let pc = bytecode.clone();
         Evaluation {
             bytecode,
@@ -1070,10 +1098,10 @@ impl<R: Reader> Evaluation<R> {
             } else {
                 (1 << (8 * u64::from(encoding.address_size))) - 1
             },
-            stack: Vec::new(),
-            expression_stack: Vec::new(),
+            stack: Default::default(),
+            expression_stack: Default::default(),
             pc,
-            result: Vec::new(),
+            result: Default::default(),
         }
     }
 
@@ -1126,8 +1154,8 @@ impl<R: Reader> Evaluation<R> {
         }
     }
 
-    fn push(&mut self, value: Value) {
-        self.stack.push(value);
+    fn push(&mut self, value: Value) -> Result<()> {
+        self.stack.try_push(value).map_err(|_| Error::CfiStackFull)
     }
 
     #[allow(clippy::cyclomatic_complexity)]
@@ -1170,109 +1198,109 @@ impl<R: Reader> Evaluation<R> {
                     return Err(Error::NotEnoughStackItems);
                 }
                 let value = self.stack[len - index - 1];
-                self.push(value);
+                self.push(value)?;
             }
             Operation::Swap => {
                 let top = self.pop()?;
                 let next = self.pop()?;
-                self.push(top);
-                self.push(next);
+                self.push(top)?;
+                self.push(next)?;
             }
             Operation::Rot => {
                 let one = self.pop()?;
                 let two = self.pop()?;
                 let three = self.pop()?;
-                self.push(one);
-                self.push(three);
-                self.push(two);
+                self.push(one)?;
+                self.push(three)?;
+                self.push(two)?;
             }
 
             Operation::Abs => {
                 let value = self.pop()?;
                 let result = value.abs(self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::And => {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.and(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Div => {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.div(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Minus => {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.sub(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Mod => {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.rem(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Mul => {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.mul(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Neg => {
                 let v = self.pop()?;
                 let result = v.neg(self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Not => {
                 let value = self.pop()?;
                 let result = value.not(self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Or => {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.or(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Plus => {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.add(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::PlusConstant { value } => {
                 let lhs = self.pop()?;
                 let rhs = Value::from_u64(lhs.value_type(), value)?;
                 let result = lhs.add(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Shl => {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.shl(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Shr => {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.shr(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Shra => {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.shra(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Xor => {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.xor(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
 
             Operation::Bra { target } => {
@@ -1287,37 +1315,37 @@ impl<R: Reader> Evaluation<R> {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.eq(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Ge => {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.ge(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Gt => {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.gt(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Le => {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.le(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Lt => {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.lt(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
             Operation::Ne => {
                 let rhs = self.pop()?;
                 let lhs = self.pop()?;
                 let result = lhs.ne(rhs, self.addr_mask)?;
-                self.push(result);
+                self.push(result)?;
             }
 
             Operation::Skip { target } => {
@@ -1325,11 +1353,11 @@ impl<R: Reader> Evaluation<R> {
             }
 
             Operation::UnsignedConstant { value } => {
-                self.push(Value::Generic(value));
+                self.push(Value::Generic(value))?;
             }
 
             Operation::SignedConstant { value } => {
-                self.push(Value::Generic(value as u64));
+                self.push(Value::Generic(value as u64))?;
             }
 
             Operation::RegisterOffset {
@@ -1357,7 +1385,7 @@ impl<R: Reader> Evaluation<R> {
 
             Operation::PushObjectAddress => {
                 if let Some(value) = self.object_address {
-                    self.push(Value::Generic(value));
+                    self.push(Value::Generic(value))?;
                 } else {
                     return Err(Error::InvalidPushObjectAddress);
                 }
@@ -1461,11 +1489,13 @@ impl<R: Reader> Evaluation<R> {
                     let address = entry.to_u64(self.addr_mask)?;
                     Location::Address { address }
                 };
-                self.result.push(Piece {
-                    size_in_bits: Some(size_in_bits),
-                    bit_offset,
-                    location,
-                });
+                self.result
+                    .try_push(Piece {
+                        size_in_bits: Some(size_in_bits),
+                        bit_offset,
+                        location,
+                    })
+                    .map_err(|_| Error::CfiStackFull)?;
                 return Ok(OperationEvaluationResult::Piece);
             }
 
@@ -1497,13 +1527,13 @@ impl<R: Reader> Evaluation<R> {
         Ok(OperationEvaluationResult::Incomplete)
     }
 
-    /// Get the result of this `Evaluation`.
+    /// Get the last result of this `Evaluation`.
     ///
     /// # Panics
     /// Panics if this `Evaluation` has not been driven to completion.
-    pub fn result(self) -> Vec<Piece<R>> {
+    pub fn result_last(mut self) -> Option<Piece<R>> {
         match self.state {
-            EvaluationState::Complete => self.result,
+            EvaluationState::Complete => self.result.pop(),
             _ => {
                 panic!("Called `Evaluation::result` on an `Evaluation` that has not been completed")
             }
@@ -1519,7 +1549,7 @@ impl<R: Reader> Evaluation<R> {
         match self.state {
             EvaluationState::Start(initial_value) => {
                 if let Some(value) = initial_value {
-                    self.push(Value::Generic(value));
+                    self.push(Value::Generic(value))?;
                 }
                 self.state = EvaluationState::Ready;
             }
@@ -1549,7 +1579,7 @@ impl<R: Reader> Evaluation<R> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::Memory) => {
-                self.push(value);
+                self.push(value)?;
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_memory` without a preceding `EvaluationResult::RequiresMemory`"
@@ -1572,7 +1602,7 @@ impl<R: Reader> Evaluation<R> {
             EvaluationState::Waiting(EvaluationWaiting::Register { offset }) => {
                 let offset = Value::from_u64(value.value_type(), offset as u64)?;
                 let value = value.add(offset, self.addr_mask)?;
-                self.push(value);
+                self.push(value)?;
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_register` without a preceding `EvaluationResult::RequiresRegister`"
@@ -1593,7 +1623,7 @@ impl<R: Reader> Evaluation<R> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::FrameBase { offset }) => {
-                self.push(Value::Generic(frame_base.wrapping_add(offset as u64)));
+                self.push(Value::Generic(frame_base.wrapping_add(offset as u64)))?;
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_frame_base` without a preceding `EvaluationResult::RequiresFrameBase`"
@@ -1614,7 +1644,7 @@ impl<R: Reader> Evaluation<R> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::Tls) => {
-                self.push(Value::Generic(value));
+                self.push(Value::Generic(value))?;
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_tls` without a preceding `EvaluationResult::RequiresTls`"
@@ -1635,7 +1665,7 @@ impl<R: Reader> Evaluation<R> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::Cfa) => {
-                self.push(Value::Generic(cfa));
+                self.push(Value::Generic(cfa))?;
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_call_frame_cfa` without a preceding `EvaluationResult::RequiresCallFrameCfa`"
@@ -1660,7 +1690,7 @@ impl<R: Reader> Evaluation<R> {
                     let mut pc = bytes.clone();
                     mem::swap(&mut pc, &mut self.pc);
                     mem::swap(&mut bytes, &mut self.bytecode);
-                    self.expression_stack.push((pc, bytes));
+                    self.expression_stack.try_push((pc, bytes)).map_err(|_| Error::CfiStackFull)?;
                 }
             }
             _ => panic!(
@@ -1682,7 +1712,7 @@ impl<R: Reader> Evaluation<R> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::EntryValue) => {
-                self.push(entry_value);
+                self.push(entry_value)?;
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_entry_value` without a preceding `EvaluationResult::RequiresEntryValue`"
@@ -1706,7 +1736,7 @@ impl<R: Reader> Evaluation<R> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::ParameterRef) => {
-                self.push(Value::Generic(parameter_value));
+                self.push(Value::Generic(parameter_value))?;
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_parameter_ref` without a preceding `EvaluationResult::RequiresParameterRef`"
@@ -1728,7 +1758,7 @@ impl<R: Reader> Evaluation<R> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::RelocatedAddress) => {
-                self.push(Value::Generic(address));
+                self.push(Value::Generic(address))?;
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_relocated_address` without a preceding `EvaluationResult::RequiresRelocatedAddress`"
@@ -1750,7 +1780,7 @@ impl<R: Reader> Evaluation<R> {
         match self.state {
             EvaluationState::Error(err) => return Err(err),
             EvaluationState::Waiting(EvaluationWaiting::IndexedAddress) => {
-                self.push(Value::Generic(address));
+                self.push(Value::Generic(address))?;
             }
             _ => panic!(
                 "Called `Evaluation::resume_with_indexed_address` without a preceding `EvaluationResult::RequiresIndexedAddress`"
@@ -1785,7 +1815,7 @@ impl<R: Reader> Evaluation<R> {
                 "Called `Evaluation::resume_with_base_type` without a preceding `EvaluationResult::RequiresBaseType`"
             ),
         };
-        self.push(value);
+        self.push(value)?;
         self.evaluate_internal()
     }
 
@@ -1830,11 +1860,13 @@ impl<R: Reader> Evaluation<R> {
                             // well-defined.
                             return Err(Error::InvalidPiece);
                         }
-                        self.result.push(Piece {
-                            size_in_bits: None,
-                            bit_offset: None,
-                            location,
-                        });
+                        self.result
+                            .try_push(Piece {
+                                size_in_bits: None,
+                                bit_offset: None,
+                                location,
+                            })
+                            .map_err(|_| Error::CfiStackFull)?;
                     } else {
                         // If there are more operations, then the next operation must
                         // be a Piece.
@@ -1843,11 +1875,13 @@ impl<R: Reader> Evaluation<R> {
                                 size_in_bits,
                                 bit_offset,
                             } => {
-                                self.result.push(Piece {
-                                    size_in_bits: Some(size_in_bits),
-                                    bit_offset,
-                                    location,
-                                });
+                                self.result
+                                    .try_push(Piece {
+                                        size_in_bits: Some(size_in_bits),
+                                        bit_offset,
+                                        location,
+                                    })
+                                    .map_err(|_| Error::CfiStackFull)?;
                             }
                             _ => {
                                 let value =
@@ -1869,15 +1903,32 @@ impl<R: Reader> Evaluation<R> {
         if self.result.is_empty() {
             let entry = self.pop()?;
             let addr = entry.to_u64(self.addr_mask)?;
-            self.result.push(Piece {
-                size_in_bits: None,
-                bit_offset: None,
-                location: Location::Address { address: addr },
-            });
+            self.result
+                .try_push(Piece {
+                    size_in_bits: None,
+                    bit_offset: None,
+                    location: Location::Address { address: addr },
+                })
+                .map_err(|_| Error::CfiStackFull)?;
         }
 
         self.state = EvaluationState::Complete;
         Ok(EvaluationResult::Complete)
+    }
+}
+
+impl<R: Reader> Evaluation<R, StoreOnHeap> {
+    /// Get the result of this `Evaluation`.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` has not been driven to completion.
+    pub fn result(self) -> Vec<Piece<R>> {
+        match self.state {
+            EvaluationState::Complete => self.result.into_vec(),
+            _ => {
+                panic!("Called `Evaluation::result` on an `Evaluation` that has not been completed")
+            }
+        }
     }
 }
 

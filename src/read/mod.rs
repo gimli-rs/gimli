@@ -240,6 +240,10 @@ pub use self::unit::*;
 mod value;
 pub use self::value::*;
 
+/// Indicates that storage should be allocated on heap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StoreOnHeap;
+
 /// `EndianBuf` has been renamed to `EndianSlice`. For ease of upgrading across
 /// `gimli` versions, we export this type alias.
 #[deprecated(note = "EndianBuf has been renamed to EndianSlice, use that instead.")]
