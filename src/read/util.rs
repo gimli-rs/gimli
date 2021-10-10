@@ -77,6 +77,24 @@ impl<A: Array> ArrayVec<A> {
         Ok(())
     }
 
+    pub fn try_insert(&mut self, index: usize, element: A::Item) -> Result<(), CapacityFull> {
+        assert!(index <= self.len);
+
+        let storage = A::as_mut_slice(&mut self.storage);
+        if self.len >= storage.len() {
+            return Err(CapacityFull);
+        }
+
+        // SAFETY: storage[index] is filled later.
+        unsafe {
+            let p = storage.as_mut_ptr().add(index);
+            core::ptr::copy(p, p.add(1), self.len - index);
+        }
+        storage[index] = MaybeUninit::new(element);
+        self.len += 1;
+        Ok(())
+    }
+
     pub fn pop(&mut self) -> Option<A::Item> {
         if self.len == 0 {
             None
