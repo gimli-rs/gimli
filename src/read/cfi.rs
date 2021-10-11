@@ -1866,7 +1866,7 @@ impl<R: Reader, A: UnwindContextStorage<R>> UnwindContext<R, A> {
                 let rules = self.stack.last().unwrap().clone();
                 self.stack
                     .try_insert(0, rules)
-                    .map_err(|_| Error::CfiStackFull)?;
+                    .map_err(|_| Error::StackFull)?;
                 None
             }
         };
@@ -1913,7 +1913,7 @@ impl<R: Reader, A: UnwindContextStorage<R>> UnwindContext<R, A> {
         let new_row = self.row().clone();
         self.stack
             .try_push(new_row)
-            .map_err(|_| Error::CfiStackFull)
+            .map_err(|_| Error::StackFull)
     }
 
     fn pop_row(&mut self) -> Result<()> {

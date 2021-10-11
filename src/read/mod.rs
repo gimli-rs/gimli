@@ -384,9 +384,9 @@ pub enum Error {
     UnsupportedRegister(u64),
     /// The CFI program defined more register rules than we have storage for.
     TooManyRegisterRules,
-    /// Attempted to push onto the CFI stack, but it was already at full
-    /// capacity.
-    CfiStackFull,
+    /// Attempted to push onto the CFI or evaluation stack, but it was already
+    /// at full capacity.
+    StackFull,
     /// The `.eh_frame_hdr` binary search table claims to be variable-length encoded,
     /// which makes binary search impossible.
     VariableLengthSearchTable,
@@ -540,7 +540,7 @@ impl Error {
             Error::TooManyRegisterRules => {
                 "The CFI program defined more register rules than we have storage for."
             }
-            Error::CfiStackFull => {
+            Error::StackFull => {
                 "Attempted to push onto the CFI stack, but it was already at full capacity."
             }
             Error::VariableLengthSearchTable => {

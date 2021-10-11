@@ -4,10 +4,9 @@ use alloc::vec::Vec;
 use core::mem;
 
 use super::util::{ArrayLike, ArrayVec};
-use super::StoreOnHeap;
 use crate::common::{DebugAddrIndex, DebugInfoOffset, Encoding, Register};
 use crate::constants;
-use crate::read::{Error, Reader, ReaderOffset, Result, UnitOffset, Value, ValueType};
+use crate::read::{Error, Reader, ReaderOffset, Result, StoreOnHeap, UnitOffset, Value, ValueType};
 
 /// A reference to a DIE, either relative to the current CU or
 /// relative to the section.
@@ -1155,7 +1154,7 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
     }
 
     fn push(&mut self, value: Value) -> Result<()> {
-        self.stack.try_push(value).map_err(|_| Error::CfiStackFull)
+        self.stack.try_push(value).map_err(|_| Error::StackFull)
     }
 
     #[allow(clippy::cyclomatic_complexity)]
@@ -1495,7 +1494,7 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
                         bit_offset,
                         location,
                     })
-                    .map_err(|_| Error::CfiStackFull)?;
+                    .map_err(|_| Error::StackFull)?;
                 return Ok(OperationEvaluationResult::Piece);
             }
 
@@ -1527,13 +1526,13 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
         Ok(OperationEvaluationResult::Incomplete)
     }
 
-    /// Get the last result of this `Evaluation`.
+    /// Get the result of this `Evaluation`.
     ///
     /// # Panics
     /// Panics if this `Evaluation` has not been driven to completion.
-    pub fn result_last(mut self) -> Option<Piece<R>> {
+    pub fn as_result(&self) -> &[Piece<R>] {
         match self.state {
-            EvaluationState::Complete => self.result.pop(),
+            EvaluationState::Complete => &self.result,
             _ => {
                 panic!("Called `Evaluation::result` on an `Evaluation` that has not been completed")
             }
@@ -1690,7 +1689,7 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
                     let mut pc = bytes.clone();
                     mem::swap(&mut pc, &mut self.pc);
                     mem::swap(&mut bytes, &mut self.bytecode);
-                    self.expression_stack.try_push((pc, bytes)).map_err(|_| Error::CfiStackFull)?;
+                    self.expression_stack.try_push((pc, bytes)).map_err(|_| Error::StackFull)?;
                 }
             }
             _ => panic!(
@@ -1866,7 +1865,7 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
                                 bit_offset: None,
                                 location,
                             })
-                            .map_err(|_| Error::CfiStackFull)?;
+                            .map_err(|_| Error::StackFull)?;
                     } else {
                         // If there are more operations, then the next operation must
                         // be a Piece.
@@ -1881,7 +1880,7 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
                                         bit_offset,
                                         location,
                                     })
-                                    .map_err(|_| Error::CfiStackFull)?;
+                                    .map_err(|_| Error::StackFull)?;
                             }
                             _ => {
                                 let value =
@@ -1909,7 +1908,7 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
                     bit_offset: None,
                     location: Location::Address { address: addr },
                 })
-                .map_err(|_| Error::CfiStackFull)?;
+                .map_err(|_| Error::StackFull)?;
         }
 
         self.state = EvaluationState::Complete;
