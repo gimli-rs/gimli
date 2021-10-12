@@ -178,6 +178,7 @@ use crate::common::{Register, SectionId};
 use crate::constants;
 
 mod util;
+pub use util::*;
 
 mod addr;
 pub use self::addr::*;
@@ -238,6 +239,10 @@ pub use self::unit::*;
 
 mod value;
 pub use self::value::*;
+
+/// Indicates that storage should be allocated on heap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StoreOnHeap;
 
 /// `EndianBuf` has been renamed to `EndianSlice`. For ease of upgrading across
 /// `gimli` versions, we export this type alias.
@@ -379,9 +384,9 @@ pub enum Error {
     UnsupportedRegister(u64),
     /// The CFI program defined more register rules than we have storage for.
     TooManyRegisterRules,
-    /// Attempted to push onto the CFI stack, but it was already at full
-    /// capacity.
-    CfiStackFull,
+    /// Attempted to push onto the CFI or evaluation stack, but it was already
+    /// at full capacity.
+    StackFull,
     /// The `.eh_frame_hdr` binary search table claims to be variable-length encoded,
     /// which makes binary search impossible.
     VariableLengthSearchTable,
@@ -535,7 +540,7 @@ impl Error {
             Error::TooManyRegisterRules => {
                 "The CFI program defined more register rules than we have storage for."
             }
-            Error::CfiStackFull => {
+            Error::StackFull => {
                 "Attempted to push onto the CFI stack, but it was already at full capacity."
             }
             Error::VariableLengthSearchTable => {

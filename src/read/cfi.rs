@@ -1,14 +1,18 @@
+use alloc::vec::Vec;
+
 use core::cmp::{Ord, Ordering};
-use core::fmt::Debug;
+use core::fmt::{self, Debug};
 use core::iter::FromIterator;
 use core::mem;
 use core::num::Wrapping;
 
-use super::util::ArrayVec;
+use super::util::{ArrayLike, ArrayVec};
 use crate::common::{DebugFrameOffset, EhFrameOffset, Encoding, Format, Register, SectionId};
 use crate::constants::{self, DwEhPe};
 use crate::endianity::Endianity;
-use crate::read::{EndianSlice, Error, Expression, Reader, ReaderOffset, Result, Section};
+use crate::read::{
+    EndianSlice, Error, Expression, Reader, ReaderOffset, Result, Section, StoreOnHeap,
+};
 
 /// `DebugFrame` contains the `.debug_frame` section's frame unwinding
 /// information required to unwind to and recover registers from older frames on
@@ -368,14 +372,14 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     ///
     /// You must provide a function to get the associated CIE. See
     /// `PartialFrameDescriptionEntry::parse` for more information.
-    pub fn unwind_info_for_address<'ctx, F>(
+    pub fn unwind_info_for_address<'ctx, F, A: UnwindContextStorage<R>>(
         &self,
         frame: &EhFrame<R>,
         bases: &BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R>,
+        ctx: &'ctx mut UnwindContext<R, A>,
         address: u64,
         get_cie: F,
-    ) -> Result<&'ctx UnwindTableRow<R>>
+    ) -> Result<&'ctx UnwindTableRow<R, A>>
     where
         F: FnMut(
             &EhFrame<R>,
@@ -675,13 +679,13 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// # }
     /// ```
     #[inline]
-    fn unwind_info_for_address<'ctx, F>(
+    fn unwind_info_for_address<'ctx, F, A: UnwindContextStorage<R>>(
         &self,
         bases: &BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R>,
+        ctx: &'ctx mut UnwindContext<R, A>,
         address: u64,
         get_cie: F,
-    ) -> Result<&'ctx UnwindTableRow<R>>
+    ) -> Result<&'ctx UnwindTableRow<R, A>>
     where
         F: FnMut(&Self, &BaseAddresses, Self::Offset) -> Result<CommonInformationEntry<R>>,
     {
@@ -1606,12 +1610,12 @@ impl<R: Reader> FrameDescriptionEntry<R> {
 
     /// Return the table of unwind information for this FDE.
     #[inline]
-    pub fn rows<'a, 'ctx, Section: UnwindSection<R>>(
+    pub fn rows<'a, 'ctx, Section: UnwindSection<R>, A: UnwindContextStorage<R>>(
         &self,
         section: &'a Section,
         bases: &'a BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R>,
-    ) -> Result<UnwindTable<'a, 'ctx, R>> {
+        ctx: &'ctx mut UnwindContext<R, A>,
+    ) -> Result<UnwindTable<'a, 'ctx, R, A>> {
         UnwindTable::new(section, bases, ctx, self)
     }
 
@@ -1621,13 +1625,13 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     /// context in the form `Ok((unwind_info, context))`. If not found,
     /// `Err(gimli::Error::NoUnwindInfoForAddress)` is returned. If parsing or
     /// CFI evaluation fails, the error is returned.
-    pub fn unwind_info_for_address<'ctx, Section: UnwindSection<R>>(
+    pub fn unwind_info_for_address<'ctx, Section: UnwindSection<R>, A: UnwindContextStorage<R>>(
         &self,
         section: &Section,
         bases: &BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R>,
+        ctx: &'ctx mut UnwindContext<R, A>,
         address: u64,
-    ) -> Result<&'ctx UnwindTableRow<R>> {
+    ) -> Result<&'ctx UnwindTableRow<R, A>> {
         let mut table = self.rows(section, bases, ctx)?;
         while let Some(row) = table.next_row()? {
             if row.contains(address) {
@@ -1732,7 +1736,56 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     }
 }
 
-const MAX_UNWIND_STACK_DEPTH: usize = 4;
+/// Specification of what storage should be used for [`UnwindContext`].
+///
+/// Normally you would only need to use [`StoreOnHeap`], which places the stack
+/// on the heap using [`Vec`]. This is the default storage type parameter for [`UnwindContext`].
+///
+/// If you need to avoid [`UnwindContext`] from allocating memory, e.g. for signal safety,
+/// you can provide you own storage specification:
+/// ```rust,no_run
+/// # use gimli::*;
+/// #
+/// # fn foo<'a>(some_fde: gimli::FrameDescriptionEntry<gimli::EndianSlice<'a, gimli::LittleEndian>>)
+/// #            -> gimli::Result<()> {
+/// # let eh_frame: gimli::EhFrame<_> = unreachable!();
+/// # let bases = unimplemented!();
+/// #
+/// struct StoreOnStack;
+///
+/// impl<R: Reader> UnwindContextStorage<R> for StoreOnStack {
+///     type Rules = [(Register, RegisterRule<R>); 192];
+///     type Stack = [UnwindTableRow<R, Self>; 4];
+/// }
+///
+/// let mut ctx = UnwindContext::<_, StoreOnStack>::new_in();
+///
+/// // Initialize the context by evaluating the CIE's initial instruction program,
+/// // and generate the unwind table.
+/// let mut table = some_fde.rows(&eh_frame, &bases, &mut ctx)?;
+/// while let Some(row) = table.next_row()? {
+///     // Do stuff with each row...
+/// #   let _ = row;
+/// }
+/// # unreachable!()
+/// # }
+/// ```
+pub trait UnwindContextStorage<R: Reader>: Sized {
+    /// The storage used for register rules in a unwind table row.
+    ///
+    /// Note that this is nested within the stack.
+    type Rules: ArrayLike<Item = (Register, RegisterRule<R>)>;
+
+    /// The storage used for unwind table row stack.
+    type Stack: ArrayLike<Item = UnwindTableRow<R, Self>>;
+}
+
+const MAX_RULES: usize = 192;
+
+impl<R: Reader> UnwindContextStorage<R> for StoreOnHeap {
+    type Rules = [(Register, RegisterRule<R>); MAX_RULES];
+    type Stack = Vec<UnwindTableRow<R, Self>>;
+}
 
 /// Common context needed when evaluating the call frame unwinding information.
 ///
@@ -1760,12 +1813,12 @@ const MAX_UNWIND_STACK_DEPTH: usize = 4;
 /// # unreachable!()
 /// # }
 /// ```
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UnwindContext<R: Reader> {
+#[derive(Clone, PartialEq, Eq)]
+pub struct UnwindContext<R: Reader, A: UnwindContextStorage<R> = StoreOnHeap> {
     // Stack of rows. The last row is the row currently being built by the
     // program. There is always at least one row. The vast majority of CFI
     // programs will only ever have one row on the stack.
-    stack: ArrayVec<[UnwindTableRow<R>; MAX_UNWIND_STACK_DEPTH]>,
+    stack: ArrayVec<A::Stack>,
 
     // If we are evaluating an FDE's instructions, then `is_initialized` will be
     // `true`. If `initial_rule` is `Some`, then the initial register rules are either
@@ -1780,19 +1833,36 @@ pub struct UnwindContext<R: Reader> {
     is_initialized: bool,
 }
 
-impl<R: Reader> Default for UnwindContext<R> {
+impl<R: Reader, S: UnwindContextStorage<R>> Debug for UnwindContext<R, S> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("UnwindContext")
+            .field("stack", &self.stack)
+            .field("initial_rule", &self.initial_rule)
+            .field("is_initialized", &self.is_initialized)
+            .finish()
+    }
+}
+
+impl<R: Reader, A: UnwindContextStorage<R>> Default for UnwindContext<R, A> {
     fn default() -> Self {
-        Self::new()
+        Self::new_in()
+    }
+}
+
+impl<R: Reader> UnwindContext<R> {
+    /// Construct a new call frame unwinding context.
+    pub fn new() -> Self {
+        Self::new_in()
     }
 }
 
 /// # Signal Safe Methods
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
-/// other signal-unsafe operations.
-impl<R: Reader> UnwindContext<R> {
+/// other signal-unsafe operations, if an non-allocating storage is used.
+impl<R: Reader, A: UnwindContextStorage<R>> UnwindContext<R, A> {
     /// Construct a new call frame unwinding context.
-    pub fn new() -> Self {
+    pub fn new_in() -> Self {
         let mut ctx = UnwindContext {
             stack: Default::default(),
             initial_rule: None,
@@ -1828,11 +1898,11 @@ impl<R: Reader> UnwindContext<R> {
         self.is_initialized = false;
     }
 
-    fn row(&self) -> &UnwindTableRow<R> {
+    fn row(&self) -> &UnwindTableRow<R, A> {
         self.stack.last().unwrap()
     }
 
-    fn row_mut(&mut self) -> &mut UnwindTableRow<R> {
+    fn row_mut(&mut self) -> &mut UnwindTableRow<R, A> {
         self.stack.last_mut().unwrap()
     }
 
@@ -1847,7 +1917,7 @@ impl<R: Reader> UnwindContext<R> {
                 let rules = self.stack.last().unwrap().clone();
                 self.stack
                     .try_insert(0, rules)
-                    .map_err(|_| Error::CfiStackFull)?;
+                    .map_err(|_| Error::StackFull)?;
                 None
             }
         };
@@ -1892,9 +1962,7 @@ impl<R: Reader> UnwindContext<R> {
 
     fn push_row(&mut self) -> Result<()> {
         let new_row = self.row().clone();
-        self.stack
-            .try_push(new_row)
-            .map_err(|_| Error::CfiStackFull)
+        self.stack.try_push(new_row).map_err(|_| Error::StackFull)
     }
 
     fn pop_row(&mut self) -> Result<()> {
@@ -1968,7 +2036,7 @@ impl<R: Reader> UnwindContext<R> {
 /// > recording just the differences starting at the beginning address of each
 /// > subroutine in the program.
 #[derive(Debug)]
-pub struct UnwindTable<'a, 'ctx, R: Reader> {
+pub struct UnwindTable<'a, 'ctx, R: Reader, A: UnwindContextStorage<R> = StoreOnHeap> {
     code_alignment_factor: Wrapping<u64>,
     data_alignment_factor: Wrapping<i64>,
     next_start_address: u64,
@@ -1976,20 +2044,20 @@ pub struct UnwindTable<'a, 'ctx, R: Reader> {
     returned_last_row: bool,
     current_row_valid: bool,
     instructions: CallFrameInstructionIter<'a, R>,
-    ctx: &'ctx mut UnwindContext<R>,
+    ctx: &'ctx mut UnwindContext<R, A>,
 }
 
 /// # Signal Safe Methods
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
-impl<'a, 'ctx, R: Reader> UnwindTable<'a, 'ctx, R> {
+impl<'a, 'ctx, R: Reader, A: UnwindContextStorage<R>> UnwindTable<'a, 'ctx, R, A> {
     /// Construct a new `UnwindTable` for the given
     /// `FrameDescriptionEntry`'s CFI unwinding program.
     pub fn new<Section: UnwindSection<R>>(
         section: &'a Section,
         bases: &'a BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R>,
+        ctx: &'ctx mut UnwindContext<R, A>,
         fde: &FrameDescriptionEntry<R>,
     ) -> Result<Self> {
         ctx.initialize(section, bases, fde.cie())?;
@@ -1999,7 +2067,7 @@ impl<'a, 'ctx, R: Reader> UnwindTable<'a, 'ctx, R> {
     fn new_for_fde<Section: UnwindSection<R>>(
         section: &'a Section,
         bases: &'a BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R>,
+        ctx: &'ctx mut UnwindContext<R, A>,
         fde: &FrameDescriptionEntry<R>,
     ) -> Self {
         assert!(ctx.stack.len() >= 1);
@@ -2018,7 +2086,7 @@ impl<'a, 'ctx, R: Reader> UnwindTable<'a, 'ctx, R> {
     fn new_for_cie<Section: UnwindSection<R>>(
         section: &'a Section,
         bases: &'a BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R>,
+        ctx: &'ctx mut UnwindContext<R, A>,
         cie: &CommonInformationEntry<R>,
     ) -> Self {
         assert!(ctx.stack.len() >= 1);
@@ -2039,7 +2107,7 @@ impl<'a, 'ctx, R: Reader> UnwindTable<'a, 'ctx, R> {
     ///
     /// Unfortunately, this cannot be used with `FallibleIterator` because of
     /// the restricted lifetime of the yielded item.
-    pub fn next_row(&mut self) -> Result<Option<&UnwindTableRow<R>>> {
+    pub fn next_row(&mut self) -> Result<Option<&UnwindTableRow<R, A>>> {
         assert!(self.ctx.stack.len() >= 1);
         self.ctx.set_start_address(self.next_start_address);
         self.current_row_valid = false;
@@ -2072,7 +2140,7 @@ impl<'a, 'ctx, R: Reader> UnwindTable<'a, 'ctx, R> {
     }
 
     /// Returns the current row with the lifetime of the context.
-    pub fn into_current_row(self) -> Option<&'ctx UnwindTableRow<R>> {
+    pub fn into_current_row(self) -> Option<&'ctx UnwindTableRow<R, A>> {
         if self.current_row_valid {
             Some(self.ctx.row())
         } else {
@@ -2279,16 +2347,27 @@ impl<'a, 'ctx, R: Reader> UnwindTable<'a, 'ctx, R> {
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-aarch64/dwarf-config.h#L32
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-arm/dwarf-config.h#L31
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-mips/dwarf-config.h#L31
-//
-// TODO: Consider using const generics for the array size.
-#[derive(Clone, Debug)]
-struct RegisterRuleMap<R: Reader> {
-    rules: ArrayVec<[(Register, RegisterRule<R>); MAX_RULES]>,
+struct RegisterRuleMap<R: Reader, S: UnwindContextStorage<R> = StoreOnHeap> {
+    rules: ArrayVec<S::Rules>,
 }
 
-const MAX_RULES: usize = 192;
+impl<R: Reader, S: UnwindContextStorage<R>> Debug for RegisterRuleMap<R, S> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("RegisterRuleMap")
+            .field("rules", &self.rules)
+            .finish()
+    }
+}
 
-impl<R: Reader> Default for RegisterRuleMap<R> {
+impl<R: Reader, S: UnwindContextStorage<R>> Clone for RegisterRuleMap<R, S> {
+    fn clone(&self) -> Self {
+        Self {
+            rules: self.rules.clone(),
+        }
+    }
+}
+
+impl<R: Reader, S: UnwindContextStorage<R>> Default for RegisterRuleMap<R, S> {
     fn default() -> Self {
         RegisterRuleMap {
             rules: Default::default(),
@@ -2300,7 +2379,7 @@ impl<R: Reader> Default for RegisterRuleMap<R> {
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
-impl<R: Reader> RegisterRuleMap<R> {
+impl<R: Reader, S: UnwindContextStorage<R>> RegisterRuleMap<R, S> {
     fn is_default(&self) -> bool {
         self.rules.is_empty()
     }
@@ -2348,11 +2427,12 @@ impl<R: Reader> RegisterRuleMap<R> {
     }
 }
 
-impl<'a, R> FromIterator<&'a (Register, RegisterRule<R>)> for RegisterRuleMap<R>
+impl<'a, R, S: UnwindContextStorage<R>> FromIterator<&'a (Register, RegisterRule<R>)>
+    for RegisterRuleMap<R, S>
 where
     R: 'a + Reader,
 {
-    fn from_iter<T>(iter: T) -> RegisterRuleMap<R>
+    fn from_iter<T>(iter: T) -> Self
     where
         T: IntoIterator<Item = &'a (Register, RegisterRule<R>)>,
     {
@@ -2368,7 +2448,7 @@ where
     }
 }
 
-impl<R> PartialEq for RegisterRuleMap<R>
+impl<R, S: UnwindContextStorage<R>> PartialEq for RegisterRuleMap<R, S>
 where
     R: Reader + PartialEq,
 {
@@ -2391,7 +2471,7 @@ where
     }
 }
 
-impl<R> Eq for RegisterRuleMap<R> where R: Reader + Eq {}
+impl<R, S: UnwindContextStorage<R>> Eq for RegisterRuleMap<R, S> where R: Reader + Eq {}
 
 /// An unordered iterator for register rules.
 #[derive(Debug, Clone)]
@@ -2409,16 +2489,40 @@ impl<'iter, R: Reader> Iterator for RegisterRuleIter<'iter, R> {
 
 /// A row in the virtual unwind table that describes how to find the values of
 /// the registers in the *previous* frame for a range of PC addresses.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UnwindTableRow<R: Reader> {
+#[derive(PartialEq, Eq)]
+pub struct UnwindTableRow<R: Reader, S: UnwindContextStorage<R> = StoreOnHeap> {
     start_address: u64,
     end_address: u64,
     saved_args_size: u64,
     cfa: CfaRule<R>,
-    registers: RegisterRuleMap<R>,
+    registers: RegisterRuleMap<R, S>,
 }
 
-impl<R: Reader> Default for UnwindTableRow<R> {
+impl<R: Reader, S: UnwindContextStorage<R>> Debug for UnwindTableRow<R, S> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("UnwindTableRow")
+            .field("start_address", &self.start_address)
+            .field("end_address", &self.end_address)
+            .field("saved_args_size", &self.saved_args_size)
+            .field("cfa", &self.cfa)
+            .field("registers", &self.registers)
+            .finish()
+    }
+}
+
+impl<R: Reader, S: UnwindContextStorage<R>> Clone for UnwindTableRow<R, S> {
+    fn clone(&self) -> Self {
+        Self {
+            start_address: self.start_address,
+            end_address: self.end_address,
+            saved_args_size: self.saved_args_size,
+            cfa: self.cfa.clone(),
+            registers: self.registers.clone(),
+        }
+    }
+}
+
+impl<R: Reader, S: UnwindContextStorage<R>> Default for UnwindTableRow<R, S> {
     fn default() -> Self {
         UnwindTableRow {
             start_address: 0,
@@ -2430,7 +2534,7 @@ impl<R: Reader> Default for UnwindTableRow<R> {
     }
 }
 
-impl<R: Reader> UnwindTableRow<R> {
+impl<R: Reader, S: UnwindContextStorage<R>> UnwindTableRow<R, S> {
     fn is_default(&self) -> bool {
         self.start_address == 0
             && self.end_address == 0
