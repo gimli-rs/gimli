@@ -981,6 +981,46 @@ impl<R: Reader> OperationIter<R> {
 }
 
 /// Specification of what storage should be used for [`Evaluation`].
+///
+/// Normally you would only need to use [`StoreOnHeap`], which places the stacks and the results
+/// on the heap using [`Vec`]. This is the default storage type parameter for [`Evaluation`].
+///
+/// If you need to avoid [`Evaluation`] from allocating memory, e.g. for signal safety,
+/// you can provide you own storage specification:
+/// ```rust,no_run
+/// # use gimli::*;
+/// # let bytecode = EndianSlice::new(&[], LittleEndian);
+/// # let encoding = unimplemented!();
+/// # let get_register_value = |_, _| Value::Generic(42);
+/// # let get_frame_base = || 0xdeadbeef;
+/// #
+/// struct StoreOnStack;
+///
+/// impl<R: Reader> EvaluationStorage<R> for StoreOnStack {
+///     type Stack = [Value; 64];
+///     type ExpressionStack = [(R, R); 4];
+///     type Result = [Piece<R>; 1];
+/// }
+///
+/// let mut eval = Evaluation::<_, StoreOnStack>::new_in(bytecode, encoding);
+/// let mut result = eval.evaluate().unwrap();
+/// while result != EvaluationResult::Complete {
+///   match result {
+///     EvaluationResult::RequiresRegister { register, base_type } => {
+///       let value = get_register_value(register, base_type);
+///       result = eval.resume_with_register(value).unwrap();
+///     },
+///     EvaluationResult::RequiresFrameBase => {
+///       let frame_base = get_frame_base();
+///       result = eval.resume_with_frame_base(frame_base).unwrap();
+///     },
+///     _ => unimplemented!(),
+///   };
+/// }
+///
+/// let result = eval.as_result();
+/// println!("{:?}", result);
+/// ```
 pub trait EvaluationStorage<R: Reader> {
     /// The storage used for the evaluation stack.
     type Stack: ArrayLike<Item = Value>;

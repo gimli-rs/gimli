@@ -1737,6 +1737,38 @@ impl<R: Reader> FrameDescriptionEntry<R> {
 }
 
 /// Specification of what storage should be used for [`UnwindContext`].
+///
+/// Normally you would only need to use [`StoreOnHeap`], which places the stack
+/// on the heap using [`Vec`]. This is the default storage type parameter for [`UnwindContext`].
+///
+/// If you need to avoid [`UnwindContext`] from allocating memory, e.g. for signal safety,
+/// you can provide you own storage specification:
+/// ```rust,no_run
+/// # use gimli::*;
+/// #
+/// # fn foo<'a>(some_fde: gimli::FrameDescriptionEntry<gimli::EndianSlice<'a, gimli::LittleEndian>>)
+/// #            -> gimli::Result<()> {
+/// # let eh_frame: gimli::EhFrame<_> = unreachable!();
+/// # let bases = unimplemented!();
+/// #
+/// struct StoreOnStack;
+///
+/// impl<R: Reader> UnwindContextStorage<R> for StoreOnStack {
+///     type Stack = [UnwindTableRow<R>; 4];
+/// }
+///
+/// let mut ctx = UnwindContext::<_, StoreOnStack>::new_in();
+///
+/// // Initialize the context by evaluating the CIE's initial instruction program,
+/// // and generate the unwind table.
+/// let mut table = some_fde.rows(&eh_frame, &bases, &mut ctx)?;
+/// while let Some(row) = table.next_row()? {
+///     // Do stuff with each row...
+/// #   let _ = row;
+/// }
+/// # unreachable!()
+/// # }
+/// ```
 pub trait UnwindContextStorage<R: Reader> {
     /// The storage used for unwind table row stack.
     type Stack: ArrayLike<Item = UnwindTableRow<R>> + Debug;
