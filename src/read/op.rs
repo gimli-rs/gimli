@@ -7,9 +7,7 @@ use core::mem;
 use super::util::{ArrayLike, ArrayVec};
 use crate::common::{DebugAddrIndex, DebugInfoOffset, Encoding, Register};
 use crate::constants;
-#[cfg(feature = "read")]
-use crate::read::StoreOnHeap;
-use crate::read::{Error, Reader, ReaderOffset, Result, UnitOffset, Value, ValueType};
+use crate::read::{Error, Reader, ReaderOffset, Result, StoreOnHeap, UnitOffset, Value, ValueType};
 
 /// A reference to a DIE, either relative to the current CU or
 /// relative to the section.
@@ -1092,11 +1090,7 @@ impl<R: Reader> EvaluationStorage<R> for StoreOnHeap {
 /// println!("{:?}", result);
 /// ```
 #[derive(Debug)]
-pub struct Evaluation<
-    R: Reader,
-    #[cfg(not(feature = "read"))] S: EvaluationStorage<R>,
-    #[cfg(feature = "read")] S: EvaluationStorage<R> = StoreOnHeap,
-> {
+pub struct Evaluation<R: Reader, S: EvaluationStorage<R> = StoreOnHeap> {
     bytecode: R,
     encoding: Encoding,
     object_address: Option<u64>,
