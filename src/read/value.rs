@@ -3,7 +3,9 @@
 use core::mem;
 
 use crate::constants;
-use crate::read::{AttributeValue, DebuggingInformationEntry, Error, Reader, Result};
+#[cfg(feature = "read")]
+use crate::read::{AttributeValue, DebuggingInformationEntry};
+use crate::read::{Error, Reader, Result};
 
 /// Convert a u64 to an i64, with sign extension if required.
 ///
@@ -107,6 +109,7 @@ impl ValueType {
     }
 
     /// Construct a `ValueType` from a base type DIE.
+    #[cfg(feature = "read")]
     pub fn from_entry<R: Reader>(
         entry: &DebuggingInformationEntry<R>,
     ) -> Result<Option<ValueType>> {

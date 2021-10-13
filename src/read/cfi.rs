@@ -1,3 +1,4 @@
+#[cfg(feature = "read")]
 use alloc::vec::Vec;
 
 use core::cmp::{Ord, Ordering};
@@ -1738,8 +1739,13 @@ impl<R: Reader> FrameDescriptionEntry<R> {
 
 /// Specification of what storage should be used for [`UnwindContext`].
 ///
-/// Normally you would only need to use [`StoreOnHeap`], which places the stack
-/// on the heap using [`Vec`]. This is the default storage type parameter for [`UnwindContext`].
+#[cfg_attr(
+    feature = "read",
+    doc = "
+Normally you would only need to use [`StoreOnHeap`], which places the stack
+on the heap using [`Vec`]. This is the default storage type parameter for [`UnwindContext`].
+"
+)]
 ///
 /// If you need to avoid [`UnwindContext`] from allocating memory, e.g. for signal safety,
 /// you can provide you own storage specification:
@@ -1780,8 +1786,10 @@ pub trait UnwindContextStorage<R: Reader>: Sized {
     type Stack: ArrayLike<Item = UnwindTableRow<R, Self>>;
 }
 
+#[cfg(feature = "read")]
 const MAX_RULES: usize = 192;
 
+#[cfg(feature = "read")]
 impl<R: Reader> UnwindContextStorage<R> for StoreOnHeap {
     type Rules = [(Register, RegisterRule<R>); MAX_RULES];
     type Stack = Vec<UnwindTableRow<R, Self>>;
@@ -1849,6 +1857,7 @@ impl<R: Reader, A: UnwindContextStorage<R>> Default for UnwindContext<R, A> {
     }
 }
 
+#[cfg(feature = "read")]
 impl<R: Reader> UnwindContext<R> {
     /// Construct a new call frame unwinding context.
     pub fn new() -> Self {

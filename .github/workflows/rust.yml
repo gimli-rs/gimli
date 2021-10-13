@@ -103,6 +103,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - run: cargo test --no-default-features
+      # Ensure gimli can be built without alloc.
+      - run: cargo check --no-default-features --features read-core
       - run: cargo test --no-default-features --features read
       - run: cargo test --no-default-features --features read,fallible-iterator
       - run: cargo test --no-default-features --features read,std

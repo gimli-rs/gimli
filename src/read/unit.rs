@@ -15,7 +15,7 @@ use crate::constants;
 use crate::endianity::Endianity;
 use crate::read::{
     Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, DebugStr, EndianSlice, Error,
-    Expression, Reader, ReaderOffset, Result, Section,
+    Expression, Reader, ReaderOffset, Result, Section, UnitOffset,
 };
 
 impl<T: ReaderOffset> DebugTypesOffset<T> {
@@ -51,10 +51,6 @@ impl<T: ReaderOffset> DebugInfoOffset<T> {
         Some(offset)
     }
 }
-
-/// An offset into the current compilation or type unit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub struct UnitOffset<T = usize>(pub T);
 
 impl<T: ReaderOffset> UnitOffset<T> {
     /// Convert an offset to be relative to the start of the .debug_info section,
