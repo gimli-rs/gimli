@@ -406,6 +406,11 @@ pub trait Reader: Debug + Clone {
         Ok(val)
     }
 
+    /// Skip a LEB128 encoded integer.
+    fn skip_leb128(&mut self) -> Result<()> {
+        leb128::read::skip(self)
+    }
+
     /// Read an unsigned LEB128 encoded integer.
     fn read_uleb128(&mut self) -> Result<u64> {
         leb128::read::unsigned(self)
