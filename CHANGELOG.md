@@ -2,6 +2,62 @@
 
 --------------------------------------------------------------------------------
 
+## 0.26.0
+
+Released 2021/10/24.
+
+### Breaking changes
+
+* Removed `read::UninitializedUnwindContext`. Use `Box<UnwindContext>` instead.
+  [#593](https://github.com/gimli-rs/gimli/pull/593)
+
+* Renamed `read::Error::CfiStackFull` to `StackFull`.
+  [#595](https://github.com/gimli-rs/gimli/pull/595)
+
+* Added `UnwindContextStorage` type parameter to `read::UnwindContext`, `read::UnwindTable`,
+  `read::UnwindTableRow`, and `read::RegisterRuleMap`.
+  [#595](https://github.com/gimli-rs/gimli/pull/595)
+
+* Added `EvaluationStorage` type parameter to `read::Evaluation`.
+  [#595](https://github.com/gimli-rs/gimli/pull/595)
+
+* Added `read::SectionId::DebugCuIndex` and `read::SectionId::DebugTuIndex`.
+  [#588](https://github.com/gimli-rs/gimli/pull/588)
+
+### Changed
+
+* Fixed `DW_EH_PE_pcrel` handling in default `write::Writer::write_eh_pointer` implementation.
+  [#576](https://github.com/gimli-rs/gimli/pull/576)
+
+* Fixed `read::AttributeSpecification::size` for some forms.
+  [#597](https://github.com/gimli-rs/gimli/pull/597)
+
+* Display more unit details in dwarfdump.
+  [#584](https://github.com/gimli-rs/gimli/pull/584)
+
+### Added
+
+* Added `write::DebuggingInformationEntry::delete_child`.
+  [#570](https://github.com/gimli-rs/gimli/pull/570)
+
+* Added ARM and AArch64 register definitions.
+  [#574](https://github.com/gimli-rs/gimli/pull/574)
+  [#577](https://github.com/gimli-rs/gimli/pull/577)
+
+* Added RISC-V register definitions.
+  [#579](https://github.com/gimli-rs/gimli/pull/579)
+
+* Added `read::DwarfPackage`, `read::DebugCuIndex`, and `read::DebugTuIndex`.
+  [#588](https://github.com/gimli-rs/gimli/pull/588)
+
+* Added `read-core` feature to allow building without `liballoc`.
+  [#596](https://github.com/gimli-rs/gimli/pull/596)
+
+* Added `read::EntriesRaw::skip_attributes`.
+  [#597](https://github.com/gimli-rs/gimli/pull/597)
+
+--------------------------------------------------------------------------------
+
 ## 0.25.0
 
 Released 2021/07/26.
