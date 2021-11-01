@@ -308,8 +308,8 @@ impl Value {
             Value::U32(value) => u64::from(value),
             Value::I64(value) => value as u64,
             Value::U64(value) => value,
-            Value::F32(value) => u64::from(unsafe { mem::transmute::<f32, u32>(value) }),
-            Value::F64(value) => unsafe { mem::transmute(value) },
+            Value::F32(value) => u64::from(f32::to_bits(value)),
+            Value::F64(value) => f64::to_bits(value),
         };
         let value = match value_type {
             ValueType::Generic => Value::Generic(bits),
