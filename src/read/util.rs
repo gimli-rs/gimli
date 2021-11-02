@@ -175,10 +175,12 @@ impl<A: ArrayLike> ArrayVec<A> {
 #[cfg(feature = "read")]
 impl<T> ArrayVec<Vec<T>> {
     pub fn into_vec(mut self) -> Vec<T> {
+        let len = core::mem::replace(&mut self.len, 0);
         let storage = core::mem::replace(&mut self.storage, Box::new([]));
         let slice = Box::leak(storage);
+        debug_assert!(len <= slice.len());
         // SAFETY: valid elements.
-        unsafe { Vec::from_raw_parts(slice.as_ptr() as _, self.len, slice.len()) }
+        unsafe { Vec::from_raw_parts(slice.as_ptr() as _, len, slice.len()) }
     }
 }
 
@@ -199,6 +201,7 @@ impl<A: ArrayLike> ops::Deref for ArrayVec<A> {
 
     fn deref(&self) -> &[A::Item] {
         let slice = &A::as_slice(&self.storage);
+        debug_assert!(self.len <= slice.len());
         // SAFETY: valid elements.
         unsafe { slice::from_raw_parts(slice.as_ptr() as _, self.len) }
     }
@@ -207,6 +210,7 @@ impl<A: ArrayLike> ops::Deref for ArrayVec<A> {
 impl<A: ArrayLike> ops::DerefMut for ArrayVec<A> {
     fn deref_mut(&mut self) -> &mut [A::Item] {
         let slice = &mut A::as_mut_slice(&mut self.storage);
+        debug_assert!(self.len <= slice.len());
         // SAFETY: valid elements.
         unsafe { slice::from_raw_parts_mut(slice.as_mut_ptr() as _, self.len) }
     }
