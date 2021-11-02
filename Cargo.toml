@@ -1,6 +1,6 @@
 [package]
 name = "gimli"
-version = "0.26.0"
+version = "0.26.1"
 categories = ["development-tools::debugging", "development-tools::profiling", "parser-implementations"]
 description = "A library for reading and writing the DWARF debugging format."
 documentation = "https://docs.rs/gimli"
