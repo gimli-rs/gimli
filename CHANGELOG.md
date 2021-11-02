@@ -2,6 +2,18 @@
 
 --------------------------------------------------------------------------------
 
+## 0.26.1
+
+Released 2021/11/02.
+
+### Changed
+
+* Fixed segmentation fault in `ArrayVec<Vec<T>>::into_vec`, which may be used by
+  `read::Evaluation::result`. This regression was introduced in 0.26.0.
+  [#601](https://github.com/gimli-rs/gimli/pull/601)
+
+--------------------------------------------------------------------------------
+
 ## 0.26.0
 
 Released 2021/10/24.
