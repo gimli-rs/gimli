@@ -7,7 +7,7 @@ use core::iter::FromIterator;
 use core::mem;
 use core::num::Wrapping;
 
-use super::util::{ArrayLike, ArrayVec};
+use super::util::{ArrayLike, ArrayLikeSealed, ArrayLikeStorage};
 use crate::common::{DebugFrameOffset, EhFrameOffset, Encoding, Format, Register, SectionId};
 use crate::constants::{self, DwEhPe};
 use crate::endianity::Endianity;
@@ -1821,12 +1821,12 @@ impl<R: Reader> UnwindContextStorage<R> for StoreOnHeap {
 /// # unreachable!()
 /// # }
 /// ```
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct UnwindContext<R: Reader, A: UnwindContextStorage<R> = StoreOnHeap> {
     // Stack of rows. The last row is the row currently being built by the
     // program. There is always at least one row. The vast majority of CFI
     // programs will only ever have one row on the stack.
-    stack: ArrayVec<A::Stack>,
+    stack: <A::Stack as ArrayLikeSealed>::Storage,
 
     // If we are evaluating an FDE's instructions, then `is_initialized` will be
     // `true`. If `initial_rule` is `Some`, then the initial register rules are either
@@ -1841,7 +1841,10 @@ pub struct UnwindContext<R: Reader, A: UnwindContextStorage<R> = StoreOnHeap> {
     is_initialized: bool,
 }
 
-impl<R: Reader, S: UnwindContextStorage<R>> Debug for UnwindContext<R, S> {
+impl<R: Reader, S: UnwindContextStorage<R>> Debug for UnwindContext<R, S>
+where
+    <S::Stack as ArrayLikeSealed>::Storage: fmt::Debug,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("UnwindContext")
             .field("stack", &self.stack)
@@ -1849,6 +1852,25 @@ impl<R: Reader, S: UnwindContextStorage<R>> Debug for UnwindContext<R, S> {
             .field("is_initialized", &self.is_initialized)
             .finish()
     }
+}
+
+impl<R: Reader, S: UnwindContextStorage<R>> PartialEq for UnwindContext<R, S>
+where
+    <S::Stack as ArrayLikeSealed>::Storage: PartialEq,
+    R: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.stack == other.stack
+            && self.initial_rule == other.initial_rule
+            && self.is_initialized == other.is_initialized
+    }
+}
+
+impl<R: Reader, S: UnwindContextStorage<R>> Eq for UnwindContext<R, S>
+where
+    <S::Stack as ArrayLikeSealed>::Storage: Eq,
+    R: Eq,
+{
 }
 
 impl<R: Reader, A: UnwindContextStorage<R>> Default for UnwindContext<R, A> {
@@ -2044,7 +2066,6 @@ impl<R: Reader, A: UnwindContextStorage<R>> UnwindContext<R, A> {
 /// > the ones above them. The whole table can be represented quite compactly by
 /// > recording just the differences starting at the beginning address of each
 /// > subroutine in the program.
-#[derive(Debug)]
 pub struct UnwindTable<'a, 'ctx, R: Reader, A: UnwindContextStorage<R> = StoreOnHeap> {
     code_alignment_factor: Wrapping<u64>,
     data_alignment_factor: Wrapping<i64>,
@@ -2054,6 +2075,24 @@ pub struct UnwindTable<'a, 'ctx, R: Reader, A: UnwindContextStorage<R> = StoreOn
     current_row_valid: bool,
     instructions: CallFrameInstructionIter<'a, R>,
     ctx: &'ctx mut UnwindContext<R, A>,
+}
+
+impl<'a, 'ctx, R: Reader, S: UnwindContextStorage<R>> Debug for UnwindTable<'a, 'ctx, R, S>
+where
+    <S::Stack as ArrayLikeSealed>::Storage: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("UnwindTable")
+            .field("code_alignment_factor", &self.code_alignment_factor)
+            .field("data_alignment_factor", &self.data_alignment_factor)
+            .field("next_start_address", &self.next_start_address)
+            .field("last_end_address", &self.last_end_address)
+            .field("returned_last_row", &self.returned_last_row)
+            .field("current_row_valid", &self.current_row_valid)
+            .field("instructions", &self.instructions)
+            .field("ctx", &self.ctx)
+            .finish()
+    }
 }
 
 /// # Signal Safe Methods
@@ -2357,10 +2396,13 @@ impl<'a, 'ctx, R: Reader, A: UnwindContextStorage<R>> UnwindTable<'a, 'ctx, R, A
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-arm/dwarf-config.h#L31
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-mips/dwarf-config.h#L31
 struct RegisterRuleMap<R: Reader, S: UnwindContextStorage<R> = StoreOnHeap> {
-    rules: ArrayVec<S::Rules>,
+    rules: <S::Rules as ArrayLikeSealed>::Storage,
 }
 
-impl<R: Reader, S: UnwindContextStorage<R>> Debug for RegisterRuleMap<R, S> {
+impl<R: Reader, S: UnwindContextStorage<R>> Debug for RegisterRuleMap<R, S>
+where
+    <S::Rules as ArrayLikeSealed>::Storage: Debug,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("RegisterRuleMap")
             .field("rules", &self.rules)
@@ -2507,7 +2549,10 @@ pub struct UnwindTableRow<R: Reader, S: UnwindContextStorage<R> = StoreOnHeap> {
     registers: RegisterRuleMap<R, S>,
 }
 
-impl<R: Reader, S: UnwindContextStorage<R>> Debug for UnwindTableRow<R, S> {
+impl<R: Reader, S: UnwindContextStorage<R>> Debug for UnwindTableRow<R, S>
+where
+    <S::Rules as ArrayLikeSealed>::Storage: Debug,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("UnwindTableRow")
             .field("start_address", &self.start_address)

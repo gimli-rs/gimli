@@ -2,9 +2,10 @@
 
 #[cfg(feature = "read")]
 use alloc::vec::Vec;
+use core::fmt;
 use core::mem;
 
-use super::util::{ArrayLike, ArrayVec};
+use super::util::{ArrayLike, ArrayLikeSealed, ArrayLikeStorage};
 use crate::common::{DebugAddrIndex, DebugInfoOffset, Encoding, Register};
 use crate::constants;
 use crate::read::{Error, Reader, ReaderOffset, Result, StoreOnHeap, UnitOffset, Value, ValueType};
@@ -1089,7 +1090,6 @@ impl<R: Reader> EvaluationStorage<R> for StoreOnHeap {
 /// let result = eval.result();
 /// println!("{:?}", result);
 /// ```
-#[derive(Debug)]
 pub struct Evaluation<R: Reader, S: EvaluationStorage<R> = StoreOnHeap> {
     bytecode: R,
     encoding: Encoding,
@@ -1104,20 +1104,43 @@ pub struct Evaluation<R: Reader, S: EvaluationStorage<R> = StoreOnHeap> {
     addr_mask: u64,
 
     // The stack.
-    stack: ArrayVec<S::Stack>,
+    stack: <S::Stack as ArrayLikeSealed>::Storage,
 
     // The next operation to decode and evaluate.
     pc: R,
 
     // If we see a DW_OP_call* operation, the previous PC and bytecode
     // is stored here while evaluating the subroutine.
-    expression_stack: ArrayVec<S::ExpressionStack>,
+    expression_stack: <S::ExpressionStack as ArrayLikeSealed>::Storage,
 
-    result: ArrayVec<S::Result>,
+    result: <S::Result as ArrayLikeSealed>::Storage,
+}
+
+impl<R: Reader, S: EvaluationStorage<R>> fmt::Debug for Evaluation<R, S>
+where
+    <S::Stack as ArrayLikeSealed>::Storage: fmt::Debug,
+    <S::ExpressionStack as ArrayLikeSealed>::Storage: fmt::Debug,
+    <S::Result as ArrayLikeSealed>::Storage: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Evaluation")
+            .field("bytecode", &self.bytecode)
+            .field("encoding", &self.encoding)
+            .field("object_address", &self.object_address)
+            .field("max_iterations", &self.max_iterations)
+            .field("iteration", &self.iteration)
+            .field("state", &self.state)
+            .field("addr_mask", &self.addr_mask)
+            .field("stack", &self.stack)
+            .field("pc", &self.pc)
+            .field("expression_stack", &self.expression_stack)
+            .field("result", &self.result)
+            .finish()
+    }
 }
 
 #[cfg(feature = "read")]
-impl<R: Reader> Evaluation<R> {
+impl<R: Reader> Evaluation<R, StoreOnHeap> {
     /// Create a new DWARF expression evaluator.
     ///
     /// The new evaluator is created without an initial value, without
@@ -1132,7 +1155,7 @@ impl<R: Reader> Evaluation<R> {
     /// Panics if this `Evaluation` has not been driven to completion.
     pub fn result(self) -> Vec<Piece<R>> {
         match self.state {
-            EvaluationState::Complete => self.result.into_vec(),
+            EvaluationState::Complete => self.result,
             _ => {
                 panic!("Called `Evaluation::result` on an `Evaluation` that has not been completed")
             }
@@ -1258,7 +1281,7 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
                 if index >= len {
                     return Err(Error::NotEnoughStackItems);
                 }
-                let value = self.stack[len - index - 1];
+                let value = *self.stack.get(len - index - 1).unwrap();
                 self.push(value)?;
             }
             Operation::Swap => {
