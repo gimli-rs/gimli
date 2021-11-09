@@ -68,9 +68,16 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian) -> Result<(), 
                     let mut path = path::PathBuf::new();
                     if let Some(file) = row.file(header) {
                         path = comp_dir.clone();
-                        if let Some(dir) = file.directory(header) {
-                            path.push(dwarf.attr_string(&unit, dir)?.to_string_lossy().as_ref());
+
+                        // The directory index 0 is defined to correspond to the compilation unit directory.
+                        if file.directory_index() != 0 {
+                            if let Some(dir) = file.directory(header) {
+                                path.push(
+                                    dwarf.attr_string(&unit, dir)?.to_string_lossy().as_ref(),
+                                );
+                            }
                         }
+
                         path.push(
                             dwarf
                                 .attr_string(&unit, file.path_name())?
