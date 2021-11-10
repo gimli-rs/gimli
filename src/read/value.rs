@@ -1,7 +1,5 @@
 //! Definitions for values used in DWARF expressions.
 
-use core::mem;
-
 use crate::constants;
 #[cfg(feature = "read")]
 use crate::read::{AttributeValue, DebuggingInformationEntry};
