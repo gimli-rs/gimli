@@ -1585,21 +1585,21 @@ fn dump_type_signature<W: Write>(w: &mut W, signature: gimli::DebugTypeSignature
 
 fn dump_file_index<R: Reader, W: Write>(
     w: &mut W,
-    file: u64,
+    file_index: u64,
     unit: &gimli::Unit<R>,
     dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
-    if file == 0 {
+    if file_index == 0 && unit.header.version() <= 4 {
         return Ok(());
     }
     let header = match unit.line_program {
         Some(ref program) => program.header(),
         None => return Ok(()),
     };
-    let file = match header.file(file) {
-        Some(header) => header,
+    let file = match header.file(file_index) {
+        Some(file) => file,
         None => {
-            writeln!(w, "Unable to get header for file {}", file)?;
+            writeln!(w, "Unable to get header for file {}", file_index)?;
             return Ok(());
         }
     };
@@ -1607,7 +1607,7 @@ fn dump_file_index<R: Reader, W: Write>(
     if let Some(directory) = file.directory(header) {
         let directory = dwarf.attr_string(unit, directory)?;
         let directory = directory.to_string_lossy()?;
-        if !directory.starts_with('/') {
+        if file.directory_index() != 0 && !directory.starts_with('/') {
             if let Some(ref comp_dir) = unit.comp_dir {
                 write!(w, "{}/", comp_dir.to_string_lossy()?,)?;
             }
@@ -2238,7 +2238,7 @@ fn dump_line_program<R: Reader, W: Write>(
             writeln!(w, "<pc>        [lno,col]")?;
         }
         let mut rows = program.rows();
-        let mut file_index = 0;
+        let mut file_index = std::u64::MAX;
         while let Some((header, row)) = rows.next_row()? {
             let line = match row.line() {
                 Some(line) => line.get(),
