@@ -786,17 +786,36 @@ fn dump_eh_frame<R: Reader, W: Write>(
                 // TODO: augmentation
                 writeln!(w, "    code_align: {}", cie.code_alignment_factor())?;
                 writeln!(w, "    data_align: {}", cie.data_alignment_factor())?;
-                writeln!(w, "   ra_register: {:#x}", cie.return_address_register().0)?;
+                writeln!(
+                    w,
+                    "   ra_register: {}",
+                    register_name(cie.return_address_register())
+                )?;
                 if let Some(encoding) = cie.lsda_encoding() {
-                    writeln!(w, " lsda_encoding: {:#02x}", encoding.0)?;
+                    writeln!(
+                        w,
+                        " lsda_encoding: {}/{}",
+                        encoding.application(),
+                        encoding.format()
+                    )?;
                 }
                 if let Some((encoding, personality)) = cie.personality_with_encoding() {
-                    write!(w, "   personality: {:#02x} ", encoding.0)?;
+                    write!(
+                        w,
+                        "   personality: {}/{} ",
+                        encoding.application(),
+                        encoding.format()
+                    )?;
                     dump_pointer(w, personality)?;
                     writeln!(w)?;
                 }
                 if let Some(encoding) = cie.fde_address_encoding() {
-                    writeln!(w, "  fde_encoding: {:#02x}", encoding.0)?;
+                    writeln!(
+                        w,
+                        "  fde_encoding: {}/{}",
+                        encoding.application(),
+                        encoding.format()
+                    )?;
                 }
                 let instructions = cie.instructions(&eh_frame, &bases);
                 dump_cfi_instructions(w, instructions, true, register_name)?;

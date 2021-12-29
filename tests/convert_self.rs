@@ -146,7 +146,7 @@ fn test_convert_eh_frame() {
         .write_eh_frame(&mut write_eh_frame)
         .expect("Should write eh_frame information");
     let eh_frame = write_eh_frame.slice();
-    assert_eq!(eh_frame.len(), 147152);
+    assert_eq!(eh_frame.len(), 147144);
 
     // Convert new section
     let mut eh_frame = read::EhFrame::new(&eh_frame, LittleEndian);
