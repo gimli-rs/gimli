@@ -239,7 +239,7 @@ impl CommonInformationEntry {
             }
             if let Some((eh_pe, address)) = self.personality {
                 w.write_u8(eh_pe.0)?;
-                w.write_eh_pointer(address, constants::DW_EH_PE_absptr, encoding.address_size)?;
+                w.write_eh_pointer(address, eh_pe, encoding.address_size)?;
             }
             if self.fde_address_encoding != constants::DW_EH_PE_absptr {
                 w.write_u8(self.fde_address_encoding.0)?;
@@ -887,6 +887,19 @@ mod tests {
                     let mut fde4 = FrameDescriptionEntry::new(Address::Constant(0x4000), 0x40);
                     fde4.lsda = Some(Address::Constant(0x4400));
                     frames.add_fde(cie2_id, fde4.clone());
+
+                    let mut cie3 = CommonInformationEntry::new(encoding, 1, 8, X86_64::RA);
+                    cie3.fde_address_encoding = constants::DW_EH_PE_pcrel;
+                    cie3.lsda_encoding = Some(constants::DW_EH_PE_pcrel);
+                    cie3.personality = Some((constants::DW_EH_PE_pcrel, Address::Constant(0x1235)));
+                    cie3.signal_trampoline = true;
+                    let cie3_id = frames.add_cie(cie3.clone());
+                    assert_ne!(cie2_id, cie3_id);
+                    assert_eq!(cie3_id, frames.add_cie(cie3.clone()));
+
+                    let mut fde5 = FrameDescriptionEntry::new(Address::Constant(0x5000), 0x50);
+                    fde5.lsda = Some(Address::Constant(0x5500));
+                    frames.add_fde(cie3_id, fde5.clone());
 
                     // Test writing `.debug_frame`.
                     let mut debug_frame = DebugFrame::from(EndianVec::new(LittleEndian));
