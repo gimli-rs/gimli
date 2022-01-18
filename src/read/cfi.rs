@@ -423,7 +423,7 @@ where
     Endian: Endianity,
 {
     /// Construct a new `EhFrame` instance from the data in the
-    /// `.debug_frame` section.
+    /// `.eh_frame` section.
     ///
     /// It is the caller's responsibility to read the section and present it as
     /// a `&[u8]` slice. That means using some ELF loader on Linux, a Mach-O
@@ -432,10 +432,10 @@ where
     /// ```
     /// use gimli::{EhFrame, EndianSlice, NativeEndian};
     ///
-    /// // Use with `.debug_frame`
+    /// // Use with `.eh_frame`
     /// # let buf = [0x00, 0x01, 0x02, 0x03];
-    /// # let read_debug_frame_section_somehow = || &buf;
-    /// let debug_frame = EhFrame::new(read_debug_frame_section_somehow(), NativeEndian);
+    /// # let read_eh_frame_section_somehow = || &buf;
+    /// let eh_frame = EhFrame::new(read_eh_frame_section_somehow(), NativeEndian);
     /// ```
     pub fn new(section: &'input [u8], endian: Endian) -> Self {
         Self::from(EndianSlice::new(section, endian))
