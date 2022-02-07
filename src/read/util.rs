@@ -180,7 +180,7 @@ impl<T> ArrayVec<Vec<T>> {
         let slice = Box::leak(storage);
         debug_assert!(len <= slice.len());
         // SAFETY: valid elements.
-        unsafe { Vec::from_raw_parts(slice.as_ptr() as _, len, slice.len()) }
+        unsafe { Vec::from_raw_parts(slice.as_mut_ptr() as *mut T, len, slice.len()) }
     }
 }
 
