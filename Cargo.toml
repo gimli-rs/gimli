@@ -5,14 +5,13 @@ categories = ["development-tools::debugging", "development-tools::profiling", "p
 description = "A library for reading and writing the DWARF debugging format."
 documentation = "https://docs.rs/gimli"
 edition = "2018"
-exclude = ["/ci/*", "/releases/*", "/.github"]
+exclude = ["/releases/*", "/.github"]
 keywords = ["DWARF", "debug", "ELF", "eh_frame"]
-license = "Apache-2.0/MIT"
+license = "MIT OR Apache-2.0"
 readme = "./README.md"
 repository = "https://github.com/gimli-rs/gimli"
 
 [badges]
-travis-ci = { repository = "gimli-rs/gimli" }
 coveralls = { repository = "gimli-rs/gimli" }
 
 [dependencies]
