@@ -24,7 +24,7 @@ where
     ///
     /// It is the caller's responsibility to read the `.debug_loc` section and
     /// present it as a `&[u8]` slice. That means using some ELF loader on
-    /// Linux, a Mach-O loader on OSX, etc.
+    /// Linux, a Mach-O loader on macOS, etc.
     ///
     /// ```
     /// use gimli::{DebugLoc, LittleEndian};
@@ -70,7 +70,7 @@ where
     ///
     /// It is the caller's responsibility to read the `.debug_loclists` section and
     /// present it as a `&[u8]` slice. That means using some ELF loader on
-    /// Linux, a Mach-O loader on OSX, etc.
+    /// Linux, a Mach-O loader on macOS, etc.
     ///
     /// ```
     /// use gimli::{DebugLocLists, LittleEndian};

@@ -1,5 +1,5 @@
 //! `gimli` is a library for reading and writing the
-//! [DWARF debugging format](http://dwarfstd.org/).
+//! [DWARF debugging format](https://dwarfstd.org/).
 //!
 //! See the [read](./read/index.html) and [write](./write/index.html) modules
 //! for examples and API documentation.

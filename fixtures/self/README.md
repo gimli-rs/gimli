@@ -7,7 +7,7 @@ about cross platform and cross object file format issues when running examples.
 
 # Updating and adding new sections
 
-## OSX
+## macOS
 
 Use `otool` to list the sections of a binary:
 
