@@ -778,7 +778,11 @@ impl Operation {
                 } else {
                     w.write_u8(constants::DW_OP_GNU_implicit_pointer.0)?;
                 }
-                let size = encoding.format.word_size();
+                let size = if encoding.version != 2 {
+                    encoding.format.word_size()
+                } else {
+                    encoding.address_size
+                };
                 match entry {
                     Reference::Symbol(symbol) => {
                         w.write_reference(symbol, size)?;

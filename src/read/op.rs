@@ -705,7 +705,11 @@ where
             }
             constants::DW_OP_stack_value => Ok(Operation::StackValue),
             constants::DW_OP_implicit_pointer | constants::DW_OP_GNU_implicit_pointer => {
-                let value = bytes.read_offset(encoding.format)?;
+                let value = if encoding.version != 2 {
+                    bytes.read_offset(encoding.format)?
+                } else {
+                    Offset::from_u64(bytes.read_address(encoding.address_size)?)?
+                };
                 let byte_offset = bytes.read_sleb128()?;
                 Ok(Operation::ImplicitPointer {
                     value: DebugInfoOffset(value),
@@ -2641,6 +2645,19 @@ mod tests {
                 },
                 encoding8(),
             );
+
+            check_op_parse(
+                |s| s.D8(op.0).D64(0x1234_5678).sleb(0x123),
+                &Operation::ImplicitPointer {
+                    value: DebugInfoOffset(0x1234_5678),
+                    byte_offset: 0x123,
+                },
+                Encoding {
+                    format: Format::Dwarf32,
+                    version: 2,
+                    address_size: 8,
+                },
+            )
         }
     }
 
