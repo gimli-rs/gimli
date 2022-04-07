@@ -705,10 +705,12 @@ where
             }
             constants::DW_OP_stack_value => Ok(Operation::StackValue),
             constants::DW_OP_implicit_pointer | constants::DW_OP_GNU_implicit_pointer => {
-                let value = if encoding.version != 2 {
-                    bytes.read_offset(encoding.format)?
+                let value = if encoding.version == 2 {
+                    bytes
+                        .read_address(encoding.address_size)
+                        .and_then(Offset::from_u64)?
                 } else {
-                    Offset::from_u64(bytes.read_address(encoding.address_size)?)?
+                    bytes.read_offset(encoding.format)?
                 };
                 let byte_offset = bytes.read_sleb128()?;
                 Ok(Operation::ImplicitPointer {
