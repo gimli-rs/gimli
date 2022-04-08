@@ -219,7 +219,11 @@ impl<R: Reader> ParsedEhFrameHdr<R> {
 }
 
 /// An iterator for `.eh_frame_hdr` section's binary search table.
+///
 /// Each table entry consists of a tuple containing an  `initial_location` and `address`.
+/// The `initial location` represents the first address that the targeted FDE
+/// is able to decode. The `address` is the address of the FDE in the `.eh_frame` section.
+/// The `address` can be converted with `EhHdrTable::pointer_to_offset` and `EhFrame::fde_from_offset` to an FDE.
 #[derive(Debug)]
 pub struct EhHdrTableIter<'a, 'bases, R: Reader> {
     hdr: &'a ParsedEhFrameHdr<R>,
@@ -228,11 +232,9 @@ pub struct EhHdrTableIter<'a, 'bases, R: Reader> {
     remain: u64,
 }
 
-#[cfg(feature = "fallible-iterator")]
-impl<'a, 'bases, R: Reader> fallible_iterator::FallibleIterator for EhHdrTableIter<'a, 'bases, R> {
-    type Item = (Pointer, Pointer);
-    type Error = Error;
-    fn next(&mut self) -> Result<Option<Self::Item>> {
+impl<'a, 'bases, R: Reader> EhHdrTableIter<'a, 'bases, R> {
+    /// Yield the next entry in the `EhHdrTableIter`.
+    pub fn next(&mut self) -> Result<Option<(Pointer, Pointer)>> {
         if self.remain == 0 {
             return Ok(None);
         }
@@ -249,23 +251,12 @@ impl<'a, 'bases, R: Reader> fallible_iterator::FallibleIterator for EhHdrTableIt
         let to = parse_encoded_pointer(self.hdr.table_enc, &parameters, &mut self.table)?;
         Ok(Some((from, to)))
     }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        use core::convert::TryInto;
-        (
-            self.remain.try_into().unwrap_or(0),
-            self.remain.try_into().ok(),
-        )
-    }
-
-    fn nth(&mut self, n: usize) -> Result<Option<Self::Item>> {
+    /// Yield the nth entry in the `EhHdrTableIter`
+    pub fn nth(&mut self, n: usize) -> Result<Option<(Pointer, Pointer)>> {
         use core::convert::TryFrom;
         let size = match self.hdr.table_enc.format() {
             constants::DW_EH_PE_uleb128 | constants::DW_EH_PE_sleb128 => {
-                for _ in 0..n {
-                    self.next()?;
-                }
-                return self.next();
+                return Err(Error::VariableLengthSearchTable);
             }
             constants::DW_EH_PE_sdata2 | constants::DW_EH_PE_udata2 => 2,
             constants::DW_EH_PE_sdata4 | constants::DW_EH_PE_udata4 => 4,
@@ -276,8 +267,29 @@ impl<'a, 'bases, R: Reader> fallible_iterator::FallibleIterator for EhHdrTableIt
         let row_size = size * 2;
         let n = u64::try_from(n).map_err(|_| Error::UnsupportedOffset)?;
         self.remain = self.remain.saturating_sub(n);
-        R::Offset::from_u64(n * row_size).and_then(|bytes| self.table.skip(bytes))?;
+        self.table.skip(R::Offset::from_u64(n * row_size)?)?;
         self.next()
+    }
+}
+
+#[cfg(feature = "fallible-iterator")]
+impl<'a, 'bases, R: Reader> fallible_iterator::FallibleIterator for EhHdrTableIter<'a, 'bases, R> {
+    type Item = (Pointer, Pointer);
+    type Error = Error;
+    fn next(&mut self) -> Result<Option<Self::Item>> {
+        EhHdrTableIter::next(self)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        use core::convert::TryInto;
+        (
+            self.remain.try_into().unwrap_or(0),
+            self.remain.try_into().ok(),
+        )
+    }
+
+    fn nth(&mut self, n: usize) -> Result<Option<Self::Item>> {
+        EhHdrTableIter::nth(self, n)
     }
 }
 
@@ -289,7 +301,11 @@ pub struct EhHdrTable<'a, R: Reader> {
 
 impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     /// Return an iterator that can walk the `.eh_frame_hdr` table.
-    /// Each table entry consists of a tuple containing an  `initial_location` and `address`.
+    ///
+    /// Each table entry consists of a tuple containing an `initial_location` and `address`.
+    /// The `initial location` represents the first address that the targeted FDE
+    /// is able to decode. The `address` is the address of the FDE in the `.eh_frame` section.
+    /// The `address` can be converted with `EhHdrTable::pointer_to_offset` and `EhFrame::fde_from_offset` to an FDE.
     pub fn iter<'bases>(&self, bases: &'bases BaseAddresses) -> EhHdrTableIter<'_, 'bases, R> {
         EhHdrTableIter {
             hdr: self.hdr,
@@ -6284,26 +6300,40 @@ mod tests {
         let table = table.unwrap();
 
         let bases = Default::default();
-        #[cfg(feature = "fallible-iterator")]
-        {
-            use fallible_iterator::FallibleIterator;
-            let mut iter = table.iter(&bases);
-            assert_eq!(
-                iter.next(),
-                Ok(Some((
-                    Pointer::Direct(10),
-                    Pointer::Direct(0x12345 + start_of_fde1.value().unwrap() as u64)
-                )))
-            );
-            assert_eq!(
-                iter.next(),
-                Ok(Some((
-                    Pointer::Direct(20),
-                    Pointer::Direct(0x12345 + start_of_fde2.value().unwrap() as u64)
-                )))
-            );
-            assert_eq!(iter.next(), Ok(None));
-        }
+        let mut iter = table.iter(&bases);
+        assert_eq!(
+            iter.next(),
+            Ok(Some((
+                Pointer::Direct(10),
+                Pointer::Direct(0x12345 + start_of_fde1.value().unwrap() as u64)
+            )))
+        );
+        assert_eq!(
+            iter.next(),
+            Ok(Some((
+                Pointer::Direct(20),
+                Pointer::Direct(0x12345 + start_of_fde2.value().unwrap() as u64)
+            )))
+        );
+        assert_eq!(iter.next(), Ok(None));
+
+        assert_eq!(
+            table.iter(&bases).nth(0),
+            Ok(Some((
+                Pointer::Direct(10),
+                Pointer::Direct(0x12345 + start_of_fde1.value().unwrap() as u64)
+            )))
+        );
+
+        assert_eq!(
+            table.iter(&bases).nth(1),
+            Ok(Some((
+                Pointer::Direct(20),
+                Pointer::Direct(0x12345 + start_of_fde2.value().unwrap() as u64)
+            )))
+        );
+        assert_eq!(table.iter(&bases).nth(2), Ok(None));
+
         let f = |_: &_, _: &_, o: EhFrameOffset| {
             assert_eq!(o, EhFrameOffset(start_of_cie.value().unwrap() as usize));
             Ok(cie.clone())
