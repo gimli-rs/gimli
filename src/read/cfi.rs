@@ -6287,19 +6287,22 @@ mod tests {
         #[cfg(feature = "fallible-iterator")]
         {
             use fallible_iterator::FallibleIterator;
+            let mut iter = table.iter(&bases);
             assert_eq!(
-                table.iter(&bases).collect::<Vec<_>>().unwrap(),
-                &[
-                    (
-                        Pointer::Direct(10),
-                        Pointer::Direct(0x12345 + start_of_fde1.value().unwrap() as u64)
-                    ),
-                    (
-                        Pointer::Direct(20),
-                        Pointer::Direct(0x12345 + start_of_fde2.value().unwrap() as u64)
-                    ),
-                ]
+                iter.next(),
+                Ok(Some((
+                    Pointer::Direct(10),
+                    Pointer::Direct(0x12345 + start_of_fde1.value().unwrap() as u64)
+                )))
             );
+            assert_eq!(
+                iter.next(),
+                Ok(Some((
+                    Pointer::Direct(20),
+                    Pointer::Direct(0x12345 + start_of_fde2.value().unwrap() as u64)
+                )))
+            );
+            assert_eq!(iter.next(), Ok(None));
         }
         let f = |_: &_, _: &_, o: EhFrameOffset| {
             assert_eq!(o, EhFrameOffset(start_of_cie.value().unwrap() as usize));
