@@ -6284,21 +6284,23 @@ mod tests {
         let table = table.unwrap();
 
         let bases = Default::default();
-        use fallible_iterator::FallibleIterator;
-        assert_eq!(
-            table.iter(&bases).collect::<Vec<_>>().unwrap(),
-            &[
-                (
-                    Pointer::Direct(10),
-                    Pointer::Direct(0x12345 + start_of_fde1.value().unwrap() as u64)
-                ),
-                (
-                    Pointer::Direct(20),
-                    Pointer::Direct(0x12345 + start_of_fde2.value().unwrap() as u64)
-                ),
-            ]
-        );
-
+        #[cfg(feature = "fallible-iterator")]
+        {
+            use fallible_iterator::FallibleIterator;
+            assert_eq!(
+                table.iter(&bases).collect::<Vec<_>>().unwrap(),
+                &[
+                    (
+                        Pointer::Direct(10),
+                        Pointer::Direct(0x12345 + start_of_fde1.value().unwrap() as u64)
+                    ),
+                    (
+                        Pointer::Direct(20),
+                        Pointer::Direct(0x12345 + start_of_fde2.value().unwrap() as u64)
+                    ),
+                ]
+            );
+        }
         let f = |_: &_, _: &_, o: EhFrameOffset| {
             assert_eq!(o, EhFrameOffset(start_of_cie.value().unwrap() as usize));
             Ok(cie.clone())
