@@ -218,6 +218,81 @@ impl<R: Reader> ParsedEhFrameHdr<R> {
     }
 }
 
+/// An iterator for `.eh_frame_hdr` section's binary search table.
+///
+/// Each table entry consists of a tuple containing an  `initial_location` and `address`.
+/// The `initial location` represents the first address that the targeted FDE
+/// is able to decode. The `address` is the address of the FDE in the `.eh_frame` section.
+/// The `address` can be converted with `EhHdrTable::pointer_to_offset` and `EhFrame::fde_from_offset` to an FDE.
+#[derive(Debug)]
+pub struct EhHdrTableIter<'a, 'bases, R: Reader> {
+    hdr: &'a ParsedEhFrameHdr<R>,
+    table: R,
+    bases: &'bases BaseAddresses,
+    remain: u64,
+}
+
+impl<'a, 'bases, R: Reader> EhHdrTableIter<'a, 'bases, R> {
+    /// Yield the next entry in the `EhHdrTableIter`.
+    pub fn next(&mut self) -> Result<Option<(Pointer, Pointer)>> {
+        if self.remain == 0 {
+            return Ok(None);
+        }
+
+        let parameters = PointerEncodingParameters {
+            bases: &self.bases.eh_frame_hdr,
+            func_base: None,
+            address_size: self.hdr.address_size,
+            section: &self.hdr.section,
+        };
+
+        self.remain -= 1;
+        let from = parse_encoded_pointer(self.hdr.table_enc, &parameters, &mut self.table)?;
+        let to = parse_encoded_pointer(self.hdr.table_enc, &parameters, &mut self.table)?;
+        Ok(Some((from, to)))
+    }
+    /// Yield the nth entry in the `EhHdrTableIter`
+    pub fn nth(&mut self, n: usize) -> Result<Option<(Pointer, Pointer)>> {
+        use core::convert::TryFrom;
+        let size = match self.hdr.table_enc.format() {
+            constants::DW_EH_PE_uleb128 | constants::DW_EH_PE_sleb128 => {
+                return Err(Error::VariableLengthSearchTable);
+            }
+            constants::DW_EH_PE_sdata2 | constants::DW_EH_PE_udata2 => 2,
+            constants::DW_EH_PE_sdata4 | constants::DW_EH_PE_udata4 => 4,
+            constants::DW_EH_PE_sdata8 | constants::DW_EH_PE_udata8 => 8,
+            _ => return Err(Error::UnknownPointerEncoding),
+        };
+
+        let row_size = size * 2;
+        let n = u64::try_from(n).map_err(|_| Error::UnsupportedOffset)?;
+        self.remain = self.remain.saturating_sub(n);
+        self.table.skip(R::Offset::from_u64(n * row_size)?)?;
+        self.next()
+    }
+}
+
+#[cfg(feature = "fallible-iterator")]
+impl<'a, 'bases, R: Reader> fallible_iterator::FallibleIterator for EhHdrTableIter<'a, 'bases, R> {
+    type Item = (Pointer, Pointer);
+    type Error = Error;
+    fn next(&mut self) -> Result<Option<Self::Item>> {
+        EhHdrTableIter::next(self)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        use core::convert::TryInto;
+        (
+            self.remain.try_into().unwrap_or(0),
+            self.remain.try_into().ok(),
+        )
+    }
+
+    fn nth(&mut self, n: usize) -> Result<Option<Self::Item>> {
+        EhHdrTableIter::nth(self, n)
+    }
+}
+
 /// The CFI binary search table that is an optional part of the `.eh_frame_hdr` section.
 #[derive(Debug, Clone)]
 pub struct EhHdrTable<'a, R: Reader> {
@@ -225,6 +300,20 @@ pub struct EhHdrTable<'a, R: Reader> {
 }
 
 impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
+    /// Return an iterator that can walk the `.eh_frame_hdr` table.
+    ///
+    /// Each table entry consists of a tuple containing an `initial_location` and `address`.
+    /// The `initial location` represents the first address that the targeted FDE
+    /// is able to decode. The `address` is the address of the FDE in the `.eh_frame` section.
+    /// The `address` can be converted with `EhHdrTable::pointer_to_offset` and `EhFrame::fde_from_offset` to an FDE.
+    pub fn iter<'bases>(&self, bases: &'bases BaseAddresses) -> EhHdrTableIter<'_, 'bases, R> {
+        EhHdrTableIter {
+            hdr: self.hdr,
+            bases,
+            remain: self.hdr.fde_count,
+            table: self.hdr.table.clone(),
+        }
+    }
     /// *Probably* returns a pointer to the FDE for the given address.
     ///
     /// This performs a binary search, so if there is no FDE for the given address,
@@ -6211,6 +6300,39 @@ mod tests {
         let table = table.unwrap();
 
         let bases = Default::default();
+        let mut iter = table.iter(&bases);
+        assert_eq!(
+            iter.next(),
+            Ok(Some((
+                Pointer::Direct(10),
+                Pointer::Direct(0x12345 + start_of_fde1.value().unwrap() as u64)
+            )))
+        );
+        assert_eq!(
+            iter.next(),
+            Ok(Some((
+                Pointer::Direct(20),
+                Pointer::Direct(0x12345 + start_of_fde2.value().unwrap() as u64)
+            )))
+        );
+        assert_eq!(iter.next(), Ok(None));
+
+        assert_eq!(
+            table.iter(&bases).nth(0),
+            Ok(Some((
+                Pointer::Direct(10),
+                Pointer::Direct(0x12345 + start_of_fde1.value().unwrap() as u64)
+            )))
+        );
+
+        assert_eq!(
+            table.iter(&bases).nth(1),
+            Ok(Some((
+                Pointer::Direct(20),
+                Pointer::Direct(0x12345 + start_of_fde2.value().unwrap() as u64)
+            )))
+        );
+        assert_eq!(table.iter(&bases).nth(2), Ok(None));
 
         let f = |_: &_, _: &_, o: EhFrameOffset| {
             assert_eq!(o, EhFrameOffset(start_of_cie.value().unwrap() as usize));
