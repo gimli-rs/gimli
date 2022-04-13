@@ -139,3 +139,11 @@ impl<R: Reader> fallible_iterator::FallibleIterator for PubNamesEntryIter<R> {
         self.0.next()
     }
 }
+
+impl<R: Reader> Iterator for PubNamesEntryIter<R> {
+    type Item = Result<PubNamesEntry<R>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().transpose()
+    }
+}

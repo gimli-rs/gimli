@@ -1081,6 +1081,15 @@ impl<R: Reader> fallible_iterator::FallibleIterator for RangeIter<R> {
     }
 }
 
+impl<R: Reader> Iterator for RangeIter<R> {
+    type Item = Result<Range>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        RangeIter::next(self).transpose()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

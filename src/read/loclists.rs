@@ -509,6 +509,14 @@ impl<R: Reader> fallible_iterator::FallibleIterator for RawLocListIter<R> {
     }
 }
 
+impl<R: Reader> Iterator for RawLocListIter<R> {
+    type Item = Result<RawLocListEntry<R>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        RawLocListIter::next(self).transpose()
+    }
+}
+
 /// An iterator over a location list.
 ///
 /// This iterator internally handles processing of base address selection entries
@@ -619,6 +627,14 @@ impl<R: Reader> fallible_iterator::FallibleIterator for LocListIter<R> {
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         LocListIter::next(self)
+    }
+}
+
+impl<R: Reader> Iterator for LocListIter<R> {
+    type Item = Result<LocationListEntry<R>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        LocListIter::next(self).transpose()
     }
 }
 
