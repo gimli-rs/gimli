@@ -2,6 +2,28 @@
 
 --------------------------------------------------------------------------------
 
+## 0.26.2
+
+Released 2022/07/16.
+
+### Changed
+
+* Fixed CFI personality encoding when writing.
+  [#609](https://github.com/gimli-rs/gimli/pull/609)
+
+* Fixed use of raw pointer for mutation, detected by Miri.
+  [#614](https://github.com/gimli-rs/gimli/pull/614)
+
+* Fixed `DW_OP_GNU_implicit_pointer` handling for DWARF version 2.
+  [#618](https://github.com/gimli-rs/gimli/pull/618)
+
+### Added
+
+* Added `read::EhHdrTable::iter`.
+  [#619](https://github.com/gimli-rs/gimli/pull/619)
+
+--------------------------------------------------------------------------------
+
 ## 0.26.1
 
 Released 2021/11/02.
