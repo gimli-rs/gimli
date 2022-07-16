@@ -6,7 +6,7 @@ use std::{borrow, env, fs, path};
 fn main() {
     for path in env::args().skip(1) {
         let file = fs::File::open(&path).unwrap();
-        let mmap = unsafe { memmap::Mmap::map(&file).unwrap() };
+        let mmap = unsafe { memmap2::Mmap::map(&file).unwrap() };
         let object = object::File::parse(&*mmap).unwrap();
         let endian = if object.is_little_endian() {
             gimli::RunTimeEndian::Little
