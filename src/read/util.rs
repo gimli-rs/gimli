@@ -146,8 +146,8 @@ impl<A: ArrayLike> ArrayVec<A> {
         }
 
         // SAFETY: storage[index] is filled later.
+        let p = unsafe { storage.as_mut_ptr().add(index) };
         unsafe {
-            let p = storage.as_mut_ptr().add(index);
             core::ptr::copy(p as *const _, p.add(1), self.len - index);
         }
         storage[index] = MaybeUninit::new(element);
