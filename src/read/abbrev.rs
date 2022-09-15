@@ -1,6 +1,7 @@
 //! Functions for parsing DWARF debugging abbreviations.
 
 use alloc::collections::btree_map;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryFrom;
 use core::fmt::{self, Debug};
@@ -105,8 +106,19 @@ impl<R> From<R> for DebugAbbrev<R> {
 /// Construct an `Abbreviations` instance with the
 /// [`abbreviations()`](struct.UnitHeader.html#method.abbreviations)
 /// method.
-#[derive(Debug, Default, Clone)]
+#[derive(Default, Clone)]
 pub struct Abbreviations {
+    inner: Arc<AbbreviationsInner>,
+}
+
+impl Debug for Abbreviations {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (&self.inner).fmt(f)
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+struct AbbreviationsInner {
     vec: Vec<Abbreviation>,
     map: btree_map::BTreeMap<u64, Abbreviation>,
 }
@@ -115,8 +127,10 @@ impl Abbreviations {
     /// Construct a new, empty set of abbreviations.
     fn empty() -> Abbreviations {
         Abbreviations {
-            vec: Vec::new(),
-            map: btree_map::BTreeMap::new(),
+            inner: Arc::new(AbbreviationsInner {
+                vec: Vec::new(),
+                map: btree_map::BTreeMap::new(),
+            }),
         }
     }
 
@@ -126,24 +140,25 @@ impl Abbreviations {
     /// `Err` if the code is a duplicate and there already exists an
     /// abbreviation in the set with the given abbreviation's code.
     fn insert(&mut self, abbrev: Abbreviation) -> ::core::result::Result<(), ()> {
+        let inner = Arc::make_mut(&mut self.inner);
         let code_usize = abbrev.code as usize;
         if code_usize as u64 == abbrev.code {
             // Optimize for sequential abbreviation codes by storing them
             // in a Vec, as long as the map doesn't already contain them.
             // A potential further optimization would be to allow some
             // holes in the Vec, but there's no need for that yet.
-            if code_usize - 1 < self.vec.len() {
+            if code_usize - 1 < inner.vec.len() {
                 return Err(());
-            } else if code_usize - 1 == self.vec.len() {
-                if !self.map.is_empty() && self.map.contains_key(&abbrev.code) {
+            } else if code_usize - 1 == inner.vec.len() {
+                if !inner.map.is_empty() && inner.map.contains_key(&abbrev.code) {
                     return Err(());
                 } else {
-                    self.vec.push(abbrev);
+                    inner.vec.push(abbrev);
                     return Ok(());
                 }
             }
         }
-        match self.map.entry(abbrev.code) {
+        match inner.map.entry(abbrev.code) {
             btree_map::Entry::Occupied(_) => Err(()),
             btree_map::Entry::Vacant(entry) => {
                 entry.insert(abbrev);
@@ -157,12 +172,12 @@ impl Abbreviations {
     pub fn get(&self, code: u64) -> Option<&Abbreviation> {
         if let Ok(code) = usize::try_from(code) {
             let index = code.checked_sub(1)?;
-            if index < self.vec.len() {
-                return Some(&self.vec[index]);
+            if index < self.inner.vec.len() {
+                return Some(&self.inner.vec[index]);
             }
         }
 
-        self.map.get(&code)
+        self.inner.map.get(&code)
     }
 
     /// Parse a series of abbreviations, terminated by a null abbreviation.
@@ -656,8 +671,8 @@ pub mod tests {
         let mut abbrevs = Abbreviations::empty();
         abbrevs.insert(abbrev(1)).unwrap();
         abbrevs.insert(abbrev(2)).unwrap();
-        assert_eq!(abbrevs.vec.len(), 2);
-        assert!(abbrevs.map.is_empty());
+        assert_eq!(abbrevs.inner.vec.len(), 2);
+        assert!(abbrevs.inner.map.is_empty());
         assert_abbrev(&abbrevs, 1);
         assert_abbrev(&abbrevs, 2);
 
@@ -665,7 +680,7 @@ pub mod tests {
         let mut abbrevs = Abbreviations::empty();
         abbrevs.insert(abbrev(2)).unwrap();
         abbrevs.insert(abbrev(3)).unwrap();
-        assert!(abbrevs.vec.is_empty());
+        assert!(abbrevs.inner.vec.is_empty());
         assert_abbrev(&abbrevs, 2);
         assert_abbrev(&abbrevs, 3);
 
@@ -674,7 +689,7 @@ pub mod tests {
         abbrevs.insert(abbrev(1)).unwrap();
         abbrevs.insert(abbrev(3)).unwrap();
         abbrevs.insert(abbrev(2)).unwrap();
-        assert_eq!(abbrevs.vec.len(), 2);
+        assert_eq!(abbrevs.inner.vec.len(), 2);
         assert_abbrev(&abbrevs, 1);
         assert_abbrev(&abbrevs, 2);
         assert_abbrev(&abbrevs, 3);

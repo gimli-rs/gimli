@@ -834,6 +834,16 @@ impl<R: Reader> Unit<R> {
     #[inline]
     pub fn new(dwarf: &Dwarf<R>, header: UnitHeader<R>) -> Result<Self> {
         let abbreviations = header.abbreviations(&dwarf.debug_abbrev)?;
+        Self::with_abbreviations(dwarf, header, abbreviations)
+    }
+
+    /// Construct a new `Unit` from the given unit header and abbreviations.
+    #[inline]
+    pub fn with_abbreviations(
+        dwarf: &Dwarf<R>,
+        header: UnitHeader<R>,
+        abbreviations: Abbreviations,
+    ) -> Result<Self> {
         let mut unit = Unit {
             abbreviations,
             name: None,
@@ -950,6 +960,7 @@ impl<R: Reader> Unit<R> {
     }
 
     /// Read the `DebuggingInformationEntry` at the given offset.
+    #[inline]
     pub fn entry(&self, offset: UnitOffset<R::Offset>) -> Result<DebuggingInformationEntry<R>> {
         self.header.entry(&self.abbreviations, offset)
     }
