@@ -9,11 +9,11 @@ use crate::common::{
 };
 use crate::constants;
 use crate::read::{
-    Abbreviations, AttributeValue, DebugAbbrev, DebugAddr, DebugAranges, DebugCuIndex, DebugInfo,
-    DebugInfoUnitHeadersIter, DebugLine, DebugLineStr, DebugLoc, DebugLocLists, DebugRngLists,
-    DebugStr, DebugStrOffsets, DebugTuIndex, DebugTypes, DebugTypesUnitHeadersIter,
-    DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree, Error,
-    IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists, RawLocListIter,
+    Abbreviations, AbbreviationsCache, AttributeValue, DebugAbbrev, DebugAddr, DebugAranges,
+    DebugCuIndex, DebugInfo, DebugInfoUnitHeadersIter, DebugLine, DebugLineStr, DebugLoc,
+    DebugLocLists, DebugRngLists, DebugStr, DebugStrOffsets, DebugTuIndex, DebugTypes,
+    DebugTypesUnitHeadersIter, DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree,
+    Error, IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists, RawLocListIter,
     RawRngListIter, Reader, ReaderOffset, ReaderOffsetId, Result, RngListIter, Section, UnitHeader,
     UnitIndex, UnitIndexSectionIterator, UnitOffset, UnitType,
 };
@@ -59,6 +59,9 @@ pub struct Dwarf<R> {
 
     /// The DWARF sections for a supplementary object file.
     pub sup: Option<Arc<Dwarf<R>>>,
+
+    /// A cache of previously parsed abbreviations for units in this file.
+    pub abbreviations_cache: AbbreviationsCache,
 }
 
 impl<T> Dwarf<T> {
@@ -96,6 +99,7 @@ impl<T> Dwarf<T> {
             ranges: RangeLists::new(debug_ranges, debug_rnglists),
             file_type: DwarfFileType::Main,
             sup: None,
+            abbreviations_cache: AbbreviationsCache::new(),
         })
     }
 
@@ -157,6 +161,7 @@ impl<T> Dwarf<T> {
             ranges: self.ranges.borrow(&mut borrow),
             file_type: self.file_type,
             sup: self.sup().map(|sup| Arc::new(sup.borrow(borrow))),
+            abbreviations_cache: AbbreviationsCache::new(),
         }
     }
 
@@ -192,10 +197,10 @@ impl<R: Reader> Dwarf<R> {
     }
 
     /// Parse the abbreviations for a compilation unit.
-    // TODO: provide caching of abbreviations
     #[inline]
-    pub fn abbreviations(&self, unit: &UnitHeader<R>) -> Result<Abbreviations> {
-        unit.abbreviations(&self.debug_abbrev)
+    pub fn abbreviations(&self, unit: &UnitHeader<R>) -> Result<Arc<Abbreviations>> {
+        self.abbreviations_cache
+            .get(&self.debug_abbrev, unit.debug_abbrev_offset())
     }
 
     /// Return the string offset at the given index.
@@ -783,6 +788,7 @@ impl<R: Reader> DwarfPackage<R> {
             ranges: RangeLists::new(debug_ranges, debug_rnglists),
             file_type: DwarfFileType::Dwo,
             sup: None,
+            abbreviations_cache: AbbreviationsCache::new(),
         })
     }
 }
@@ -799,7 +805,7 @@ where
     pub header: UnitHeader<R, Offset>,
 
     /// The parsed abbreviations for the unit.
-    pub abbreviations: Abbreviations,
+    pub abbreviations: Arc<Abbreviations>,
 
     /// The `DW_AT_name` attribute of the unit.
     pub name: Option<R>,
@@ -833,7 +839,7 @@ impl<R: Reader> Unit<R> {
     /// Construct a new `Unit` from the given unit header.
     #[inline]
     pub fn new(dwarf: &Dwarf<R>, header: UnitHeader<R>) -> Result<Self> {
-        let abbreviations = header.abbreviations(&dwarf.debug_abbrev)?;
+        let abbreviations = dwarf.abbreviations(&header)?;
         let mut unit = Unit {
             abbreviations,
             name: None,

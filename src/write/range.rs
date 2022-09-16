@@ -315,6 +315,7 @@ mod tests {
     };
     use crate::LittleEndian;
     use std::collections::HashMap;
+    use std::sync::Arc;
 
     #[test]
     fn test_range() {
@@ -375,7 +376,7 @@ mod tests {
                             DebugInfoOffset(0).into(),
                             read::EndianSlice::default(),
                         ),
-                        abbreviations: read::Abbreviations::default(),
+                        abbreviations: Arc::new(read::Abbreviations::default()),
                         name: None,
                         comp_dir: None,
                         low_pc: 0,
