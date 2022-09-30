@@ -9,6 +9,8 @@ mod imp {
     #[derive(Debug, Default)]
     pub(crate) struct LazyArc<T> {
         // Only written once with a value obtained from `Arc<T>::into_raw`.
+        // This holds a ref count for the `Arc`, so it is always safe to
+        // clone the `Arc` given a reference to the `LazyArc`.
         value: AtomicPtr<T>,
     }
 
@@ -17,9 +19,7 @@ mod imp {
             let value_ptr = self.value.load(Ordering::Acquire);
             if !value_ptr.is_null() {
                 // SAFETY: all writes to `self.value` are pointers obtained from `Arc::into_raw`.
-                unsafe {
-                    Arc::from_raw(value_ptr);
-                }
+                drop(unsafe { Arc::from_raw(value_ptr) });
             }
         }
     }
@@ -36,6 +36,8 @@ mod imp {
             }
 
             // Return the existing value if already computed.
+            // `Ordering::Acquire` is needed so that the content of the loaded `Arc` is
+            // visible to this thread.
             let value_ptr = self.value.load(Ordering::Acquire);
             if !value_ptr.is_null() {
                 // SAFETY: all writes to `self.value` are pointers obtained from `Arc::into_raw`.
@@ -48,8 +50,13 @@ mod imp {
             match self.value.compare_exchange(
                 ptr::null_mut(),
                 value_ptr as *mut T,
+                // Success: `Ordering::Release` is needed so that the content of the stored `Arc`
+                // is visible to other threads. No ordering is required for the null ptr that is
+                // loaded.
                 Ordering::Release,
-                Ordering::Relaxed,
+                // Failure: `Ordering::Acquire` is needed so that the content of the loaded `Arc`
+                // is visible to this thread.
+                Ordering::Acquire,
             ) {
                 Ok(_) => {
                     // Return the value we computed.
@@ -59,7 +66,7 @@ mod imp {
                 Err(existing_value_ptr) => {
                     // We lost the race, drop unneeded `value_ptr`.
                     // SAFETY: `value_ptr` was obtained from `Arc::into_raw`.
-                    unsafe { Arc::from_raw(value_ptr) };
+                    drop(unsafe { Arc::from_raw(value_ptr) });
                     // Return the existing value.
                     // SAFETY: all writes to `self.value` are pointers obtained from `Arc::into_raw`.
                     Ok(unsafe { clone_arc_ptr(existing_value_ptr) })
