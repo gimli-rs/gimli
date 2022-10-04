@@ -1931,6 +1931,7 @@ mod tests {
     use crate::LittleEndian;
     use std::collections::HashMap;
     use std::mem;
+    use std::sync::Arc;
 
     #[test]
     #[allow(clippy::cyclomatic_complexity)]
@@ -2542,7 +2543,7 @@ mod tests {
 
                         let unit = read::Unit {
                             header: from_unit,
-                            abbreviations: read::Abbreviations::default(),
+                            abbreviations: Arc::new(read::Abbreviations::default()),
                             name: None,
                             comp_dir: None,
                             low_pc: 0,
@@ -3015,7 +3016,7 @@ mod tests {
 
                         let unit = read::Unit {
                             header: from_unit,
-                            abbreviations: read::Abbreviations::default(),
+                            abbreviations: Arc::new(read::Abbreviations::default()),
                             name: None,
                             comp_dir: None,
                             low_pc: 0,

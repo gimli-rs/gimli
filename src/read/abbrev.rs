@@ -1,6 +1,7 @@
 //! Functions for parsing DWARF debugging abbreviations.
 
 use alloc::collections::btree_map;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryFrom;
 use core::fmt::{self, Debug};
@@ -10,7 +11,8 @@ use core::ops::Deref;
 use crate::common::{DebugAbbrevOffset, Encoding, SectionId};
 use crate::constants;
 use crate::endianity::Endianity;
-use crate::read::{EndianSlice, Error, Reader, Result, Section, UnitHeader};
+use crate::read::lazy::LazyArc;
+use crate::read::{EndianSlice, Error, Reader, ReaderOffset, Result, Section, UnitHeader};
 
 /// The `DebugAbbrev` struct represents the abbreviations describing
 /// `DebuggingInformationEntry`s' attribute names and forms found in the
@@ -97,6 +99,38 @@ impl<R> From<R> for DebugAbbrev<R> {
         DebugAbbrev {
             debug_abbrev_section,
         }
+    }
+}
+
+/// A cache of previously parsed `Abbreviations`.
+///
+/// Currently this only caches the abbreviations for offset 0,
+/// since this is a common case in which abbreviations are reused.
+/// This strategy may change in future if there is sufficient need.
+#[derive(Debug, Default)]
+pub struct AbbreviationsCache {
+    abbreviations: LazyArc<Abbreviations>,
+}
+
+impl AbbreviationsCache {
+    /// Create an empty abbreviations cache.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Parse the abbreviations at the given offset.
+    ///
+    /// This uses or updates the cache as required.
+    pub fn get<R: Reader>(
+        &self,
+        debug_abbrev: &DebugAbbrev<R>,
+        offset: DebugAbbrevOffset<R::Offset>,
+    ) -> Result<Arc<Abbreviations>> {
+        if offset.0 != R::Offset::from_u8(0) {
+            return debug_abbrev.abbreviations(offset).map(Arc::new);
+        }
+        self.abbreviations
+            .get(|| debug_abbrev.abbreviations(offset))
     }
 }
 
@@ -992,5 +1026,65 @@ pub mod tests {
             ))
             .unwrap();
         assert!(abbrevs.get(0).is_none());
+    }
+
+    #[test]
+    fn abbreviations_cache() {
+        #[rustfmt::skip]
+        let buf = Section::new()
+            .abbrev(1, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
+                .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)
+                .abbrev_attr_null()
+            .abbrev_null()
+            .abbrev(1, constants::DW_TAG_compile_unit, constants::DW_CHILDREN_yes)
+                .abbrev_attr(constants::DW_AT_producer, constants::DW_FORM_strp)
+                .abbrev_attr(constants::DW_AT_language, constants::DW_FORM_data2)
+                .abbrev_attr_null()
+            .abbrev_null()
+            .get_contents()
+            .unwrap();
+
+        let abbrev1 = Abbreviation::new(
+            1,
+            constants::DW_TAG_subprogram,
+            constants::DW_CHILDREN_no,
+            vec![AttributeSpecification::new(
+                constants::DW_AT_name,
+                constants::DW_FORM_string,
+                None,
+            )]
+            .into(),
+        );
+
+        let abbrev2 = Abbreviation::new(
+            1,
+            constants::DW_TAG_compile_unit,
+            constants::DW_CHILDREN_yes,
+            vec![
+                AttributeSpecification::new(
+                    constants::DW_AT_producer,
+                    constants::DW_FORM_strp,
+                    None,
+                ),
+                AttributeSpecification::new(
+                    constants::DW_AT_language,
+                    constants::DW_FORM_data2,
+                    None,
+                ),
+            ]
+            .into(),
+        );
+
+        let debug_abbrev = DebugAbbrev::new(&buf, LittleEndian);
+        let cache = AbbreviationsCache::new();
+        let abbrevs1 = cache.get(&debug_abbrev, DebugAbbrevOffset(0)).unwrap();
+        assert_eq!(abbrevs1.get(1), Some(&abbrev1));
+        let abbrevs2 = cache.get(&debug_abbrev, DebugAbbrevOffset(8)).unwrap();
+        assert_eq!(abbrevs2.get(1), Some(&abbrev2));
+        let abbrevs3 = cache.get(&debug_abbrev, DebugAbbrevOffset(0)).unwrap();
+        assert_eq!(abbrevs3.get(1), Some(&abbrev1));
+
+        assert!(!Arc::ptr_eq(&abbrevs1, &abbrevs2));
+        assert!(Arc::ptr_eq(&abbrevs1, &abbrevs3));
     }
 }
