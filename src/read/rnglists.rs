@@ -483,18 +483,8 @@ impl<R: Reader> RngListIter<R> {
 
     /// Advance the iterator to the next range.
     pub fn next(&mut self) -> Result<Option<Range>> {
-        let tombstone = range_address_tombstone(self.raw.encoding.address_size);
-
-        macro_rules! try_tombstone {
-            ($e: expr) => {{
-                let val = $e;
-                if tombstone == val {
-                    continue;
-                } else {
-                    val
-                }
-            }};
-        }
+        let tombstone =
+            range_address_tombstone(self.raw.encoding.address_size, self.raw.encoding.version);
 
         loop {
             let raw_range = match self.raw.next()? {
@@ -504,44 +494,46 @@ impl<R: Reader> RngListIter<R> {
 
             let range = match raw_range {
                 RawRngListEntry::BaseAddress { addr } => {
-                    self.base_address = try_tombstone!(addr);
+                    self.base_address = addr;
                     continue;
                 }
                 RawRngListEntry::BaseAddressx { addr } => {
-                    self.base_address = try_tombstone!(self.get_address(addr)?);
+                    self.base_address = self.get_address(addr)?;
                     continue;
                 }
                 RawRngListEntry::StartxEndx { begin, end } => {
-                    let begin = try_tombstone!(self.get_address(begin)?);
-                    let end = try_tombstone!(self.get_address(end)?);
+                    let begin = self.get_address(begin)?;
+                    let end = self.get_address(end)?;
                     Range { begin, end }
                 }
                 RawRngListEntry::StartxLength { begin, length } => {
-                    let begin = try_tombstone!(self.get_address(begin)?);
+                    let begin = self.get_address(begin)?;
+                    if begin == tombstone {
+                        continue;
+                    }
                     let end = begin + length;
                     Range { begin, end }
                 }
                 RawRngListEntry::AddressOrOffsetPair { begin, end }
                 | RawRngListEntry::OffsetPair { begin, end } => {
-                    let mut range = Range {
-                        begin: try_tombstone!(begin),
-                        end: try_tombstone!(end),
-                    };
-                    range.add_base_address(
-                        try_tombstone!(self.base_address),
-                        self.raw.encoding.address_size,
-                    );
+                    if self.base_address == tombstone || begin == tombstone {
+                        continue;
+                    }
+
+                    let mut range = Range { begin, end };
+                    range.add_base_address(self.base_address, self.raw.encoding.address_size);
                     range
                 }
-                RawRngListEntry::StartEnd { begin, end } => Range {
-                    begin: try_tombstone!(begin),
-                    end: try_tombstone!(end),
-                },
+                RawRngListEntry::StartEnd { begin, end } => Range { begin, end },
                 RawRngListEntry::StartLength { begin, length } => Range {
-                    begin: try_tombstone!(begin),
+                    begin,
                     end: begin + length,
                 },
             };
+
+            if range.begin == tombstone {
+                continue;
+            }
 
             if range.begin > range.end {
                 self.raw.input.empty();
@@ -623,10 +615,15 @@ impl Range {
 }
 
 /// compute address tombstone for range
-const fn range_address_tombstone(address_size: u8) -> u64 {
-    // llvm's code use address_tombstone - 1 as range's tombstone
-    // for more info, check llvm's DWARFDebugRangeList::getAbsoluteRanges code
-    crate::compute_tombstone_address(address_size) - 1
+#[inline(always)]
+const fn range_address_tombstone(address_size: u8, version: u16) -> u64 {
+    if version == 4 {
+        // llvm's dwarf v4 code use address_tombstone - 1 as range's tombstone
+        // for more info, check llvm's DWARFDebugRangeList::getAbsoluteRanges code
+        crate::compute_tombstone_address(address_size) - 1
+    } else {
+        crate::compute_tombstone_address(address_size)
+    }
 }
 
 #[cfg(test)]
@@ -640,11 +637,12 @@ mod tests {
     #[test]
     fn test_rnglists_32() {
         const ADDRESS_SIZE: u8 = 4;
-        const TOMBSTONE: u64 = range_address_tombstone(ADDRESS_SIZE);
+        const VERSION: u16 = 5;
+        const TOMBSTONE: u64 = range_address_tombstone(ADDRESS_SIZE, VERSION);
 
         let encoding = Encoding {
             format: Format::Dwarf32,
-            version: 5,
+            version: VERSION,
             address_size: ADDRESS_SIZE,
         };
         let section = Section::with_endian(Endian::Little)
@@ -671,20 +669,25 @@ mod tests {
             .mark(&first)
             // OffsetPair
             .L8(4).uleb(0x10200).uleb(0x10300)
-            .L8(4).uleb(TOMBSTONE).uleb(TOMBSTONE)
+            // Offset with low as tombstone
+            .L8(4).uleb(TOMBSTONE).uleb(0x10300)
+            // A base address selection with tombstone, follow up offset entry
+            // should be ignored.
+            .L8(5).L32(TOMBSTONE as u32)
+            .L8(4).uleb(0x10400).uleb(0x10500)
             // A base address selection followed by an OffsetPair.
             .L8(5).L32(0x0200_0000)
-            .L8(5).L32(TOMBSTONE as u32)
             .L8(4).uleb(0x10400).uleb(0x10500)
             // An empty OffsetPair followed by a normal OffsetPair.
             .L8(4).uleb(0x10600).uleb(0x10600)
             .L8(4).uleb(0x10800).uleb(0x10900)
             // A StartEnd
             .L8(6).L32(0x201_0a00).L32(0x201_0b00)
-            .L8(6).L32(TOMBSTONE as u32).L32(TOMBSTONE as u32)
+            // A StartEnd with tombstone
+            .L8(6).L32(TOMBSTONE as u32).L32(0x201_0b00)
             // A StartLength
             .L8(7).L32(0x201_0c00).uleb(0x100)
-            // StartLength with tombstone
+            // A StartLength with tombstone
             .L8(7).L32(TOMBSTONE as u32).uleb(0x100)
             // An OffsetPair that starts at 0.
             .L8(4).uleb(0).uleb(1)
@@ -693,15 +696,9 @@ mod tests {
             // An OffsetPair that ends at -1.
             .L8(5).L32(0)
             .L8(4).uleb(0).uleb(0xffff_ffff)
-            // An OffsetPair that starts or ends with tombstone
-            .L8(4).uleb(TOMBSTONE).uleb(0)
-            .L8(4).uleb(0).uleb(TOMBSTONE)
             // A BaseAddressx + OffsetPair
             .L8(1).uleb(0)
             .L8(4).uleb(0x10100).uleb(0x10200)
-            // A BaseAddressx + OffsetPair with tombstone
-            .L8(4).uleb(TOMBSTONE).uleb(0x10200)
-            .L8(4).uleb(0x10100).uleb(TOMBSTONE)
             // A StartxEndx
             .L8(2).uleb(1).uleb(2)
             // A StartxLength
