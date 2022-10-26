@@ -361,3 +361,11 @@ impl Default for DwarfFileType {
         DwarfFileType::Main
     }
 }
+
+/// compute tombstone address. LLVM's dwarf impl use tombstone to indicate
+/// the address is not use, so parser should ignore it.
+pub const fn compute_tombstone_address(address_size: u8) -> u64 {
+    debug_assert!(address_size <= 8);
+
+    u64::MAX >> (8 - address_size) * 8
+}
