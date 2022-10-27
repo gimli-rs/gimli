@@ -293,6 +293,26 @@ impl<'a, 'bases, R: Reader> fallible_iterator::FallibleIterator for EhHdrTableIt
     }
 }
 
+impl<'a, 'bases, R: Reader> Iterator for EhHdrTableIter<'a, 'bases, R> {
+    type Item = Result<(Pointer, Pointer)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        EhHdrTableIter::next(self).transpose()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        use core::convert::TryInto;
+        (
+            self.remain.try_into().unwrap_or(0),
+            self.remain.try_into().ok(),
+        )
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        EhHdrTableIter::nth(self, n).transpose()
+    }
+}
+
 /// The CFI binary search table that is an optional part of the `.eh_frame_hdr` section.
 #[derive(Debug, Clone)]
 pub struct EhHdrTable<'a, R: Reader> {
@@ -1040,6 +1060,18 @@ where
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         CfiEntriesIter::next(self)
+    }
+}
+
+impl<'bases, Section, R> Iterator for CfiEntriesIter<'bases, Section, R>
+where
+    R: Reader,
+    Section: UnwindSection<R>,
+{
+    type Item = Result<CieOrFde<'bases, Section, R>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        CfiEntriesIter::next(self).transpose()
     }
 }
 
@@ -3355,6 +3387,14 @@ impl<'a, R: Reader> fallible_iterator::FallibleIterator for CallFrameInstruction
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         CallFrameInstructionIter::next(self)
+    }
+}
+
+impl<'a, R: Reader> Iterator for CallFrameInstructionIter<'a, R> {
+    type Item = Result<CallFrameInstruction<R>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        CallFrameInstructionIter::next(self).transpose()
     }
 }
 

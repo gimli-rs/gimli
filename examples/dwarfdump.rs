@@ -1,7 +1,6 @@
 // Allow clippy lints when building without clippy.
 #![allow(unknown_lints)]
 
-use fallible_iterator::FallibleIterator;
 use gimli::{Section, UnitHeader, UnitOffset, UnitSectionOffset, UnitType, UnwindSection};
 use object::{Object, ObjectSection, ObjectSymbol};
 use regex::bytes::Regex;
@@ -18,6 +17,7 @@ use std::mem;
 use std::process;
 use std::result;
 use std::sync::{Condvar, Mutex};
+use tryiterator::TryIteratorExt;
 use typed_arena::Arena;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -639,8 +639,8 @@ where
         Some(
             match dwo_parent
                 .units()
-                .map(|unit_header| dwo_parent.unit(unit_header))
-                .filter_map(|unit| Ok(unit.dwo_id.map(|dwo_id| (dwo_id, unit))))
+                .and_then(|unit_header| dwo_parent.unit(unit_header))
+                .try_filter_map(|unit| Ok(unit.dwo_id.map(|dwo_id| (dwo_id, unit))))
                 .collect()
             {
                 Ok(units) => units,
@@ -1157,7 +1157,7 @@ where
 {
     writeln!(w, "\n.debug_info")?;
 
-    let units = match dwarf.units().collect::<Vec<_>>() {
+    let units = match dwarf.units().try_collect::<Vec<_>>() {
         Ok(units) => units,
         Err(err) => {
             writeln_error(
@@ -1866,7 +1866,7 @@ fn dump_loc_list<R: Reader, W: Write>(
     dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     let raw_locations = dwarf.raw_locations(unit, offset)?;
-    let raw_locations: Vec<_> = raw_locations.collect()?;
+    let raw_locations = raw_locations.try_collect::<Vec<_>>()?;
     let mut locations = dwarf.locations(unit, offset)?;
     writeln!(
         w,
@@ -1994,7 +1994,7 @@ fn dump_range_list<R: Reader, W: Write>(
     dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     let raw_ranges = dwarf.raw_ranges(unit, offset)?;
-    let raw_ranges: Vec<_> = raw_ranges.collect()?;
+    let raw_ranges = raw_ranges.try_collect::<Vec<_>>()?;
     let mut ranges = dwarf.ranges(unit, offset)?;
     writeln!(
         w,

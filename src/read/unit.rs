@@ -223,6 +223,15 @@ impl<R: Reader> fallible_iterator::FallibleIterator for DebugInfoUnitHeadersIter
     }
 }
 
+impl<R: Reader> Iterator for DebugInfoUnitHeadersIter<R> {
+    type Item = Result<UnitHeader<R>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        DebugInfoUnitHeadersIter::next(self).transpose()
+    }
+}
+
+
 /// Parse the unit type from the unit header.
 fn parse_unit_type<R: Reader>(input: &mut R) -> Result<constants::DwUt> {
     let val = input.read_u8()?;
@@ -2340,6 +2349,15 @@ impl<'abbrev, 'entry, 'unit, R: Reader> fallible_iterator::FallibleIterator
     }
 }
 
+impl<'abbrev, 'entry, 'unit, R: Reader> Iterator for AttrsIter<'abbrev, 'entry, 'unit, R>
+{
+    type Item = Result<Attribute<R>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        AttrsIter::next(self).transpose()
+    }
+}
+
 /// A raw reader of the data that defines the Debugging Information Entries.
 ///
 /// `EntriesRaw` provides primitives to read the components of Debugging Information
@@ -3207,6 +3225,14 @@ impl<R: Reader> fallible_iterator::FallibleIterator for DebugTypesUnitHeadersIte
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         DebugTypesUnitHeadersIter::next(self)
+    }
+}
+
+impl<R: Reader> Iterator for DebugTypesUnitHeadersIter<R> {
+    type Item = Result<UnitHeader<R>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        DebugTypesUnitHeadersIter::next(self).transpose()
     }
 }
 
