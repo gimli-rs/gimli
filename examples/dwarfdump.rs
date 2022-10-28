@@ -1859,35 +1859,46 @@ fn dump_op<R: Reader, W: Write>(
     Ok(())
 }
 
+fn dump_range<W: Write>(w: &mut W, range: Option<gimli::Range>) -> Result<()> {
+    if let Some(range) = range {
+        write!(w, " [0x{:08x}, 0x{:08x}]", range.begin, range.end)?;
+    } else {
+        write!(w, " [ignored]")?;
+    }
+    Ok(())
+}
+
 fn dump_loc_list<R: Reader, W: Write>(
     w: &mut W,
     offset: gimli::LocationListsOffset<R::Offset>,
     unit: &gimli::Unit<R>,
     dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
-    let raw_locations = dwarf.raw_locations(unit, offset)?;
-    let raw_locations: Vec<_> = raw_locations.collect()?;
     let mut locations = dwarf.locations(unit, offset)?;
     writeln!(
         w,
-        "<loclist at {}+0x{:08x} with {} entries>",
+        "<loclist at {}+0x{:08x}>",
         if unit.encoding().version < 5 {
             ".debug_loc"
         } else {
             ".debug_loclists"
         },
         offset.0,
-        raw_locations.len()
     )?;
-    for (i, raw) in raw_locations.iter().enumerate() {
+    let mut i = 0;
+    while let Some(raw) = locations.next_raw()? {
         write!(w, "\t\t\t[{:2}]", i)?;
-        match *raw {
+        i += 1;
+        let range = locations
+            .convert_raw(raw.clone())?
+            .map(|location| location.range);
+        match raw {
             gimli::RawLocListEntry::BaseAddress { addr } => {
-                writeln!(w, "<new base address 0x{:08x}>", addr)?;
+                writeln!(w, "<base-address 0x{:08x}>", addr)?;
             }
             gimli::RawLocListEntry::BaseAddressx { addr } => {
                 let addr_val = dwarf.address(unit, addr)?;
-                writeln!(w, "<new base addressx [{}]0x{:08x}>", addr.0, addr_val)?;
+                writeln!(w, "<base-addressx [{}]0x{:08x}>", addr.0, addr_val)?;
             }
             gimli::RawLocListEntry::StartxEndx {
                 begin,
@@ -1896,14 +1907,12 @@ fn dump_loc_list<R: Reader, W: Write>(
             } => {
                 let begin_val = dwarf.address(unit, begin)?;
                 let end_val = dwarf.address(unit, end)?;
-                let location = locations.next()?.unwrap();
                 write!(
                     w,
-                    "<startx-endx \
-                     low-off: [{}]0x{:08x} addr 0x{:08x} \
-                     high-off: [{}]0x{:08x} addr 0x{:08x}>",
-                    begin.0, begin_val, location.range.begin, end.0, end_val, location.range.end
+                    "<startx-endx [{}]0x{:08x}, [{}]0x{:08x}>",
+                    begin.0, begin_val, end.0, end_val,
                 )?;
+                dump_range(w, range)?;
                 dump_exprloc(w, unit.encoding(), data)?;
                 writeln!(w)?;
             }
@@ -1913,14 +1922,12 @@ fn dump_loc_list<R: Reader, W: Write>(
                 ref data,
             } => {
                 let begin_val = dwarf.address(unit, begin)?;
-                let location = locations.next()?.unwrap();
                 write!(
                     w,
-                    "<start-length \
-                     low-off: [{}]0x{:08x} addr 0x{:08x} \
-                     high-off: 0x{:08x} addr 0x{:08x}>",
-                    begin.0, begin_val, location.range.begin, length, location.range.end
+                    "<startx-length [{}]0x{:08x}, 0x{:08x}>",
+                    begin.0, begin_val, length,
                 )?;
+                dump_range(w, range)?;
                 dump_exprloc(w, unit.encoding(), data)?;
                 writeln!(w)?;
             }
@@ -1934,14 +1941,8 @@ fn dump_loc_list<R: Reader, W: Write>(
                 end,
                 ref data,
             } => {
-                let location = locations.next()?.unwrap();
-                write!(
-                    w,
-                    "<offset pair \
-                     low-off: 0x{:08x} addr 0x{:08x} \
-                     high-off: 0x{:08x} addr 0x{:08x}>",
-                    begin, location.range.begin, end, location.range.end
-                )?;
+                write!(w, "<offset-pair 0x{:08x}, 0x{:08x}>", begin, end)?;
+                dump_range(w, range)?;
                 dump_exprloc(w, unit.encoding(), data)?;
                 writeln!(w)?;
             }
@@ -1955,14 +1956,8 @@ fn dump_loc_list<R: Reader, W: Write>(
                 end,
                 ref data,
             } => {
-                let location = locations.next()?.unwrap();
-                write!(
-                    w,
-                    "<start-end \
-                     low-off: 0x{:08x} addr 0x{:08x} \
-                     high-off: 0x{:08x} addr 0x{:08x}>",
-                    begin, location.range.begin, end, location.range.end
-                )?;
+                write!(w, "<start-end 0x{:08x}, 0x{:08x}>", begin, end)?;
+                dump_range(w, range)?;
                 dump_exprloc(w, unit.encoding(), data)?;
                 writeln!(w)?;
             }
@@ -1971,14 +1966,8 @@ fn dump_loc_list<R: Reader, W: Write>(
                 length,
                 ref data,
             } => {
-                let location = locations.next()?.unwrap();
-                write!(
-                    w,
-                    "<start-length \
-                     low-off: 0x{:08x} addr 0x{:08x} \
-                     high-off: 0x{:08x} addr 0x{:08x}>",
-                    begin, location.range.begin, length, location.range.end
-                )?;
+                write!(w, "<start-length 0x{:08x}, 0x{:08x}>", begin, length)?;
+                dump_range(w, range)?;
                 dump_exprloc(w, unit.encoding(), data)?;
                 writeln!(w)?;
             }
@@ -1993,33 +1982,23 @@ fn dump_range_list<R: Reader, W: Write>(
     unit: &gimli::Unit<R>,
     dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
-    let raw_ranges = dwarf.raw_ranges(unit, offset)?;
-    let raw_ranges: Vec<_> = raw_ranges.collect()?;
     let mut ranges = dwarf.ranges(unit, offset)?;
     writeln!(
         w,
-        "<rnglist at {}+0x{:08x} with {} entries>",
+        "<rnglist at {}+0x{:08x}>",
         if unit.encoding().version < 5 {
             ".debug_ranges"
         } else {
             ".debug_rnglists"
         },
         offset.0,
-        raw_ranges.len()
     )?;
-    for (i, raw) in raw_ranges.iter().enumerate() {
+    let mut i = 0;
+    while let Some(raw) = ranges.next_raw()? {
         write!(w, "\t\t\t[{:2}] ", i)?;
-        match *raw {
-            gimli::RawRngListEntry::AddressOrOffsetPair { begin, end } => {
-                let range = ranges.next()?.unwrap();
-                writeln!(
-                    w,
-                    "<address pair \
-                     low-off: 0x{:08x} addr 0x{:08x} \
-                     high-off: 0x{:08x} addr 0x{:08x}>",
-                    begin, range.begin, end, range.end
-                )?;
-            }
+        i += 1;
+        let range = ranges.convert_raw(raw.clone())?;
+        match raw {
             gimli::RawRngListEntry::BaseAddress { addr } => {
                 writeln!(w, "<new base address 0x{:08x}>", addr)?;
             }
@@ -2030,66 +2009,39 @@ fn dump_range_list<R: Reader, W: Write>(
             gimli::RawRngListEntry::StartxEndx { begin, end } => {
                 let begin_val = dwarf.address(unit, begin)?;
                 let end_val = dwarf.address(unit, end)?;
-                let range = if begin_val == end_val {
-                    gimli::Range {
-                        begin: begin_val,
-                        end: end_val,
-                    }
-                } else {
-                    ranges.next()?.unwrap()
-                };
-                writeln!(
+                write!(
                     w,
-                    "<startx-endx \
-                     low-off: [{}]0x{:08x} addr 0x{:08x} \
-                     high-off: [{}]0x{:08x} addr 0x{:08x}>",
-                    begin.0, begin_val, range.begin, end.0, end_val, range.end
+                    "<startx-endx [{}]0x{:08x}, [{}]0x{:08x}>",
+                    begin.0, begin_val, end.0, end_val,
                 )?;
+                dump_range(w, range)?;
+                writeln!(w)?;
             }
             gimli::RawRngListEntry::StartxLength { begin, length } => {
                 let begin_val = dwarf.address(unit, begin)?;
-                let range = ranges.next()?.unwrap();
-                writeln!(
+                write!(
                     w,
-                    "<startx-length \
-                     low-off: [{}]0x{:08x} addr 0x{:08x} \
-                     high-off: 0x{:08x} addr 0x{:08x}>",
-                    begin.0, begin_val, range.begin, length, range.end
+                    "<startx-length [{}]0x{:08x}, 0x{:08x}>",
+                    begin.0, begin_val, length,
                 )?;
+                dump_range(w, range)?;
+                writeln!(w)?;
             }
-            gimli::RawRngListEntry::OffsetPair { begin, end } => {
-                let range = ranges.next()?.unwrap();
-                writeln!(
-                    w,
-                    "<offset pair \
-                     low-off: 0x{:08x} addr 0x{:08x} \
-                     high-off: 0x{:08x} addr 0x{:08x}>",
-                    begin, range.begin, end, range.end
-                )?;
+            gimli::RawRngListEntry::AddressOrOffsetPair { begin, end }
+            | gimli::RawRngListEntry::OffsetPair { begin, end } => {
+                write!(w, "<offset-pair 0x{:08x}, 0x{:08x}>", begin, end)?;
+                dump_range(w, range)?;
+                writeln!(w)?;
             }
             gimli::RawRngListEntry::StartEnd { begin, end } => {
-                let range = if begin == end {
-                    gimli::Range { begin, end }
-                } else {
-                    ranges.next()?.unwrap()
-                };
-                writeln!(
-                    w,
-                    "<start-end \
-                     low-off: 0x{:08x} addr 0x{:08x} \
-                     high-off: 0x{:08x} addr 0x{:08x}>",
-                    begin, range.begin, end, range.end
-                )?;
+                write!(w, "<start-end 0x{:08x}, 0x{:08x}>", begin, end)?;
+                dump_range(w, range)?;
+                writeln!(w)?;
             }
             gimli::RawRngListEntry::StartLength { begin, length } => {
-                let range = ranges.next()?.unwrap();
-                writeln!(
-                    w,
-                    "<start-length \
-                     low-off: 0x{:08x} addr 0x{:08x} \
-                     high-off: 0x{:08x} addr 0x{:08x}>",
-                    begin, range.begin, length, range.end
-                )?;
+                write!(w, "<start-length 0x{:08x}, 0x{:08x}>", begin, length)?;
+                dump_range(w, range)?;
+                writeln!(w)?;
             }
         };
     }

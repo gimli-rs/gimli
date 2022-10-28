@@ -489,45 +489,64 @@ impl<R: Reader> RngListIter<R> {
                 None => return Ok(None),
             };
 
-            let range = match raw_range {
-                RawRngListEntry::BaseAddress { addr } => {
-                    self.base_address = addr;
-                    continue;
-                }
-                RawRngListEntry::BaseAddressx { addr } => {
-                    self.base_address = self.get_address(addr)?;
-                    continue;
-                }
-                RawRngListEntry::StartxEndx { begin, end } => {
-                    let begin = self.get_address(begin)?;
-                    let end = self.get_address(end)?;
-                    Range { begin, end }
-                }
-                RawRngListEntry::StartxLength { begin, length } => {
-                    let begin = self.get_address(begin)?;
-                    let end = begin + length;
-                    Range { begin, end }
-                }
-                RawRngListEntry::AddressOrOffsetPair { begin, end }
-                | RawRngListEntry::OffsetPair { begin, end } => {
-                    let mut range = Range { begin, end };
-                    range.add_base_address(self.base_address, self.raw.encoding.address_size);
-                    range
-                }
-                RawRngListEntry::StartEnd { begin, end } => Range { begin, end },
-                RawRngListEntry::StartLength { begin, length } => Range {
-                    begin,
-                    end: begin + length,
-                },
-            };
-
-            if range.begin > range.end {
-                self.raw.input.empty();
-                return Err(Error::InvalidAddressRange);
+            let range = self.convert_raw(raw_range)?;
+            if range.is_some() {
+                return Ok(range);
             }
-
-            return Ok(Some(range));
         }
+    }
+
+    /// Return the next raw range.
+    ///
+    /// The raw range should be passed to `convert_range`.
+    #[doc(hidden)]
+    pub fn next_raw(&mut self) -> Result<Option<RawRngListEntry<R::Offset>>> {
+        self.raw.next()
+    }
+
+    /// Convert a raw range into a range, and update the state of the iterator.
+    ///
+    /// The raw range should have been obtained from `next_raw`.
+    #[doc(hidden)]
+    pub fn convert_raw(&mut self, raw_range: RawRngListEntry<R::Offset>) -> Result<Option<Range>> {
+        let range = match raw_range {
+            RawRngListEntry::BaseAddress { addr } => {
+                self.base_address = addr;
+                return Ok(None);
+            }
+            RawRngListEntry::BaseAddressx { addr } => {
+                self.base_address = self.get_address(addr)?;
+                return Ok(None);
+            }
+            RawRngListEntry::StartxEndx { begin, end } => {
+                let begin = self.get_address(begin)?;
+                let end = self.get_address(end)?;
+                Range { begin, end }
+            }
+            RawRngListEntry::StartxLength { begin, length } => {
+                let begin = self.get_address(begin)?;
+                let end = begin + length;
+                Range { begin, end }
+            }
+            RawRngListEntry::AddressOrOffsetPair { begin, end }
+            | RawRngListEntry::OffsetPair { begin, end } => {
+                let mut range = Range { begin, end };
+                range.add_base_address(self.base_address, self.raw.encoding.address_size);
+                range
+            }
+            RawRngListEntry::StartEnd { begin, end } => Range { begin, end },
+            RawRngListEntry::StartLength { begin, length } => Range {
+                begin,
+                end: begin + length,
+            },
+        };
+
+        if range.begin > range.end {
+            self.raw.input.empty();
+            return Err(Error::InvalidAddressRange);
+        }
+
+        Ok(Some(range))
     }
 }
 
@@ -553,8 +572,6 @@ pub(crate) struct RawRange {
 
 impl RawRange {
     /// Check if this is a range end entry.
-    ///
-    /// This will only occur for raw ranges.
     #[inline]
     pub fn is_end(&self) -> bool {
         self.begin == 0 && self.end == 0
@@ -563,14 +580,13 @@ impl RawRange {
     /// Check if this is a base address selection entry.
     ///
     /// A base address selection entry changes the base address that subsequent
-    /// range entries are relative to.  This will only occur for raw ranges.
+    /// range entries are relative to.
     #[inline]
     pub fn is_base_address(&self, address_size: u8) -> bool {
         self.begin == !0 >> (64 - address_size * 8)
     }
 
     /// Parse an address range entry from `.debug_ranges` or `.debug_loc`.
-    #[doc(hidden)]
     #[inline]
     pub fn parse<R: Reader>(input: &mut R, address_size: u8) -> Result<RawRange> {
         let begin = input.read_address(address_size)?;
