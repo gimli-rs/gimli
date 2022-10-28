@@ -575,6 +575,8 @@ impl<R: Reader> LocListIter<R> {
         &mut self,
         raw_loc: RawLocListEntry<R>,
     ) -> Result<Option<LocationListEntry<R>>> {
+        let mask = !0 >> (64 - self.raw.encoding.address_size * 8);
+
         let (range, data) = match raw_loc {
             RawLocListEntry::BaseAddress { addr } => {
                 self.base_address = addr;
@@ -595,7 +597,7 @@ impl<R: Reader> LocListIter<R> {
                 data,
             } => {
                 let begin = self.get_address(begin)?;
-                let end = begin + length;
+                let end = begin.wrapping_add(length) & mask;
                 (Range { begin, end }, data)
             }
             RawLocListEntry::DefaultLocation { data } => (
@@ -616,13 +618,10 @@ impl<R: Reader> LocListIter<R> {
                 begin,
                 length,
                 data,
-            } => (
-                Range {
-                    begin,
-                    end: begin + length,
-                },
-                data,
-            ),
+            } => {
+                let end = begin.wrapping_add(length) & mask;
+                (Range { begin, end }, data)
+            }
         };
 
         if range.begin > range.end {
