@@ -552,63 +552,85 @@ impl<R: Reader> LocListIter<R> {
                 None => return Ok(None),
             };
 
-            let (range, data) = match raw_loc {
-                RawLocListEntry::BaseAddress { addr } => {
-                    self.base_address = addr;
-                    continue;
-                }
-                RawLocListEntry::BaseAddressx { addr } => {
-                    self.base_address = self.get_address(addr)?;
-                    continue;
-                }
-                RawLocListEntry::StartxEndx { begin, end, data } => {
-                    let begin = self.get_address(begin)?;
-                    let end = self.get_address(end)?;
-                    (Range { begin, end }, data)
-                }
-                RawLocListEntry::StartxLength {
-                    begin,
-                    length,
-                    data,
-                } => {
-                    let begin = self.get_address(begin)?;
-                    let end = begin + length;
-                    (Range { begin, end }, data)
-                }
-                RawLocListEntry::DefaultLocation { data } => (
-                    Range {
-                        begin: 0,
-                        end: u64::max_value(),
-                    },
-                    data,
-                ),
-                RawLocListEntry::AddressOrOffsetPair { begin, end, data }
-                | RawLocListEntry::OffsetPair { begin, end, data } => {
-                    let mut range = Range { begin, end };
-                    range.add_base_address(self.base_address, self.raw.encoding.address_size);
-                    (range, data)
-                }
-                RawLocListEntry::StartEnd { begin, end, data } => (Range { begin, end }, data),
-                RawLocListEntry::StartLength {
-                    begin,
-                    length,
-                    data,
-                } => (
-                    Range {
-                        begin,
-                        end: begin + length,
-                    },
-                    data,
-                ),
-            };
-
-            if range.begin > range.end {
-                self.raw.input.empty();
-                return Err(Error::InvalidLocationAddressRange);
+            let loc = self.convert_raw(raw_loc)?;
+            if loc.is_some() {
+                return Ok(loc);
             }
-
-            return Ok(Some(LocationListEntry { range, data }));
         }
+    }
+
+    /// Return the next raw location.
+    ///
+    /// The raw location should be passed to `convert_raw`.
+    #[doc(hidden)]
+    pub fn next_raw(&mut self) -> Result<Option<RawLocListEntry<R>>> {
+        self.raw.next()
+    }
+
+    /// Convert a raw location into a location, and update the state of the iterator.
+    ///
+    /// The raw location should have been obtained from `next_raw`.
+    #[doc(hidden)]
+    pub fn convert_raw(
+        &mut self,
+        raw_loc: RawLocListEntry<R>,
+    ) -> Result<Option<LocationListEntry<R>>> {
+        let (range, data) = match raw_loc {
+            RawLocListEntry::BaseAddress { addr } => {
+                self.base_address = addr;
+                return Ok(None);
+            }
+            RawLocListEntry::BaseAddressx { addr } => {
+                self.base_address = self.get_address(addr)?;
+                return Ok(None);
+            }
+            RawLocListEntry::StartxEndx { begin, end, data } => {
+                let begin = self.get_address(begin)?;
+                let end = self.get_address(end)?;
+                (Range { begin, end }, data)
+            }
+            RawLocListEntry::StartxLength {
+                begin,
+                length,
+                data,
+            } => {
+                let begin = self.get_address(begin)?;
+                let end = begin + length;
+                (Range { begin, end }, data)
+            }
+            RawLocListEntry::DefaultLocation { data } => (
+                Range {
+                    begin: 0,
+                    end: u64::max_value(),
+                },
+                data,
+            ),
+            RawLocListEntry::AddressOrOffsetPair { begin, end, data }
+            | RawLocListEntry::OffsetPair { begin, end, data } => {
+                let mut range = Range { begin, end };
+                range.add_base_address(self.base_address, self.raw.encoding.address_size);
+                (range, data)
+            }
+            RawLocListEntry::StartEnd { begin, end, data } => (Range { begin, end }, data),
+            RawLocListEntry::StartLength {
+                begin,
+                length,
+                data,
+            } => (
+                Range {
+                    begin,
+                    end: begin + length,
+                },
+                data,
+            ),
+        };
+
+        if range.begin > range.end {
+            self.raw.input.empty();
+            return Err(Error::InvalidLocationAddressRange);
+        }
+
+        Ok(Some(LocationListEntry { range, data }))
     }
 }
 
