@@ -509,6 +509,8 @@ impl<R: Reader> RngListIter<R> {
     /// The raw range should have been obtained from `next_raw`.
     #[doc(hidden)]
     pub fn convert_raw(&mut self, raw_range: RawRngListEntry<R::Offset>) -> Result<Option<Range>> {
+        let mask = !0 >> (64 - self.raw.encoding.address_size * 8);
+
         let range = match raw_range {
             RawRngListEntry::BaseAddress { addr } => {
                 self.base_address = addr;
@@ -525,7 +527,7 @@ impl<R: Reader> RngListIter<R> {
             }
             RawRngListEntry::StartxLength { begin, length } => {
                 let begin = self.get_address(begin)?;
-                let end = begin + length;
+                let end = begin.wrapping_add(length) & mask;
                 Range { begin, end }
             }
             RawRngListEntry::AddressOrOffsetPair { begin, end }
@@ -535,10 +537,10 @@ impl<R: Reader> RngListIter<R> {
                 range
             }
             RawRngListEntry::StartEnd { begin, end } => Range { begin, end },
-            RawRngListEntry::StartLength { begin, length } => Range {
-                begin,
-                end: begin + length,
-            },
+            RawRngListEntry::StartLength { begin, length } => {
+                let end = begin.wrapping_add(length) & mask;
+                Range { begin, end }
+            }
         };
 
         if range.begin > range.end {
