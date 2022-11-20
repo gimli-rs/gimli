@@ -26,7 +26,10 @@ jobs:
         rustup default ${{matrix.rust_channel}}
     - name: MSRV dependencies
       if: matrix.rust_channel == '1.42.0'
-      run: cargo update -p indexmap --precise 1.6.2
+      run: |
+        cargo update -p indexmap --precise 1.6.2
+        cargo update -p rayon --precise 1.5.3
+        cargo update -p rayon-core --precise 1.9.3
     - name: Build
       run: cargo build --verbose
     - name: Run tests
