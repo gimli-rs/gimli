@@ -52,8 +52,9 @@ mod imp {
                 value_ptr as *mut T,
                 // Success: `Ordering::Release` is needed so that the content of the stored `Arc`
                 // is visible to other threads. No ordering is required for the null ptr that is
-                // loaded.
-                Ordering::Release,
+                // loaded, but older rust versions (< 1.64) require that its ordering must not
+                // be weaker than the failure ordering, so we use `Ordering::AcqRel`.
+                Ordering::AcqRel,
                 // Failure: `Ordering::Acquire` is needed so that the content of the loaded `Arc`
                 // is visible to this thread.
                 Ordering::Acquire,
