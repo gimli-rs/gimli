@@ -883,7 +883,6 @@ where
     }
 
     /// Return the input buffer after the last attribute.
-    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn after_attrs(&self) -> Result<R> {
         if let Some(attrs_len) = self.attrs_len.get() {
@@ -892,7 +891,7 @@ where
             Ok(input)
         } else {
             let mut attrs = self.attrs();
-            while let Some(_) = attrs.next()? {}
+            while attrs.next()?.is_some() {}
             Ok(attrs.input)
         }
     }
@@ -912,7 +911,6 @@ where
     }
 
     /// Parse an entry. Returns `Ok(None)` for null entries.
-    #[allow(clippy::inline_always)]
     #[inline(always)]
     fn parse(
         input: &mut R,
@@ -1143,8 +1141,6 @@ impl<R: Reader> Attribute<R> {
     /// name.
     ///
     /// See "Table 7.5: Attribute encodings" and "Table 7.6: Attribute form encodings".
-    #[allow(clippy::cyclomatic_complexity)]
-    #[allow(clippy::match_same_arms)]
     pub fn value(&self) -> AttributeValue<R> {
         // Table 7.5 shows the possible attribute classes for each name.
         // Table 7.6 shows the possible attribute classes for each form.
@@ -1980,7 +1976,7 @@ fn allow_section_offset(name: constants::DwAt, version: u16) -> bool {
     }
 }
 
-pub(crate) fn parse_attribute<'unit, R: Reader>(
+pub(crate) fn parse_attribute<R: Reader>(
     input: &mut R,
     encoding: Encoding,
     spec: AttributeSpecification,
@@ -2205,7 +2201,7 @@ pub(crate) fn parse_attribute<'unit, R: Reader>(
     }
 }
 
-pub(crate) fn skip_attributes<'unit, R: Reader>(
+pub(crate) fn skip_attributes<R: Reader>(
     input: &mut R,
     encoding: Encoding,
     specs: &[AttributeSpecification],
@@ -2294,7 +2290,6 @@ impl<'abbrev, 'entry, 'unit, R: Reader> AttrsIter<'abbrev, 'entry, 'unit, R> {
     /// Returns `None` when iteration is finished. If an error
     /// occurs while parsing the next attribute, then this error
     /// is returned, and all subsequent calls return `None`.
-    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn next(&mut self) -> Result<Option<Attribute<R>>> {
         if self.attributes.is_empty() {
@@ -2647,7 +2642,6 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// println!("The first entry with no children is {:?}",
     ///          first_entry_with_no_children.unwrap());
     /// ```
-    #[allow(clippy::type_complexity)]
     pub fn next_dfs(
         &mut self,
     ) -> Result<Option<(isize, &DebuggingInformationEntry<'abbrev, 'unit, R>)>> {
@@ -4213,7 +4207,6 @@ mod tests {
 
     #[test]
     fn test_attribute_udata_sdata_value() {
-        #[allow(clippy::type_complexity)]
         let tests: &[(
             AttributeValue<EndianSlice<LittleEndian>>,
             Option<u64>,

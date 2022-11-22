@@ -279,12 +279,8 @@ impl Expression {
         }
         offsets.push(offset);
         for (operation, offset) in self.operations.iter().zip(offsets.iter().copied()) {
-            let refs = match refs {
-                Some(ref mut refs) => Some(&mut **refs),
-                None => None,
-            };
             debug_assert_eq!(w.len(), offset);
-            operation.write(w, refs, encoding, unit_offsets, &offsets)?;
+            operation.write(w, refs.as_deref_mut(), encoding, unit_offsets, &offsets)?;
         }
         Ok(())
     }
@@ -630,7 +626,7 @@ impl Operation {
                 }
                 w.write_uleb128(entry_offset(base)?)?;
                 w.write_udata(value.len() as u64, 1)?;
-                w.write(&value)?;
+                w.write(value)?;
             }
             Operation::FrameOffset(offset) => {
                 w.write_u8(constants::DW_OP_fbreg.0)?;
@@ -770,7 +766,7 @@ impl Operation {
             Operation::ImplicitValue(ref data) => {
                 w.write_u8(constants::DW_OP_implicit_value.0)?;
                 w.write_uleb128(data.len() as u64)?;
-                w.write(&data)?;
+                w.write(data)?;
             }
             Operation::ImplicitPointer { entry, byte_offset } => {
                 if encoding.version >= 5 {
@@ -872,7 +868,7 @@ pub(crate) mod convert {
             let mut offsets = Vec::new();
             let mut offset = 0;
             let mut from_operations = from_expression.clone().operations(encoding);
-            while let Some(_) = from_operations.next()? {
+            while from_operations.next()?.is_some() {
                 offsets.push(offset);
                 offset = from_operations.offset_from(&from_expression);
             }

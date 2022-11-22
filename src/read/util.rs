@@ -9,7 +9,8 @@ use core::ptr;
 use core::slice;
 
 mod sealed {
-    // SAFETY: Implementer must not modify the content in storage.
+    /// # Safety
+    /// Implementer must not modify the content in storage.
     pub unsafe trait Sealed {
         type Storage;
 
@@ -161,7 +162,7 @@ impl<A: ArrayLike> ArrayVec<A> {
         } else {
             self.len -= 1;
             // SAFETY: this element is valid and we "forget" it by setting the length.
-            Some(unsafe { A::as_slice(&mut self.storage)[self.len].as_ptr().read() })
+            Some(unsafe { A::as_slice(&self.storage)[self.len].as_ptr().read() })
         }
     }
 

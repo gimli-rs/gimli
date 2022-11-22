@@ -26,14 +26,17 @@
 #![warn(ellipsis_inclusive_range_patterns)]
 //#![warn(elided_lifetimes_in_paths)]
 #![warn(explicit_outlives_requirements)]
-// Allow clippy warnings when we aren't building with clippy.
-#![allow(unknown_lints)]
+// Style.
+#![allow(clippy::bool_to_int_with_if)]
+#![allow(clippy::collapsible_else_if)]
+#![allow(clippy::comparison_chain)]
+#![allow(clippy::manual_range_contains)]
+#![allow(clippy::needless_late_init)]
+#![allow(clippy::too_many_arguments)]
 // False positives with `fallible_iterator`.
 #![allow(clippy::should_implement_trait)]
-// Many false positives involving `continue`.
-#![allow(clippy::never_loop)]
-// False positives when block expressions are used inside an assertion.
-#![allow(clippy::panic_params)]
+// False positives.
+#![allow(clippy::derive_partial_eq_without_eq)]
 #![no_std]
 
 #[allow(unused_imports)]

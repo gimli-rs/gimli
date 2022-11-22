@@ -111,7 +111,7 @@ impl<W: Writer + Clone> Sections<W> {
             debug_loclists: DebugLocLists(section.clone()),
             debug_str: DebugStr(section.clone()),
             debug_frame: DebugFrame(section.clone()),
-            eh_frame: EhFrame(section.clone()),
+            eh_frame: EhFrame(section),
             debug_info_refs: Vec::new(),
             debug_loc_refs: Vec::new(),
             debug_loclists_refs: Vec::new(),

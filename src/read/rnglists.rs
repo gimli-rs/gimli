@@ -232,7 +232,7 @@ impl<R: Reader> RangeLists<R> {
         let (mut input, format) = if unit_encoding.version <= 4 {
             (self.debug_ranges.section.clone(), RangeListsFormat::Bare)
         } else {
-            (self.debug_rnglists.section.clone(), RangeListsFormat::RLE)
+            (self.debug_rnglists.section.clone(), RangeListsFormat::Rle)
         };
         input.skip(offset.0)?;
         Ok(RawRngListIter::new(input, unit_encoding, format))
@@ -277,7 +277,7 @@ enum RangeListsFormat {
     /// The bare range list format used before DWARF 5.
     Bare,
     /// The DW_RLE encoded range list format used in DWARF 5.
-    RLE,
+    Rle,
 }
 
 /// A raw iterator over an address range list.
@@ -355,10 +355,10 @@ impl<T: ReaderOffset> RawRngListEntry<T> {
         encoding: Encoding,
         format: RangeListsFormat,
     ) -> Result<Option<Self>> {
-        match format {
+        Ok(match format {
             RangeListsFormat::Bare => {
                 let range = RawRange::parse(input, encoding.address_size)?;
-                return Ok(if range.is_end() {
+                if range.is_end() {
                     None
                 } else if range.is_base_address(encoding.address_size) {
                     Some(RawRngListEntry::BaseAddress { addr: range.end })
@@ -367,9 +367,9 @@ impl<T: ReaderOffset> RawRngListEntry<T> {
                         begin: range.begin,
                         end: range.end,
                     })
-                });
+                }
             }
-            RangeListsFormat::RLE => Ok(match constants::DwRle(input.read_u8()?) {
+            RangeListsFormat::Rle => match constants::DwRle(input.read_u8()?) {
                 constants::DW_RLE_end_of_list => None,
                 constants::DW_RLE_base_addressx => Some(RawRngListEntry::BaseAddressx {
                     addr: DebugAddrIndex(input.read_uleb128().and_then(R::Offset::from_u64)?),
@@ -400,8 +400,8 @@ impl<T: ReaderOffset> RawRngListEntry<T> {
                 _ => {
                     return Err(Error::InvalidAddressRange);
                 }
-            }),
-        }
+            },
+        })
     }
 }
 

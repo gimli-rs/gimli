@@ -94,8 +94,6 @@ impl LineProgram {
     /// Panics if `comp_dir` is empty or contains a null byte.
     ///
     /// Panics if `comp_file` is empty or contains a null byte.
-    #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::new_ret_no_self)]
     pub fn new(
         encoding: Encoding,
         line_encoding: LineEncoding,
@@ -261,7 +259,7 @@ impl LineProgram {
         } else {
             let entry = self.files.entry(key);
             let index = entry.index();
-            entry.or_insert(FileInfo::default());
+            entry.or_default();
             index
         };
         FileId::new(index)
@@ -1723,7 +1721,6 @@ mod tests {
 
     // Test that the address/line advance is correct. We don't test for optimality.
     #[test]
-    #[allow(clippy::useless_vec)]
     fn test_advance() {
         let encoding = Encoding {
             format: Format::Dwarf32,
