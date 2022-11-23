@@ -346,10 +346,7 @@ where
 {
     /// Return true if the piece is empty.
     pub fn is_empty(&self) -> bool {
-        match *self {
-            Location::Empty => true,
-            _ => false,
-        }
+        matches!(*self, Location::Empty)
     }
 }
 
@@ -1225,7 +1222,6 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
         self.stack.try_push(value).map_err(|_| Error::StackFull)
     }
 
-    #[allow(clippy::cyclomatic_complexity)]
     fn evaluate_one_operation(&mut self) -> Result<OperationEvaluationResult<R>> {
         let operation = Operation::parse(&mut self.pc, self.encoding)?;
 
@@ -2889,7 +2885,6 @@ mod tests {
         result
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn check_eval_with_args<F>(
         program: &[AssemblerEntry],
         expect: Result<&[Piece<EndianSlice<LittleEndian>>]>,

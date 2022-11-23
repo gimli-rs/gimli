@@ -197,12 +197,12 @@ where
     }
 }
 
-impl<'input, Endian> Into<&'input [u8]> for EndianSlice<'input, Endian>
+impl<'input, Endian> From<EndianSlice<'input, Endian>> for &'input [u8]
 where
     Endian: Endianity,
 {
-    fn into(self) -> &'input [u8] {
-        self.slice
+    fn from(endian_slice: EndianSlice<'input, Endian>) -> &'input [u8] {
+        endian_slice.slice
     }
 }
 

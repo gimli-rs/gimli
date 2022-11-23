@@ -198,7 +198,6 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    #[allow(clippy::new_ret_no_self)]
     fn new(program: IncompleteLineProgram<R, Offset>) -> OneShotLineRows<R, Offset> {
         let row = LineRow::new(program.header());
         let instructions = LineInstructions {
@@ -606,7 +605,6 @@ impl<R: Reader> LineInstructions<R> {
     ///
     /// Unfortunately, the `header` parameter means that this cannot be a
     /// `FallibleIterator`.
-    #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn next_instruction(
         &mut self,

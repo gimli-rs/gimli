@@ -344,7 +344,7 @@ impl Attributes {
     /// Pushes a new value onto this list of attributes.
     fn push(&mut self, attr: AttributeSpecification) {
         match self {
-            Attributes::Heap(list) => return list.push(attr),
+            Attributes::Heap(list) => list.push(attr),
             Attributes::Inline {
                 buf,
                 len: MAX_ATTRIBUTES_INLINE,
@@ -363,13 +363,13 @@ impl Attributes {
 
 impl Debug for Attributes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        (&**self).fmt(f)
+        (**self).fmt(f)
     }
 }
 
 impl PartialEq for Attributes {
     fn eq(&self, other: &Attributes) -> bool {
-        &**self == &**other
+        **self == **other
     }
 }
 
@@ -394,7 +394,7 @@ impl FromIterator<AttributeSpecification> for Attributes {
         for item in iter {
             list.push(item);
         }
-        return list;
+        list
     }
 }
 
@@ -504,8 +504,7 @@ pub(crate) fn get_attribute_size(form: constants::DwForm, encoding: Encoding) ->
     match form {
         constants::DW_FORM_addr => Some(encoding.address_size),
 
-        constants::DW_FORM_implicit_const |
-        constants::DW_FORM_flag_present => Some(0),
+        constants::DW_FORM_implicit_const | constants::DW_FORM_flag_present => Some(0),
 
         constants::DW_FORM_data1
         | constants::DW_FORM_flag
@@ -531,7 +530,7 @@ pub(crate) fn get_attribute_size(form: constants::DwForm, encoding: Encoding) ->
         | constants::DW_FORM_ref_sig8
         | constants::DW_FORM_ref_sup8 => Some(8),
 
-        constants::DW_FORM_data16  => Some(16),
+        constants::DW_FORM_data16 => Some(16),
 
         constants::DW_FORM_sec_offset
         | constants::DW_FORM_GNU_ref_alt
@@ -552,16 +551,16 @@ pub(crate) fn get_attribute_size(form: constants::DwForm, encoding: Encoding) ->
         }
 
         // Variably sized forms.
-        constants::DW_FORM_block |
-        constants::DW_FORM_block1 |
-        constants::DW_FORM_block2 |
-        constants::DW_FORM_block4 |
-        constants::DW_FORM_exprloc |
-        constants::DW_FORM_ref_udata |
-        constants::DW_FORM_string |
-        constants::DW_FORM_sdata |
-        constants::DW_FORM_udata |
-        constants::DW_FORM_indirect |
+        constants::DW_FORM_block
+        | constants::DW_FORM_block1
+        | constants::DW_FORM_block2
+        | constants::DW_FORM_block4
+        | constants::DW_FORM_exprloc
+        | constants::DW_FORM_ref_udata
+        | constants::DW_FORM_string
+        | constants::DW_FORM_sdata
+        | constants::DW_FORM_udata
+        | constants::DW_FORM_indirect => None,
 
         // We don't know the size of unknown forms.
         _ => None,

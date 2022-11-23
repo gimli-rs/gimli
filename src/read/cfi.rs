@@ -1058,7 +1058,6 @@ where
     Fde(PartialFrameDescriptionEntry<'bases, Section, R>),
 }
 
-#[allow(clippy::type_complexity)]
 fn parse_cfi_entry<'bases, Section, R>(
     bases: &'bases BaseAddresses,
     section: &Section,
@@ -1617,7 +1616,6 @@ where
 }
 
 impl<R: Reader> FrameDescriptionEntry<R> {
-    #[allow(clippy::too_many_arguments)]
     fn parse_rest<Section, F>(
         offset: R::Offset,
         length: R::Offset,
@@ -1982,7 +1980,7 @@ impl<R: Reader, A: UnwindContextStorage<R>> UnwindContext<R, A> {
         }
 
         let mut table = UnwindTable::new_for_cie(section, bases, self, cie);
-        while let Some(_) = table.next_row()? {}
+        while table.next_row()?.is_some() {}
 
         self.save_initial_rules()?;
         Ok(())
@@ -2005,7 +2003,7 @@ impl<R: Reader, A: UnwindContextStorage<R>> UnwindContext<R, A> {
     }
 
     fn save_initial_rules(&mut self) -> Result<()> {
-        assert_eq!(self.is_initialized, false);
+        debug_assert!(!self.is_initialized);
         self.initial_rule = match *self.stack.last().unwrap().registers.rules {
             // All rules are default (undefined). In this case just synthesize
             // an undefined rule.
@@ -2821,10 +2819,7 @@ pub enum RegisterRule<R: Reader> {
 
 impl<R: Reader> RegisterRule<R> {
     fn is_defined(&self) -> bool {
-        match *self {
-            RegisterRule::Undefined => false,
-            _ => true,
-        }
+        !matches!(*self, RegisterRule::Undefined)
     }
 }
 
@@ -3394,10 +3389,10 @@ impl Default for Pointer {
     }
 }
 
-impl Into<u64> for Pointer {
+impl From<Pointer> for u64 {
     #[inline]
-    fn into(self) -> u64 {
-        match self {
+    fn from(p: Pointer) -> u64 {
+        match p {
             Pointer::Direct(p) | Pointer::Indirect(p) => p,
         }
     }
@@ -3762,8 +3757,6 @@ mod tests {
         }
     }
 
-    #[allow(clippy::type_complexity)]
-    #[allow(clippy::needless_pass_by_value)]
     fn assert_parse_cie<'input, E>(
         kind: SectionKind<DebugFrame<EndianSlice<'input, E>>>,
         section: Section,
@@ -5118,7 +5111,6 @@ mod tests {
         assert_eq!(iter.next(), Ok(None));
     }
 
-    #[allow(clippy::needless_pass_by_value)]
     fn assert_eval<'a, I>(
         mut initial_ctx: UnwindContext<EndianSlice<'a, LittleEndian>>,
         expected_ctx: UnwindContext<EndianSlice<'a, LittleEndian>>,
@@ -5598,7 +5590,6 @@ mod tests {
 
     #[test]
     fn test_unwind_table_cie_no_rule() {
-        #[allow(clippy::identity_op)]
         let initial_instructions = Section::with_endian(Endian::Little)
             // The CFA is -12 from register 4.
             .D8(constants::DW_CFA_def_cfa_sf.0)
@@ -5671,7 +5662,6 @@ mod tests {
 
     #[test]
     fn test_unwind_table_cie_single_rule() {
-        #[allow(clippy::identity_op)]
         let initial_instructions = Section::with_endian(Endian::Little)
             // The CFA is -12 from register 4.
             .D8(constants::DW_CFA_def_cfa_sf.0)
@@ -5747,7 +5737,6 @@ mod tests {
 
     #[test]
     fn test_unwind_table_next_row() {
-        #[allow(clippy::identity_op)]
         let initial_instructions = Section::with_endian(Endian::Little)
             // The CFA is -12 from register 4.
             .D8(constants::DW_CFA_def_cfa_sf.0)
