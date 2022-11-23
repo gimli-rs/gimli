@@ -1,6 +1,6 @@
 # Announcing `gimli` $TODO_VERSION
 
-`gimli` is a blazing fast library for consuming the DWARF debugging format.
+`gimli` is a library for reading and writing the DWARF debugging format.
 
 * [GitHub][]
 * [crates.io][]
