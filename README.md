@@ -5,7 +5,7 @@
 [![Build Status](https://github.com/gimli-rs/gimli/workflows/Rust/badge.svg)](https://github.com/gimli-rs/gimli/actions)
 [![Coverage Status](https://coveralls.io/repos/github/gimli-rs/gimli/badge.svg?branch=master)](https://coveralls.io/github/gimli-rs/gimli?branch=master)
 
-`gimli` is a blazing fast library for consuming the
+`gimli` is a library for reading and writing the
 [DWARF debugging format](https://dwarfstd.org/).
 
 * **Zero copy:** everything is just a reference to the original input buffer. No
@@ -30,7 +30,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gimli = "0.26.2"
+gimli = "0.27.0"
 ```
 
 The minimum supported Rust version is 1.42.0.

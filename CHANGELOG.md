@@ -2,6 +2,27 @@
 
 --------------------------------------------------------------------------------
 
+## 0.27.0
+
+Released 2022/11/23.
+
+### Breaking changes
+
+* Added `read::Dwarf::abbreviations_cache` to cache abbreviations at offset 0.
+  Changed `read::Dwarf::abbreviations` to return `Result<Arc<Abbreviations>>`,
+  and changed `read::Unit::abbreviations` to `Arc<Abbreviations>`.
+  [#628](https://github.com/gimli-rs/gimli/pull/628)
+
+### Added
+
+* Added LoongArch register definitions.
+  [#624](https://github.com/gimli-rs/gimli/pull/624)
+
+* Added support for tombstones in `read::LocListIter` and `read::RngListIter`.
+  [#631](https://github.com/gimli-rs/gimli/pull/631)
+
+--------------------------------------------------------------------------------
+
 ## 0.26.2
 
 Released 2022/07/16.
