@@ -1129,33 +1129,19 @@ mod tests {
         match dwarf.debug_str.get_str(DebugStrOffset(1)) {
             Ok(r) => panic!("Unexpected str {:?}", r),
             Err(e) => {
-                if cfg!(not(target_os = "aix")) {
-                    assert_eq!(
-                        dwarf.format_error(e),
-                        "Hit the end of input before it was expected at .debug_str+0x1"
-                    );
-                } else {
-                    assert_eq!(
-                        dwarf.format_error(e),
-                        "Hit the end of input before it was expected at .dwstr+0x1"
-                    );
-                }
+                assert_eq!(
+                    dwarf.format_error(e),
+                    "Hit the end of input before it was expected at .debug_str+0x1"
+                );
             }
         }
         match dwarf.sup().unwrap().debug_str.get_str(DebugStrOffset(1)) {
             Ok(r) => panic!("Unexpected str {:?}", r),
             Err(e) => {
-                if cfg!(not(target_os = "aix")) {
-                    assert_eq!(
-                        dwarf.format_error(e),
-                        "Hit the end of input before it was expected at .debug_str(sup)+0x1"
-                    );
-                } else {
-                    assert_eq!(
-                        dwarf.format_error(e),
-                        "Hit the end of input before it was expected at .dwstr(sup)+0x1"
-                    );
-                }
+                assert_eq!(
+                    dwarf.format_error(e),
+                    "Hit the end of input before it was expected at .debug_str(sup)+0x1"
+                );
             }
         }
         assert_eq!(dwarf.format_error(Error::Io), Error::Io.description());

@@ -318,34 +318,6 @@ impl SectionId {
         }
     }
 
-    /// Returns the XCOFF section name for this kind.
-    pub fn xcoff_name(self) -> Option<&'static str> {
-        match self {
-            SectionId::DebugAbbrev => Some(".dwabrev"),
-            SectionId::DebugAddr => None,
-            SectionId::DebugAranges => Some(".dwarnge"),
-            SectionId::DebugCuIndex => None,
-            SectionId::DebugFrame => Some(".dwframe"),
-            SectionId::EhFrame => None,
-            SectionId::EhFrameHdr => None,
-            SectionId::DebugInfo => Some(".dwinfo"),
-            SectionId::DebugLine => Some(".dwline"),
-            SectionId::DebugLineStr => None,
-            SectionId::DebugLoc => Some(".dwloc"),
-            SectionId::DebugLocLists => None,
-            SectionId::DebugMacinfo => Some(".dwmac"),
-            SectionId::DebugMacro => None,
-            SectionId::DebugPubNames => Some(".dwpbnms"),
-            SectionId::DebugPubTypes => Some(".dwpbtyp"),
-            SectionId::DebugRanges => Some(".dwrnges"),
-            SectionId::DebugRngLists => None,
-            SectionId::DebugStr => Some(".dwstr"),
-            SectionId::DebugStrOffsets => None,
-            SectionId::DebugTuIndex => None,
-            SectionId::DebugTypes => None,
-        }
-    }
-
     /// Returns the ELF section name for this kind, when found in a .dwo or .dwp file.
     pub fn dwo_name(self) -> Option<&'static str> {
         Some(match self {
@@ -363,6 +335,24 @@ impl SectionId {
             SectionId::DebugStrOffsets => ".debug_str_offsets.dwo",
             SectionId::DebugTuIndex => ".debug_tu_index",
             SectionId::DebugTypes => ".debug_types.dwo",
+            _ => return None,
+        })
+    }
+
+    /// Returns the XCOFF section name for this kind.
+    pub fn xcoff_name(self) -> Option<&'static str> {
+        Some(match self {
+            SectionId::DebugAbbrev => ".dwabrev",
+            SectionId::DebugAranges => ".dwarnge",
+            SectionId::DebugFrame => ".dwframe",
+            SectionId::DebugInfo => ".dwinfo",
+            SectionId::DebugLine => ".dwline",
+            SectionId::DebugLoc => ".dwloc",
+            SectionId::DebugMacinfo => ".dwmac",
+            SectionId::DebugPubNames => ".dwpbnms",
+            SectionId::DebugPubTypes => ".dwpbtyp",
+            SectionId::DebugRanges => ".dwrnges",
+            SectionId::DebugStr => ".dwstr",
             _ => return None,
         })
     }
