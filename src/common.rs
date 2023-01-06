@@ -291,6 +291,7 @@ pub enum SectionId {
 
 impl SectionId {
     /// Returns the ELF section name for this kind.
+    #[cfg(not(target_os = "aix"))]
     pub fn name(self) -> &'static str {
         match self {
             SectionId::DebugAbbrev => ".debug_abbrev",
@@ -315,6 +316,35 @@ impl SectionId {
             SectionId::DebugStrOffsets => ".debug_str_offsets",
             SectionId::DebugTuIndex => ".debug_tu_index",
             SectionId::DebugTypes => ".debug_types",
+        }
+    }
+
+    /// Returns the XCOFF section name for this kind.
+    #[cfg(target_os = "aix")]
+    pub fn name(self) -> &'static str {
+        match self {
+            SectionId::DebugAbbrev => ".dwabrev",
+            SectionId::DebugAddr => panic!("XCOFF doesn't have debug address section"),
+            SectionId::DebugAranges => ".dwarnge",
+            SectionId::DebugCuIndex => panic!("XCOFF doesn't have debug cu index section"),
+            SectionId::DebugFrame => ".dwframe",
+            SectionId::EhFrame => panic!("XCOFF doesn't have eh frame section"),
+            SectionId::EhFrameHdr => panic!("XCOFF doesn't have eh frame hdr section"),
+            SectionId::DebugInfo => ".dwinfo",
+            SectionId::DebugLine => ".dwline",
+            SectionId::DebugLineStr => panic!("XCOFF doesn't have debug line string section"),
+            SectionId::DebugLoc => ".dwloc",
+            SectionId::DebugLocLists => panic!("XCOFF doesn't have debug loc lists section"),
+            SectionId::DebugMacinfo => ".dwmac",
+            SectionId::DebugMacro => panic!("XCOFF doesn't have debug macro section"),
+            SectionId::DebugPubNames => ".dwpbnms",
+            SectionId::DebugPubTypes => ".dwpbtyp",
+            SectionId::DebugRanges => ".dwrnges",
+            SectionId::DebugRngLists => panic!("XCOFF doesn't have debug range lists section"),
+            SectionId::DebugStr => ".dwstr",
+            SectionId::DebugStrOffsets => panic!("XCOFF doesn't have debug str offsets section"),
+            SectionId::DebugTuIndex => panic!("XCOFF doesn't have debug tu index section"),
+            SectionId::DebugTypes => panic!("XCOFF doesn't have debug type section"),
         }
     }
 
