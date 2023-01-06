@@ -291,7 +291,6 @@ pub enum SectionId {
 
 impl SectionId {
     /// Returns the ELF section name for this kind.
-    #[cfg(not(target_os = "aix"))]
     pub fn name(self) -> &'static str {
         match self {
             SectionId::DebugAbbrev => ".debug_abbrev",
@@ -320,31 +319,30 @@ impl SectionId {
     }
 
     /// Returns the XCOFF section name for this kind.
-    #[cfg(target_os = "aix")]
-    pub fn name(self) -> &'static str {
+    pub fn xcoff_name(self) -> Option<&'static str> {
         match self {
-            SectionId::DebugAbbrev => ".dwabrev",
-            SectionId::DebugAddr => panic!("XCOFF doesn't have debug address section"),
-            SectionId::DebugAranges => ".dwarnge",
-            SectionId::DebugCuIndex => panic!("XCOFF doesn't have debug cu index section"),
-            SectionId::DebugFrame => ".dwframe",
-            SectionId::EhFrame => panic!("XCOFF doesn't have eh frame section"),
-            SectionId::EhFrameHdr => panic!("XCOFF doesn't have eh frame hdr section"),
-            SectionId::DebugInfo => ".dwinfo",
-            SectionId::DebugLine => ".dwline",
-            SectionId::DebugLineStr => panic!("XCOFF doesn't have debug line string section"),
-            SectionId::DebugLoc => ".dwloc",
-            SectionId::DebugLocLists => panic!("XCOFF doesn't have debug loc lists section"),
-            SectionId::DebugMacinfo => ".dwmac",
-            SectionId::DebugMacro => panic!("XCOFF doesn't have debug macro section"),
-            SectionId::DebugPubNames => ".dwpbnms",
-            SectionId::DebugPubTypes => ".dwpbtyp",
-            SectionId::DebugRanges => ".dwrnges",
-            SectionId::DebugRngLists => panic!("XCOFF doesn't have debug range lists section"),
-            SectionId::DebugStr => ".dwstr",
-            SectionId::DebugStrOffsets => panic!("XCOFF doesn't have debug str offsets section"),
-            SectionId::DebugTuIndex => panic!("XCOFF doesn't have debug tu index section"),
-            SectionId::DebugTypes => panic!("XCOFF doesn't have debug type section"),
+            SectionId::DebugAbbrev => Some(".dwabrev"),
+            SectionId::DebugAddr => None,
+            SectionId::DebugAranges => Some(".dwarnge"),
+            SectionId::DebugCuIndex => None,
+            SectionId::DebugFrame => Some(".dwframe"),
+            SectionId::EhFrame => None,
+            SectionId::EhFrameHdr => None,
+            SectionId::DebugInfo => Some(".dwinfo"),
+            SectionId::DebugLine => Some(".dwline"),
+            SectionId::DebugLineStr => None,
+            SectionId::DebugLoc => Some(".dwloc"),
+            SectionId::DebugLocLists => None,
+            SectionId::DebugMacinfo => Some(".dwmac"),
+            SectionId::DebugMacro => None,
+            SectionId::DebugPubNames => Some(".dwpbnms"),
+            SectionId::DebugPubTypes => Some(".dwpbtyp"),
+            SectionId::DebugRanges => Some(".dwrnges"),
+            SectionId::DebugRngLists => None,
+            SectionId::DebugStr => Some(".dwstr"),
+            SectionId::DebugStrOffsets => None,
+            SectionId::DebugTuIndex => None,
+            SectionId::DebugTypes => None,
         }
     }
 
