@@ -627,6 +627,12 @@ pub trait Section<R>: From<R> {
         Self::id().dwo_name()
     }
 
+    /// Returns the XCOFF section name (if any) for this type when used in a XCOFF
+    /// file.
+    fn xcoff_section_name() -> Option<&'static str> {
+        Self::id().xcoff_name()
+    }
+
     /// Try to load the section using the given loader function.
     fn load<F, E>(f: F) -> core::result::Result<Self, E>
     where

@@ -338,6 +338,24 @@ impl SectionId {
             _ => return None,
         })
     }
+
+    /// Returns the XCOFF section name for this kind.
+    pub fn xcoff_name(self) -> Option<&'static str> {
+        Some(match self {
+            SectionId::DebugAbbrev => ".dwabrev",
+            SectionId::DebugAranges => ".dwarnge",
+            SectionId::DebugFrame => ".dwframe",
+            SectionId::DebugInfo => ".dwinfo",
+            SectionId::DebugLine => ".dwline",
+            SectionId::DebugLoc => ".dwloc",
+            SectionId::DebugMacinfo => ".dwmac",
+            SectionId::DebugPubNames => ".dwpbnms",
+            SectionId::DebugPubTypes => ".dwpbtyp",
+            SectionId::DebugRanges => ".dwrnges",
+            SectionId::DebugStr => ".dwstr",
+            _ => return None,
+        })
+    }
 }
 
 /// An optionally-provided implementation-defined compilation unit ID to enable
