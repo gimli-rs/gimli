@@ -3,6 +3,7 @@
 
 use fallible_iterator::FallibleIterator;
 use gimli::{Section, UnitHeader, UnitOffset, UnitSectionOffset, UnitType, UnwindSection};
+use object::BinaryFormat;
 use object::{Object, ObjectSection, ObjectSymbol};
 use regex::bytes::Regex;
 use std::borrow::{Borrow, Cow};
@@ -585,6 +586,8 @@ fn load_file_section<'input, 'arena, Endian: gimli::Endianity>(
     let mut relocations = RelocationMap::default();
     let name = if is_dwo {
         id.dwo_name()
+    } else if file.format() == BinaryFormat::Xcoff {
+        id.xcoff_name()
     } else {
         Some(id.name())
     };
