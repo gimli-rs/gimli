@@ -585,6 +585,8 @@ fn load_file_section<'input, 'arena, Endian: gimli::Endianity>(
     let mut relocations = RelocationMap::default();
     let name = if is_dwo {
         id.dwo_name()
+    } else if file.format() == object::BinaryFormat::Xcoff {
+        id.xcoff_name()
     } else {
         Some(id.name())
     };
