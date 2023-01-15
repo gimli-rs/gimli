@@ -569,6 +569,20 @@ impl<R: Reader> Dwarf<R> {
         }
         err.description().into()
     }
+
+    /// Assuming `self` was loaded from a .dwo, take the appropriate
+    /// sections from `parent` (which contains the skeleton unit for this
+    /// dwo) and return a suitable instance of `Dwarf`.
+    pub fn make_dwo(mut self, parent: &Dwarf<R>) -> Dwarf<R> {
+        self.file_type = DwarfFileType::Dwo;
+        // These sections are always taken from the parent file and not the dwo.
+        self.debug_addr = parent.debug_addr.clone();
+        // .debug_rnglists comes from the DWO, .debug_ranges comes from the
+        // parent file.
+        self.ranges
+            .set_debug_ranges(parent.ranges.debug_ranges().clone());
+        self
+    }
 }
 
 /// The sections from a `.dwp` file.
