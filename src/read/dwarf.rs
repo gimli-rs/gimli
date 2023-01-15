@@ -996,6 +996,25 @@ impl<R: Reader> Unit<R> {
             self.rnglists_base = other.rnglists_base;
         }
     }
+
+    /// Find the dwo name (if any) for this unit, automatically handling the differences
+    /// between the standardized DWARF 5 split DWARF format and the pre-DWARF 5 GNU
+    /// extension.
+    ///
+    /// The returned value is relative to this unit's `comp_dir`.
+    pub fn dwo_name(&self) -> Result<Option<AttributeValue<R>>> {
+        let mut entries = self.entries();
+        if let None = entries.next_entry()? {
+            return Ok(None);
+        }
+
+        let entry = entries.current().unwrap();
+        if self.header.version() < 5 {
+            entry.attr_value(constants::DW_AT_GNU_dwo_name)
+        } else {
+            entry.attr_value(constants::DW_AT_dwo_name)
+        }
+    }
 }
 
 impl<T: ReaderOffset> UnitSectionOffset<T> {
