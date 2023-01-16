@@ -571,6 +571,21 @@ impl<R: Reader> Dwarf<R> {
     }
 }
 
+impl<R: Clone> Dwarf<R> {
+    /// Assuming `self` was loaded from a .dwo, take the appropriate
+    /// sections from `parent` (which contains the skeleton unit for this
+    /// dwo) such as `.debug_addr` and merge them into this `Dwarf`.
+    pub fn make_dwo(&mut self, parent: &Dwarf<R>) {
+        self.file_type = DwarfFileType::Dwo;
+        // These sections are always taken from the parent file and not the dwo.
+        self.debug_addr = parent.debug_addr.clone();
+        // .debug_rnglists comes from the DWO, .debug_ranges comes from the
+        // parent file.
+        self.ranges
+            .set_debug_ranges(parent.ranges.debug_ranges().clone());
+    }
+}
+
 /// The sections from a `.dwp` file.
 #[derive(Debug)]
 pub struct DwarfPackage<R: Reader> {
@@ -994,6 +1009,25 @@ impl<R: Reader> Unit<R> {
         self.addr_base = other.addr_base;
         if self.header.version() < 5 {
             self.rnglists_base = other.rnglists_base;
+        }
+    }
+
+    /// Find the dwo name (if any) for this unit, automatically handling the differences
+    /// between the standardized DWARF 5 split DWARF format and the pre-DWARF 5 GNU
+    /// extension.
+    ///
+    /// The returned value is relative to this unit's `comp_dir`.
+    pub fn dwo_name(&self) -> Result<Option<AttributeValue<R>>> {
+        let mut entries = self.entries();
+        if let None = entries.next_entry()? {
+            return Ok(None);
+        }
+
+        let entry = entries.current().unwrap();
+        if self.header.version() < 5 {
+            entry.attr_value(constants::DW_AT_GNU_dwo_name)
+        } else {
+            entry.attr_value(constants::DW_AT_dwo_name)
         }
     }
 }
