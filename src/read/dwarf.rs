@@ -569,7 +569,9 @@ impl<R: Reader> Dwarf<R> {
         }
         err.description().into()
     }
+}
 
+impl<R: Clone> Dwarf<R> {
     /// Assuming `self` was loaded from a .dwo, take the appropriate
     /// sections from `parent` (which contains the skeleton unit for this
     /// dwo) and return a suitable instance of `Dwarf`.
