@@ -680,7 +680,7 @@ where
     let mut dwarf = gimli::Dwarf::load(&mut load_section)?;
     if flags.dwo {
         if let Some(dwo_parent) = dwo_parent {
-            dwarf = dwarf.make_dwo(&dwo_parent)
+            dwarf.make_dwo(&dwo_parent);
         } else {
             dwarf.file_type = gimli::DwarfFileType::Dwo;
         }

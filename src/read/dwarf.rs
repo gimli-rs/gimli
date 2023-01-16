@@ -574,8 +574,8 @@ impl<R: Reader> Dwarf<R> {
 impl<R: Clone> Dwarf<R> {
     /// Assuming `self` was loaded from a .dwo, take the appropriate
     /// sections from `parent` (which contains the skeleton unit for this
-    /// dwo) and return a suitable instance of `Dwarf`.
-    pub fn make_dwo(mut self, parent: &Dwarf<R>) -> Dwarf<R> {
+    /// dwo) such as `.debug_addr` and merge them into this `Dwarf`.
+    pub fn make_dwo(&mut self, parent: &Dwarf<R>) {
         self.file_type = DwarfFileType::Dwo;
         // These sections are always taken from the parent file and not the dwo.
         self.debug_addr = parent.debug_addr.clone();
@@ -583,7 +583,6 @@ impl<R: Clone> Dwarf<R> {
         // parent file.
         self.ranges
             .set_debug_ranges(parent.ranges.debug_ranges().clone());
-        self
     }
 }
 
