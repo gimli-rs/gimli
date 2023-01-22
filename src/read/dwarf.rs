@@ -583,6 +583,7 @@ impl<R: Clone> Dwarf<R> {
         // parent file.
         self.ranges
             .set_debug_ranges(parent.ranges.debug_ranges().clone());
+        self.sup = parent.sup.clone();
     }
 }
 
@@ -802,7 +803,7 @@ impl<R: Reader> DwarfPackage<R> {
             locations: LocationLists::new(debug_loc, debug_loclists),
             ranges: RangeLists::new(debug_ranges, debug_rnglists),
             file_type: DwarfFileType::Dwo,
-            sup: None,
+            sup: parent.sup.clone(),
             abbreviations_cache: AbbreviationsCache::new(),
         })
     }
