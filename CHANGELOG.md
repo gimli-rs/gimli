@@ -2,6 +2,25 @@
 
 --------------------------------------------------------------------------------
 
+## 0.27.1
+
+Released 2023/01/23.
+
+### Added
+
+* Added `SectionId::xcoff_name` and `read::Section::xcoff_section_name`.
+  [#635](https://github.com/gimli-rs/gimli/pull/635)
+
+* Added `read::Dwarf::make_dwo` and `read::Unit::dwo_name`.
+  [#637](https://github.com/gimli-rs/gimli/pull/637)
+
+### Changed
+
+* Changed `read::DwarfPackage::sections` to handle supplementary files.
+  [#638](https://github.com/gimli-rs/gimli/pull/638)
+
+--------------------------------------------------------------------------------
+
 ## 0.27.0
 
 Released 2022/11/23.
