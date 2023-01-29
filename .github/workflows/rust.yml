@@ -162,6 +162,9 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
+    container:
+      image: xd009642/tarpaulin
+      options: --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@v2
       - name: Install rustup
@@ -171,9 +174,7 @@ jobs:
           rustup install stable
           rustup default stable
       - name: Run cargo-tarpaulin
-        uses: actions-rs/tarpaulin@v0.1
-        with:
-          args: '--ignore-tests --out Lcov'
+        run: cargo tarpaulin --ignore-tests --out Lcov
       - name: Upload to Coveralls
         uses: coverallsapp/github-action@master
         with:
