@@ -251,7 +251,14 @@ where
                 Ok(None) => return Ok(None),
                 Ok(Some(instruction)) => {
                     if self.row.execute(instruction, &mut self.program) {
-                        return Ok(Some((self.header(), &self.row)));
+                        if self.row.tombstone {
+                            // Perform any reset that was required for the tombstone row.
+                            // Normally this is done when `next_row` is called again, but for
+                            // tombstones we loop immediately.
+                            self.row.reset(self.program.header());
+                        } else {
+                            return Ok(Some((self.header(), &self.row)));
+                        }
                     }
                     // Fall through, parse the next instruction, and see if that
                     // yields a row.
@@ -633,6 +640,7 @@ pub type LineNumberRow = LineRow;
 /// Each row is a copy of the registers of the state machine, as defined in section 6.2.2.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LineRow {
+    tombstone: bool,
     address: Wrapping<u64>,
     op_index: Wrapping<u64>,
     file: u64,
@@ -653,6 +661,7 @@ impl LineRow {
         LineRow {
             // "At the beginning of each sequence within a line number program, the
             // state of the registers is:" -- Section 6.2.2
+            tombstone: false,
             address: Wrapping(0),
             op_index: Wrapping(0),
             file: 1,
@@ -878,6 +887,8 @@ impl LineRow {
             }
 
             LineInstruction::SetAddress(address) => {
+                let tombstone_address = !0 >> (64 - program.header().encoding.address_size * 8);
+                self.tombstone = address == tombstone_address;
                 self.address.0 = address;
                 self.op_index.0 = 0;
                 false
@@ -2831,6 +2842,19 @@ mod tests {
     }
 
     #[test]
+    fn test_exec_set_address_tombstone() {
+        let header = make_test_header(EndianSlice::new(&[], LittleEndian));
+        let initial_registers = LineRow::new(&header);
+        let opcode = LineInstruction::SetAddress(!0);
+
+        let mut expected_registers = initial_registers;
+        expected_registers.tombstone = true;
+        expected_registers.address.0 = !0;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
+    }
+
+    #[test]
     fn test_exec_define_file() {
         let mut program = make_test_program(EndianSlice::new(&[], LittleEndian));
         let mut row = LineRow::new(program.header());
@@ -3024,5 +3048,83 @@ mod tests {
             assert_eq!(header.file_names(), expected_file_names);
             assert_eq!(header.file(0), Some(&expected_file_names[0]));
         }
+    }
+
+    #[test]
+    fn test_sequences() {
+        #[rustfmt::skip]
+        let buf = [
+            // 32-bit length
+            94, 0x00, 0x00, 0x00,
+            // Version.
+            0x04, 0x00,
+            // Header length = 40.
+            0x28, 0x00, 0x00, 0x00,
+            // Minimum instruction length.
+            0x01,
+            // Maximum operations per byte.
+            0x01,
+            // Default is_stmt.
+            0x01,
+            // Line base.
+            0x00,
+            // Line range.
+            0x01,
+            // Opcode base.
+            0x03,
+            // Standard opcode lengths for opcodes 1 .. opcode base - 1.
+            0x01, 0x02,
+            // Include directories = '/', 'i', 'n', 'c', '\0', '/', 'i', 'n', 'c', '2', '\0', '\0'
+            0x2f, 0x69, 0x6e, 0x63, 0x00, 0x2f, 0x69, 0x6e, 0x63, 0x32, 0x00, 0x00,
+            // File names
+                // foo.rs
+                0x66, 0x6f, 0x6f, 0x2e, 0x72, 0x73, 0x00,
+                0x00,
+                0x00,
+                0x00,
+                // bar.h
+                0x62, 0x61, 0x72, 0x2e, 0x68, 0x00,
+                0x01,
+                0x00,
+                0x00,
+            // End file names.
+            0x00,
+
+            0, 5, constants::DW_LNE_set_address.0, 1, 0, 0, 0,
+            constants::DW_LNS_copy.0,
+            constants::DW_LNS_advance_pc.0, 1,
+            constants::DW_LNS_copy.0,
+            constants::DW_LNS_advance_pc.0, 2,
+            0, 1, constants::DW_LNE_end_sequence.0,
+
+            // Tombstone
+            0, 5, constants::DW_LNE_set_address.0, 0xff, 0xff, 0xff, 0xff,
+            constants::DW_LNS_copy.0,
+            constants::DW_LNS_advance_pc.0, 1,
+            constants::DW_LNS_copy.0,
+            constants::DW_LNS_advance_pc.0, 2,
+            0, 1, constants::DW_LNE_end_sequence.0,
+
+            0, 5, constants::DW_LNE_set_address.0, 11, 0, 0, 0,
+            constants::DW_LNS_copy.0,
+            constants::DW_LNS_advance_pc.0, 1,
+            constants::DW_LNS_copy.0,
+            constants::DW_LNS_advance_pc.0, 2,
+            0, 1, constants::DW_LNE_end_sequence.0,
+        ];
+        assert_eq!(buf[0] as usize, buf.len() - 4);
+
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
+
+        let header = LineProgramHeader::parse(rest, DebugLineOffset(0), 4, None, None)
+            .expect("should parse header ok");
+        let program = IncompleteLineProgram { header };
+
+        let sequences = program.sequences().unwrap().1;
+        assert_eq!(sequences.len(), 2);
+        assert_eq!(sequences[0].start, 1);
+        assert_eq!(sequences[0].end, 4);
+        assert_eq!(sequences[1].start, 11);
+        assert_eq!(sequences[1].end, 14);
     }
 }
