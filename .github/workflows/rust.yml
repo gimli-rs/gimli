@@ -61,11 +61,11 @@ jobs:
       - name: Install `cargo fuzz`
         run: cargo install cargo-fuzz --vers "^0.11.0"
       - run: cargo fuzz build -Oa
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: fuzz-targets
           path: fuzz/target/x86_64-unknown-linux-gnu/release/debug_*
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: fuzz-targets
           path: fuzz/target/x86_64-unknown-linux-gnu/release/eh_*
@@ -99,7 +99,7 @@ jobs:
       # can debug them.
       - name: Upload fuzz artifacts
         if: failure()
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: ${{matrix.fuzz_target}}_artifacts
           path: ./${{matrix.fuzz_target}}_artifacts
