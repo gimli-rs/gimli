@@ -367,7 +367,7 @@ impl Value {
             Value::I64(value) => Value::I64(value.wrapping_neg()),
             Value::F32(value) => Value::F32(-value),
             Value::F64(value) => Value::F64(-value),
-            // It's unclear if these should implicity convert to a signed value.
+            // It's unclear if these should implicitly convert to a signed value.
             // For now, we don't support them.
             Value::U8(_) | Value::U16(_) | Value::U32(_) | Value::U64(_) => {
                 return Err(Error::UnsupportedTypeOperation);
@@ -664,7 +664,7 @@ impl Value {
             Value::U16(v1) => Value::U16(if v2 >= 16 { 0 } else { v1 >> v2 }),
             Value::U32(v1) => Value::U32(if v2 >= 32 { 0 } else { v1 >> v2 }),
             Value::U64(v1) => Value::U64(if v2 >= 64 { 0 } else { v1 >> v2 }),
-            // It's unclear if signed values should implicity convert to an unsigned value.
+            // It's unclear if signed values should implicitly convert to an unsigned value.
             // For now, we don't support them.
             Value::I8(_) | Value::I16(_) | Value::I32(_) | Value::I64(_) => {
                 return Err(Error::UnsupportedTypeOperation);
@@ -737,7 +737,7 @@ impl Value {
             } else {
                 v1 >> v2
             }),
-            // It's unclear if unsigned values should implicity convert to a signed value.
+            // It's unclear if unsigned values should implicitly convert to a signed value.
             // For now, we don't support them.
             Value::U8(_) | Value::U16(_) | Value::U32(_) | Value::U64(_) => {
                 return Err(Error::UnsupportedTypeOperation);

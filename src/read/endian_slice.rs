@@ -57,7 +57,7 @@ where
         (self.range_to(..idx), self.range_from(idx..))
     }
 
-    /// Find the first occurence of a byte in the slice, and return its index.
+    /// Find the first occurrence of a byte in the slice, and return its index.
     #[inline]
     pub fn find(&self, byte: u8) -> Option<usize> {
         self.slice.iter().position(|ch| *ch == byte)

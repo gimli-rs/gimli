@@ -245,7 +245,7 @@ pub trait Reader: Debug + Clone {
     /// it is associated with this reader.
     fn lookup_offset_id(&self, id: ReaderOffsetId) -> Option<Self::Offset>;
 
-    /// Find the index of the first occurence of the given byte.
+    /// Find the index of the first occurrence of the given byte.
     /// The offset of the reader is not changed.
     fn find(&self, byte: u8) -> Result<Self::Offset>;
 

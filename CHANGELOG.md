@@ -546,7 +546,7 @@ and adding support for writing CFI.
 
 ### Fixed
 
-* The `code_alignment_factor` is now used when evaluting CFI instructions
+* The `code_alignment_factor` is now used when evaluating CFI instructions
   that advance the location.
   [#401](https://github.com/gimli-rs/gimli/pull/401)
 

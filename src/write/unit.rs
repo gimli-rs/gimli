@@ -159,7 +159,7 @@ pub struct Unit {
     // - entries can be added in any order
     // - entries have a fixed id
     // - able to quickly lookup an entry from its id
-    // Limitations of current implemention:
+    // Limitations of current implementation:
     // - mutable iteration of children is messy due to borrow checker
     entries: Vec<DebuggingInformationEntry>,
     /// The index of the root entry in entries.
