@@ -341,16 +341,18 @@ impl FrameDescriptionEntry {
         }
 
         if cie.has_augmentation() {
-            let mut augmentation_length = 0u64;
-            if self.lsda.is_some() {
-                augmentation_length += u64::from(encoding.address_size);
-            }
-            w.write_uleb128(augmentation_length)?;
+            let augmentation_length_offset = w.len();
+            w.write_u8(0)?;
+            let augmentation_length_base = w.len();
 
             debug_assert_eq!(self.lsda.is_some(), cie.lsda_encoding.is_some());
             if let (Some(lsda), Some(lsda_encoding)) = (self.lsda, cie.lsda_encoding) {
                 w.write_eh_pointer(lsda, lsda_encoding, encoding.address_size)?;
             }
+
+            let augmentation_length = (w.len() - augmentation_length_base) as u64;
+            debug_assert!(augmentation_length < 0x80);
+            w.write_udata_at(augmentation_length_offset, augmentation_length, 1)?;
         }
 
         let mut prev_offset = 0;
