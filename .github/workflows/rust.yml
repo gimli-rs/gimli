@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         os: ["ubuntu-latest"]
-        rust_channel: ["stable", "beta", "nightly", "1.42.0"]
+        rust_channel: ["stable", "beta", "nightly", "1.51.0"]
         include:
           - rust_channel: "stable"
             os: "macOS-latest"
@@ -23,9 +23,16 @@ jobs:
       with:
         toolchain: ${{matrix.rust_channel}}
     - name: MSRV dependencies
-      if: matrix.rust_channel == '1.42.0'
+      if: matrix.rust_channel == '1.51.0'
+      # Edition 2021 requires Rust 1.56.0: https://doc.rust-lang.org/edition-guide/rust-2021/index.html.
       run: |
-        cargo update -p indexmap --precise 1.6.2
+        # Uses or-patterns since https://github.com/rust-lang/flate2-rs/commit/76327b14b08ecb616b023d6a6713cc37e9004f99.
+        #
+        # Rust stabilized or-patterns in 1.53.0: https://github.com/rust-lang/rust/commit/5d04957a4b4714f71d38326fc96a0b0ef6dc5800.
+        cargo update -p flate2 --precise 1.0.25
+        # Edition 2021 since https://github.com/bluss/indexmap/commit/6ac7330c94bc04ac763a0b9cd8ec9bc576357196.
+        cargo update -p indexmap --precise 1.8.2
+        # Edition 2021 since https://github.com/rayon-rs/rayon/commit/1b6eba52ebf4f01421b854d299f5feac1b7f2e2c.
         cargo update -p rayon --precise 1.5.3
         cargo update -p rayon-core --precise 1.9.3
     - name: Build
