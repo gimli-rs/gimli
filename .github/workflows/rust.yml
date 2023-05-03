@@ -106,15 +106,12 @@ jobs:
       - uses: actions/checkout@v3
       - name: Install rust stable
         uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --no-default-features
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack
       # Ensure gimli can be built without alloc.
       - run: cargo check --no-default-features --features read-core
-      - run: cargo test --no-default-features --features read
-      - run: cargo test --no-default-features --features read,fallible-iterator
-      - run: cargo test --no-default-features --features read,std
-      - run: cargo test --no-default-features --features read,endian-reader
-      - run: cargo test --no-default-features --features read,endian-reader,std
-      - run: cargo test --no-default-features --features write
+      - run: cargo hack test --feature-powerset --exclude-features rustc-dep-of-std,read-core
 
   bench:
     runs-on: ubuntu-latest
