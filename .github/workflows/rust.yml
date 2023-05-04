@@ -31,15 +31,23 @@ jobs:
     - name: Build
       run: cargo build --verbose
     - name: Run tests
+      # Some dev-dependencies have higher MSRV than us.
+      if: matrix.rust_channel != '1.42.0'
       run: cargo test --verbose
     - name: Run dwarfdump (macos)
-      if: matrix.os == 'macOS-latest'
+      # Some dev-dependencies have higher MSRV than us; examples build dev-dependencies.
+      # See https://doc.rust-lang.org/cargo/reference/cargo-targets.html#examples:
+      # "They are also linked with the [dependencies] and [dev-dependencies] defined in Cargo.toml."
+      if: matrix.os == 'macOS-latest' && matrix.rust_channel != '1.42.0'
       run: |
         cargo run --example dwarfdump -- \
             $(find ./target/debug -type f | grep DWARF | grep gimli | head -n 1) \
             > /dev/null
     - name: Run dwarfdump (linux)
-      if: matrix.os == 'ubuntu-latest'
+      # Some dev-dependencies have higher MSRV than us; examples build dev-dependencies.
+      # See https://doc.rust-lang.org/cargo/reference/cargo-targets.html#examples:
+      # "They are also linked with the [dependencies] and [dev-dependencies] defined in Cargo.toml."
+      if: matrix.os == 'ubuntu-latest' && matrix.rust_channel != '1.42.0'
       run: |
         cargo run --example dwarfdump -- \
             $(find ./target/debug -type f -perm -100 | grep gimli | head -n 1) \
