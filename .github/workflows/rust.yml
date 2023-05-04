@@ -10,11 +10,11 @@ jobs:
   build:
     strategy:
       matrix:
-        os: ["ubuntu-latest"]
-        rust_channel: ["stable", "beta", "nightly", "1.42.0"]
+        os: ['ubuntu-latest']
+        rust_channel: ['stable', 'beta', 'nightly', '1.42.0']
         include:
-          - rust_channel: "stable"
-            os: "macOS-latest"
+          - rust_channel: stable
+            os: macOS-latest
     runs-on: ${{matrix.os}}
     steps:
     - uses: actions/checkout@v3
@@ -61,7 +61,7 @@ jobs:
           rustup install nightly
           rustup default nightly
       - name: Install `cargo fuzz`
-        run: cargo install cargo-fuzz --vers "^0.11.0"
+        run: cargo install cargo-fuzz --vers '^0.11.0'
       - run: cargo fuzz build -Oa
       - uses: actions/upload-artifact@v3
         with:
@@ -75,8 +75,8 @@ jobs:
   run_fuzz_targets:
     strategy:
       matrix:
-        fuzz_target: ["debug_abbrev", "debug_aranges", "debug_info", "debug_line", "eh_frame", "eh_frame_hdr"]
-    name: "Run `${{matrix.fuzz_target}}` fuzz target"
+        fuzz_target: ['debug_abbrev', 'debug_aranges', 'debug_info', 'debug_line', 'eh_frame', 'eh_frame_hdr']
+    name: Run `${{matrix.fuzz_target}}` fuzz target
     needs: build_fuzz_targets
     runs-on: ubuntu-latest
     steps:
@@ -90,7 +90,7 @@ jobs:
         with:
           name: fuzz-targets
         # Note: -max_total_time=300 == 300 seconds == 5 minutes.
-      - name: "Run `${{matrix.fuzz_target}}` fuzz target"
+      - name: Run `${{matrix.fuzz_target}}` fuzz target
         run: |
           mkdir ${{matrix.fuzz_target}}_artifacts
           chmod +x ./fuzz-targets/${{matrix.fuzz_target}}
@@ -137,9 +137,9 @@ jobs:
       matrix:
         target:
           # A 32-bit target.
-          - "i686-unknown-linux-gnu"
+          - i686-unknown-linux-gnu
           # A big-endian target
-          - "mips64-unknown-linux-gnuabi64"
+          - mips64-unknown-linux-gnuabi64
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -181,7 +181,7 @@ jobs:
         uses: coverallsapp/github-action@master
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: './lcov.info'
+          path-to-lcov: ./lcov.info
 
   doc:
     runs-on: ubuntu-latest
