@@ -10,20 +10,18 @@ jobs:
   build:
     strategy:
       matrix:
-        os: ["ubuntu-latest"]
-        rust_channel: ["stable", "beta", "nightly", "1.42.0"]
+        os: ['ubuntu-latest']
+        rust_channel: ['stable', 'beta', 'nightly', '1.42.0']
         include:
-          - rust_channel: "stable"
-            os: "macOS-latest"
+          - rust_channel: stable
+            os: macOS-latest
     runs-on: ${{matrix.os}}
     steps:
     - uses: actions/checkout@v3
-    - name: Install rustup
-      run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile=minimal
-    - name: Install rust channel
-      run: |
-        rustup install ${{matrix.rust_channel}}
-        rustup default ${{matrix.rust_channel}}
+    - name: Install rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{matrix.rust_channel}}
     - name: MSRV dependencies
       if: matrix.rust_channel == '1.42.0'
       run: |
@@ -54,14 +52,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Install rustup
-        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile=minimal
-      - name: Install nightly rust
-        run: |
-          rustup install nightly
-          rustup default nightly
+      - name: Install rust nightly
+        uses: dtolnay/rust-toolchain@nightly
       - name: Install `cargo fuzz`
-        run: cargo install cargo-fuzz --vers "^0.11.0"
+        run: cargo install cargo-fuzz --vers '^0.11.0'
       - run: cargo fuzz build -Oa
       - uses: actions/upload-artifact@v3
         with:
@@ -75,8 +69,8 @@ jobs:
   run_fuzz_targets:
     strategy:
       matrix:
-        fuzz_target: ["debug_abbrev", "debug_aranges", "debug_info", "debug_line", "eh_frame", "eh_frame_hdr"]
-    name: "Run `${{matrix.fuzz_target}}` fuzz target"
+        fuzz_target: ['debug_abbrev', 'debug_aranges', 'debug_info', 'debug_line', 'eh_frame', 'eh_frame_hdr']
+    name: Run `${{matrix.fuzz_target}}` fuzz target
     needs: build_fuzz_targets
     runs-on: ubuntu-latest
     steps:
@@ -90,7 +84,7 @@ jobs:
         with:
           name: fuzz-targets
         # Note: -max_total_time=300 == 300 seconds == 5 minutes.
-      - name: "Run `${{matrix.fuzz_target}}` fuzz target"
+      - name: Run `${{matrix.fuzz_target}}` fuzz target
         run: |
           mkdir ${{matrix.fuzz_target}}_artifacts
           chmod +x ./fuzz-targets/${{matrix.fuzz_target}}
@@ -110,26 +104,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - run: cargo test --no-default-features
+      - name: Install rust stable
+        uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack
       # Ensure gimli can be built without alloc.
       - run: cargo check --no-default-features --features read-core
-      - run: cargo test --no-default-features --features read
-      - run: cargo test --no-default-features --features read,fallible-iterator
-      - run: cargo test --no-default-features --features read,std
-      - run: cargo test --no-default-features --features read,endian-reader
-      - run: cargo test --no-default-features --features read,endian-reader,std
-      - run: cargo test --no-default-features --features write
+      - run: cargo hack test --feature-powerset --exclude-features rustc-dep-of-std,read-core
 
   bench:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Install rustup
-        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile=minimal
-      - name: Install nightly rust
-        run: |
-          rustup install nightly
-          rustup default nightly
+      - name: Install rust nightly
+        uses: dtolnay/rust-toolchain@nightly
       - run: cargo bench
 
   cross:
@@ -137,29 +126,29 @@ jobs:
       matrix:
         target:
           # A 32-bit target.
-          - "i686-unknown-linux-gnu"
+          - i686-unknown-linux-gnu
           # A big-endian target
-          - "mips64-unknown-linux-gnuabi64"
+          - mips64-unknown-linux-gnuabi64
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Install rustup
-        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile=minimal
-      - run: cargo install cross
-      - run: rustup target add ${{matrix.target}}
+      - name: Install rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{matrix.target}}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cross
       - run: cross test --target ${{matrix.target}}
 
   rustfmt:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Install rustup
-        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile=minimal
-      - name: Install rust
-        run: |
-          rustup install stable
-          rustup default stable
-          rustup component add rustfmt
+      - name: Install rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
       - run: cargo fmt --all -- --check
 
   coverage:
@@ -169,22 +158,20 @@ jobs:
       options: --security-opt seccomp=unconfined
     steps:
       - uses: actions/checkout@v3
-      - name: Install rustup
-        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile=minimal
-      - name: Install rust
-        run: |
-          rustup install stable
-          rustup default stable
+      - name: Install rust stable
+        uses: dtolnay/rust-toolchain@stable
       - name: Run cargo-tarpaulin
         run: cargo tarpaulin --ignore-tests --out Lcov
       - name: Upload to Coveralls
         uses: coverallsapp/github-action@master
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: './lcov.info'
+          path-to-lcov: ./lcov.info
 
   doc:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Install rust stable
+        uses: dtolnay/rust-toolchain@stable
       - run: cargo doc
