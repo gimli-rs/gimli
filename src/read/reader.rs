@@ -219,6 +219,16 @@ pub trait Reader: Debug + Clone {
     /// The type used for offsets and lengths.
     type Offset: ReaderOffset;
 
+    /// The type returned from [`to_slice`].
+    type Slice<'a>: core::ops::Deref<Target = [u8]>
+    where
+        Self: 'a;
+
+    /// The type returned from [`to_string`].
+    type String<'a>: core::ops::Deref<Target = str>
+    where
+        Self: 'a;
+
     /// Return the endianity of bytes that are read.
     fn endian(&self) -> Self::Endian;
 
@@ -274,7 +284,7 @@ pub trait Reader: Debug + Clone {
     ///
     /// Does not advance the reader.
     #[cfg(feature = "read")]
-    fn to_slice(&self) -> Result<Cow<[u8]>>;
+    fn to_slice(&self) -> Result<Self::Slice<'_>>;
 
     /// Convert all remaining data to a clone-on-write string.
     ///
@@ -285,7 +295,7 @@ pub trait Reader: Debug + Clone {
     ///
     /// Returns an error if the data contains invalid characters.
     #[cfg(feature = "read")]
-    fn to_string(&self) -> Result<Cow<str>>;
+    fn to_string(&self) -> Result<Self::String<'_>>;
 
     /// Convert all remaining data to a clone-on-write string, including invalid characters.
     ///

@@ -78,6 +78,7 @@ where
     ///
     /// Returns an error if the slice contains invalid characters.
     #[inline]
+    #[deprecated(note = "Reader::to_string has the same signature; use that instead.")]
     pub fn to_string(&self) -> Result<&'input str> {
         str::from_utf8(self.slice).map_err(|_| Error::BadUtf8)
     }
@@ -183,6 +184,8 @@ where
 {
     type Endian = Endian;
     type Offset = usize;
+    type Slice<'a>  = &'input [u8] where Self:'a;
+    type String<'a> = &'input str where Self:'a;
 
     #[inline]
     fn endian(&self) -> Endian {
@@ -265,13 +268,13 @@ where
 
     #[cfg(feature = "read")]
     #[inline]
-    fn to_slice(&self) -> Result<Cow<[u8]>> {
-        Ok(self.slice.into())
+    fn to_slice(&self) -> Result<Self::Slice<'_>> {
+        Ok(self.slice)
     }
 
     #[cfg(feature = "read")]
     #[inline]
-    fn to_string(&self) -> Result<Cow<str>> {
+    fn to_string(&self) -> Result<Self::String<'_>> {
         match str::from_utf8(self.slice) {
             Ok(s) => Ok(s.into()),
             _ => Err(Error::BadUtf8),

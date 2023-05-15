@@ -247,6 +247,8 @@ impl<'a, R: gimli::Reader<Offset = usize>> Relocate<'a, R> {
 impl<'a, R: gimli::Reader<Offset = usize>> gimli::Reader for Relocate<'a, R> {
     type Endian = R::Endian;
     type Offset = R::Offset;
+    type Slice<'b> = R::Slice<'b> where Self: 'b, R: 'b;
+    type String<'b> = R::String<'b> where Self: 'b, R: 'b;
 
     fn read_address(&mut self, address_size: u8) -> gimli::Result<u64> {
         let offset = self.reader.offset_from(&self.section);
@@ -328,12 +330,12 @@ impl<'a, R: gimli::Reader<Offset = usize>> gimli::Reader for Relocate<'a, R> {
     }
 
     #[inline]
-    fn to_slice(&self) -> gimli::Result<Cow<[u8]>> {
+    fn to_slice(&self) -> gimli::Result<R::Slice<'_>> {
         self.reader.to_slice()
     }
 
     #[inline]
-    fn to_string(&self) -> gimli::Result<Cow<str>> {
+    fn to_string(&self) -> gimli::Result<R::String<'_>> {
         self.reader.to_string()
     }
 

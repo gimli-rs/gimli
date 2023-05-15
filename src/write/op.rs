@@ -982,7 +982,7 @@ pub(crate) mod convert {
                         bit_offset,
                     },
                     read::Operation::ImplicitValue { data } => {
-                        Operation::ImplicitValue(data.to_slice()?.into_owned().into())
+                        Operation::ImplicitValue((&*data.to_slice()?).into())
                     }
                     read::Operation::StackValue => Operation::Simple(constants::DW_OP_stack_value),
                     read::Operation::ImplicitPointer { value, byte_offset } => {
@@ -1024,7 +1024,7 @@ pub(crate) mod convert {
                     }
                     read::Operation::TypedLiteral { base_type, value } => {
                         let entry = convert_unit_offset(base_type)?;
-                        Operation::ConstantType(entry, value.to_slice()?.into_owned().into())
+                        Operation::ConstantType(entry, (&*value.to_slice()?).into())
                     }
                     read::Operation::Convert { base_type } => {
                         if base_type.0 == 0 {

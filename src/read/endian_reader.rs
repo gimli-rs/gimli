@@ -365,6 +365,8 @@ where
 {
     type Endian = Endian;
     type Offset = usize;
+    type Slice<'a> = &'a [u8] where Self: 'a;
+    type String<'a> = &'a str where Self: 'a;
 
     #[inline]
     fn endian(&self) -> Endian {
@@ -448,12 +450,12 @@ where
     }
 
     #[inline]
-    fn to_slice(&self) -> Result<Cow<[u8]>> {
-        Ok(self.bytes().into())
+    fn to_slice(&self) -> Result<Self::Slice<'_>> {
+        Ok(self.bytes())
     }
 
     #[inline]
-    fn to_string(&self) -> Result<Cow<str>> {
+    fn to_string(&self) -> Result<Self::String<'_>> {
         match str::from_utf8(self.bytes()) {
             Ok(s) => Ok(s.into()),
             _ => Err(Error::BadUtf8),
@@ -598,10 +600,7 @@ mod tests {
 
     #[test]
     fn to_slice() {
-        assert_eq!(
-            native_reader(BUF).range(2..5).to_slice(),
-            Ok(Cow::from(&BUF[2..5]))
-        );
+        assert_eq!(native_reader(BUF).range(2..5).to_slice(), Ok(&BUF[2..5]));
     }
 
     #[test]
@@ -609,7 +608,7 @@ mod tests {
         let buf = b"hello, world!";
         let reader = native_reader(&buf[..]);
         let reader = reader.range_from(7..);
-        assert_eq!(reader.to_string(), Ok(Cow::from("world!")));
+        assert_eq!(reader.to_string(), Ok("world!"));
     }
 
     // The rocket emoji (🚀 = [0xf0, 0x9f, 0x9a, 0x80]) but rotated left by one

@@ -1742,7 +1742,7 @@ pub(crate) mod convert {
                     Some(val) => AttributeValue::Address(val),
                     None => return Err(ConvertError::InvalidAddress),
                 },
-                read::AttributeValue::Block(r) => AttributeValue::Block(r.to_slice()?.into()),
+                read::AttributeValue::Block(r) => AttributeValue::Block((&*r.to_slice()?).into()),
                 read::AttributeValue::Data1(val) => AttributeValue::Data1(val),
                 read::AttributeValue::Data2(val) => AttributeValue::Data2(val),
                 read::AttributeValue::Data4(val) => AttributeValue::Data4(val),
@@ -1853,7 +1853,7 @@ pub(crate) mod convert {
                 read::AttributeValue::DebugTypesRef(val) => AttributeValue::DebugTypesRef(val),
                 read::AttributeValue::DebugStrRef(offset) => {
                     let r = context.dwarf.string(offset)?;
-                    let id = context.strings.add(r.to_slice()?);
+                    let id = context.strings.add(&*r.to_slice()?);
                     AttributeValue::StringRef(id)
                 }
                 read::AttributeValue::DebugStrRefSup(val) => AttributeValue::DebugStrRefSup(val),
@@ -1865,15 +1865,15 @@ pub(crate) mod convert {
                 read::AttributeValue::DebugStrOffsetsIndex(index) => {
                     let offset = context.dwarf.string_offset(context.unit, index)?;
                     let r = context.dwarf.string(offset)?;
-                    let id = context.strings.add(r.to_slice()?);
+                    let id = context.strings.add(&*r.to_slice()?);
                     AttributeValue::StringRef(id)
                 }
                 read::AttributeValue::DebugLineStrRef(offset) => {
                     let r = context.dwarf.line_string(offset)?;
-                    let id = context.line_strings.add(r.to_slice()?);
+                    let id = context.line_strings.add(&*r.to_slice()?);
                     AttributeValue::LineStringRef(id)
                 }
-                read::AttributeValue::String(r) => AttributeValue::String(r.to_slice()?.into()),
+                read::AttributeValue::String(r) => AttributeValue::String((&*r.to_slice()?).into()),
                 read::AttributeValue::Encoding(val) => AttributeValue::Encoding(val),
                 read::AttributeValue::DecimalSign(val) => AttributeValue::DecimalSign(val),
                 read::AttributeValue::Endianity(val) => AttributeValue::Endianity(val),
@@ -3097,7 +3097,7 @@ mod tests {
             let name_attr = entry.attr(constants::DW_AT_name).unwrap().unwrap();
             let entry_name = name_attr.string_value(debug_str).unwrap();
             let entry_name_str = entry_name.to_string().unwrap();
-            assert_eq!(entry_name_str, name);
+            assert_eq!(&*entry_name_str, name);
         }
         let encoding = Encoding {
             format: Format::Dwarf32,
