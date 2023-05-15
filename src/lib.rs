@@ -62,7 +62,9 @@ pub mod constants;
 pub use crate::constants::*;
 
 mod endianity;
-pub use crate::endianity::{BigEndian, Endianity, LittleEndian, NativeEndian, RunTimeEndian};
+pub use crate::endianity::{BigEndian, Endianity, LittleEndian, RunTimeEndian};
+#[doc(hidden)]
+pub use crate::endianity::NativeEndian;
 
 pub mod leb128;
 
