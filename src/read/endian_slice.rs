@@ -294,13 +294,13 @@ where
 
     #[cfg(feature = "read")]
     #[inline]
-    fn to_slice(&self) -> Result<Cow<[u8]>> {
-        Ok(self.slice.into())
+    fn to_slice(&self) -> &[u8] {
+        self.slice
     }
 
     #[cfg(feature = "read")]
     #[inline]
-    fn to_string(&self) -> Result<Cow<str>> {
+    fn to_string(&self) -> Result<&str> {
         match str::from_utf8(self.slice) {
             Ok(s) => Ok(s.into()),
             _ => Err(Error::BadUtf8),

@@ -1133,15 +1133,15 @@ mod convert {
             strings: &mut write::StringTable,
         ) -> ConvertResult<LineString> {
             Ok(match from_attr {
-                read::AttributeValue::String(r) => LineString::String(r.to_slice()?.to_vec()),
+                read::AttributeValue::String(r) => LineString::String(r.to_slice().into()),
                 read::AttributeValue::DebugStrRef(offset) => {
                     let r = dwarf.debug_str.get_str(offset)?;
-                    let id = strings.add(r.to_slice()?);
+                    let id = strings.add(r.to_slice());
                     LineString::StringRef(id)
                 }
                 read::AttributeValue::DebugLineStrRef(offset) => {
                     let r = dwarf.debug_line_str.get_str(offset)?;
-                    let id = line_strings.add(r.to_slice()?);
+                    let id = line_strings.add(r.to_slice());
                     LineString::LineStringRef(id)
                 }
                 _ => return Err(ConvertError::UnsupportedLineStringForm),

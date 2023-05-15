@@ -274,7 +274,7 @@ pub trait Reader: Debug + Clone {
     ///
     /// Does not advance the reader.
     #[cfg(feature = "read")]
-    fn to_slice(&self) -> Result<Cow<[u8]>>;
+    fn to_slice(&self) -> &[u8];
 
     /// Convert all remaining data to a clone-on-write string.
     ///
@@ -285,7 +285,7 @@ pub trait Reader: Debug + Clone {
     ///
     /// Returns an error if the data contains invalid characters.
     #[cfg(feature = "read")]
-    fn to_string(&self) -> Result<Cow<str>>;
+    fn to_string(&self) -> Result<&str>;
 
     /// Convert all remaining data to a clone-on-write string, including invalid characters.
     ///

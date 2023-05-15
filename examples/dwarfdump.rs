@@ -328,12 +328,12 @@ impl<'a, R: gimli::Reader<Offset = usize>> gimli::Reader for Relocate<'a, R> {
     }
 
     #[inline]
-    fn to_slice(&self) -> gimli::Result<Cow<[u8]>> {
+    fn to_slice(&self) -> &[u8] {
         self.reader.to_slice()
     }
 
     #[inline]
-    fn to_string(&self) -> gimli::Result<Cow<str>> {
+    fn to_string(&self) -> gimli::Result<&str> {
         self.reader.to_string()
     }
 
@@ -1364,7 +1364,7 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "0x{:08x}", address)?;
         }
         gimli::AttributeValue::Block(data) => {
-            for byte in data.to_slice()?.iter() {
+            for byte in data.to_slice() {
                 write!(w, "{:02x}", byte)?;
             }
             writeln!(w)?;
@@ -1426,7 +1426,7 @@ fn dump_attr_value<R: Reader, W: Write>(
         gimli::AttributeValue::Exprloc(ref data) => {
             if let gimli::AttributeValue::Exprloc(_) = attr.raw_value() {
                 write!(w, "len 0x{:04x}: ", data.0.len())?;
-                for byte in data.0.to_slice()?.iter() {
+                for byte in data.0.to_slice() {
                     write!(w, "{:02x}", byte)?;
                 }
                 write!(w, ": ")?;
@@ -1783,7 +1783,7 @@ fn dump_op<R: Reader, W: Write>(
             write!(w, " 0x{:08x} offset 0x{:08x}", size_in_bits, bit_offset)?;
         }
         gimli::Operation::ImplicitValue { data } => {
-            let data = data.to_slice()?;
+            let data = data.to_slice();
             write!(w, " 0x{:08x} contents 0x", data.len())?;
             for byte in data.iter() {
                 write!(w, "{:02x}", byte)?;
@@ -1811,7 +1811,7 @@ fn dump_op<R: Reader, W: Write>(
         }
         gimli::Operation::TypedLiteral { base_type, value } => {
             write!(w, " type 0x{:08x} contents 0x", base_type.0)?;
-            for byte in value.to_slice()?.iter() {
+            for byte in value.to_slice() {
                 write!(w, "{:02x}", byte)?;
             }
         }
@@ -2146,7 +2146,7 @@ fn dump_line_program<R: Reader, W: Write>(
             writeln!(w, "Opcodes:")?;
             for (i, length) in header
                 .standard_opcode_lengths()
-                .to_slice()?
+                .to_slice()
                 .iter()
                 .enumerate()
             {
