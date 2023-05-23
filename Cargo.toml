@@ -25,7 +25,7 @@ compiler_builtins = { version = "0.1.2", optional = true }
 [dev-dependencies]
 crossbeam = "0.8"
 getopts = "0.2"
-memmap2 = "0.5.5"
+memmap2 = "0.6.1"
 num_cpus = "1"
 object = { version = "0.30.0", features = ["wasm"] }
 rayon = "1.0"
