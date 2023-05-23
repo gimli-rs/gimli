@@ -5,7 +5,7 @@ use fallible_iterator::FallibleIterator;
 use gimli::{Section, UnitHeader, UnitOffset, UnitSectionOffset, UnitType, UnwindSection};
 use object::{Object, ObjectSection, ObjectSymbol};
 use regex::bytes::Regex;
-use std::borrow::{Borrow, Cow};
+use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::env;
@@ -497,7 +497,7 @@ fn main() {
                 process::exit(1);
             }
         };
-        let mmap_ref = (*arena_mmap.alloc(mmap)).borrow();
+        let mmap_ref = arena_mmap.alloc(mmap);
         match object::File::parse(&**mmap_ref) {
             Ok(file) => Some(file),
             Err(err) => {
@@ -566,7 +566,7 @@ fn empty_file_section<'input, 'arena, Endian: gimli::Endianity>(
     let reader = gimli::EndianSlice::new(&[], endian);
     let section = reader;
     let relocations = RelocationMap::default();
-    let relocations = (*arena_relocations.alloc(relocations)).borrow();
+    let relocations = arena_relocations.alloc(relocations);
     Relocate {
         relocations,
         section,
@@ -602,10 +602,10 @@ fn load_file_section<'input, 'arena, Endian: gimli::Endianity>(
         // Use a non-zero capacity so that `ReaderOffsetId`s are unique.
         None => Cow::Owned(Vec::with_capacity(1)),
     };
-    let data_ref = (*arena_data.alloc(data)).borrow();
+    let data_ref = arena_data.alloc(data);
     let reader = gimli::EndianSlice::new(data_ref, endian);
     let section = reader;
-    let relocations = (*arena_relocations.alloc(relocations)).borrow();
+    let relocations = arena_relocations.alloc(relocations);
     Ok(Relocate {
         relocations,
         section,
