@@ -1378,6 +1378,7 @@ pub struct DebugInfoOffsets {
 
 impl DebugInfoOffsets {
     #[cfg(test)]
+    #[cfg(feature = "read")]
     pub(crate) fn unit_offsets(&self, unit: UnitId) -> &UnitOffsets {
         debug_assert_eq!(self.base_id, unit.base_id);
         &self.units[unit.index]
@@ -1408,6 +1409,7 @@ pub(crate) struct UnitOffsets {
 
 impl UnitOffsets {
     #[cfg(test)]
+    #[cfg(feature = "read")]
     fn none() -> Self {
         UnitOffsets {
             base_id: BaseId::default(),
