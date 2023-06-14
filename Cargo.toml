@@ -5,7 +5,15 @@ categories = ["development-tools::debugging", "development-tools::profiling", "p
 description = "A library for reading and writing the DWARF debugging format."
 documentation = "https://docs.rs/gimli"
 edition = "2018"
-exclude = ["/releases/*", "/.github"]
+include = [
+    "/CHANGELOG.md",
+    "/Cargo.toml",
+    "/examples",
+    "/LICENSE-APACHE",
+    "/LICENSE-MIT",
+    "/README.md",
+    "/src",
+]
 keywords = ["DWARF", "debug", "ELF", "eh_frame"]
 license = "MIT OR Apache-2.0"
 readme = "./README.md"
