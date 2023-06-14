@@ -2,6 +2,25 @@
 
 --------------------------------------------------------------------------------
 
+## 0.27.3
+
+Released 2023/06/14.
+
+### Changed
+
+* Excluded test fixtures from published package.
+  [#661](https://github.com/gimli-rs/gimli/pull/661)
+
+### Added
+
+* Added `FallibleIterator` implementation for `read::OperationIter`.
+  [#649](https://github.com/gimli-rs/gimli/pull/649)
+
+* Added `DW_AT_GNU_deleted` constant.
+  [#658](https://github.com/gimli-rs/gimli/pull/658)
+
+--------------------------------------------------------------------------------
+
 ## 0.27.2
 
 Released 2023/02/15.
