@@ -4,7 +4,7 @@
 use alloc::borrow::Cow;
 #[cfg(feature = "read")]
 use alloc::string::String;
-use core::ops::{Deref, Index, Range, RangeFrom, RangeTo};
+use core::ops::{Deref, Range, RangeFrom, RangeTo};
 use core::str;
 
 use crate::endianity::Endianity;
@@ -167,26 +167,6 @@ where
     }
 }
 
-impl<'input, Endian> Index<usize> for EndianSlice<'input, Endian>
-where
-    Endian: Endianity,
-{
-    type Output = u8;
-    fn index(&self, idx: usize) -> &Self::Output {
-        &self.slice[idx]
-    }
-}
-
-impl<'input, Endian> Index<RangeFrom<usize>> for EndianSlice<'input, Endian>
-where
-    Endian: Endianity,
-{
-    type Output = [u8];
-    fn index(&self, idx: RangeFrom<usize>) -> &Self::Output {
-        &self.slice[idx]
-    }
-}
-
 impl<'input, Endian> Deref for EndianSlice<'input, Endian>
 where
     Endian: Endianity,
@@ -194,15 +174,6 @@ where
     type Target = [u8];
     fn deref(&self) -> &Self::Target {
         self.slice
-    }
-}
-
-impl<'input, Endian> From<EndianSlice<'input, Endian>> for &'input [u8]
-where
-    Endian: Endianity,
-{
-    fn from(endian_slice: EndianSlice<'input, Endian>) -> &'input [u8] {
-        endian_slice.slice
     }
 }
 

@@ -3637,7 +3637,7 @@ mod tests {
                 .uleb(cie.code_alignment_factor)
                 .sleb(cie.data_alignment_factor)
                 .uleb(cie.return_address_register.0.into())
-                .append_bytes(cie.initial_instructions.into())
+                .append_bytes(cie.initial_instructions.slice())
                 .mark(&end);
 
             cie.length = (&end - &start) as usize;
@@ -3732,7 +3732,7 @@ mod tests {
                 section
             };
 
-            let section = section.append_bytes(fde.instructions.into()).mark(&end);
+            let section = section.append_bytes(fde.instructions.slice()).mark(&end);
 
             fde.length = (&end - &start) as usize;
             length.set_const(fde.length as u64);
@@ -6262,7 +6262,6 @@ mod tests {
 
         section.start().set_const(0);
         let section = section.get_contents().unwrap();
-        let section = EndianSlice::new(&section, LittleEndian);
         let eh_frame = kind.section(&section);
 
         // Setup eh_frame_hdr

@@ -2327,7 +2327,7 @@ mod tests {
     fn test_parse_unknown_standard_opcode_many_args() {
         let input = [OPCODE_BASE, 1, 2, 3];
         let input = EndianSlice::new(&input, LittleEndian);
-        let args = EndianSlice::new(&input[1..], LittleEndian);
+        let args = input.range_from(1..);
         let mut standard_opcode_lengths = Vec::new();
         let mut header = make_test_header(input);
         standard_opcode_lengths.extend(header.standard_opcode_lengths.slice());
