@@ -158,11 +158,7 @@ impl<R: Reader> EhFrameHdr<R> {
         if fde_count_enc == constants::DW_EH_PE_omit || table_enc == constants::DW_EH_PE_omit {
             fde_count = 0
         } else {
-            let ptr = parse_encoded_pointer(fde_count_enc, &parameters, &mut reader)?;
-            fde_count = match ptr {
-                Pointer::Direct(c) => c,
-                Pointer::Indirect(_) => return Err(Error::UnsupportedPointerEncoding),
-            }
+            fde_count = parse_encoded_pointer(fde_count_enc, &parameters, &mut reader)?.direct()?;
         }
 
         Ok(ParsedEhFrameHdr {
@@ -348,11 +344,8 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
             let head = reader.split(R::Offset::from_u64((len / 2) * row_size)?)?;
             let tail = reader.clone();
 
-            let pivot = parse_encoded_pointer(self.hdr.table_enc, &parameters, &mut reader)?;
-            let pivot = match pivot {
-                Pointer::Direct(x) => x,
-                Pointer::Indirect(_) => return Err(Error::UnsupportedPointerEncoding),
-            };
+            let pivot =
+                parse_encoded_pointer(self.hdr.table_enc, &parameters, &mut reader)?.direct()?;
 
             match pivot.cmp(&address) {
                 Ordering::Equal => {
@@ -379,15 +372,8 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     ///
     /// This does not support indirect pointers.
     pub fn pointer_to_offset(&self, ptr: Pointer) -> Result<EhFrameOffset<R::Offset>> {
-        let ptr = match ptr {
-            Pointer::Direct(x) => x,
-            _ => return Err(Error::UnsupportedPointerEncoding),
-        };
-
-        let eh_frame_ptr = match self.hdr.eh_frame_ptr() {
-            Pointer::Direct(x) => x,
-            _ => return Err(Error::UnsupportedPointerEncoding),
-        };
+        let ptr = ptr.direct()?;
+        let eh_frame_ptr = self.hdr.eh_frame_ptr().direct()?;
 
         // Calculate the offset in the EhFrame section
         R::Offset::from_u64(ptr - eh_frame_ptr).map(EhFrameOffset)
@@ -1683,12 +1669,12 @@ impl<R: Reader> FrameDescriptionEntry<R> {
             let initial_address = parse_encoded_pointer(encoding, parameters, input)?;
 
             // Ignore indirection.
-            let initial_address = initial_address.into();
+            let initial_address = initial_address.pointer();
 
             // Address ranges cannot be relative to anything, so just grab the
             // data format bits from the encoding.
             let address_range = parse_encoded_pointer(encoding.format(), parameters, input)?;
-            Ok((initial_address, address_range.into()))
+            Ok((initial_address, address_range.pointer()))
         } else {
             let initial_address = input.read_address(cie.address_size)?;
             let address_range = input.read_address(cie.address_size)?;
@@ -3151,10 +3137,7 @@ impl<R: Reader> CallFrameInstruction<R> {
 
             constants::DW_CFA_set_loc => {
                 let address = if let Some(encoding) = address_encoding {
-                    match parse_encoded_pointer(encoding, parameters, input)? {
-                        Pointer::Direct(x) => x,
-                        _ => return Err(Error::UnsupportedPointerEncoding),
-                    }
+                    parse_encoded_pointer(encoding, parameters, input)?.direct()?
                 } else {
                     input.read_address(parameters.address_size)?
                 };
@@ -3389,15 +3372,6 @@ impl Default for Pointer {
     }
 }
 
-impl From<Pointer> for u64 {
-    #[inline]
-    fn from(p: Pointer) -> u64 {
-        match p {
-            Pointer::Direct(p) | Pointer::Indirect(p) => p,
-        }
-    }
-}
-
 impl Pointer {
     #[inline]
     fn new(encoding: constants::DwEhPe, address: u64) -> Pointer {
@@ -3405,6 +3379,23 @@ impl Pointer {
             Pointer::Indirect(address)
         } else {
             Pointer::Direct(address)
+        }
+    }
+
+    /// Return the direct pointer value.
+    #[inline]
+    pub fn direct(self) -> Result<u64> {
+        match self {
+            Pointer::Direct(p) => Ok(p),
+            Pointer::Indirect(_) => Err(Error::UnsupportedPointerEncoding),
+        }
+    }
+
+    /// Return the pointer value, discarding indirectness information.
+    #[inline]
+    pub fn pointer(self) -> u64 {
+        match self {
+            Pointer::Direct(p) | Pointer::Indirect(p) => p,
         }
     }
 }
@@ -3714,11 +3705,11 @@ mod tests {
                     let section = section.uleb(u64::from(fde.cie.address_size));
                     match fde.cie.address_size {
                         4 => section.D32({
-                            let x: u64 = lsda.into();
+                            let x: u64 = lsda.pointer();
                             x as u32
                         }),
                         8 => section.D64({
-                            let x: u64 = lsda.into();
+                            let x: u64 = lsda.pointer();
                             x
                         }),
                         x => panic!("Unsupported address size: {}", x),
