@@ -3295,7 +3295,7 @@ mod tests {
                 }
             };
 
-            let section = section.append_bytes(unit.entries_buf.into()).mark(&end);
+            let section = section.append_bytes(unit.entries_buf.slice()).mark(&end);
 
             unit.unit_length = (&end - &start) as usize;
             length.set_const(unit.unit_length as u64);
