@@ -37,13 +37,13 @@ jobs:
     - name: Run dwarfdump (macos)
       if: matrix.os == 'macOS-latest'
       run: |
-        cargo run --example dwarfdump -- \
+        cargo run --bin dwarfdump -- \
             $(find ./target/debug -type f | grep DWARF | grep gimli | head -n 1) \
             > /dev/null
     - name: Run dwarfdump (linux)
       if: matrix.os == 'ubuntu-latest'
       run: |
-        cargo run --example dwarfdump -- \
+        cargo run --bin dwarfdump -- \
             $(find ./target/debug -type f -perm -100 | grep gimli | head -n 1) \
             > /dev/null
 
