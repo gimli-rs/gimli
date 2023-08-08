@@ -41,10 +41,10 @@
 //!
 //! Full example programs:
 //!
-//!   * [A simple parser](https://github.com/gimli-rs/gimli/blob/master/examples/simple.rs)
+//!   * [A simple parser](https://github.com/gimli-rs/gimli/blob/master/crates/examples/src/bin/simple.rs)
 //!
 //!   * [A `dwarfdump`
-//!     clone](https://github.com/gimli-rs/gimli/blob/master/examples/dwarfdump.rs)
+//!     clone](https://github.com/gimli-rs/gimli/blob/master/crates/examples/src/bin/dwarfdump.rs)
 //!
 //!   * [An `addr2line` clone](https://github.com/gimli-rs/addr2line)
 //!
@@ -55,7 +55,7 @@
 //!     compilers used to create each compilation unit within a shared library or
 //!     executable (via `DW_AT_producer`)
 //!
-//!   * [`dwarf-validate`](https://github.com/gimli-rs/gimli/blob/master/examples/dwarf-validate.rs),
+//!   * [`dwarf-validate`](https://github.com/gimli-rs/gimli/blob/master/crates/examples/src/bin/dwarf-validate.rs),
 //!     a program to validate the integrity of some DWARF and its references
 //!     between sections and compilation units.
 //!

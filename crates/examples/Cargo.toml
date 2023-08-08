@@ -1,0 +1,37 @@
+[package]
+name = "gimli-examples"
+version = "0.0.0"
+edition = "2018"
+
+[dependencies]
+gimli = { path = "../..", default-features = false }
+crossbeam = "0.8"
+fallible-iterator = { version = "0.2.0", default-features = false }
+getopts = "0.2"
+memmap2 = "0.6.1"
+num_cpus = "1"
+object = { version = "0.30.0", features = ["wasm"] }
+rayon = "1.0"
+regex = "1"
+typed-arena = "2"
+
+[features]
+read = ["gimli/read"]
+std = ["gimli/std"]
+default = ["read", "std"]
+
+[[bin]]
+name = "simple"
+required-features = ["read"]
+
+[[bin]]
+name = "simple_line"
+required-features = ["read"]
+
+[[bin]]
+name = "dwarfdump"
+required-features = ["read", "std"]
+
+[[bin]]
+name = "dwarf-validate"
+required-features = ["read", "std"]

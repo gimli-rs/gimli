@@ -22,7 +22,7 @@
 
   * Unsure which object file parser to use? Try the cross-platform
   [`object`](https://github.com/gimli-rs/object) crate. See the
-  [`examples/`](./examples) directory for usage with `gimli`.
+  [`gimli-examples`](./crates/examples/src/bin) crate for usage with `gimli`.
 
 ## Install
 
@@ -41,11 +41,11 @@ The minimum supported Rust version is 1.42.0.
 
 * Example programs:
 
-  * [A simple `.debug_info` parser](./examples/simple.rs)
+  * [A simple `.debug_info` parser](./crates/examples/src/bin/simple.rs)
 
-  * [A simple `.debug_line` parser](./examples/simple_line.rs)
+  * [A simple `.debug_line` parser](./crates/examples/src/bin/simple_line.rs)
 
-  * [A `dwarfdump` clone](./examples/dwarfdump.rs)
+  * [A `dwarfdump` clone](./crates/examples/src/bin/dwarfdump.rs)
 
   * [An `addr2line` clone](https://github.com/gimli-rs/addr2line)
 
@@ -56,7 +56,7 @@ The minimum supported Rust version is 1.42.0.
     compilers used to create each compilation unit within a shared library or
     executable (via `DW_AT_producer`).
 
-  * [`dwarf-validate`](./examples/dwarf-validate.rs), a program to validate the
+  * [`dwarf-validate`](./crates/examples/src/bin/dwarf-validate.rs), a program to validate the
     integrity of some DWARF and its references between sections and compilation
     units.
 
