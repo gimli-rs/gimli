@@ -44,7 +44,8 @@ macro_rules! registers {
 
 /// ARM architecture specific definitions.
 ///
-/// See [DWARF for the ARM Architecture](https://developer.arm.com/documentation/ihi0040/c/).
+/// See [DWARF for the ARM Architecture](
+/// https://github.com/ARM-software/abi-aa/blob/main/aadwarf32/aadwarf32.rst).
 #[derive(Debug, Clone, Copy)]
 pub struct Arm;
 
@@ -98,6 +99,8 @@ registers!(Arm, {
     SPSR_ABT = (131, "SPSR_ABT"),
     SPSR_UND = (132, "SPSR_UND"),
     SPSR_SVC = (133, "SPSR_SVC"),
+
+    RA_AUTH_CODE = (143, "RA_AUTH_CODE"),
 
     R8_USR = (144, "R8_USR"),
     R9_USR = (145, "R9_USR"),
@@ -168,6 +171,11 @@ registers!(Arm, {
     D29 = (285, "D29"),
     D30 = (286, "D30"),
     D31 = (287, "D31"),
+
+    TPIDRURO = (320, "TPIDRURO"),
+    TPIDRURW = (321, "TPIDRURW"),
+    TPIDPR = (322, "TPIDPR"),
+    HTPIDPR = (323, "HTPIDPR"),
 },
 aliases {
     SP = (13, "SP"),
@@ -219,7 +227,8 @@ aliases {
 
 /// ARM 64-bit (AArch64) architecture specific definitions.
 ///
-/// See [DWARF for the ARM 64-bit Architecture](https://developer.arm.com/documentation/ihi0057/b/).
+/// See [DWARF for the ARM 64-bit Architecture](
+/// https://github.com/ARM-software/abi-aa/blob/main/aadwarf64/aadwarf64.rst).
 #[derive(Debug, Clone, Copy)]
 pub struct AArch64;
 
@@ -256,6 +265,14 @@ registers!(AArch64, {
     X29 = (29, "X29"),
     X30 = (30, "X30"),
     SP = (31, "SP"),
+    PC = (32, "PC"),
+    ELR_MODE = (33, "ELR_mode"),
+    RA_SIGN_STATE = (34, "RA_SIGN_STATE"),
+    TPIDRRO_EL0 = (35, "TPIDRRO_EL0"),
+    TPIDR_EL0 = (36, "TPIDR_EL0"),
+    TPIDR_EL1 = (37, "TPIDR_EL1"),
+    TPIDR_EL2 = (38, "TPIDR_EL2"),
+    TPIDR_EL3 = (39, "TPIDR_EL3"),
 
     V0 = (64, "V0"),
     V1 = (65, "V1"),
