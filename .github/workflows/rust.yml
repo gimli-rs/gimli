@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         os: ['ubuntu-latest']
-        rust_channel: ['stable', 'beta', 'nightly', '1.42.0']
+        rust_channel: ['stable', 'beta', 'nightly', '1.64.0']
         include:
           - rust_channel: stable
             os: macOS-latest
@@ -22,14 +22,6 @@ jobs:
       uses: dtolnay/rust-toolchain@master
       with:
         toolchain: ${{matrix.rust_channel}}
-    - name: MSRV dependencies
-      if: matrix.rust_channel == '1.42.0'
-      run: |
-        cargo update -p flate2 --precise 1.0.25
-        cargo update -p indexmap --precise 1.6.2
-        cargo update -p rayon --precise 1.5.3
-        cargo update -p rayon-core --precise 1.9.3
-        cargo update -p regex --precise 1.7.3
     - name: Build
       run: cargo build --verbose
     - name: Run tests
@@ -46,6 +38,17 @@ jobs:
         cargo run --bin dwarfdump -- \
             $(find ./target/debug -type f -perm -100 | grep gimli | head -n 1) \
             > /dev/null
+
+  msrv-read:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install rust
+      uses: dtolnay/rust-toolchain@1.60.0
+    - name: Build
+      run: cargo build --verbose --no-default-features --features read-all
+    - name: Test
+      run: cargo test --verbose --no-default-features --features read-all
 
   build_fuzz_targets:
     name: Build fuzz targets
