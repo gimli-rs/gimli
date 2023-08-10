@@ -377,6 +377,7 @@ impl FrameDescriptionEntry {
 ///
 /// This may be a CFA definition, a register rule, or some other directive.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum CallFrameInstruction {
     /// Define the CFA rule to use the provided register and offset.
     Cfa(Register, i32),
@@ -410,6 +411,9 @@ pub enum CallFrameInstruction {
     RestoreState,
     /// The size of the arguments that have been pushed onto the stack.
     ArgsSize(u32),
+
+    /// AAarch64 extension: negate the `RA_SIGN_STATE` pseudo-register.
+    NegateRaState,
 }
 
 impl CallFrameInstruction {
@@ -522,6 +526,9 @@ impl CallFrameInstruction {
             CallFrameInstruction::ArgsSize(size) => {
                 w.write_u8(constants::DW_CFA_GNU_args_size.0)?;
                 w.write_uleb128(size.into())?;
+            }
+            CallFrameInstruction::NegateRaState => {
+                w.write_u8(constants::DW_CFA_AARCH64_negate_ra_state.0)?;
             }
         }
         Ok(())
@@ -834,6 +841,7 @@ pub(crate) mod convert {
                 read::CallFrameInstruction::ArgsSize { size } => {
                     CallFrameInstruction::ArgsSize(size as u32)
                 }
+                read::CallFrameInstruction::NegateRaState => CallFrameInstruction::NegateRaState,
                 read::CallFrameInstruction::Nop => return Ok(None),
             }))
         }
@@ -847,7 +855,7 @@ mod tests {
     use crate::arch::X86_64;
     use crate::read;
     use crate::write::EndianVec;
-    use crate::LittleEndian;
+    use crate::{LittleEndian, Vendor};
 
     #[test]
     fn test_frame_table() {
@@ -980,44 +988,61 @@ mod tests {
             (28 + 0x20280, CallFrameInstruction::ArgsSize(23)),
         ];
 
+        let fde_instructions_aarch64 = [(0, CallFrameInstruction::NegateRaState)];
+
         for &version in &[1, 3, 4] {
             for &address_size in &[4, 8] {
-                for &format in &[Format::Dwarf32, Format::Dwarf64] {
-                    let encoding = Encoding {
-                        format,
-                        version,
-                        address_size,
-                    };
-                    let mut frames = FrameTable::default();
+                for &vendor in &[Vendor::Default, Vendor::AArch64] {
+                    for &format in &[Format::Dwarf32, Format::Dwarf64] {
+                        let encoding = Encoding {
+                            format,
+                            version,
+                            address_size,
+                        };
+                        let mut frames = FrameTable::default();
 
-                    let mut cie = CommonInformationEntry::new(encoding, 2, 8, X86_64::RA);
-                    for i in &cie_instructions {
-                        cie.add_instruction(i.clone());
+                        let mut cie = CommonInformationEntry::new(encoding, 2, 8, X86_64::RA);
+                        for i in &cie_instructions {
+                            cie.add_instruction(i.clone());
+                        }
+                        let cie_id = frames.add_cie(cie);
+
+                        let mut fde = FrameDescriptionEntry::new(Address::Constant(0x1000), 0x10);
+                        for (o, i) in &fde_instructions {
+                            fde.add_instruction(*o, i.clone());
+                        }
+                        frames.add_fde(cie_id, fde);
+
+                        if vendor == Vendor::AArch64 {
+                            let mut fde =
+                                FrameDescriptionEntry::new(Address::Constant(0x2000), 0x10);
+                            for (o, i) in &fde_instructions_aarch64 {
+                                fde.add_instruction(*o, i.clone());
+                            }
+                            frames.add_fde(cie_id, fde);
+                        }
+
+                        let mut debug_frame = DebugFrame::from(EndianVec::new(LittleEndian));
+                        frames.write_debug_frame(&mut debug_frame).unwrap();
+
+                        let mut read_debug_frame =
+                            read::DebugFrame::new(debug_frame.slice(), LittleEndian);
+                        read_debug_frame.set_address_size(address_size);
+                        read_debug_frame.set_vendor(vendor);
+                        let frames = FrameTable::from(&read_debug_frame, &|address| {
+                            Some(Address::Constant(address))
+                        })
+                        .unwrap();
+
+                        assert_eq!(
+                            &frames.cies.get_index(0).unwrap().instructions,
+                            &cie_instructions
+                        );
+                        assert_eq!(&frames.fdes[0].1.instructions, &fde_instructions);
+                        if vendor == Vendor::AArch64 {
+                            assert_eq!(&frames.fdes[1].1.instructions, &fde_instructions_aarch64);
+                        }
                     }
-                    let cie_id = frames.add_cie(cie);
-
-                    let mut fde = FrameDescriptionEntry::new(Address::Constant(0x1000), 0x10);
-                    for (o, i) in &fde_instructions {
-                        fde.add_instruction(*o, i.clone());
-                    }
-                    frames.add_fde(cie_id, fde);
-
-                    let mut debug_frame = DebugFrame::from(EndianVec::new(LittleEndian));
-                    frames.write_debug_frame(&mut debug_frame).unwrap();
-
-                    let mut read_debug_frame =
-                        read::DebugFrame::new(debug_frame.slice(), LittleEndian);
-                    read_debug_frame.set_address_size(address_size);
-                    let frames = FrameTable::from(&read_debug_frame, &|address| {
-                        Some(Address::Constant(address))
-                    })
-                    .unwrap();
-
-                    assert_eq!(
-                        &frames.cies.get_index(0).unwrap().instructions,
-                        &cie_instructions
-                    );
-                    assert_eq!(&frames.fdes[0].1.instructions, &fde_instructions);
                 }
             }
         }

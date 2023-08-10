@@ -27,6 +27,16 @@ impl Format {
     }
 }
 
+/// Which vendor extensions to support.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Vendor {
+    /// A default set of extensions, including some common GNU extensions.
+    Default,
+    /// AAarch64 extensions.
+    AArch64,
+}
+
 /// Encoding parameters that are commonly used for multiple DWARF sections.
 ///
 /// This is intended to be small enough to pass by value.
