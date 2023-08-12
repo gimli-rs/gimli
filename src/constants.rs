@@ -56,7 +56,10 @@ use core::fmt;
 //         }
 //     }
 macro_rules! dw {
-    ($(#[$meta:meta])* $struct_name:ident($struct_type:ty) { $($name:ident = $val:expr),+ $(,)? }) => {
+    ($(#[$meta:meta])* $struct_name:ident($struct_type:ty)
+        { $($name:ident = $val:expr),+ $(,)? }
+        $(, aliases { $($alias_name:ident = $alias_val:expr),+ $(,)? })?
+    ) => {
         $(#[$meta])*
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub struct $struct_name(pub $struct_type);
@@ -64,6 +67,9 @@ macro_rules! dw {
         $(
             pub const $name: $struct_name = $struct_name($val);
         )+
+        $($(
+            pub const $alias_name: $struct_name = $struct_name($alias_val);
+        )+)*
 
         impl $struct_name {
             pub fn static_string(&self) -> Option<&'static str> {
@@ -182,6 +188,9 @@ DwCfa(u8) {
     DW_CFA_GNU_window_save = 0x2d,
     DW_CFA_GNU_args_size = 0x2e,
     DW_CFA_GNU_negative_offset_extended = 0x2f,
+},
+aliases {
+    DW_CFA_AARCH64_negate_ra_state = 0x2d,
 });
 
 dw!(

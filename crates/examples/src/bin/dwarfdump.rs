@@ -735,6 +735,11 @@ fn dump_eh_frame<R: Reader, W: Write>(
         .unwrap_or(mem::size_of::<usize>() as u8);
     eh_frame.set_address_size(address_size);
 
+    match file.architecture() {
+        object::Architecture::Aarch64 => eh_frame.set_vendor(gimli::Vendor::AArch64),
+        _ => {}
+    }
+
     fn register_name_none(_: gimli::Register) -> Option<&'static str> {
         None
     }
@@ -1050,8 +1055,14 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
                 ArgsSize { size } => {
                     writeln!(w, "                DW_CFA_GNU_args_size ({})", size)?;
                 }
+                NegateRaState => {
+                    writeln!(w, "                DW_CFA_AARCH64_negate_ra_state")?;
+                }
                 Nop => {
                     writeln!(w, "                DW_CFA_nop")?;
+                }
+                _ => {
+                    writeln!(w, "                {:?}", op)?;
                 }
             },
         }
