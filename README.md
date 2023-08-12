@@ -33,7 +33,10 @@ Add this to your `Cargo.toml`:
 gimli = "0.27.3"
 ```
 
-The minimum supported Rust version is 1.42.0.
+The minimum supported Rust version is:
+
+* 1.60.0 for the `read` feature and its dependencies.
+* 1.64.0 for other features.
 
 ## Documentation
 
