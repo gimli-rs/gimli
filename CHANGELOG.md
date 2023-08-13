@@ -2,6 +2,50 @@
 
 --------------------------------------------------------------------------------
 
+## 0.28.0
+
+Released 2023/08/12.
+
+### Breaking changes
+
+* Deleted `impl From<EndianSlice> for &[u8]`. Use `EndianSlice::slice` instead.
+  [#669](https://github.com/gimli-rs/gimli/pull/669)
+
+* Deleted `impl Index<usize> for EndianSlice` and
+  `impl Index<RangeFrom<usize>> for EndianSlice`.
+  [#669](https://github.com/gimli-rs/gimli/pull/669)
+
+* Replaced `impl From<Pointer> for u64` with `Pointer::pointer`.
+  [#670](https://github.com/gimli-rs/gimli/pull/670)
+
+* Updated `fallible-iterator` to 0.3.0.
+  [#672](https://github.com/gimli-rs/gimli/pull/672)
+
+* Changed some optional dependencies to use the `dep:` feature syntax.
+  [#672](https://github.com/gimli-rs/gimli/pull/672)
+
+* Added `non_exhaustive` attribute to `read::RegisterRule`,
+  `read::CallFrameInstruction`, and `write::CallFrameInstruction`.
+  [#673](https://github.com/gimli-rs/gimli/pull/673)
+
+### Changed
+
+* The minimum supported rust version for the `read` feature and its dependencies
+  increased to 1.60.0.
+
+* The minimum supported rust version for other features increased to 1.65.0.
+
+### Added
+
+* Added `Vendor`, `read::DebugFrame::set_vendor`, and `read::EhFrame::set_vendor`.
+  [#673](https://github.com/gimli-rs/gimli/pull/673)
+
+* Added more ARM and AArch64 register definitions, and
+  `DW_CFA_AARCH64_negate_ra_state` support.
+  [#673](https://github.com/gimli-rs/gimli/pull/673)
+
+--------------------------------------------------------------------------------
+
 ## 0.27.3
 
 Released 2023/06/14.

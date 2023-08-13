@@ -10,7 +10,7 @@ fallible-iterator = { version = "0.3.0", default-features = false, optional = tr
 getopts = "0.2"
 memmap2 = "0.7.1"
 num_cpus = "1"
-object = { version = "0.31.1", features = ["wasm"] }
+object = { version = "0.32.0", features = ["wasm"] }
 rayon = "1.0"
 regex = "1"
 typed-arena = "2"
