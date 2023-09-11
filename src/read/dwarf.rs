@@ -856,6 +856,19 @@ impl<R: Reader> Unit<R> {
     #[inline]
     pub fn new(dwarf: &Dwarf<R>, header: UnitHeader<R>) -> Result<Self> {
         let abbreviations = dwarf.abbreviations(&header)?;
+        Self::new_with_abbreviations(dwarf, header, abbreviations)
+    }
+
+    /// Construct a new `Unit` from the given unit header and abbreviations.
+    ///
+    /// The abbreviations for this call can be obtained using `dwarf.abbreviations(&header)`.
+    /// The caller may implement caching to reuse the Abbreviations across units with the same header.debug_abbrev_offset() value.
+    #[inline]
+    pub fn new_with_abbreviations(
+        dwarf: &Dwarf<R>,
+        header: UnitHeader<R>,
+        abbreviations: Arc<Abbreviations>,
+    ) -> Result<Self> {
         let mut unit = Unit {
             abbreviations,
             name: None,
