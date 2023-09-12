@@ -12,7 +12,9 @@ use crate::common::{DebugAbbrevOffset, Encoding, SectionId};
 use crate::constants;
 use crate::endianity::Endianity;
 use crate::read::lazy::LazyArc;
-use crate::read::{EndianSlice, Error, Reader, ReaderOffset, Result, Section, UnitHeader};
+use crate::read::{
+    DebugInfoUnitHeadersIter, EndianSlice, Error, Reader, ReaderOffset, Result, Section, UnitHeader,
+};
 
 /// The `DebugAbbrev` struct represents the abbreviations describing
 /// `DebuggingInformationEntry`s' attribute names and forms found in the
@@ -102,20 +104,87 @@ impl<R> From<R> for DebugAbbrev<R> {
     }
 }
 
+/// The strategy to use for caching abbreviations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AbbreviationsCacheStrategy {
+    /// Don't cache anything.
+    None,
+    /// Cache the abbreviations at offset 0.
+    Zero,
+    /// Cache abbreviations that are used more than once.
+    Duplicates,
+    /// Cache all abbreviations.
+    All,
+}
+
 /// A cache of previously parsed `Abbreviations`.
 ///
-/// Currently this only caches the abbreviations for offset 0,
-/// since this is a common case in which abbreviations are reused.
-/// This strategy may change in future if there is sufficient need.
-#[derive(Debug, Default)]
+/// This defaults to only caching the abbreviations for offset 0,
+/// since this is a common case in which abbreviations are reused,
+/// and doesn't require additional parsing.
+#[derive(Debug)]
 pub struct AbbreviationsCache {
-    abbreviations: LazyArc<Abbreviations>,
+    abbreviations: btree_map::BTreeMap<u64, LazyArc<Abbreviations>>,
+}
+
+impl Default for AbbreviationsCache {
+    fn default() -> Self {
+        let mut abbreviations = btree_map::BTreeMap::new();
+        abbreviations.insert(0, LazyArc::default());
+        AbbreviationsCache { abbreviations }
+    }
 }
 
 impl AbbreviationsCache {
     /// Create an empty abbreviations cache.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Set the strategy for the abbreviations cache.
+    ///
+    /// This discards any existing cache entries.
+    pub fn set_strategy<R: Reader>(
+        &mut self,
+        strategy: AbbreviationsCacheStrategy,
+        mut units: DebugInfoUnitHeadersIter<R>,
+    ) {
+        let mut offsets = Vec::new();
+        match strategy {
+            AbbreviationsCacheStrategy::None => {}
+            AbbreviationsCacheStrategy::Zero => {
+                offsets.push(0);
+            }
+            AbbreviationsCacheStrategy::Duplicates => {
+                while let Ok(Some(unit)) = units.next() {
+                    offsets.push(unit.debug_abbrev_offset().0.into_u64());
+                }
+                offsets.sort_unstable();
+                let mut prev_offset = 0;
+                let mut count = 0;
+                offsets.retain(|offset| {
+                    if count == 0 || prev_offset != *offset {
+                        prev_offset = *offset;
+                        count = 1;
+                    } else {
+                        count += 1;
+                    }
+                    count == 2
+                });
+            }
+            AbbreviationsCacheStrategy::All => {
+                while let Ok(Some(unit)) = units.next() {
+                    offsets.push(unit.debug_abbrev_offset().0.into_u64());
+                }
+                offsets.sort_unstable();
+                offsets.dedup();
+            }
+        }
+        self.abbreviations = offsets
+            .into_iter()
+            .map(|offset| (offset, LazyArc::default()))
+            .collect();
     }
 
     /// Parse the abbreviations at the given offset.
@@ -126,11 +195,10 @@ impl AbbreviationsCache {
         debug_abbrev: &DebugAbbrev<R>,
         offset: DebugAbbrevOffset<R::Offset>,
     ) -> Result<Arc<Abbreviations>> {
-        if offset.0 != R::Offset::from_u8(0) {
-            return debug_abbrev.abbreviations(offset).map(Arc::new);
+        match self.abbreviations.get(&offset.0.into_u64()) {
+            Some(entry) => entry.get(|| debug_abbrev.abbreviations(offset)),
+            None => debug_abbrev.abbreviations(offset).map(Arc::new),
         }
-        self.abbreviations
-            .get(|| debug_abbrev.abbreviations(offset))
     }
 }
 

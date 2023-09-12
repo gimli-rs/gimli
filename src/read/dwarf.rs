@@ -9,13 +9,13 @@ use crate::common::{
 };
 use crate::constants;
 use crate::read::{
-    Abbreviations, AbbreviationsCache, AttributeValue, DebugAbbrev, DebugAddr, DebugAranges,
-    DebugCuIndex, DebugInfo, DebugInfoUnitHeadersIter, DebugLine, DebugLineStr, DebugLoc,
-    DebugLocLists, DebugRngLists, DebugStr, DebugStrOffsets, DebugTuIndex, DebugTypes,
-    DebugTypesUnitHeadersIter, DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree,
-    Error, IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists, RawLocListIter,
-    RawRngListIter, Reader, ReaderOffset, ReaderOffsetId, Result, RngListIter, Section, UnitHeader,
-    UnitIndex, UnitIndexSectionIterator, UnitOffset, UnitType,
+    Abbreviations, AbbreviationsCache, AbbreviationsCacheStrategy, AttributeValue, DebugAbbrev,
+    DebugAddr, DebugAranges, DebugCuIndex, DebugInfo, DebugInfoUnitHeadersIter, DebugLine,
+    DebugLineStr, DebugLoc, DebugLocLists, DebugRngLists, DebugStr, DebugStrOffsets, DebugTuIndex,
+    DebugTypes, DebugTypesUnitHeadersIter, DebuggingInformationEntry, EntriesCursor, EntriesRaw,
+    EntriesTree, Error, IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists,
+    RawLocListIter, RawRngListIter, Reader, ReaderOffset, ReaderOffsetId, Result, RngListIter,
+    Section, UnitHeader, UnitIndex, UnitIndexSectionIterator, UnitOffset, UnitType,
 };
 
 /// All of the commonly used DWARF sections, and other common information.
@@ -172,6 +172,12 @@ impl<T> Dwarf<T> {
 }
 
 impl<R: Reader> Dwarf<R> {
+    /// Set the strategy to use for the abbreviations cache.
+    pub fn set_abbreviations_cache_strategy(&mut self, strategy: AbbreviationsCacheStrategy) {
+        self.abbreviations_cache
+            .set_strategy(strategy, self.debug_info.units())
+    }
+
     /// Iterate the unit headers in the `.debug_info` section.
     ///
     /// Can be [used with
