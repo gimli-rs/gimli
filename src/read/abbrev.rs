@@ -11,7 +11,6 @@ use core::ops::Deref;
 use crate::common::{DebugAbbrevOffset, Encoding, SectionId};
 use crate::constants;
 use crate::endianity::Endianity;
-use crate::read::lazy::LazyArc;
 use crate::read::{
     DebugInfoUnitHeadersIter, EndianSlice, Error, Reader, ReaderOffset, Result, Section, UnitHeader,
 };
@@ -108,32 +107,20 @@ impl<R> From<R> for DebugAbbrev<R> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum AbbreviationsCacheStrategy {
-    /// Don't cache anything.
-    None,
-    /// Cache the abbreviations at offset 0.
-    Zero,
     /// Cache abbreviations that are used more than once.
+    ///
+    /// This is useful if the units in the `.debug_info` section will be parsed only once.
     Duplicates,
     /// Cache all abbreviations.
+    ///
+    /// This is useful if the units in the `.debug_info` section will be parsed more than once.
     All,
 }
 
 /// A cache of previously parsed `Abbreviations`.
-///
-/// This defaults to only caching the abbreviations for offset 0,
-/// since this is a common case in which abbreviations are reused,
-/// and doesn't require additional parsing.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AbbreviationsCache {
-    abbreviations: btree_map::BTreeMap<u64, LazyArc<Abbreviations>>,
-}
-
-impl Default for AbbreviationsCache {
-    fn default() -> Self {
-        let mut abbreviations = btree_map::BTreeMap::new();
-        abbreviations.insert(0, LazyArc::default());
-        AbbreviationsCache { abbreviations }
-    }
+    abbreviations: btree_map::BTreeMap<u64, Result<Arc<Abbreviations>>>,
 }
 
 impl AbbreviationsCache {
@@ -142,30 +129,31 @@ impl AbbreviationsCache {
         Self::default()
     }
 
-    /// Set the strategy for the abbreviations cache.
+    /// Parse abbreviations and store them in the cache.
     ///
-    /// This discards any existing cache entries.
-    pub fn set_strategy<R: Reader>(
+    /// This will iterate over the given units to determine the abbreviations
+    /// offsets. Any existing cache entries are discarded.
+    ///
+    /// Errors during parsing abbreviations are also stored in the cache.
+    /// Errors during iterating over the units are ignored.
+    pub fn populate<R: Reader>(
         &mut self,
         strategy: AbbreviationsCacheStrategy,
+        debug_abbrev: &DebugAbbrev<R>,
         mut units: DebugInfoUnitHeadersIter<R>,
     ) {
         let mut offsets = Vec::new();
         match strategy {
-            AbbreviationsCacheStrategy::None => {}
-            AbbreviationsCacheStrategy::Zero => {
-                offsets.push(0);
-            }
             AbbreviationsCacheStrategy::Duplicates => {
                 while let Ok(Some(unit)) = units.next() {
-                    offsets.push(unit.debug_abbrev_offset().0.into_u64());
+                    offsets.push(unit.debug_abbrev_offset());
                 }
-                offsets.sort_unstable();
-                let mut prev_offset = 0;
+                offsets.sort_unstable_by_key(|offset| offset.0);
+                let mut prev_offset = R::Offset::from_u8(0);
                 let mut count = 0;
                 offsets.retain(|offset| {
-                    if count == 0 || prev_offset != *offset {
-                        prev_offset = *offset;
+                    if count == 0 || prev_offset != offset.0 {
+                        prev_offset = offset.0;
                         count = 1;
                     } else {
                         count += 1;
@@ -175,28 +163,45 @@ impl AbbreviationsCache {
             }
             AbbreviationsCacheStrategy::All => {
                 while let Ok(Some(unit)) = units.next() {
-                    offsets.push(unit.debug_abbrev_offset().0.into_u64());
+                    offsets.push(unit.debug_abbrev_offset());
                 }
-                offsets.sort_unstable();
+                offsets.sort_unstable_by_key(|offset| offset.0);
                 offsets.dedup();
             }
         }
         self.abbreviations = offsets
             .into_iter()
-            .map(|offset| (offset, LazyArc::default()))
+            .map(|offset| {
+                (
+                    offset.0.into_u64(),
+                    debug_abbrev.abbreviations(offset).map(Arc::new),
+                )
+            })
             .collect();
+    }
+
+    /// Set an entry in the abbreviations cache.
+    ///
+    /// This is only required if you want to manually populate the cache.
+    pub fn set<R: Reader>(
+        &mut self,
+        offset: DebugAbbrevOffset<R::Offset>,
+        abbreviations: Arc<Abbreviations>,
+    ) {
+        self.abbreviations
+            .insert(offset.0.into_u64(), Ok(abbreviations));
     }
 
     /// Parse the abbreviations at the given offset.
     ///
-    /// This uses or updates the cache as required.
+    /// This uses the cache if possible, but does not update it.
     pub fn get<R: Reader>(
         &self,
         debug_abbrev: &DebugAbbrev<R>,
         offset: DebugAbbrevOffset<R::Offset>,
     ) -> Result<Arc<Abbreviations>> {
         match self.abbreviations.get(&offset.0.into_u64()) {
-            Some(entry) => entry.get(|| debug_abbrev.abbreviations(offset)),
+            Some(entry) => entry.clone(),
             None => debug_abbrev.abbreviations(offset).map(Arc::new),
         }
     }
@@ -1093,65 +1098,5 @@ pub mod tests {
             ))
             .unwrap();
         assert!(abbrevs.get(0).is_none());
-    }
-
-    #[test]
-    fn abbreviations_cache() {
-        #[rustfmt::skip]
-        let buf = Section::new()
-            .abbrev(1, constants::DW_TAG_subprogram, constants::DW_CHILDREN_no)
-                .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_string)
-                .abbrev_attr_null()
-            .abbrev_null()
-            .abbrev(1, constants::DW_TAG_compile_unit, constants::DW_CHILDREN_yes)
-                .abbrev_attr(constants::DW_AT_producer, constants::DW_FORM_strp)
-                .abbrev_attr(constants::DW_AT_language, constants::DW_FORM_data2)
-                .abbrev_attr_null()
-            .abbrev_null()
-            .get_contents()
-            .unwrap();
-
-        let abbrev1 = Abbreviation::new(
-            1,
-            constants::DW_TAG_subprogram,
-            constants::DW_CHILDREN_no,
-            vec![AttributeSpecification::new(
-                constants::DW_AT_name,
-                constants::DW_FORM_string,
-                None,
-            )]
-            .into(),
-        );
-
-        let abbrev2 = Abbreviation::new(
-            1,
-            constants::DW_TAG_compile_unit,
-            constants::DW_CHILDREN_yes,
-            vec![
-                AttributeSpecification::new(
-                    constants::DW_AT_producer,
-                    constants::DW_FORM_strp,
-                    None,
-                ),
-                AttributeSpecification::new(
-                    constants::DW_AT_language,
-                    constants::DW_FORM_data2,
-                    None,
-                ),
-            ]
-            .into(),
-        );
-
-        let debug_abbrev = DebugAbbrev::new(&buf, LittleEndian);
-        let cache = AbbreviationsCache::new();
-        let abbrevs1 = cache.get(&debug_abbrev, DebugAbbrevOffset(0)).unwrap();
-        assert_eq!(abbrevs1.get(1), Some(&abbrev1));
-        let abbrevs2 = cache.get(&debug_abbrev, DebugAbbrevOffset(8)).unwrap();
-        assert_eq!(abbrevs2.get(1), Some(&abbrev2));
-        let abbrevs3 = cache.get(&debug_abbrev, DebugAbbrevOffset(0)).unwrap();
-        assert_eq!(abbrevs3.get(1), Some(&abbrev1));
-
-        assert!(!Arc::ptr_eq(&abbrevs1, &abbrevs2));
-        assert!(Arc::ptr_eq(&abbrevs1, &abbrevs3));
     }
 }

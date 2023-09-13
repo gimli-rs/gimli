@@ -695,7 +695,7 @@ where
         dwarf.load_sup(&mut load_sup_section)?;
     }
 
-    dwarf.set_abbreviations_cache_strategy(gimli::AbbreviationsCacheStrategy::All);
+    dwarf.populate_abbreviations_cache(gimli::AbbreviationsCacheStrategy::All);
 
     if flags.eh_frame {
         let eh_frame = gimli::EhFrame::load(&mut load_section).unwrap();

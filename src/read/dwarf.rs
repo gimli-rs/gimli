@@ -172,10 +172,16 @@ impl<T> Dwarf<T> {
 }
 
 impl<R: Reader> Dwarf<R> {
-    /// Set the strategy to use for the abbreviations cache.
-    pub fn set_abbreviations_cache_strategy(&mut self, strategy: AbbreviationsCacheStrategy) {
+    /// Parse abbreviations and store them in the cache.
+    ///
+    /// This will iterate over the units in `self.debug_info` to determine the
+    /// abbreviations offsets.
+    ///
+    /// Errors during parsing abbreviations are also stored in the cache.
+    /// Errors during iterating over the units are ignored.
+    pub fn populate_abbreviations_cache(&mut self, strategy: AbbreviationsCacheStrategy) {
         self.abbreviations_cache
-            .set_strategy(strategy, self.debug_info.units())
+            .populate(strategy, &self.debug_abbrev, self.debug_info.units());
     }
 
     /// Iterate the unit headers in the `.debug_info` section.
@@ -868,7 +874,8 @@ impl<R: Reader> Unit<R> {
     /// Construct a new `Unit` from the given unit header and abbreviations.
     ///
     /// The abbreviations for this call can be obtained using `dwarf.abbreviations(&header)`.
-    /// The caller may implement caching to reuse the Abbreviations across units with the same header.debug_abbrev_offset() value.
+    /// The caller may implement caching to reuse the `Abbreviations` across units with the
+    /// same `header.debug_abbrev_offset()` value.
     #[inline]
     pub fn new_with_abbreviations(
         dwarf: &Dwarf<R>,
