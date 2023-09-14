@@ -214,9 +214,6 @@ mod index;
 pub use self::index::*;
 
 #[cfg(feature = "read")]
-mod lazy;
-
-#[cfg(feature = "read")]
 mod line;
 #[cfg(feature = "read")]
 pub use self::line::*;

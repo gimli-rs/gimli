@@ -9,13 +9,13 @@ use crate::common::{
 };
 use crate::constants;
 use crate::read::{
-    Abbreviations, AbbreviationsCache, AttributeValue, DebugAbbrev, DebugAddr, DebugAranges,
-    DebugCuIndex, DebugInfo, DebugInfoUnitHeadersIter, DebugLine, DebugLineStr, DebugLoc,
-    DebugLocLists, DebugRngLists, DebugStr, DebugStrOffsets, DebugTuIndex, DebugTypes,
-    DebugTypesUnitHeadersIter, DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree,
-    Error, IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists, RawLocListIter,
-    RawRngListIter, Reader, ReaderOffset, ReaderOffsetId, Result, RngListIter, Section, UnitHeader,
-    UnitIndex, UnitIndexSectionIterator, UnitOffset, UnitType,
+    Abbreviations, AbbreviationsCache, AbbreviationsCacheStrategy, AttributeValue, DebugAbbrev,
+    DebugAddr, DebugAranges, DebugCuIndex, DebugInfo, DebugInfoUnitHeadersIter, DebugLine,
+    DebugLineStr, DebugLoc, DebugLocLists, DebugRngLists, DebugStr, DebugStrOffsets, DebugTuIndex,
+    DebugTypes, DebugTypesUnitHeadersIter, DebuggingInformationEntry, EntriesCursor, EntriesRaw,
+    EntriesTree, Error, IncompleteLineProgram, LocListIter, LocationLists, Range, RangeLists,
+    RawLocListIter, RawRngListIter, Reader, ReaderOffset, ReaderOffsetId, Result, RngListIter,
+    Section, UnitHeader, UnitIndex, UnitIndexSectionIterator, UnitOffset, UnitType,
 };
 
 /// All of the commonly used DWARF sections, and other common information.
@@ -172,6 +172,18 @@ impl<T> Dwarf<T> {
 }
 
 impl<R: Reader> Dwarf<R> {
+    /// Parse abbreviations and store them in the cache.
+    ///
+    /// This will iterate over the units in `self.debug_info` to determine the
+    /// abbreviations offsets.
+    ///
+    /// Errors during parsing abbreviations are also stored in the cache.
+    /// Errors during iterating over the units are ignored.
+    pub fn populate_abbreviations_cache(&mut self, strategy: AbbreviationsCacheStrategy) {
+        self.abbreviations_cache
+            .populate(strategy, &self.debug_abbrev, self.debug_info.units());
+    }
+
     /// Iterate the unit headers in the `.debug_info` section.
     ///
     /// Can be [used with
@@ -862,7 +874,8 @@ impl<R: Reader> Unit<R> {
     /// Construct a new `Unit` from the given unit header and abbreviations.
     ///
     /// The abbreviations for this call can be obtained using `dwarf.abbreviations(&header)`.
-    /// The caller may implement caching to reuse the Abbreviations across units with the same header.debug_abbrev_offset() value.
+    /// The caller may implement caching to reuse the `Abbreviations` across units with the
+    /// same `header.debug_abbrev_offset()` value.
     #[inline]
     pub fn new_with_abbreviations(
         dwarf: &Dwarf<R>,

@@ -3142,7 +3142,7 @@ pub enum CallFrameInstruction<R: Reader> {
     /// >
     /// > AArch64 Extension
     /// >
-    /// > The DW_CFA_AARCH64_negate_ra_state operation negates bit[0] of the
+    /// > The DW_CFA_AARCH64_negate_ra_state operation negates bit 0 of the
     /// > RA_SIGN_STATE pseudo-register. It does not take any operands. The
     /// > DW_CFA_AARCH64_negate_ra_state must not be mixed with other DWARF Register
     /// > Rule Instructions on the RA_SIGN_STATE pseudo-register in one Common
