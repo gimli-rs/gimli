@@ -822,11 +822,13 @@ registers!(X86_64, {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::collections::HashSet;
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_aarch64_registers() {
+        use super::*;
+        use std::collections::HashSet;
+
         let mut names = HashSet::new();
         for n in (0..=39).chain(46..=127) {
             let name = AArch64::register_name(Register(n))
