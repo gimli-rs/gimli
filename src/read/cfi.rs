@@ -1588,6 +1588,24 @@ where
             get_cie,
         )
     }
+
+    /// Get the offset of this entry from the start of its containing section.
+    pub fn offset(&self) -> R::Offset {
+        self.offset
+    }
+
+    /// Get the offset of this FDE's CIE.
+    pub fn cie_offset(&self) -> Section::Offset {
+        self.cie_offset
+    }
+
+    /// > A constant that gives the number of bytes of the header and
+    /// > instruction stream for this function, not including the length field
+    /// > itself (see Section 7.2.2). The size of the length field plus the value
+    /// > of length must be an integral multiple of the address size.
+    pub fn entry_len(&self) -> R::Offset {
+        self.length
+    }
 }
 
 /// A `FrameDescriptionEntry` is a set of CFA instructions for an address range.
