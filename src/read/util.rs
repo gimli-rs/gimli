@@ -71,7 +71,39 @@ macro_rules! impl_array {
     }
 }
 
+#[cfg(feature = "read")]
+macro_rules! impl_box {
+    () => {};
+    ($n:literal $($rest:tt)*) => {
+        // SAFETY: does not modify the content in storage.
+        unsafe impl<T> Sealed for Box<[T; $n]> {
+            type Storage = Box<[MaybeUninit<T>; $n]>;
+
+            fn new_storage() -> Self::Storage {
+                // SAFETY: An uninitialized `[MaybeUninit<_>; _]` is valid.
+                Box::new(unsafe { MaybeUninit::uninit().assume_init() })
+            }
+        }
+
+        impl<T> ArrayLike for Box<[T; $n]> {
+            type Item = T;
+
+            fn as_slice(storage: &Self::Storage) -> &[MaybeUninit<T>] {
+                &storage[..]
+            }
+
+            fn as_mut_slice(storage: &mut Self::Storage) -> &mut [MaybeUninit<T>] {
+                &mut storage[..]
+            }
+        }
+
+        impl_box!($($rest)*);
+    }
+}
+
 impl_array!(0 1 2 3 4 8 16 32 64 128 192);
+#[cfg(feature = "read")]
+impl_box!(0 1 2 3 4 8 16 32 64 128 192);
 
 #[cfg(feature = "read")]
 unsafe impl<T> Sealed for Vec<T> {
