@@ -1,5 +1,5 @@
 #[cfg(feature = "read")]
-use alloc::vec::Vec;
+use alloc::boxed::Box;
 
 use core::cmp::{Ord, Ordering};
 use core::fmt::{self, Debug};
@@ -1894,11 +1894,13 @@ pub trait UnwindContextStorage<R: Reader>: Sized {
 
 #[cfg(feature = "read")]
 const MAX_RULES: usize = 192;
+#[cfg(feature = "read")]
+const MAX_UNWIND_STACK_DEPTH: usize = 4;
 
 #[cfg(feature = "read")]
 impl<R: Reader> UnwindContextStorage<R> for StoreOnHeap {
     type Rules = [(Register, RegisterRule<R>); MAX_RULES];
-    type Stack = Vec<UnwindTableRow<R, Self>>;
+    type Stack = Box<[UnwindTableRow<R, Self>; MAX_UNWIND_STACK_DEPTH]>;
 }
 
 /// Common context needed when evaluating the call frame unwinding information.
