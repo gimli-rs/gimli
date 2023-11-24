@@ -829,18 +829,23 @@ fn dump_eh_frame<R: Reader, W: Write>(
                 writeln!(w)?;
             }
             Some(gimli::CieOrFde::Fde(partial)) => {
-                let mut offset = None;
-                let fde = partial.parse(|_, bases, o| {
-                    offset = Some(o);
+                writeln!(w)?;
+                writeln!(w, "{:#010x}: FDE", partial.offset())?;
+                writeln!(w, "        length: {:#010x}", partial.entry_len())?;
+                writeln!(w, "   CIE_pointer: {:#010x}", partial.cie_offset().0)?;
+
+                let fde = match partial.parse(|_, bases, o| {
                     cies.entry(o)
                         .or_insert_with(|| eh_frame.cie_from_offset(bases, o))
                         .clone()
-                })?;
+                }) {
+                    Ok(fde) => fde,
+                    Err(e) => {
+                        writeln!(w, "Failed to parse FDE: {}", e)?;
+                        continue;
+                    }
+                };
 
-                writeln!(w)?;
-                writeln!(w, "{:#010x}: FDE", fde.offset())?;
-                writeln!(w, "        length: {:#010x}", fde.entry_len())?;
-                writeln!(w, "   CIE_pointer: {:#010x}", offset.unwrap().0)?;
                 // TODO: symbolicate the start address like the canonical dwarfdump does.
                 writeln!(w, "    start_addr: {:#018x}", fde.initial_address())?;
                 writeln!(
