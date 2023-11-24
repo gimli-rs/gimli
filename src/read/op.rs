@@ -1077,10 +1077,10 @@ impl<R: Reader> EvaluationStorage<R> for StoreOnHeap {
 ///
 /// # Examples
 /// ```rust,no_run
-/// use gimli::{EndianSlice, Evaluation, EvaluationResult, Format, LittleEndian, Value};
-/// # let bytecode = EndianSlice::new(&[], LittleEndian);
+/// use gimli::{Evaluation, EvaluationResult, Expression};
+/// # let bytecode = gimli::EndianSlice::new(&[], gimli::LittleEndian);
 /// # let encoding = unimplemented!();
-/// # let get_register_value = |_, _| Value::Generic(42);
+/// # let get_register_value = |_, _| gimli::Value::Generic(42);
 /// # let get_frame_base = || 0xdeadbeef;
 ///
 /// let mut eval = Evaluation::new(bytecode, encoding);
@@ -1126,6 +1126,7 @@ pub struct Evaluation<R: Reader, S: EvaluationStorage<R> = StoreOnHeap> {
     // is stored here while evaluating the subroutine.
     expression_stack: ArrayVec<S::ExpressionStack>,
 
+    value_result: Option<Value>,
     result: ArrayVec<S::Result>,
 }
 
@@ -1175,6 +1176,7 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
             stack: Default::default(),
             expression_stack: Default::default(),
             pc,
+            value_result: None,
             result: Default::default(),
         }
     }
@@ -1600,6 +1602,22 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
         Ok(OperationEvaluationResult::Incomplete)
     }
 
+    /// Get the result if this is an evaluation for a value.
+    ///
+    /// Returns `None` if the evaluation contained operations that are only
+    /// valid for location descriptions.
+    ///
+    /// # Panics
+    /// Panics if this `Evaluation` has not been driven to completion.
+    pub fn value_result(&self) -> Option<Value> {
+        match self.state {
+            EvaluationState::Complete => self.value_result,
+            _ => {
+                panic!("Called `Evaluation::value_result` on an `Evaluation` that has not been completed")
+            }
+        }
+    }
+
     /// Get the result of this `Evaluation`.
     ///
     /// # Panics
@@ -1608,7 +1626,9 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
         match self.state {
             EvaluationState::Complete => &self.result,
             _ => {
-                panic!("Called `Evaluation::result` on an `Evaluation` that has not been completed")
+                panic!(
+                    "Called `Evaluation::as_result` on an `Evaluation` that has not been completed"
+                )
             }
         }
     }
@@ -1968,13 +1988,14 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
                     self.state = EvaluationState::Waiting(waiting);
                     return Ok(result);
                 }
-            };
+            }
         }
 
         // If no pieces have been seen, use the stack top as the
         // result.
         if self.result.is_empty() {
             let entry = self.pop()?;
+            self.value_result = Some(entry);
             let addr = entry.to_u64(self.addr_mask)?;
             self.result
                 .try_push(Piece {
