@@ -2,6 +2,41 @@
 
 --------------------------------------------------------------------------------
 
+## 0.28.1
+
+Released 2023/11/24.
+
+### Changed
+
+* Changed `read::AbbreviationsCache` to require manual population using
+  `Dwarf::populate_abbreviations_cache`.
+  [#679](https://github.com/gimli-rs/gimli/pull/679)
+
+* Changed the default `read::UnwindContextStorage` to use `Box` instead of `Vec`
+  so that its memory usage is limited.
+  [#687](https://github.com/gimli-rs/gimli/pull/687)
+
+* Changed `read::UnwindTable::new` to always reset the context, because
+  previous errors may have left the context in an invalid state.
+  [#684](https://github.com/gimli-rs/gimli/pull/684)
+
+* Changed the `Debug` implementation for `read::EndianSlice` to limit the number
+  of bytes it displays.
+  [#686](https://github.com/gimli-rs/gimli/pull/686)
+
+### Added
+
+* Added more AArch64 register definitions.
+  [#680](https://github.com/gimli-rs/gimli/pull/680)
+
+* Added `read::Unit::new_with_abbreviations`.
+  [#677](https://github.com/gimli-rs/gimli/pull/677)
+
+* Added `read::Evaluation::value_result`.
+  [#676](https://github.com/gimli-rs/gimli/pull/676)
+
+--------------------------------------------------------------------------------
+
 ## 0.28.0
 
 Released 2023/08/12.
