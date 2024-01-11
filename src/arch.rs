@@ -820,6 +820,131 @@ registers!(X86_64, {
     K7 = (125, "k7"),
 });
 
+/// PowerPC 64bit
+///
+/// See [64-bit ELF ABI Specification for OpenPOWER Architecture](https://openpowerfoundation.org/specifications/64bitelfabi/).
+#[derive(Debug, Clone, Copy)]
+pub struct PowerPc64;
+
+registers!(PowerPc64, {
+    R0 = (0, "r0"),
+    R1 = (1, "r1"),
+    R2 = (2, "r2"),
+    R3 = (3, "r3"),
+    R4 = (4, "r4"),
+    R5 = (5, "r5"),
+    R6 = (6, "r6"),
+    R7 = (7, "r7"),
+    R8 = (8, "r8"),
+    R9 = (9, "r9"),
+    R10 = (10, "r10"),
+    R11 = (11, "r11"),
+    R12 = (12, "r12"),
+    R13 = (13, "r13"),
+    R14 = (14, "r14"),
+    R15 = (15, "r15"),
+    R16 = (16, "r16"),
+    R17 = (17, "r17"),
+    R18 = (18, "r18"),
+    R19 = (19, "r19"),
+    R20 = (20, "r20"),
+    R21 = (21, "r21"),
+    R22 = (22, "r22"),
+    R23 = (23, "r23"),
+    R24 = (24, "r24"),
+    R25 = (25, "r25"),
+    R26 = (26, "r26"),
+    R27 = (27, "r27"),
+    R28 = (28, "r28"),
+    R29 = (29, "r29"),
+    R30 = (30, "r30"),
+    R31 = (31, "r31"),
+
+    F0 = (32, "f0"),
+    F1 = (33, "f1"),
+    F2 = (34, "f2"),
+    F3 = (35, "f3"),
+    F4 = (36, "f4"),
+    F5 = (37, "f5"),
+    F6 = (38, "f6"),
+    F7 = (39, "f7"),
+    F8 = (40, "f8"),
+    F9 = (41, "f9"),
+    F10 = (42, "f10"),
+    F11 = (43, "f11"),
+    F12 = (44, "f12"),
+    F13 = (45, "f13"),
+    F14 = (46, "f14"),
+    F15 = (47, "f15"),
+    F16 = (48, "f16"),
+    F17 = (49, "f17"),
+    F18 = (50, "f18"),
+    F19 = (51, "f19"),
+    F20 = (52, "f20"),
+    F21 = (53, "f21"),
+    F22 = (54, "f22"),
+    F23 = (55, "f23"),
+    F24 = (56, "f24"),
+    F25 = (57, "f25"),
+    F26 = (58, "f26"),
+    F27 = (59, "f27"),
+    F28 = (60, "f28"),
+    F29 = (61, "f29"),
+    F30 = (62, "f30"),
+    F31 = (63, "f31"),
+
+    LR = (65, "lr"),
+    CTR = (66, "ctr"),
+
+    CR0 = (68, "cr0"),
+    CR1 = (69, "cr1"),
+    CR2 = (70, "cr2"),
+    CR3 = (71, "cr3"),
+    CR4 = (72, "cr4"),
+    CR5 = (73, "cr5"),
+    CR6 = (74, "cr6"),
+    CR7 = (75, "cr7"),
+    XER = (76, "xer"),
+
+    VR0 = (77, "vr0"),
+    VR1 = (78, "vr1"),
+    VR2 = (79, "vr2"),
+    VR3 = (80, "vr3"),
+    VR4 = (81, "vr4"),
+    VR5 = (82, "vr5"),
+    VR6 = (83, "vr6"),
+    VR7 = (84, "vr7"),
+    VR8 = (85, "vr8"),
+    VR9 = (86, "vr9"),
+    VR10 = (87, "vr10"),
+    VR11 = (88, "vr11"),
+    VR12 = (89, "vr12"),
+    VR13 = (90, "vr13"),
+    VR14 = (91, "vr14"),
+    VR15 = (92, "vr15"),
+    VR16 = (93, "vr16"),
+    VR17 = (94, "vr17"),
+    VR18 = (95, "vr18"),
+    VR19 = (96, "vr19"),
+    VR20 = (97, "vr20"),
+    VR21 = (98, "vr21"),
+    VR22 = (99, "vr22"),
+    VR23 = (100, "vr23"),
+    VR24 = (101, "vr24"),
+    VR25 = (102, "vr25"),
+    VR26 = (103, "vr26"),
+    VR27 = (104, "vr27"),
+    VR28 = (105, "vr28"),
+    VR29 = (106, "vr29"),
+    VR30 = (107, "vr30"),
+    VR31 = (108, "vr31"),
+
+    VSCR = (110, "vscr"),
+    TFHAR = (114, "tfhar"),
+    TFIAR = (115, "tfiar"),
+    TEXASR = (116, "texasr"),
+});
+
 #[cfg(test)]
 mod tests {
 
@@ -832,6 +957,20 @@ mod tests {
         let mut names = HashSet::new();
         for n in (0..=39).chain(46..=127) {
             let name = AArch64::register_name(Register(n))
+                .unwrap_or_else(|| panic!("Register {} should have a name.", n));
+            assert!(names.insert(name));
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn test_power64_registers() {
+        use super::*;
+        use std::collections::HashSet;
+
+        let mut names = HashSet::new();
+        for n in (0..=63).chain(68..=75).chain(77..=108) {
+            let name = PowerPc64::register_name(Register(n))
                 .unwrap_or_else(|| panic!("Register {} should have a name.", n));
             assert!(names.insert(name));
         }

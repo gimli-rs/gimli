@@ -746,6 +746,7 @@ fn dump_eh_frame<R: Reader, W: Write>(
         None
     }
     let arch_register_name = match file.architecture() {
+        object::Architecture::PowerPc64 => gimli::PowerPc64::register_name,
         object::Architecture::Arm | object::Architecture::Aarch64 => gimli::Arm::register_name,
         object::Architecture::I386 => gimli::X86::register_name,
         object::Architecture::X86_64 => gimli::X86_64::register_name,
