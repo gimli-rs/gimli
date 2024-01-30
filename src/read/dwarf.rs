@@ -1046,11 +1046,8 @@ impl<R: Reader> Unit<R> {
     /// The returned value is relative to this unit's `comp_dir`.
     pub fn dwo_name(&self) -> Result<Option<AttributeValue<R>>> {
         let mut entries = self.entries();
-        if let None = entries.next_entry()? {
-            return Ok(None);
-        }
-
-        let entry = entries.current().unwrap();
+        entries.next_entry()?;
+        let entry = entries.current().ok_or(Error::MissingUnitDie)?;
         if self.header.version() < 5 {
             entry.attr_value(constants::DW_AT_GNU_dwo_name)
         } else {
