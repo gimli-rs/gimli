@@ -68,8 +68,8 @@ where
     /// of the given slice.
     #[inline]
     pub fn offset_from(&self, base: EndianSlice<'input, Endian>) -> usize {
-        let base_ptr = base.slice.as_ptr() as *const u8 as usize;
-        let ptr = self.slice.as_ptr() as *const u8 as usize;
+        let base_ptr = base.slice.as_ptr() as usize;
+        let ptr = self.slice.as_ptr() as usize;
         debug_assert!(base_ptr <= ptr);
         debug_assert!(ptr + self.slice.len() <= base_ptr + base.slice.len());
         ptr - base_ptr

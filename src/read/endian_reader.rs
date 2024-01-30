@@ -393,8 +393,8 @@ where
 
     #[inline]
     fn offset_from(&self, base: &EndianReader<Endian, T>) -> usize {
-        let base_ptr = base.bytes().as_ptr() as *const u8 as usize;
-        let ptr = self.bytes().as_ptr() as *const u8 as usize;
+        let base_ptr = base.bytes().as_ptr() as usize;
+        let ptr = self.bytes().as_ptr() as usize;
         debug_assert!(base_ptr <= ptr);
         debug_assert!(ptr + self.bytes().len() <= base_ptr + base.bytes().len());
         ptr - base_ptr
