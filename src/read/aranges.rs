@@ -182,7 +182,7 @@ where
             .and_then(|x| x.checked_add(segment_size))
             .ok_or(Error::InvalidAddressRange)?;
         if tuple_length == 0 {
-            return Err(Error::InvalidAddressRange)?;
+            return Err(Error::InvalidAddressRange);
         }
         let padding = if header_length % tuple_length == 0 {
             0

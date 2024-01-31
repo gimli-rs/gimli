@@ -288,7 +288,7 @@ mod convert {
                 };
                 // Filtering empty ranges out.
                 match range {
-                    Range::StartLength { length, .. } if length == 0 => continue,
+                    Range::StartLength { length: 0, .. } => continue,
                     Range::StartEnd { begin, end, .. } if begin == end => continue,
                     Range::OffsetPair { begin, end, .. } if begin == end => continue,
                     _ => (),

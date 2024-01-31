@@ -199,7 +199,7 @@ impl Value {
             Value::I32(value) => value as u64,
             Value::U32(value) => u64::from(value),
             Value::I64(value) => value as u64,
-            Value::U64(value) => value as u64,
+            Value::U64(value) => value,
             _ => return Err(Error::IntegralTypeRequired),
         };
         Ok(value)

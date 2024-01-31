@@ -410,7 +410,7 @@ mod convert {
                 // In some cases, existing data may contain begin == end, filtering
                 // these out.
                 match loc {
-                    Location::StartLength { length, .. } if length == 0 => continue,
+                    Location::StartLength { length: 0, .. } => continue,
                     Location::StartEnd { begin, end, .. } if begin == end => continue,
                     Location::OffsetPair { begin, end, .. } if begin == end => continue,
                     _ => (),

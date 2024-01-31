@@ -1098,7 +1098,7 @@ impl AttributeValue {
             }
             AttributeValue::AddressClass(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                uleb128_size(val.0 as u64)
+                uleb128_size(val.0)
             }
             AttributeValue::IdentifierCase(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
