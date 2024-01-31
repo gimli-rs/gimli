@@ -641,7 +641,7 @@ pub(crate) fn get_attribute_size(form: constants::DwForm, encoding: Encoding) ->
 }
 
 #[cfg(test)]
-pub mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::constants;
     use crate::endianity::LittleEndian;
