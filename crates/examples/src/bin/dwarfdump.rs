@@ -167,7 +167,8 @@ fn add_relocations(
         if offset as u64 != offset64 {
             continue;
         }
-        let offset = offset as usize;
+        // There are other things we could match but currently don't
+        #[allow(clippy::single_match)]
         match relocation.kind() {
             object::RelocationKind::Absolute => {
                 match relocation.target() {
@@ -228,6 +229,8 @@ struct Relocate<'a, R: gimli::Reader<Offset = usize>> {
 impl<'a, R: gimli::Reader<Offset = usize>> Relocate<'a, R> {
     fn relocate(&self, offset: usize, value: u64) -> u64 {
         if let Some(relocation) = self.relocations.get(&offset) {
+            // There are other things we could match but currently don't
+            #[allow(clippy::single_match)]
             match relocation.kind() {
                 object::RelocationKind::Absolute => {
                     if relocation.has_implicit_addend() {
@@ -524,7 +527,7 @@ fn main() {
             println!();
         }
 
-        let file = match fs::File::open(&file_path) {
+        let file = match fs::File::open(file_path) {
             Ok(file) => file,
             Err(err) => {
                 eprintln!("Failed to open file '{}': {}", file_path, err);
@@ -559,10 +562,10 @@ fn main() {
     }
 }
 
-fn empty_file_section<'input, 'arena, Endian: gimli::Endianity>(
+fn empty_file_section<Endian: gimli::Endianity>(
     endian: Endian,
-    arena_relocations: &'arena Arena<RelocationMap>,
-) -> Relocate<'arena, gimli::EndianSlice<'arena, Endian>> {
+    arena_relocations: &Arena<RelocationMap>,
+) -> Relocate<'_, gimli::EndianSlice<'_, Endian>> {
     let reader = gimli::EndianSlice::new(&[], endian);
     let section = reader;
     let relocations = RelocationMap::default();
@@ -591,7 +594,7 @@ fn load_file_section<'input, 'arena, Endian: gimli::Endianity>(
         Some(id.name())
     };
 
-    let data = match name.and_then(|name| file.section_by_name(&name)) {
+    let data = match name.and_then(|name| file.section_by_name(name)) {
         Some(ref section) => {
             // DWO sections never have relocations, so don't bother.
             if !is_dwo {
@@ -680,7 +683,7 @@ where
     let mut dwarf = gimli::Dwarf::load(&mut load_section)?;
     if flags.dwo {
         if let Some(dwo_parent) = dwo_parent {
-            dwarf.make_dwo(&dwo_parent);
+            dwarf.make_dwo(dwo_parent);
         } else {
             dwarf.file_type = gimli::DwarfFileType::Dwo;
         }
@@ -698,7 +701,7 @@ where
     dwarf.populate_abbreviations_cache(gimli::AbbreviationsCacheStrategy::All);
 
     if flags.eh_frame {
-        let eh_frame = gimli::EhFrame::load(&mut load_section).unwrap();
+        let eh_frame = gimli::EhFrame::load(load_section).unwrap();
         dump_eh_frame(w, file, eh_frame)?;
     }
     if flags.info {
@@ -709,15 +712,15 @@ where
         dump_line(w, &dwarf)?;
     }
     if flags.pubnames {
-        let debug_pubnames = &gimli::Section::load(&mut load_section).unwrap();
+        let debug_pubnames = &gimli::Section::load(load_section).unwrap();
         dump_pubnames(w, debug_pubnames, &dwarf.debug_info)?;
     }
     if flags.aranges {
-        let debug_aranges = &gimli::Section::load(&mut load_section).unwrap();
+        let debug_aranges = &gimli::Section::load(load_section).unwrap();
         dump_aranges(w, debug_aranges)?;
     }
     if flags.pubtypes {
-        let debug_pubtypes = &gimli::Section::load(&mut load_section).unwrap();
+        let debug_pubtypes = &gimli::Section::load(load_section).unwrap();
         dump_pubtypes(w, debug_pubtypes, &dwarf.debug_info)?;
     }
     w.flush()?;
@@ -737,6 +740,8 @@ fn dump_eh_frame<R: Reader, W: Write>(
         .unwrap_or(mem::size_of::<usize>() as u8);
     eh_frame.set_address_size(address_size);
 
+    // There are other things we could match but currently don't
+    #[allow(clippy::single_match)]
     match file.architecture() {
         object::Architecture::Aarch64 => eh_frame.set_vendor(gimli::Vendor::AArch64),
         _ => {}
@@ -1100,7 +1105,7 @@ where
             writeln!(w, "\nCU index {}", i)?;
             dump_dwp_sections(
                 w,
-                &dwp,
+                dwp,
                 dwo_parent,
                 dwo_parent_units,
                 flags,
@@ -1122,7 +1127,7 @@ where
             writeln!(w, "\nTU index {}", i)?;
             dump_dwp_sections(
                 w,
-                &dwp,
+                dwp,
                 dwo_parent,
                 dwo_parent_units,
                 flags,
@@ -1193,7 +1198,7 @@ where
         if !flags
             .match_units
             .as_ref()
-            .map(|r| r.is_match(&buf))
+            .map(|r| r.is_match(buf))
             .unwrap_or(true)
         {
             buf.clear();
@@ -2203,8 +2208,8 @@ fn dump_line_program<R: Reader, W: Write>(
                 if header.file_has_md5() {
                     let md5 = file.md5();
                     write!(w, "\t")?;
-                    for i in 0..16 {
-                        write!(w, "{:02X}", md5[i])?;
+                    for byte in md5 {
+                        write!(w, "{:02X}", byte)?;
                     }
                 }
                 writeln!(

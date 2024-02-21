@@ -2313,7 +2313,7 @@ mod tests {
                         read::EndianSlice::new(&[], LittleEndian),
                     );
 
-                    for &(ref name, ref value, ref expect_value) in &[
+                    for (name, value, expect_value) in &[
                         (
                             constants::DW_AT_name,
                             AttributeValue::Address(Address::Constant(0x1234)),
@@ -2501,7 +2501,7 @@ mod tests {
                                 &mut debug_info,
                                 &mut debug_info_refs,
                                 &mut unit_refs,
-                                &unit,
+                                unit,
                                 &offsets,
                                 line_program_offset,
                                 &debug_line_str_offsets,
@@ -2526,8 +2526,8 @@ mod tests {
                         assert_eq!(read_value, expect_value);
 
                         let dwarf = read::Dwarf {
-                            debug_str: read_debug_str.clone(),
-                            debug_line_str: read_debug_line_str.clone(),
+                            debug_str: read_debug_str,
+                            debug_line_str: read_debug_line_str,
                             ranges: read::RangeLists::new(read_debug_ranges, read_debug_rnglists),
                             locations: read::LocationLists::new(
                                 read_debug_loc,
@@ -2942,7 +2942,7 @@ mod tests {
                         read::EndianSlice::new(&[], LittleEndian),
                     );
 
-                    for &(ref name, ref value, ref expect_value) in &[
+                    for (name, value, expect_value) in &[
                         (
                             constants::DW_AT_stmt_list,
                             AttributeValue::LineProgramRef,
@@ -2984,7 +2984,7 @@ mod tests {
                                 &mut debug_info,
                                 &mut debug_info_refs,
                                 &mut unit_refs,
-                                &unit,
+                                unit,
                                 &offsets,
                                 Some(line_program_offset),
                                 &debug_line_str_offsets,
@@ -3047,7 +3047,7 @@ mod tests {
 
     #[test]
     fn test_line_program_used() {
-        for used in vec![false, true] {
+        for used in [false, true] {
             let encoding = Encoding {
                 format: Format::Dwarf32,
                 version: 5,

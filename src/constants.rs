@@ -1409,8 +1409,8 @@ mod tests {
 
     #[test]
     fn test_dw_eh_pe_is_absent() {
-        assert_eq!(DW_EH_PE_absptr.is_absent(), false);
-        assert_eq!(DW_EH_PE_omit.is_absent(), true);
+        assert!(!DW_EH_PE_absptr.is_absent());
+        assert!(DW_EH_PE_omit.is_absent());
     }
 
     #[test]
@@ -1424,12 +1424,12 @@ mod tests {
     #[test]
     fn test_dw_eh_pe_is_valid_encoding_bad_format() {
         let encoding = DwEhPe((DW_EH_PE_sdata8.0 + 1) | DW_EH_PE_pcrel.0);
-        assert_eq!(encoding.is_valid_encoding(), false);
+        assert!(!encoding.is_valid_encoding());
     }
 
     #[test]
     fn test_dw_eh_pe_is_valid_encoding_bad_application() {
         let encoding = DwEhPe(DW_EH_PE_sdata8.0 | (DW_EH_PE_aligned.0 + 1));
-        assert_eq!(encoding.is_valid_encoding(), false);
+        assert!(!encoding.is_valid_encoding());
     }
 }

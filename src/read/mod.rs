@@ -734,7 +734,7 @@ mod tests {
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
         match input.read_initial_length() {
-            Err(Error::UnknownReservedLength) => assert!(true),
+            Err(Error::UnknownReservedLength) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
@@ -745,7 +745,7 @@ mod tests {
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
         match input.read_initial_length() {
-            Err(Error::UnexpectedEof(_)) => assert!(true),
+            Err(Error::UnexpectedEof(_)) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
@@ -761,7 +761,7 @@ mod tests {
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
         match input.read_initial_length() {
-            Err(Error::UnexpectedEof(_)) => assert!(true),
+            Err(Error::UnexpectedEof(_)) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }
@@ -820,7 +820,7 @@ mod tests {
 
         let input = &mut EndianSlice::new(&buf, LittleEndian);
         match input.read_offset(Format::Dwarf64) {
-            Err(Error::UnsupportedOffset) => assert!(true),
+            Err(Error::UnsupportedOffset) => {}
             otherwise => panic!("Unexpected result: {:?}", otherwise),
         };
     }

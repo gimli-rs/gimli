@@ -1413,7 +1413,7 @@ mod tests {
 
     #[test]
     fn test_get_offset() {
-        for format in vec![Format::Dwarf32, Format::Dwarf64] {
+        for format in [Format::Dwarf32, Format::Dwarf64] {
             let encoding = Encoding {
                 format,
                 version: 5,

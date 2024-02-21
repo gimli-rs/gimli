@@ -149,7 +149,7 @@ fn test_convert_eh_frame() {
     assert_eq!(eh_frame.len(), 147144);
 
     // Convert new section
-    let mut eh_frame = read::EhFrame::new(&eh_frame, LittleEndian);
+    let mut eh_frame = read::EhFrame::new(eh_frame, LittleEndian);
     eh_frame.set_address_size(8);
     let frames = write::FrameTable::from(&eh_frame, &|address| Some(Address::Constant(address)))
         .expect("Should convert eh_frame information");

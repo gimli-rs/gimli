@@ -2864,7 +2864,7 @@ mod tests {
             markers.push(Marker(None, Vec::new()));
         }
 
-        fn write(stack: &mut Vec<u8>, index: usize, mut num: u64, nbytes: u8) {
+        fn write(stack: &mut [u8], index: usize, mut num: u64, nbytes: u8) {
             for i in 0..nbytes as usize {
                 stack[index + i] = (num & 0xff) as u8;
                 num >>= 8;

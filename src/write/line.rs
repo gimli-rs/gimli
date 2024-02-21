@@ -1619,7 +1619,7 @@ mod tests {
                     let file_id =
                         program.add_file(LineString::String(file1.to_vec()), dir_id, None);
 
-                    for &(ref inst, ref expect_inst) in &[
+                    for (inst, expect_inst) in &[
                         (
                             LineInstruction::Special(OPCODE_BASE),
                             read::LineInstruction::Special(OPCODE_BASE),
@@ -1737,10 +1737,10 @@ mod tests {
         let debug_line_str_offsets = DebugLineStrOffsets::none();
         let debug_str_offsets = DebugStrOffsets::none();
 
-        for minimum_instruction_length in vec![1, 4] {
-            for maximum_operations_per_instruction in vec![1, 3] {
-                for line_base in vec![-5, 0] {
-                    for line_range in vec![10, 20] {
+        for minimum_instruction_length in [1, 4] {
+            for maximum_operations_per_instruction in [1, 3] {
+                for line_base in [-5, 0] {
+                    for line_range in [10, 20] {
                         let line_encoding = LineEncoding {
                             minimum_instruction_length,
                             maximum_operations_per_instruction,
@@ -1851,7 +1851,7 @@ mod tests {
                     address_size,
                 };
 
-                for (file, expect_file) in vec![
+                for (file, expect_file) in [
                     (
                         LineString::String(file.to_vec()),
                         read::AttributeValue::String(read::EndianSlice::new(file, LittleEndian)),

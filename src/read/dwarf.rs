@@ -1182,7 +1182,7 @@ mod tests {
         owned_dwarf
             .load_sup(|_| -> Result<_> { Ok(vec![1, 2]) })
             .unwrap();
-        let dwarf = owned_dwarf.borrow(|section| EndianSlice::new(&section, LittleEndian));
+        let dwarf = owned_dwarf.borrow(|section| EndianSlice::new(section, LittleEndian));
 
         match dwarf.debug_str.get_str(DebugStrOffset(1)) {
             Ok(r) => panic!("Unexpected str {:?}", r),

@@ -49,7 +49,7 @@ fn impl_parse_self_debug_info<R: gimli::Reader>(
     let mut iter = debug_info.units();
     while let Some(unit) = iter.next().expect("Should parse compilation unit") {
         let abbrevs = unit
-            .abbreviations(&debug_abbrev)
+            .abbreviations(debug_abbrev)
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
@@ -299,6 +299,7 @@ fn test_parse_self_debug_aranges() {
     let mut headers = debug_aranges.headers();
     while let Some(header) = headers.next().expect("Should parse arange header OK") {
         let mut entries = header.entries();
+        #[allow(clippy::redundant_pattern_matching)]
         while let Some(_) = entries.next().expect("Should parse arange entry OK") {
             // Not really anything else we can check right now.
         }
@@ -388,6 +389,7 @@ fn test_parse_self_eh_frame() {
         .set_got(0);
     let mut entries = eh_frame.entries(&bases);
     while let Some(entry) = entries.next().expect("Should parse CFI entry OK") {
+        #[allow(clippy::redundant_pattern_matching)]
         match entry {
             CieOrFde::Cie(cie) => {
                 let mut instrs = cie.instructions(&eh_frame, &bases);

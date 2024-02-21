@@ -44,7 +44,7 @@ fn main() {
     let mut errors = 0;
     for arg in env::args_os().skip(1) {
         let path = Path::new(&arg);
-        let file = match fs::File::open(&path) {
+        let file = match fs::File::open(path) {
             Ok(file) => file,
             Err(err) => {
                 eprintln!("Failed to open file '{}': {}", path.display(), err);

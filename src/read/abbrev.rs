@@ -853,7 +853,7 @@ pub(crate) mod tests {
             .append_bytes(&expected_rest)
             .get_contents()
             .unwrap();
-        let rest = &mut EndianSlice::new(&*buf, LittleEndian);
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
         let abbrev1 = Abbreviation::new(
             1,
@@ -908,7 +908,7 @@ pub(crate) mod tests {
             .append_bytes(&expected_rest)
             .get_contents()
             .unwrap();
-        let buf = &mut EndianSlice::new(&*buf, LittleEndian);
+        let buf = &mut EndianSlice::new(&buf, LittleEndian);
 
         match Abbreviations::parse(buf) {
             Err(Error::DuplicateAbbreviationCode) => {}
@@ -959,7 +959,7 @@ pub(crate) mod tests {
             .append_bytes(&expected_rest)
             .get_contents()
             .unwrap();
-        let rest = &mut EndianSlice::new(&*buf, LittleEndian);
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
         let expect = Some(Abbreviation::new(
             1,
@@ -988,7 +988,7 @@ pub(crate) mod tests {
             .append_bytes(&expected_rest)
             .get_contents()
             .unwrap();
-        let rest = &mut EndianSlice::new(&*buf, LittleEndian);
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
         let expect = Some(Abbreviation::new(
             1,
@@ -1014,7 +1014,7 @@ pub(crate) mod tests {
             .abbrev_attr(constants::DW_AT_name, constants::DW_FORM_implicit_const)
             .get_contents()
             .unwrap();
-        let buf = &mut EndianSlice::new(&*buf, LittleEndian);
+        let buf = &mut EndianSlice::new(&buf, LittleEndian);
 
         match Abbreviation::parse(buf) {
             Err(Error::UnexpectedEof(_)) => {}
@@ -1030,7 +1030,7 @@ pub(crate) mod tests {
             .append_bytes(&expected_rest)
             .get_contents()
             .unwrap();
-        let rest = &mut EndianSlice::new(&*buf, LittleEndian);
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
 
         let abbrev = Abbreviation::parse(rest).expect("Should parse null abbreviation");
         assert!(abbrev.is_none());
