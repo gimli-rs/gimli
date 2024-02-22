@@ -616,7 +616,7 @@ aliases {
     FP = (30, "$fp"),
     RA = (31, "$ra"),
 
-    S8 = (29, "$s8")
+    S8 = (30, "$s8")
 });
 
 /// RISC-V architecture specific definitions.
