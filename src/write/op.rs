@@ -834,7 +834,7 @@ pub(crate) mod convert {
     use super::*;
     use crate::common::UnitSectionOffset;
     use crate::read::{self, Reader};
-    use crate::write::{ConvertError, ConvertResult, UnitEntryId, UnitId};
+    use crate::write::{ConvertError, ConvertResult, UnitId};
     use std::collections::HashMap;
 
     impl Expression {
