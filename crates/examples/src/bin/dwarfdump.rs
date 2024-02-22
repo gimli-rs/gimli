@@ -13,7 +13,6 @@ use std::fmt::{self, Debug};
 use std::fs;
 use std::io;
 use std::io::{BufWriter, Write};
-use std::iter::Iterator;
 use std::mem;
 use std::process;
 use std::result;

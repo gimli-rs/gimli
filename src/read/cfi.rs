@@ -1,7 +1,7 @@
 #[cfg(feature = "read")]
 use alloc::boxed::Box;
 
-use core::cmp::{Ord, Ordering};
+use core::cmp::Ordering;
 use core::fmt::{self, Debug};
 use core::iter::FromIterator;
 use core::mem;
