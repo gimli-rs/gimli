@@ -3938,7 +3938,7 @@ mod tests {
         let start = Label::new();
         let end = Label::new();
 
-        let augmentation = Some("replicant");
+        let augmentation = "replicant";
         let expected_rest = [1, 2, 3];
 
         let kind = debug_frame_le();
@@ -3951,7 +3951,7 @@ mod tests {
             // Version
             .D8(4)
             // Augmentation
-            .append_bytes(augmentation.unwrap().as_bytes())
+            .append_bytes(augmentation.as_bytes())
             // Null terminator
             .D8(0)
             // Extra augmented data that we can't understand.
@@ -5241,7 +5241,7 @@ mod tests {
                 Some(fde) => UnwindTable::new_for_fde(section, bases, &mut initial_ctx, &fde),
                 None => UnwindTable::new_for_cie(section, bases, &mut initial_ctx, &cie),
             };
-            for &(ref expected_result, ref instruction) in instructions.as_ref() {
+            for (expected_result, instruction) in instructions.as_ref() {
                 assert_eq!(*expected_result, table.evaluate(instruction.clone()));
             }
         }
@@ -5987,6 +5987,7 @@ mod tests {
 
     #[test]
     fn test_unwind_table_next_row() {
+        #[allow(clippy::identity_op)]
         let initial_instructions = Section::with_endian(Endian::Little)
             // The CFA is -12 from register 4.
             .D8(constants::DW_CFA_def_cfa_sf.0)
@@ -6543,14 +6544,14 @@ mod tests {
             iter.next(),
             Ok(Some((
                 Pointer::Direct(10),
-                Pointer::Direct(0x12345 + start_of_fde1.value().unwrap() as u64)
+                Pointer::Direct(0x12345 + start_of_fde1.value().unwrap())
             )))
         );
         assert_eq!(
             iter.next(),
             Ok(Some((
                 Pointer::Direct(20),
-                Pointer::Direct(0x12345 + start_of_fde2.value().unwrap() as u64)
+                Pointer::Direct(0x12345 + start_of_fde2.value().unwrap())
             )))
         );
         assert_eq!(iter.next(), Ok(None));
@@ -6559,7 +6560,7 @@ mod tests {
             table.iter(&bases).nth(0),
             Ok(Some((
                 Pointer::Direct(10),
-                Pointer::Direct(0x12345 + start_of_fde1.value().unwrap() as u64)
+                Pointer::Direct(0x12345 + start_of_fde1.value().unwrap())
             )))
         );
 
@@ -6567,7 +6568,7 @@ mod tests {
             table.iter(&bases).nth(1),
             Ok(Some((
                 Pointer::Direct(20),
-                Pointer::Direct(0x12345 + start_of_fde2.value().unwrap() as u64)
+                Pointer::Direct(0x12345 + start_of_fde2.value().unwrap())
             )))
         );
         assert_eq!(table.iter(&bases).nth(2), Ok(None));
@@ -6608,7 +6609,7 @@ mod tests {
         let bases = Default::default();
 
         assert_eq!(
-            parse_cfi_entry(&bases, &EhFrame::new(&*section, LittleEndian), rest),
+            parse_cfi_entry(&bases, &EhFrame::new(&section, LittleEndian), rest),
             Ok(None)
         );
 
@@ -6633,9 +6634,9 @@ mod tests {
 
         let kind = eh_frame_le();
         let section = Section::with_endian(kind.endian())
-            .append_bytes(&buf)
+            .append_bytes(buf)
             .fde(kind, cie_offset as u64, &mut fde)
-            .append_bytes(&buf);
+            .append_bytes(buf);
 
         let section = section.get_contents().unwrap();
         let eh_frame = kind.section(&section);
@@ -6718,7 +6719,7 @@ mod tests {
         let section = EndianSlice::new(&section, LittleEndian);
 
         let mut offset = None;
-        match parse_fde(
+        let result = parse_fde(
             eh_frame,
             &mut section.range_from(end_of_cie.value().unwrap() as usize..),
             |_, _, o| {
@@ -6726,7 +6727,8 @@ mod tests {
                 assert_eq!(o, EhFrameOffset(start_of_cie.value().unwrap() as usize));
                 Ok(cie.clone())
             },
-        ) {
+        );
+        match result {
             Ok(actual) => assert_eq!(actual, fde),
             otherwise => panic!("Unexpected result {:?}", otherwise),
         }
@@ -6792,8 +6794,10 @@ mod tests {
         let section = EhFrame::new(&[], LittleEndian);
         let input = &mut EndianSlice::new(&[], LittleEndian);
 
-        let mut augmentation = Augmentation::default();
-        augmentation.is_signal_trampoline = true;
+        let augmentation = Augmentation {
+            is_signal_trampoline: true,
+            ..Default::default()
+        };
 
         assert_eq!(
             Augmentation::parse(aug_str, &bases, address_size, &section, input),
@@ -6837,8 +6841,10 @@ mod tests {
         let input = &mut section.section().clone();
         let aug_str = &mut EndianSlice::new(b"zL", LittleEndian);
 
-        let mut augmentation = Augmentation::default();
-        augmentation.lsda = Some(constants::DW_EH_PE_uleb128);
+        let augmentation = Augmentation {
+            lsda: Some(constants::DW_EH_PE_uleb128),
+            ..Default::default()
+        };
 
         assert_eq!(
             Augmentation::parse(aug_str, &bases, address_size, &section, input),
@@ -6865,8 +6871,10 @@ mod tests {
         let input = &mut section.section().clone();
         let aug_str = &mut EndianSlice::new(b"zP", LittleEndian);
 
-        let mut augmentation = Augmentation::default();
-        augmentation.personality = Some((constants::DW_EH_PE_udata8, Pointer::Direct(0xf00d_f00d)));
+        let augmentation = Augmentation {
+            personality: Some((constants::DW_EH_PE_udata8, Pointer::Direct(0xf00d_f00d))),
+            ..Default::default()
+        };
 
         assert_eq!(
             Augmentation::parse(aug_str, &bases, address_size, &section, input),
@@ -6892,8 +6900,10 @@ mod tests {
         let input = &mut section.section().clone();
         let aug_str = &mut EndianSlice::new(b"zR", LittleEndian);
 
-        let mut augmentation = Augmentation::default();
-        augmentation.fde_address_encoding = Some(constants::DW_EH_PE_udata4);
+        let augmentation = Augmentation {
+            fde_address_encoding: Some(constants::DW_EH_PE_udata4),
+            ..Default::default()
+        };
 
         assert_eq!(
             Augmentation::parse(aug_str, &bases, address_size, &section, input),
@@ -6918,8 +6928,10 @@ mod tests {
         let input = &mut section.section().clone();
         let aug_str = &mut EndianSlice::new(b"zS", LittleEndian);
 
-        let mut augmentation = Augmentation::default();
-        augmentation.is_signal_trampoline = true;
+        let augmentation = Augmentation {
+            is_signal_trampoline: true,
+            ..Default::default()
+        };
 
         assert_eq!(
             Augmentation::parse(aug_str, &bases, address_size, &section, input),
@@ -7224,14 +7236,16 @@ mod tests {
 
     #[test]
     fn iter_register_rules() {
-        let mut row = UnwindTableRow::<EndianSlice<LittleEndian>>::default();
-        row.registers = [
-            (Register(0), RegisterRule::SameValue),
-            (Register(1), RegisterRule::Offset(1)),
-            (Register(2), RegisterRule::ValOffset(2)),
-        ]
-        .iter()
-        .collect();
+        let row = UnwindTableRow::<EndianSlice<LittleEndian>> {
+            registers: [
+                (Register(0), RegisterRule::SameValue),
+                (Register(1), RegisterRule::Offset(1)),
+                (Register(2), RegisterRule::ValOffset(2)),
+            ]
+            .iter()
+            .collect(),
+            ..Default::default()
+        };
 
         let mut found0 = false;
         let mut found1 = false;
@@ -7240,17 +7254,17 @@ mod tests {
         for &(register, ref rule) in row.registers() {
             match register.0 {
                 0 => {
-                    assert_eq!(found0, false);
+                    assert!(!found0);
                     found0 = true;
                     assert_eq!(*rule, RegisterRule::SameValue);
                 }
                 1 => {
-                    assert_eq!(found1, false);
+                    assert!(!found1);
                     found1 = true;
                     assert_eq!(*rule, RegisterRule::Offset(1));
                 }
                 2 => {
-                    assert_eq!(found2, false);
+                    assert!(!found2);
                     found2 = true;
                     assert_eq!(*rule, RegisterRule::ValOffset(2));
                 }
@@ -7258,9 +7272,9 @@ mod tests {
             }
         }
 
-        assert_eq!(found0, true);
-        assert_eq!(found1, true);
-        assert_eq!(found2, true);
+        assert!(found0);
+        assert!(found1);
+        assert!(found2);
     }
 
     #[test]
@@ -7654,7 +7668,7 @@ mod tests {
         let encoding =
             constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_sdata2.0);
         let expected_rest = [1, 2, 3, 4];
-        let expected = 0x111 as i16;
+        let expected = 0x111_i16;
 
         let input = Section::with_endian(Endian::Little)
             .L16(expected as u16)
@@ -7681,7 +7695,7 @@ mod tests {
         let encoding =
             constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_sdata4.0);
         let expected_rest = [1, 2, 3, 4];
-        let expected = 0x111_1111 as i32;
+        let expected = 0x111_1111_i32;
 
         let input = Section::with_endian(Endian::Little)
             .L32(expected as u32)
@@ -7708,7 +7722,7 @@ mod tests {
         let encoding =
             constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_sdata8.0);
         let expected_rest = [1, 2, 3, 4];
-        let expected = -0x11_1111_1222_2222 as i64;
+        let expected = -0x11_1111_1222_2222_i64;
 
         let input = Section::with_endian(Endian::Little)
             .L64(expected as u64)

@@ -35,7 +35,7 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian) -> Result<(), 
     let borrow_section: &dyn for<'a> Fn(
         &'a borrow::Cow<[u8]>,
     ) -> gimli::EndianSlice<'a, gimli::RunTimeEndian> =
-        &|section| gimli::EndianSlice::new(&*section, endian);
+        &|section| gimli::EndianSlice::new(section, endian);
 
     // Create `EndianSlice`s for all of the sections.
     let dwarf = dwarf_cow.borrow(&borrow_section);
