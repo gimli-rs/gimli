@@ -930,6 +930,22 @@ impl<R: Reader> DwarfPackage<R> {
 
     /// Find the compilation unit with the given DWO identifier and return its section
     /// contributions.
+    ///
+    /// ## Example Usage
+    ///
+    /// ```rust,no_run
+    /// # fn example<R: gimli::Reader>(
+    /// #        dwarf: &gimli::Dwarf<R>,
+    /// #        dwp: &gimli::DwarfPackage<R>,
+    /// #        dwo_id: gimli::DwoId,
+    /// # ) -> Result<(), gimli::Error> {
+    /// if let Some(dwo) = dwp.find_cu(dwo_id, dwarf)? {
+    ///    let dwo_header = dwo.units().next()?.expect("DWO should have one unit");
+    ///    let dwo_unit = dwo.unit(dwo_header)?;
+    ///    // Do something with `dwo_unit`.
+    /// }
+    /// # unreachable!()
+    /// # }
     pub fn find_cu(&self, id: DwoId, parent: &Dwarf<R>) -> Result<Option<Dwarf<R>>> {
         let row = match self.cu_index.find(id.0) {
             Some(row) => row,
