@@ -67,6 +67,10 @@
 //! sections. It has methods that simplify access to debugging data that spans
 //! multiple sections. Use of this type is optional, but recommended.
 //!
+//! * The [`DwarfPackage`](./struct.Dwarf.html) type contains the DWARF
+//! package (DWP) sections. It has methods to find a DWARF object (DWO)
+//! within the package.
+//!
 //! * Each section gets its own type. Consider these types the entry points to
 //! the library:
 //!

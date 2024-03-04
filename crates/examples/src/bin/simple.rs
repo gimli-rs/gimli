@@ -29,7 +29,7 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian) -> Result<(), 
     };
 
     // Load all of the sections.
-    let dwarf_cow = gimli::Dwarf::load(&load_section)?;
+    let dwarf_cow = gimli::DwarfSections::load(&load_section)?;
 
     // Borrow a `Cow<[u8]>` to create an `EndianSlice`.
     let borrow_section: &dyn for<'a> Fn(
@@ -38,6 +38,7 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian) -> Result<(), 
         &|section| gimli::EndianSlice::new(section, endian);
 
     // Create `EndianSlice`s for all of the sections.
+    // Alternatively, we could have used `Dwarf::load` with an owned type such as `EndianRcSlice`.
     let dwarf = dwarf_cow.borrow(&borrow_section);
 
     // Iterate over the compilation units.

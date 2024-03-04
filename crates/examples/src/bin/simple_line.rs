@@ -29,7 +29,7 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian) -> Result<(), 
     };
 
     // Load all of the sections.
-    let dwarf_cow = gimli::Dwarf::load(&load_section)?;
+    let dwarf_cow = gimli::DwarfSections::load(&load_section)?;
 
     // Borrow a `Cow<[u8]>` to create an `EndianSlice`.
     let borrow_section: &dyn for<'a> Fn(
