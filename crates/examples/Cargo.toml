@@ -24,11 +24,11 @@ default = ["read", "std", "fallible-iterator"]
 
 [[bin]]
 name = "simple"
-required-features = ["read"]
+required-features = ["read", "std"]
 
 [[bin]]
 name = "simple_line"
-required-features = ["read"]
+required-features = ["read", "std"]
 
 [[bin]]
 name = "dwarfdump"

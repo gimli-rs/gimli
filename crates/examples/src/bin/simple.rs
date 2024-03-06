@@ -8,7 +8,7 @@
 //! file and DWP file, which is not something that is provided by gimli itself.
 
 use object::{Object, ObjectSection};
-use std::{borrow, env, fs};
+use std::{borrow, env, error, fs};
 
 fn main() {
     let mut args = env::args();
@@ -45,44 +45,38 @@ fn dump_file(
     object: &object::File,
     dwp_object: Option<&object::File>,
     endian: gimli::RunTimeEndian,
-) -> Result<(), gimli::Error> {
+) -> Result<(), Box<dyn error::Error>> {
     // Load a section and return as `Cow<[u8]>`.
     fn load_section<'a>(
         object: &'a object::File,
         name: &str,
-    ) -> Result<borrow::Cow<'a, [u8]>, gimli::Error> {
-        match object.section_by_name(name) {
-            Some(ref section) => Ok(section
-                .uncompressed_data()
-                .unwrap_or(borrow::Cow::Borrowed(&[][..]))),
-            None => Ok(borrow::Cow::Borrowed(&[][..])),
-        }
+    ) -> Result<borrow::Cow<'a, [u8]>, Box<dyn error::Error>> {
+        Ok(match object.section_by_name(name) {
+            Some(section) => section.uncompressed_data()?,
+            None => borrow::Cow::Borrowed(&[]),
+        })
     }
 
     // Borrow a `Cow<[u8]>` to create an `EndianSlice`.
-    let borrow_section: &dyn for<'a> Fn(
-        &'a borrow::Cow<[u8]>,
-    ) -> gimli::EndianSlice<'a, gimli::RunTimeEndian> =
-        &|section| gimli::EndianSlice::new(section, endian);
+    let borrow_section = |section| gimli::EndianSlice::new(borrow::Cow::as_ref(section), endian);
 
     // Load all of the sections.
     let dwarf_sections = gimli::DwarfSections::load(|id| load_section(object, id.name()))?;
-    let dwp_sections = if let Some(dwp_object) = dwp_object {
-        Some(gimli::DwarfPackageSections::load(|id| {
-            load_section(dwp_object, id.dwo_name().unwrap())
-        })?)
-    } else {
-        None
-    };
+    let dwp_sections = dwp_object
+        .map(|dwp_object| {
+            gimli::DwarfPackageSections::load(|id| load_section(dwp_object, id.dwo_name().unwrap()))
+        })
+        .transpose()?;
 
-    // Create `EndianSlice`s for all of the sections.
+    // Create `EndianSlice`s for all of the sections and do preliminary parsing.
     // Alternatively, we could have used `Dwarf::load` with an owned type such as `EndianRcSlice`.
-    let dwarf = dwarf_sections.borrow(&borrow_section);
-    let dwp = if let Some(dwp_sections) = &dwp_sections {
-        Some(dwp_sections.borrow(&borrow_section, gimli::EndianSlice::new(&[][..], endian))?)
-    } else {
-        None
-    };
+    let dwarf = dwarf_sections.borrow(borrow_section);
+    let dwp = dwp_sections
+        .as_ref()
+        .map(|dwp_sections| {
+            dwp_sections.borrow(borrow_section, gimli::EndianSlice::new(&[], endian))
+        })
+        .transpose()?;
 
     // Iterate over the compilation units.
     let mut iter = dwarf.units();
