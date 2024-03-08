@@ -121,9 +121,9 @@ impl<W: Writer + Clone> Sections<W> {
 
 impl<W: Writer> Sections<W> {
     /// For each section, call `f` once with a shared reference.
-    pub fn for_each<F, E>(&self, mut f: F) -> result::Result<(), E>
+    pub fn for_each<'a, F, E>(&'a self, mut f: F) -> result::Result<(), E>
     where
-        F: FnMut(SectionId, &W) -> result::Result<(), E>,
+        F: FnMut(SectionId, &'a W) -> result::Result<(), E>,
     {
         macro_rules! f {
             ($s:expr) => {
@@ -146,9 +146,9 @@ impl<W: Writer> Sections<W> {
     }
 
     /// For each section, call `f` once with a mutable reference.
-    pub fn for_each_mut<F, E>(&mut self, mut f: F) -> result::Result<(), E>
+    pub fn for_each_mut<'a, F, E>(&'a mut self, mut f: F) -> result::Result<(), E>
     where
-        F: FnMut(SectionId, &mut W) -> result::Result<(), E>,
+        F: FnMut(SectionId, &'a mut W) -> result::Result<(), E>,
     {
         macro_rules! f {
             ($s:expr) => {
