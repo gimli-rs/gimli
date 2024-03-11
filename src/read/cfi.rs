@@ -1872,7 +1872,8 @@ on the heap using [`Box`]. This is the default storage type parameter for [`Unwi
 You may want to supply your own storage type for one of the following reasons:
 
   1. In rare cases you may run into failed unwinds due to the fixed stack size
-     used by [`StoreOnHeap`], so you may want to try a Vec-based stack instead which
+     used by [`StoreOnHeap`], so you may want to try a larger `Box`. If denial
+     of service is not a concern, then you could also try a `Vec`-based stack which
      can grow as needed.
   2. You may want to avoid heap allocations entirely. You can use a fixed-size
      stack with in-line arrays, which will place the entire storage in-line into
