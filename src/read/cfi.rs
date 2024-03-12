@@ -1867,12 +1867,23 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     feature = "read",
     doc = "
 Normally you would only need to use [`StoreOnHeap`], which places the stack
-on the heap using [`Vec`]. This is the default storage type parameter for [`UnwindContext`].
+on the heap using [`Box`]. This is the default storage type parameter for [`UnwindContext`].
+
+You may want to supply your own storage type for one of the following reasons:
+
+  1. In rare cases you may run into failed unwinds due to the fixed stack size
+     used by [`StoreOnHeap`], so you may want to try a larger `Box`. If denial
+     of service is not a concern, then you could also try a `Vec`-based stack which
+     can grow as needed.
+  2. You may want to avoid heap allocations entirely. You can use a fixed-size
+     stack with in-line arrays, which will place the entire storage in-line into
+     [`UnwindContext`].
 "
 )]
 ///
-/// If you need to avoid [`UnwindContext`] from allocating memory, e.g. for signal safety,
-/// you can provide you own storage specification:
+/// Here's an implementation which uses a fixed-size stack and allocates everything in-line,
+/// which will cause `UnwindContext` to be large:
+///
 /// ```rust,no_run
 /// # use gimli::*;
 /// #
@@ -1923,9 +1934,16 @@ impl<R: Reader> UnwindContextStorage<R> for StoreOnHeap {
 
 /// Common context needed when evaluating the call frame unwinding information.
 ///
-/// This structure can be large so it is advisable to place it on the heap.
+/// By default, this structure is small and allocates its internal storage
+/// on the heap using [`Box`] during [`UnwindContext::new`].
+///
+/// This can be overridden by providing a custom [`UnwindContextStorage`] type parameter.
+/// When using a custom storage with in-line arrays, the [`UnwindContext`] type itself
+/// will be big, so in that case it's recommended to place [`UnwindContext`] on the
+/// heap, e.g. using `Box::new(UnwindContext::<R, MyCustomStorage>::new_in())`.
+///
 /// To avoid re-allocating the context multiple times when evaluating multiple
-/// CFI programs, it can be reused.
+/// CFI programs, the same [`UnwindContext`] can be reused for multiple unwinds.
 ///
 /// ```
 /// use gimli::{UnwindContext, UnwindTable};
@@ -1935,7 +1953,7 @@ impl<R: Reader> UnwindContextStorage<R> for StoreOnHeap {
 /// # let eh_frame: gimli::EhFrame<_> = unreachable!();
 /// # let bases = unimplemented!();
 /// // An uninitialized context.
-/// let mut ctx = Box::new(UnwindContext::new());
+/// let mut ctx = UnwindContext::new();
 ///
 /// // Initialize the context by evaluating the CIE's initial instruction program,
 /// // and generate the unwind table.
