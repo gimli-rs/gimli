@@ -17,7 +17,7 @@ keywords = ["DWARF", "debug", "ELF", "eh_frame"]
 license = "MIT OR Apache-2.0"
 readme = "./README.md"
 repository = "https://github.com/gimli-rs/gimli"
-rust-version = "1.60"
+rust-version = "1.65"
 
 [dependencies]
 fallible-iterator = { version = "0.3.0", default-features = false, optional = true }

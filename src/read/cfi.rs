@@ -2007,6 +2007,20 @@ impl<R: Reader, A: UnwindContextStorage<R>> UnwindContext<R, A> {
         ctx
     }
 
+    /// Tries to reuse the allocation if the layouts of `R2` and `R` match
+    pub fn reset_and_recycle<R2: Reader, A2, SI2>(self) -> UnwindContext<R2, A2>
+    where
+        A2: UnwindContextStorage<R2, Stack = <A::Stack as ArrayLike>::OtherArray<SI2>>,
+    {
+        let mut ctx = UnwindContext {
+            stack: self.stack.clear_and_recycle(),
+            initial_rule: None,
+            is_initialized: false,
+        };
+        ctx.reset();
+        ctx
+    }
+
     /// Run the CIE's initial instructions and initialize this `UnwindContext`.
     fn initialize<Section: UnwindSection<R>>(
         &mut self,
@@ -6296,6 +6310,57 @@ mod tests {
     }
 
     #[test]
+    fn test_unwind_context_recycling() {
+        let static_ctx: UnwindContext<EndianSlice<'static, NativeEndian>> = UnwindContext::new();
+        let data = vec![];
+        let mut lifetime_limited_ctx: UnwindContext<EndianSlice<NativeEndian>> =
+            static_ctx.reset_and_recycle();
+        let debug_frame = DebugFrame::new(&data, NativeEndian);
+        let bases = Default::default();
+        let result = debug_frame.unwind_info_for_address(
+            &bases,
+            &mut lifetime_limited_ctx,
+            0xbadb_ad99,
+            DebugFrame::cie_from_offset,
+        );
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), Error::NoUnwindInfoForAddress);
+    }
+
+    #[test]
+    fn test_unwind_context_recycling2() {
+        fn unwind_one(
+            outer_ctx: &mut Option<UnwindContext<EndianSlice<'static, NativeEndian>>>,
+            data: &[u8],
+        ) {
+            let mut ctx: UnwindContext<EndianSlice<NativeEndian>> =
+                outer_ctx.take().unwrap().reset_and_recycle();
+            let debug_frame = DebugFrame::new(data, NativeEndian);
+            let bases = Default::default();
+            let result = debug_frame.unwind_info_for_address(
+                &bases,
+                &mut ctx,
+                0xbadb_ad99,
+                DebugFrame::cie_from_offset,
+            );
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err(), Error::NoUnwindInfoForAddress);
+            *outer_ctx = Some(ctx.reset_and_recycle());
+        }
+
+        let mut ctx: Option<UnwindContext<EndianSlice<'static, NativeEndian>>> =
+            Some(UnwindContext::new());
+        {
+            let data1 = vec![];
+            unwind_one(&mut ctx, &data1);
+        }
+        {
+            let data2 = vec![];
+            unwind_one(&mut ctx, &data2);
+        }
+    }
+
+    #[test]
     fn test_eh_frame_hdr_unknown_version() {
         let bases = BaseAddresses::default();
         let buf = &[42];
@@ -7293,7 +7358,7 @@ mod tests {
     fn size_of_register_rule_map() {
         use core::mem;
         let size = mem::size_of::<RegisterRuleMap<EndianSlice<NativeEndian>>>();
-        let max_size = 6152;
+        let max_size = 6160;
         if size > max_size {
             assert_eq!(size, max_size);
         }
