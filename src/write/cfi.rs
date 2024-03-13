@@ -791,8 +791,8 @@ pub(crate) mod convert {
                     let offset = factored_offset * from_cie.data_alignment_factor();
                     CallFrameInstruction::CfaOffset(offset as i32)
                 }
-                read::CallFrameInstruction::DefCfaExpression { offset, length } => {
-                    let expression = frame.expression(offset, length)?;
+                read::CallFrameInstruction::DefCfaExpression { expression } => {
+                    let expression = expression.get(frame)?;
                     CallFrameInstruction::CfaExpression(convert_expression(expression)?)
                 }
                 read::CallFrameInstruction::Undefined { register } => {
@@ -835,18 +835,16 @@ pub(crate) mod convert {
                 } => CallFrameInstruction::Register(dest_register, src_register),
                 read::CallFrameInstruction::Expression {
                     register,
-                    offset,
-                    length,
+                    expression,
                 } => {
-                    let expression = frame.expression(offset, length)?;
+                    let expression = expression.get(frame)?;
                     CallFrameInstruction::Expression(register, convert_expression(expression)?)
                 }
                 read::CallFrameInstruction::ValExpression {
                     register,
-                    offset,
-                    length,
+                    expression,
                 } => {
-                    let expression = frame.expression(offset, length)?;
+                    let expression = expression.get(frame)?;
                     CallFrameInstruction::ValExpression(register, convert_expression(expression)?)
                 }
                 read::CallFrameInstruction::Restore { register } => {

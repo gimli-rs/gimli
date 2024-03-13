@@ -791,18 +791,6 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
         let fde = self.fde_for_address(bases, address, get_cie)?;
         fde.unwind_info_for_address(self, bases, ctx, address)
     }
-
-    /// Return the DWARF expression at the given offset and length.
-    ///
-    /// Some [`RegisterRule`], [`CfaRule`], and [`CallFrameInstruction`] variants
-    /// contain the offset and length of a DWARF expression. This method can be
-    /// used to retrieve the expression data.
-    fn expression(&self, offset: R::Offset, length: R::Offset) -> Result<Expression<R>> {
-        let input = &mut self.section().clone();
-        input.skip(offset)?;
-        let data = input.split(length)?;
-        Ok(Expression(data))
-    }
 }
 
 impl<R: Reader> _UnwindSectionPrivate<R> for DebugFrame<R> {
@@ -2391,8 +2379,8 @@ impl<'a, 'ctx, R: Reader, A: UnwindContextStorage<R::Offset>> UnwindTable<'a, 'c
                     return Err(Error::CfiInstructionInInvalidContext);
                 }
             }
-            DefCfaExpression { offset, length } => {
-                self.ctx.set_cfa(CfaRule::Expression { offset, length });
+            DefCfaExpression { expression } => {
+                self.ctx.set_cfa(CfaRule::Expression(expression));
             }
 
             // Instructions that define register rules.
@@ -2445,18 +2433,16 @@ impl<'a, 'ctx, R: Reader, A: UnwindContextStorage<R::Offset>> UnwindTable<'a, 'c
             }
             Expression {
                 register,
-                offset,
-                length,
+                expression,
             } => {
-                let expression = RegisterRule::Expression { offset, length };
+                let expression = RegisterRule::Expression(expression);
                 self.ctx.set_register_rule(register, expression)?;
             }
             ValExpression {
                 register,
-                offset,
-                length,
+                expression,
             } => {
-                let expression = RegisterRule::ValExpression { offset, length };
+                let expression = RegisterRule::ValExpression(expression);
                 self.ctx.set_register_rule(register, expression)?;
             }
             Restore { register } => {
@@ -2839,12 +2825,7 @@ pub enum CfaRule<R: ReaderOffset> {
     },
     /// The CFA is obtained by evaluating this `Reader` as a DWARF expression
     /// program.
-    Expression {
-        /// The section offset of the DWARF expression.
-        offset: R,
-        /// The length of the DWARF expression.
-        length: R,
-    },
+    Expression(UnwindExpression<R>),
 }
 
 impl<R: ReaderOffset> Default for CfaRule<R> {
@@ -2899,21 +2880,11 @@ pub enum RegisterRule<R: ReaderOffset> {
 
     /// "The previous value of this register is located at the address produced
     /// by executing the DWARF expression."
-    Expression {
-        /// The section offset of the DWARF expression.
-        offset: R,
-        /// The length of the DWARF expression.
-        length: R,
-    },
+    Expression(UnwindExpression<R>),
 
     /// "The previous value of this register is the value produced by executing
     /// the DWARF expression."
-    ValExpression {
-        /// The section offset of the DWARF expression.
-        offset: R,
-        /// The length of the DWARF expression.
-        length: R,
-    },
+    ValExpression(UnwindExpression<R>),
 
     /// "The rule is defined externally to this specification by the augmenter."
     Architectural,
@@ -3035,10 +3006,8 @@ pub enum CallFrameInstruction<R: ReaderOffset> {
     /// > expression. The required action is to establish that expression as the
     /// > means by which the current CFA is computed.
     DefCfaExpression {
-        /// The section offset of the DWARF expression.
-        offset: R,
-        /// The length of the DWARF expression.
-        length: R,
+        /// The location of the DWARF expression.
+        expression: UnwindExpression<R>,
     },
 
     // 6.4.2.3 Register Rule Instructions
@@ -3148,10 +3117,8 @@ pub enum CallFrameInstruction<R: ReaderOffset> {
     Expression {
         /// The target register's number.
         register: Register,
-        /// The section offset of the DWARF expression.
-        offset: R,
-        /// The length of the DWARF expression.
-        length: R,
+        /// The location of the DWARF expression.
+        expression: UnwindExpression<R>,
     },
 
     /// > 10. DW_CFA_val_expression
@@ -3167,10 +3134,8 @@ pub enum CallFrameInstruction<R: ReaderOffset> {
     ValExpression {
         /// The target register's number.
         register: Register,
-        /// The section offset of the DWARF expression.
-        offset: R,
-        /// The length of the DWARF expression.
-        length: R,
+        /// The location of the DWARF expression.
+        expression: UnwindExpression<R>,
     },
 
     /// The `Restore` instruction represents both `DW_CFA_restore` and
@@ -3358,7 +3323,9 @@ impl<O: ReaderOffset> CallFrameInstruction<O> {
                 let length = input.read_uleb128().and_then(R::Offset::from_u64)?;
                 let offset = input.offset_from(parameters.section);
                 input.skip(length)?;
-                Ok(CallFrameInstruction::DefCfaExpression { offset, length })
+                Ok(CallFrameInstruction::DefCfaExpression {
+                    expression: UnwindExpression { offset, length },
+                })
             }
 
             constants::DW_CFA_expression => {
@@ -3368,8 +3335,7 @@ impl<O: ReaderOffset> CallFrameInstruction<O> {
                 input.skip(length)?;
                 Ok(CallFrameInstruction::Expression {
                     register,
-                    offset,
-                    length,
+                    expression: UnwindExpression { offset, length },
                 })
             }
 
@@ -3423,8 +3389,7 @@ impl<O: ReaderOffset> CallFrameInstruction<O> {
                 input.skip(length)?;
                 Ok(CallFrameInstruction::ValExpression {
                     register,
-                    offset,
-                    length,
+                    expression: UnwindExpression { offset, length },
                 })
             }
 
@@ -3483,6 +3448,34 @@ impl<'a, R: Reader> fallible_iterator::FallibleIterator for CallFrameInstruction
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         CallFrameInstructionIter::next(self)
+    }
+}
+
+/// The location of a DWARF expression within an unwind section.
+///
+/// This is stored as an offset and length within the section instead of as a
+/// `Reader` to avoid lifetime issues when reusing [`UnwindContext`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UnwindExpression<Offset: ReaderOffset> {
+    /// The offset of the expression within the section.
+    pub offset: Offset,
+    /// The length of the expression.
+    pub length: Offset,
+}
+
+impl<Offset: ReaderOffset> UnwindExpression<Offset> {
+    /// Get the expression from the section.
+    ///
+    /// The offset and length were previously validated when the
+    /// `UnwindExpression` was created, so this should not fail.
+    pub fn get<R: Reader<Offset = Offset>, S: UnwindSection<R>>(
+        &self,
+        section: &S,
+    ) -> Result<Expression<R>> {
+        let input = &mut section.section().clone();
+        input.skip(self.offset)?;
+        let data = input.split(self.length)?;
+        Ok(Expression(data))
     }
 }
 
@@ -4979,15 +4972,17 @@ mod tests {
             .append_bytes(&expected_rest);
 
         length.set_const((&end - &start) as u64);
-        let section_start = section.start();
+        let expected_expression = UnwindExpression {
+            offset: (&start - &section.start()) as usize,
+            length: (&end - &start) as usize,
+        };
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
 
         assert_eq!(
             parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::DefCfaExpression {
-                offset: (&start - &section_start) as usize,
-                length: (&end - &start) as usize,
+                expression: expected_expression,
             })
         );
         assert_eq!(*input, EndianSlice::new(&expected_rest, LittleEndian));
@@ -5013,7 +5008,10 @@ mod tests {
             .append_bytes(&expected_rest);
 
         length.set_const((&end - &start) as u64);
-        let section_start = section.start();
+        let expected_expression = UnwindExpression {
+            offset: (&start - &section.start()) as usize,
+            length: (&end - &start) as usize,
+        };
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
 
@@ -5021,8 +5019,7 @@ mod tests {
             parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::Expression {
                 register: Register(expected_reg),
-                offset: (&start - &section_start) as usize,
-                length: (&end - &start) as usize,
+                expression: expected_expression,
             })
         );
         assert_eq!(*input, EndianSlice::new(&expected_rest, LittleEndian));
@@ -5155,7 +5152,10 @@ mod tests {
             .append_bytes(&expected_rest);
 
         length.set_const((&end - &start) as u64);
-        let section_start = section.start();
+        let expected_expression = UnwindExpression {
+            offset: (&start - &section.start()) as usize,
+            length: (&end - &start) as usize,
+        };
         let contents = section.get_contents().unwrap();
         let input = &mut EndianSlice::new(&contents, LittleEndian);
 
@@ -5163,8 +5163,7 @@ mod tests {
             parse_cfi_instruction(input, 8),
             Ok(CallFrameInstruction::ValExpression {
                 register: Register(expected_reg),
-                offset: (&start - &section_start) as usize,
-                length: (&end - &start) as usize,
+                expression: expected_expression,
             })
         );
         assert_eq!(*input, EndianSlice::new(&expected_rest, LittleEndian));
@@ -5227,7 +5226,10 @@ mod tests {
             .D8(expected_delta);
 
         length.set_const((&end - &start) as u64);
-        let section_start = section.start();
+        let expected_expression = UnwindExpression {
+            offset: (&start - &section.start()) as usize,
+            length: (&end - &start) as usize,
+        };
         let contents = section.get_contents().unwrap();
         let input = EndianSlice::new(&contents, BigEndian);
         let parameters = PointerEncodingParameters {
@@ -5247,8 +5249,7 @@ mod tests {
             iter.next(),
             Ok(Some(CallFrameInstruction::ValExpression {
                 register: Register(expected_reg),
-                offset: (&start - &section_start) as usize,
-                length: (&end - &start) as usize,
+                expression: expected_expression,
             }))
         );
 
@@ -5438,10 +5439,10 @@ mod tests {
     fn test_eval_def_cfa_register_invalid_context() {
         let cie = make_test_cie();
         let mut ctx = UnwindContext::new();
-        ctx.set_cfa(CfaRule::Expression {
+        ctx.set_cfa(CfaRule::Expression(UnwindExpression {
             offset: 0,
             length: 0,
-        });
+        }));
         let expected = ctx.clone();
         let instructions = [(
             Err(Error::CfiInstructionInInvalidContext),
@@ -5473,10 +5474,10 @@ mod tests {
     fn test_eval_def_cfa_offset_invalid_context() {
         let cie = make_test_cie();
         let mut ctx = UnwindContext::new();
-        ctx.set_cfa(CfaRule::Expression {
-            offset: 0,
-            length: 0,
-        });
+        ctx.set_cfa(CfaRule::Expression(UnwindExpression {
+            offset: 10,
+            length: 11,
+        }));
         let expected = ctx.clone();
         let instructions = [(
             Err(Error::CfiInstructionInInvalidContext),
@@ -5487,19 +5488,17 @@ mod tests {
 
     #[test]
     fn test_eval_def_cfa_expression() {
+        let expr = UnwindExpression {
+            offset: 10,
+            length: 11,
+        };
         let cie = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
-        expected.set_cfa(CfaRule::Expression {
-            offset: 10,
-            length: 11,
-        });
+        expected.set_cfa(CfaRule::Expression(expr));
         let instructions = [(
             Ok(false),
-            CallFrameInstruction::DefCfaExpression {
-                offset: 10,
-                length: 11,
-            },
+            CallFrameInstruction::DefCfaExpression { expression: expr },
         )];
         assert_eval(ctx, expected, cie, None, instructions);
     }
@@ -5624,24 +5623,21 @@ mod tests {
 
     #[test]
     fn test_eval_expression() {
+        let expr = UnwindExpression {
+            offset: 10,
+            length: 11,
+        };
         let cie = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected
-            .set_register_rule(
-                Register(9),
-                RegisterRule::Expression {
-                    offset: 10,
-                    length: 11,
-                },
-            )
+            .set_register_rule(Register(9), RegisterRule::Expression(expr))
             .unwrap();
         let instructions = [(
             Ok(false),
             CallFrameInstruction::Expression {
                 register: Register(9),
-                offset: 10,
-                length: 11,
+                expression: expr,
             },
         )];
         assert_eval(ctx, expected, cie, None, instructions);
@@ -5649,24 +5645,21 @@ mod tests {
 
     #[test]
     fn test_eval_val_expression() {
+        let expr = UnwindExpression {
+            offset: 10,
+            length: 11,
+        };
         let cie = make_test_cie();
         let ctx = UnwindContext::new();
         let mut expected = ctx.clone();
         expected
-            .set_register_rule(
-                Register(9),
-                RegisterRule::ValExpression {
-                    offset: 10,
-                    length: 11,
-                },
-            )
+            .set_register_rule(Register(9), RegisterRule::ValExpression(expr))
             .unwrap();
         let instructions = [(
             Ok(false),
             CallFrameInstruction::ValExpression {
                 register: Register(9),
-                offset: 10,
-                length: 11,
+                expression: expr,
             },
         )];
         assert_eval(ctx, expected, cie, None, instructions);

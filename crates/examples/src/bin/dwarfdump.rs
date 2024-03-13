@@ -959,10 +959,7 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
                         factored_offset
                     )?;
                 }
-                DefCfaExpression {
-                    offset: _,
-                    length: _,
-                } => {
+                DefCfaExpression { expression: _ } => {
                     writeln!(w, "                DW_CFA_def_cfa_expression (...)")?;
                 }
                 Undefined { register } => {
@@ -1036,8 +1033,7 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
                 }
                 Expression {
                     register,
-                    offset: _,
-                    length: _,
+                    expression: _,
                 } => {
                     writeln!(
                         w,
@@ -1047,8 +1043,7 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
                 }
                 ValExpression {
                     register,
-                    offset: _,
-                    length: _,
+                    expression: _,
                 } => {
                     writeln!(
                         w,
