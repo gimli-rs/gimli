@@ -7897,4 +7897,31 @@ mod tests {
         );
         assert_eq!(rest, EndianSlice::new(&expected_rest, LittleEndian));
     }
+
+    #[test]
+    fn test_unwind_context_reuse() {
+        fn unwind_one(ctx: &mut UnwindContext<usize>, data: &[u8]) {
+            let debug_frame = DebugFrame::new(data, NativeEndian);
+            let bases = Default::default();
+            let result = debug_frame.unwind_info_for_address(
+                &bases,
+                ctx,
+                0xbadb_ad99,
+                DebugFrame::cie_from_offset,
+            );
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err(), Error::NoUnwindInfoForAddress);
+        }
+
+        // Use the same context for two different data lifetimes.
+        let mut ctx: UnwindContext<usize> = UnwindContext::new();
+        {
+            let data1 = vec![];
+            unwind_one(&mut ctx, &data1);
+        }
+        {
+            let data2 = vec![];
+            unwind_one(&mut ctx, &data2);
+        }
+    }
 }
