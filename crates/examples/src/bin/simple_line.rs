@@ -1,7 +1,7 @@
 //! A simple example of parsing `.debug_line`.
 
 use object::{Object, ObjectSection};
-use std::{borrow, env, fs, path};
+use std::{borrow, env, error, fs, path};
 
 fn main() {
     for path in env::args().skip(1) {
@@ -17,28 +17,26 @@ fn main() {
     }
 }
 
-fn dump_file(object: &object::File, endian: gimli::RunTimeEndian) -> Result<(), gimli::Error> {
+fn dump_file(
+    object: &object::File,
+    endian: gimli::RunTimeEndian,
+) -> Result<(), Box<dyn error::Error>> {
     // Load a section and return as `Cow<[u8]>`.
-    let load_section = |id: gimli::SectionId| -> Result<borrow::Cow<[u8]>, gimli::Error> {
-        match object.section_by_name(id.name()) {
-            Some(ref section) => Ok(section
-                .uncompressed_data()
-                .unwrap_or(borrow::Cow::Borrowed(&[][..]))),
-            None => Ok(borrow::Cow::Borrowed(&[][..])),
-        }
+    let load_section = |id: gimli::SectionId| -> Result<borrow::Cow<[u8]>, Box<dyn error::Error>> {
+        Ok(match object.section_by_name(id.name()) {
+            Some(section) => section.uncompressed_data()?,
+            None => borrow::Cow::Borrowed(&[]),
+        })
     };
 
-    // Load all of the sections.
-    let dwarf_cow = gimli::Dwarf::load(&load_section)?;
-
     // Borrow a `Cow<[u8]>` to create an `EndianSlice`.
-    let borrow_section: &dyn for<'a> Fn(
-        &'a borrow::Cow<[u8]>,
-    ) -> gimli::EndianSlice<'a, gimli::RunTimeEndian> =
-        &|section| gimli::EndianSlice::new(section, endian);
+    let borrow_section = |section| gimli::EndianSlice::new(borrow::Cow::as_ref(section), endian);
+
+    // Load all of the sections.
+    let dwarf_sections = gimli::DwarfSections::load(&load_section)?;
 
     // Create `EndianSlice`s for all of the sections.
-    let dwarf = dwarf_cow.borrow(&borrow_section);
+    let dwarf = dwarf_sections.borrow(borrow_section);
 
     // Iterate over the compilation units.
     let mut iter = dwarf.units();

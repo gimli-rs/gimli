@@ -24,6 +24,20 @@ where
     }
 }
 
+impl<T> DebugCuIndex<T> {
+    /// Create a `DebugCuIndex` section that references the data in `self`.
+    ///
+    /// This is useful when `R` implements `Reader` but `T` does not.
+    ///
+    /// Used by `DwarfPackageSections::borrow`.
+    pub(crate) fn borrow<'a, F, R>(&'a self, mut borrow: F) -> DebugCuIndex<R>
+    where
+        F: FnMut(&'a T) -> R,
+    {
+        borrow(&self.section).into()
+    }
+}
+
 impl<R> Section<R> for DebugCuIndex<R> {
     fn id() -> SectionId {
         SectionId::DebugCuIndex
@@ -63,6 +77,20 @@ where
     /// section.
     pub fn new(section: &'input [u8], endian: Endian) -> Self {
         Self::from(EndianSlice::new(section, endian))
+    }
+}
+
+impl<T> DebugTuIndex<T> {
+    /// Create a `DebugTuIndex` section that references the data in `self`.
+    ///
+    /// This is useful when `R` implements `Reader` but `T` does not.
+    ///
+    /// Used by `DwarfPackageSections::borrow`.
+    pub(crate) fn borrow<'a, F, R>(&'a self, mut borrow: F) -> DebugTuIndex<R>
+    where
+        F: FnMut(&'a T) -> R,
+    {
+        borrow(&self.section).into()
     }
 }
 
