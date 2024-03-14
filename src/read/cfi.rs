@@ -2030,12 +2030,16 @@ impl<T: ReaderOffset, A: UnwindContextStorage<T>> UnwindContext<T, A> {
     }
 
     /// Run the CIE's initial instructions and initialize this `UnwindContext`.
-    fn initialize<R: Reader<Offset = T>, Section: UnwindSection<R>>(
+    fn initialize<Section, R>(
         &mut self,
         section: &Section,
         bases: &BaseAddresses,
         cie: &CommonInformationEntry<R>,
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        R: Reader<Offset = T>,
+        Section: UnwindSection<R>,
+    {
         // Always reset because previous initialization failure may leave dirty state.
         self.reset();
 
