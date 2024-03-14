@@ -690,6 +690,7 @@ pub(crate) mod convert {
                 if let Some(instruction) = CallFrameInstruction::from(
                     from_instruction,
                     from_cie,
+                    frame,
                     convert_address,
                     &mut offset,
                 )? {
@@ -734,6 +735,7 @@ pub(crate) mod convert {
                 if let Some(instruction) = CallFrameInstruction::from(
                     from_instruction,
                     from_cie,
+                    frame,
                     convert_address,
                     &mut offset,
                 )? {
@@ -746,12 +748,17 @@ pub(crate) mod convert {
     }
 
     impl CallFrameInstruction {
-        fn from<R: Reader<Offset = usize>>(
-            from_instruction: read::CallFrameInstruction<R>,
+        fn from<R, Section>(
+            from_instruction: read::CallFrameInstruction<R::Offset>,
             from_cie: &read::CommonInformationEntry<R>,
+            frame: &Section,
             convert_address: &dyn Fn(u64) -> Option<Address>,
             offset: &mut u32,
-        ) -> ConvertResult<Option<CallFrameInstruction>> {
+        ) -> ConvertResult<Option<CallFrameInstruction>>
+        where
+            R: Reader<Offset = usize>,
+            Section: read::UnwindSection<R>,
+        {
             let convert_expression =
                 |x| Expression::from(x, from_cie.encoding(), None, None, None, convert_address);
             // TODO: validate integer type conversions
@@ -785,6 +792,7 @@ pub(crate) mod convert {
                     CallFrameInstruction::CfaOffset(offset as i32)
                 }
                 read::CallFrameInstruction::DefCfaExpression { expression } => {
+                    let expression = expression.get(frame)?;
                     CallFrameInstruction::CfaExpression(convert_expression(expression)?)
                 }
                 read::CallFrameInstruction::Undefined { register } => {
@@ -828,11 +836,17 @@ pub(crate) mod convert {
                 read::CallFrameInstruction::Expression {
                     register,
                     expression,
-                } => CallFrameInstruction::Expression(register, convert_expression(expression)?),
+                } => {
+                    let expression = expression.get(frame)?;
+                    CallFrameInstruction::Expression(register, convert_expression(expression)?)
+                }
                 read::CallFrameInstruction::ValExpression {
                     register,
                     expression,
-                } => CallFrameInstruction::ValExpression(register, convert_expression(expression)?),
+                } => {
+                    let expression = expression.get(frame)?;
+                    CallFrameInstruction::ValExpression(register, convert_expression(expression)?)
+                }
                 read::CallFrameInstruction::Restore { register } => {
                     CallFrameInstruction::Restore(register)
                 }
