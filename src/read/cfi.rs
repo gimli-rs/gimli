@@ -1898,9 +1898,9 @@ You may want to supply your own storage type for one of the following reasons:
 /// #
 /// struct StoreOnStack;
 ///
-/// impl<R: ReaderOffset> UnwindContextStorage<R> for StoreOnStack {
-///     type Rules = [(Register, RegisterRule<R>); 192];
-///     type Stack = [UnwindTableRow<R, Self>; 4];
+/// impl<T: ReaderOffset> UnwindContextStorage<T> for StoreOnStack {
+///     type Rules = [(Register, RegisterRule<T>); 192];
+///     type Stack = [UnwindTableRow<T, Self>; 4];
 /// }
 ///
 /// let mut ctx = UnwindContext::<_, StoreOnStack>::new_in();
@@ -1915,14 +1915,14 @@ You may want to supply your own storage type for one of the following reasons:
 /// # unreachable!()
 /// # }
 /// ```
-pub trait UnwindContextStorage<R: ReaderOffset>: Sized {
+pub trait UnwindContextStorage<T: ReaderOffset>: Sized {
     /// The storage used for register rules in a unwind table row.
     ///
     /// Note that this is nested within the stack.
-    type Rules: ArrayLike<Item = (Register, RegisterRule<R>)>;
+    type Rules: ArrayLike<Item = (Register, RegisterRule<T>)>;
 
     /// The storage used for unwind table row stack.
-    type Stack: ArrayLike<Item = UnwindTableRow<R, Self>>;
+    type Stack: ArrayLike<Item = UnwindTableRow<T, Self>>;
 }
 
 #[cfg(feature = "read")]
@@ -1931,9 +1931,9 @@ const MAX_RULES: usize = 192;
 const MAX_UNWIND_STACK_DEPTH: usize = 4;
 
 #[cfg(feature = "read")]
-impl<R: ReaderOffset> UnwindContextStorage<R> for StoreOnHeap {
-    type Rules = [(Register, RegisterRule<R>); MAX_RULES];
-    type Stack = Box<[UnwindTableRow<R, Self>; MAX_UNWIND_STACK_DEPTH]>;
+impl<T: ReaderOffset> UnwindContextStorage<T> for StoreOnHeap {
+    type Rules = [(Register, RegisterRule<T>); MAX_RULES];
+    type Stack = Box<[UnwindTableRow<T, Self>; MAX_UNWIND_STACK_DEPTH]>;
 }
 
 /// Common context needed when evaluating the call frame unwinding information.
@@ -1970,7 +1970,7 @@ impl<R: ReaderOffset> UnwindContextStorage<R> for StoreOnHeap {
 /// # }
 /// ```
 #[derive(Clone, PartialEq, Eq)]
-pub struct UnwindContext<R: ReaderOffset, A: UnwindContextStorage<R> = StoreOnHeap> {
+pub struct UnwindContext<T: ReaderOffset, A: UnwindContextStorage<T> = StoreOnHeap> {
     // Stack of rows. The last row is the row currently being built by the
     // program. There is always at least one row. The vast majority of CFI
     // programs will only ever have one row on the stack.
@@ -1984,12 +1984,12 @@ pub struct UnwindContext<R: ReaderOffset, A: UnwindContextStorage<R> = StoreOnHe
     // `DW_CFA_restore`. Otherwise, when we are currently evaluating a CIE's
     // initial instructions, `is_initialized` will be `false` and initial rules
     // cannot be read.
-    initial_rule: Option<(Register, RegisterRule<R>)>,
+    initial_rule: Option<(Register, RegisterRule<T>)>,
 
     is_initialized: bool,
 }
 
-impl<R: ReaderOffset, S: UnwindContextStorage<R>> Debug for UnwindContext<R, S> {
+impl<T: ReaderOffset, S: UnwindContextStorage<T>> Debug for UnwindContext<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("UnwindContext")
             .field("stack", &self.stack)
@@ -1999,14 +1999,14 @@ impl<R: ReaderOffset, S: UnwindContextStorage<R>> Debug for UnwindContext<R, S> 
     }
 }
 
-impl<R: ReaderOffset, A: UnwindContextStorage<R>> Default for UnwindContext<R, A> {
+impl<T: ReaderOffset, A: UnwindContextStorage<T>> Default for UnwindContext<T, A> {
     fn default() -> Self {
         Self::new_in()
     }
 }
 
 #[cfg(feature = "read")]
-impl<R: ReaderOffset> UnwindContext<R> {
+impl<T: ReaderOffset> UnwindContext<T> {
     /// Construct a new call frame unwinding context.
     pub fn new() -> Self {
         Self::new_in()
@@ -2017,7 +2017,7 @@ impl<R: ReaderOffset> UnwindContext<R> {
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations, if an non-allocating storage is used.
-impl<O: ReaderOffset, A: UnwindContextStorage<O>> UnwindContext<O, A> {
+impl<T: ReaderOffset, A: UnwindContextStorage<T>> UnwindContext<T, A> {
     /// Construct a new call frame unwinding context.
     pub fn new_in() -> Self {
         let mut ctx = UnwindContext {
@@ -2030,7 +2030,7 @@ impl<O: ReaderOffset, A: UnwindContextStorage<O>> UnwindContext<O, A> {
     }
 
     /// Run the CIE's initial instructions and initialize this `UnwindContext`.
-    fn initialize<R: Reader<Offset = O>, Section: UnwindSection<R>>(
+    fn initialize<R: Reader<Offset = T>, Section: UnwindSection<R>>(
         &mut self,
         section: &Section,
         bases: &BaseAddresses,
@@ -2054,11 +2054,11 @@ impl<O: ReaderOffset, A: UnwindContextStorage<O>> UnwindContext<O, A> {
         self.is_initialized = false;
     }
 
-    fn row(&self) -> &UnwindTableRow<O, A> {
+    fn row(&self) -> &UnwindTableRow<T, A> {
         self.stack.last().unwrap()
     }
 
-    fn row_mut(&mut self) -> &mut UnwindTableRow<O, A> {
+    fn row_mut(&mut self) -> &mut UnwindTableRow<T, A> {
         self.stack.last_mut().unwrap()
     }
 
@@ -2090,14 +2090,14 @@ impl<O: ReaderOffset, A: UnwindContextStorage<O>> UnwindContext<O, A> {
         row.start_address = start_address;
     }
 
-    fn set_register_rule(&mut self, register: Register, rule: RegisterRule<O>) -> Result<()> {
+    fn set_register_rule(&mut self, register: Register, rule: RegisterRule<T>) -> Result<()> {
         let row = self.row_mut();
         row.registers.set(register, rule)
     }
 
     /// Returns `None` if we have not completed evaluation of a CIE's initial
     /// instructions.
-    fn get_initial_rule(&self, register: Register) -> Option<RegisterRule<O>> {
+    fn get_initial_rule(&self, register: Register) -> Option<RegisterRule<T>> {
         if !self.is_initialized {
             return None;
         }
@@ -2108,11 +2108,11 @@ impl<O: ReaderOffset, A: UnwindContextStorage<O>> UnwindContext<O, A> {
         })
     }
 
-    fn set_cfa(&mut self, cfa: CfaRule<O>) {
+    fn set_cfa(&mut self, cfa: CfaRule<T>) {
         self.row_mut().cfa = cfa;
     }
 
-    fn cfa_mut(&mut self) -> &mut CfaRule<O> {
+    fn cfa_mut(&mut self) -> &mut CfaRule<T> {
         &mut self.row_mut().cfa
     }
 
@@ -2515,11 +2515,11 @@ impl<'a, 'ctx, R: Reader, A: UnwindContextStorage<R::Offset>> UnwindTable<'a, 'c
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-aarch64/dwarf-config.h#L32
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-arm/dwarf-config.h#L31
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-mips/dwarf-config.h#L31
-struct RegisterRuleMap<R: ReaderOffset, S: UnwindContextStorage<R> = StoreOnHeap> {
+struct RegisterRuleMap<T: ReaderOffset, S: UnwindContextStorage<T> = StoreOnHeap> {
     rules: ArrayVec<S::Rules>,
 }
 
-impl<R: ReaderOffset, S: UnwindContextStorage<R>> Debug for RegisterRuleMap<R, S> {
+impl<T: ReaderOffset, S: UnwindContextStorage<T>> Debug for RegisterRuleMap<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("RegisterRuleMap")
             .field("rules", &self.rules)
@@ -2527,7 +2527,7 @@ impl<R: ReaderOffset, S: UnwindContextStorage<R>> Debug for RegisterRuleMap<R, S
     }
 }
 
-impl<R: ReaderOffset, S: UnwindContextStorage<R>> Clone for RegisterRuleMap<R, S> {
+impl<T: ReaderOffset, S: UnwindContextStorage<T>> Clone for RegisterRuleMap<T, S> {
     fn clone(&self) -> Self {
         Self {
             rules: self.rules.clone(),
@@ -2535,7 +2535,7 @@ impl<R: ReaderOffset, S: UnwindContextStorage<R>> Clone for RegisterRuleMap<R, S
     }
 }
 
-impl<R: ReaderOffset, S: UnwindContextStorage<R>> Default for RegisterRuleMap<R, S> {
+impl<T: ReaderOffset, S: UnwindContextStorage<T>> Default for RegisterRuleMap<T, S> {
     fn default() -> Self {
         RegisterRuleMap {
             rules: Default::default(),
@@ -2547,12 +2547,12 @@ impl<R: ReaderOffset, S: UnwindContextStorage<R>> Default for RegisterRuleMap<R,
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
-impl<R: ReaderOffset, S: UnwindContextStorage<R>> RegisterRuleMap<R, S> {
+impl<T: ReaderOffset, S: UnwindContextStorage<T>> RegisterRuleMap<T, S> {
     fn is_default(&self) -> bool {
         self.rules.is_empty()
     }
 
-    fn get(&self, register: Register) -> RegisterRule<R> {
+    fn get(&self, register: Register) -> RegisterRule<T> {
         self.rules
             .iter()
             .find(|rule| rule.0 == register)
@@ -2563,7 +2563,7 @@ impl<R: ReaderOffset, S: UnwindContextStorage<R>> RegisterRuleMap<R, S> {
             .unwrap_or(RegisterRule::Undefined)
     }
 
-    fn set(&mut self, register: Register, rule: RegisterRule<R>) -> Result<()> {
+    fn set(&mut self, register: Register, rule: RegisterRule<T>) -> Result<()> {
         if !rule.is_defined() {
             let idx = self
                 .rules
@@ -2590,7 +2590,7 @@ impl<R: ReaderOffset, S: UnwindContextStorage<R>> RegisterRuleMap<R, S> {
             .map_err(|_| Error::TooManyRegisterRules)
     }
 
-    fn iter(&self) -> RegisterRuleIter<R> {
+    fn iter(&self) -> RegisterRuleIter<T> {
         RegisterRuleIter(self.rules.iter())
     }
 }
@@ -2616,9 +2616,9 @@ where
     }
 }
 
-impl<R, S: UnwindContextStorage<R>> PartialEq for RegisterRuleMap<R, S>
+impl<T, S: UnwindContextStorage<T>> PartialEq for RegisterRuleMap<T, S>
 where
-    R: ReaderOffset + PartialEq,
+    T: ReaderOffset + PartialEq,
 {
     fn eq(&self, rhs: &Self) -> bool {
         for &(reg, ref rule) in &*self.rules {
@@ -2639,16 +2639,16 @@ where
     }
 }
 
-impl<R, S: UnwindContextStorage<R>> Eq for RegisterRuleMap<R, S> where R: ReaderOffset + Eq {}
+impl<T, S: UnwindContextStorage<T>> Eq for RegisterRuleMap<T, S> where T: ReaderOffset + Eq {}
 
 /// An unordered iterator for register rules.
 #[derive(Debug, Clone)]
-pub struct RegisterRuleIter<'iter, R>(::core::slice::Iter<'iter, (Register, RegisterRule<R>)>)
+pub struct RegisterRuleIter<'iter, T>(::core::slice::Iter<'iter, (Register, RegisterRule<T>)>)
 where
-    R: ReaderOffset;
+    T: ReaderOffset;
 
-impl<'iter, R: ReaderOffset> Iterator for RegisterRuleIter<'iter, R> {
-    type Item = &'iter (Register, RegisterRule<R>);
+impl<'iter, T: ReaderOffset> Iterator for RegisterRuleIter<'iter, T> {
+    type Item = &'iter (Register, RegisterRule<T>);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
@@ -2658,15 +2658,15 @@ impl<'iter, R: ReaderOffset> Iterator for RegisterRuleIter<'iter, R> {
 /// A row in the virtual unwind table that describes how to find the values of
 /// the registers in the *previous* frame for a range of PC addresses.
 #[derive(PartialEq, Eq)]
-pub struct UnwindTableRow<R: ReaderOffset, S: UnwindContextStorage<R> = StoreOnHeap> {
+pub struct UnwindTableRow<T: ReaderOffset, S: UnwindContextStorage<T> = StoreOnHeap> {
     start_address: u64,
     end_address: u64,
     saved_args_size: u64,
-    cfa: CfaRule<R>,
-    registers: RegisterRuleMap<R, S>,
+    cfa: CfaRule<T>,
+    registers: RegisterRuleMap<T, S>,
 }
 
-impl<R: ReaderOffset, S: UnwindContextStorage<R>> Debug for UnwindTableRow<R, S> {
+impl<T: ReaderOffset, S: UnwindContextStorage<T>> Debug for UnwindTableRow<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("UnwindTableRow")
             .field("start_address", &self.start_address)
@@ -2678,7 +2678,7 @@ impl<R: ReaderOffset, S: UnwindContextStorage<R>> Debug for UnwindTableRow<R, S>
     }
 }
 
-impl<R: ReaderOffset, S: UnwindContextStorage<R>> Clone for UnwindTableRow<R, S> {
+impl<T: ReaderOffset, S: UnwindContextStorage<T>> Clone for UnwindTableRow<T, S> {
     fn clone(&self) -> Self {
         Self {
             start_address: self.start_address,
@@ -2690,7 +2690,7 @@ impl<R: ReaderOffset, S: UnwindContextStorage<R>> Clone for UnwindTableRow<R, S>
     }
 }
 
-impl<R: ReaderOffset, S: UnwindContextStorage<R>> Default for UnwindTableRow<R, S> {
+impl<T: ReaderOffset, S: UnwindContextStorage<T>> Default for UnwindTableRow<T, S> {
     fn default() -> Self {
         UnwindTableRow {
             start_address: 0,
@@ -2702,7 +2702,7 @@ impl<R: ReaderOffset, S: UnwindContextStorage<R>> Default for UnwindTableRow<R, 
     }
 }
 
-impl<R: ReaderOffset, S: UnwindContextStorage<R>> UnwindTableRow<R, S> {
+impl<T: ReaderOffset, S: UnwindContextStorage<T>> UnwindTableRow<T, S> {
     fn is_default(&self) -> bool {
         self.start_address == 0
             && self.end_address == 0
@@ -2741,7 +2741,7 @@ impl<R: ReaderOffset, S: UnwindContextStorage<R>> UnwindTableRow<R, S> {
     }
 
     /// Get the canonical frame address (CFA) recovery rule for this row.
-    pub fn cfa(&self) -> &CfaRule<R> {
+    pub fn cfa(&self) -> &CfaRule<T> {
         &self.cfa
     }
 
@@ -2789,7 +2789,7 @@ impl<R: ReaderOffset, S: UnwindContextStorage<R>> UnwindTableRow<R, S> {
     /// >   <tr><td>Vector Mask Registers 0–7</td>        <td>118-125</td> <td>%k0–%k7</td></tr>
     /// >   <tr><td>Reserved</td>                         <td>126-129</td> <td></td></tr>
     /// > </table>
-    pub fn register(&self, register: Register) -> RegisterRule<R> {
+    pub fn register(&self, register: Register) -> RegisterRule<T> {
         self.registers.get(register)
     }
 
@@ -2808,14 +2808,14 @@ impl<R: ReaderOffset, S: UnwindContextStorage<R>> UnwindTableRow<R, S> {
     /// }
     /// # }
     /// ```
-    pub fn registers(&self) -> RegisterRuleIter<R> {
+    pub fn registers(&self) -> RegisterRuleIter<T> {
         self.registers.iter()
     }
 }
 
 /// The canonical frame address (CFA) recovery rules.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CfaRule<R: ReaderOffset> {
+pub enum CfaRule<T: ReaderOffset> {
     /// The CFA is given offset from the given register's value.
     RegisterAndOffset {
         /// The register containing the base value.
@@ -2825,10 +2825,10 @@ pub enum CfaRule<R: ReaderOffset> {
     },
     /// The CFA is obtained by evaluating this `Reader` as a DWARF expression
     /// program.
-    Expression(UnwindExpression<R>),
+    Expression(UnwindExpression<T>),
 }
 
-impl<R: ReaderOffset> Default for CfaRule<R> {
+impl<T: ReaderOffset> Default for CfaRule<T> {
     fn default() -> Self {
         CfaRule::RegisterAndOffset {
             register: Register(0),
@@ -2837,7 +2837,7 @@ impl<R: ReaderOffset> Default for CfaRule<R> {
     }
 }
 
-impl<R: ReaderOffset> CfaRule<R> {
+impl<T: ReaderOffset> CfaRule<T> {
     fn is_default(&self) -> bool {
         match *self {
             CfaRule::RegisterAndOffset { register, offset } => {
@@ -2856,7 +2856,7 @@ impl<R: ReaderOffset> CfaRule<R> {
 /// previous frame."
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum RegisterRule<R: ReaderOffset> {
+pub enum RegisterRule<T: ReaderOffset> {
     /// > A register that has this rule has no recoverable value in the previous
     /// > frame. (By convention, it is not preserved by a callee.)
     Undefined,
@@ -2880,11 +2880,11 @@ pub enum RegisterRule<R: ReaderOffset> {
 
     /// "The previous value of this register is located at the address produced
     /// by executing the DWARF expression."
-    Expression(UnwindExpression<R>),
+    Expression(UnwindExpression<T>),
 
     /// "The previous value of this register is the value produced by executing
     /// the DWARF expression."
-    ValExpression(UnwindExpression<R>),
+    ValExpression(UnwindExpression<T>),
 
     /// "The rule is defined externally to this specification by the augmenter."
     Architectural,
@@ -2893,7 +2893,7 @@ pub enum RegisterRule<R: ReaderOffset> {
     Constant(u64),
 }
 
-impl<R: ReaderOffset> RegisterRule<R> {
+impl<T: ReaderOffset> RegisterRule<T> {
     fn is_defined(&self) -> bool {
         !matches!(*self, RegisterRule::Undefined)
     }
@@ -2902,7 +2902,7 @@ impl<R: ReaderOffset> RegisterRule<R> {
 /// A parsed call frame instruction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum CallFrameInstruction<R: ReaderOffset> {
+pub enum CallFrameInstruction<T: ReaderOffset> {
     // 6.4.2.1 Row Creation Methods
     /// > 1. DW_CFA_set_loc
     /// >
@@ -3007,7 +3007,7 @@ pub enum CallFrameInstruction<R: ReaderOffset> {
     /// > means by which the current CFA is computed.
     DefCfaExpression {
         /// The location of the DWARF expression.
-        expression: UnwindExpression<R>,
+        expression: UnwindExpression<T>,
     },
 
     // 6.4.2.3 Register Rule Instructions
@@ -3118,7 +3118,7 @@ pub enum CallFrameInstruction<R: ReaderOffset> {
         /// The target register's number.
         register: Register,
         /// The location of the DWARF expression.
-        expression: UnwindExpression<R>,
+        expression: UnwindExpression<T>,
     },
 
     /// > 10. DW_CFA_val_expression
@@ -3135,7 +3135,7 @@ pub enum CallFrameInstruction<R: ReaderOffset> {
         /// The target register's number.
         register: Register,
         /// The location of the DWARF expression.
-        expression: UnwindExpression<R>,
+        expression: UnwindExpression<T>,
     },
 
     /// The `Restore` instruction represents both `DW_CFA_restore` and
@@ -3201,13 +3201,13 @@ pub enum CallFrameInstruction<R: ReaderOffset> {
 const CFI_INSTRUCTION_HIGH_BITS_MASK: u8 = 0b1100_0000;
 const CFI_INSTRUCTION_LOW_BITS_MASK: u8 = !CFI_INSTRUCTION_HIGH_BITS_MASK;
 
-impl<O: ReaderOffset> CallFrameInstruction<O> {
-    fn parse<R: Reader<Offset = O>>(
+impl<T: ReaderOffset> CallFrameInstruction<T> {
+    fn parse<R: Reader<Offset = T>>(
         input: &mut R,
         address_encoding: Option<DwEhPe>,
         parameters: &PointerEncodingParameters<R>,
         vendor: Vendor,
-    ) -> Result<CallFrameInstruction<O>> {
+    ) -> Result<CallFrameInstruction<T>> {
         let instruction = input.read_u8()?;
         let high_bits = instruction & CFI_INSTRUCTION_HIGH_BITS_MASK;
 
@@ -3456,19 +3456,19 @@ impl<'a, R: Reader> fallible_iterator::FallibleIterator for CallFrameInstruction
 /// This is stored as an offset and length within the section instead of as a
 /// `Reader` to avoid lifetime issues when reusing [`UnwindContext`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct UnwindExpression<Offset: ReaderOffset> {
+pub struct UnwindExpression<T: ReaderOffset> {
     /// The offset of the expression within the section.
-    pub offset: Offset,
+    pub offset: T,
     /// The length of the expression.
-    pub length: Offset,
+    pub length: T,
 }
 
-impl<Offset: ReaderOffset> UnwindExpression<Offset> {
+impl<T: ReaderOffset> UnwindExpression<T> {
     /// Get the expression from the section.
     ///
     /// The offset and length were previously validated when the
     /// `UnwindExpression` was created, so this should not fail.
-    pub fn get<R: Reader<Offset = Offset>, S: UnwindSection<R>>(
+    pub fn get<R: Reader<Offset = T>, S: UnwindSection<R>>(
         &self,
         section: &S,
     ) -> Result<Expression<R>> {
