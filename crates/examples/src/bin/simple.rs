@@ -7,8 +7,37 @@
 //! Most of the complexity is due to loading the sections from the object
 //! file and DWP file, which is not something that is provided by gimli itself.
 
+use gimli::Reader as _;
 use object::{Object, ObjectSection};
 use std::{borrow, env, error, fs};
+
+// This is a simple wrapper around `object::read::RelocationMap` that implements
+// `gimli::read::Relocate` for use with `gimli::RelocateReader`.
+// You only need this if you are parsing relocatable object files.
+#[derive(Debug, Default)]
+struct RelocationMap(object::read::RelocationMap);
+
+impl<'a> gimli::read::Relocate for &'a RelocationMap {
+    fn relocate_address(&self, offset: usize, value: u64) -> gimli::Result<u64> {
+        Ok(self.0.relocate(offset as u64, value))
+    }
+
+    fn relocate_offset(&self, offset: usize, value: usize) -> gimli::Result<usize> {
+        <usize as gimli::ReaderOffset>::from_u64(self.0.relocate(offset as u64, value as u64))
+    }
+}
+
+// The section data that will be stored in `DwarfSections` and `DwarfPackageSections`.
+#[derive(Default)]
+struct Section<'data> {
+    data: borrow::Cow<'data, [u8]>,
+    relocations: RelocationMap,
+}
+
+// The reader type that will be stored in `Dwarf` and `DwarfPackage`.
+// If you don't need relocations, you can use `gimli::EndianSlice` directly.
+type Reader<'data> =
+    gimli::RelocateReader<gimli::EndianSlice<'data, gimli::RunTimeEndian>, &'data RelocationMap>;
 
 fn main() {
     let mut args = env::args();
@@ -46,19 +75,28 @@ fn dump_file(
     dwp_object: Option<&object::File>,
     endian: gimli::RunTimeEndian,
 ) -> Result<(), Box<dyn error::Error>> {
-    // Load a section and return as `Cow<[u8]>`.
-    fn load_section<'a>(
-        object: &'a object::File,
+    // Load a `Section` that may own its data.
+    fn load_section<'data>(
+        object: &object::File<'data>,
         name: &str,
-    ) -> Result<borrow::Cow<'a, [u8]>, Box<dyn error::Error>> {
+    ) -> Result<Section<'data>, Box<dyn error::Error>> {
         Ok(match object.section_by_name(name) {
-            Some(section) => section.uncompressed_data()?,
-            None => borrow::Cow::Borrowed(&[]),
+            Some(section) => Section {
+                data: section.uncompressed_data()?,
+                relocations: section.relocation_map().map(RelocationMap)?,
+            },
+            None => Default::default(),
         })
     }
 
-    // Borrow a `Cow<[u8]>` to create an `EndianSlice`.
-    let borrow_section = |section| gimli::EndianSlice::new(borrow::Cow::as_ref(section), endian);
+    // Borrow a `Section` to create a `Reader`.
+    fn borrow_section<'data>(
+        section: &'data Section<'data>,
+        endian: gimli::RunTimeEndian,
+    ) -> Reader<'data> {
+        let slice = gimli::EndianSlice::new(borrow::Cow::as_ref(&section.data), endian);
+        gimli::RelocateReader::new(slice, &section.relocations)
+    }
 
     // Load all of the sections.
     let dwarf_sections = gimli::DwarfSections::load(|id| load_section(object, id.name()))?;
@@ -68,13 +106,17 @@ fn dump_file(
         })
         .transpose()?;
 
-    // Create `EndianSlice`s for all of the sections and do preliminary parsing.
+    let empty_relocations = RelocationMap::default();
+    let empty_section =
+        gimli::RelocateReader::new(gimli::EndianSlice::new(&[], endian), &empty_relocations);
+
+    // Create `Reader`s for all of the sections and do preliminary parsing.
     // Alternatively, we could have used `Dwarf::load` with an owned type such as `EndianRcSlice`.
-    let dwarf = dwarf_sections.borrow(borrow_section);
+    let dwarf = dwarf_sections.borrow(|section| borrow_section(section, endian));
     let dwp = dwp_sections
         .as_ref()
         .map(|dwp_sections| {
-            dwp_sections.borrow(borrow_section, gimli::EndianSlice::new(&[], endian))
+            dwp_sections.borrow(|section| borrow_section(section, endian), empty_section)
         })
         .transpose()?;
 
@@ -86,7 +128,7 @@ fn dump_file(
             header.offset().as_debug_info_offset().unwrap().0
         );
         let unit = dwarf.unit(header)?;
-        dump_unit(&unit)?;
+        dump_unit(&dwarf, &unit)?;
 
         // Check for a DWO unit.
         let Some(dwp) = &dwp else { continue };
@@ -99,15 +141,13 @@ fn dump_file(
             continue;
         };
         let unit = dwo.unit(header)?;
-        dump_unit(&unit)?;
+        dump_unit(&dwo, &unit)?;
     }
 
     Ok(())
 }
 
-fn dump_unit(
-    unit: &gimli::Unit<gimli::EndianSlice<gimli::RunTimeEndian>>,
-) -> Result<(), gimli::Error> {
+fn dump_unit(dwarf: &gimli::Dwarf<Reader>, unit: &gimli::Unit<Reader>) -> Result<(), gimli::Error> {
     // Iterate over the Debugging Information Entries (DIEs) in the unit.
     let mut depth = 0;
     let mut entries = unit.entries();
@@ -118,7 +158,11 @@ fn dump_unit(
         // Iterate over the attributes in the DIE.
         let mut attrs = entry.attrs();
         while let Some(attr) = attrs.next()? {
-            println!("   {}: {:?}", attr.name(), attr.value());
+            print!("   {}: {:?}", attr.name(), attr.value());
+            if let Ok(s) = dwarf.attr_string(unit, attr.value()) {
+                print!(" '{}'", s.to_string_lossy()?);
+            }
+            println!();
         }
     }
     Ok(())

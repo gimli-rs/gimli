@@ -3,7 +3,7 @@
 
 use fallible_iterator::FallibleIterator;
 use gimli::{Section, UnitHeader, UnitOffset, UnitSectionOffset, UnitType, UnwindSection};
-use object::{Object, ObjectSection, ObjectSymbol};
+use object::{Object, ObjectSection};
 use regex::bytes::Regex;
 use std::borrow::Cow;
 use std::cmp::min;
@@ -154,89 +154,31 @@ impl<'input, Endian> Reader for gimli::EndianSlice<'input, Endian> where
 {
 }
 
-fn add_relocations(
-    relocations: &mut RelocationMap,
-    file: &object::File,
-    section: &object::Section,
-) {
-    for (offset64, mut relocation) in section.relocations() {
-        let offset = offset64 as usize;
-        if offset as u64 != offset64 {
-            continue;
-        }
-        // There are other things we could match but currently don't
-        #[allow(clippy::single_match)]
-        match relocation.kind() {
-            object::RelocationKind::Absolute => {
-                match relocation.target() {
-                    object::RelocationTarget::Symbol(symbol_idx) => {
-                        match file.symbol_by_index(symbol_idx) {
-                            Ok(symbol) => {
-                                let addend =
-                                    symbol.address().wrapping_add(relocation.addend() as u64);
-                                relocation.set_addend(addend as i64);
-                            }
-                            Err(_) => {
-                                eprintln!(
-                                    "Relocation with invalid symbol for section {} at offset 0x{:08x}",
-                                    section.name().unwrap(),
-                                    offset
-                                );
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-                if relocations.0.insert(offset, relocation).is_some() {
-                    eprintln!(
-                        "Multiple relocations for section {} at offset 0x{:08x}",
-                        section.name().unwrap(),
-                        offset
-                    );
-                }
-            }
-            _ => {
+#[derive(Debug, Default)]
+struct RelocationMap(object::read::RelocationMap);
+
+impl RelocationMap {
+    fn add(&mut self, file: &object::File, section: &object::Section) {
+        for (offset, relocation) in section.relocations() {
+            if let Err(e) = self.0.add(file, offset, relocation) {
                 eprintln!(
-                    "Unsupported relocation for section {} at offset 0x{:08x}",
+                    "Relocation error for section {} at offset 0x{:08x}: {}",
                     section.name().unwrap(),
-                    offset
+                    offset,
+                    e
                 );
             }
         }
     }
 }
 
-#[derive(Debug, Default)]
-struct RelocationMap(HashMap<usize, object::Relocation>);
-
-impl RelocationMap {
-    fn relocate(&self, offset: usize, value: u64) -> u64 {
-        if let Some(relocation) = self.0.get(&offset) {
-            // There are other things we could match but currently don't
-            #[allow(clippy::single_match)]
-            match relocation.kind() {
-                object::RelocationKind::Absolute => {
-                    if relocation.has_implicit_addend() {
-                        // Use the explicit addend too, because it may have the symbol value.
-                        return value.wrapping_add(relocation.addend() as u64);
-                    } else {
-                        return relocation.addend() as u64;
-                    }
-                }
-                _ => {}
-            }
-        };
-        value
-    }
-}
-
 impl<'a> gimli::read::Relocate for &'a RelocationMap {
     fn relocate_address(&self, offset: usize, value: u64) -> gimli::Result<u64> {
-        Ok(self.relocate(offset, value))
+        Ok(self.0.relocate(offset as u64, value))
     }
 
     fn relocate_offset(&self, offset: usize, value: usize) -> gimli::Result<usize> {
-        <usize as gimli::ReaderOffset>::from_u64(self.relocate(offset, value as u64))
+        <usize as gimli::ReaderOffset>::from_u64(self.0.relocate(offset as u64, value as u64))
     }
 }
 
@@ -453,16 +395,6 @@ fn main() {
     }
 }
 
-fn empty_file_section<Endian: gimli::Endianity>(
-    endian: Endian,
-    arena_relocations: &Arena<RelocationMap>,
-) -> Relocate<'_, gimli::EndianSlice<'_, Endian>> {
-    let section = gimli::EndianSlice::new(&[], endian);
-    let relocations = RelocationMap::default();
-    let relocations = arena_relocations.alloc(relocations);
-    Relocate::new(relocations, section)
-}
-
 fn load_file_section<'input, 'arena, Endian: gimli::Endianity>(
     id: gimli::SectionId,
     file: &object::File<'input>,
@@ -484,7 +416,7 @@ fn load_file_section<'input, 'arena, Endian: gimli::Endianity>(
         Some(ref section) => {
             // DWO sections never have relocations, so don't bother.
             if !is_dwo {
-                add_relocations(&mut relocations, file, section);
+                relocations.add(file, section);
             }
             section.uncompressed_data()?
         }
@@ -494,7 +426,7 @@ fn load_file_section<'input, 'arena, Endian: gimli::Endianity>(
     let data_ref = arena_data.alloc(data);
     let section = gimli::EndianSlice::new(data_ref, endian);
     let relocations = arena_relocations.alloc(relocations);
-    Ok(Relocate::new(relocations, section))
+    Ok(Relocate::new(section, relocations))
 }
 
 fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags) -> Result<()>
@@ -554,7 +486,8 @@ where
 
     let w = &mut BufWriter::new(io::stdout());
     if flags.dwp {
-        let empty = empty_file_section(endian, &arena_relocations);
+        let empty_relocations = arena_relocations.alloc(RelocationMap::default());
+        let empty = Relocate::new(gimli::EndianSlice::new(&[], endian), empty_relocations);
         let dwp = gimli::DwarfPackage::load(&mut load_section, empty)?;
         dump_dwp(w, &dwp, dwo_parent.unwrap(), dwo_parent_units, flags)?;
         w.flush()?;
