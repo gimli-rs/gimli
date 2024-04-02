@@ -1091,7 +1091,7 @@ fn dump_dwp<R: Reader, W: Write + Send>(
 where
     R::Endian: Send + Sync,
 {
-    if dwp.cu_index.unit_count() != 0 {
+    if dwp.cu_index.version() != 0 {
         writeln!(
             w,
             "\n.debug_cu_index: version = {}, sections = {}, units = {}, slots = {}",
@@ -1113,7 +1113,7 @@ where
         }
     }
 
-    if dwp.tu_index.unit_count() != 0 {
+    if dwp.tu_index.version() != 0 {
         writeln!(
             w,
             "\n.debug_tu_index: version = {}, sections = {}, units = {}, slots = {}",
