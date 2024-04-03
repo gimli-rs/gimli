@@ -138,7 +138,7 @@ impl<R: Reader> UnitIndex<R> {
     fn parse(mut input: R) -> Result<UnitIndex<R>> {
         if input.is_empty() {
             return Ok(UnitIndex {
-                version: 5,
+                version: 0,
                 section_count: 0,
                 unit_count: 0,
                 slot_count: 0,
@@ -166,7 +166,7 @@ impl<R: Reader> UnitIndex<R> {
         let section_count = input.read_u32()?;
         let unit_count = input.read_u32()?;
         let slot_count = input.read_u32()?;
-        if slot_count == 0 || slot_count & (slot_count - 1) != 0 || slot_count <= unit_count {
+        if slot_count != 0 && (slot_count & (slot_count - 1) != 0 || slot_count <= unit_count) {
             return Err(Error::InvalidIndexSlotCount);
         }
 
@@ -280,6 +280,8 @@ impl<R: Reader> UnitIndex<R> {
     }
 
     /// Return the version.
+    ///
+    /// Defaults to 0 for empty sections.
     pub fn version(&self) -> u16 {
         self.version
     }
@@ -345,6 +347,24 @@ mod tests {
     fn test_empty() {
         let buf = EndianSlice::new(&[], BigEndian);
         let index = UnitIndex::parse(buf).unwrap();
+        assert_eq!(index.version(), 0);
+        assert_eq!(index.unit_count(), 0);
+        assert_eq!(index.slot_count(), 0);
+        assert!(index.find(0).is_none());
+    }
+
+    #[test]
+    fn test_zero_slots() {
+        #[rustfmt::skip]
+        let section = Section::with_endian(Endian::Big)
+            // Header.
+            .D32(2).D32(0).D32(0).D32(0);
+        let buf = section.get_contents().unwrap();
+        let buf = EndianSlice::new(&buf, BigEndian);
+        let index = UnitIndex::parse(buf).unwrap();
+        assert_eq!(index.version(), 2);
+        assert_eq!(index.unit_count(), 0);
+        assert_eq!(index.slot_count(), 0);
         assert!(index.find(0).is_none());
     }
 
