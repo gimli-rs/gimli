@@ -7168,9 +7168,8 @@ mod tests {
         cie.format = Format::Dwarf32;
         cie.version = 1;
         cie.augmentation = Some(Augmentation::default());
-        cie.augmentation.as_mut().unwrap().lsda = Some(constants::DwEhPe(
-            constants::DW_EH_PE_funcrel.0 | constants::DW_EH_PE_absptr.0,
-        ));
+        cie.augmentation.as_mut().unwrap().lsda =
+            Some(constants::DW_EH_PE_funcrel | constants::DW_EH_PE_absptr);
 
         let mut fde = FrameDescriptionEntry {
             offset: 0,
@@ -7369,8 +7368,7 @@ mod tests {
     #[test]
     fn test_parse_pointer_encoding_ok() {
         use crate::endianity::NativeEndian;
-        let expected =
-            constants::DwEhPe(constants::DW_EH_PE_uleb128.0 | constants::DW_EH_PE_pcrel.0);
+        let expected = constants::DW_EH_PE_uleb128 | constants::DW_EH_PE_pcrel;
         let input = [expected.0, 1, 2, 3, 4];
         let input = &mut EndianSlice::new(&input, NativeEndian);
         assert_eq!(parse_pointer_encoding(input), Ok(expected));
@@ -7602,8 +7600,7 @@ mod tests {
 
     #[test]
     fn test_parse_encoded_pointer_uleb128() {
-        let encoding =
-            constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_uleb128.0);
+        let encoding = constants::DW_EH_PE_absptr | constants::DW_EH_PE_uleb128;
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
@@ -7628,8 +7625,7 @@ mod tests {
 
     #[test]
     fn test_parse_encoded_pointer_udata2() {
-        let encoding =
-            constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_udata2.0);
+        let encoding = constants::DW_EH_PE_absptr | constants::DW_EH_PE_udata2;
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
@@ -7654,8 +7650,7 @@ mod tests {
 
     #[test]
     fn test_parse_encoded_pointer_udata4() {
-        let encoding =
-            constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_udata4.0);
+        let encoding = constants::DW_EH_PE_absptr | constants::DW_EH_PE_udata4;
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
@@ -7680,8 +7675,7 @@ mod tests {
 
     #[test]
     fn test_parse_encoded_pointer_udata8() {
-        let encoding =
-            constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_udata8.0);
+        let encoding = constants::DW_EH_PE_absptr | constants::DW_EH_PE_udata8;
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
@@ -7706,8 +7700,7 @@ mod tests {
 
     #[test]
     fn test_parse_encoded_pointer_sleb128() {
-        let encoding =
-            constants::DwEhPe(constants::DW_EH_PE_textrel.0 | constants::DW_EH_PE_sleb128.0);
+        let encoding = constants::DW_EH_PE_textrel | constants::DW_EH_PE_sleb128;
         let expected_rest = [1, 2, 3, 4];
 
         let input = Section::with_endian(Endian::Little)
@@ -7732,8 +7725,7 @@ mod tests {
 
     #[test]
     fn test_parse_encoded_pointer_sdata2() {
-        let encoding =
-            constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_sdata2.0);
+        let encoding = constants::DW_EH_PE_absptr | constants::DW_EH_PE_sdata2;
         let expected_rest = [1, 2, 3, 4];
         let expected = 0x111_i16;
 
@@ -7759,8 +7751,7 @@ mod tests {
 
     #[test]
     fn test_parse_encoded_pointer_sdata4() {
-        let encoding =
-            constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_sdata4.0);
+        let encoding = constants::DW_EH_PE_absptr | constants::DW_EH_PE_sdata4;
         let expected_rest = [1, 2, 3, 4];
         let expected = 0x111_1111_i32;
 
@@ -7786,8 +7777,7 @@ mod tests {
 
     #[test]
     fn test_parse_encoded_pointer_sdata8() {
-        let encoding =
-            constants::DwEhPe(constants::DW_EH_PE_absptr.0 | constants::DW_EH_PE_sdata8.0);
+        let encoding = constants::DW_EH_PE_absptr | constants::DW_EH_PE_sdata8;
         let expected_rest = [1, 2, 3, 4];
         let expected = -0x11_1111_1222_2222_i64;
 

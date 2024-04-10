@@ -913,16 +913,12 @@ mod tests {
                     frames.add_fde(cie2_id, fde4.clone());
 
                     let mut cie3 = CommonInformationEntry::new(encoding, 1, 8, X86_64::RA);
-                    cie3.fde_address_encoding = constants::DwEhPe(
-                        constants::DW_EH_PE_pcrel.0 | constants::DW_EH_PE_sdata4.0,
-                    );
-                    cie3.lsda_encoding = Some(constants::DwEhPe(
-                        constants::DW_EH_PE_pcrel.0 | constants::DW_EH_PE_sdata4.0,
-                    ));
+                    cie3.fde_address_encoding =
+                        constants::DW_EH_PE_pcrel | constants::DW_EH_PE_sdata4;
+                    cie3.lsda_encoding =
+                        Some(constants::DW_EH_PE_pcrel | constants::DW_EH_PE_sdata4);
                     cie3.personality = Some((
-                        constants::DwEhPe(
-                            constants::DW_EH_PE_pcrel.0 | constants::DW_EH_PE_sdata4.0,
-                        ),
+                        constants::DW_EH_PE_pcrel | constants::DW_EH_PE_sdata4,
                         Address::Constant(0x1235),
                     ));
                     cie3.signal_trampoline = true;
