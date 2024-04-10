@@ -8,9 +8,9 @@ gimli = { path = "../..", default-features = false }
 crossbeam = "0.8"
 fallible-iterator = { version = "0.3.0", default-features = false, optional = true }
 getopts = "0.2"
-memmap2 = "0.7.1"
+memmap2 = "0.9.4"
 num_cpus = "1"
-object = { version = "0.32.0", features = ["wasm"] }
+object = { version = "0.35.0", features = ["wasm"] }
 rayon = "1.0"
 regex = "1"
 typed-arena = "2"
