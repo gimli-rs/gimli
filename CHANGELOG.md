@@ -2,6 +2,55 @@
 
 --------------------------------------------------------------------------------
 
+## 0.29.0
+
+Released 2024/04/11.
+
+### Breaking changes
+
+* Changed `Reader` type parameter to `ReaderOffset` for `read::UnwindContext` and related types.
+  Replaced `Expression` with `UnwindExpression` in unwind information types.
+  [#703](https://github.com/gimli-rs/gimli/pull/703)
+
+### Changed
+
+* Changed `write::Sections::for_each` and `for_each_mut` to specify section lifetime.
+  [#699](https://github.com/gimli-rs/gimli/pull/699)
+
+* Fixed writing unwind information with an LSDA encoding that is not `DW_EH_PE_absptr`.
+  [#704](https://github.com/gimli-rs/gimli/pull/704)
+
+* Fixed parsing for an empty DWP index.
+  [#706](https://github.com/gimli-rs/gimli/pull/706)
+
+* Improved error handling in `read::Unit::dwo_name`.
+  [#693](https://github.com/gimli-rs/gimli/pull/693)
+
+* Fixed warnings.
+  [#692](https://github.com/gimli-rs/gimli/pull/692)
+  [#694](https://github.com/gimli-rs/gimli/pull/694)
+  [#695](https://github.com/gimli-rs/gimli/pull/695)
+  [#696](https://github.com/gimli-rs/gimli/pull/696)
+
+### Added
+
+* Added MIPS register definitions.
+  [#690](https://github.com/gimli-rs/gimli/pull/690)
+
+* Added PowerPC register definitions.
+  [#691](https://github.com/gimli-rs/gimli/pull/691)
+
+* Added `read::DwarfSections` and `read::DwarfPackageSections`.
+  [#698](https://github.com/gimli-rs/gimli/pull/698)
+
+* Implemented `BitOr` for `DwEhPe`.
+  [#709](https://github.com/gimli-rs/gimli/pull/709)
+
+* Added `read::Relocate`, `read::RelocateReader`, and `write::RelocateWriter`.
+  [#709](https://github.com/gimli-rs/gimli/pull/709)
+
+--------------------------------------------------------------------------------
+
 ## 0.28.1
 
 Released 2023/11/24.
