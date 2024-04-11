@@ -206,6 +206,9 @@ pub use self::endian_reader::*;
 mod reader;
 pub use self::reader::*;
 
+mod relocate;
+pub use self::relocate::*;
+
 #[cfg(feature = "read")]
 mod abbrev;
 #[cfg(feature = "read")]

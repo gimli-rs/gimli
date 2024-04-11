@@ -70,6 +70,9 @@ pub use self::endian_vec::*;
 mod writer;
 pub use self::writer::*;
 
+mod relocate;
+pub use self::relocate::*;
+
 #[macro_use]
 mod section;
 pub use self::section::*;
