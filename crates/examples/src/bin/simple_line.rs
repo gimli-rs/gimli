@@ -46,6 +46,7 @@ fn dump_file(
             header.offset().as_debug_info_offset().unwrap().0
         );
         let unit = dwarf.unit(header)?;
+        let unit = unit.unit_ref(&dwarf);
 
         // Get the line program for the compilation unit.
         if let Some(program) = unit.line_program.clone() {
@@ -70,15 +71,12 @@ fn dump_file(
                         // The directory index 0 is defined to correspond to the compilation unit directory.
                         if file.directory_index() != 0 {
                             if let Some(dir) = file.directory(header) {
-                                path.push(
-                                    dwarf.attr_string(&unit, dir)?.to_string_lossy().as_ref(),
-                                );
+                                path.push(unit.attr_string(dir)?.to_string_lossy().as_ref());
                             }
                         }
 
                         path.push(
-                            dwarf
-                                .attr_string(&unit, file.path_name())?
+                            unit.attr_string(file.path_name())?
                                 .to_string_lossy()
                                 .as_ref(),
                         );
