@@ -128,7 +128,8 @@ fn dump_file(
             header.offset().as_debug_info_offset().unwrap().0
         );
         let unit = dwarf.unit(header)?;
-        dump_unit(&dwarf, &unit)?;
+        let unit_ref = unit.unit_ref(&dwarf);
+        dump_unit(unit_ref)?;
 
         // Check for a DWO unit.
         let Some(dwp) = &dwp else { continue };
@@ -141,13 +142,14 @@ fn dump_file(
             continue;
         };
         let unit = dwo.unit(header)?;
-        dump_unit(&dwo, &unit)?;
+        let unit_ref = unit.unit_ref(&dwo);
+        dump_unit(unit_ref)?;
     }
 
     Ok(())
 }
 
-fn dump_unit(dwarf: &gimli::Dwarf<Reader>, unit: &gimli::Unit<Reader>) -> Result<(), gimli::Error> {
+fn dump_unit(unit: gimli::UnitRef<Reader>) -> Result<(), gimli::Error> {
     // Iterate over the Debugging Information Entries (DIEs) in the unit.
     let mut depth = 0;
     let mut entries = unit.entries();
@@ -159,7 +161,7 @@ fn dump_unit(dwarf: &gimli::Dwarf<Reader>, unit: &gimli::Unit<Reader>) -> Result
         let mut attrs = entry.attrs();
         while let Some(attr) = attrs.next()? {
             print!("   {}: {:?}", attr.name(), attr.value());
-            if let Ok(s) = dwarf.attr_string(unit, attr.value()) {
+            if let Ok(s) = unit.attr_string(attr.value()) {
                 print!(" '{}'", s.to_string_lossy()?);
             }
             println!();

@@ -1100,7 +1100,8 @@ fn dump_unit<R: Reader, W: Write>(
         }
     }
 
-    let entries_result = dump_entries(w, unit, dwarf, flags);
+    let unit_ref = unit.unit_ref(dwarf);
+    let entries_result = dump_entries(w, unit_ref, flags);
     if let Err(err) = entries_result {
         writeln_error(w, dwarf, err, "Failed to dump entries")?;
     }
@@ -1137,8 +1138,7 @@ fn write_offset<R: Reader, W: Write>(
 
 fn dump_entries<R: Reader, W: Write>(
     w: &mut W,
-    unit: gimli::Unit<R>,
-    dwarf: &gimli::Dwarf<R>,
+    unit: gimli::UnitRef<R>,
     flags: &Flags,
 ) -> Result<()> {
     let mut spaces_buf = String::new();
@@ -1180,9 +1180,11 @@ fn dump_entries<R: Reader, W: Write>(
             if flags.raw {
                 writeln!(w, "{:?}", attr.raw_value())?;
             } else {
-                match dump_attr_value(w, &attr, &unit, dwarf) {
+                match dump_attr_value(w, &attr, unit) {
                     Ok(_) => (),
-                    Err(err) => writeln_error(w, dwarf, err, "Failed to dump attribute value")?,
+                    Err(err) => {
+                        writeln_error(w, unit.dwarf, err, "Failed to dump attribute value")?
+                    }
                 };
             }
         }
@@ -1193,8 +1195,7 @@ fn dump_entries<R: Reader, W: Write>(
 fn dump_attr_value<R: Reader, W: Write>(
     w: &mut W,
     attr: &gimli::Attribute<R>,
-    unit: &gimli::Unit<R>,
-    dwarf: &gimli::Dwarf<R>,
+    unit: gimli::UnitRef<R>,
 ) -> Result<()> {
     let value = attr.value();
     match value {
@@ -1286,12 +1287,12 @@ fn dump_attr_value<R: Reader, W: Write>(
         }
         gimli::AttributeValue::DebugAddrIndex(index) => {
             write!(w, "(indirect address, index {:#x}): ", index.0)?;
-            let address = dwarf.address(unit, index)?;
+            let address = unit.address(index)?;
             writeln!(w, "0x{:08x}", address)?;
         }
         gimli::AttributeValue::UnitRef(offset) => {
             write!(w, "0x{:08x}", offset.0)?;
-            match offset.to_unit_section_offset(unit) {
+            match offset.to_unit_section_offset(&unit) {
                 UnitSectionOffset::DebugInfoOffset(goff) => {
                     write!(w, "<.debug_info+0x{:08x}>", goff.0)?;
                 }
@@ -1311,15 +1312,15 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "<.debug_line+0x{:08x}>", offset.0)?;
         }
         gimli::AttributeValue::LocationListsRef(offset) => {
-            dump_loc_list(w, offset, unit, dwarf)?;
+            dump_loc_list(w, offset, unit)?;
         }
         gimli::AttributeValue::DebugLocListsBase(base) => {
             writeln!(w, "<.debug_loclists+0x{:08x}>", base.0)?;
         }
         gimli::AttributeValue::DebugLocListsIndex(index) => {
             write!(w, "(indirect location list, index {:#x}): ", index.0)?;
-            let offset = dwarf.locations_offset(unit, index)?;
-            dump_loc_list(w, offset, unit, dwarf)?;
+            let offset = unit.locations_offset(index)?;
+            dump_loc_list(w, offset, unit)?;
         }
         gimli::AttributeValue::DebugMacinfoRef(offset) => {
             writeln!(w, "<.debug_macinfo+0x{:08x}>", offset.0)?;
@@ -1328,33 +1329,30 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "<.debug_macro+0x{:08x}>", offset.0)?;
         }
         gimli::AttributeValue::RangeListsRef(offset) => {
-            let offset = dwarf.ranges_offset_from_raw(unit, offset);
-            dump_range_list(w, offset, unit, dwarf)?;
+            let offset = unit.ranges_offset_from_raw(offset);
+            dump_range_list(w, offset, unit)?;
         }
         gimli::AttributeValue::DebugRngListsBase(base) => {
             writeln!(w, "<.debug_rnglists+0x{:08x}>", base.0)?;
         }
         gimli::AttributeValue::DebugRngListsIndex(index) => {
             write!(w, "(indirect range list, index {:#x}): ", index.0)?;
-            let offset = dwarf.ranges_offset(unit, index)?;
-            dump_range_list(w, offset, unit, dwarf)?;
+            let offset = unit.ranges_offset(index)?;
+            dump_range_list(w, offset, unit)?;
         }
         gimli::AttributeValue::DebugTypesRef(signature) => {
             dump_type_signature(w, signature)?;
             writeln!(w, " <type signature>")?;
         }
         gimli::AttributeValue::DebugStrRef(offset) => {
-            if let Ok(s) = dwarf.debug_str.get_str(offset) {
+            if let Ok(s) = unit.string(offset) {
                 writeln!(w, "{}", s.to_string_lossy()?)?;
             } else {
                 writeln!(w, "<.debug_str+0x{:08x}>", offset.0)?;
             }
         }
         gimli::AttributeValue::DebugStrRefSup(offset) => {
-            if let Some(s) = dwarf
-                .sup()
-                .and_then(|sup| sup.debug_str.get_str(offset).ok())
-            {
+            if let Ok(s) = unit.sup_string(offset) {
                 writeln!(w, "{}", s.to_string_lossy()?)?;
             } else {
                 writeln!(w, "<.debug_str(sup)+0x{:08x}>", offset.0)?;
@@ -1365,19 +1363,15 @@ fn dump_attr_value<R: Reader, W: Write>(
         }
         gimli::AttributeValue::DebugStrOffsetsIndex(index) => {
             write!(w, "(indirect string, index {:#x}): ", index.0)?;
-            let offset = dwarf.debug_str_offsets.get_str_offset(
-                unit.encoding().format,
-                unit.str_offsets_base,
-                index,
-            )?;
-            if let Ok(s) = dwarf.debug_str.get_str(offset) {
+            let offset = unit.string_offset(index)?;
+            if let Ok(s) = unit.string(offset) {
                 writeln!(w, "{}", s.to_string_lossy()?)?;
             } else {
                 writeln!(w, "<.debug_str+0x{:08x}>", offset.0)?;
             }
         }
         gimli::AttributeValue::DebugLineStrRef(offset) => {
-            if let Ok(s) = dwarf.debug_line_str.get_str(offset) {
+            if let Ok(s) = unit.line_string(offset) {
                 writeln!(w, "{}", s.to_string_lossy()?)?;
             } else {
                 writeln!(w, "<.debug_line_str=0x{:08x}>", offset.0)?;
@@ -1424,7 +1418,7 @@ fn dump_attr_value<R: Reader, W: Write>(
         }
         gimli::AttributeValue::FileIndex(value) => {
             write!(w, "0x{:08x}", value)?;
-            dump_file_index(w, value, unit, dwarf)?;
+            dump_file_index(w, value, unit)?;
             writeln!(w)?;
         }
         gimli::AttributeValue::DwoId(value) => {
@@ -1443,8 +1437,7 @@ fn dump_type_signature<W: Write>(w: &mut W, signature: gimli::DebugTypeSignature
 fn dump_file_index<R: Reader, W: Write>(
     w: &mut W,
     file_index: u64,
-    unit: &gimli::Unit<R>,
-    dwarf: &gimli::Dwarf<R>,
+    unit: gimli::UnitRef<R>,
 ) -> Result<()> {
     if file_index == 0 && unit.header.version() <= 4 {
         return Ok(());
@@ -1462,7 +1455,7 @@ fn dump_file_index<R: Reader, W: Write>(
     };
     write!(w, " ")?;
     if let Some(directory) = file.directory(header) {
-        let directory = dwarf.attr_string(unit, directory)?;
+        let directory = unit.attr_string(directory)?;
         let directory = directory.to_string_lossy()?;
         if file.directory_index() != 0 && !directory.starts_with('/') {
             if let Some(ref comp_dir) = unit.comp_dir {
@@ -1474,9 +1467,7 @@ fn dump_file_index<R: Reader, W: Write>(
     write!(
         w,
         "{}",
-        dwarf
-            .attr_string(unit, file.path_name())?
-            .to_string_lossy()?
+        unit.attr_string(file.path_name())?.to_string_lossy()?
     )?;
     Ok(())
 }
@@ -1709,10 +1700,9 @@ fn dump_range<W: Write>(w: &mut W, range: Option<gimli::Range>) -> Result<()> {
 fn dump_loc_list<R: Reader, W: Write>(
     w: &mut W,
     offset: gimli::LocationListsOffset<R::Offset>,
-    unit: &gimli::Unit<R>,
-    dwarf: &gimli::Dwarf<R>,
+    unit: gimli::UnitRef<R>,
 ) -> Result<()> {
-    let mut locations = dwarf.locations(unit, offset)?;
+    let mut locations = unit.locations(offset)?;
     writeln!(
         w,
         "<loclist at {}+0x{:08x}>",
@@ -1735,7 +1725,7 @@ fn dump_loc_list<R: Reader, W: Write>(
                 writeln!(w, "<base-address 0x{:08x}>", addr)?;
             }
             gimli::RawLocListEntry::BaseAddressx { addr } => {
-                let addr_val = dwarf.address(unit, addr)?;
+                let addr_val = unit.address(addr)?;
                 writeln!(w, "<base-addressx [{}]0x{:08x}>", addr.0, addr_val)?;
             }
             gimli::RawLocListEntry::StartxEndx {
@@ -1743,8 +1733,8 @@ fn dump_loc_list<R: Reader, W: Write>(
                 end,
                 ref data,
             } => {
-                let begin_val = dwarf.address(unit, begin)?;
-                let end_val = dwarf.address(unit, end)?;
+                let begin_val = unit.address(begin)?;
+                let end_val = unit.address(end)?;
                 write!(
                     w,
                     "<startx-endx [{}]0x{:08x}, [{}]0x{:08x}>",
@@ -1759,7 +1749,7 @@ fn dump_loc_list<R: Reader, W: Write>(
                 length,
                 ref data,
             } => {
-                let begin_val = dwarf.address(unit, begin)?;
+                let begin_val = unit.address(begin)?;
                 write!(
                     w,
                     "<startx-length [{}]0x{:08x}, 0x{:08x}>",
@@ -1817,10 +1807,9 @@ fn dump_loc_list<R: Reader, W: Write>(
 fn dump_range_list<R: Reader, W: Write>(
     w: &mut W,
     offset: gimli::RangeListsOffset<R::Offset>,
-    unit: &gimli::Unit<R>,
-    dwarf: &gimli::Dwarf<R>,
+    unit: gimli::UnitRef<R>,
 ) -> Result<()> {
-    let mut ranges = dwarf.ranges(unit, offset)?;
+    let mut ranges = unit.ranges(offset)?;
     writeln!(
         w,
         "<rnglist at {}+0x{:08x}>",
@@ -1841,12 +1830,12 @@ fn dump_range_list<R: Reader, W: Write>(
                 writeln!(w, "<new base address 0x{:08x}>", addr)?;
             }
             gimli::RawRngListEntry::BaseAddressx { addr } => {
-                let addr_val = dwarf.address(unit, addr)?;
+                let addr_val = unit.address(addr)?;
                 writeln!(w, "<new base addressx [{}]0x{:08x}>", addr.0, addr_val)?;
             }
             gimli::RawRngListEntry::StartxEndx { begin, end } => {
-                let begin_val = dwarf.address(unit, begin)?;
-                let end_val = dwarf.address(unit, end)?;
+                let begin_val = unit.address(begin)?;
+                let end_val = unit.address(end)?;
                 write!(
                     w,
                     "<startx-endx [{}]0x{:08x}, [{}]0x{:08x}>",
@@ -1856,7 +1845,7 @@ fn dump_range_list<R: Reader, W: Write>(
                 writeln!(w)?;
             }
             gimli::RawRngListEntry::StartxLength { begin, length } => {
-                let begin_val = dwarf.address(unit, begin)?;
+                let begin_val = unit.address(begin)?;
                 write!(
                     w,
                     "<startx-length [{}]0x{:08x}, 0x{:08x}>",
@@ -1906,7 +1895,8 @@ fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<
                 continue;
             }
         };
-        match dump_line_program(w, &unit, dwarf) {
+        let unit_ref = unit.unit_ref(dwarf);
+        match dump_line_program(w, unit_ref) {
             Ok(_) => (),
             Err(Error::IoError) => return Err(Error::IoError),
             Err(err) => writeln_error(w, dwarf, err, "Failed to dump line program")?,
@@ -1915,11 +1905,7 @@ fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<
     Ok(())
 }
 
-fn dump_line_program<R: Reader, W: Write>(
-    w: &mut W,
-    unit: &gimli::Unit<R>,
-    dwarf: &gimli::Dwarf<R>,
-) -> Result<()> {
+fn dump_line_program<R: Reader, W: Write>(w: &mut W, unit: gimli::UnitRef<R>) -> Result<()> {
     if let Some(program) = unit.line_program.clone() {
         {
             let header = program.header();
@@ -1999,7 +1985,7 @@ fn dump_line_program<R: Reader, W: Write>(
                     w,
                     "  {} {}",
                     base + i,
-                    dwarf.attr_string(unit, dir.clone())?.to_string_lossy()?
+                    unit.attr_string(dir.clone())?.to_string_lossy()?
                 )?;
             }
 
@@ -2029,9 +2015,7 @@ fn dump_line_program<R: Reader, W: Write>(
                 writeln!(
                     w,
                     "\t{}",
-                    dwarf
-                        .attr_string(unit, file.path_name())?
-                        .to_string_lossy()?
+                    unit.attr_string(file.path_name())?.to_string_lossy()?
                 )?;
             }
 
@@ -2086,18 +2070,14 @@ fn dump_line_program<R: Reader, W: Write>(
                         write!(
                             w,
                             " uri: \"{}/{}\"",
-                            dwarf.attr_string(unit, directory)?.to_string_lossy()?,
-                            dwarf
-                                .attr_string(unit, file.path_name())?
-                                .to_string_lossy()?
+                            unit.attr_string(directory)?.to_string_lossy()?,
+                            unit.attr_string(file.path_name())?.to_string_lossy()?
                         )?;
                     } else {
                         write!(
                             w,
                             " uri: \"{}\"",
-                            dwarf
-                                .attr_string(unit, file.path_name())?
-                                .to_string_lossy()?
+                            unit.attr_string(file.path_name())?.to_string_lossy()?
                         )?;
                     }
                 }
