@@ -1077,7 +1077,7 @@ mod tests {
     #[test]
     #[allow(clippy::type_complexity)]
     fn test_operation() {
-        for version in [3, 4, 5] {
+        for version in [2, 3, 4, 5] {
             for address_size in [4, 8] {
                 for format in [Format::Dwarf32, Format::Dwarf64] {
                     let encoding = Encoding {
