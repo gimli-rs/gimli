@@ -566,7 +566,12 @@ impl Operation {
             }
             Operation::ImplicitValue(ref data) => uleb128_size(data.len() as u64) + data.len(),
             Operation::ImplicitPointer { byte_offset, .. } => {
-                encoding.format.word_size() as usize + sleb128_size(byte_offset)
+                let size = if encoding.version == 2 {
+                    encoding.address_size
+                } else {
+                    encoding.format.word_size()
+                };
+                size as usize + sleb128_size(byte_offset)
             }
             Operation::Piece { size_in_bytes } => uleb128_size(size_in_bytes),
             Operation::BitPiece {
