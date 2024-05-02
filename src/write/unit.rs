@@ -487,13 +487,13 @@ impl DebuggingInformationEntry {
 
     /// Iterate over the attributes of this entry.
     #[inline]
-    pub fn attrs(&self) -> slice::Iter<Attribute> {
+    pub fn attrs(&self) -> slice::Iter<'_, Attribute> {
         self.attrs.iter()
     }
 
     /// Iterate over the attributes of this entry for modification.
     #[inline]
-    pub fn attrs_mut(&mut self) -> slice::IterMut<Attribute> {
+    pub fn attrs_mut(&mut self) -> slice::IterMut<'_, Attribute> {
         self.attrs.iter_mut()
     }
 
@@ -540,7 +540,7 @@ impl DebuggingInformationEntry {
     ///
     /// Note: use `Unit::add` to add a new child to this entry.
     #[inline]
-    pub fn children(&self) -> slice::Iter<UnitEntryId> {
+    pub fn children(&self) -> slice::Iter<'_, UnitEntryId> {
         self.children.iter()
     }
 
@@ -1665,7 +1665,7 @@ pub(crate) mod convert {
         ///
         /// Does not add the entry attributes.
         fn convert_entry<R: Reader<Offset = usize>>(
-            from: read::EntriesTreeNode<R>,
+            from: read::EntriesTreeNode<'_, '_, '_, R>,
             from_unit: &read::Unit<R>,
             base_id: BaseId,
             entries: &mut Vec<DebuggingInformationEntry>,
@@ -1699,7 +1699,7 @@ pub(crate) mod convert {
         /// Create an entry's attributes by reading the data in the input sections.
         fn convert_attributes<R: Reader<Offset = usize>>(
             &mut self,
-            context: &mut ConvertUnitContext<R>,
+            context: &mut ConvertUnitContext<'_, R>,
             entry_offsets: &[read::UnitOffset],
         ) -> ConvertResult<()> {
             let offset = entry_offsets[self.id.index];
@@ -1720,7 +1720,7 @@ pub(crate) mod convert {
     impl Attribute {
         /// Create an attribute by reading the data in the given sections.
         pub(crate) fn from<R: Reader<Offset = usize>>(
-            context: &mut ConvertUnitContext<R>,
+            context: &mut ConvertUnitContext<'_, R>,
             from: &read::Attribute<R>,
         ) -> ConvertResult<Option<Attribute>> {
             let value = AttributeValue::from(context, from.value())?;
@@ -1734,7 +1734,7 @@ pub(crate) mod convert {
     impl AttributeValue {
         /// Create an attribute value by reading the data in the given sections.
         pub(crate) fn from<R: Reader<Offset = usize>>(
-            context: &mut ConvertUnitContext<R>,
+            context: &mut ConvertUnitContext<'_, R>,
             from: read::AttributeValue<R>,
         ) -> ConvertResult<Option<AttributeValue>> {
             let to = match from {
@@ -2519,8 +2519,8 @@ mod tests {
                         // The lifetimes here are all okay, so transmute it.
                         let read_value = unsafe {
                             mem::transmute::<
-                                &read::AttributeValue<read::EndianSlice<LittleEndian>>,
-                                &read::AttributeValue<read::EndianSlice<LittleEndian>>,
+                                &read::AttributeValue<read::EndianSlice<'_, LittleEndian>>,
+                                &read::AttributeValue<read::EndianSlice<'_, LittleEndian>>,
                             >(read_value)
                         };
                         assert_eq!(read_value, expect_value);
@@ -2812,7 +2812,7 @@ mod tests {
         }
 
         fn next_child<R: read::Reader<Offset = usize>>(
-            entries: &mut read::EntriesCursor<R>,
+            entries: &mut read::EntriesCursor<'_, '_, R>,
         ) -> (read::UnitOffset, Option<read::UnitOffset>) {
             let (_, entry) = entries.next_dfs().unwrap().unwrap();
             let offset = entry.offset();
@@ -3002,8 +3002,8 @@ mod tests {
                         // The lifetimes here are all okay, so transmute it.
                         let read_value = unsafe {
                             mem::transmute::<
-                                &read::AttributeValue<read::EndianSlice<LittleEndian>>,
-                                &read::AttributeValue<read::EndianSlice<LittleEndian>>,
+                                &read::AttributeValue<read::EndianSlice<'_, LittleEndian>>,
+                                &read::AttributeValue<read::EndianSlice<'_, LittleEndian>>,
                             >(read_value)
                         };
                         assert_eq!(read_value, expect_value);
@@ -3090,7 +3090,7 @@ mod tests {
             entry.set(constants::DW_AT_name, AttributeValue::String(name.into()));
         }
         fn check_name<R: read::Reader>(
-            entry: &read::DebuggingInformationEntry<R>,
+            entry: &read::DebuggingInformationEntry<'_, '_, R>,
             debug_str: &read::DebugStr<R>,
             name: &str,
         ) {

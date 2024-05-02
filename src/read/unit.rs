@@ -4189,7 +4189,7 @@ mod tests {
     fn test_attribute_udata_sdata_value() {
         #[allow(clippy::type_complexity)]
         let tests: &[(
-            AttributeValue<EndianSlice<LittleEndian>>,
+            AttributeValue<EndianSlice<'_, LittleEndian>>,
             Option<u64>,
             Option<i64>,
         )] = &[
@@ -5036,8 +5036,10 @@ mod tests {
         assert!(entry.attrs_len.get().is_none());
     }
 
-    fn assert_entry_name<Endian>(entry: &DebuggingInformationEntry<EndianSlice<Endian>>, name: &str)
-    where
+    fn assert_entry_name<Endian>(
+        entry: &DebuggingInformationEntry<'_, '_, EndianSlice<'_, Endian>>,
+        name: &str,
+    ) where
         Endian: Endianity,
     {
         let value = entry
@@ -5051,16 +5053,20 @@ mod tests {
         );
     }
 
-    fn assert_current_name<Endian>(cursor: &EntriesCursor<EndianSlice<Endian>>, name: &str)
-    where
+    fn assert_current_name<Endian>(
+        cursor: &EntriesCursor<'_, '_, EndianSlice<'_, Endian>>,
+        name: &str,
+    ) where
         Endian: Endianity,
     {
         let entry = cursor.current().expect("Should have an entry result");
         assert_entry_name(entry, name);
     }
 
-    fn assert_next_entry<Endian>(cursor: &mut EntriesCursor<EndianSlice<Endian>>, name: &str)
-    where
+    fn assert_next_entry<Endian>(
+        cursor: &mut EntriesCursor<'_, '_, EndianSlice<'_, Endian>>,
+        name: &str,
+    ) where
         Endian: Endianity,
     {
         cursor
@@ -5070,7 +5076,7 @@ mod tests {
         assert_current_name(cursor, name);
     }
 
-    fn assert_next_entry_null<Endian>(cursor: &mut EntriesCursor<EndianSlice<Endian>>)
+    fn assert_next_entry_null<Endian>(cursor: &mut EntriesCursor<'_, '_, EndianSlice<'_, Endian>>)
     where
         Endian: Endianity,
     {
@@ -5082,7 +5088,7 @@ mod tests {
     }
 
     fn assert_next_dfs<Endian>(
-        cursor: &mut EntriesCursor<EndianSlice<Endian>>,
+        cursor: &mut EntriesCursor<'_, '_, EndianSlice<'_, Endian>>,
         name: &str,
         depth: isize,
     ) where
@@ -5099,8 +5105,10 @@ mod tests {
         assert_current_name(cursor, name);
     }
 
-    fn assert_next_sibling<Endian>(cursor: &mut EntriesCursor<EndianSlice<Endian>>, name: &str)
-    where
+    fn assert_next_sibling<Endian>(
+        cursor: &mut EntriesCursor<'_, '_, EndianSlice<'_, Endian>>,
+        name: &str,
+    ) where
         Endian: Endianity,
     {
         {
@@ -5113,7 +5121,7 @@ mod tests {
         assert_current_name(cursor, name);
     }
 
-    fn assert_valid_sibling_ptr<Endian>(cursor: &EntriesCursor<EndianSlice<Endian>>)
+    fn assert_valid_sibling_ptr<Endian>(cursor: &EntriesCursor<'_, '_, EndianSlice<'_, Endian>>)
     where
         Endian: Endianity,
     {
@@ -5493,7 +5501,9 @@ mod tests {
         section.get_contents().unwrap()
     }
 
-    fn test_cursor_next_sibling_with_ptr(cursor: &mut EntriesCursor<EndianSlice<LittleEndian>>) {
+    fn test_cursor_next_sibling_with_ptr(
+        cursor: &mut EntriesCursor<'_, '_, EndianSlice<'_, LittleEndian>>,
+    ) {
         assert_next_dfs(cursor, "001", 0);
 
         // Down to the first child of the root.
@@ -5700,7 +5710,9 @@ mod tests {
             node.children()
         }
 
-        fn assert_null<E: Endianity>(node: Result<Option<EntriesTreeNode<EndianSlice<E>>>>) {
+        fn assert_null<E: Endianity>(
+            node: Result<Option<EntriesTreeNode<'_, '_, '_, EndianSlice<'_, E>>>>,
+        ) {
             match node {
                 Ok(None) => {}
                 otherwise => {

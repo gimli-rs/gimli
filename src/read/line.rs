@@ -521,7 +521,7 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> result::Result<(), fmt::Error> {
         match *self {
             LineInstruction::Special(opcode) => write!(f, "Special opcode {}", opcode),
             LineInstruction::Copy => write!(f, "{}", constants::DW_LNS_copy),
@@ -2124,8 +2124,8 @@ mod tests {
     const STANDARD_OPCODE_LENGTHS: &[u8] = &[0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1];
 
     fn make_test_header(
-        buf: EndianSlice<LittleEndian>,
-    ) -> LineProgramHeader<EndianSlice<LittleEndian>> {
+        buf: EndianSlice<'_, LittleEndian>,
+    ) -> LineProgramHeader<EndianSlice<'_, LittleEndian>> {
         let encoding = Encoding {
             format: Format::Dwarf32,
             version: 4,
@@ -2170,8 +2170,8 @@ mod tests {
     }
 
     fn make_test_program(
-        buf: EndianSlice<LittleEndian>,
-    ) -> IncompleteLineProgram<EndianSlice<LittleEndian>> {
+        buf: EndianSlice<'_, LittleEndian>,
+    ) -> IncompleteLineProgram<EndianSlice<'_, LittleEndian>> {
         IncompleteLineProgram {
             header: make_test_header(buf),
         }
@@ -2198,7 +2198,7 @@ mod tests {
         fn test<Operands>(
             raw: constants::DwLns,
             operands: Operands,
-            expected: LineInstruction<EndianSlice<LittleEndian>>,
+            expected: LineInstruction<EndianSlice<'_, LittleEndian>>,
         ) where
             Operands: AsRef<[u8]>,
         {
@@ -2341,7 +2341,7 @@ mod tests {
         fn test<Operands>(
             raw: constants::DwLne,
             operands: Operands,
-            expected: LineInstruction<EndianSlice<LittleEndian>>,
+            expected: LineInstruction<EndianSlice<'_, LittleEndian>>,
         ) where
             Operands: AsRef<[u8]>,
         {

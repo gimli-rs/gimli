@@ -204,7 +204,7 @@ pub enum Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> result::Result<(), fmt::Error> {
         match *self {
             Error::OffsetOutOfBounds => write!(f, "The given offset is out of bounds."),
             Error::LengthOutOfBounds => write!(f, "The given length is out of bounds."),
@@ -364,7 +364,7 @@ mod convert {
     }
 
     impl fmt::Display for ConvertError {
-        fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> result::Result<(), fmt::Error> {
             use self::ConvertError::*;
             match *self {
                 Read(ref e) => e.fmt(f),

@@ -540,7 +540,7 @@ impl<R: Reader> Dwarf<R> {
     pub fn die_ranges(
         &self,
         unit: &Unit<R>,
-        entry: &DebuggingInformationEntry<R>,
+        entry: &DebuggingInformationEntry<'_, '_, R>,
     ) -> Result<RangeIter<R>> {
         let mut low_pc = None;
         let mut high_pc = None;
@@ -992,7 +992,7 @@ impl<R: Reader> DwarfPackage<R> {
     /// This function should only be needed by low level parsers.
     pub fn sections(
         &self,
-        sections: UnitIndexSectionIterator<R>,
+        sections: UnitIndexSectionIterator<'_, R>,
         parent: &Dwarf<R>,
     ) -> Result<Dwarf<R>> {
         let mut abbrev_offset = 0;
@@ -1276,33 +1276,45 @@ impl<R: Reader> Unit<R> {
     }
 
     /// Read the `DebuggingInformationEntry` at the given offset.
-    pub fn entry(&self, offset: UnitOffset<R::Offset>) -> Result<DebuggingInformationEntry<R>> {
+    pub fn entry(
+        &self,
+        offset: UnitOffset<R::Offset>,
+    ) -> Result<DebuggingInformationEntry<'_, '_, R>> {
         self.header.entry(&self.abbreviations, offset)
     }
 
     /// Navigate this unit's `DebuggingInformationEntry`s.
     #[inline]
-    pub fn entries(&self) -> EntriesCursor<R> {
+    pub fn entries(&self) -> EntriesCursor<'_, '_, R> {
         self.header.entries(&self.abbreviations)
     }
 
     /// Navigate this unit's `DebuggingInformationEntry`s
     /// starting at the given offset.
     #[inline]
-    pub fn entries_at_offset(&self, offset: UnitOffset<R::Offset>) -> Result<EntriesCursor<R>> {
+    pub fn entries_at_offset(
+        &self,
+        offset: UnitOffset<R::Offset>,
+    ) -> Result<EntriesCursor<'_, '_, R>> {
         self.header.entries_at_offset(&self.abbreviations, offset)
     }
 
     /// Navigate this unit's `DebuggingInformationEntry`s as a tree
     /// starting at the given offset.
     #[inline]
-    pub fn entries_tree(&self, offset: Option<UnitOffset<R::Offset>>) -> Result<EntriesTree<R>> {
+    pub fn entries_tree(
+        &self,
+        offset: Option<UnitOffset<R::Offset>>,
+    ) -> Result<EntriesTree<'_, '_, R>> {
         self.header.entries_tree(&self.abbreviations, offset)
     }
 
     /// Read the raw data that defines the Debugging Information Entries.
     #[inline]
-    pub fn entries_raw(&self, offset: Option<UnitOffset<R::Offset>>) -> Result<EntriesRaw<R>> {
+    pub fn entries_raw(
+        &self,
+        offset: Option<UnitOffset<R::Offset>>,
+    ) -> Result<EntriesRaw<'_, '_, R>> {
         self.header.entries_raw(&self.abbreviations, offset)
     }
 
@@ -1466,7 +1478,7 @@ impl<'a, R: Reader> UnitRef<'a, R> {
     /// Return an iterator for the address ranges of a `DebuggingInformationEntry`.
     ///
     /// This uses `DW_AT_low_pc`, `DW_AT_high_pc` and `DW_AT_ranges`.
-    pub fn die_ranges(&self, entry: &DebuggingInformationEntry<R>) -> Result<RangeIter<R>> {
+    pub fn die_ranges(&self, entry: &DebuggingInformationEntry<'_, '_, R>) -> Result<RangeIter<R>> {
         self.dwarf.die_ranges(self.unit, entry)
     }
 
@@ -1634,8 +1646,8 @@ mod tests {
     #[test]
     fn test_send() {
         fn assert_is_send<T: Send>() {}
-        assert_is_send::<Dwarf<EndianSlice<LittleEndian>>>();
-        assert_is_send::<Unit<EndianSlice<LittleEndian>>>();
+        assert_is_send::<Dwarf<EndianSlice<'_, LittleEndian>>>();
+        assert_is_send::<Unit<EndianSlice<'_, LittleEndian>>>();
     }
 
     #[test]

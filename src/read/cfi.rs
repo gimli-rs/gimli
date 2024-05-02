@@ -207,7 +207,7 @@ impl<R: Reader> ParsedEhFrameHdr<R> {
     }
 
     /// Retrieves the CFI binary search table, if there is one.
-    pub fn table(&self) -> Option<EhHdrTable<R>> {
+    pub fn table(&self) -> Option<EhHdrTable<'_, R>> {
         // There are two big edge cases here:
         // * You search the table for an invalid address. As this is just a binary
         //   search table, we always have to return a valid result for that (unless
@@ -1245,7 +1245,7 @@ struct AugmentationData {
 impl AugmentationData {
     fn parse<R: Reader>(
         augmentation: &Augmentation,
-        encoding_parameters: &PointerEncodingParameters<R>,
+        encoding_parameters: &PointerEncodingParameters<'_, R>,
         input: &mut R,
     ) -> Result<AugmentationData> {
         // In theory, we should be iterating over the original augmentation
@@ -1712,7 +1712,7 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     fn parse_addresses(
         input: &mut R,
         cie: &CommonInformationEntry<R>,
-        parameters: &PointerEncodingParameters<R>,
+        parameters: &PointerEncodingParameters<'_, R>,
     ) -> Result<(u64, u64)> {
         let encoding = cie.augmentation().and_then(|a| a.fde_address_encoding);
         if let Some(encoding) = encoding {
@@ -1990,7 +1990,7 @@ pub struct UnwindContext<T: ReaderOffset, A: UnwindContextStorage<T> = StoreOnHe
 }
 
 impl<T: ReaderOffset, S: UnwindContextStorage<T>> Debug for UnwindContext<T, S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UnwindContext")
             .field("stack", &self.stack)
             .field("initial_rule", &self.initial_rule)
@@ -2524,7 +2524,7 @@ struct RegisterRuleMap<T: ReaderOffset, S: UnwindContextStorage<T> = StoreOnHeap
 }
 
 impl<T: ReaderOffset, S: UnwindContextStorage<T>> Debug for RegisterRuleMap<T, S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RegisterRuleMap")
             .field("rules", &self.rules)
             .finish()
@@ -2594,7 +2594,7 @@ impl<T: ReaderOffset, S: UnwindContextStorage<T>> RegisterRuleMap<T, S> {
             .map_err(|_| Error::TooManyRegisterRules)
     }
 
-    fn iter(&self) -> RegisterRuleIter<T> {
+    fn iter(&self) -> RegisterRuleIter<'_, T> {
         RegisterRuleIter(self.rules.iter())
     }
 }
@@ -2671,7 +2671,7 @@ pub struct UnwindTableRow<T: ReaderOffset, S: UnwindContextStorage<T> = StoreOnH
 }
 
 impl<T: ReaderOffset, S: UnwindContextStorage<T>> Debug for UnwindTableRow<T, S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UnwindTableRow")
             .field("start_address", &self.start_address)
             .field("end_address", &self.end_address)
@@ -2812,7 +2812,7 @@ impl<T: ReaderOffset, S: UnwindContextStorage<T>> UnwindTableRow<T, S> {
     /// }
     /// # }
     /// ```
-    pub fn registers(&self) -> RegisterRuleIter<T> {
+    pub fn registers(&self) -> RegisterRuleIter<'_, T> {
         self.registers.iter()
     }
 }
@@ -3209,7 +3209,7 @@ impl<T: ReaderOffset> CallFrameInstruction<T> {
     fn parse<R: Reader<Offset = T>>(
         input: &mut R,
         address_encoding: Option<DwEhPe>,
-        parameters: &PointerEncodingParameters<R>,
+        parameters: &PointerEncodingParameters<'_, R>,
         vendor: Vendor,
     ) -> Result<CallFrameInstruction<T>> {
         let instruction = input.read_u8()?;
@@ -3557,7 +3557,7 @@ struct PointerEncodingParameters<'a, R: Reader> {
 
 fn parse_encoded_pointer<R: Reader>(
     encoding: constants::DwEhPe,
-    parameters: &PointerEncodingParameters<R>,
+    parameters: &PointerEncodingParameters<'_, R>,
     input: &mut R,
 ) -> Result<Pointer> {
     // TODO: check this once only in parse_pointer_encoding

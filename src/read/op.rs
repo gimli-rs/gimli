@@ -2095,7 +2095,7 @@ mod tests {
 
     fn check_op_parse<F>(
         input: F,
-        expect: &Operation<EndianSlice<LittleEndian>>,
+        expect: &Operation<EndianSlice<'_, LittleEndian>>,
         encoding: Encoding,
     ) where
         F: Fn(Section) -> Section,
@@ -2918,7 +2918,7 @@ mod tests {
 
     fn check_eval_with_args<F>(
         program: &[AssemblerEntry],
-        expect: Result<&[Piece<EndianSlice<LittleEndian>>]>,
+        expect: Result<&[Piece<EndianSlice<'_, LittleEndian>>]>,
         encoding: Encoding,
         object_address: Option<u64>,
         initial_value: Option<u64>,
@@ -2967,7 +2967,7 @@ mod tests {
 
     fn check_eval(
         program: &[AssemblerEntry],
-        expect: Result<&[Piece<EndianSlice<LittleEndian>>]>,
+        expect: Result<&[Piece<EndianSlice<'_, LittleEndian>>]>,
         encoding: Encoding,
     ) {
         check_eval_with_args(program, expect, encoding, None, None, None, |_, result| {

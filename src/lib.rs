@@ -24,7 +24,7 @@
 #![warn(bare_trait_objects)]
 #![warn(unused_extern_crates)]
 #![warn(ellipsis_inclusive_range_patterns)]
-//#![warn(elided_lifetimes_in_paths)]
+#![warn(elided_lifetimes_in_paths)]
 #![warn(explicit_outlives_requirements)]
 // Style.
 #![allow(clippy::bool_to_int_with_if)]
