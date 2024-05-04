@@ -304,13 +304,13 @@ where
 
     #[cfg(feature = "read")]
     #[inline]
-    fn to_slice(&self) -> Result<Cow<[u8]>> {
+    fn to_slice(&self) -> Result<Cow<'_, [u8]>> {
         Ok(self.slice.into())
     }
 
     #[cfg(feature = "read")]
     #[inline]
-    fn to_string(&self) -> Result<Cow<str>> {
+    fn to_string(&self) -> Result<Cow<'_, str>> {
         match str::from_utf8(self.slice) {
             Ok(s) => Ok(s.into()),
             _ => Err(Error::BadUtf8),
@@ -319,7 +319,7 @@ where
 
     #[cfg(feature = "read")]
     #[inline]
-    fn to_string_lossy(&self) -> Result<Cow<str>> {
+    fn to_string_lossy(&self) -> Result<Cow<'_, str>> {
         Ok(String::from_utf8_lossy(self.slice))
     }
 

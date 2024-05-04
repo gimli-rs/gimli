@@ -51,7 +51,7 @@ use core::{fmt, ops};
 //     }
 //
 //     impl fmt::Display for DwFoo {
-//         fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+//         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
 //             ...
 //         }
 //     }
@@ -83,7 +83,7 @@ macro_rules! dw {
         }
 
         impl fmt::Display for $struct_name {
-            fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
                 if let Some(s) = self.static_string() {
                     f.pad(s)
                 } else {

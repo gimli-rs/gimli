@@ -256,7 +256,7 @@ impl<R: Reader> UnitIndex<R> {
     }
 
     /// Return the section offsets and sizes for the given row index.
-    pub fn sections(&self, mut row: u32) -> Result<UnitIndexSectionIterator<R>> {
+    pub fn sections(&self, mut row: u32) -> Result<UnitIndexSectionIterator<'_, R>> {
         if row == 0 {
             return Err(Error::InvalidIndexRow);
         }

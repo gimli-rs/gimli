@@ -305,7 +305,7 @@ mod convert {
         /// Create a location list by reading the data from the give location list iter.
         pub(crate) fn from<R: Reader<Offset = usize>>(
             mut from: read::RawLocListIter<R>,
-            context: &ConvertUnitContext<R>,
+            context: &ConvertUnitContext<'_, R>,
         ) -> ConvertResult<Self> {
             let mut have_base_address = context.base_address != Address::Constant(0);
             let convert_address =

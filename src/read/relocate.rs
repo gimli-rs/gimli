@@ -130,19 +130,19 @@ where
 
     #[cfg(feature = "read")]
     #[inline]
-    fn to_slice(&self) -> Result<Cow<[u8]>> {
+    fn to_slice(&self) -> Result<Cow<'_, [u8]>> {
         self.reader.to_slice()
     }
 
     #[cfg(feature = "read")]
     #[inline]
-    fn to_string(&self) -> Result<Cow<str>> {
+    fn to_string(&self) -> Result<Cow<'_, str>> {
         self.reader.to_string()
     }
 
     #[cfg(feature = "read")]
     #[inline]
-    fn to_string_lossy(&self) -> Result<Cow<str>> {
+    fn to_string_lossy(&self) -> Result<Cow<'_, str>> {
         self.reader.to_string_lossy()
     }
 
