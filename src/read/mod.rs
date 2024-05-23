@@ -180,6 +180,7 @@ use std::{error, io};
 
 use crate::common::{Register, SectionId};
 use crate::constants;
+use crate::DwForm;
 
 mod util;
 pub use util::*;
@@ -305,7 +306,7 @@ pub enum Error {
     /// The specified length is impossible.
     BadLength,
     /// Found an unknown `DW_FORM_*` type.
-    UnknownForm,
+    UnknownForm(DwForm),
     /// Expected a zero, found something else.
     ExpectedZero,
     /// Found an abbreviation code that has already been used.
@@ -317,7 +318,7 @@ pub enum Error {
     /// Found an unknown DWARF version.
     UnknownVersion(u64),
     /// Found a record with an unknown abbreviation code.
-    UnknownAbbreviation,
+    UnknownAbbreviation(u64),
     /// Hit the end of input before it was expected.
     UnexpectedEof(ReaderOffsetId),
     /// Read a null entry before it was expected.
@@ -326,6 +327,10 @@ pub enum Error {
     UnknownStandardOpcode(constants::DwLns),
     /// Found an unknown extended opcode.
     UnknownExtendedOpcode(constants::DwLne),
+    /// Found an unknown location-lists format.
+    UnknownLocListsFormat(constants::DwLle),
+    /// Found an unknown range-lists format.
+    UnknownRangeListsFormat(constants::DwRle),
     /// The specified address size is not supported.
     UnsupportedAddressSize(u8),
     /// The specified offset size is not supported.
@@ -395,7 +400,7 @@ pub enum Error {
     /// An offset value was larger than the maximum supported value.
     UnsupportedOffset,
     /// The given pointer encoding is either unknown or invalid.
-    UnknownPointerEncoding,
+    UnknownPointerEncoding(constants::DwEhPe),
     /// Did not find an entry at the given offset.
     NoEntryAtGivenOffset,
     /// The given offset is out of bounds.
@@ -436,8 +441,12 @@ pub enum Error {
     InvalidIndexSlotCount,
     /// Invalid hash row in `.dwp` index.
     InvalidIndexRow,
+    /// Unknown section type.
+    UnknownSection(SectionId),
     /// Unknown section type in `.dwp` index.
-    UnknownIndexSection,
+    UnknownIndexSection(constants::DwSect),
+    /// Unknown section type in version 2 `.dwp` index.
+    UnknownIndexSectionV2(constants::DwSectV2),
 }
 
 impl fmt::Display for Error {
@@ -482,7 +491,7 @@ impl Error {
                  `DW_CHILDREN_{yes,no}`"
             }
             Error::BadLength => "The specified length is impossible",
-            Error::UnknownForm => "Found an unknown `DW_FORM_*` type",
+            Error::UnknownForm(_) => "Found an unknown `DW_FORM_*` type",
             Error::ExpectedZero => "Expected a zero, found something else",
             Error::DuplicateAbbreviationCode => {
                 "Found an abbreviation code that has already been used"
@@ -490,11 +499,13 @@ impl Error {
             Error::DuplicateArange => "Found a duplicate arange",
             Error::UnknownReservedLength => "Found an unknown reserved length value",
             Error::UnknownVersion(_) => "Found an unknown DWARF version",
-            Error::UnknownAbbreviation => "Found a record with an unknown abbreviation code",
+            Error::UnknownAbbreviation(_) => "Found a record with an unknown abbreviation code",
             Error::UnexpectedEof(_) => "Hit the end of input before it was expected",
             Error::UnexpectedNull => "Read a null entry before it was expected.",
             Error::UnknownStandardOpcode(_) => "Found an unknown standard opcode",
             Error::UnknownExtendedOpcode(_) => "Found an unknown extended opcode",
+            Error::UnknownLocListsFormat(_) => "Found an unknown location lists format",
+            Error::UnknownRangeListsFormat(_) => "Found an unknown range lists format",
             Error::UnsupportedAddressSize(_) => "The specified address size is not supported",
             Error::UnsupportedOffsetSize(_) => "The specified offset size is not supported",
             Error::UnsupportedFieldSize(_) => "The specified field size is not supported",
@@ -551,7 +562,7 @@ impl Error {
             Error::UnsupportedOffset => {
                 "An offset value was larger than the maximum supported value."
             }
-            Error::UnknownPointerEncoding => {
+            Error::UnknownPointerEncoding(_) => {
                 "The given pointer encoding is either unknown or invalid."
             }
             Error::NoEntryAtGivenOffset => "Did not find an entry at the given offset.",
@@ -586,7 +597,9 @@ impl Error {
             Error::InvalidIndexSectionCount => "Invalid section count in `.dwp` index.",
             Error::InvalidIndexSlotCount => "Invalid slot count in `.dwp` index.",
             Error::InvalidIndexRow => "Invalid hash row in `.dwp` index.",
-            Error::UnknownIndexSection => "Unknown section type in `.dwp` index.",
+            Error::UnknownSection(_) => "Unknown section type.",
+            Error::UnknownIndexSection(_) => "Unknown section type in `.dwp` index.",
+            Error::UnknownIndexSectionV2(_) => "Unknown section type in version 2 `.dwp` index.",
         }
     }
 }

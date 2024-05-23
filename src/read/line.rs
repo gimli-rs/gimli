@@ -1874,7 +1874,7 @@ fn parse_attribute<R: Reader>(
             AttributeValue::DebugStrOffsetsIndex(DebugStrOffsetsIndex(index))
         }
         _ => {
-            return Err(Error::UnknownForm);
+            return Err(Error::UnknownForm(form));
         }
     })
 }

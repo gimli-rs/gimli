@@ -268,7 +268,7 @@ impl<'a, 'bases, R: Reader> EhHdrTableIter<'a, 'bases, R> {
             constants::DW_EH_PE_sdata2 | constants::DW_EH_PE_udata2 => 2,
             constants::DW_EH_PE_sdata4 | constants::DW_EH_PE_udata4 => 4,
             constants::DW_EH_PE_sdata8 | constants::DW_EH_PE_udata8 => 8,
-            _ => return Err(Error::UnknownPointerEncoding),
+            format => return Err(Error::UnknownPointerEncoding(format)),
         };
 
         let row_size = size * 2;
@@ -335,7 +335,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
             constants::DW_EH_PE_sdata2 | constants::DW_EH_PE_udata2 => 2,
             constants::DW_EH_PE_sdata4 | constants::DW_EH_PE_udata4 => 4,
             constants::DW_EH_PE_sdata8 | constants::DW_EH_PE_udata8 => 8,
-            _ => return Err(Error::UnknownPointerEncoding),
+            format => return Err(Error::UnknownPointerEncoding(format)),
         };
 
         let row_size = size * 2;
@@ -3493,7 +3493,7 @@ fn parse_pointer_encoding<R: Reader>(input: &mut R) -> Result<constants::DwEhPe>
     if eh_pe.is_valid_encoding() {
         Ok(eh_pe)
     } else {
-        Err(Error::UnknownPointerEncoding)
+        Err(Error::UnknownPointerEncoding(eh_pe))
     }
 }
 
@@ -3562,7 +3562,7 @@ fn parse_encoded_pointer<R: Reader>(
 ) -> Result<Pointer> {
     // TODO: check this once only in parse_pointer_encoding
     if !encoding.is_valid_encoding() {
-        return Err(Error::UnknownPointerEncoding);
+        return Err(Error::UnknownPointerEncoding(encoding));
     }
 
     if encoding == constants::DW_EH_PE_omit {
@@ -7383,7 +7383,7 @@ mod tests {
         let input = [expected.0, 1, 2, 3, 4];
         let input = &mut EndianSlice::new(&input, NativeEndian);
         assert_eq!(
-            Err(Error::UnknownPointerEncoding),
+            Err(Error::UnknownPointerEncoding(expected)),
             parse_pointer_encoding(input)
         );
     }
@@ -7840,7 +7840,7 @@ mod tests {
         };
         assert_eq!(
             parse_encoded_pointer(encoding, &parameters, &mut rest),
-            Err(Error::UnknownPointerEncoding)
+            Err(Error::UnknownPointerEncoding(encoding))
         );
     }
 

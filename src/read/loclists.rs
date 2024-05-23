@@ -478,8 +478,8 @@ impl<R: Reader> RawLocListEntry<R> {
                     length: input.read_uleb128()?,
                     data: parse_data(input, encoding)?,
                 }),
-                _ => {
-                    return Err(Error::InvalidAddressRange);
+                format => {
+                    return Err(Error::UnknownLocListsFormat(format));
                 }
             },
         })

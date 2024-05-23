@@ -912,7 +912,9 @@ where
         if code == 0 {
             return Ok(None);
         };
-        let abbrev = abbreviations.get(code).ok_or(Error::UnknownAbbreviation)?;
+        let abbrev = abbreviations
+            .get(code)
+            .ok_or(Error::UnknownAbbreviation(code))?;
         Ok(Some(DebuggingInformationEntry {
             offset: UnitOffset(offset),
             attrs_slice: input.clone(),
@@ -2180,7 +2182,7 @@ pub(crate) fn parse_attribute<R: Reader>(
                 AttributeValue::DebugRngListsIndex(DebugRngListsIndex(index))
             }
             _ => {
-                return Err(Error::UnknownForm);
+                return Err(Error::UnknownForm(form));
             }
         };
         let attr = Attribute {
@@ -2246,7 +2248,7 @@ pub(crate) fn skip_attributes<R: Reader>(
                     input.skip_leb128()?;
                 }
                 _ => {
-                    return Err(Error::UnknownForm);
+                    return Err(Error::UnknownForm(form));
                 }
             };
             break;
@@ -2425,7 +2427,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesRaw<'abbrev, 'unit, R> {
         let abbrev = self
             .abbreviations
             .get(code)
-            .ok_or(Error::UnknownAbbreviation)?;
+            .ok_or(Error::UnknownAbbreviation(code))?;
         if abbrev.has_children() {
             self.depth += 1;
         }
