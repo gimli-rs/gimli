@@ -180,7 +180,6 @@ use std::{error, io};
 
 use crate::common::{Register, SectionId};
 use crate::constants;
-use crate::DwForm;
 
 mod util;
 pub use util::*;
@@ -306,7 +305,7 @@ pub enum Error {
     /// The specified length is impossible.
     BadLength,
     /// Found an unknown `DW_FORM_*` type.
-    UnknownForm(DwForm),
+    UnknownForm(constants::DwForm),
     /// Expected a zero, found something else.
     ExpectedZero,
     /// Found an abbreviation code that has already been used.
@@ -328,9 +327,9 @@ pub enum Error {
     /// Found an unknown extended opcode.
     UnknownExtendedOpcode(constants::DwLne),
     /// Found an unknown location-lists format.
-    UnknownLocListsFormat(constants::DwLle),
+    UnknownLocListsEntry(constants::DwLle),
     /// Found an unknown range-lists format.
-    UnknownRangeListsFormat(constants::DwRle),
+    UnknownRangeListsEntry(constants::DwRle),
     /// The specified address size is not supported.
     UnsupportedAddressSize(u8),
     /// The specified offset size is not supported.
@@ -504,8 +503,8 @@ impl Error {
             Error::UnexpectedNull => "Read a null entry before it was expected.",
             Error::UnknownStandardOpcode(_) => "Found an unknown standard opcode",
             Error::UnknownExtendedOpcode(_) => "Found an unknown extended opcode",
-            Error::UnknownLocListsFormat(_) => "Found an unknown location lists format",
-            Error::UnknownRangeListsFormat(_) => "Found an unknown range lists format",
+            Error::UnknownLocListsEntry(_) => "Found an unknown location lists entry",
+            Error::UnknownRangeListsEntry(_) => "Found an unknown range lists entry",
             Error::UnsupportedAddressSize(_) => "The specified address size is not supported",
             Error::UnsupportedOffsetSize(_) => "The specified offset size is not supported",
             Error::UnsupportedFieldSize(_) => "The specified field size is not supported",

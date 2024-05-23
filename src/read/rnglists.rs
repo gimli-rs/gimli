@@ -415,8 +415,8 @@ impl<T: ReaderOffset> RawRngListEntry<T> {
                     begin: input.read_address(encoding.address_size)?,
                     length: input.read_uleb128()?,
                 }),
-                format => {
-                    return Err(Error::UnknownRangeListsFormat(format));
+                entry => {
+                    return Err(Error::UnknownRangeListsEntry(entry));
                 }
             },
         })

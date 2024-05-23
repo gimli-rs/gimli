@@ -268,7 +268,7 @@ impl<'a, 'bases, R: Reader> EhHdrTableIter<'a, 'bases, R> {
             constants::DW_EH_PE_sdata2 | constants::DW_EH_PE_udata2 => 2,
             constants::DW_EH_PE_sdata4 | constants::DW_EH_PE_udata4 => 4,
             constants::DW_EH_PE_sdata8 | constants::DW_EH_PE_udata8 => 8,
-            format => return Err(Error::UnknownPointerEncoding(format)),
+            _ => return Err(Error::UnknownPointerEncoding(self.hdr.table_enc)),
         };
 
         let row_size = size * 2;
@@ -335,7 +335,7 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
             constants::DW_EH_PE_sdata2 | constants::DW_EH_PE_udata2 => 2,
             constants::DW_EH_PE_sdata4 | constants::DW_EH_PE_udata4 => 4,
             constants::DW_EH_PE_sdata8 | constants::DW_EH_PE_udata8 => 8,
-            format => return Err(Error::UnknownPointerEncoding(format)),
+            _ => return Err(Error::UnknownPointerEncoding(self.hdr.table_enc)),
         };
 
         let row_size = size * 2;
