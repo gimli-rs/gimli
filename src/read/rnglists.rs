@@ -573,11 +573,6 @@ impl<R: Reader> RngListIter<R> {
             return Ok(None);
         }
 
-        if range.begin > range.end {
-            self.raw.input.empty();
-            return Err(Error::InvalidAddressRange);
-        }
-
         Ok(Some(range))
     }
 }
@@ -1402,7 +1397,13 @@ mod tests {
                 debug_addr_base,
             )
             .unwrap();
-        assert_eq!(ranges.next(), Err(Error::InvalidAddressRange));
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x0102_0000,
+                end: 0x0101_0000
+            }))
+        );
 
         // An invalid range after wrapping.
         let mut ranges = rnglists
@@ -1414,7 +1415,13 @@ mod tests {
                 debug_addr_base,
             )
             .unwrap();
-        assert_eq!(ranges.next(), Err(Error::InvalidAddressRange));
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x0102_0000,
+                end: 0x0001_0000
+            }))
+        );
 
         // An invalid offset.
         match rnglists.ranges(
