@@ -1048,7 +1048,7 @@ impl<R: Reader> DwarfPackage<R> {
                 SectionId::DebugMacro | SectionId::DebugMacinfo => {
                     // These are valid but we can't parse these yet.
                 }
-                _ => return Err(Error::UnknownIndexSection),
+                _ => return Err(Error::UnknownSection(section.section)),
             }
         }
 

@@ -189,7 +189,7 @@ impl<R: Reader> UnitIndex<R> {
                     constants::DW_SECT_V2_STR_OFFSETS => SectionId::DebugStrOffsets,
                     constants::DW_SECT_V2_MACINFO => SectionId::DebugMacinfo,
                     constants::DW_SECT_V2_MACRO => SectionId::DebugMacro,
-                    _ => return Err(Error::UnknownIndexSection),
+                    section => return Err(Error::UnknownIndexSectionV2(section)),
                 }
             } else {
                 match constants::DwSect(section) {
@@ -200,7 +200,7 @@ impl<R: Reader> UnitIndex<R> {
                     constants::DW_SECT_STR_OFFSETS => SectionId::DebugStrOffsets,
                     constants::DW_SECT_MACRO => SectionId::DebugMacro,
                     constants::DW_SECT_RNGLISTS => SectionId::DebugRngLists,
-                    _ => return Err(Error::UnknownIndexSection),
+                    section => return Err(Error::UnknownIndexSection(section)),
                 }
             };
         }
