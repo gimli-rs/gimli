@@ -650,13 +650,8 @@ impl<R: Reader> LocListIter<R> {
             }
         };
 
-        if range.begin == tombstone {
+        if range.begin == tombstone || range.begin > range.end {
             return Ok(None);
-        }
-
-        if range.begin > range.end {
-            self.raw.input.empty();
-            return Err(Error::InvalidLocationAddressRange);
         }
 
         Ok(Some(LocationListEntry { range, data }))
@@ -1522,7 +1517,7 @@ mod tests {
                 debug_addr_base,
             )
             .unwrap();
-        assert_eq!(locations.next(), Err(Error::InvalidLocationAddressRange));
+        assert_eq!(locations.next(), Ok(None));
 
         // An invalid location range after wrapping.
         let mut locations = loclists
@@ -1534,7 +1529,7 @@ mod tests {
                 debug_addr_base,
             )
             .unwrap();
-        assert_eq!(locations.next(), Err(Error::InvalidLocationAddressRange));
+        assert_eq!(locations.next(), Ok(None));
 
         // An invalid offset.
         match loclists.locations(
