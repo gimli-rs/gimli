@@ -968,7 +968,7 @@ where
         writeln!(
             w,
             "  {}: offset = 0x{:x}, size = 0x{:x}",
-            section.section.dwo_name().unwrap(),
+            section.section.dwo_name(),
             section.offset,
             section.size
         )?;
