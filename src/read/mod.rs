@@ -382,8 +382,6 @@ pub enum Error {
     UnknownCallFrameInstruction(constants::DwCfa),
     /// The end of an address range was before the beginning.
     InvalidAddressRange,
-    /// The end offset of a loc list entry was before the beginning.
-    InvalidLocationAddressRange,
     /// Encountered a call frame instruction in a context in which it is not
     /// valid.
     CfiInstructionInInvalidContext,
@@ -536,9 +534,6 @@ impl Error {
             Error::UnknownCallFrameInstruction(_) => "An unknown DW_CFA_* instructiion",
             Error::InvalidAddressRange => {
                 "The end of an address range must not be before the beginning."
-            }
-            Error::InvalidLocationAddressRange => {
-                "The end offset of a location list entry must not be before the beginning."
             }
             Error::CfiInstructionInInvalidContext => {
                 "Encountered a call frame instruction in a context in which it is not valid."
