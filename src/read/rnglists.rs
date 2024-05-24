@@ -569,7 +569,7 @@ impl<R: Reader> RngListIter<R> {
             }
         };
 
-        if range.begin == tombstone {
+        if range.begin == tombstone || range.begin > range.end {
             return Ok(None);
         }
 
@@ -1397,13 +1397,7 @@ mod tests {
                 debug_addr_base,
             )
             .unwrap();
-        assert_eq!(
-            ranges.next(),
-            Ok(Some(Range {
-                begin: 0x0102_0000,
-                end: 0x0101_0000
-            }))
-        );
+        assert_eq!(ranges.next(), Ok(None));
 
         // An invalid range after wrapping.
         let mut ranges = rnglists
@@ -1415,13 +1409,7 @@ mod tests {
                 debug_addr_base,
             )
             .unwrap();
-        assert_eq!(
-            ranges.next(),
-            Ok(Some(Range {
-                begin: 0x0102_0000,
-                end: 0x0001_0000
-            }))
-        );
+        assert_eq!(ranges.next(), Ok(None));
 
         // An invalid offset.
         match rnglists.ranges(
