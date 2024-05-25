@@ -337,7 +337,7 @@ pub struct UnitIndexSection {
     pub size: u32,
 }
 
-/// Section kinds which are permitted in a `.dwo` file.
+/// Section kinds which are permitted in a `.dwp` index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IndexSectionId {
     /// The `.debug_abbrev.dwo` section.
