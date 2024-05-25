@@ -339,6 +339,7 @@ impl SectionId {
             // GNU split-dwarf extension to DWARF4.
             SectionId::DebugLoc => ".debug_loc.dwo",
             SectionId::DebugLocLists => ".debug_loclists.dwo",
+            SectionId::DebugMacinfo => ".debug_macinfo.dwo",
             SectionId::DebugMacro => ".debug_macro.dwo",
             SectionId::DebugRngLists => ".debug_rnglists.dwo",
             SectionId::DebugStr => ".debug_str.dwo",

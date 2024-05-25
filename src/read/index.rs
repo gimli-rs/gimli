@@ -129,7 +129,7 @@ pub struct UnitIndex<R: Reader> {
     hash_ids: R,
     hash_rows: R,
     // Only `section_count` values are valid.
-    sections: [SectionId; SECTION_COUNT_MAX as usize],
+    sections: [IndexSectionId; SECTION_COUNT_MAX as usize],
     offsets: R,
     sizes: R,
 }
@@ -144,7 +144,7 @@ impl<R: Reader> UnitIndex<R> {
                 slot_count: 0,
                 hash_ids: input.clone(),
                 hash_rows: input.clone(),
-                sections: [SectionId::DebugAbbrev; SECTION_COUNT_MAX as usize],
+                sections: [IndexSectionId::DebugAbbrev; SECTION_COUNT_MAX as usize],
                 offsets: input.clone(),
                 sizes: input.clone(),
             });
@@ -173,7 +173,7 @@ impl<R: Reader> UnitIndex<R> {
         let hash_ids = input.split(R::Offset::from_u64(u64::from(slot_count) * 8)?)?;
         let hash_rows = input.split(R::Offset::from_u64(u64::from(slot_count) * 4)?)?;
 
-        let mut sections = [SectionId::DebugAbbrev; SECTION_COUNT_MAX as usize];
+        let mut sections = [IndexSectionId::DebugAbbrev; SECTION_COUNT_MAX as usize];
         if section_count > SECTION_COUNT_MAX.into() {
             return Err(Error::InvalidIndexSectionCount);
         }
@@ -181,25 +181,25 @@ impl<R: Reader> UnitIndex<R> {
             let section = input.read_u32()?;
             sections[i as usize] = if version == 2 {
                 match constants::DwSectV2(section) {
-                    constants::DW_SECT_V2_INFO => SectionId::DebugInfo,
-                    constants::DW_SECT_V2_TYPES => SectionId::DebugTypes,
-                    constants::DW_SECT_V2_ABBREV => SectionId::DebugAbbrev,
-                    constants::DW_SECT_V2_LINE => SectionId::DebugLine,
-                    constants::DW_SECT_V2_LOC => SectionId::DebugLoc,
-                    constants::DW_SECT_V2_STR_OFFSETS => SectionId::DebugStrOffsets,
-                    constants::DW_SECT_V2_MACINFO => SectionId::DebugMacinfo,
-                    constants::DW_SECT_V2_MACRO => SectionId::DebugMacro,
+                    constants::DW_SECT_V2_INFO => IndexSectionId::DebugInfo,
+                    constants::DW_SECT_V2_TYPES => IndexSectionId::DebugTypes,
+                    constants::DW_SECT_V2_ABBREV => IndexSectionId::DebugAbbrev,
+                    constants::DW_SECT_V2_LINE => IndexSectionId::DebugLine,
+                    constants::DW_SECT_V2_LOC => IndexSectionId::DebugLoc,
+                    constants::DW_SECT_V2_STR_OFFSETS => IndexSectionId::DebugStrOffsets,
+                    constants::DW_SECT_V2_MACINFO => IndexSectionId::DebugMacinfo,
+                    constants::DW_SECT_V2_MACRO => IndexSectionId::DebugMacro,
                     section => return Err(Error::UnknownIndexSectionV2(section)),
                 }
             } else {
                 match constants::DwSect(section) {
-                    constants::DW_SECT_INFO => SectionId::DebugInfo,
-                    constants::DW_SECT_ABBREV => SectionId::DebugAbbrev,
-                    constants::DW_SECT_LINE => SectionId::DebugLine,
-                    constants::DW_SECT_LOCLISTS => SectionId::DebugLocLists,
-                    constants::DW_SECT_STR_OFFSETS => SectionId::DebugStrOffsets,
-                    constants::DW_SECT_MACRO => SectionId::DebugMacro,
-                    constants::DW_SECT_RNGLISTS => SectionId::DebugRngLists,
+                    constants::DW_SECT_INFO => IndexSectionId::DebugInfo,
+                    constants::DW_SECT_ABBREV => IndexSectionId::DebugAbbrev,
+                    constants::DW_SECT_LINE => IndexSectionId::DebugLine,
+                    constants::DW_SECT_LOCLISTS => IndexSectionId::DebugLocLists,
+                    constants::DW_SECT_STR_OFFSETS => IndexSectionId::DebugStrOffsets,
+                    constants::DW_SECT_MACRO => IndexSectionId::DebugMacro,
+                    constants::DW_SECT_RNGLISTS => IndexSectionId::DebugRngLists,
                     section => return Err(Error::UnknownIndexSection(section)),
                 }
             };
@@ -305,7 +305,7 @@ impl<R: Reader> UnitIndex<R> {
 /// An iterator over the section offsets and sizes for a row in a `UnitIndex`.
 #[derive(Debug, Clone)]
 pub struct UnitIndexSectionIterator<'index, R: Reader> {
-    sections: slice::Iter<'index, SectionId>,
+    sections: slice::Iter<'index, IndexSectionId>,
     offsets: R,
     sizes: R,
 }
@@ -330,11 +330,55 @@ impl<'index, R: Reader> Iterator for UnitIndexSectionIterator<'index, R> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnitIndexSection {
     /// The section kind.
-    pub section: SectionId,
+    pub section: IndexSectionId,
     /// The base offset of the unit's contribution to the section.
     pub offset: u32,
     /// The size of the unit's contribution to the section.
     pub size: u32,
+}
+
+/// Section kinds which are permitted in a `.dwp` index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndexSectionId {
+    /// The `.debug_abbrev.dwo` section.
+    DebugAbbrev,
+    /// The `.debug_info.dwo` section.
+    DebugInfo,
+    /// The `.debug_line.dwo` section.
+    DebugLine,
+    /// The `.debug_loc.dwo` section.
+    DebugLoc,
+    /// The `.debug_loclists.dwo` section.
+    DebugLocLists,
+    /// The `.debug_macinfo.dwo` section.
+    DebugMacinfo,
+    /// The `.debug_macro.dwo` section.
+    DebugMacro,
+    /// The `.debug_rnglists.dwo` section.
+    DebugRngLists,
+    /// The `.debug_str_offsets.dwo` section.
+    DebugStrOffsets,
+    /// The `.debug_types.dwo` section.
+    DebugTypes,
+}
+
+impl IndexSectionId {
+    /// Returns the ELF section name for this kind, when found in a .dwo or .dwp file.
+    pub fn dwo_name(self) -> &'static str {
+        let section_id = match self {
+            IndexSectionId::DebugAbbrev => SectionId::DebugAbbrev,
+            IndexSectionId::DebugInfo => SectionId::DebugInfo,
+            IndexSectionId::DebugLine => SectionId::DebugLine,
+            IndexSectionId::DebugLoc => SectionId::DebugLoc,
+            IndexSectionId::DebugLocLists => SectionId::DebugLocLists,
+            IndexSectionId::DebugMacro => SectionId::DebugMacro,
+            IndexSectionId::DebugMacinfo => SectionId::DebugMacinfo,
+            IndexSectionId::DebugRngLists => SectionId::DebugRngLists,
+            IndexSectionId::DebugStrOffsets => SectionId::DebugStrOffsets,
+            IndexSectionId::DebugTypes => SectionId::DebugTypes,
+        };
+        section_id.dwo_name().unwrap()
+    }
 }
 
 #[cfg(test)]
@@ -437,26 +481,26 @@ mod tests {
         assert_eq!(
             index.sections,
             [
-                SectionId::DebugInfo,
-                SectionId::DebugTypes,
-                SectionId::DebugAbbrev,
-                SectionId::DebugLine,
-                SectionId::DebugLoc,
-                SectionId::DebugStrOffsets,
-                SectionId::DebugMacinfo,
-                SectionId::DebugMacro,
+                IndexSectionId::DebugInfo,
+                IndexSectionId::DebugTypes,
+                IndexSectionId::DebugAbbrev,
+                IndexSectionId::DebugLine,
+                IndexSectionId::DebugLoc,
+                IndexSectionId::DebugStrOffsets,
+                IndexSectionId::DebugMacinfo,
+                IndexSectionId::DebugMacro,
             ]
         );
         #[rustfmt::skip]
         let expect = [
-            UnitIndexSection { section: SectionId::DebugInfo, offset: 11, size: 21 },
-            UnitIndexSection { section: SectionId::DebugTypes, offset: 12, size: 22 },
-            UnitIndexSection { section: SectionId::DebugAbbrev, offset: 13, size: 23 },
-            UnitIndexSection { section: SectionId::DebugLine, offset: 14, size: 24 },
-            UnitIndexSection { section: SectionId::DebugLoc, offset: 15, size: 25 },
-            UnitIndexSection { section: SectionId::DebugStrOffsets, offset: 16, size: 26 },
-            UnitIndexSection { section: SectionId::DebugMacinfo, offset: 17, size: 27 },
-            UnitIndexSection { section: SectionId::DebugMacro, offset: 18, size: 28 },
+            UnitIndexSection { section: IndexSectionId::DebugInfo, offset: 11, size: 21 },
+            UnitIndexSection { section: IndexSectionId::DebugTypes, offset: 12, size: 22 },
+            UnitIndexSection { section: IndexSectionId::DebugAbbrev, offset: 13, size: 23 },
+            UnitIndexSection { section: IndexSectionId::DebugLine, offset: 14, size: 24 },
+            UnitIndexSection { section: IndexSectionId::DebugLoc, offset: 15, size: 25 },
+            UnitIndexSection { section: IndexSectionId::DebugStrOffsets, offset: 16, size: 26 },
+            UnitIndexSection { section: IndexSectionId::DebugMacinfo, offset: 17, size: 27 },
+            UnitIndexSection { section: IndexSectionId::DebugMacro, offset: 18, size: 28 },
         ];
         let mut sections = index.sections(1).unwrap();
         for section in &expect {
@@ -492,24 +536,24 @@ mod tests {
         assert_eq!(
             index.sections[..7],
             [
-                SectionId::DebugInfo,
-                SectionId::DebugAbbrev,
-                SectionId::DebugLine,
-                SectionId::DebugLocLists,
-                SectionId::DebugStrOffsets,
-                SectionId::DebugMacro,
-                SectionId::DebugRngLists,
+                IndexSectionId::DebugInfo,
+                IndexSectionId::DebugAbbrev,
+                IndexSectionId::DebugLine,
+                IndexSectionId::DebugLocLists,
+                IndexSectionId::DebugStrOffsets,
+                IndexSectionId::DebugMacro,
+                IndexSectionId::DebugRngLists,
             ]
         );
         #[rustfmt::skip]
         let expect = [
-            UnitIndexSection { section: SectionId::DebugInfo, offset: 11, size: 21 },
-            UnitIndexSection { section: SectionId::DebugAbbrev, offset: 12, size: 22 },
-            UnitIndexSection { section: SectionId::DebugLine, offset: 13, size: 23 },
-            UnitIndexSection { section: SectionId::DebugLocLists, offset: 14, size: 24 },
-            UnitIndexSection { section: SectionId::DebugStrOffsets, offset: 15, size: 25 },
-            UnitIndexSection { section: SectionId::DebugMacro, offset: 16, size: 26 },
-            UnitIndexSection { section: SectionId::DebugRngLists, offset: 17, size: 27 },
+            UnitIndexSection { section: IndexSectionId::DebugInfo, offset: 11, size: 21 },
+            UnitIndexSection { section: IndexSectionId::DebugAbbrev, offset: 12, size: 22 },
+            UnitIndexSection { section: IndexSectionId::DebugLine, offset: 13, size: 23 },
+            UnitIndexSection { section: IndexSectionId::DebugLocLists, offset: 14, size: 24 },
+            UnitIndexSection { section: IndexSectionId::DebugStrOffsets, offset: 15, size: 25 },
+            UnitIndexSection { section: IndexSectionId::DebugMacro, offset: 16, size: 26 },
+            UnitIndexSection { section: IndexSectionId::DebugRngLists, offset: 17, size: 27 },
         ];
         let mut sections = index.sections(1).unwrap();
         for section in &expect {

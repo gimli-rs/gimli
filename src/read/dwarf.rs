@@ -13,9 +13,10 @@ use crate::read::{
     DebugAddr, DebugAranges, DebugCuIndex, DebugInfo, DebugInfoUnitHeadersIter, DebugLine,
     DebugLineStr, DebugLoc, DebugLocLists, DebugRanges, DebugRngLists, DebugStr, DebugStrOffsets,
     DebugTuIndex, DebugTypes, DebugTypesUnitHeadersIter, DebuggingInformationEntry, EntriesCursor,
-    EntriesRaw, EntriesTree, Error, IncompleteLineProgram, LocListIter, LocationLists, Range,
-    RangeLists, RawLocListIter, RawRngListIter, Reader, ReaderOffset, ReaderOffsetId, Result,
-    RngListIter, Section, UnitHeader, UnitIndex, UnitIndexSectionIterator, UnitOffset, UnitType,
+    EntriesRaw, EntriesTree, Error, IncompleteLineProgram, IndexSectionId, LocListIter,
+    LocationLists, Range, RangeLists, RawLocListIter, RawRngListIter, Reader, ReaderOffset,
+    ReaderOffsetId, Result, RngListIter, Section, UnitHeader, UnitIndex, UnitIndexSectionIterator,
+    UnitOffset, UnitType,
 };
 
 /// All of the commonly used DWARF sections.
@@ -1013,42 +1014,41 @@ impl<R: Reader> DwarfPackage<R> {
         let mut types_size = 0;
         for section in sections {
             match section.section {
-                SectionId::DebugAbbrev => {
+                IndexSectionId::DebugAbbrev => {
                     abbrev_offset = section.offset;
                     abbrev_size = section.size;
                 }
-                SectionId::DebugInfo => {
+                IndexSectionId::DebugInfo => {
                     info_offset = section.offset;
                     info_size = section.size;
                 }
-                SectionId::DebugLine => {
+                IndexSectionId::DebugLine => {
                     line_offset = section.offset;
                     line_size = section.size;
                 }
-                SectionId::DebugLoc => {
+                IndexSectionId::DebugLoc => {
                     loc_offset = section.offset;
                     loc_size = section.size;
                 }
-                SectionId::DebugLocLists => {
+                IndexSectionId::DebugLocLists => {
                     loclists_offset = section.offset;
                     loclists_size = section.size;
                 }
-                SectionId::DebugStrOffsets => {
+                IndexSectionId::DebugStrOffsets => {
                     str_offsets_offset = section.offset;
                     str_offsets_size = section.size;
                 }
-                SectionId::DebugRngLists => {
+                IndexSectionId::DebugRngLists => {
                     rnglists_offset = section.offset;
                     rnglists_size = section.size;
                 }
-                SectionId::DebugTypes => {
+                IndexSectionId::DebugTypes => {
                     types_offset = section.offset;
                     types_size = section.size;
                 }
-                SectionId::DebugMacro | SectionId::DebugMacinfo => {
+                IndexSectionId::DebugMacro | IndexSectionId::DebugMacinfo => {
                     // These are valid but we can't parse these yet.
                 }
-                _ => return Err(Error::UnknownSection(section.section)),
             }
         }
 

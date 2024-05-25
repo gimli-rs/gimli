@@ -438,8 +438,6 @@ pub enum Error {
     InvalidIndexSlotCount,
     /// Invalid hash row in `.dwp` index.
     InvalidIndexRow,
-    /// Unknown section type.
-    UnknownSection(SectionId),
     /// Unknown section type in `.dwp` index.
     UnknownIndexSection(constants::DwSect),
     /// Unknown section type in version 2 `.dwp` index.
@@ -591,7 +589,6 @@ impl Error {
             Error::InvalidIndexSectionCount => "Invalid section count in `.dwp` index.",
             Error::InvalidIndexSlotCount => "Invalid slot count in `.dwp` index.",
             Error::InvalidIndexRow => "Invalid hash row in `.dwp` index.",
-            Error::UnknownSection(_) => "Unknown section type.",
             Error::UnknownIndexSection(_) => "Unknown section type in `.dwp` index.",
             Error::UnknownIndexSectionV2(_) => "Unknown section type in version 2 `.dwp` index.",
         }
