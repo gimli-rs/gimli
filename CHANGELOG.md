@@ -2,6 +2,37 @@
 
 --------------------------------------------------------------------------------
 
+## 0.30.0
+
+Released 2024/05/26.
+
+### Breaking changes
+
+* Added context to some `read::Error` variants.
+  [#703](https://github.com/gimli-rs/gimli/pull/703)
+
+* Changed type of `read::UnitIndexSection::section` to `IndexSectionId`.
+  [#716](https://github.com/gimli-rs/gimli/pull/716)
+
+### Changed
+
+* Fixed `write::Operation::ImplicitPointer::size`.
+  [#712](https://github.com/gimli-rs/gimli/pull/712)
+
+* Changed `read::RngListIter` and `read::LocListIter` to skip ranges where
+  the end is before the beginning, instead of returning an error.
+  [#715](https://github.com/gimli-rs/gimli/pull/715)
+
+* Fixed clippy warnings.
+  [#713](https://github.com/gimli-rs/gimli/pull/713)
+
+### Added
+
+* Added `read::UnitRef`.
+  [#711](https://github.com/gimli-rs/gimli/pull/711)
+
+--------------------------------------------------------------------------------
+
 ## 0.29.0
 
 Released 2024/04/11.
