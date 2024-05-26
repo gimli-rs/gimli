@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         os: ['ubuntu-latest']
-        rust_channel: ['stable', 'beta', 'nightly', '1.65.0']
+        rust_channel: ['stable', 'beta', 'nightly']
         include:
           - rust_channel: stable
             os: macOS-latest
@@ -49,6 +49,17 @@ jobs:
       run: cargo build --verbose --no-default-features --features read-all -p gimli
     - name: Test
       run: cargo test --verbose --no-default-features --features read-all -p gimli
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install rust
+      uses: dtolnay/rust-toolchain@1.65.0
+    - name: Build
+      run: cargo build --verbose -p gimli
+    - name: Test
+      run: cargo test --verbose -p gimli
 
   build_fuzz_targets:
     name: Build fuzz targets
