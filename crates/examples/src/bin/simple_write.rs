@@ -250,21 +250,20 @@ fn define_main(
     // ret
     main_data.extend_from_slice(&[0xc3]);
 
-    // Add the main function in its own subsection (equivalent to -ffunction-sections).
-    let (main_section, main_offset) =
-        obj.add_subsection(object::write::StandardSection::Text, b"main", &main_data, 1);
     // Add a globally visible symbol for the main function.
-    let main_size = main_data.len() as u64;
     let main_symbol = obj.add_symbol(object::write::Symbol {
         name: (*b"main").into(),
-        value: main_offset,
-        size: main_size,
+        value: 0,
+        size: 0,
         kind: object::SymbolKind::Text,
         scope: object::SymbolScope::Linkage,
         weak: false,
-        section: object::write::SymbolSection::Section(main_section),
+        section: object::write::SymbolSection::Undefined,
         flags: object::SymbolFlags::None,
     });
+    // Add the main function in its own subsection (equivalent to -ffunction-sections).
+    let main_section = obj.add_subsection(object::write::StandardSection::Text, b"main");
+    let main_offset = obj.add_symbol_data(main_symbol, main_section, &main_data, 1);
 
     // Add a read only string constant for the puts argument.
     // We don't create a symbol for the constant, but instead refer to it by
@@ -277,7 +276,7 @@ fn define_main(
     obj.add_relocation(
         main_section,
         object::write::Relocation {
-            offset: s_reloc_offset as u64,
+            offset: main_offset + s_reloc_offset as u64,
             symbol: rodata_symbol,
             addend: s_offset as i64 + s_reloc_addend,
             flags: s_reloc_flags,
@@ -307,5 +306,5 @@ fn define_main(
         },
     )?;
 
-    Ok((main_symbol, main_size))
+    Ok((main_symbol, main_data.len() as u64))
 }
