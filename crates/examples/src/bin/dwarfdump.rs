@@ -661,10 +661,10 @@ fn dump_eh_frame<R: Reader, W: Write>(
                 };
 
                 // TODO: symbolicate the start address like the canonical dwarfdump does.
-                writeln!(w, "    start_addr: {:#018x}", fde.initial_address())?;
+                writeln!(w, "    start_addr: {:#x}", fde.initial_address())?;
                 writeln!(
                     w,
-                    "    range_size: {:#018x} (end_addr = {:#018x})",
+                    "    range_size: {:#x} (end_addr = {:#x})",
                     fde.len(),
                     fde.end_address(),
                 )?;
@@ -684,10 +684,10 @@ fn dump_eh_frame<R: Reader, W: Write>(
 fn dump_pointer<W: Write>(w: &mut W, p: gimli::Pointer) -> Result<()> {
     match p {
         gimli::Pointer::Direct(p) => {
-            write!(w, "{:#018x}", p)?;
+            write!(w, "{:#x}", p)?;
         }
         gimli::Pointer::Indirect(p) => {
-            write!(w, "({:#018x})", p)?;
+            write!(w, "({:#x})", p)?;
         }
     }
     Ok(())
@@ -1189,7 +1189,7 @@ fn dump_attr_value<R: Reader, W: Write>(
     let value = attr.value();
     match value {
         gimli::AttributeValue::Addr(address) => {
-            writeln!(w, "0x{:08x}", address)?;
+            writeln!(w, "{:#x}", address)?;
         }
         gimli::AttributeValue::Block(data) => {
             for byte in data.to_slice()?.iter() {
@@ -1275,9 +1275,9 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "<.debug_addr+0x{:08x}>", base.0)?;
         }
         gimli::AttributeValue::DebugAddrIndex(index) => {
-            write!(w, "(indirect address, index {:#x}): ", index.0)?;
+            write!(w, "(index {:#x}): ", index.0)?;
             let address = unit.address(index)?;
-            writeln!(w, "0x{:08x}", address)?;
+            writeln!(w, "{:#x}", address)?;
         }
         gimli::AttributeValue::UnitRef(offset) => {
             write!(w, "0x{:08x}", offset.0)?;
@@ -1683,7 +1683,7 @@ fn dump_op<R: Reader, W: Write>(
 
 fn dump_range<W: Write>(w: &mut W, range: Option<gimli::Range>) -> Result<()> {
     if let Some(range) = range {
-        write!(w, " [0x{:08x}, 0x{:08x}]", range.begin, range.end)?;
+        write!(w, " [{:#x}, {:#x}]", range.begin, range.end)?;
     } else {
         write!(w, " [ignored]")?;
     }
@@ -1715,11 +1715,11 @@ fn dump_loc_list<R: Reader, W: Write>(
             .map(|location| location.range);
         match raw {
             gimli::RawLocListEntry::BaseAddress { addr } => {
-                writeln!(w, "<base-address 0x{:08x}>", addr)?;
+                writeln!(w, "<base-address {:#x}>", addr)?;
             }
             gimli::RawLocListEntry::BaseAddressx { addr } => {
                 let addr_val = unit.address(addr)?;
-                writeln!(w, "<base-addressx [{}]0x{:08x}>", addr.0, addr_val)?;
+                writeln!(w, "<base-addressx [{}]{:#x}>", addr.0, addr_val)?;
             }
             gimli::RawLocListEntry::StartxEndx {
                 begin,
@@ -1730,7 +1730,7 @@ fn dump_loc_list<R: Reader, W: Write>(
                 let end_val = unit.address(end)?;
                 write!(
                     w,
-                    "<startx-endx [{}]0x{:08x}, [{}]0x{:08x}>",
+                    "<startx-endx [{}]{:#x}, [{}]{:#x}>",
                     begin.0, begin_val, end.0, end_val,
                 )?;
                 dump_range(w, range)?;
@@ -1745,7 +1745,7 @@ fn dump_loc_list<R: Reader, W: Write>(
                 let begin_val = unit.address(begin)?;
                 write!(
                     w,
-                    "<startx-length [{}]0x{:08x}, 0x{:08x}>",
+                    "<startx-length [{}]{:#x}, {:#x}>",
                     begin.0, begin_val, length,
                 )?;
                 dump_range(w, range)?;
@@ -1762,7 +1762,7 @@ fn dump_loc_list<R: Reader, W: Write>(
                 end,
                 ref data,
             } => {
-                write!(w, "<offset-pair 0x{:08x}, 0x{:08x}>", begin, end)?;
+                write!(w, "<offset-pair {:#x}, {:#x}>", begin, end)?;
                 dump_range(w, range)?;
                 dump_exprloc(w, unit, data)?;
                 writeln!(w)?;
@@ -1777,7 +1777,7 @@ fn dump_loc_list<R: Reader, W: Write>(
                 end,
                 ref data,
             } => {
-                write!(w, "<start-end 0x{:08x}, 0x{:08x}>", begin, end)?;
+                write!(w, "<start-end {:#x}, {:#x}>", begin, end)?;
                 dump_range(w, range)?;
                 dump_exprloc(w, unit, data)?;
                 writeln!(w)?;
@@ -1787,7 +1787,7 @@ fn dump_loc_list<R: Reader, W: Write>(
                 length,
                 ref data,
             } => {
-                write!(w, "<start-length 0x{:08x}, 0x{:08x}>", begin, length)?;
+                write!(w, "<start-length {:#x}, {:#x}>", begin, length)?;
                 dump_range(w, range)?;
                 dump_exprloc(w, unit, data)?;
                 writeln!(w)?;
@@ -1820,18 +1820,18 @@ fn dump_range_list<R: Reader, W: Write>(
         let range = ranges.convert_raw(raw.clone())?;
         match raw {
             gimli::RawRngListEntry::BaseAddress { addr } => {
-                writeln!(w, "<new base address 0x{:08x}>", addr)?;
+                writeln!(w, "<new base address {:#x}>", addr)?;
             }
             gimli::RawRngListEntry::BaseAddressx { addr } => {
                 let addr_val = unit.address(addr)?;
-                writeln!(w, "<new base addressx [{}]0x{:08x}>", addr.0, addr_val)?;
+                writeln!(w, "<new base addressx [{}]{:#x}>", addr.0, addr_val)?;
             }
             gimli::RawRngListEntry::StartxEndx { begin, end } => {
                 let begin_val = unit.address(begin)?;
                 let end_val = unit.address(end)?;
                 write!(
                     w,
-                    "<startx-endx [{}]0x{:08x}, [{}]0x{:08x}>",
+                    "<startx-endx [{}]{:#x}, [{}]{:#x}>",
                     begin.0, begin_val, end.0, end_val,
                 )?;
                 dump_range(w, range)?;
@@ -1841,7 +1841,7 @@ fn dump_range_list<R: Reader, W: Write>(
                 let begin_val = unit.address(begin)?;
                 write!(
                     w,
-                    "<startx-length [{}]0x{:08x}, 0x{:08x}>",
+                    "<startx-length [{}]{:#x}, {:#x}>",
                     begin.0, begin_val, length,
                 )?;
                 dump_range(w, range)?;
@@ -1849,17 +1849,17 @@ fn dump_range_list<R: Reader, W: Write>(
             }
             gimli::RawRngListEntry::AddressOrOffsetPair { begin, end }
             | gimli::RawRngListEntry::OffsetPair { begin, end } => {
-                write!(w, "<offset-pair 0x{:08x}, 0x{:08x}>", begin, end)?;
+                write!(w, "<offset-pair {:#x}, {:#x}>", begin, end)?;
                 dump_range(w, range)?;
                 writeln!(w)?;
             }
             gimli::RawRngListEntry::StartEnd { begin, end } => {
-                write!(w, "<start-end 0x{:08x}, 0x{:08x}>", begin, end)?;
+                write!(w, "<start-end {:#x}, {:#x}>", begin, end)?;
                 dump_range(w, range)?;
                 writeln!(w)?;
             }
             gimli::RawRngListEntry::StartLength { begin, length } => {
-                write!(w, "<start-length 0x{:08x}, 0x{:08x}>", begin, length)?;
+                write!(w, "<start-length {:#x}, {:#x}>", begin, length)?;
                 dump_range(w, range)?;
                 writeln!(w)?;
             }
@@ -2061,7 +2061,7 @@ fn dump_line_program<R: Reader, W: Write>(w: &mut W, unit: gimli::UnitRef<R>) ->
                     }
                     LineInstruction::EndSequence => write!(w, "{}", constants::DW_LNE_end_sequence),
                     LineInstruction::SetAddress(address) => {
-                        write!(w, "{} to {}", constants::DW_LNE_set_address, address)
+                        write!(w, "{} to {:#x}", constants::DW_LNE_set_address, address)
                     }
                     LineInstruction::DefineFile(_) => {
                         write!(w, "{}", constants::DW_LNE_define_file)
@@ -2089,7 +2089,7 @@ fn dump_line_program<R: Reader, W: Write>(w: &mut W, unit: gimli::UnitRef<R>) ->
                 gimli::ColumnType::Column(column) => column.get(),
                 gimli::ColumnType::LeftEdge => 0,
             };
-            write!(w, "0x{:08x}  [{:4},{:2}]", row.address(), line, column)?;
+            write!(w, "{:#x}  [{:4},{:2}]", row.address(), line, column)?;
             if row.is_stmt() {
                 write!(w, " NS")?;
             }
@@ -2219,7 +2219,7 @@ fn dump_aranges<R: Reader, W: Write>(
         let mut aranges = header.entries();
         while let Some(arange) = aranges.next()? {
             let range = arange.range();
-            writeln!(w, "[0x{:016x},  0x{:016x})", range.begin, range.end)?;
+            writeln!(w, "[{:#x}, {:#x})", range.begin, range.end)?;
         }
     }
     Ok(())
