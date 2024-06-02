@@ -6,7 +6,7 @@ use gimli::{Section, UnitHeader, UnitOffset, UnitSectionOffset, UnitType, Unwind
 use object::{Object, ObjectSection};
 use regex::bytes::Regex;
 use std::borrow::Cow;
-use std::cmp::min;
+use std::cmp;
 use std::collections::HashMap;
 use std::env;
 use std::fmt::{self, Debug};
@@ -20,10 +20,10 @@ use std::sync::{Condvar, Mutex};
 use typed_arena::Arena;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Error {
-    GimliError(gimli::Error),
-    ObjectError(object::read::Error),
-    IoError,
+enum Error {
+    Gimli(gimli::Error),
+    Object(object::read::Error),
+    Io,
 }
 
 impl fmt::Display for Error {
@@ -44,33 +44,32 @@ fn writeln_error<W: Write, R: Reader>(
         "{}: {}",
         msg,
         match err {
-            Error::GimliError(err) => dwarf.format_error(err),
-            Error::ObjectError(err) =>
-                format!("{}:{:?}", "An object error occurred while reading", err),
-            Error::IoError => "An I/O error occurred while writing.".to_string(),
+            Error::Gimli(err) => dwarf.format_error(err),
+            Error::Object(err) => format!("{}:{:?}", "An object error occurred while reading", err),
+            Error::Io => "An I/O error occurred while writing.".to_string(),
         }
     )
 }
 
 impl From<gimli::Error> for Error {
     fn from(err: gimli::Error) -> Self {
-        Error::GimliError(err)
+        Error::Gimli(err)
     }
 }
 
 impl From<io::Error> for Error {
     fn from(_: io::Error) -> Self {
-        Error::IoError
+        Error::Io
     }
 }
 
 impl From<object::read::Error> for Error {
     fn from(err: object::read::Error) -> Self {
-        Error::ObjectError(err)
+        Error::Object(err)
     }
 }
 
-pub type Result<T> = result::Result<T, Error>;
+type Result<T> = result::Result<T, Error>;
 
 fn parallel_output<W, II, F>(w: &mut W, max_workers: usize, iter: II, f: F) -> Result<()>
 where
@@ -92,7 +91,7 @@ where
         result: Ok(()),
         w,
     });
-    let workers = min(max_workers, num_cpus::get());
+    let workers = cmp::min(max_workers, num_cpus::get());
     let mut condvars = Vec::new();
     for _ in 0..workers {
         condvars.push(Condvar::new());
@@ -147,13 +146,6 @@ where
     state.into_inner().unwrap().result
 }
 
-trait Reader: gimli::Reader<Offset = usize> + Send + Sync {}
-
-impl<'input, Endian> Reader for gimli::EndianSlice<'input, Endian> where
-    Endian: gimli::Endianity + Send + Sync
-{
-}
-
 #[derive(Debug, Default)]
 struct RelocationMap(object::read::RelocationMap);
 
@@ -184,7 +176,9 @@ impl<'a> gimli::read::Relocate for &'a RelocationMap {
 
 type Relocate<'a, R> = gimli::RelocateReader<R, &'a RelocationMap>;
 
-impl<'a, R: Reader> Reader for Relocate<'a, R> {}
+trait Reader: gimli::Reader<Offset = usize> + Send + Sync {}
+
+impl<'a, R: gimli::Reader<Offset = usize> + Send + Sync> Reader for Relocate<'a, R> {}
 
 #[derive(Default)]
 struct Flags<'a> {
@@ -998,12 +992,7 @@ where
     let units = match dwarf.units().collect::<Vec<_>>() {
         Ok(units) => units,
         Err(err) => {
-            writeln_error(
-                w,
-                dwarf,
-                Error::GimliError(err),
-                "Failed to read unit headers",
-            )?;
+            writeln_error(w, dwarf, Error::Gimli(err), "Failed to read unit headers")?;
             return Ok(());
         }
     };
@@ -1172,7 +1161,7 @@ fn dump_entries<R: Reader, W: Write>(
             let attr = entries.read_attribute(*spec)?;
             w.write_all(spaces(&mut spaces_buf, indent).as_bytes())?;
             if let Some(n) = attr.name().static_string() {
-                let right_padding = 27 - std::cmp::min(27, n.len());
+                let right_padding = 27 - cmp::min(27, n.len());
                 write!(w, "{}{} ", n, spaces(&mut spaces_buf, right_padding))?;
             } else {
                 write!(w, "{:27} ", attr.name())?;
@@ -1898,7 +1887,7 @@ fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<
         let unit_ref = unit.unit_ref(dwarf);
         match dump_line_program(w, unit_ref) {
             Ok(_) => (),
-            Err(Error::IoError) => return Err(Error::IoError),
+            Err(Error::Io) => return Err(Error::Io),
             Err(err) => writeln_error(w, dwarf, err, "Failed to dump line program")?,
         }
     }
