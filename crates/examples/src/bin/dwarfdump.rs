@@ -1259,7 +1259,7 @@ fn dump_attr_value<R: Reader, W: Write>(
                 }
                 write!(w, ": ")?;
             }
-            dump_exprloc(w, unit.encoding(), data)?;
+            dump_exprloc(w, unit, data)?;
             writeln!(w)?;
         }
         gimli::AttributeValue::Flag(true) => {
@@ -1463,21 +1463,21 @@ fn dump_file_index<R: Reader, W: Write>(
 
 fn dump_exprloc<R: Reader, W: Write>(
     w: &mut W,
-    encoding: gimli::Encoding,
+    unit: gimli::UnitRef<R>,
     data: &gimli::Expression<R>,
 ) -> Result<()> {
     let mut pc = data.0.clone();
     let mut space = false;
     while pc.len() != 0 {
         let pc_clone = pc.clone();
-        match gimli::Operation::parse(&mut pc, encoding) {
+        match gimli::Operation::parse(&mut pc, unit.encoding()) {
             Ok(op) => {
                 if space {
                     write!(w, " ")?;
                 } else {
                     space = true;
                 }
-                dump_op(w, encoding, pc_clone, op)?;
+                dump_op(w, unit, pc_clone, op)?;
             }
             Err(gimli::Error::InvalidExpression(op)) => {
                 writeln!(w, "WARNING: unsupported operation 0x{:02x}", op.0)?;
@@ -1502,7 +1502,7 @@ fn dump_exprloc<R: Reader, W: Write>(
 
 fn dump_op<R: Reader, W: Write>(
     w: &mut W,
-    encoding: gimli::Encoding,
+    unit: gimli::UnitRef<R>,
     mut pc: R,
     op: gimli::Operation<R>,
 ) -> Result<()> {
@@ -1602,7 +1602,7 @@ fn dump_op<R: Reader, W: Write>(
         }
         gimli::Operation::ImplicitValue { data } => {
             let data = data.to_slice()?;
-            write!(w, " 0x{:08x} contents 0x", data.len())?;
+            write!(w, " len {:#x} contents 0x", data.len())?;
             for byte in data.iter() {
                 write!(w, "{:02x}", byte)?;
             }
@@ -1612,20 +1612,24 @@ fn dump_op<R: Reader, W: Write>(
         }
         gimli::Operation::EntryValue { expression } => {
             write!(w, "(")?;
-            dump_exprloc(w, encoding, &gimli::Expression(expression))?;
+            dump_exprloc(w, unit, &gimli::Expression(expression))?;
             write!(w, ")")?;
         }
         gimli::Operation::ParameterRef { offset } => {
             write!(w, " 0x{:08x}", offset.0)?;
         }
         gimli::Operation::Address { address } => {
-            write!(w, " 0x{:08x}", address)?;
+            write!(w, " {:#x}", address)?;
         }
         gimli::Operation::AddressIndex { index } => {
-            write!(w, " 0x{:08x}", index.0)?;
+            write!(w, " {:#x}", index.0)?;
+            let address = unit.address(index)?;
+            write!(w, " ({:#x})", address)?;
         }
         gimli::Operation::ConstantIndex { index } => {
-            write!(w, " 0x{:08x}", index.0)?;
+            write!(w, " {:#x}", index.0)?;
+            let address = unit.address(index)?;
+            write!(w, " ({:#x})", address)?;
         }
         gimli::Operation::TypedLiteral { base_type, value } => {
             write!(w, " type 0x{:08x} contents 0x", base_type.0)?;
@@ -1730,7 +1734,7 @@ fn dump_loc_list<R: Reader, W: Write>(
                     begin.0, begin_val, end.0, end_val,
                 )?;
                 dump_range(w, range)?;
-                dump_exprloc(w, unit.encoding(), data)?;
+                dump_exprloc(w, unit, data)?;
                 writeln!(w)?;
             }
             gimli::RawLocListEntry::StartxLength {
@@ -1745,7 +1749,7 @@ fn dump_loc_list<R: Reader, W: Write>(
                     begin.0, begin_val, length,
                 )?;
                 dump_range(w, range)?;
-                dump_exprloc(w, unit.encoding(), data)?;
+                dump_exprloc(w, unit, data)?;
                 writeln!(w)?;
             }
             gimli::RawLocListEntry::AddressOrOffsetPair {
@@ -1760,12 +1764,12 @@ fn dump_loc_list<R: Reader, W: Write>(
             } => {
                 write!(w, "<offset-pair 0x{:08x}, 0x{:08x}>", begin, end)?;
                 dump_range(w, range)?;
-                dump_exprloc(w, unit.encoding(), data)?;
+                dump_exprloc(w, unit, data)?;
                 writeln!(w)?;
             }
             gimli::RawLocListEntry::DefaultLocation { ref data } => {
                 write!(w, "<default location>")?;
-                dump_exprloc(w, unit.encoding(), data)?;
+                dump_exprloc(w, unit, data)?;
                 writeln!(w)?;
             }
             gimli::RawLocListEntry::StartEnd {
@@ -1775,7 +1779,7 @@ fn dump_loc_list<R: Reader, W: Write>(
             } => {
                 write!(w, "<start-end 0x{:08x}, 0x{:08x}>", begin, end)?;
                 dump_range(w, range)?;
-                dump_exprloc(w, unit.encoding(), data)?;
+                dump_exprloc(w, unit, data)?;
                 writeln!(w)?;
             }
             gimli::RawLocListEntry::StartLength {
@@ -1785,7 +1789,7 @@ fn dump_loc_list<R: Reader, W: Write>(
             } => {
                 write!(w, "<start-length 0x{:08x}, 0x{:08x}>", begin, length)?;
                 dump_range(w, range)?;
-                dump_exprloc(w, unit.encoding(), data)?;
+                dump_exprloc(w, unit, data)?;
                 writeln!(w)?;
             }
         };
