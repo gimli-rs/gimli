@@ -1,7 +1,5 @@
 use alloc::vec::Vec;
-use core::fmt;
 use core::num::{NonZeroU64, Wrapping};
-use core::result;
 
 use crate::common::{
     DebugLineOffset, DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsIndex, Encoding, Format,
@@ -514,58 +512,6 @@ where
                     }
                 }
             }
-        }
-    }
-}
-
-impl<R, Offset> fmt::Display for LineInstruction<R, Offset>
-where
-    R: Reader<Offset = Offset>,
-    Offset: ReaderOffset,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> result::Result<(), fmt::Error> {
-        match *self {
-            LineInstruction::Special(opcode) => write!(f, "Special opcode {}", opcode),
-            LineInstruction::Copy => write!(f, "{}", constants::DW_LNS_copy),
-            LineInstruction::AdvancePc(advance) => {
-                write!(f, "{} by {}", constants::DW_LNS_advance_pc, advance)
-            }
-            LineInstruction::AdvanceLine(increment) => {
-                write!(f, "{} by {}", constants::DW_LNS_advance_line, increment)
-            }
-            LineInstruction::SetFile(file) => {
-                write!(f, "{} to {}", constants::DW_LNS_set_file, file)
-            }
-            LineInstruction::SetColumn(column) => {
-                write!(f, "{} to {}", constants::DW_LNS_set_column, column)
-            }
-            LineInstruction::NegateStatement => write!(f, "{}", constants::DW_LNS_negate_stmt),
-            LineInstruction::SetBasicBlock => write!(f, "{}", constants::DW_LNS_set_basic_block),
-            LineInstruction::ConstAddPc => write!(f, "{}", constants::DW_LNS_const_add_pc),
-            LineInstruction::FixedAddPc(advance) => {
-                write!(f, "{} by {}", constants::DW_LNS_fixed_advance_pc, advance)
-            }
-            LineInstruction::SetPrologueEnd => write!(f, "{}", constants::DW_LNS_set_prologue_end),
-            LineInstruction::SetEpilogueBegin => {
-                write!(f, "{}", constants::DW_LNS_set_epilogue_begin)
-            }
-            LineInstruction::SetIsa(isa) => write!(f, "{} to {}", constants::DW_LNS_set_isa, isa),
-            LineInstruction::UnknownStandard0(opcode) => write!(f, "Unknown {}", opcode),
-            LineInstruction::UnknownStandard1(opcode, arg) => {
-                write!(f, "Unknown {} with operand {}", opcode, arg)
-            }
-            LineInstruction::UnknownStandardN(opcode, ref args) => {
-                write!(f, "Unknown {} with operands {:?}", opcode, args)
-            }
-            LineInstruction::EndSequence => write!(f, "{}", constants::DW_LNE_end_sequence),
-            LineInstruction::SetAddress(address) => {
-                write!(f, "{} to {}", constants::DW_LNE_set_address, address)
-            }
-            LineInstruction::DefineFile(_) => write!(f, "{}", constants::DW_LNE_define_file),
-            LineInstruction::SetDiscriminator(discr) => {
-                write!(f, "{} to {}", constants::DW_LNE_set_discriminator, discr)
-            }
-            LineInstruction::UnknownExtended(opcode, _) => write!(f, "Unknown {}", opcode),
         }
     }
 }

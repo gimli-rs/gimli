@@ -2016,7 +2016,62 @@ fn dump_line_program<R: Reader, W: Write>(w: &mut W, unit: gimli::UnitRef<R>) ->
             writeln!(w, "Line Number Instructions:")?;
             let mut instructions = header.instructions();
             while let Some(instruction) = instructions.next_instruction(header)? {
-                writeln!(w, "  {}", instruction)?;
+                use gimli::{constants, LineInstruction};
+                write!(w, "  ")?;
+                match instruction {
+                    LineInstruction::Special(opcode) => write!(w, "Special opcode {}", opcode),
+                    LineInstruction::Copy => write!(w, "{}", constants::DW_LNS_copy),
+                    LineInstruction::AdvancePc(advance) => {
+                        write!(w, "{} by {}", constants::DW_LNS_advance_pc, advance)
+                    }
+                    LineInstruction::AdvanceLine(increment) => {
+                        write!(w, "{} by {}", constants::DW_LNS_advance_line, increment)
+                    }
+                    LineInstruction::SetFile(file) => {
+                        write!(w, "{} to {}", constants::DW_LNS_set_file, file)
+                    }
+                    LineInstruction::SetColumn(column) => {
+                        write!(w, "{} to {}", constants::DW_LNS_set_column, column)
+                    }
+                    LineInstruction::NegateStatement => {
+                        write!(w, "{}", constants::DW_LNS_negate_stmt)
+                    }
+                    LineInstruction::SetBasicBlock => {
+                        write!(w, "{}", constants::DW_LNS_set_basic_block)
+                    }
+                    LineInstruction::ConstAddPc => write!(w, "{}", constants::DW_LNS_const_add_pc),
+                    LineInstruction::FixedAddPc(advance) => {
+                        write!(w, "{} by {}", constants::DW_LNS_fixed_advance_pc, advance)
+                    }
+                    LineInstruction::SetPrologueEnd => {
+                        write!(w, "{}", constants::DW_LNS_set_prologue_end)
+                    }
+                    LineInstruction::SetEpilogueBegin => {
+                        write!(w, "{}", constants::DW_LNS_set_epilogue_begin)
+                    }
+                    LineInstruction::SetIsa(isa) => {
+                        write!(w, "{} to {}", constants::DW_LNS_set_isa, isa)
+                    }
+                    LineInstruction::UnknownStandard0(opcode) => write!(w, "Unknown {}", opcode),
+                    LineInstruction::UnknownStandard1(opcode, arg) => {
+                        write!(w, "Unknown {} with operand {}", opcode, arg)
+                    }
+                    LineInstruction::UnknownStandardN(opcode, ref args) => {
+                        write!(w, "Unknown {} with operands {:?}", opcode, args)
+                    }
+                    LineInstruction::EndSequence => write!(w, "{}", constants::DW_LNE_end_sequence),
+                    LineInstruction::SetAddress(address) => {
+                        write!(w, "{} to {}", constants::DW_LNE_set_address, address)
+                    }
+                    LineInstruction::DefineFile(_) => {
+                        write!(w, "{}", constants::DW_LNE_define_file)
+                    }
+                    LineInstruction::SetDiscriminator(discr) => {
+                        write!(w, "{} to {}", constants::DW_LNE_set_discriminator, discr)
+                    }
+                    LineInstruction::UnknownExtended(opcode, _) => write!(w, "Unknown {}", opcode),
+                }?;
+                writeln!(w)?;
             }
 
             writeln!(w)?;
