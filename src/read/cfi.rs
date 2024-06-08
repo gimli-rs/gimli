@@ -35,7 +35,6 @@ use crate::read::{
 pub struct DebugFrame<R: Reader> {
     section: R,
     address_size: u8,
-    segment_size: u8,
     vendor: Vendor,
 }
 
@@ -46,14 +45,6 @@ impl<R: Reader> DebugFrame<R> {
     /// This is only used if the CIE version is less than 4.
     pub fn set_address_size(&mut self, address_size: u8) {
         self.address_size = address_size
-    }
-
-    /// Set the size of a segment selector in bytes.
-    ///
-    /// This defaults to 0.
-    /// This is only used if the CIE version is less than 4.
-    pub fn set_segment_size(&mut self, segment_size: u8) {
-        self.segment_size = segment_size
     }
 
     /// Set the vendor extensions to use.
@@ -100,11 +91,10 @@ impl<R: Reader> Section<R> for DebugFrame<R> {
 
 impl<R: Reader> From<R> for DebugFrame<R> {
     fn from(section: R) -> Self {
-        // Default to no segments and native word size.
+        // Default to native word size.
         DebugFrame {
             section,
             address_size: mem::size_of::<usize>() as u8,
-            segment_size: 0,
             vendor: Vendor::Default,
         }
     }
@@ -631,9 +621,6 @@ pub trait _UnwindSectionPrivate<R: Reader> {
     /// The address size to use if `has_address_and_segment_sizes` returns false.
     fn address_size(&self) -> u8;
 
-    /// The segment size to use if `has_address_and_segment_sizes` returns false.
-    fn segment_size(&self) -> u8;
-
     /// The vendor extensions to use.
     fn vendor(&self) -> Vendor;
 }
@@ -828,10 +815,6 @@ impl<R: Reader> _UnwindSectionPrivate<R> for DebugFrame<R> {
         self.address_size
     }
 
-    fn segment_size(&self) -> u8 {
-        self.segment_size
-    }
-
     fn vendor(&self) -> Vendor {
         self.vendor
     }
@@ -870,10 +853,6 @@ impl<R: Reader> _UnwindSectionPrivate<R> for EhFrame<R> {
 
     fn address_size(&self) -> u8 {
         self.address_size
-    }
-
-    fn segment_size(&self) -> u8 {
-        0
     }
 
     fn vendor(&self) -> Vendor {
@@ -1297,10 +1276,6 @@ where
     /// > must match the address size here.
     address_size: u8,
 
-    /// "The size of a segment selector in this CIE and any FDEs that use it, in
-    /// bytes."
-    segment_size: u8,
-
     /// "A constant that is factored out of all advance location instructions
     /// (see Section 6.4.2.1)."
     code_alignment_factor: u64,
@@ -1360,12 +1335,15 @@ impl<R: Reader> CommonInformationEntry<R> {
 
         let mut augmentation_string = rest.read_null_terminated_slice()?;
 
-        let (address_size, segment_size) = if Section::has_address_and_segment_sizes(version) {
+        let address_size = if Section::has_address_and_segment_sizes(version) {
             let address_size = rest.read_u8()?;
             let segment_size = rest.read_u8()?;
-            (address_size, segment_size)
+            if segment_size != 0 {
+                return Err(Error::UnsupportedSegmentSize);
+            }
+            address_size
         } else {
-            (section.address_size(), section.segment_size())
+            section.address_size()
         };
 
         let code_alignment_factor = rest.read_uleb128()?;
@@ -1396,7 +1374,6 @@ impl<R: Reader> CommonInformationEntry<R> {
             version,
             augmentation,
             address_size,
-            segment_size,
             code_alignment_factor,
             data_alignment_factor,
             return_address_register,
@@ -1635,7 +1612,6 @@ where
     /// > The address of the first location associated with this table entry. If
     /// > the segment_size field of this FDE's CIE is non-zero, the initial
     /// > location is preceded by a segment selector of the given length.
-    initial_segment: u64,
     initial_address: u64,
 
     /// "The number of bytes of program instructions described by this entry."
@@ -1668,12 +1644,6 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     {
         let cie = get_cie(section, bases, cie_pointer)?;
 
-        let initial_segment = if cie.segment_size > 0 {
-            rest.read_address(cie.segment_size)?
-        } else {
-            0
-        };
-
         let mut parameters = PointerEncodingParameters {
             bases: &bases.eh_frame,
             func_base: None,
@@ -1699,7 +1669,6 @@ impl<R: Reader> FrameDescriptionEntry<R> {
             length,
             format,
             cie,
-            initial_segment,
             initial_address,
             address_range,
             augmentation: aug_data,
@@ -3766,7 +3735,7 @@ mod tests {
             let section = section.D8(0);
 
             let section = if T::has_address_and_segment_sizes(cie.version) {
-                section.D8(cie.address_size).D8(cie.segment_size)
+                section.D8(cie.address_size).D8(0)
             } else {
                 section
             };
@@ -3815,13 +3784,6 @@ mod tests {
                     let section = self.D32(0xffff_ffff);
                     section.D64(&length).mark(&start).D64(cie_offset)
                 }
-            };
-
-            let section = match fde.cie.segment_size {
-                0 => section,
-                4 => section.D32(fde.initial_segment as u32),
-                8 => section.D64(fde.initial_segment),
-                x => panic!("Unsupported test segment size: {}", x),
             };
 
             let section = match fde.cie.address_size {
@@ -3977,7 +3939,6 @@ mod tests {
             version: 99,
             augmentation: None,
             address_size: 4,
-            segment_size: 0,
             code_alignment_factor: 1,
             data_alignment_factor: 2,
             return_address_register: Register(3),
@@ -4038,7 +3999,6 @@ mod tests {
             version,
             augmentation: None,
             address_size,
-            segment_size: 0,
             code_alignment_factor: 16,
             data_alignment_factor: 32,
             return_address_register: Register(1),
@@ -4085,7 +4045,6 @@ mod tests {
             version: 4,
             augmentation: None,
             address_size: 4,
-            segment_size: 0,
             code_alignment_factor: 0,
             data_alignment_factor: 0,
             return_address_register: Register(3),
@@ -4174,7 +4133,6 @@ mod tests {
             augmentation: None,
             // DWARF32 with a 64 bit address size! Holy moly!
             address_size: 8,
-            segment_size: 0,
             code_alignment_factor: 3,
             data_alignment_factor: 2,
             return_address_register: Register(1),
@@ -4186,59 +4144,8 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
-            initial_segment: 0,
             initial_address: 0xfeed_beef,
             address_range: 39,
-            augmentation: None,
-            instructions: EndianSlice::new(&expected_instrs, LittleEndian),
-        };
-
-        let kind = debug_frame_le();
-        let section = Section::with_endian(kind.endian())
-            .fde(kind, cie_offset, &mut fde)
-            .append_bytes(&expected_rest);
-
-        let section = section.get_contents().unwrap();
-        let debug_frame = kind.section(&section);
-        let rest = &mut EndianSlice::new(&section, LittleEndian);
-
-        let get_cie = |_: &_, _: &_, offset| {
-            assert_eq!(offset, DebugFrameOffset(cie_offset as usize));
-            Ok(cie.clone())
-        };
-
-        assert_eq!(parse_fde(debug_frame, rest, get_cie), Ok(fde));
-        assert_eq!(*rest, EndianSlice::new(&expected_rest, LittleEndian));
-    }
-
-    #[test]
-    fn test_parse_fde_32_with_segment_ok() {
-        let expected_rest = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let cie_offset = 0xbad0_bad1;
-        let expected_instrs: Vec<_> = (0..92).map(|_| constants::DW_CFA_nop.0).collect();
-
-        let cie = CommonInformationEntry {
-            offset: 0,
-            length: 100,
-            format: Format::Dwarf32,
-            version: 4,
-            augmentation: None,
-            address_size: 4,
-            segment_size: 4,
-            code_alignment_factor: 3,
-            data_alignment_factor: 2,
-            return_address_register: Register(1),
-            initial_instructions: EndianSlice::new(&[], LittleEndian),
-        };
-
-        let mut fde = FrameDescriptionEntry {
-            offset: 0,
-            length: 0,
-            format: Format::Dwarf32,
-            cie: cie.clone(),
-            initial_segment: 0xbadb_ad11,
-            initial_address: 0xfeed_beef,
-            address_range: 999,
             augmentation: None,
             instructions: EndianSlice::new(&expected_instrs, LittleEndian),
         };
@@ -4274,7 +4181,6 @@ mod tests {
             version: 4,
             augmentation: None,
             address_size: 8,
-            segment_size: 0,
             code_alignment_factor: 3,
             data_alignment_factor: 2,
             return_address_register: Register(1),
@@ -4286,7 +4192,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf64,
             cie: cie.clone(),
-            initial_segment: 0,
             initial_address: 0xfeed_beef,
             address_range: 999,
             augmentation: None,
@@ -4323,7 +4228,6 @@ mod tests {
             version: 4,
             augmentation: None,
             address_size: 4,
-            segment_size: 0,
             code_alignment_factor: 16,
             data_alignment_factor: 32,
             return_address_register: Register(1),
@@ -4359,7 +4263,6 @@ mod tests {
             version: 4,
             augmentation: None,
             address_size: 4,
-            segment_size: 0,
             code_alignment_factor: 16,
             data_alignment_factor: 32,
             return_address_register: Register(1),
@@ -4371,7 +4274,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
-            initial_segment: 0,
             initial_address: 0xfeed_beef,
             address_range: 39,
             augmentation: None,
@@ -4424,7 +4326,6 @@ mod tests {
             version: 4,
             augmentation: None,
             address_size: 4,
-            segment_size: 0,
             code_alignment_factor: 1,
             data_alignment_factor: 2,
             return_address_register: Register(3),
@@ -4438,7 +4339,6 @@ mod tests {
             version: 4,
             augmentation: None,
             address_size: 4,
-            segment_size: 0,
             code_alignment_factor: 3,
             data_alignment_factor: 2,
             return_address_register: Register(1),
@@ -4463,7 +4363,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie1.clone(),
-            initial_segment: 0,
             initial_address: 0xfeed_beef,
             address_range: 39,
             augmentation: None,
@@ -4475,7 +4374,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie2.clone(),
-            initial_segment: 0,
             initial_address: 0xfeed_face,
             address_range: 9000,
             augmentation: None,
@@ -4546,7 +4444,6 @@ mod tests {
             version: 4,
             augmentation: None,
             address_size: 4,
-            segment_size: 0,
             code_alignment_factor: 4,
             data_alignment_factor: 8,
             return_address_register: Register(12),
@@ -5328,7 +5225,6 @@ mod tests {
             address_size: mem::size_of::<usize>() as u8,
             initial_instructions: EndianSlice::new(&[], LittleEndian),
             augmentation: None,
-            segment_size: 0,
             data_alignment_factor: 2,
             code_alignment_factor: 3,
         }
@@ -5679,7 +5575,6 @@ mod tests {
             address_range: 0,
             augmentation: None,
             initial_address: 0,
-            initial_segment: 0,
             cie: cie.clone(),
             instructions: EndianSlice::new(&[], LittleEndian),
         };
@@ -5830,7 +5725,6 @@ mod tests {
             version: 4,
             augmentation: None,
             address_size: 8,
-            segment_size: 0,
             code_alignment_factor: 1,
             data_alignment_factor: 1,
             return_address_register: Register(3),
@@ -5847,7 +5741,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
-            initial_segment: 0,
             initial_address: 0,
             address_range: 100,
             augmentation: None,
@@ -5905,7 +5798,6 @@ mod tests {
             version: 4,
             augmentation: None,
             address_size: 8,
-            segment_size: 0,
             code_alignment_factor: 1,
             data_alignment_factor: 1,
             return_address_register: Register(3),
@@ -5922,7 +5814,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
-            initial_segment: 0,
             initial_address: 0,
             address_range: 100,
             augmentation: None,
@@ -5979,7 +5870,6 @@ mod tests {
             version: 4,
             augmentation: None,
             address_size: 8,
-            segment_size: 0,
             code_alignment_factor: 1,
             data_alignment_factor: 1,
             return_address_register: Register(3),
@@ -6000,7 +5890,6 @@ mod tests {
             version: 4,
             augmentation: None,
             address_size: 8,
-            segment_size: 0,
             code_alignment_factor: 1,
             data_alignment_factor: 1,
             return_address_register: Register(3),
@@ -6012,7 +5901,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie1.clone(),
-            initial_segment: 0,
             initial_address: 0,
             address_range: 100,
             augmentation: None,
@@ -6024,7 +5912,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie2.clone(),
-            initial_segment: 0,
             initial_address: 0,
             address_range: 100,
             augmentation: None,
@@ -6076,7 +5963,6 @@ mod tests {
             version: 4,
             augmentation: None,
             address_size: 8,
-            segment_size: 0,
             code_alignment_factor: 1,
             data_alignment_factor: 1,
             return_address_register: Register(3),
@@ -6113,7 +5999,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
-            initial_segment: 0,
             initial_address: 0,
             address_range: 100,
             augmentation: None,
@@ -6253,7 +6138,6 @@ mod tests {
             version: 4,
             augmentation: None,
             address_size: 8,
-            segment_size: 0,
             code_alignment_factor: 1,
             data_alignment_factor: 1,
             return_address_register: Register(3),
@@ -6267,7 +6151,6 @@ mod tests {
             version: 4,
             augmentation: None,
             address_size: 4,
-            segment_size: 0,
             code_alignment_factor: 1,
             data_alignment_factor: 1,
             return_address_register: Register(1),
@@ -6292,7 +6175,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie1.clone(),
-            initial_segment: 0,
             initial_address: 0xfeed_beef,
             address_range: 200,
             augmentation: None,
@@ -6304,7 +6186,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie2.clone(),
-            initial_segment: 0,
             initial_address: 0xfeed_face,
             address_range: 9000,
             augmentation: None,
@@ -6550,7 +6431,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
-            initial_segment: 0,
             initial_address: 9,
             address_range: 4,
             augmentation: None,
@@ -6561,7 +6441,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
-            initial_segment: 0,
             initial_address: 20,
             address_range: 8,
             augmentation: None,
@@ -6692,7 +6571,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf64,
             cie: make_test_cie(),
-            initial_segment: 0,
             initial_address: 0xfeed_beef,
             address_range: 39,
             augmentation: None,
@@ -6769,7 +6647,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
-            initial_segment: 0,
             initial_address: 0xfeed_beef,
             address_range: 999,
             augmentation: None,
@@ -6814,7 +6691,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf64,
             cie: cie.clone(),
-            initial_segment: 0,
             initial_address: 0xfeed_beef,
             address_range: 999,
             augmentation: None,
@@ -7057,7 +6933,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
-            initial_segment: 0,
             initial_address: 0xfeed_face,
             address_range: 9000,
             augmentation: None,
@@ -7095,7 +6970,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
-            initial_segment: 0,
             initial_address: 0xfeed_face,
             address_range: 9000,
             augmentation: Some(AugmentationData::default()),
@@ -7134,7 +7008,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
-            initial_segment: 0,
             initial_address: 0xfeed_face,
             address_range: 9000,
             augmentation: Some(AugmentationData {
@@ -7176,7 +7049,6 @@ mod tests {
             length: 0,
             format: Format::Dwarf32,
             cie: cie.clone(),
-            initial_segment: 0,
             initial_address: 0xfeed_face,
             address_range: 9000,
             augmentation: Some(AugmentationData {
