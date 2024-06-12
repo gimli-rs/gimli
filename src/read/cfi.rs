@@ -2827,8 +2827,7 @@ pub enum CfaRule<T: ReaderOffset> {
         /// The offset from the register's base value.
         offset: i64,
     },
-    /// The CFA is obtained by evaluating this `Reader` as a DWARF expression
-    /// program.
+    /// The CFA is obtained by evaluating a DWARF expression program.
     Expression(UnwindExpression<T>),
 }
 
@@ -3459,6 +3458,28 @@ impl<'a, R: Reader> fallible_iterator::FallibleIterator for CallFrameInstruction
 ///
 /// This is stored as an offset and length within the section instead of as a
 /// `Reader` to avoid lifetime issues when reusing [`UnwindContext`].
+///
+/// # Example
+/// ```
+/// # use gimli::{EhFrame, EndianSlice, NativeEndian, Error, FrameDescriptionEntry, UnwindExpression, EvaluationResult};
+/// # fn foo() -> Result<(), Error> {
+/// # let eh_frame: EhFrame<EndianSlice<NativeEndian>> = unreachable!();
+/// # let fde: FrameDescriptionEntry<EndianSlice<NativeEndian>> = unimplemented!();
+/// # let unwind_expression: UnwindExpression<_> = unimplemented!();
+/// let expression = unwind_expression.get(&eh_frame)?;
+/// let mut evaluation = expression.evaluation(fde.cie().encoding());
+/// let mut result = evaluation.evaluate()?;
+/// loop {
+///   match result {
+///      EvaluationResult::Complete => break,
+///      // Provide information to the evaluation.
+///      _ => { unimplemented!()}
+///   }
+/// }
+/// let value = evaluation.value_result();
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UnwindExpression<T: ReaderOffset> {
     /// The offset of the expression within the section.
