@@ -4188,7 +4188,6 @@ mod tests {
 
     #[test]
     fn test_attribute_udata_sdata_value() {
-        #[allow(clippy::type_complexity)]
         let tests: &[(
             AttributeValue<EndianSlice<'_, LittleEndian>>,
             Option<u64>,

@@ -1448,7 +1448,6 @@ where
     /// println!("There are {} sequences in this line number program", sequences.len());
     /// # }
     /// ```
-    #[allow(clippy::type_complexity)]
     pub fn sequences(self) -> Result<(CompleteLineProgram<R, Offset>, Vec<LineSequence<R>>)> {
         let mut sequences = Vec::new();
         let mut rows = self.rows();

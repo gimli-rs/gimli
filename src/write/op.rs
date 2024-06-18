@@ -1075,7 +1075,6 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    #[allow(clippy::type_complexity)]
     fn test_operation() {
         for version in [2, 3, 4, 5] {
             for address_size in [4, 8] {
