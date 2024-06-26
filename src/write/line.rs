@@ -1257,7 +1257,7 @@ mod tests {
                                 [0; 16]
                             },
                             source: (encoding.version >= 5)
-                                .then(|| LineString::String(b"the source code".into())),
+                                .then(|| LineString::String(b"the source code\n".into())),
                         };
                         let file_id =
                             program.add_file(file2.clone(), dir_id, Some(file_info.clone()));
