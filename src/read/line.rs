@@ -1224,6 +1224,16 @@ where
             .any(|x| x.content_type == constants::DW_LNCT_MD5)
     }
 
+    /// Return true if the file debug information entry contains the source code.
+    pub fn file_has_source(&self) -> bool {
+        self.file_name_entry_format.iter().any(|x| {
+            matches!(
+                x.content_type,
+                constants::DW_LNCT_source | constants::DW_LNCT_LLVM_source
+            )
+        })
+    }
+
     /// Get the list of source files that appear in this header's line program.
     pub fn file_names(&self) -> &[FileEntry<R, Offset>] {
         &self.file_names[..]
@@ -2936,7 +2946,10 @@ mod tests {
                 timestamp: 0,
                 size: 0,
                 md5: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
-                source: None, // TODO: test
+                source: Some(AttributeValue::String(EndianSlice::new(
+                    b"foobar",
+                    LittleEndian,
+                ))),
             },
             FileEntry {
                 path_name: AttributeValue::String(EndianSlice::new(b"file2", LittleEndian)),
@@ -2946,7 +2959,10 @@ mod tests {
                 md5: [
                     11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
                 ],
-                source: None, // TODO: test
+                source: Some(AttributeValue::String(EndianSlice::new(
+                    b"quux",
+                    LittleEndian,
+                ))),
             },
         ];
 
@@ -2989,21 +3005,25 @@ mod tests {
                 .append_bytes(b"dir1\0")
                 .append_bytes(b"dir2\0")
                 // File entry format count.
-                .D8(3)
+                .D8(4)
                 .uleb(constants::DW_LNCT_path.0 as u64)
                 .uleb(constants::DW_FORM_string.0 as u64)
                 .uleb(constants::DW_LNCT_directory_index.0 as u64)
                 .uleb(constants::DW_FORM_data1.0 as u64)
                 .uleb(constants::DW_LNCT_MD5.0 as u64)
                 .uleb(constants::DW_FORM_data16.0 as u64)
+                .uleb(constants::DW_LNCT_source.0 as u64)
+                .uleb(constants::DW_FORM_string.0 as u64)
                 // File count.
                 .D8(2)
                 .append_bytes(b"file1\0")
                 .D8(0)
                 .append_bytes(&expected_file_names[0].md5)
+                .append_bytes(b"foobar\0")
                 .append_bytes(b"file2\0")
                 .D8(1)
                 .append_bytes(&expected_file_names[1].md5)
+                .append_bytes(b"quux\0")
                 .mark(&header_end)
                 // Dummy line program data.
                 .append_bytes(expected_program)
@@ -3055,6 +3075,10 @@ mod tests {
                     FileEntryFormat {
                         content_type: constants::DW_LNCT_MD5,
                         form: constants::DW_FORM_data16,
+                    },
+                    FileEntryFormat {
+                        content_type: constants::DW_LNCT_source,
+                        form: constants::DW_FORM_string,
                     }
                 ]
             );
