@@ -1224,16 +1224,6 @@ where
             .any(|x| x.content_type == constants::DW_LNCT_MD5)
     }
 
-    /// Return true if the file debug information entry contains the source code.
-    pub fn file_has_source(&self) -> bool {
-        self.file_name_entry_format.iter().any(|x| {
-            matches!(
-                x.content_type,
-                constants::DW_LNCT_source | constants::DW_LNCT_LLVM_source
-            )
-        })
-    }
-
     /// Get the list of source files that appear in this header's line program.
     pub fn file_names(&self) -> &[FileEntry<R, Offset>] {
         &self.file_names[..]
