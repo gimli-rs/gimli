@@ -646,6 +646,9 @@ impl LineProgram {
                     w.write(&info.md5)?;
                 }
                 if self.file_has_source {
+                    // Note: An empty DW_LNCT_source is interpreted as missing
+                    // source code. Included source code should always be
+                    // terminated by a "\n" line ending.
                     let empty_str = LineString::String(Vec::new());
                     let source = info.source.as_ref().unwrap_or(&empty_str);
                     source.write(
