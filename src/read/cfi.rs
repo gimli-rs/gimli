@@ -459,20 +459,21 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     ///
     /// You must provide a function to get the associated CIE. See
     /// `PartialFrameDescriptionEntry::parse` for more information.
-    pub fn unwind_info_for_address<'ctx, F, A: UnwindContextStorage<R::Offset>>(
+    pub fn unwind_info_for_address<'ctx, F, S>(
         &self,
         frame: &EhFrame<R>,
         bases: &BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R::Offset, A>,
+        ctx: &'ctx mut UnwindContext<R::Offset, S>,
         address: u64,
         get_cie: F,
-    ) -> Result<&'ctx UnwindTableRow<R::Offset, A>>
+    ) -> Result<&'ctx UnwindTableRow<R::Offset, S>>
     where
         F: FnMut(
             &EhFrame<R>,
             &BaseAddresses,
             EhFrameOffset<R::Offset>,
         ) -> Result<CommonInformationEntry<R>>,
+        S: UnwindContextStorage<R::Offset>,
     {
         let fde = self.fde_for_address(frame, bases, address, get_cie)?;
         fde.unwind_info_for_address(frame, bases, ctx, address)
@@ -778,15 +779,16 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// # }
     /// ```
     #[inline]
-    fn unwind_info_for_address<'ctx, F, A: UnwindContextStorage<R::Offset>>(
+    fn unwind_info_for_address<'ctx, F, S>(
         &self,
         bases: &BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R::Offset, A>,
+        ctx: &'ctx mut UnwindContext<R::Offset, S>,
         address: u64,
         get_cie: F,
-    ) -> Result<&'ctx UnwindTableRow<R::Offset, A>>
+    ) -> Result<&'ctx UnwindTableRow<R::Offset, S>>
     where
         F: FnMut(&Self, &BaseAddresses, Self::Offset) -> Result<CommonInformationEntry<R>>,
+        S: UnwindContextStorage<R::Offset>,
     {
         let fde = self.fde_for_address(bases, address, get_cie)?;
         fde.unwind_info_for_address(self, bases, ctx, address)
@@ -1734,12 +1736,16 @@ impl<R: Reader> FrameDescriptionEntry<R> {
 
     /// Return the table of unwind information for this FDE.
     #[inline]
-    pub fn rows<'a, 'ctx, Section: UnwindSection<R>, A: UnwindContextStorage<R::Offset>>(
+    pub fn rows<'a, 'ctx, Section, S>(
         &self,
         section: &'a Section,
         bases: &'a BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R::Offset, A>,
-    ) -> Result<UnwindTable<'a, 'ctx, R, A>> {
+        ctx: &'ctx mut UnwindContext<R::Offset, S>,
+    ) -> Result<UnwindTable<'a, 'ctx, R, S>>
+    where
+        Section: UnwindSection<R>,
+        S: UnwindContextStorage<R::Offset>,
+    {
         UnwindTable::new(section, bases, ctx, self)
     }
 
@@ -1749,17 +1755,17 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     /// context in the form `Ok((unwind_info, context))`. If not found,
     /// `Err(gimli::Error::NoUnwindInfoForAddress)` is returned. If parsing or
     /// CFI evaluation fails, the error is returned.
-    pub fn unwind_info_for_address<
-        'ctx,
-        Section: UnwindSection<R>,
-        A: UnwindContextStorage<R::Offset>,
-    >(
+    pub fn unwind_info_for_address<'ctx, Section, S>(
         &self,
         section: &Section,
         bases: &BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R::Offset, A>,
+        ctx: &'ctx mut UnwindContext<R::Offset, S>,
         address: u64,
-    ) -> Result<&'ctx UnwindTableRow<R::Offset, A>> {
+    ) -> Result<&'ctx UnwindTableRow<R::Offset, S>>
+    where
+        Section: UnwindSection<R>,
+        S: UnwindContextStorage<R::Offset>,
+    {
         let mut table = self.rows(section, bases, ctx)?;
         while let Some(row) = table.next_row()? {
             if row.contains(address) {
@@ -1970,11 +1976,15 @@ impl<T: ReaderOffset> UnwindContextStorage<T> for StoreOnHeap {
 /// # }
 /// ```
 #[derive(Clone, PartialEq, Eq)]
-pub struct UnwindContext<T: ReaderOffset, A: UnwindContextStorage<T> = StoreOnHeap> {
+pub struct UnwindContext<T, S = StoreOnHeap>
+where
+    T: ReaderOffset,
+    S: UnwindContextStorage<T>,
+{
     // Stack of rows. The last row is the row currently being built by the
     // program. There is always at least one row. The vast majority of CFI
     // programs will only ever have one row on the stack.
-    stack: ArrayVec<A::Stack>,
+    stack: ArrayVec<S::Stack>,
 
     // If we are evaluating an FDE's instructions, then `is_initialized` will be
     // `true`. If `initial_rule` is `Some`, then the initial register rules are either
@@ -1989,7 +1999,11 @@ pub struct UnwindContext<T: ReaderOffset, A: UnwindContextStorage<T> = StoreOnHe
     is_initialized: bool,
 }
 
-impl<T: ReaderOffset, S: UnwindContextStorage<T>> Debug for UnwindContext<T, S> {
+impl<T, S> Debug for UnwindContext<T, S>
+where
+    T: ReaderOffset,
+    S: UnwindContextStorage<T>,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UnwindContext")
             .field("stack", &self.stack)
@@ -1999,7 +2013,11 @@ impl<T: ReaderOffset, S: UnwindContextStorage<T>> Debug for UnwindContext<T, S> 
     }
 }
 
-impl<T: ReaderOffset, A: UnwindContextStorage<T>> Default for UnwindContext<T, A> {
+impl<T, S> Default for UnwindContext<T, S>
+where
+    T: ReaderOffset,
+    S: UnwindContextStorage<T>,
+{
     fn default() -> Self {
         Self::new_in()
     }
@@ -2017,7 +2035,11 @@ impl<T: ReaderOffset> UnwindContext<T> {
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations, if an non-allocating storage is used.
-impl<T: ReaderOffset, A: UnwindContextStorage<T>> UnwindContext<T, A> {
+impl<T, S> UnwindContext<T, S>
+where
+    T: ReaderOffset,
+    S: UnwindContextStorage<T>,
+{
     /// Construct a new call frame unwinding context.
     pub fn new_in() -> Self {
         let mut ctx = UnwindContext {
@@ -2058,11 +2080,11 @@ impl<T: ReaderOffset, A: UnwindContextStorage<T>> UnwindContext<T, A> {
         self.is_initialized = false;
     }
 
-    fn row(&self) -> &UnwindTableRow<T, A> {
+    fn row(&self) -> &UnwindTableRow<T, S> {
         self.stack.last().unwrap()
     }
 
-    fn row_mut(&mut self) -> &mut UnwindTableRow<T, A> {
+    fn row_mut(&mut self) -> &mut UnwindTableRow<T, S> {
         self.stack.last_mut().unwrap()
     }
 
@@ -2196,7 +2218,11 @@ impl<T: ReaderOffset, A: UnwindContextStorage<T>> UnwindContext<T, A> {
 /// > recording just the differences starting at the beginning address of each
 /// > subroutine in the program.
 #[derive(Debug)]
-pub struct UnwindTable<'a, 'ctx, R: Reader, A: UnwindContextStorage<R::Offset> = StoreOnHeap> {
+pub struct UnwindTable<'a, 'ctx, R, S = StoreOnHeap>
+where
+    R: Reader,
+    S: UnwindContextStorage<R::Offset>,
+{
     code_alignment_factor: Wrapping<u64>,
     data_alignment_factor: Wrapping<i64>,
     next_start_address: u64,
@@ -2204,20 +2230,24 @@ pub struct UnwindTable<'a, 'ctx, R: Reader, A: UnwindContextStorage<R::Offset> =
     returned_last_row: bool,
     current_row_valid: bool,
     instructions: CallFrameInstructionIter<'a, R>,
-    ctx: &'ctx mut UnwindContext<R::Offset, A>,
+    ctx: &'ctx mut UnwindContext<R::Offset, S>,
 }
 
 /// # Signal Safe Methods
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
-impl<'a, 'ctx, R: Reader, A: UnwindContextStorage<R::Offset>> UnwindTable<'a, 'ctx, R, A> {
+impl<'a, 'ctx, R, S> UnwindTable<'a, 'ctx, R, S>
+where
+    R: Reader,
+    S: UnwindContextStorage<R::Offset>,
+{
     /// Construct a new `UnwindTable` for the given
     /// `FrameDescriptionEntry`'s CFI unwinding program.
     pub fn new<Section: UnwindSection<R>>(
         section: &'a Section,
         bases: &'a BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R::Offset, A>,
+        ctx: &'ctx mut UnwindContext<R::Offset, S>,
         fde: &FrameDescriptionEntry<R>,
     ) -> Result<Self> {
         ctx.initialize(section, bases, fde.cie())?;
@@ -2227,7 +2257,7 @@ impl<'a, 'ctx, R: Reader, A: UnwindContextStorage<R::Offset>> UnwindTable<'a, 'c
     fn new_for_fde<Section: UnwindSection<R>>(
         section: &'a Section,
         bases: &'a BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R::Offset, A>,
+        ctx: &'ctx mut UnwindContext<R::Offset, S>,
         fde: &FrameDescriptionEntry<R>,
     ) -> Self {
         assert!(ctx.stack.len() >= 1);
@@ -2246,7 +2276,7 @@ impl<'a, 'ctx, R: Reader, A: UnwindContextStorage<R::Offset>> UnwindTable<'a, 'c
     fn new_for_cie<Section: UnwindSection<R>>(
         section: &'a Section,
         bases: &'a BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R::Offset, A>,
+        ctx: &'ctx mut UnwindContext<R::Offset, S>,
         cie: &CommonInformationEntry<R>,
     ) -> Self {
         assert!(ctx.stack.len() >= 1);
@@ -2267,7 +2297,7 @@ impl<'a, 'ctx, R: Reader, A: UnwindContextStorage<R::Offset>> UnwindTable<'a, 'c
     ///
     /// Unfortunately, this cannot be used with `FallibleIterator` because of
     /// the restricted lifetime of the yielded item.
-    pub fn next_row(&mut self) -> Result<Option<&UnwindTableRow<R::Offset, A>>> {
+    pub fn next_row(&mut self) -> Result<Option<&UnwindTableRow<R::Offset, S>>> {
         assert!(self.ctx.stack.len() >= 1);
         self.ctx.set_start_address(self.next_start_address);
         self.current_row_valid = false;
@@ -2300,7 +2330,7 @@ impl<'a, 'ctx, R: Reader, A: UnwindContextStorage<R::Offset>> UnwindTable<'a, 'c
     }
 
     /// Returns the current row with the lifetime of the context.
-    pub fn into_current_row(self) -> Option<&'ctx UnwindTableRow<R::Offset, A>> {
+    pub fn into_current_row(self) -> Option<&'ctx UnwindTableRow<R::Offset, S>> {
         if self.current_row_valid {
             Some(self.ctx.row())
         } else {
@@ -2519,11 +2549,19 @@ impl<'a, 'ctx, R: Reader, A: UnwindContextStorage<R::Offset>> UnwindTable<'a, 'c
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-aarch64/dwarf-config.h#L32
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-arm/dwarf-config.h#L31
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-mips/dwarf-config.h#L31
-struct RegisterRuleMap<T: ReaderOffset, S: UnwindContextStorage<T> = StoreOnHeap> {
+struct RegisterRuleMap<T, S = StoreOnHeap>
+where
+    T: ReaderOffset,
+    S: UnwindContextStorage<T>,
+{
     rules: ArrayVec<S::Rules>,
 }
 
-impl<T: ReaderOffset, S: UnwindContextStorage<T>> Debug for RegisterRuleMap<T, S> {
+impl<T, S> Debug for RegisterRuleMap<T, S>
+where
+    T: ReaderOffset,
+    S: UnwindContextStorage<T>,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RegisterRuleMap")
             .field("rules", &self.rules)
@@ -2531,7 +2569,11 @@ impl<T: ReaderOffset, S: UnwindContextStorage<T>> Debug for RegisterRuleMap<T, S
     }
 }
 
-impl<T: ReaderOffset, S: UnwindContextStorage<T>> Clone for RegisterRuleMap<T, S> {
+impl<T, S> Clone for RegisterRuleMap<T, S>
+where
+    T: ReaderOffset,
+    S: UnwindContextStorage<T>,
+{
     fn clone(&self) -> Self {
         Self {
             rules: self.rules.clone(),
@@ -2539,7 +2581,11 @@ impl<T: ReaderOffset, S: UnwindContextStorage<T>> Clone for RegisterRuleMap<T, S
     }
 }
 
-impl<T: ReaderOffset, S: UnwindContextStorage<T>> Default for RegisterRuleMap<T, S> {
+impl<T, S> Default for RegisterRuleMap<T, S>
+where
+    T: ReaderOffset,
+    S: UnwindContextStorage<T>,
+{
     fn default() -> Self {
         RegisterRuleMap {
             rules: Default::default(),
@@ -2551,7 +2597,11 @@ impl<T: ReaderOffset, S: UnwindContextStorage<T>> Default for RegisterRuleMap<T,
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
-impl<T: ReaderOffset, S: UnwindContextStorage<T>> RegisterRuleMap<T, S> {
+impl<T, S> RegisterRuleMap<T, S>
+where
+    T: ReaderOffset,
+    S: UnwindContextStorage<T>,
+{
     fn is_default(&self) -> bool {
         self.rules.is_empty()
     }
@@ -2599,10 +2649,10 @@ impl<T: ReaderOffset, S: UnwindContextStorage<T>> RegisterRuleMap<T, S> {
     }
 }
 
-impl<'a, R, S: UnwindContextStorage<R>> FromIterator<&'a (Register, RegisterRule<R>)>
-    for RegisterRuleMap<R, S>
+impl<'a, R, S> FromIterator<&'a (Register, RegisterRule<R>)> for RegisterRuleMap<R, S>
 where
     R: 'a + ReaderOffset,
+    S: UnwindContextStorage<R>,
 {
     fn from_iter<T>(iter: T) -> Self
     where
@@ -2620,9 +2670,10 @@ where
     }
 }
 
-impl<T, S: UnwindContextStorage<T>> PartialEq for RegisterRuleMap<T, S>
+impl<T, S> PartialEq for RegisterRuleMap<T, S>
 where
     T: ReaderOffset + PartialEq,
+    S: UnwindContextStorage<T>,
 {
     fn eq(&self, rhs: &Self) -> bool {
         for &(reg, ref rule) in &*self.rules {
@@ -2643,7 +2694,12 @@ where
     }
 }
 
-impl<T, S: UnwindContextStorage<T>> Eq for RegisterRuleMap<T, S> where T: ReaderOffset + Eq {}
+impl<T, S> Eq for RegisterRuleMap<T, S>
+where
+    T: ReaderOffset + Eq,
+    S: UnwindContextStorage<T>,
+{
+}
 
 /// An unordered iterator for register rules.
 #[derive(Debug, Clone)]
@@ -2662,7 +2718,11 @@ impl<'iter, T: ReaderOffset> Iterator for RegisterRuleIter<'iter, T> {
 /// A row in the virtual unwind table that describes how to find the values of
 /// the registers in the *previous* frame for a range of PC addresses.
 #[derive(PartialEq, Eq)]
-pub struct UnwindTableRow<T: ReaderOffset, S: UnwindContextStorage<T> = StoreOnHeap> {
+pub struct UnwindTableRow<T, S = StoreOnHeap>
+where
+    T: ReaderOffset,
+    S: UnwindContextStorage<T>,
+{
     start_address: u64,
     end_address: u64,
     saved_args_size: u64,
@@ -2670,7 +2730,11 @@ pub struct UnwindTableRow<T: ReaderOffset, S: UnwindContextStorage<T> = StoreOnH
     registers: RegisterRuleMap<T, S>,
 }
 
-impl<T: ReaderOffset, S: UnwindContextStorage<T>> Debug for UnwindTableRow<T, S> {
+impl<T, S> Debug for UnwindTableRow<T, S>
+where
+    T: ReaderOffset,
+    S: UnwindContextStorage<T>,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UnwindTableRow")
             .field("start_address", &self.start_address)
@@ -2682,7 +2746,11 @@ impl<T: ReaderOffset, S: UnwindContextStorage<T>> Debug for UnwindTableRow<T, S>
     }
 }
 
-impl<T: ReaderOffset, S: UnwindContextStorage<T>> Clone for UnwindTableRow<T, S> {
+impl<T, S> Clone for UnwindTableRow<T, S>
+where
+    T: ReaderOffset,
+    S: UnwindContextStorage<T>,
+{
     fn clone(&self) -> Self {
         Self {
             start_address: self.start_address,
@@ -2694,7 +2762,11 @@ impl<T: ReaderOffset, S: UnwindContextStorage<T>> Clone for UnwindTableRow<T, S>
     }
 }
 
-impl<T: ReaderOffset, S: UnwindContextStorage<T>> Default for UnwindTableRow<T, S> {
+impl<T, S> Default for UnwindTableRow<T, S>
+where
+    T: ReaderOffset,
+    S: UnwindContextStorage<T>,
+{
     fn default() -> Self {
         UnwindTableRow {
             start_address: 0,
@@ -2706,7 +2778,11 @@ impl<T: ReaderOffset, S: UnwindContextStorage<T>> Default for UnwindTableRow<T, 
     }
 }
 
-impl<T: ReaderOffset, S: UnwindContextStorage<T>> UnwindTableRow<T, S> {
+impl<T, S> UnwindTableRow<T, S>
+where
+    T: ReaderOffset,
+    S: UnwindContextStorage<T>,
+{
     fn is_default(&self) -> bool {
         self.start_address == 0
             && self.end_address == 0
@@ -3472,10 +3548,11 @@ impl<T: ReaderOffset> UnwindExpression<T> {
     ///
     /// The offset and length were previously validated when the
     /// `UnwindExpression` was created, so this should not fail.
-    pub fn get<R: Reader<Offset = T>, S: UnwindSection<R>>(
-        &self,
-        section: &S,
-    ) -> Result<Expression<R>> {
+    pub fn get<R, S>(&self, section: &S) -> Result<Expression<R>>
+    where
+        R: Reader<Offset = T>,
+        S: UnwindSection<R>,
+    {
         let input = &mut section.section().clone();
         input.skip(self.offset)?;
         let data = input.split(self.length)?;
