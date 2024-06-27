@@ -1031,7 +1031,7 @@ mod convert {
                                 timestamp: comp_file.timestamp(),
                                 size: comp_file.size(),
                                 md5: *comp_file.md5(),
-                                source: match comp_file.source() {
+                                source: match comp_file.source_attr() {
                                     Some(source) => Some(LineString::from(
                                         source,
                                         dwarf,
@@ -1093,7 +1093,7 @@ mod convert {
                         timestamp: from_file.timestamp(),
                         size: from_file.size(),
                         md5: *from_file.md5(),
-                        source: match from_file.source() {
+                        source: match from_file.source_attr() {
                             Some(source) => {
                                 Some(LineString::from(source, dwarf, line_strings, strings)?)
                             }

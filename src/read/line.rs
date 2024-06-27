@@ -1671,9 +1671,29 @@ where
         &self.md5
     }
 
-    /// FIXME
-    pub fn source(&self) -> Option<AttributeValue<R, Offset>> {
+    /// The source code of this file. (UTF-8 source text string with "\n" line
+    /// endings). Note that this may return an empty attribute that indicates
+    /// that no source code is available. The `FileEntry::source` function
+    /// handles this automatically.
+    ///
+    /// This is an accepted proposal for DWARFv6 (Issue 180201.1: DWARF and
+    /// source text embedding)
+    pub fn source_attr(&self) -> Option<AttributeValue<R, Offset>> {
         self.source.clone()
+    }
+
+    /// The source code of this file. (UTF-8 source text string with "\n" line
+    /// endings)
+    pub fn source(&self, unit: &crate::UnitRef<R>) -> crate::Result<Option<R>> {
+        match self.source {
+            Some(ref source) => {
+                let res = unit.attr_string(source.clone())?;
+                // If the string is empty (missing mandatory line ending), we'll
+                // return Ok(None)
+                Ok((!res.is_empty()).then_some(res))
+            }
+            None => Ok(None),
+        }
     }
 }
 
