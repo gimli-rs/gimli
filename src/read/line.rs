@@ -1688,9 +1688,13 @@ where
         match self.source {
             Some(ref source) => {
                 let res = unit.attr_string(source.clone())?;
-                // If the string is empty (missing mandatory line ending), we'll
-                // return Ok(None)
-                Ok((!res.is_empty()).then_some(res))
+                // Empty source strings (missing mandatory line ending) indicate
+                // that no source was provided for this file
+                if res.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(res))
+                }
             }
             None => Ok(None),
         }
