@@ -2,7 +2,6 @@
 
 use core::cell::Cell;
 use core::ops::{Range, RangeFrom, RangeTo};
-use core::{u16, u8};
 
 use crate::common::{
     DebugAbbrevOffset, DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineOffset,
@@ -1849,7 +1848,7 @@ where
             AttributeValue::Data8(data) => data as i64,
             AttributeValue::Sdata(data) => data,
             AttributeValue::Udata(data) => {
-                if data > i64::max_value() as u64 {
+                if data > i64::MAX as u64 {
                     // Maybe we should emit a warning here
                     return None;
                 }

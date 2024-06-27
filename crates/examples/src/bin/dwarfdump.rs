@@ -2031,7 +2031,7 @@ fn dump_line_program<R: Reader, W: Write>(w: &mut W, unit: gimli::UnitRef<R>) ->
             writeln!(w, "<pc>        [lno,col]")?;
         }
         let mut rows = program.rows();
-        let mut file_index = std::u64::MAX;
+        let mut file_index = u64::MAX;
         while let Some((header, row)) = rows.next_row()? {
             let line = match row.line() {
                 Some(line) => line.get(),
