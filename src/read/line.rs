@@ -1684,7 +1684,7 @@ where
 
     /// The source code of this file. (UTF-8 source text string with "\n" line
     /// endings)
-    pub fn source(&self, unit: &crate::UnitRef<R>) -> crate::Result<Option<R>> {
+    pub fn source(&self, unit: &crate::UnitRef<'_, R>) -> crate::Result<Option<R>> {
         match self.source {
             Some(ref source) => {
                 let res = unit.attr_string(source.clone())?;
