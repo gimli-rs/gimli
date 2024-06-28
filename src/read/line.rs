@@ -1686,8 +1686,8 @@ impl FileEntryFormat {
         let mut path_count = 0;
         for _ in 0..format_count {
             let content_type = input.read_uleb128()?;
-            let content_type = if content_type > u64::from(u16::max_value()) {
-                constants::DwLnct(u16::max_value())
+            let content_type = if content_type > u64::from(u16::MAX) {
+                constants::DwLnct(u16::MAX)
             } else {
                 constants::DwLnct(content_type as u16)
             };
@@ -1886,8 +1886,6 @@ mod tests {
     use crate::endianity::LittleEndian;
     use crate::read::{EndianSlice, Error};
     use crate::test_util::GimliSectionMethods;
-    use core::u64;
-    use core::u8;
     use test_assembler::{Endian, Label, LabelMaker, Section};
 
     #[test]

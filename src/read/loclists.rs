@@ -626,7 +626,7 @@ impl<R: Reader> LocListIter<R> {
             RawLocListEntry::DefaultLocation { data } => (
                 Range {
                     begin: 0,
-                    end: u64::max_value(),
+                    end: u64::MAX,
                 },
                 data,
             ),
@@ -880,7 +880,7 @@ mod tests {
             Ok(Some(LocationListEntry {
                 range: Range {
                     begin: 0,
-                    end: u64::max_value(),
+                    end: u64::MAX,
                 },
                 data: Expression(EndianSlice::new(&[10, 0, 0, 0], LittleEndian)),
             }))
@@ -1144,7 +1144,7 @@ mod tests {
             Ok(Some(LocationListEntry {
                 range: Range {
                     begin: 0,
-                    end: u64::max_value(),
+                    end: u64::MAX,
                 },
                 data: Expression(EndianSlice::new(&[10, 0, 0, 0], LittleEndian)),
             }))

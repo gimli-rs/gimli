@@ -739,7 +739,7 @@ impl<R: Clone> Dwarf<R> {
         // parent file.
         self.ranges
             .set_debug_ranges(parent.ranges.debug_ranges().clone());
-        self.sup = parent.sup.clone();
+        self.sup.clone_from(&parent.sup);
     }
 }
 

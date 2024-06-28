@@ -66,7 +66,7 @@ fn dump_file(
                     // Determine the path. Real applications should cache this for performance.
                     let mut path = path::PathBuf::new();
                     if let Some(file) = row.file(header) {
-                        path = comp_dir.clone();
+                        path.clone_from(&comp_dir);
 
                         // The directory index 0 is defined to correspond to the compilation unit directory.
                         if file.directory_index() != 0 {
