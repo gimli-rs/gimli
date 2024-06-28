@@ -621,7 +621,7 @@ impl LineProgram {
                 w.write_uleb128(constants::DW_FORM_data16.0.into())?;
             }
             if self.file_has_source {
-                w.write_uleb128(u64::from(constants::DW_LNCT_source.0))?;
+                w.write_uleb128(u64::from(constants::DW_LNCT_LLVM_source.0))?;
                 w.write_uleb128(constants::DW_FORM_string.0.into())?;
             }
 
@@ -1031,7 +1031,7 @@ mod convert {
                                 timestamp: comp_file.timestamp(),
                                 size: comp_file.size(),
                                 md5: *comp_file.md5(),
-                                source: match comp_file.source_attr() {
+                                source: match comp_file.source() {
                                     Some(source) => Some(LineString::from(
                                         source,
                                         dwarf,
@@ -1081,6 +1081,7 @@ mod convert {
                 program.file_has_timestamp = from_header.file_has_timestamp();
                 program.file_has_size = from_header.file_has_size();
                 program.file_has_md5 = from_header.file_has_md5();
+                program.file_has_source = from_header.file_has_source();
                 for from_file in from_header.file_names().iter().skip(file_skip) {
                     let from_name =
                         LineString::from(from_file.path_name(), dwarf, line_strings, strings)?;
@@ -1093,7 +1094,7 @@ mod convert {
                         timestamp: from_file.timestamp(),
                         size: from_file.size(),
                         md5: *from_file.md5(),
-                        source: match from_file.source_attr() {
+                        source: match from_file.source() {
                             Some(source) => {
                                 Some(LineString::from(source, dwarf, line_strings, strings)?)
                             }

@@ -1224,6 +1224,13 @@ where
             .any(|x| x.content_type == constants::DW_LNCT_MD5)
     }
 
+    /// Return true if the file name entry format contains an source field.
+    pub fn file_has_source(&self) -> bool {
+        self.file_name_entry_format
+            .iter()
+            .any(|x| x.content_type == constants::DW_LNCT_LLVM_source)
+    }
+
     /// Get the list of source files that appear in this header's line program.
     pub fn file_names(&self) -> &[FileEntry<R, Offset>] {
         &self.file_names[..]
@@ -1672,32 +1679,13 @@ where
     }
 
     /// The source code of this file. (UTF-8 source text string with "\n" line
-    /// endings). Note that this may return an empty attribute that indicates
-    /// that no source code is available. The `FileEntry::source` function
-    /// handles this automatically.
+    /// endings).
     ///
-    /// This is an accepted proposal for DWARFv6 (Issue 180201.1: DWARF and
-    /// source text embedding)
-    pub fn source_attr(&self) -> Option<AttributeValue<R, Offset>> {
+    /// Note: For DWARF v5 files this may return an empty attribute that
+    /// indicates that no source code is available, which this function
+    /// represents as Some(<zero-length attr>).
+    pub fn source(&self) -> Option<AttributeValue<R, Offset>> {
         self.source.clone()
-    }
-
-    /// The source code of this file. (UTF-8 source text string with "\n" line
-    /// endings)
-    pub fn source(&self, unit: &crate::UnitRef<'_, R>) -> crate::Result<Option<R>> {
-        match self.source {
-            Some(ref source) => {
-                let res = unit.attr_string(source.clone())?;
-                // Empty source strings (missing mandatory line ending) indicate
-                // that no source was provided for this file
-                if res.is_empty() {
-                    Ok(None)
-                } else {
-                    Ok(Some(res))
-                }
-            }
-            None => Ok(None),
-        }
     }
 }
 
@@ -1793,7 +1781,7 @@ fn parse_file_v5<R: Reader>(
                     }
                 }
             }
-            constants::DW_LNCT_source | constants::DW_LNCT_LLVM_source => {
+            constants::DW_LNCT_LLVM_source => {
                 source = Some(value);
             }
             // Ignore unknown content types.
@@ -3026,7 +3014,7 @@ mod tests {
                 .uleb(constants::DW_FORM_data1.0 as u64)
                 .uleb(constants::DW_LNCT_MD5.0 as u64)
                 .uleb(constants::DW_FORM_data16.0 as u64)
-                .uleb(constants::DW_LNCT_source.0 as u64)
+                .uleb(constants::DW_LNCT_LLVM_source.0 as u64)
                 .uleb(constants::DW_FORM_string.0 as u64)
                 // File count.
                 .D8(2)
@@ -3091,7 +3079,7 @@ mod tests {
                         form: constants::DW_FORM_data16,
                     },
                     FileEntryFormat {
-                        content_type: constants::DW_LNCT_source,
+                        content_type: constants::DW_LNCT_LLVM_source,
                         form: constants::DW_FORM_string,
                     }
                 ]
