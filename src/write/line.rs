@@ -70,7 +70,7 @@ pub struct LineProgram {
     /// True if the file entries have embedded source code.
     ///
     /// For version <= 4, this is ignored.
-    /// For version 5, this controls whether to emit `DW_LNCT_source`.
+    /// For version 5, this controls whether to emit `DW_LNCT_LLVM_source`.
     pub file_has_source: bool,
 
     prev_row: LineRow,
@@ -646,7 +646,7 @@ impl LineProgram {
                     w.write(&info.md5)?;
                 }
                 if self.file_has_source {
-                    // Note: An empty DW_LNCT_source is interpreted as missing
+                    // Note: An empty DW_LNCT_LLVM_source is interpreted as missing
                     // source code. Included source code should always be
                     // terminated by a "\n" line ending.
                     let empty_str = LineString::String(Vec::new());
@@ -1239,8 +1239,8 @@ mod tests {
                         }
 
                         // Note: Embedded source code is an accepted extension
-                        // that will become part of DWARF v6. We're using it for
-                        // v5 here anyways.
+                        // that will become part of DWARF v6. We're using the LLVM extension
+                        // here for v5.
                         if encoding.version >= 5 {
                             program.file_has_source = true;
                         }

@@ -1224,7 +1224,7 @@ where
             .any(|x| x.content_type == constants::DW_LNCT_MD5)
     }
 
-    /// Return true if the file name entry format contains an source field.
+    /// Return true if the file name entry format contains a source field.
     pub fn file_has_source(&self) -> bool {
         self.file_name_entry_format
             .iter()
