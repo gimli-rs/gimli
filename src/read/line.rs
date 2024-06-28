@@ -1224,6 +1224,13 @@ where
             .any(|x| x.content_type == constants::DW_LNCT_MD5)
     }
 
+    /// Return true if the file name entry format contains a source field.
+    pub fn file_has_source(&self) -> bool {
+        self.file_name_entry_format
+            .iter()
+            .any(|x| x.content_type == constants::DW_LNCT_LLVM_source)
+    }
+
     /// Get the list of source files that appear in this header's line program.
     pub fn file_names(&self) -> &[FileEntry<R, Offset>] {
         &self.file_names[..]
@@ -1380,6 +1387,7 @@ where
                 timestamp: 0,
                 size: 0,
                 md5: [0; 16],
+                source: None,
             });
 
             file_name_entry_format = Vec::new();
@@ -1579,6 +1587,7 @@ where
     timestamp: u64,
     size: u64,
     md5: [u8; 16],
+    source: Option<AttributeValue<R, Offset>>,
 }
 
 impl<R, Offset> FileEntry<R, Offset>
@@ -1598,6 +1607,7 @@ where
             timestamp,
             size,
             md5: [0; 16],
+            source: None,
         };
 
         Ok(entry)
@@ -1667,6 +1677,16 @@ where
     pub fn md5(&self) -> &[u8; 16] {
         &self.md5
     }
+
+    /// The source code of this file. (UTF-8 source text string with "\n" line
+    /// endings).
+    ///
+    /// Note: For DWARF v5 files this may return an empty attribute that
+    /// indicates that no source code is available, which this function
+    /// represents as Some(<zero-length attr>).
+    pub fn source(&self) -> Option<AttributeValue<R, Offset>> {
+        self.source.clone()
+    }
 }
 
 /// The format of a component of an include directory or file name entry.
@@ -1733,6 +1753,7 @@ fn parse_file_v5<R: Reader>(
     let mut timestamp = 0;
     let mut size = 0;
     let mut md5 = [0; 16];
+    let mut source = None;
 
     for format in formats {
         let value = parse_attribute(input, encoding, format.form)?;
@@ -1760,6 +1781,9 @@ fn parse_file_v5<R: Reader>(
                     }
                 }
             }
+            constants::DW_LNCT_LLVM_source => {
+                source = Some(value);
+            }
             // Ignore unknown content types.
             _ => {}
         }
@@ -1771,6 +1795,7 @@ fn parse_file_v5<R: Reader>(
         timestamp,
         size,
         md5,
+        source,
     })
 }
 
@@ -1984,6 +2009,7 @@ mod tests {
                 timestamp: 0,
                 size: 0,
                 md5: [0; 16],
+                source: None,
             },
             FileEntry {
                 path_name: AttributeValue::String(EndianSlice::new(b"bar.h", LittleEndian)),
@@ -1991,6 +2017,7 @@ mod tests {
                 timestamp: 0,
                 size: 0,
                 md5: [0; 16],
+                source: None,
             },
         ];
         assert_eq!(header.file_names(), &expected_file_names);
@@ -2149,6 +2176,7 @@ mod tests {
                     timestamp: 0,
                     size: 0,
                     md5: [0; 16],
+                    source: None,
                 },
                 FileEntry {
                     path_name: AttributeValue::String(EndianSlice::new(b"bar.rs", LittleEndian)),
@@ -2156,6 +2184,7 @@ mod tests {
                     timestamp: 0,
                     size: 0,
                     md5: [0; 16],
+                    source: None,
                 },
             ],
             include_directories: vec![],
@@ -2402,6 +2431,7 @@ mod tests {
                 timestamp: 1,
                 size: 2,
                 md5: [0; 16],
+                source: None,
             }),
         );
 
@@ -2425,6 +2455,7 @@ mod tests {
             timestamp: 0,
             size: 0,
             md5: [0; 16],
+            source: None,
         };
 
         let mut header = make_test_header(EndianSlice::new(&[], LittleEndian));
@@ -2853,6 +2884,7 @@ mod tests {
             timestamp: 0,
             size: 0,
             md5: [0; 16],
+            source: None,
         };
 
         let opcode = LineInstruction::DefineFile(file);
@@ -2914,6 +2946,10 @@ mod tests {
                 timestamp: 0,
                 size: 0,
                 md5: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+                source: Some(AttributeValue::String(EndianSlice::new(
+                    b"foobar",
+                    LittleEndian,
+                ))),
             },
             FileEntry {
                 path_name: AttributeValue::String(EndianSlice::new(b"file2", LittleEndian)),
@@ -2923,6 +2959,10 @@ mod tests {
                 md5: [
                     11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
                 ],
+                source: Some(AttributeValue::String(EndianSlice::new(
+                    b"quux",
+                    LittleEndian,
+                ))),
             },
         ];
 
@@ -2965,21 +3005,25 @@ mod tests {
                 .append_bytes(b"dir1\0")
                 .append_bytes(b"dir2\0")
                 // File entry format count.
-                .D8(3)
+                .D8(4)
                 .uleb(constants::DW_LNCT_path.0 as u64)
                 .uleb(constants::DW_FORM_string.0 as u64)
                 .uleb(constants::DW_LNCT_directory_index.0 as u64)
                 .uleb(constants::DW_FORM_data1.0 as u64)
                 .uleb(constants::DW_LNCT_MD5.0 as u64)
                 .uleb(constants::DW_FORM_data16.0 as u64)
+                .uleb(constants::DW_LNCT_LLVM_source.0 as u64)
+                .uleb(constants::DW_FORM_string.0 as u64)
                 // File count.
                 .D8(2)
                 .append_bytes(b"file1\0")
                 .D8(0)
                 .append_bytes(&expected_file_names[0].md5)
+                .append_bytes(b"foobar\0")
                 .append_bytes(b"file2\0")
                 .D8(1)
                 .append_bytes(&expected_file_names[1].md5)
+                .append_bytes(b"quux\0")
                 .mark(&header_end)
                 // Dummy line program data.
                 .append_bytes(expected_program)
@@ -3031,6 +3075,10 @@ mod tests {
                     FileEntryFormat {
                         content_type: constants::DW_LNCT_MD5,
                         form: constants::DW_FORM_data16,
+                    },
+                    FileEntryFormat {
+                        content_type: constants::DW_LNCT_LLVM_source,
+                        form: constants::DW_FORM_string,
                     }
                 ]
             );
