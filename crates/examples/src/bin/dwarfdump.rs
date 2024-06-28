@@ -672,7 +672,7 @@ fn dump_eh_frame<R: Reader, W: Write>(
                     w,
                     "    range_size: {:#018x} (end_addr = {:#018x})",
                     fde.len(),
-                    fde.initial_address() + fde.len()
+                    fde.end_address(),
                 )?;
                 if let Some(lsda) = fde.lsda() {
                     write!(w, "          lsda: ")?;

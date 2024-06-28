@@ -1831,6 +1831,14 @@ impl<R: Reader> FrameDescriptionEntry<R> {
         self.initial_address
     }
 
+    /// One more than the last address that this entry has unwind information for.
+    ///
+    /// This uses wrapping arithmetic, so the result may be less than
+    /// `initial_address`.
+    pub fn end_address(&self) -> u64 {
+        self.initial_address.wrapping_add(self.address_range)
+    }
+
     /// The number of bytes of instructions that this entry has unwind
     /// information for.
     pub fn len(&self) -> u64 {
@@ -1843,9 +1851,7 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     /// This is equivalent to `entry.initial_address() <= address <
     /// entry.initial_address() + entry.len()`.
     pub fn contains(&self, address: u64) -> bool {
-        let start = self.initial_address();
-        let end = start + self.len();
-        start <= address && address < end
+        self.initial_address() <= address && address < self.end_address()
     }
 
     /// The address of this FDE's language-specific data area (LSDA), if it has
@@ -2263,7 +2269,7 @@ where
             code_alignment_factor: Wrapping(fde.cie().code_alignment_factor()),
             data_alignment_factor: Wrapping(fde.cie().data_alignment_factor()),
             next_start_address: fde.initial_address(),
-            last_end_address: fde.initial_address().wrapping_add(fde.len()),
+            last_end_address: fde.end_address(),
             returned_last_row: false,
             current_row_valid: false,
             instructions: fde.instructions(section, bases),
@@ -6439,7 +6445,7 @@ mod tests {
             *unwind_info,
             UnwindTableRow {
                 start_address: fde1.initial_address() + 100,
-                end_address: fde1.initial_address() + fde1.len(),
+                end_address: fde1.end_address(),
                 saved_args_size: 0,
                 cfa: CfaRule::RegisterAndOffset {
                     register: Register(4),
