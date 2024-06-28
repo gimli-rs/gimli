@@ -2162,25 +2162,16 @@ fn dump_aranges<R: Reader, W: Write>(
     while let Some(header) = headers.next()? {
         writeln!(
             w,
-            "Address Range Header: length = 0x{:08x}, version = 0x{:04x}, cu_offset = 0x{:08x}, addr_size = 0x{:02x}, seg_size = 0x{:02x}",
+            "Address Range Header: length = 0x{:08x}, version = 0x{:04x}, cu_offset = 0x{:08x}, addr_size = 0x{:02x}",
             header.length(),
             header.encoding().version,
             header.debug_info_offset().0,
             header.encoding().address_size,
-            header.segment_size(),
         )?;
         let mut aranges = header.entries();
         while let Some(arange) = aranges.next()? {
             let range = arange.range();
-            if let Some(segment) = arange.segment() {
-                writeln!(
-                    w,
-                    "[0x{:016x},  0x{:016x}) segment 0x{:x}",
-                    range.begin, range.end, segment
-                )?;
-            } else {
-                writeln!(w, "[0x{:016x},  0x{:016x})", range.begin, range.end)?;
-            }
+            writeln!(w, "[0x{:016x},  0x{:016x})", range.begin, range.end)?;
         }
     }
     Ok(())
