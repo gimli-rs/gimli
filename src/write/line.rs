@@ -981,6 +981,10 @@ pub struct FileInfo {
     /// Optionally some embedded sourcecode.
     ///
     /// Only used if version >= 5 and `LineProgram::file_has_source` is `true`.
+    ///
+    /// NOTE: This currently only supports the `LineString::String` variant,
+    /// since we're encoding the string with `DW_FORM_string`.
+    /// Other variants will result in an `LineStringFormMismatch` error.
     pub source: Option<LineString>,
 }
 
