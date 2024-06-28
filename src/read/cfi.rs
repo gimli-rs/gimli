@@ -169,7 +169,10 @@ impl<R: Reader> EhFrameHdr<R> {
         if fde_count_enc == constants::DW_EH_PE_omit || table_enc == constants::DW_EH_PE_omit {
             fde_count = 0
         } else {
-            fde_count = parse_encoded_pointer(fde_count_enc, &parameters, &mut reader)?.direct()?;
+            if fde_count_enc != fde_count_enc.format() {
+                return Err(Error::UnsupportedPointerEncoding);
+            }
+            fde_count = parse_encoded_value(fde_count_enc, &parameters, &mut reader)?;
         }
 
         Ok(ParsedEhFrameHdr {
@@ -1716,15 +1719,10 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     ) -> Result<(u64, u64)> {
         let encoding = cie.augmentation().and_then(|a| a.fde_address_encoding);
         if let Some(encoding) = encoding {
-            let initial_address = parse_encoded_pointer(encoding, parameters, input)?;
-
             // Ignore indirection.
-            let initial_address = initial_address.pointer();
-
-            // Address ranges cannot be relative to anything, so just grab the
-            // data format bits from the encoding.
-            let address_range = parse_encoded_pointer(encoding.format(), parameters, input)?;
-            Ok((initial_address, address_range.pointer()))
+            let initial_address = parse_encoded_pointer(encoding, parameters, input)?.pointer();
+            let address_range = parse_encoded_value(encoding, parameters, input)?;
+            Ok((initial_address, address_range))
         } else {
             let initial_address = input.read_address(cie.address_size)?;
             let address_range = input.read_address(cie.address_size)?;
@@ -3625,7 +3623,16 @@ fn parse_encoded_pointer<R: Reader>(
         _ => unreachable!(),
     };
 
-    let offset = match encoding.format() {
+    let offset = parse_encoded_value(encoding, parameters, input)?;
+    Ok(Pointer::new(encoding, base.wrapping_add(offset)))
+}
+
+fn parse_encoded_value<R: Reader>(
+    encoding: constants::DwEhPe,
+    parameters: &PointerEncodingParameters<'_, R>,
+    input: &mut R,
+) -> Result<u64> {
+    match encoding.format() {
         // Unsigned variants.
         constants::DW_EH_PE_absptr => input.read_address(parameters.address_size),
         constants::DW_EH_PE_uleb128 => input.read_uleb128(),
@@ -3644,9 +3651,7 @@ fn parse_encoded_pointer<R: Reader>(
 
         // That was all of the valid encoding formats.
         _ => unreachable!(),
-    }?;
-
-    Ok(Pointer::new(encoding, base.wrapping_add(offset)))
+    }
 }
 
 #[cfg(test)]
