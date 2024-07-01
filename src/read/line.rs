@@ -276,10 +276,10 @@ where
     /// >   1. Add a signed integer to the line register.
     /// >
     /// >   2. Modify the operation pointer by incrementing the address and
-    /// >   op_index registers as described below.
+    /// >      op_index registers as described below.
     /// >
     /// >   3. Append a row to the matrix using the current values of the state
-    /// >   machine registers.
+    /// >      machine registers.
     /// >
     /// >   4. Set the basic_block register to “false.”
     /// >

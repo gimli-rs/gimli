@@ -3752,7 +3752,6 @@ mod tests {
     use alloc::vec::Vec;
     use core::marker::PhantomData;
     use core::mem;
-    use core::u64;
     use test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};
 
     // Ensure each test tries to read the same section kind that it wrote.
@@ -6850,7 +6849,7 @@ mod tests {
     fn test_eh_frame_resolve_cie_offset_underflow() {
         let buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         assert_eq!(
-            resolve_cie_offset(&buf, ::core::usize::MAX),
+            resolve_cie_offset(&buf, usize::MAX),
             Err(Error::OffsetOutOfBounds)
         );
     }
