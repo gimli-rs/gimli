@@ -2361,7 +2361,13 @@ where
             }
             AdvanceLoc { delta } => {
                 let delta = Wrapping(u64::from(delta)) * self.code_alignment_factor;
-                self.next_start_address = (Wrapping(self.ctx.start_address()) + delta).0;
+                let address = self
+                    .ctx
+                    .start_address()
+                    .checked_add(delta.0)
+                    .ok_or(Error::AddressOverflow)?;
+
+                self.next_start_address = address;
                 self.ctx.row_mut().end_address = self.next_start_address;
                 return Ok(true);
             }
@@ -5481,9 +5487,11 @@ mod tests {
         let cie = make_test_cie();
         let mut ctx = UnwindContext::new();
         ctx.row_mut().start_address = u64::MAX;
-        let mut expected = ctx.clone();
-        expected.row_mut().end_address = 42 * cie.code_alignment_factor - 1;
-        let instructions = [(Ok(true), CallFrameInstruction::AdvanceLoc { delta: 42 })];
+        let expected = ctx.clone();
+        let instructions = [(
+            Err(Error::AddressOverflow),
+            CallFrameInstruction::AdvanceLoc { delta: 42 },
+        )];
         assert_eval(ctx, expected, cie, None, instructions);
     }
 
