@@ -624,7 +624,7 @@ impl RawRange {
 }
 
 /// An address range from the `.debug_ranges`, `.debug_rnglists`, or `.debug_aranges` sections.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Range {
     /// The beginning address of the range.
     pub begin: u64,
