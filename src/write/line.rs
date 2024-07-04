@@ -1126,13 +1126,14 @@ mod convert {
                             Some(val) => address = Some(val),
                             None => return Err(ConvertError::InvalidAddress),
                         }
-                        from_row.execute(read::LineInstruction::SetAddress(0), &mut from_program);
+                        from_row
+                            .execute(read::LineInstruction::SetAddress(0), &mut from_program)?;
                     }
                     read::LineInstruction::DefineFile(_) => {
                         return Err(ConvertError::UnsupportedLineInstruction);
                     }
                     _ => {
-                        if from_row.execute(instruction, &mut from_program) {
+                        if from_row.execute(instruction, &mut from_program)? {
                             if !program.in_sequence() {
                                 program.begin_sequence(address);
                                 address = None;
