@@ -289,7 +289,7 @@ impl<R: Reader> fallible_iterator::FallibleIterator for ArangeEntryIter<R> {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ArangeEntry {
     segment: Option<u64>,
-    address: u64,
+    range: Range,
     length: u64,
 }
 
@@ -313,10 +313,13 @@ impl ArangeEntry {
         } else {
             0
         };
-        let address = input.read_address(address_size)?;
+        let begin = input.read_address(address_size)?;
         let length = input.read_address(address_size)?;
+        // Calculate end now so that we can handle overflow.
+        // TODO: handle 32-bit address overflow as well.
+        let end = begin.checked_add(length).ok_or(Error::AddressOverflow)?;
 
-        match (segment, address, length) {
+        match (segment, begin, length) {
             // This is meant to be a null terminator, but in practice it can occur
             // before the end, possibly due to a linker omitting a function and
             // leaving an unrelocated entry.
@@ -327,7 +330,7 @@ impl ArangeEntry {
                 } else {
                     None
                 },
-                address,
+                range: Range { begin, end },
                 length,
             })),
         }
@@ -342,7 +345,7 @@ impl ArangeEntry {
     /// Return the beginning address of this arange.
     #[inline]
     pub fn address(&self) -> u64 {
-        self.address
+        self.range.begin
     }
 
     /// Return the length of this arange.
@@ -354,10 +357,7 @@ impl ArangeEntry {
     /// Return the range.
     #[inline]
     pub fn range(&self) -> Range {
-        Range {
-            begin: self.address,
-            end: self.address.wrapping_add(self.length),
-        }
+        self.range
     }
 }
 
@@ -576,7 +576,10 @@ mod tests {
             entry,
             Some(ArangeEntry {
                 segment: None,
-                address: 0x0403_0201,
+                range: Range {
+                    begin: 0x0403_0201,
+                    end: 0x0403_0201 + 0x0807_0605,
+                },
                 length: 0x0807_0605,
             })
         );
@@ -609,7 +612,10 @@ mod tests {
             entry,
             Some(ArangeEntry {
                 segment: Some(0x1817_1615_1413_1211),
-                address: 0x0403_0201,
+                range: Range {
+                    begin: 0x0403_0201,
+                    end: 0x0403_0201 + 0x0807_0605,
+                },
                 length: 0x0807_0605,
             })
         );
@@ -642,9 +648,35 @@ mod tests {
             entry,
             Some(ArangeEntry {
                 segment: None,
-                address: 0x0403_0201,
+                range: Range {
+                    begin: 0x0403_0201,
+                    end: 0x0403_0201 + 0x0807_0605,
+                },
                 length: 0x0807_0605,
             })
         );
+    }
+
+    #[test]
+    fn test_parse_entry_overflow() {
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 2,
+            address_size: 8,
+        };
+        let segment_size = 0;
+        #[rustfmt::skip]
+        let buf = [
+            // Address.
+            0x01, 0x02, 0x03, 0x04, 0x00, 0x00, 0x00, 0x80,
+            // Length.
+            0x05, 0x06, 0x07, 0x08, 0x00, 0x00, 0x00, 0x80,
+            // Next tuple.
+            0x09
+        ];
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
+        let entry = ArangeEntry::parse(rest, encoding, segment_size);
+        assert_eq!(*rest, EndianSlice::new(&buf[buf.len() - 1..], LittleEndian));
+        assert_eq!(entry, Err(Error::AddressOverflow));
     }
 }
