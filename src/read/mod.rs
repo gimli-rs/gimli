@@ -386,6 +386,11 @@ pub enum Error {
     UnknownCallFrameInstruction(constants::DwCfa),
     /// The end of an address range was before the beginning.
     InvalidAddressRange,
+    /// An address calculation overflowed.
+    ///
+    /// This is returned in cases where the address is expected to be
+    /// larger than a previous address, but the calculation overflowed.
+    AddressOverflow,
     /// Encountered a call frame instruction in a context in which it is not
     /// valid.
     CfiInstructionInInvalidContext,
@@ -543,6 +548,7 @@ impl Error {
             Error::InvalidAddressRange => {
                 "The end of an address range must not be before the beginning."
             }
+            Error::AddressOverflow => "An address calculation overflowed.",
             Error::CfiInstructionInInvalidContext => {
                 "Encountered a call frame instruction in a context in which it is not valid."
             }
