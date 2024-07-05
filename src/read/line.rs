@@ -1324,7 +1324,7 @@ where
         }
 
         if version >= 5 {
-            address_size = rest.read_u8()?;
+            address_size = rest.read_address_size()?;
             let segment_selector_size = rest.read_u8()?;
             if segment_selector_size != 0 {
                 return Err(Error::UnsupportedSegmentSize);

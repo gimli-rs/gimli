@@ -157,7 +157,7 @@ where
         }
 
         let debug_info_offset = rest.read_offset(format).map(DebugInfoOffset)?;
-        let address_size = rest.read_u8()?;
+        let address_size = rest.read_address_size()?;
         let segment_size = rest.read_u8()?;
         if segment_size != 0 {
             return Err(Error::UnsupportedSegmentSize);
@@ -170,9 +170,9 @@ where
         // a multiple of the size of a single tuple (that is, twice the size of an address).
         let tuple_length = address_size
             .checked_mul(2)
-            .ok_or(Error::InvalidAddressRange)?;
+            .ok_or(Error::UnsupportedAddressSize(address_size))?;
         if tuple_length == 0 {
-            return Err(Error::InvalidAddressRange);
+            return Err(Error::UnsupportedAddressSize(address_size));
         }
         let padding = if header_length % tuple_length == 0 {
             0
@@ -481,7 +481,7 @@ mod tests {
 
         let error = ArangeHeader::parse(rest, DebugArangesOffset(0x10))
             .expect_err("should fail to parse header");
-        assert_eq!(error, Error::InvalidAddressRange);
+        assert_eq!(error, Error::UnsupportedAddressSize(0xff));
     }
 
     #[test]
@@ -521,7 +521,7 @@ mod tests {
 
         let error = ArangeHeader::parse(rest, DebugArangesOffset(0x10))
             .expect_err("should fail to parse header");
-        assert_eq!(error, Error::InvalidAddressRange);
+        assert_eq!(error, Error::UnsupportedAddressSize(0));
     }
 
     #[test]

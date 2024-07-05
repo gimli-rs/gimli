@@ -452,6 +452,15 @@ pub trait Reader: Debug + Clone {
         }
     }
 
+    /// Read a byte and validate it as an address size.
+    fn read_address_size(&mut self) -> Result<u8> {
+        let size = self.read_u8()?;
+        match size {
+            1 | 2 | 4 | 8 => Ok(size),
+            _ => Err(Error::UnsupportedAddressSize(size)),
+        }
+    }
+
     /// Read an address-sized integer, and return it as a `u64`.
     fn read_address(&mut self, address_size: u8) -> Result<u64> {
         match address_size {

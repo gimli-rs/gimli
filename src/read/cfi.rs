@@ -1341,7 +1341,7 @@ impl<R: Reader> CommonInformationEntry<R> {
         let mut augmentation_string = rest.read_null_terminated_slice()?;
 
         let address_size = if Section::has_address_and_segment_sizes(version) {
-            let address_size = rest.read_u8()?;
+            let address_size = rest.read_address_size()?;
             let segment_size = rest.read_u8()?;
             if segment_size != 0 {
                 return Err(Error::UnsupportedSegmentSize);
