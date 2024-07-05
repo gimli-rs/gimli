@@ -14,7 +14,8 @@ use crate::common::{
 use crate::constants::{self, DwEhPe};
 use crate::endianity::Endianity;
 use crate::read::{
-    EndianSlice, Error, Expression, Reader, ReaderOffset, Result, Section, StoreOnHeap,
+    EndianSlice, Error, Expression, Reader, ReaderAddress, ReaderOffset, Result, Section,
+    StoreOnHeap,
 };
 
 /// `DebugFrame` contains the `.debug_frame` section's frame unwinding
@@ -1805,7 +1806,8 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     /// This uses wrapping arithmetic, so the result may be less than
     /// `initial_address`.
     pub fn end_address(&self) -> u64 {
-        self.initial_address.wrapping_add(self.address_range)
+        self.initial_address
+            .wrapping_add_sized(self.address_range, self.cie.address_size)
     }
 
     /// The number of bytes of instructions that this entry has unwind
@@ -2198,6 +2200,7 @@ where
 {
     code_alignment_factor: Wrapping<u64>,
     data_alignment_factor: Wrapping<i64>,
+    address_size: u8,
     next_start_address: u64,
     last_end_address: u64,
     returned_last_row: bool,
@@ -2237,6 +2240,7 @@ where
         UnwindTable {
             code_alignment_factor: Wrapping(fde.cie().code_alignment_factor()),
             data_alignment_factor: Wrapping(fde.cie().data_alignment_factor()),
+            address_size: fde.cie().address_size,
             next_start_address: fde.initial_address(),
             last_end_address: fde.end_address(),
             returned_last_row: false,
@@ -2256,6 +2260,7 @@ where
         UnwindTable {
             code_alignment_factor: Wrapping(cie.code_alignment_factor()),
             data_alignment_factor: Wrapping(cie.data_alignment_factor()),
+            address_size: cie.address_size,
             next_start_address: 0,
             last_end_address: 0,
             returned_last_row: false,
@@ -2330,13 +2335,10 @@ where
             }
             AdvanceLoc { delta } => {
                 let delta = Wrapping(u64::from(delta)) * self.code_alignment_factor;
-                let address = self
+                self.next_start_address = self
                     .ctx
                     .start_address()
-                    .checked_add(delta.0)
-                    .ok_or(Error::AddressOverflow)?;
-
-                self.next_start_address = address;
+                    .add_sized(delta.0, self.address_size)?;
                 self.ctx.row_mut().end_address = self.next_start_address;
                 return Ok(true);
             }
@@ -3651,7 +3653,8 @@ fn parse_encoded_pointer<R: Reader>(
         constants::DW_EH_PE_pcrel => {
             if let Some(section_base) = parameters.bases.section {
                 let offset_from_section = input.offset_from(parameters.section);
-                section_base.wrapping_add(offset_from_section.into_u64())
+                section_base
+                    .wrapping_add_sized(offset_from_section.into_u64(), parameters.address_size)
             } else {
                 return Err(Error::PcRelativePointerButSectionBaseIsUndefined);
             }
@@ -3682,7 +3685,10 @@ fn parse_encoded_pointer<R: Reader>(
     };
 
     let offset = parse_encoded_value(encoding, parameters, input)?;
-    Ok(Pointer::new(encoding, base.wrapping_add(offset)))
+    Ok(Pointer::new(
+        encoding,
+        base.wrapping_add_sized(offset, parameters.address_size),
+    ))
 }
 
 fn parse_encoded_value<R: Reader>(
@@ -5379,8 +5385,23 @@ mod tests {
     }
 
     #[test]
-    fn test_eval_advance_loc_overflow() {
-        let cie = make_test_cie();
+    fn test_eval_advance_loc_overflow_32() {
+        let mut cie = make_test_cie();
+        cie.address_size = 4;
+        let mut ctx = UnwindContext::new();
+        ctx.row_mut().start_address = u32::MAX.into();
+        let expected = ctx.clone();
+        let instructions = [(
+            Err(Error::AddressOverflow),
+            CallFrameInstruction::AdvanceLoc { delta: 42 },
+        )];
+        assert_eval(ctx, expected, cie, None, instructions);
+    }
+
+    #[test]
+    fn test_eval_advance_loc_overflow_64() {
+        let mut cie = make_test_cie();
+        cie.address_size = 8;
         let mut ctx = UnwindContext::new();
         ctx.row_mut().start_address = u64::MAX;
         let expected = ctx.clone();
@@ -7676,7 +7697,7 @@ mod tests {
         let parameters = PointerEncodingParameters {
             bases: &SectionBaseAddresses::default(),
             func_base: None,
-            address_size: 4,
+            address_size: 8,
             section: &input,
         };
         assert_eq!(
@@ -7779,7 +7800,7 @@ mod tests {
         let parameters = PointerEncodingParameters {
             bases: &SectionBaseAddresses::default(),
             func_base: None,
-            address_size: 4,
+            address_size: 8,
             section: &input,
         };
         assert_eq!(

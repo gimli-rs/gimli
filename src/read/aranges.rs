@@ -1,6 +1,8 @@
 use crate::common::{DebugArangesOffset, DebugInfoOffset, Encoding, SectionId};
 use crate::endianity::Endianity;
-use crate::read::{EndianSlice, Error, Range, Reader, ReaderOffset, Result, Section};
+use crate::read::{
+    EndianSlice, Error, Range, Reader, ReaderAddress, ReaderOffset, Result, Section,
+};
 
 /// The `DebugAranges` struct represents the DWARF address range information
 /// found in the `.debug_aranges` section.
@@ -296,8 +298,7 @@ impl ArangeEntry {
         let begin = input.read_address(address_size)?;
         let length = input.read_address(address_size)?;
         // Calculate end now so that we can handle overflow.
-        // TODO: handle 32-bit address overflow as well.
-        let end = begin.checked_add(length).ok_or(Error::AddressOverflow)?;
+        let end = begin.add_sized(length, address_size)?;
         let range = Range { begin, end };
 
         match (begin, length) {
@@ -581,7 +582,29 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_entry_overflow() {
+    fn test_parse_entry_overflow_32() {
+        let encoding = Encoding {
+            format: Format::Dwarf32,
+            version: 2,
+            address_size: 4,
+        };
+        #[rustfmt::skip]
+        let buf = [
+            // Address.
+            0x01, 0x02, 0x03, 0x84,
+            // Length.
+            0x05, 0x06, 0x07, 0x88,
+            // Next tuple.
+            0x09
+        ];
+        let rest = &mut EndianSlice::new(&buf, LittleEndian);
+        let entry = ArangeEntry::parse(rest, encoding);
+        assert_eq!(*rest, EndianSlice::new(&buf[buf.len() - 1..], LittleEndian));
+        assert_eq!(entry, Err(Error::AddressOverflow));
+    }
+
+    #[test]
+    fn test_parse_entry_overflow_64() {
         let encoding = Encoding {
             format: Format::Dwarf32,
             version: 2,

@@ -9,7 +9,9 @@ use crate::common::{
 };
 use crate::constants;
 use crate::endianity::Endianity;
-use crate::read::{AttributeValue, EndianSlice, Error, Reader, ReaderOffset, Result, Section};
+use crate::read::{
+    AttributeValue, EndianSlice, Error, Reader, ReaderAddress, ReaderOffset, Result, Section,
+};
 
 /// The `DebugLine` struct contains the source location to instruction mapping
 /// found in the `.debug_line` section.
@@ -852,10 +854,8 @@ impl LineRow {
 
             LineInstruction::FixedAddPc(operand) => {
                 if !self.tombstone {
-                    self.address = self
-                        .address
-                        .checked_add(u64::from(operand))
-                        .ok_or(Error::AddressOverflow)?;
+                    let address_size = program.header().address_size();
+                    self.address = self.address.add_sized(u64::from(operand), address_size)?;
                     self.op_index.0 = 0;
                 }
                 false
@@ -975,8 +975,7 @@ impl LineRow {
         };
         self.address = self
             .address
-            .checked_add(address_advance.0)
-            .ok_or(Error::AddressOverflow)?;
+            .add_sized(address_advance.0, header.address_size())?;
         Ok(())
     }
 
@@ -2639,8 +2638,21 @@ mod tests {
     }
 
     #[test]
-    fn test_exec_advance_pc_overflow() {
-        let header = make_test_header(EndianSlice::new(&[], LittleEndian));
+    fn test_exec_advance_pc_overflow_32() {
+        let mut header = make_test_header(EndianSlice::new(&[], LittleEndian));
+        header.encoding.address_size = 4;
+        let mut registers = LineRow::new(&header);
+        registers.address = u32::MAX.into();
+        let opcode = LineInstruction::AdvancePc(42);
+        let mut program = IncompleteLineProgram { header };
+        let result = registers.execute(opcode, &mut program);
+        assert_eq!(result, Err(Error::AddressOverflow));
+    }
+
+    #[test]
+    fn test_exec_advance_pc_overflow_64() {
+        let mut header = make_test_header(EndianSlice::new(&[], LittleEndian));
+        header.encoding.address_size = 8;
         let mut registers = LineRow::new(&header);
         registers.address = u64::MAX;
         let opcode = LineInstruction::AdvancePc(42);
