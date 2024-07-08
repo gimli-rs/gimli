@@ -574,7 +574,7 @@ where
     // reader.
     if 2 <= version && version <= 4 {
         abbrev_offset = parse_debug_abbrev_offset(&mut rest, format)?;
-        address_size = rest.read_u8()?;
+        address_size = rest.read_address_size()?;
         // Before DWARF5, all units in the .debug_info section are compilation
         // units, and all units in the .debug_types section are type units.
         unit_type = match unit_offset {
@@ -583,7 +583,7 @@ where
         };
     } else if version == 5 {
         unit_type = parse_unit_type(&mut rest)?;
-        address_size = rest.read_u8()?;
+        address_size = rest.read_address_size()?;
         abbrev_offset = parse_debug_abbrev_offset(&mut rest, format)?;
     } else {
         return Err(Error::UnknownVersion(u64::from(version)));
