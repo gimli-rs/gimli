@@ -1,4 +1,4 @@
-use crate::common::{Encoding, Format};
+use crate::common::Encoding;
 use crate::read::{Error, Reader, Result};
 
 #[derive(Debug, Clone, Copy)]
@@ -6,19 +6,6 @@ pub(crate) struct ListsHeader {
     encoding: Encoding,
     #[allow(dead_code)]
     offset_entry_count: u32,
-}
-
-impl Default for ListsHeader {
-    fn default() -> Self {
-        ListsHeader {
-            encoding: Encoding {
-                format: Format::Dwarf32,
-                version: 5,
-                address_size: 0,
-            },
-            offset_entry_count: 0,
-        }
-    }
 }
 
 impl ListsHeader {

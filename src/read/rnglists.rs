@@ -129,7 +129,6 @@ impl<R> From<R> for DebugRngLists<R> {
     }
 }
 
-#[allow(unused)]
 pub(crate) type RngListsHeader = ListsHeader;
 
 impl<Offset> DebugRngListsBase<Offset>
