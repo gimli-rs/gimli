@@ -7,7 +7,9 @@ use core::mem;
 use super::util::{ArrayLike, ArrayVec};
 use crate::common::{DebugAddrIndex, DebugInfoOffset, Encoding, Register};
 use crate::constants;
-use crate::read::{Error, Reader, ReaderOffset, Result, StoreOnHeap, UnitOffset, Value, ValueType};
+use crate::read::{
+    Error, Reader, ReaderAddress, ReaderOffset, Result, StoreOnHeap, UnitOffset, Value, ValueType,
+};
 
 /// A reference to a DIE, either relative to the current CU or
 /// relative to the section.
@@ -1168,11 +1170,7 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
             max_iterations: None,
             iteration: 0,
             state: EvaluationState::Start(None),
-            addr_mask: if encoding.address_size == 8 {
-                !0u64
-            } else {
-                (1 << (8 * u64::from(encoding.address_size))) - 1
-            },
+            addr_mask: u64::ones_sized(encoding.address_size),
             stack: Default::default(),
             expression_stack: Default::default(),
             pc,

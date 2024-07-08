@@ -828,7 +828,7 @@ impl LineRow {
             }
 
             LineInstruction::SetAddress(address) => {
-                let tombstone_address = !0 >> (64 - program.header().encoding.address_size * 8);
+                let tombstone_address = u64::ones_sized(program.header().encoding.address_size);
                 self.tombstone = address == tombstone_address;
                 if !self.tombstone {
                     if address < self.address {

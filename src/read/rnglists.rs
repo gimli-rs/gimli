@@ -611,7 +611,7 @@ impl RawRange {
     /// range entries are relative to.
     #[inline]
     pub fn is_base_address(&self, address_size: u8) -> bool {
-        self.begin == !0 >> (64 - address_size * 8)
+        self.begin == u64::ones_sized(address_size)
     }
 
     /// Parse an address range entry from `.debug_ranges` or `.debug_loc`.
