@@ -219,7 +219,7 @@ mod convert {
 
     impl RangeList {
         /// Create a range list by reading the data from the give range list iter.
-        pub(crate) fn from<R: Reader<Offset = usize>>(
+        pub(crate) fn from<R: Reader<Offset = usize, Address = u64>>(
             mut from: read::RawRngListIter<R>,
             context: &ConvertUnitContext<'_, R>,
         ) -> ConvertResult<Self> {

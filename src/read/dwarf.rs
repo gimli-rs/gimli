@@ -14,9 +14,9 @@ use crate::read::{
     DebugLineStr, DebugLoc, DebugLocLists, DebugRanges, DebugRngLists, DebugStr, DebugStrOffsets,
     DebugTuIndex, DebugTypes, DebugTypesUnitHeadersIter, DebuggingInformationEntry, EntriesCursor,
     EntriesRaw, EntriesTree, Error, IncompleteLineProgram, IndexSectionId, LocListIter,
-    LocationLists, Range, RangeLists, RawLocListIter, RawRngListIter, Reader, ReaderOffset,
-    ReaderOffsetId, Result, RngListIter, Section, UnitHeader, UnitIndex, UnitIndexSectionIterator,
-    UnitOffset, UnitType,
+    LocationLists, Range, RangeLists, RawLocListIter, RawRngListIter, Reader, ReaderAddress,
+    ReaderOffset, ReaderOffsetId, Result, RngListIter, Section, UnitHeader, UnitIndex,
+    UnitIndexSectionIterator, UnitOffset, UnitType,
 };
 
 /// All of the commonly used DWARF sections.
@@ -421,9 +421,10 @@ impl<R: Reader> Dwarf<R> {
     }
 
     /// Return the address at the given index.
-    pub fn address(&self, unit: &Unit<R>, index: DebugAddrIndex<R::Offset>) -> Result<u64> {
+    pub fn address(&self, unit: &Unit<R>, index: DebugAddrIndex<R::Offset>) -> Result<R::Address> {
+        let address_size = unit.encoding().address_size;
         self.debug_addr
-            .get_address(unit.encoding().address_size, unit.addr_base, index)
+            .get_address(address_size, unit.addr_base, index)
     }
 
     /// Try to return an attribute value as an address.
@@ -435,7 +436,11 @@ impl<R: Reader> Dwarf<R> {
     ///
     /// then return the address.
     /// Returns `None` for other forms.
-    pub fn attr_address(&self, unit: &Unit<R>, attr: AttributeValue<R>) -> Result<Option<u64>> {
+    pub fn attr_address(
+        &self,
+        unit: &Unit<R>,
+        attr: AttributeValue<R>,
+    ) -> Result<Option<R::Address>> {
         match attr {
             AttributeValue::Addr(addr) => Ok(Some(addr)),
             AttributeValue::DebugAddrIndex(index) => self.address(unit, index).map(Some),
@@ -543,6 +548,7 @@ impl<R: Reader> Dwarf<R> {
         unit: &Unit<R>,
         entry: &DebuggingInformationEntry<'_, '_, R>,
     ) -> Result<RangeIter<R>> {
+        let address_size = unit.encoding().address_size;
         let mut low_pc = None;
         let mut high_pc = None;
         let mut size = None;
@@ -556,7 +562,9 @@ impl<R: Reader> Dwarf<R> {
                     );
                 }
                 constants::DW_AT_high_pc => match attr.value() {
-                    AttributeValue::Udata(val) => size = Some(val),
+                    AttributeValue::Udata(val) => {
+                        size = Some(R::Address::length(val, address_size)?);
+                    }
                     attr => {
                         high_pc = Some(
                             self.attr_address(unit, attr)?
@@ -573,7 +581,9 @@ impl<R: Reader> Dwarf<R> {
             }
         }
         let range = low_pc.and_then(|begin| {
-            let end = size.map(|size| begin + size).or(high_pc);
+            let end = size
+                .and_then(|size| begin.add(size, address_size).ok())
+                .or(high_pc);
             // TODO: perhaps return an error if `end` is `None`
             end.map(|end| Range { begin, end })
         });
@@ -1097,13 +1107,14 @@ impl<R: Reader> DwarfPackage<R> {
 /// All of the commonly used information for a unit in the `.debug_info` or `.debug_types`
 /// sections.
 #[derive(Debug)]
-pub struct Unit<R, Offset = <R as Reader>::Offset>
+pub struct Unit<R, Offset = <R as Reader>::Offset, Address = <R as Reader>::Address>
 where
-    R: Reader<Offset = Offset>,
+    R: Reader<Offset = Offset, Address = Address>,
     Offset: ReaderOffset,
+    Address: ReaderAddress,
 {
     /// The header of the unit.
-    pub header: UnitHeader<R, Offset>,
+    pub header: UnitHeader<R, Offset, Address>,
 
     /// The parsed abbreviations for the unit.
     pub abbreviations: Arc<Abbreviations>,
@@ -1115,7 +1126,7 @@ where
     pub comp_dir: Option<R>,
 
     /// The `DW_AT_low_pc` attribute of the unit. Defaults to 0.
-    pub low_pc: u64,
+    pub low_pc: Address,
 
     /// The `DW_AT_str_offsets_base` attribute of the unit. Defaults to 0.
     pub str_offsets_base: DebugStrOffsetsBase<Offset>,
@@ -1130,7 +1141,7 @@ where
     pub rnglists_base: DebugRngListsBase<Offset>,
 
     /// The line number program of the unit.
-    pub line_program: Option<IncompleteLineProgram<R, Offset>>,
+    pub line_program: Option<IncompleteLineProgram<R, Offset, Address>>,
 
     /// The DWO ID of a skeleton unit or split compilation unit.
     pub dwo_id: Option<DwoId>,
@@ -1159,7 +1170,7 @@ impl<R: Reader> Unit<R> {
             abbreviations,
             name: None,
             comp_dir: None,
-            low_pc: 0,
+            low_pc: R::Address::zeroes(),
             str_offsets_base: DebugStrOffsetsBase::default_for_encoding_and_file(
                 header.encoding(),
                 dwarf.file_type,
@@ -1419,14 +1430,14 @@ impl<'a, R: Reader> UnitRef<'a, R> {
     }
 
     /// Return the address at the given index.
-    pub fn address(&self, index: DebugAddrIndex<R::Offset>) -> Result<u64> {
+    pub fn address(&self, index: DebugAddrIndex<R::Offset>) -> Result<R::Address> {
         self.dwarf.address(self.unit, index)
     }
 
     /// Try to return an attribute value as an address.
     ///
     /// See [`Dwarf::attr_address`] for more information.
-    pub fn attr_address(&self, attr: AttributeValue<R>) -> Result<Option<u64>> {
+    pub fn attr_address(&self, attr: AttributeValue<R>) -> Result<Option<R::Address>> {
         self.dwarf.attr_address(self.unit, attr)
     }
 
@@ -1588,7 +1599,7 @@ pub struct RangeIter<R: Reader>(RangeIterInner<R>);
 
 #[derive(Debug)]
 enum RangeIterInner<R: Reader> {
-    Single(Option<Range>),
+    Single(Option<Range<R::Address>>),
     List(RngListIter<R>),
 }
 
@@ -1600,7 +1611,7 @@ impl<R: Reader> Default for RangeIter<R> {
 
 impl<R: Reader> RangeIter<R> {
     /// Advance the iterator to the next range.
-    pub fn next(&mut self) -> Result<Option<Range>> {
+    pub fn next(&mut self) -> Result<Option<Range<R::Address>>> {
         match self.0 {
             RangeIterInner::Single(ref mut range) => Ok(range.take()),
             RangeIterInner::List(ref mut list) => list.next(),
@@ -1610,7 +1621,7 @@ impl<R: Reader> RangeIter<R> {
 
 #[cfg(feature = "fallible-iterator")]
 impl<R: Reader> fallible_iterator::FallibleIterator for RangeIter<R> {
-    type Item = Range;
+    type Item = Range<R::Address>;
     type Error = Error;
 
     #[inline]

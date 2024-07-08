@@ -45,7 +45,7 @@ impl<R: Reader> DebugFrame<R> {
     /// This defaults to the native word size.
     /// This is only used if the CIE version is less than 4.
     pub fn set_address_size(&mut self, address_size: u8) {
-        self.address_size = address_size
+        self.address_size = address_size;
     }
 
     /// Set the vendor extensions to use.
@@ -114,7 +114,7 @@ pub struct ParsedEhFrameHdr<R: Reader> {
     address_size: u8,
     section: R,
 
-    eh_frame_ptr: Pointer,
+    eh_frame_ptr: Pointer<R::Address>,
     fde_count: u64,
     table_enc: DwEhPe,
     table: R,
@@ -132,7 +132,12 @@ where
 
 impl<R: Reader> EhFrameHdr<R> {
     /// Parses this `EhFrameHdr` to a `ParsedEhFrameHdr`.
-    pub fn parse(&self, bases: &BaseAddresses, address_size: u8) -> Result<ParsedEhFrameHdr<R>> {
+    pub fn parse(
+        &self,
+        bases: &BaseAddresses<R::Address>,
+        address_size: u8,
+    ) -> Result<ParsedEhFrameHdr<R>> {
+        let address_size = R::address_size(address_size)?;
         let mut reader = self.0.clone();
         let version = reader.read_u8()?;
         if version != 1 {
@@ -163,7 +168,7 @@ impl<R: Reader> EhFrameHdr<R> {
             if fde_count_enc != fde_count_enc.format() {
                 return Err(Error::UnsupportedPointerEncoding);
             }
-            fde_count = parse_encoded_value(fde_count_enc, &parameters, &mut reader)?;
+            fde_count = parse_encoded_value(fde_count_enc, &parameters, &mut reader)?.into();
         }
 
         Ok(ParsedEhFrameHdr {
@@ -196,7 +201,7 @@ impl<R: Reader> From<R> for EhFrameHdr<R> {
 
 impl<R: Reader> ParsedEhFrameHdr<R> {
     /// Returns the address of the binary's `.eh_frame` section.
-    pub fn eh_frame_ptr(&self) -> Pointer {
+    pub fn eh_frame_ptr(&self) -> Pointer<R::Address> {
         self.eh_frame_ptr
     }
 
@@ -229,13 +234,13 @@ impl<R: Reader> ParsedEhFrameHdr<R> {
 pub struct EhHdrTableIter<'a, 'bases, R: Reader> {
     hdr: &'a ParsedEhFrameHdr<R>,
     table: R,
-    bases: &'bases BaseAddresses,
+    bases: &'bases BaseAddresses<R::Address>,
     remain: u64,
 }
 
 impl<'a, 'bases, R: Reader> EhHdrTableIter<'a, 'bases, R> {
     /// Yield the next entry in the `EhHdrTableIter`.
-    pub fn next(&mut self) -> Result<Option<(Pointer, Pointer)>> {
+    pub fn next(&mut self) -> Result<Option<(Pointer<R::Address>, Pointer<R::Address>)>> {
         if self.remain == 0 {
             return Ok(None);
         }
@@ -253,7 +258,7 @@ impl<'a, 'bases, R: Reader> EhHdrTableIter<'a, 'bases, R> {
         Ok(Some((from, to)))
     }
     /// Yield the nth entry in the `EhHdrTableIter`
-    pub fn nth(&mut self, n: usize) -> Result<Option<(Pointer, Pointer)>> {
+    pub fn nth(&mut self, n: usize) -> Result<Option<(Pointer<R::Address>, Pointer<R::Address>)>> {
         use core::convert::TryFrom;
         let size = match self.hdr.table_enc.format() {
             constants::DW_EH_PE_uleb128 | constants::DW_EH_PE_sleb128 => {
@@ -275,7 +280,7 @@ impl<'a, 'bases, R: Reader> EhHdrTableIter<'a, 'bases, R> {
 
 #[cfg(feature = "fallible-iterator")]
 impl<'a, 'bases, R: Reader> fallible_iterator::FallibleIterator for EhHdrTableIter<'a, 'bases, R> {
-    type Item = (Pointer, Pointer);
+    type Item = (Pointer<R::Address>, Pointer<R::Address>);
     type Error = Error;
     fn next(&mut self) -> Result<Option<Self::Item>> {
         EhHdrTableIter::next(self)
@@ -307,7 +312,10 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     /// The `initial location` represents the first address that the targeted FDE
     /// is able to decode. The `address` is the address of the FDE in the `.eh_frame` section.
     /// The `address` can be converted with `EhHdrTable::pointer_to_offset` and `EhFrame::fde_from_offset` to an FDE.
-    pub fn iter<'bases>(&self, bases: &'bases BaseAddresses) -> EhHdrTableIter<'_, 'bases, R> {
+    pub fn iter<'bases>(
+        &self,
+        bases: &'bases BaseAddresses<R::Address>,
+    ) -> EhHdrTableIter<'_, 'bases, R> {
         EhHdrTableIter {
             hdr: self.hdr,
             bases,
@@ -321,7 +329,14 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     /// this function **will** return a pointer to any other FDE that's close by.
     ///
     /// To be sure, you **must** call `contains` on the FDE.
-    pub fn lookup(&self, address: u64, bases: &BaseAddresses) -> Result<Pointer> {
+    pub fn lookup(
+        &self,
+        address: R::Address,
+        bases: &BaseAddresses<R::Address>,
+    ) -> Result<Pointer<R::Address>>
+    where
+        R::Address: Ord,
+    {
         let size = match self.hdr.table_enc.format() {
             constants::DW_EH_PE_uleb128 | constants::DW_EH_PE_sleb128 => {
                 return Err(Error::VariableLengthSearchTable);
@@ -376,12 +391,13 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     /// Convert a `Pointer` to a section offset.
     ///
     /// This does not support indirect pointers.
-    pub fn pointer_to_offset(&self, ptr: Pointer) -> Result<EhFrameOffset<R::Offset>> {
+    pub fn pointer_to_offset(&self, ptr: Pointer<R::Address>) -> Result<EhFrameOffset<R::Offset>> {
         let ptr = ptr.direct()?;
         let eh_frame_ptr = self.hdr.eh_frame_ptr().direct()?;
 
         // Calculate the offset in the EhFrame section
-        R::Offset::from_u64(ptr - eh_frame_ptr).map(EhFrameOffset)
+        let offset = ptr.offset_from(eh_frame_ptr)?;
+        R::Offset::from_u64(offset.into()).map(EhFrameOffset)
     }
 
     /// Returns a parsed FDE for the given address, or `NoUnwindInfoForAddress`
@@ -407,16 +423,17 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     pub fn fde_for_address<F>(
         &self,
         frame: &EhFrame<R>,
-        bases: &BaseAddresses,
-        address: u64,
+        bases: &BaseAddresses<R::Address>,
+        address: R::Address,
         get_cie: F,
     ) -> Result<FrameDescriptionEntry<R>>
     where
         F: FnMut(
             &EhFrame<R>,
-            &BaseAddresses,
+            &BaseAddresses<R::Address>,
             EhFrameOffset<R::Offset>,
         ) -> Result<CommonInformationEntry<R>>,
+        R::Address: Ord,
     {
         let fdeptr = self.lookup(address, bases)?;
         let offset = self.pointer_to_offset(fdeptr)?;
@@ -433,17 +450,18 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     #[deprecated(note = "Method renamed to fde_for_address; use that instead.")]
     pub fn lookup_and_parse<F>(
         &self,
-        address: u64,
-        bases: &BaseAddresses,
+        address: R::Address,
+        bases: &BaseAddresses<R::Address>,
         frame: EhFrame<R>,
         get_cie: F,
     ) -> Result<FrameDescriptionEntry<R>>
     where
         F: FnMut(
             &EhFrame<R>,
-            &BaseAddresses,
+            &BaseAddresses<R::Address>,
             EhFrameOffset<R::Offset>,
         ) -> Result<CommonInformationEntry<R>>,
+        R::Address: Ord,
     {
         self.fde_for_address(&frame, bases, address, get_cie)
     }
@@ -456,18 +474,19 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
     pub fn unwind_info_for_address<'ctx, F, S>(
         &self,
         frame: &EhFrame<R>,
-        bases: &BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R::Offset, S>,
-        address: u64,
+        bases: &BaseAddresses<R::Address>,
+        ctx: &'ctx mut UnwindContext<R::Offset, R::Address, S>,
+        address: R::Address,
         get_cie: F,
-    ) -> Result<&'ctx UnwindTableRow<R::Offset, S>>
+    ) -> Result<&'ctx UnwindTableRow<R::Offset, R::Address, S>>
     where
         F: FnMut(
             &EhFrame<R>,
-            &BaseAddresses,
+            &BaseAddresses<R::Address>,
             EhFrameOffset<R::Offset>,
         ) -> Result<CommonInformationEntry<R>>,
-        S: UnwindContextStorage<R::Offset>,
+        R::Address: Ord,
+        S: UnwindContextStorage<R::Offset, R::Address>,
     {
         let fde = self.fde_for_address(frame, bases, address, get_cie)?;
         fde.unwind_info_for_address(frame, bases, ctx, address)
@@ -496,7 +515,7 @@ impl<R: Reader> EhFrame<R> {
     ///
     /// This defaults to the native word size.
     pub fn set_address_size(&mut self, address_size: u8) {
-        self.address_size = address_size
+        self.address_size = address_size;
     }
 
     /// Set the vendor extensions to use.
@@ -643,7 +662,10 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     ///
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
-    fn entries<'bases>(&self, bases: &'bases BaseAddresses) -> CfiEntriesIter<'bases, Self, R> {
+    fn entries<'bases>(
+        &self,
+        bases: &'bases BaseAddresses<R::Address>,
+    ) -> CfiEntriesIter<'bases, Self, R> {
         CfiEntriesIter {
             section: self.clone(),
             bases,
@@ -654,7 +676,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// Parse the `CommonInformationEntry` at the given offset.
     fn cie_from_offset(
         &self,
-        bases: &BaseAddresses,
+        bases: &BaseAddresses<R::Address>,
         offset: Self::Offset,
     ) -> Result<CommonInformationEntry<R>> {
         let offset = UnwindOffset::into(offset);
@@ -666,7 +688,7 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// Parse the `PartialFrameDescriptionEntry` at the given offset.
     fn partial_fde_from_offset<'bases>(
         &self,
-        bases: &'bases BaseAddresses,
+        bases: &'bases BaseAddresses<R::Address>,
         offset: Self::Offset,
     ) -> Result<PartialFrameDescriptionEntry<'bases, Self, R>> {
         let offset = UnwindOffset::into(offset);
@@ -678,12 +700,16 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// Parse the `FrameDescriptionEntry` at the given offset.
     fn fde_from_offset<F>(
         &self,
-        bases: &BaseAddresses,
+        bases: &BaseAddresses<R::Address>,
         offset: Self::Offset,
         get_cie: F,
     ) -> Result<FrameDescriptionEntry<R>>
     where
-        F: FnMut(&Self, &BaseAddresses, Self::Offset) -> Result<CommonInformationEntry<R>>,
+        F: FnMut(
+            &Self,
+            &BaseAddresses<R::Address>,
+            Self::Offset,
+        ) -> Result<CommonInformationEntry<R>>,
     {
         let partial = self.partial_fde_from_offset(bases, offset)?;
         partial.parse(get_cie)
@@ -702,12 +728,17 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     /// to do a binary search with `EhFrameHdr::fde_for_address` instead.
     fn fde_for_address<F>(
         &self,
-        bases: &BaseAddresses,
-        address: u64,
+        bases: &BaseAddresses<R::Address>,
+        address: R::Address,
         mut get_cie: F,
     ) -> Result<FrameDescriptionEntry<R>>
     where
-        F: FnMut(&Self, &BaseAddresses, Self::Offset) -> Result<CommonInformationEntry<R>>,
+        F: FnMut(
+            &Self,
+            &BaseAddresses<R::Address>,
+            Self::Offset,
+        ) -> Result<CommonInformationEntry<R>>,
+        R::Address: Ord,
     {
         let mut entries = self.entries(bases);
         while let Some(entry) = entries.next()? {
@@ -772,14 +803,19 @@ pub trait UnwindSection<R: Reader>: Clone + Debug + _UnwindSectionPrivate<R> {
     #[inline]
     fn unwind_info_for_address<'ctx, F, S>(
         &self,
-        bases: &BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R::Offset, S>,
-        address: u64,
+        bases: &BaseAddresses<R::Address>,
+        ctx: &'ctx mut UnwindContext<R::Offset, R::Address, S>,
+        address: R::Address,
         get_cie: F,
-    ) -> Result<&'ctx UnwindTableRow<R::Offset, S>>
+    ) -> Result<&'ctx UnwindTableRow<R::Offset, R::Address, S>>
     where
-        F: FnMut(&Self, &BaseAddresses, Self::Offset) -> Result<CommonInformationEntry<R>>,
-        S: UnwindContextStorage<R::Offset>,
+        F: FnMut(
+            &Self,
+            &BaseAddresses<R::Address>,
+            Self::Offset,
+        ) -> Result<CommonInformationEntry<R>>,
+        R::Address: Ord,
+        S: UnwindContextStorage<R::Offset, R::Address>,
     {
         let fde = self.fde_for_address(bases, address, get_cie)?;
         fde.unwind_info_for_address(self, bases, ctx, address)
@@ -893,12 +929,12 @@ impl<R: Reader> UnwindSection<R> for EhFrame<R> {
 /// # }
 /// ```
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
-pub struct BaseAddresses {
+pub struct BaseAddresses<T = u64> {
     /// The base addresses to use for pointers in the `.eh_frame_hdr` section.
-    pub eh_frame_hdr: SectionBaseAddresses,
+    pub eh_frame_hdr: SectionBaseAddresses<T>,
 
     /// The base addresses to use for pointers in the `.eh_frame` section.
-    pub eh_frame: SectionBaseAddresses,
+    pub eh_frame: SectionBaseAddresses<T>,
 }
 
 /// Optional base addresses for the relative `DW_EH_PE_*` encoded pointers
@@ -906,13 +942,13 @@ pub struct BaseAddresses {
 ///
 /// See `BaseAddresses` for methods that are helpful in setting these addresses.
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
-pub struct SectionBaseAddresses {
+pub struct SectionBaseAddresses<T = u64> {
     /// The address of the section containing the pointer.
-    pub section: Option<u64>,
+    pub section: Option<T>,
 
     /// The base address for text relative pointers.
     /// This is generally the address of the `.text` section.
-    pub text: Option<u64>,
+    pub text: Option<T>,
 
     /// The base address for data relative pointers.
     ///
@@ -921,13 +957,13 @@ pub struct SectionBaseAddresses {
     ///
     /// For pointers in the `.eh_frame` section, this is generally the
     /// global pointer, such as the address of the `.got` section.
-    pub data: Option<u64>,
+    pub data: Option<T>,
 }
 
-impl BaseAddresses {
+impl<T: Copy> BaseAddresses<T> {
     /// Set the `.eh_frame_hdr` section base address.
     #[inline]
-    pub fn set_eh_frame_hdr(mut self, addr: u64) -> Self {
+    pub fn set_eh_frame_hdr(mut self, addr: T) -> Self {
         self.eh_frame_hdr.section = Some(addr);
         self.eh_frame_hdr.data = Some(addr);
         self
@@ -935,14 +971,14 @@ impl BaseAddresses {
 
     /// Set the `.eh_frame` section base address.
     #[inline]
-    pub fn set_eh_frame(mut self, addr: u64) -> Self {
+    pub fn set_eh_frame(mut self, addr: T) -> Self {
         self.eh_frame.section = Some(addr);
         self
     }
 
     /// Set the `.text` section base address.
     #[inline]
-    pub fn set_text(mut self, addr: u64) -> Self {
+    pub fn set_text(mut self, addr: T) -> Self {
         self.eh_frame_hdr.text = Some(addr);
         self.eh_frame.text = Some(addr);
         self
@@ -950,7 +986,7 @@ impl BaseAddresses {
 
     /// Set the `.got` section base address.
     #[inline]
-    pub fn set_got(mut self, addr: u64) -> Self {
+    pub fn set_got(mut self, addr: T) -> Self {
         self.eh_frame.data = Some(addr);
         self
     }
@@ -1002,7 +1038,7 @@ where
     Section: UnwindSection<R>,
 {
     section: Section,
-    bases: &'bases BaseAddresses,
+    bases: &'bases BaseAddresses<R::Address>,
     input: R,
 }
 
@@ -1061,7 +1097,7 @@ where
 }
 
 fn parse_cfi_entry<'bases, Section, R>(
-    bases: &'bases BaseAddresses,
+    bases: &'bases BaseAddresses<R::Address>,
     section: &Section,
     input: &mut R,
 ) -> Result<Option<CieOrFde<'bases, Section, R>>>
@@ -1122,7 +1158,7 @@ where
 ///
 /// [ehframe]: https://refspecs.linuxfoundation.org/LSB_3.0.0/LSB-Core-generic/LSB-Core-generic/ehframechpt.html
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
-pub struct Augmentation {
+pub struct Augmentation<T: ReaderAddress = u64> {
     /// > A 'L' may be present at any position after the first character of the
     /// > string. This character may only be present if 'z' is the first character
     /// > of the string. If present, it indicates the presence of one argument in
@@ -1141,7 +1177,7 @@ pub struct Augmentation {
     /// > represents the pointer encoding used for the second argument, which is
     /// > the address of a personality routine handler. The size of the
     /// > personality routine pointer is specified by the pointer encoding used.
-    personality: Option<(constants::DwEhPe, Pointer)>,
+    personality: Option<(constants::DwEhPe, Pointer<T>)>,
 
     /// > A 'R' may be present at any position after the first character of the
     /// > string. This character may only be present if 'z' is the first character
@@ -1154,16 +1190,16 @@ pub struct Augmentation {
     is_signal_trampoline: bool,
 }
 
-impl Augmentation {
+impl<T: ReaderAddress> Augmentation<T> {
     fn parse<Section, R>(
         augmentation_str: &mut R,
-        bases: &BaseAddresses,
+        bases: &BaseAddresses<R::Address>,
         address_size: u8,
         section: &Section,
         input: &mut R,
-    ) -> Result<Augmentation>
+    ) -> Result<Self>
     where
-        R: Reader,
+        R: Reader<Address = T>,
         Section: UnwindSection<R>,
     {
         debug_assert!(
@@ -1223,16 +1259,16 @@ impl Augmentation {
 
 /// Parsed augmentation data for a `FrameDescriptEntry`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct AugmentationData {
-    lsda: Option<Pointer>,
+struct AugmentationData<T = u64> {
+    lsda: Option<Pointer<T>>,
 }
 
-impl AugmentationData {
-    fn parse<R: Reader>(
-        augmentation: &Augmentation,
+impl<T: ReaderAddress> AugmentationData<T> {
+    fn parse<R: Reader<Address = T>>(
+        augmentation: &Augmentation<T>,
         encoding_parameters: &PointerEncodingParameters<'_, R>,
         input: &mut R,
-    ) -> Result<AugmentationData> {
+    ) -> Result<Self> {
         // In theory, we should be iterating over the original augmentation
         // string, interpreting each character, and reading the appropriate bits
         // out of the augmentation data as we go. However, the only character
@@ -1254,10 +1290,14 @@ impl AugmentationData {
 /// > Frame Description Entries. There is at least one CIE in every non-empty
 /// > `.debug_frame` section.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CommonInformationEntry<R, Offset = <R as Reader>::Offset>
-where
+pub struct CommonInformationEntry<
+    R,
+    Offset = <R as Reader>::Offset,
+    Address = <R as Reader>::Address,
+> where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
+    Address: ReaderAddress,
 {
     /// The offset of this entry from the start of its containing section.
     offset: Offset,
@@ -1275,7 +1315,7 @@ where
     version: u8,
 
     /// The parsed augmentation, if any.
-    augmentation: Option<Augmentation>,
+    augmentation: Option<Augmentation<Address>>,
 
     /// > The size of a target address in this CIE and any FDEs that use it, in
     /// > bytes. If a compilation unit exists for this frame, its address size
@@ -1310,7 +1350,7 @@ where
 
 impl<R: Reader> CommonInformationEntry<R> {
     fn parse<Section: UnwindSection<R>>(
-        bases: &BaseAddresses,
+        bases: &BaseAddresses<R::Address>,
         section: &Section,
         input: &mut R,
     ) -> Result<CommonInformationEntry<R>> {
@@ -1325,7 +1365,7 @@ impl<R: Reader> CommonInformationEntry<R> {
         offset: R::Offset,
         length: R::Offset,
         format: Format,
-        bases: &BaseAddresses,
+        bases: &BaseAddresses<R::Address>,
         section: &Section,
         mut rest: R,
     ) -> Result<CommonInformationEntry<R>> {
@@ -1421,7 +1461,7 @@ impl<R: Reader> CommonInformationEntry<R> {
     pub fn instructions<'a, Section>(
         &self,
         section: &'a Section,
-        bases: &'a BaseAddresses,
+        bases: &'a BaseAddresses<R::Address>,
     ) -> CallFrameInstructionIter<'a, R>
     where
         Section: UnwindSection<R>,
@@ -1457,7 +1497,7 @@ impl<R: Reader> CommonInformationEntry<R> {
     ///
     /// The only augmentation understood by `gimli` is that which is defined by
     /// `.eh_frame`.
-    pub fn augmentation(&self) -> Option<&Augmentation> {
+    pub fn augmentation(&self) -> Option<&Augmentation<R::Address>> {
         self.augmentation.as_ref()
     }
 
@@ -1473,13 +1513,13 @@ impl<R: Reader> CommonInformationEntry<R> {
 
     /// Return the encoding and address of the personality routine handler
     /// for this CIE's FDEs.
-    pub fn personality_with_encoding(&self) -> Option<(constants::DwEhPe, Pointer)> {
+    pub fn personality_with_encoding(&self) -> Option<(constants::DwEhPe, Pointer<R::Address>)> {
         self.augmentation.as_ref().and_then(|a| a.personality)
     }
 
     /// Return the address of the personality routine handler
     /// for this CIE's FDEs.
-    pub fn personality(&self) -> Option<Pointer> {
+    pub fn personality(&self) -> Option<Pointer<R::Address>> {
         self.augmentation
             .as_ref()
             .and_then(|a| a.personality)
@@ -1531,7 +1571,7 @@ where
     cie_offset: Section::Offset,
     rest: R,
     section: Section,
-    bases: &'bases BaseAddresses,
+    bases: &'bases BaseAddresses<R::Address>,
 }
 
 impl<'bases, Section, R> PartialFrameDescriptionEntry<'bases, Section, R>
@@ -1541,7 +1581,7 @@ where
 {
     fn parse_partial(
         section: &Section,
-        bases: &'bases BaseAddresses,
+        bases: &'bases BaseAddresses<R::Address>,
         input: &mut R,
     ) -> Result<PartialFrameDescriptionEntry<'bases, Section, R>> {
         match parse_cfi_entry(bases, section, input)? {
@@ -1558,7 +1598,11 @@ where
     /// you've already parsed, etc.)
     pub fn parse<F>(&self, get_cie: F) -> Result<FrameDescriptionEntry<R>>
     where
-        F: FnMut(&Section, &BaseAddresses, Section::Offset) -> Result<CommonInformationEntry<R>>,
+        F: FnMut(
+            &Section,
+            &BaseAddresses<R::Address>,
+            Section::Offset,
+        ) -> Result<CommonInformationEntry<R>>,
     {
         FrameDescriptionEntry::parse_rest(
             self.offset,
@@ -1593,10 +1637,15 @@ where
 
 /// A `FrameDescriptionEntry` is a set of CFA instructions for an address range.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FrameDescriptionEntry<R, Offset = <R as Reader>::Offset>
-where
+pub struct FrameDescriptionEntry<
+    R,
+    Offset = <R as Reader>::Offset,
+    Address = <R as Reader>::Address,
+    AddressLength = <<R as Reader>::Address as ReaderAddress>::Length,
+> where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
+    Address: ReaderAddress,
 {
     /// The start of this entry within its containing section.
     offset: Offset,
@@ -1613,18 +1662,18 @@ where
     /// that is associated with this FDE."
     ///
     /// This is the CIE at that offset.
-    cie: CommonInformationEntry<R, Offset>,
+    cie: CommonInformationEntry<R, Offset, Address>,
 
     /// > The address of the first location associated with this table entry. If
     /// > the segment_size field of this FDE's CIE is non-zero, the initial
     /// > location is preceded by a segment selector of the given length.
-    initial_address: u64,
+    initial_address: Address,
 
     /// "The number of bytes of program instructions described by this entry."
-    address_range: u64,
+    address_range: AddressLength,
 
     /// The parsed augmentation data, if we have any.
-    augmentation: Option<AugmentationData>,
+    augmentation: Option<AugmentationData<Address>>,
 
     /// "A sequence of table defining instructions that are described below."
     ///
@@ -1641,12 +1690,16 @@ impl<R: Reader> FrameDescriptionEntry<R> {
         cie_pointer: Section::Offset,
         mut rest: R,
         section: &Section,
-        bases: &BaseAddresses,
+        bases: &BaseAddresses<R::Address>,
         mut get_cie: F,
     ) -> Result<FrameDescriptionEntry<R>>
     where
         Section: UnwindSection<R>,
-        F: FnMut(&Section, &BaseAddresses, Section::Offset) -> Result<CommonInformationEntry<R>>,
+        F: FnMut(
+            &Section,
+            &BaseAddresses<R::Address>,
+            Section::Offset,
+        ) -> Result<CommonInformationEntry<R>>,
     {
         let cie = get_cie(section, bases, cie_pointer)?;
 
@@ -1688,7 +1741,7 @@ impl<R: Reader> FrameDescriptionEntry<R> {
         input: &mut R,
         cie: &CommonInformationEntry<R>,
         parameters: &PointerEncodingParameters<'_, R>,
-    ) -> Result<(u64, u64)> {
+    ) -> Result<(R::Address, <R::Address as ReaderAddress>::Length)> {
         let encoding = cie.augmentation().and_then(|a| a.fde_address_encoding);
         if let Some(encoding) = encoding {
             // Ignore indirection.
@@ -1697,7 +1750,7 @@ impl<R: Reader> FrameDescriptionEntry<R> {
             Ok((initial_address, address_range))
         } else {
             let initial_address = input.read_address(cie.address_size)?;
-            let address_range = input.read_address(cie.address_size)?;
+            let address_range = input.read_address_range(cie.address_size)?;
             Ok((initial_address, address_range))
         }
     }
@@ -1707,12 +1760,12 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     pub fn rows<'a, 'ctx, Section, S>(
         &self,
         section: &'a Section,
-        bases: &'a BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R::Offset, S>,
+        bases: &'a BaseAddresses<R::Address>,
+        ctx: &'ctx mut UnwindContext<R::Offset, R::Address, S>,
     ) -> Result<UnwindTable<'a, 'ctx, R, S>>
     where
         Section: UnwindSection<R>,
-        S: UnwindContextStorage<R::Offset>,
+        S: UnwindContextStorage<R::Offset, R::Address>,
     {
         UnwindTable::new(section, bases, ctx, self)
     }
@@ -1726,13 +1779,14 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     pub fn unwind_info_for_address<'ctx, Section, S>(
         &self,
         section: &Section,
-        bases: &BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R::Offset, S>,
-        address: u64,
-    ) -> Result<&'ctx UnwindTableRow<R::Offset, S>>
+        bases: &BaseAddresses<R::Address>,
+        ctx: &'ctx mut UnwindContext<R::Offset, R::Address, S>,
+        address: R::Address,
+    ) -> Result<&'ctx UnwindTableRow<R::Offset, R::Address, S>>
     where
         Section: UnwindSection<R>,
-        S: UnwindContextStorage<R::Offset>,
+        R::Address: Ord,
+        S: UnwindContextStorage<R::Offset, R::Address>,
     {
         let mut table = self.rows(section, bases, ctx)?;
         while let Some(row) = table.next_row()? {
@@ -1778,7 +1832,7 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     pub fn instructions<'a, Section>(
         &self,
         section: &'a Section,
-        bases: &'a BaseAddresses,
+        bases: &'a BaseAddresses<R::Address>,
     ) -> CallFrameInstructionIter<'a, R>
     where
         Section: UnwindSection<R>,
@@ -1796,8 +1850,8 @@ impl<R: Reader> FrameDescriptionEntry<R> {
         }
     }
 
-    /// The first address for which this entry has unwind information for.
-    pub fn initial_address(&self) -> u64 {
+    /// The first address that this entry has unwind information for.
+    pub fn initial_address(&self) -> R::Address {
         self.initial_address
     }
 
@@ -1805,14 +1859,14 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     ///
     /// This uses wrapping arithmetic, so the result may be less than
     /// `initial_address`.
-    pub fn end_address(&self) -> u64 {
+    pub fn end_address(&self) -> R::Address {
         self.initial_address
-            .wrapping_add_sized(self.address_range, self.cie.address_size)
+            .wrapping_add(self.address_range, self.cie.address_size)
     }
 
     /// The number of bytes of instructions that this entry has unwind
     /// information for.
-    pub fn len(&self) -> u64 {
+    pub fn len(&self) -> <R::Address as ReaderAddress>::Length {
         self.address_range
     }
 
@@ -1821,13 +1875,16 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     ///
     /// This is equivalent to `entry.initial_address() <= address <
     /// entry.initial_address() + entry.len()`.
-    pub fn contains(&self, address: u64) -> bool {
+    pub fn contains(&self, address: R::Address) -> bool
+    where
+        R::Address: Ord,
+    {
         self.initial_address() <= address && address < self.end_address()
     }
 
     /// The address of this FDE's language-specific data area (LSDA), if it has
     /// any.
-    pub fn lsda(&self) -> Option<Pointer> {
+    pub fn lsda(&self) -> Option<Pointer<R::Address>> {
         self.augmentation.as_ref().and_then(|a| a.lsda)
     }
 
@@ -1841,7 +1898,7 @@ impl<R: Reader> FrameDescriptionEntry<R> {
     /// handler. The personality routine does language-specific clean up when
     /// unwinding the stack frames with the intent to not run them again.
     #[inline]
-    pub fn personality(&self) -> Option<Pointer> {
+    pub fn personality(&self) -> Option<Pointer<R::Address>> {
         self.cie().personality()
     }
 }
@@ -1879,12 +1936,12 @@ You may want to supply your own storage type for one of the following reasons:
 /// #
 /// struct StoreOnStack;
 ///
-/// impl<T: ReaderOffset> UnwindContextStorage<T> for StoreOnStack {
+/// impl<T: ReaderOffset, A: ReaderAddress> UnwindContextStorage<T, A> for StoreOnStack {
 ///     type Rules = [(Register, RegisterRule<T>); 192];
-///     type Stack = [UnwindTableRow<T, Self>; 4];
+///     type Stack = [UnwindTableRow<T, A, Self>; 4];
 /// }
 ///
-/// let mut ctx = UnwindContext::<_, StoreOnStack>::new_in();
+/// let mut ctx = UnwindContext::<_, _, StoreOnStack>::new_in();
 ///
 /// // Initialize the context by evaluating the CIE's initial instruction program,
 /// // and generate the unwind table.
@@ -1896,14 +1953,14 @@ You may want to supply your own storage type for one of the following reasons:
 /// # unreachable!()
 /// # }
 /// ```
-pub trait UnwindContextStorage<T: ReaderOffset>: Sized {
+pub trait UnwindContextStorage<T: ReaderOffset, A: ReaderAddress = u64>: Sized {
     /// The storage used for register rules in a unwind table row.
     ///
     /// Note that this is nested within the stack.
     type Rules: ArrayLike<Item = (Register, RegisterRule<T>)>;
 
     /// The storage used for unwind table row stack.
-    type Stack: ArrayLike<Item = UnwindTableRow<T, Self>>;
+    type Stack: ArrayLike<Item = UnwindTableRow<T, A, Self>>;
 }
 
 #[cfg(feature = "read")]
@@ -1912,9 +1969,9 @@ const MAX_RULES: usize = 192;
 const MAX_UNWIND_STACK_DEPTH: usize = 4;
 
 #[cfg(feature = "read")]
-impl<T: ReaderOffset> UnwindContextStorage<T> for StoreOnHeap {
+impl<T: ReaderOffset, A: ReaderAddress> UnwindContextStorage<T, A> for StoreOnHeap {
     type Rules = [(Register, RegisterRule<T>); MAX_RULES];
-    type Stack = Box<[UnwindTableRow<T, Self>; MAX_UNWIND_STACK_DEPTH]>;
+    type Stack = Box<[UnwindTableRow<T, A, Self>; MAX_UNWIND_STACK_DEPTH]>;
 }
 
 /// Common context needed when evaluating the call frame unwinding information.
@@ -1951,10 +2008,11 @@ impl<T: ReaderOffset> UnwindContextStorage<T> for StoreOnHeap {
 /// # }
 /// ```
 #[derive(Clone, PartialEq, Eq)]
-pub struct UnwindContext<T, S = StoreOnHeap>
+pub struct UnwindContext<T, A = u64, S = StoreOnHeap>
 where
     T: ReaderOffset,
-    S: UnwindContextStorage<T>,
+    A: ReaderAddress,
+    S: UnwindContextStorage<T, A>,
 {
     // Stack of rows. The last row is the row currently being built by the
     // program. There is always at least one row. The vast majority of CFI
@@ -1974,10 +2032,11 @@ where
     is_initialized: bool,
 }
 
-impl<T, S> Debug for UnwindContext<T, S>
+impl<T, A, S> Debug for UnwindContext<T, A, S>
 where
     T: ReaderOffset,
-    S: UnwindContextStorage<T>,
+    A: ReaderAddress,
+    S: UnwindContextStorage<T, A>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UnwindContext")
@@ -1988,10 +2047,11 @@ where
     }
 }
 
-impl<T, S> Default for UnwindContext<T, S>
+impl<T, A, S> Default for UnwindContext<T, A, S>
 where
     T: ReaderOffset,
-    S: UnwindContextStorage<T>,
+    A: ReaderAddress,
+    S: UnwindContextStorage<T, A>,
 {
     fn default() -> Self {
         Self::new_in()
@@ -2010,10 +2070,11 @@ impl<T: ReaderOffset> UnwindContext<T> {
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations, if an non-allocating storage is used.
-impl<T, S> UnwindContext<T, S>
+impl<T, A, S> UnwindContext<T, A, S>
 where
     T: ReaderOffset,
-    S: UnwindContextStorage<T>,
+    A: ReaderAddress,
+    S: UnwindContextStorage<T, A>,
 {
     /// Construct a new call frame unwinding context.
     pub fn new_in() -> Self {
@@ -2030,11 +2091,11 @@ where
     fn initialize<Section, R>(
         &mut self,
         section: &Section,
-        bases: &BaseAddresses,
+        bases: &BaseAddresses<R::Address>,
         cie: &CommonInformationEntry<R>,
     ) -> Result<()>
     where
-        R: Reader<Offset = T>,
+        R: Reader<Offset = T, Address = A>,
         Section: UnwindSection<R>,
     {
         // Always reset because previous initialization failure may leave dirty state.
@@ -2055,11 +2116,11 @@ where
         self.is_initialized = false;
     }
 
-    fn row(&self) -> &UnwindTableRow<T, S> {
+    fn row(&self) -> &UnwindTableRow<T, A, S> {
         self.stack.last().unwrap()
     }
 
-    fn row_mut(&mut self) -> &mut UnwindTableRow<T, S> {
+    fn row_mut(&mut self) -> &mut UnwindTableRow<T, A, S> {
         self.stack.last_mut().unwrap()
     }
 
@@ -2082,11 +2143,11 @@ where
         Ok(())
     }
 
-    fn start_address(&self) -> u64 {
+    fn start_address(&self) -> A {
         self.row().start_address
     }
 
-    fn set_start_address(&mut self, start_address: u64) {
+    fn set_start_address(&mut self, start_address: A) {
         let row = self.row_mut();
         row.start_address = start_address;
     }
@@ -2196,17 +2257,17 @@ where
 pub struct UnwindTable<'a, 'ctx, R, S = StoreOnHeap>
 where
     R: Reader,
-    S: UnwindContextStorage<R::Offset>,
+    S: UnwindContextStorage<R::Offset, R::Address>,
 {
     code_alignment_factor: Wrapping<u64>,
     data_alignment_factor: Wrapping<i64>,
     address_size: u8,
-    next_start_address: u64,
-    last_end_address: u64,
+    next_start_address: R::Address,
+    last_end_address: R::Address,
     returned_last_row: bool,
     current_row_valid: bool,
     instructions: CallFrameInstructionIter<'a, R>,
-    ctx: &'ctx mut UnwindContext<R::Offset, S>,
+    ctx: &'ctx mut UnwindContext<R::Offset, R::Address, S>,
 }
 
 /// # Signal Safe Methods
@@ -2216,14 +2277,14 @@ where
 impl<'a, 'ctx, R, S> UnwindTable<'a, 'ctx, R, S>
 where
     R: Reader,
-    S: UnwindContextStorage<R::Offset>,
+    S: UnwindContextStorage<R::Offset, R::Address>,
 {
     /// Construct a new `UnwindTable` for the given
     /// `FrameDescriptionEntry`'s CFI unwinding program.
     pub fn new<Section: UnwindSection<R>>(
         section: &'a Section,
-        bases: &'a BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R::Offset, S>,
+        bases: &'a BaseAddresses<R::Address>,
+        ctx: &'ctx mut UnwindContext<R::Offset, R::Address, S>,
         fde: &FrameDescriptionEntry<R>,
     ) -> Result<Self> {
         ctx.initialize(section, bases, fde.cie())?;
@@ -2232,8 +2293,8 @@ where
 
     fn new_for_fde<Section: UnwindSection<R>>(
         section: &'a Section,
-        bases: &'a BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R::Offset, S>,
+        bases: &'a BaseAddresses<R::Address>,
+        ctx: &'ctx mut UnwindContext<R::Offset, R::Address, S>,
         fde: &FrameDescriptionEntry<R>,
     ) -> Self {
         assert!(ctx.stack.len() >= 1);
@@ -2252,8 +2313,8 @@ where
 
     fn new_for_cie<Section: UnwindSection<R>>(
         section: &'a Section,
-        bases: &'a BaseAddresses,
-        ctx: &'ctx mut UnwindContext<R::Offset, S>,
+        bases: &'a BaseAddresses<R::Address>,
+        ctx: &'ctx mut UnwindContext<R::Offset, R::Address, S>,
         cie: &CommonInformationEntry<R>,
     ) -> Self {
         assert!(ctx.stack.len() >= 1);
@@ -2261,8 +2322,8 @@ where
             code_alignment_factor: Wrapping(cie.code_alignment_factor()),
             data_alignment_factor: Wrapping(cie.data_alignment_factor()),
             address_size: cie.address_size,
-            next_start_address: 0,
-            last_end_address: 0,
+            next_start_address: R::Address::zeroes(),
+            last_end_address: R::Address::zeroes(),
             returned_last_row: false,
             current_row_valid: false,
             instructions: cie.instructions(section, bases),
@@ -2275,7 +2336,7 @@ where
     ///
     /// Unfortunately, this cannot be used with `FallibleIterator` because of
     /// the restricted lifetime of the yielded item.
-    pub fn next_row(&mut self) -> Result<Option<&UnwindTableRow<R::Offset, S>>> {
+    pub fn next_row(&mut self) -> Result<Option<&UnwindTableRow<R::Offset, R::Address, S>>> {
         assert!(self.ctx.stack.len() >= 1);
         self.ctx.set_start_address(self.next_start_address);
         self.current_row_valid = false;
@@ -2308,7 +2369,7 @@ where
     }
 
     /// Returns the current row with the lifetime of the context.
-    pub fn into_current_row(self) -> Option<&'ctx UnwindTableRow<R::Offset, S>> {
+    pub fn into_current_row(self) -> Option<&'ctx UnwindTableRow<R::Offset, R::Address, S>> {
         if self.current_row_valid {
             Some(self.ctx.row())
         } else {
@@ -2318,7 +2379,10 @@ where
 
     /// Evaluate one call frame instruction. Return `Ok(true)` if the row is
     /// complete, `Ok(false)` otherwise.
-    fn evaluate(&mut self, instruction: CallFrameInstruction<R::Offset>) -> Result<bool> {
+    fn evaluate(
+        &mut self,
+        instruction: CallFrameInstruction<R::Offset, R::Address>,
+    ) -> Result<bool> {
         use crate::CallFrameInstruction::*;
 
         match instruction {
@@ -2335,10 +2399,8 @@ where
             }
             AdvanceLoc { delta } => {
                 let delta = Wrapping(u64::from(delta)) * self.code_alignment_factor;
-                self.next_start_address = self
-                    .ctx
-                    .start_address()
-                    .add_sized(delta.0, self.address_size)?;
+                let delta = R::Address::length(delta.0, self.address_size)?;
+                self.next_start_address = self.ctx.start_address().add(delta, self.address_size)?;
                 self.ctx.row_mut().end_address = self.next_start_address;
                 return Ok(true);
             }
@@ -2530,18 +2592,20 @@ where
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-aarch64/dwarf-config.h#L32
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-arm/dwarf-config.h#L31
 // - https://github.com/libunwind/libunwind/blob/11fd461095ea98f4b3e3a361f5a8a558519363fa/include/tdep-mips/dwarf-config.h#L31
-struct RegisterRuleMap<T, S = StoreOnHeap>
+struct RegisterRuleMap<T, A = u64, S = StoreOnHeap>
 where
     T: ReaderOffset,
-    S: UnwindContextStorage<T>,
+    A: ReaderAddress,
+    S: UnwindContextStorage<T, A>,
 {
     rules: ArrayVec<S::Rules>,
 }
 
-impl<T, S> Debug for RegisterRuleMap<T, S>
+impl<T, A, S> Debug for RegisterRuleMap<T, A, S>
 where
     T: ReaderOffset,
-    S: UnwindContextStorage<T>,
+    A: ReaderAddress,
+    S: UnwindContextStorage<T, A>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RegisterRuleMap")
@@ -2550,10 +2614,11 @@ where
     }
 }
 
-impl<T, S> Clone for RegisterRuleMap<T, S>
+impl<T, A, S> Clone for RegisterRuleMap<T, A, S>
 where
     T: ReaderOffset,
-    S: UnwindContextStorage<T>,
+    A: ReaderAddress,
+    S: UnwindContextStorage<T, A>,
 {
     fn clone(&self) -> Self {
         Self {
@@ -2562,10 +2627,11 @@ where
     }
 }
 
-impl<T, S> Default for RegisterRuleMap<T, S>
+impl<T, A, S> Default for RegisterRuleMap<T, A, S>
 where
     T: ReaderOffset,
-    S: UnwindContextStorage<T>,
+    A: ReaderAddress,
+    S: UnwindContextStorage<T, A>,
 {
     fn default() -> Self {
         RegisterRuleMap {
@@ -2578,10 +2644,11 @@ where
 ///
 /// These methods are guaranteed not to allocate, acquire locks, or perform any
 /// other signal-unsafe operations.
-impl<T, S> RegisterRuleMap<T, S>
+impl<T, A, S> RegisterRuleMap<T, A, S>
 where
     T: ReaderOffset,
-    S: UnwindContextStorage<T>,
+    A: ReaderAddress,
+    S: UnwindContextStorage<T, A>,
 {
     fn is_default(&self) -> bool {
         self.rules.is_empty()
@@ -2630,10 +2697,11 @@ where
     }
 }
 
-impl<'a, R, S> FromIterator<&'a (Register, RegisterRule<R>)> for RegisterRuleMap<R, S>
+impl<'a, R, A, S> FromIterator<&'a (Register, RegisterRule<R>)> for RegisterRuleMap<R, A, S>
 where
     R: 'a + ReaderOffset,
-    S: UnwindContextStorage<R>,
+    A: ReaderAddress,
+    S: UnwindContextStorage<R, A>,
 {
     fn from_iter<T>(iter: T) -> Self
     where
@@ -2651,10 +2719,11 @@ where
     }
 }
 
-impl<T, S> PartialEq for RegisterRuleMap<T, S>
+impl<T, A, S> PartialEq for RegisterRuleMap<T, A, S>
 where
-    T: ReaderOffset + PartialEq,
-    S: UnwindContextStorage<T>,
+    T: ReaderOffset,
+    A: ReaderAddress,
+    S: UnwindContextStorage<T, A>,
 {
     fn eq(&self, rhs: &Self) -> bool {
         for &(reg, ref rule) in &*self.rules {
@@ -2675,10 +2744,11 @@ where
     }
 }
 
-impl<T, S> Eq for RegisterRuleMap<T, S>
+impl<T, A, S> Eq for RegisterRuleMap<T, A, S>
 where
-    T: ReaderOffset + Eq,
-    S: UnwindContextStorage<T>,
+    T: ReaderOffset,
+    A: ReaderAddress,
+    S: UnwindContextStorage<T, A>,
 {
 }
 
@@ -2699,22 +2769,24 @@ impl<'iter, T: ReaderOffset> Iterator for RegisterRuleIter<'iter, T> {
 /// A row in the virtual unwind table that describes how to find the values of
 /// the registers in the *previous* frame for a range of PC addresses.
 #[derive(PartialEq, Eq)]
-pub struct UnwindTableRow<T, S = StoreOnHeap>
+pub struct UnwindTableRow<T, A = u64, S = StoreOnHeap>
 where
     T: ReaderOffset,
-    S: UnwindContextStorage<T>,
+    A: ReaderAddress,
+    S: UnwindContextStorage<T, A>,
 {
-    start_address: u64,
-    end_address: u64,
+    start_address: A,
+    end_address: A,
     saved_args_size: u64,
     cfa: CfaRule<T>,
-    registers: RegisterRuleMap<T, S>,
+    registers: RegisterRuleMap<T, A, S>,
 }
 
-impl<T, S> Debug for UnwindTableRow<T, S>
+impl<T, A, S> Debug for UnwindTableRow<T, A, S>
 where
     T: ReaderOffset,
-    S: UnwindContextStorage<T>,
+    A: ReaderAddress,
+    S: UnwindContextStorage<T, A>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UnwindTableRow")
@@ -2727,10 +2799,11 @@ where
     }
 }
 
-impl<T, S> Clone for UnwindTableRow<T, S>
+impl<T, A, S> Clone for UnwindTableRow<T, A, S>
 where
     T: ReaderOffset,
-    S: UnwindContextStorage<T>,
+    A: ReaderAddress,
+    S: UnwindContextStorage<T, A>,
 {
     fn clone(&self) -> Self {
         Self {
@@ -2743,15 +2816,16 @@ where
     }
 }
 
-impl<T, S> Default for UnwindTableRow<T, S>
+impl<T, A, S> Default for UnwindTableRow<T, A, S>
 where
     T: ReaderOffset,
-    S: UnwindContextStorage<T>,
+    A: ReaderAddress,
+    S: UnwindContextStorage<T, A>,
 {
     fn default() -> Self {
         UnwindTableRow {
-            start_address: 0,
-            end_address: 0,
+            start_address: A::zeroes(),
+            end_address: A::zeroes(),
             saved_args_size: 0,
             cfa: Default::default(),
             registers: Default::default(),
@@ -2759,20 +2833,21 @@ where
     }
 }
 
-impl<T, S> UnwindTableRow<T, S>
+impl<T, A, S> UnwindTableRow<T, A, S>
 where
     T: ReaderOffset,
-    S: UnwindContextStorage<T>,
+    A: ReaderAddress,
+    S: UnwindContextStorage<T, A>,
 {
     fn is_default(&self) -> bool {
-        self.start_address == 0
-            && self.end_address == 0
+        self.start_address == A::zeroes()
+            && self.end_address == A::zeroes()
             && self.cfa.is_default()
             && self.registers.is_default()
     }
 
     /// Get the starting PC address that this row applies to.
-    pub fn start_address(&self) -> u64 {
+    pub fn start_address(&self) -> A {
         self.start_address
     }
 
@@ -2783,13 +2858,16 @@ where
     /// registers for all PCs where `row.start_address() <= PC <
     /// row.end_address()`. This row does NOT describe how to recover registers
     /// when `PC == row.end_address()`.
-    pub fn end_address(&self) -> u64 {
+    pub fn end_address(&self) -> A {
         self.end_address
     }
 
     /// Return `true` if the given `address` is within this row's address range,
     /// `false` otherwise.
-    pub fn contains(&self, address: u64) -> bool {
+    pub fn contains(&self, address: A) -> bool
+    where
+        A: Ord,
+    {
         self.start_address <= address && address < self.end_address
     }
 
@@ -2962,7 +3040,7 @@ impl<T: ReaderOffset> RegisterRule<T> {
 /// A parsed call frame instruction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum CallFrameInstruction<T: ReaderOffset> {
+pub enum CallFrameInstruction<T: ReaderOffset, A: ReaderAddress = u64> {
     // 6.4.2.1 Row Creation Methods
     /// > 1. DW_CFA_set_loc
     /// >
@@ -2975,7 +3053,7 @@ pub enum CallFrameInstruction<T: ReaderOffset> {
     /// > by a segment selector of the given length.
     SetLoc {
         /// The target address.
-        address: u64,
+        address: A,
     },
 
     /// The `AdvanceLoc` instruction is used for all of `DW_CFA_advance_loc` and
@@ -3261,13 +3339,13 @@ pub enum CallFrameInstruction<T: ReaderOffset> {
 const CFI_INSTRUCTION_HIGH_BITS_MASK: u8 = 0b1100_0000;
 const CFI_INSTRUCTION_LOW_BITS_MASK: u8 = !CFI_INSTRUCTION_HIGH_BITS_MASK;
 
-impl<T: ReaderOffset> CallFrameInstruction<T> {
-    fn parse<R: Reader<Offset = T>>(
+impl<T: ReaderOffset, A: ReaderAddress> CallFrameInstruction<T, A> {
+    fn parse<R: Reader<Offset = T, Address = A>>(
         input: &mut R,
         address_encoding: Option<DwEhPe>,
         parameters: &PointerEncodingParameters<'_, R>,
         vendor: Vendor,
-    ) -> Result<CallFrameInstruction<T>> {
+    ) -> Result<Self> {
         let instruction = input.read_u8()?;
         let high_bits = instruction & CFI_INSTRUCTION_HIGH_BITS_MASK;
 
@@ -3481,7 +3559,7 @@ pub struct CallFrameInstructionIter<'a, R: Reader> {
 
 impl<'a, R: Reader> CallFrameInstructionIter<'a, R> {
     /// Parse the next call frame instruction.
-    pub fn next(&mut self) -> Result<Option<CallFrameInstruction<R::Offset>>> {
+    pub fn next(&mut self) -> Result<Option<CallFrameInstruction<R::Offset, R::Address>>> {
         if self.input.is_empty() {
             return Ok(None);
         }
@@ -3503,7 +3581,7 @@ impl<'a, R: Reader> CallFrameInstructionIter<'a, R> {
 
 #[cfg(feature = "fallible-iterator")]
 impl<'a, R: Reader> fallible_iterator::FallibleIterator for CallFrameInstructionIter<'a, R> {
-    type Item = CallFrameInstruction<R::Offset>;
+    type Item = CallFrameInstruction<R::Offset, R::Address>;
     type Error = Error;
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
@@ -3578,9 +3656,9 @@ fn parse_pointer_encoding<R: Reader>(input: &mut R) -> Result<constants::DwEhPe>
 
 /// A decoded pointer.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum Pointer {
+pub enum Pointer<T = u64> {
     /// This value is the decoded pointer value.
-    Direct(u64),
+    Direct(T),
 
     /// This value is *not* the pointer value, but points to the address of
     /// where the real pointer value lives. In other words, deref this pointer
@@ -3588,19 +3666,19 @@ pub enum Pointer {
     ///
     /// Chase this pointer at your own risk: do you trust the DWARF data it came
     /// from?
-    Indirect(u64),
+    Indirect(T),
 }
 
-impl Default for Pointer {
+impl<T: Default> Default for Pointer<T> {
     #[inline]
     fn default() -> Self {
-        Pointer::Direct(0)
+        Pointer::Direct(T::default())
     }
 }
 
-impl Pointer {
+impl<T> Pointer<T> {
     #[inline]
-    fn new(encoding: constants::DwEhPe, address: u64) -> Pointer {
+    fn new(encoding: constants::DwEhPe, address: T) -> Self {
         if encoding.is_indirect() {
             Pointer::Indirect(address)
         } else {
@@ -3610,7 +3688,7 @@ impl Pointer {
 
     /// Return the direct pointer value.
     #[inline]
-    pub fn direct(self) -> Result<u64> {
+    pub fn direct(self) -> Result<T> {
         match self {
             Pointer::Direct(p) => Ok(p),
             Pointer::Indirect(_) => Err(Error::UnsupportedPointerEncoding),
@@ -3619,7 +3697,7 @@ impl Pointer {
 
     /// Return the pointer value, discarding indirectness information.
     #[inline]
-    pub fn pointer(self) -> u64 {
+    pub fn pointer(self) -> T {
         match self {
             Pointer::Direct(p) | Pointer::Indirect(p) => p,
         }
@@ -3628,8 +3706,8 @@ impl Pointer {
 
 #[derive(Clone, Debug)]
 struct PointerEncodingParameters<'a, R: Reader> {
-    bases: &'a SectionBaseAddresses,
-    func_base: Option<u64>,
+    bases: &'a SectionBaseAddresses<R::Address>,
+    func_base: Option<R::Address>,
     address_size: u8,
     section: &'a R,
 }
@@ -3638,7 +3716,7 @@ fn parse_encoded_pointer<R: Reader>(
     encoding: constants::DwEhPe,
     parameters: &PointerEncodingParameters<'_, R>,
     input: &mut R,
-) -> Result<Pointer> {
+) -> Result<Pointer<R::Address>> {
     // TODO: check this once only in parse_pointer_encoding
     if !encoding.is_valid_encoding() {
         return Err(Error::UnknownPointerEncoding(encoding));
@@ -3649,12 +3727,15 @@ fn parse_encoded_pointer<R: Reader>(
     }
 
     let base = match encoding.application() {
-        constants::DW_EH_PE_absptr => 0,
+        constants::DW_EH_PE_absptr => R::Address::zeroes(),
         constants::DW_EH_PE_pcrel => {
             if let Some(section_base) = parameters.bases.section {
-                let offset_from_section = input.offset_from(parameters.section);
-                section_base
-                    .wrapping_add_sized(offset_from_section.into_u64(), parameters.address_size)
+                // Determine the section offset of the input.
+                let offset_from_section = input.offset_from(parameters.section).into_u64();
+                // Convert that to an address offset, and add it to the base address.
+                let relative_address =
+                    R::Address::length(offset_from_section, parameters.address_size)?;
+                section_base.add(relative_address, parameters.address_size)?
             } else {
                 return Err(Error::PcRelativePointerButSectionBaseIsUndefined);
             }
@@ -3687,7 +3768,7 @@ fn parse_encoded_pointer<R: Reader>(
     let offset = parse_encoded_value(encoding, parameters, input)?;
     Ok(Pointer::new(
         encoding,
-        base.wrapping_add_sized(offset, parameters.address_size),
+        base.wrapping_add(offset, parameters.address_size),
     ))
 }
 
@@ -3695,10 +3776,10 @@ fn parse_encoded_value<R: Reader>(
     encoding: constants::DwEhPe,
     parameters: &PointerEncodingParameters<'_, R>,
     input: &mut R,
-) -> Result<u64> {
-    match encoding.format() {
+) -> Result<<R::Address as ReaderAddress>::Length> {
+    let value = match encoding.format() {
         // Unsigned variants.
-        constants::DW_EH_PE_absptr => input.read_address(parameters.address_size),
+        constants::DW_EH_PE_absptr => return input.read_address_range(parameters.address_size),
         constants::DW_EH_PE_uleb128 => input.read_uleb128(),
         constants::DW_EH_PE_udata2 => input.read_u16().map(u64::from),
         constants::DW_EH_PE_udata4 => input.read_u32().map(u64::from),
@@ -3715,7 +3796,8 @@ fn parse_encoded_value<R: Reader>(
 
         // That was all of the valid encoding formats.
         _ => unreachable!(),
-    }
+    }?;
+    R::Address::length(value, parameters.address_size)
 }
 
 #[cfg(test)]
@@ -3734,6 +3816,28 @@ mod tests {
     use core::marker::PhantomData;
     use core::mem;
     use test_assembler::{Endian, Label, LabelMaker, LabelOrNum, Section, ToLabelOrNum};
+
+    /// Ensure that `FrameDescriptionEntry<R>` is covariant wrt R.
+    #[test]
+    fn test_fde_variance() {
+        /// This only needs to compile.
+        fn _f<'a: 'b, 'b, E: Endianity>(
+            x: FrameDescriptionEntry<EndianSlice<'a, E>>,
+        ) -> FrameDescriptionEntry<EndianSlice<'b, E>> {
+            x
+        }
+    }
+
+    /// Ensure that `CommonInformationEntry<R>` is covariant wrt R.
+    #[test]
+    fn test_cie_variance() {
+        /// This only needs to compile.
+        fn _f<'a: 'b, 'b, E: Endianity>(
+            x: CommonInformationEntry<EndianSlice<'a, E>>,
+        ) -> CommonInformationEntry<EndianSlice<'b, E>> {
+            x
+        }
+    }
 
     // Ensure each test tries to read the same section kind that it wrote.
     #[derive(Clone, Copy)]
@@ -3784,7 +3888,7 @@ mod tests {
         R: Reader,
         Section: UnwindSection<R, Offset = O>,
         O: UnwindOffset<R::Offset>,
-        F: FnMut(&Section, &BaseAddresses, O) -> Result<CommonInformationEntry<R>>,
+        F: FnMut(&Section, &BaseAddresses<R::Address>, O) -> Result<CommonInformationEntry<R>>,
     {
         let bases = Default::default();
         match parse_cfi_entry(&bases, &section, input) {
@@ -4593,7 +4697,7 @@ mod tests {
     fn parse_cfi_instruction<R: Reader + Default>(
         input: &mut R,
         address_size: u8,
-    ) -> Result<CallFrameInstruction<R::Offset>> {
+    ) -> Result<CallFrameInstruction<R::Offset, R::Address>> {
         let section = input.clone();
         let parameters = &PointerEncodingParameters {
             bases: &SectionBaseAddresses::default(),

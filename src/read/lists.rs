@@ -14,7 +14,7 @@ impl ListsHeader {
     #[inline]
     fn size(self) -> u8 {
         // initial_length + version + address_size + segment_selector_size + offset_entry_count
-        ListsHeader::size_for_encoding(self.encoding)
+        Self::size_for_encoding(self.encoding)
     }
 
     /// Return the serialized size of the table header.

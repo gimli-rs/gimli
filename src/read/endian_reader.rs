@@ -6,13 +6,14 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use core::fmt::Debug;
 use core::hash::{Hash, Hasher};
+use core::marker::PhantomData;
 use core::ops::{Deref, Index, Range, RangeFrom, RangeTo};
 use core::slice;
 use core::str;
 use stable_deref_trait::CloneStableDeref;
 
 use crate::endianity::Endianity;
-use crate::read::{Error, Reader, ReaderOffsetId, Result};
+use crate::read::{Error, Reader, ReaderAddress, ReaderOffsetId, Result};
 
 /// A reference counted, non-thread-safe slice of bytes and associated
 /// endianity.
@@ -26,7 +27,7 @@ use crate::read::{Error, Reader, ReaderOffsetId, Result};
 /// # let _ = reader;
 /// # }
 /// ```
-pub type EndianRcSlice<Endian> = EndianReader<Endian, Rc<[u8]>>;
+pub type EndianRcSlice<Endian, Address = u64> = EndianReader<Endian, Rc<[u8]>, Address>;
 
 /// An atomically reference counted, thread-safe slice of bytes and associated
 /// endianity.
@@ -40,7 +41,7 @@ pub type EndianRcSlice<Endian> = EndianReader<Endian, Rc<[u8]>>;
 /// # let _ = reader;
 /// # }
 /// ```
-pub type EndianArcSlice<Endian> = EndianReader<Endian, Arc<[u8]>>;
+pub type EndianArcSlice<Endian, Address = u64> = EndianReader<Endian, Arc<[u8]>, Address>;
 
 /// An easy way to define a custom `Reader` implementation with a reference to a
 /// generic buffer of bytes and an associated endianity.
@@ -117,35 +118,60 @@ pub type EndianArcSlice<Endian> = EndianReader<Endian, Arc<[u8]>>;
 /// pub type MmapFileReader<Endian> = gimli::EndianReader<Endian, ArcMmapFile>;
 /// # fn test(_: &MmapFileReader<gimli::NativeEndian>) { }
 /// ```
-#[derive(Debug, Clone, Copy)]
-pub struct EndianReader<Endian, T>
+#[derive(Debug)]
+pub struct EndianReader<Endian, T, Address = u64>
 where
     Endian: Endianity,
     T: CloneStableDeref<Target = [u8]> + Debug,
 {
     range: SubRange<T>,
     endian: Endian,
+    // While an `EndianReader` could work with any integer address type,
+    // the `Reader` trait requires a specific address type.
+    address: PhantomData<Address>,
 }
 
-impl<Endian, T1, T2> PartialEq<EndianReader<Endian, T2>> for EndianReader<Endian, T1>
+impl<Endian, T, Address> Clone for EndianReader<Endian, T, Address>
+where
+    Endian: Endianity,
+    T: CloneStableDeref<Target = [u8]> + Debug + Clone,
+{
+    fn clone(&self) -> Self {
+        EndianReader {
+            range: self.range.clone(),
+            endian: self.endian,
+            address: PhantomData,
+        }
+    }
+}
+
+impl<Endian, T, Address> Copy for EndianReader<Endian, T, Address>
+where
+    Endian: Endianity,
+    T: CloneStableDeref<Target = [u8]> + Debug + Copy,
+{
+}
+
+impl<Endian, T1, T2, Address> PartialEq<EndianReader<Endian, T2, Address>>
+    for EndianReader<Endian, T1, Address>
 where
     Endian: Endianity,
     T1: CloneStableDeref<Target = [u8]> + Debug,
     T2: CloneStableDeref<Target = [u8]> + Debug,
 {
-    fn eq(&self, rhs: &EndianReader<Endian, T2>) -> bool {
+    fn eq(&self, rhs: &EndianReader<Endian, T2, Address>) -> bool {
         self.bytes() == rhs.bytes()
     }
 }
 
-impl<Endian, T> Eq for EndianReader<Endian, T>
+impl<Endian, T, Address> Eq for EndianReader<Endian, T, Address>
 where
     Endian: Endianity,
     T: CloneStableDeref<Target = [u8]> + Debug,
 {
 }
 
-impl<Endian, T> Hash for EndianReader<Endian, T>
+impl<Endian, T, Address> Hash for EndianReader<Endian, T, Address>
 where
     Endian: Endianity,
     T: CloneStableDeref<Target = [u8]> + Debug,
@@ -231,17 +257,39 @@ where
     }
 }
 
-impl<Endian, T> EndianReader<Endian, T>
+impl<Endian, T> EndianReader<Endian, T, u64>
 where
     Endian: Endianity,
     T: CloneStableDeref<Target = [u8]> + Debug,
 {
     /// Construct a new `EndianReader` with the given bytes.
+    ///
+    /// This constructor uses the default address type of `u64`.
     #[inline]
-    pub fn new(bytes: T, endian: Endian) -> EndianReader<Endian, T> {
+    pub fn new(bytes: T, endian: Endian) -> Self {
         EndianReader {
             range: SubRange::new(bytes),
             endian,
+            address: PhantomData,
+        }
+    }
+}
+
+impl<Endian, T, Address> EndianReader<Endian, T, Address>
+where
+    Endian: Endianity,
+    T: CloneStableDeref<Target = [u8]> + Debug,
+{
+    /// Construct a new `EndianReader` with the given bytes.
+    ///
+    /// This constructor allows the address type to be customized instead
+    /// of defaulting to `u64`.
+    #[inline]
+    pub fn new_custom(bytes: T, endian: Endian) -> Self {
+        EndianReader {
+            range: SubRange::new(bytes),
+            endian,
+            address: PhantomData,
         }
     }
 
@@ -258,7 +306,7 @@ where
 /// implement `Index<Range<usize>>` to return a new `EndianReader` the way we
 /// would like to. Instead, we abandon fancy indexing operators and have these
 /// plain old methods.
-impl<Endian, T> EndianReader<Endian, T>
+impl<Endian, T, Address> EndianReader<Endian, T, Address>
 where
     Endian: Endianity,
     T: CloneStableDeref<Target = [u8]> + Debug,
@@ -281,7 +329,7 @@ where
     /// # Panics
     ///
     /// Panics if the range is out of bounds.
-    pub fn range(&self, idx: Range<usize>) -> EndianReader<Endian, T> {
+    pub fn range(&self, idx: Range<usize>) -> EndianReader<Endian, T, Address> {
         let mut r = self.clone();
         r.range.skip(idx.start);
         r.range.truncate(idx.len());
@@ -306,7 +354,7 @@ where
     /// # Panics
     ///
     /// Panics if the range is out of bounds.
-    pub fn range_from(&self, idx: RangeFrom<usize>) -> EndianReader<Endian, T> {
+    pub fn range_from(&self, idx: RangeFrom<usize>) -> EndianReader<Endian, T, Address> {
         let mut r = self.clone();
         r.range.skip(idx.start);
         r
@@ -330,14 +378,14 @@ where
     /// # Panics
     ///
     /// Panics if the range is out of bounds.
-    pub fn range_to(&self, idx: RangeTo<usize>) -> EndianReader<Endian, T> {
+    pub fn range_to(&self, idx: RangeTo<usize>) -> EndianReader<Endian, T, Address> {
         let mut r = self.clone();
         r.range.truncate(idx.end);
         r
     }
 }
 
-impl<Endian, T> Index<usize> for EndianReader<Endian, T>
+impl<Endian, T, Address> Index<usize> for EndianReader<Endian, T, Address>
 where
     Endian: Endianity,
     T: CloneStableDeref<Target = [u8]> + Debug,
@@ -348,7 +396,7 @@ where
     }
 }
 
-impl<Endian, T> Index<RangeFrom<usize>> for EndianReader<Endian, T>
+impl<Endian, T, Address> Index<RangeFrom<usize>> for EndianReader<Endian, T, Address>
 where
     Endian: Endianity,
     T: CloneStableDeref<Target = [u8]> + Debug,
@@ -359,7 +407,7 @@ where
     }
 }
 
-impl<Endian, T> Deref for EndianReader<Endian, T>
+impl<Endian, T, Address> Deref for EndianReader<Endian, T, Address>
 where
     Endian: Endianity,
     T: CloneStableDeref<Target = [u8]> + Debug,
@@ -370,13 +418,15 @@ where
     }
 }
 
-impl<Endian, T> Reader for EndianReader<Endian, T>
+impl<Endian, T, Address> Reader for EndianReader<Endian, T, Address>
 where
     Endian: Endianity,
     T: CloneStableDeref<Target = [u8]> + Debug,
+    Address: ReaderAddress,
 {
     type Endian = Endian;
     type Offset = usize;
+    type Address = Address;
 
     #[inline]
     fn endian(&self) -> Endian {
@@ -404,7 +454,7 @@ where
     }
 
     #[inline]
-    fn offset_from(&self, base: &EndianReader<Endian, T>) -> usize {
+    fn offset_from(&self, base: &Self) -> usize {
         let base_ptr = base.bytes().as_ptr() as usize;
         let ptr = self.bytes().as_ptr() as usize;
         debug_assert!(base_ptr <= ptr);

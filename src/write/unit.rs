@@ -1478,7 +1478,7 @@ pub(crate) mod convert {
     use crate::write::{self, ConvertError, ConvertResult, LocationList, RangeList};
     use std::collections::HashMap;
 
-    pub(crate) struct ConvertUnit<R: Reader<Offset = usize>> {
+    pub(crate) struct ConvertUnit<R: Reader<Offset = usize, Address = u64>> {
         from_unit: read::Unit<R>,
         base_id: BaseId,
         encoding: Encoding,
@@ -1487,7 +1487,7 @@ pub(crate) mod convert {
         root: UnitEntryId,
     }
 
-    pub(crate) struct ConvertUnitContext<'a, R: Reader<Offset = usize>> {
+    pub(crate) struct ConvertUnitContext<'a, R: Reader<Offset = usize, Address = u64>> {
         pub dwarf: &'a read::Dwarf<R>,
         pub unit: &'a read::Unit<R>,
         pub line_strings: &'a mut write::LineStringTable,
@@ -1512,7 +1512,7 @@ pub(crate) mod convert {
         /// `Address::Constant(address)`. For relocatable addresses, it is the caller's
         /// responsibility to determine the symbol and addend corresponding to the address
         /// and return `Address::Symbol { symbol, addend }`.
-        pub fn from<R: Reader<Offset = usize>>(
+        pub fn from<R: Reader<Offset = usize, Address = u64>>(
             dwarf: &read::Dwarf<R>,
             line_strings: &mut write::LineStringTable,
             strings: &mut write::StringTable,
@@ -1555,7 +1555,7 @@ pub(crate) mod convert {
         /// Create a unit by reading the data in the input sections.
         ///
         /// Does not add entry attributes.
-        pub(crate) fn convert_entries<R: Reader<Offset = usize>>(
+        pub(crate) fn convert_entries<R: Reader<Offset = usize, Address = u64>>(
             from_header: read::UnitHeader<R>,
             unit_id: UnitId,
             entry_ids: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
@@ -1597,7 +1597,7 @@ pub(crate) mod convert {
         }
 
         /// Create entry attributes by reading the data in the input sections.
-        fn convert_attributes<R: Reader<Offset = usize>>(
+        fn convert_attributes<R: Reader<Offset = usize, Address = u64>>(
             unit: ConvertUnit<R>,
             entry_ids: &HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
             dwarf: &read::Dwarf<R>,
@@ -1664,7 +1664,7 @@ pub(crate) mod convert {
         /// Create an entry by reading the data in the input sections.
         ///
         /// Does not add the entry attributes.
-        fn convert_entry<R: Reader<Offset = usize>>(
+        fn convert_entry<R: Reader<Offset = usize, Address = u64>>(
             from: read::EntriesTreeNode<'_, '_, '_, R>,
             from_unit: &read::Unit<R>,
             base_id: BaseId,
@@ -1697,7 +1697,7 @@ pub(crate) mod convert {
         }
 
         /// Create an entry's attributes by reading the data in the input sections.
-        fn convert_attributes<R: Reader<Offset = usize>>(
+        fn convert_attributes<R: Reader<Offset = usize, Address = u64>>(
             &mut self,
             context: &mut ConvertUnitContext<'_, R>,
             entry_offsets: &[read::UnitOffset],
@@ -1719,7 +1719,7 @@ pub(crate) mod convert {
 
     impl Attribute {
         /// Create an attribute by reading the data in the given sections.
-        pub(crate) fn from<R: Reader<Offset = usize>>(
+        pub(crate) fn from<R: Reader<Offset = usize, Address = u64>>(
             context: &mut ConvertUnitContext<'_, R>,
             from: &read::Attribute<R>,
         ) -> ConvertResult<Option<Attribute>> {
@@ -1733,7 +1733,7 @@ pub(crate) mod convert {
 
     impl AttributeValue {
         /// Create an attribute value by reading the data in the given sections.
-        pub(crate) fn from<R: Reader<Offset = usize>>(
+        pub(crate) fn from<R: Reader<Offset = usize, Address = u64>>(
             context: &mut ConvertUnitContext<'_, R>,
             from: read::AttributeValue<R>,
         ) -> ConvertResult<Option<AttributeValue>> {

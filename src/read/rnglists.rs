@@ -219,7 +219,7 @@ impl<R: Reader> RangeLists<R> {
         &self,
         offset: RangeListsOffset<R::Offset>,
         unit_encoding: Encoding,
-        base_address: u64,
+        base_address: R::Address,
         debug_addr: &DebugAddr<R>,
         debug_addr_base: DebugAddrBase<R::Offset>,
     ) -> Result<RngListIter<R>> {
@@ -310,18 +310,18 @@ pub struct RawRngListIter<R: Reader> {
 
 /// A raw entry in .debug_rnglists
 #[derive(Clone, Debug)]
-pub enum RawRngListEntry<T> {
+pub enum RawRngListEntry<T, A: ReaderAddress = u64> {
     /// A range from DWARF version <= 4.
     AddressOrOffsetPair {
         /// Start of range. May be an address or an offset.
-        begin: u64,
+        begin: A,
         /// End of range. May be an address or an offset.
-        end: u64,
+        end: A,
     },
     /// DW_RLE_base_address
     BaseAddress {
         /// base address
-        addr: u64,
+        addr: A,
     },
     /// DW_RLE_base_addressx
     BaseAddressx {
@@ -345,39 +345,40 @@ pub enum RawRngListEntry<T> {
     /// DW_RLE_offset_pair
     OffsetPair {
         /// start of range
-        begin: u64,
+        begin: A::Length,
         /// end of range
-        end: u64,
+        end: A::Length,
     },
     /// DW_RLE_start_end
     StartEnd {
         /// start of range
-        begin: u64,
+        begin: A,
         /// end of range
-        end: u64,
+        end: A,
     },
     /// DW_RLE_start_length
     StartLength {
         /// start of range
-        begin: u64,
+        begin: A,
         /// length of range
         length: u64,
     },
 }
 
-impl<T: ReaderOffset> RawRngListEntry<T> {
+impl<T: ReaderOffset, A: ReaderAddress> RawRngListEntry<T, A> {
     /// Parse a range entry from `.debug_rnglists`
-    fn parse<R: Reader<Offset = T>>(
+    fn parse<R: Reader<Offset = T, Address = A>>(
         input: &mut R,
         encoding: Encoding,
         format: RangeListsFormat,
     ) -> Result<Option<Self>> {
+        let address_size = encoding.address_size;
         Ok(match format {
             RangeListsFormat::Bare => {
-                let range = RawRange::parse(input, encoding.address_size)?;
+                let range = RawRange::parse(input, address_size)?;
                 if range.is_end() {
                     None
-                } else if range.is_base_address(encoding.address_size) {
+                } else if range.is_base_address(address_size) {
                     Some(RawRngListEntry::BaseAddress { addr: range.end })
                 } else {
                     Some(RawRngListEntry::AddressOrOffsetPair {
@@ -400,18 +401,18 @@ impl<T: ReaderOffset> RawRngListEntry<T> {
                     length: input.read_uleb128()?,
                 }),
                 constants::DW_RLE_offset_pair => Some(RawRngListEntry::OffsetPair {
-                    begin: input.read_uleb128()?,
-                    end: input.read_uleb128()?,
+                    begin: R::Address::length(input.read_uleb128()?, address_size)?,
+                    end: R::Address::length(input.read_uleb128()?, address_size)?,
                 }),
                 constants::DW_RLE_base_address => Some(RawRngListEntry::BaseAddress {
-                    addr: input.read_address(encoding.address_size)?,
+                    addr: input.read_address(address_size)?,
                 }),
                 constants::DW_RLE_start_end => Some(RawRngListEntry::StartEnd {
-                    begin: input.read_address(encoding.address_size)?,
-                    end: input.read_address(encoding.address_size)?,
+                    begin: input.read_address(address_size)?,
+                    end: input.read_address(address_size)?,
                 }),
                 constants::DW_RLE_start_length => Some(RawRngListEntry::StartLength {
-                    begin: input.read_address(encoding.address_size)?,
+                    begin: input.read_address(address_size)?,
                     length: input.read_uleb128()?,
                 }),
                 entry => {
@@ -433,7 +434,7 @@ impl<R: Reader> RawRngListIter<R> {
     }
 
     /// Advance the iterator to the next range.
-    pub fn next(&mut self) -> Result<Option<RawRngListEntry<R::Offset>>> {
+    pub fn next(&mut self) -> Result<Option<RawRngListEntry<R::Offset, R::Address>>> {
         if self.input.is_empty() {
             return Ok(None);
         }
@@ -455,7 +456,7 @@ impl<R: Reader> RawRngListIter<R> {
 
 #[cfg(feature = "fallible-iterator")]
 impl<R: Reader> fallible_iterator::FallibleIterator for RawRngListIter<R> {
-    type Item = RawRngListEntry<R::Offset>;
+    type Item = RawRngListEntry<R::Offset, R::Address>;
     type Error = Error;
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
@@ -471,7 +472,7 @@ impl<R: Reader> fallible_iterator::FallibleIterator for RawRngListIter<R> {
 #[derive(Debug)]
 pub struct RngListIter<R: Reader> {
     raw: RawRngListIter<R>,
-    base_address: u64,
+    base_address: R::Address,
     debug_addr: DebugAddr<R>,
     debug_addr_base: DebugAddrBase<R::Offset>,
 }
@@ -480,7 +481,7 @@ impl<R: Reader> RngListIter<R> {
     /// Construct a `RngListIter`.
     fn new(
         raw: RawRngListIter<R>,
-        base_address: u64,
+        base_address: R::Address,
         debug_addr: DebugAddr<R>,
         debug_addr_base: DebugAddrBase<R::Offset>,
     ) -> RngListIter<R> {
@@ -493,13 +494,13 @@ impl<R: Reader> RngListIter<R> {
     }
 
     #[inline]
-    fn get_address(&self, index: DebugAddrIndex<R::Offset>) -> Result<u64> {
+    fn get_address(&self, index: DebugAddrIndex<R::Offset>) -> Result<R::Address> {
         self.debug_addr
             .get_address(self.raw.encoding.address_size, self.debug_addr_base, index)
     }
 
     /// Advance the iterator to the next range.
-    pub fn next(&mut self) -> Result<Option<Range>> {
+    pub fn next(&mut self) -> Result<Option<Range<R::Address>>> {
         loop {
             let raw_range = match self.raw.next()? {
                 Some(range) => range,
@@ -517,7 +518,7 @@ impl<R: Reader> RngListIter<R> {
     ///
     /// The raw range should be passed to `convert_range`.
     #[doc(hidden)]
-    pub fn next_raw(&mut self) -> Result<Option<RawRngListEntry<R::Offset>>> {
+    pub fn next_raw(&mut self) -> Result<Option<RawRngListEntry<R::Offset, R::Address>>> {
         self.raw.next()
     }
 
@@ -525,11 +526,18 @@ impl<R: Reader> RngListIter<R> {
     ///
     /// The raw range should have been obtained from `next_raw`.
     #[doc(hidden)]
-    pub fn convert_raw(&mut self, raw_range: RawRngListEntry<R::Offset>) -> Result<Option<Range>> {
+    pub fn convert_raw(
+        &mut self,
+        raw_range: RawRngListEntry<R::Offset, R::Address>,
+    ) -> Result<Option<Range<R::Address>>> {
         let address_size = self.raw.encoding.address_size;
-        let mask = u64::ones_sized(address_size);
+        let mask = R::Address::ones(address_size);
         let tombstone = if self.raw.encoding.version <= 4 {
-            mask - 1
+            // mask - 1
+            mask.wrapping_add(
+                R::Address::length(-1i64 as u64, address_size)?,
+                address_size,
+            )
         } else {
             mask
         };
@@ -550,21 +558,34 @@ impl<R: Reader> RngListIter<R> {
             }
             RawRngListEntry::StartxLength { begin, length } => {
                 let begin = self.get_address(begin)?;
-                let end = begin.wrapping_add_sized(length, address_size);
+                let length = R::Address::length(length, address_size)?;
+                let end = begin.wrapping_add(length, address_size);
                 Range { begin, end }
             }
-            RawRngListEntry::AddressOrOffsetPair { begin, end }
-            | RawRngListEntry::OffsetPair { begin, end } => {
+            RawRngListEntry::AddressOrOffsetPair { begin, end } => {
                 if self.base_address == tombstone {
                     return Ok(None);
                 }
-                let mut range = Range { begin, end };
-                range.add_base_address(self.base_address, self.raw.encoding.address_size);
-                range
+                if self.base_address == R::Address::zeroes() {
+                    // This is an address pair.
+                    Range { begin, end }
+                } else if let (Some(begin), Some(end)) = (begin.constant(), end.constant()) {
+                    // This is an offset pair.
+                    Range { begin, end }.add_base_address(self.base_address, address_size)
+                } else {
+                    return Err(Error::InvalidAddressRangeOffset);
+                }
+            }
+            RawRngListEntry::OffsetPair { begin, end } => {
+                if self.base_address == tombstone {
+                    return Ok(None);
+                }
+                Range { begin, end }.add_base_address(self.base_address, address_size)
             }
             RawRngListEntry::StartEnd { begin, end } => Range { begin, end },
             RawRngListEntry::StartLength { begin, length } => {
-                let end = begin.wrapping_add_sized(length, address_size);
+                let length = R::Address::length(length, address_size)?;
+                let end = begin.wrapping_add(length, address_size);
                 Range { begin, end }
             }
         };
@@ -579,7 +600,7 @@ impl<R: Reader> RngListIter<R> {
 
 #[cfg(feature = "fallible-iterator")]
 impl<R: Reader> fallible_iterator::FallibleIterator for RngListIter<R> {
-    type Item = Range;
+    type Item = Range<R::Address>;
     type Error = Error;
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
@@ -589,19 +610,19 @@ impl<R: Reader> fallible_iterator::FallibleIterator for RngListIter<R> {
 
 /// A raw address range from the `.debug_ranges` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct RawRange {
+pub(crate) struct RawRange<A: ReaderAddress = u64> {
     /// The beginning address of the range.
-    pub begin: u64,
+    pub begin: A,
 
     /// The first address past the end of the range.
-    pub end: u64,
+    pub end: A,
 }
 
-impl RawRange {
+impl<A: ReaderAddress> RawRange<A> {
     /// Check if this is a range end entry.
     #[inline]
     pub fn is_end(&self) -> bool {
-        self.begin == 0 && self.end == 0
+        self.begin == A::zeroes() && self.end == A::zeroes()
     }
 
     /// Check if this is a base address selection entry.
@@ -610,12 +631,15 @@ impl RawRange {
     /// range entries are relative to.
     #[inline]
     pub fn is_base_address(&self, address_size: u8) -> bool {
-        self.begin == u64::ones_sized(address_size)
+        self.begin == A::ones(address_size)
     }
 
     /// Parse an address range entry from `.debug_ranges` or `.debug_loc`.
     #[inline]
-    pub fn parse<R: Reader>(input: &mut R, address_size: u8) -> Result<RawRange> {
+    pub fn parse<R: Reader<Address = A>>(
+        input: &mut R,
+        address_size: u8,
+    ) -> Result<RawRange<R::Address>> {
         let begin = input.read_address(address_size)?;
         let end = input.read_address(address_size)?;
         let range = RawRange { begin, end };
@@ -625,20 +649,29 @@ impl RawRange {
 
 /// An address range from the `.debug_ranges`, `.debug_rnglists`, or `.debug_aranges` sections.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Range {
+pub struct Range<T = u64> {
     /// The beginning address of the range.
-    pub begin: u64,
+    pub begin: T,
 
     /// The first address past the end of the range.
-    pub end: u64,
+    pub end: T,
 }
 
-impl Range {
+impl<T> Range<T> {
     /// Add a base address to this range.
+    ///
+    /// This uses wrapping arithmetic to allow for the possibility of negative
+    /// values for either the range or the base address.
     #[inline]
-    pub(crate) fn add_base_address(&mut self, base_address: u64, address_size: u8) {
-        self.begin = base_address.wrapping_add_sized(self.begin, address_size);
-        self.end = base_address.wrapping_add_sized(self.end, address_size);
+    #[must_use]
+    pub(crate) fn add_base_address<A: ReaderAddress<Length = T>>(
+        self,
+        base_address: A,
+        address_size: u8,
+    ) -> Range<A> {
+        let begin = base_address.wrapping_add(self.begin, address_size);
+        let end = base_address.wrapping_add(self.end, address_size);
+        Range { begin, end }
     }
 }
 
@@ -1100,20 +1133,23 @@ mod tests {
     #[test]
     fn test_raw_range() {
         let range = RawRange {
-            begin: 0,
+            begin: 0u64,
             end: 0xffff_ffff,
         };
         assert!(!range.is_end());
         assert!(!range.is_base_address(4));
         assert!(!range.is_base_address(8));
 
-        let range = RawRange { begin: 0, end: 0 };
+        let range = RawRange {
+            begin: 0u64,
+            end: 0,
+        };
         assert!(range.is_end());
         assert!(!range.is_base_address(4));
         assert!(!range.is_base_address(8));
 
         let range = RawRange {
-            begin: 0xffff_ffff,
+            begin: 0xffff_ffffu64,
             end: 0,
         };
         assert!(!range.is_end());
@@ -1121,7 +1157,7 @@ mod tests {
         assert!(!range.is_base_address(8));
 
         let range = RawRange {
-            begin: 0xffff_ffff_ffff_ffff,
+            begin: 0xffff_ffff_ffff_ffffu64,
             end: 0,
         };
         assert!(!range.is_end());

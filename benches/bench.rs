@@ -468,7 +468,7 @@ fn bench_evaluating_debug_info_expressions(b: &mut test::Bencher) {
     });
 }
 
-fn debug_loc_expressions<R: Reader>(
+fn debug_loc_expressions<R: Reader<Address = u64>>(
     debug_info: &DebugInfo<R>,
     debug_abbrev: &DebugAbbrev<R>,
     debug_addr: &DebugAddr<R>,
@@ -702,7 +702,7 @@ mod cfi {
         });
     }
 
-    fn instrs_len<R: Reader>(
+    fn instrs_len<R: Reader<Address = u64>>(
         eh_frame: &EhFrame<R>,
         bases: &BaseAddresses,
         fde: &FrameDescriptionEntry<R>,
@@ -712,7 +712,7 @@ mod cfi {
             .expect("fold over instructions OK")
     }
 
-    fn get_fde_with_longest_cfi_instructions<R: Reader>(
+    fn get_fde_with_longest_cfi_instructions<R: Reader<Address = u64>>(
         eh_frame: &EhFrame<R>,
         bases: &BaseAddresses,
     ) -> FrameDescriptionEntry<R> {

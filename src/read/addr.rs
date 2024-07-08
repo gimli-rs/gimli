@@ -30,7 +30,7 @@ impl<R: Reader> DebugAddr<R> {
         address_size: u8,
         base: DebugAddrBase<R::Offset>,
         index: DebugAddrIndex<R::Offset>,
-    ) -> Result<u64> {
+    ) -> Result<R::Address> {
         let input = &mut self.section.clone();
         input.skip(base.0)?;
         input.skip(R::Offset::from_u64(

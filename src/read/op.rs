@@ -33,10 +33,11 @@ pub enum DieReference<T = usize> {
 /// example, both `DW_OP_deref` and `DW_OP_xderef` are represented
 /// using `Operation::Deref`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Operation<R, Offset = <R as Reader>::Offset>
+pub enum Operation<R, Offset = <R as Reader>::Offset, Address = <R as Reader>::Address>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
+    Address: ReaderAddress,
 {
     /// Dereference the topmost value of the stack.
     Deref {
@@ -226,7 +227,7 @@ where
     /// Represents `DW_OP_addr`.
     Address {
         /// The offset to add.
-        address: u64,
+        address: Address,
     },
     /// Read the address at the given index in `.debug_addr, relocate the address if needed,
     /// and push it on the stack.
@@ -707,9 +708,7 @@ where
             constants::DW_OP_stack_value => Ok(Operation::StackValue),
             constants::DW_OP_implicit_pointer | constants::DW_OP_GNU_implicit_pointer => {
                 let value = if encoding.version == 2 {
-                    bytes
-                        .read_address(encoding.address_size)
-                        .and_then(Offset::from_u64)?
+                    bytes.read_sized_offset(encoding.address_size)?
                 } else {
                     bytes.read_offset(encoding.format)?
                 };
@@ -902,7 +901,7 @@ pub enum EvaluationResult<R: Reader> {
     /// The `Evaluation` needs an address to be relocated to proceed further.
     /// Once the caller determines what value to provide it should resume the
     /// `Evaluation` by calling `Evaluation::resume_with_relocated_address`.
-    RequiresRelocatedAddress(u64),
+    RequiresRelocatedAddress(R::Address),
     /// The `Evaluation` needs an address from the `.debug_addr` section.
     /// This address may also need to be relocated.
     /// Once the caller determines what value to provide it should resume the
@@ -1170,7 +1169,7 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
             max_iterations: None,
             iteration: 0,
             state: EvaluationState::Start(None),
-            addr_mask: u64::ones_sized(encoding.address_size),
+            addr_mask: u64::ones(encoding.address_size),
             stack: Default::default(),
             expression_stack: Default::default(),
             pc,
@@ -2016,11 +2015,22 @@ mod tests {
     use super::*;
     use crate::common::Format;
     use crate::constants;
-    use crate::endianity::LittleEndian;
+    use crate::endianity::{Endianity, LittleEndian};
     use crate::leb128;
     use crate::read::{EndianSlice, Error, Result, UnitOffset};
     use crate::test_util::GimliSectionMethods;
     use test_assembler::{Endian, Section};
+
+    /// Ensure that `Operation<R>` is covariant wrt R.
+    #[test]
+    fn test_operation_variance() {
+        /// This only needs to compile.
+        fn _f<'a: 'b, 'b, E: Endianity>(
+            x: Operation<EndianSlice<'a, E>>,
+        ) -> Operation<EndianSlice<'b, E>> {
+            x
+        }
+    }
 
     fn encoding4() -> Encoding {
         Encoding {

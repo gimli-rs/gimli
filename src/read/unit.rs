@@ -15,7 +15,7 @@ use crate::endianity::Endianity;
 use crate::read::abbrev::get_attribute_size;
 use crate::read::{
     Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, DebugStr, EndianSlice, Error,
-    Expression, Reader, ReaderOffset, Result, Section, UnitOffset,
+    Expression, Reader, ReaderAddress, ReaderOffset, Result, Section, UnitOffset,
 };
 
 impl<T: ReaderOffset> DebugTypesOffset<T> {
@@ -300,10 +300,11 @@ where
 /// The common fields for the headers of compilation units and
 /// type units.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UnitHeader<R, Offset = <R as Reader>::Offset>
+pub struct UnitHeader<R, Offset = <R as Reader>::Offset, Address = <R as Reader>::Address>
 where
-    R: Reader<Offset = Offset>,
+    R: Reader<Offset = Offset, Address = Address>,
     Offset: ReaderOffset,
+    Address: ReaderAddress,
 {
     encoding: Encoding,
     unit_length: Offset,
@@ -314,10 +315,11 @@ where
 }
 
 /// Static methods.
-impl<R, Offset> UnitHeader<R, Offset>
+impl<R, Offset, Address> UnitHeader<R, Offset, Address>
 where
-    R: Reader<Offset = Offset>,
+    R: Reader<Offset = Offset, Address = Address>,
     Offset: ReaderOffset,
+    Address: ReaderAddress,
 {
     /// Construct a new `UnitHeader`.
     pub fn new(
@@ -930,13 +932,14 @@ where
 // for their data.  This gives better code generation in `parse_attribute`.
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AttributeValue<R, Offset = <R as Reader>::Offset>
+pub enum AttributeValue<R, Offset = <R as Reader>::Offset, Address = <R as Reader>::Address>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
+    Address: ReaderAddress,
 {
     /// "Refers to some location in the address space of the described program."
-    Addr(u64),
+    Addr(Address),
 
     /// A slice of an arbitrary number of bytes.
     Block(R),
