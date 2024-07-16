@@ -275,6 +275,7 @@ pub type EndianBuf<'input, Endian> = EndianSlice<'input, Endian>;
 
 /// An error that occurred when parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// An I/O error occurred while reading.
     Io,
