@@ -40,6 +40,17 @@ impl RangeListTable {
         RangeListId::new(self.base_id, index)
     }
 
+    /// Get a reference to a location list.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is invalid.
+    #[inline]
+    pub fn get(&self, id: RangeListId) -> &RangeList {
+        debug_assert_eq!(self.base_id, id.base_id);
+        &self.ranges[id.index]
+    }
+
     /// Write the range list table to the appropriate section for the given DWARF version.
     pub(crate) fn write<W: Writer>(
         &self,
