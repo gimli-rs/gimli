@@ -78,6 +78,23 @@ impl UnitTable {
         &mut self.units[id.index]
     }
 
+    /// Get an iterator for the units.
+    pub fn iter(&self) -> impl Iterator<Item = (UnitId, &Unit)> {
+        self.units
+            .iter()
+            .enumerate()
+            .map(move |(index, unit)| (UnitId::new(self.base_id, index), unit))
+    }
+
+    /// Get a mutable iterator for the units.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (UnitId, &mut Unit)> {
+        let base_id = self.base_id;
+        self.units
+            .iter_mut()
+            .enumerate()
+            .map(move |(index, unit)| (UnitId::new(base_id, index), unit))
+    }
+
     /// Write the units to the given sections.
     ///
     /// `strings` must contain the `.debug_str` offsets of the corresponding
@@ -1377,13 +1394,6 @@ pub struct DebugInfoOffsets {
 }
 
 impl DebugInfoOffsets {
-    #[cfg(test)]
-    #[cfg(feature = "read")]
-    pub(crate) fn unit_offsets(&self, unit: UnitId) -> &UnitOffsets {
-        debug_assert_eq!(self.base_id, unit.base_id);
-        &self.units[unit.index]
-    }
-
     /// Get the `.debug_info` section offset for the given unit.
     #[inline]
     pub fn unit(&self, unit: UnitId) -> DebugInfoOffset {
@@ -1408,16 +1418,6 @@ pub(crate) struct UnitOffsets {
 }
 
 impl UnitOffsets {
-    #[cfg(test)]
-    #[cfg(feature = "read")]
-    fn none() -> Self {
-        UnitOffsets {
-            base_id: BaseId::default(),
-            unit: DebugInfoOffset(0),
-            entries: Vec::new(),
-        }
-    }
-
     /// Get the .debug_info offset for the given entry.
     #[inline]
     pub(crate) fn debug_info_offset(&self, entry: UnitEntryId) -> DebugInfoOffset {
@@ -1914,27 +1914,19 @@ pub(crate) mod convert {
 #[cfg(feature = "read")]
 mod tests {
     use super::*;
-    use crate::common::{
-        DebugAddrBase, DebugLocListsBase, DebugRngListsBase, DebugStrOffsetsBase, LineEncoding,
-    };
+    use crate::common::LineEncoding;
     use crate::constants;
     use crate::read;
     use crate::write::{
-        DebugLine, DebugLineStr, DebugStr, DwarfUnit, EndianVec, LineString, LineStringTable,
-        Location, LocationList, LocationListTable, Range, RangeList, RangeListOffsets,
-        RangeListTable, StringTable,
+        Dwarf, DwarfUnit, EndianVec, LineString, Location, LocationList, Range, RangeList,
     };
     use crate::LittleEndian;
-    use std::collections::HashMap;
     use std::mem;
-    use std::sync::Arc;
 
     #[test]
     fn test_unit_table() {
-        let mut strings = StringTable::default();
-
-        let mut units = UnitTable::default();
-        let unit_id1 = units.add(Unit::new(
+        let mut dwarf = Dwarf::new();
+        let unit_id1 = dwarf.units.add(Unit::new(
             Encoding {
                 version: 4,
                 address_size: 8,
@@ -1942,7 +1934,7 @@ mod tests {
             },
             LineProgram::none(),
         ));
-        let unit2 = units.add(Unit::new(
+        let unit2 = dwarf.units.add(Unit::new(
             Encoding {
                 version: 2,
                 address_size: 4,
@@ -1950,7 +1942,7 @@ mod tests {
             },
             LineProgram::none(),
         ));
-        let unit3 = units.add(Unit::new(
+        let unit3 = dwarf.units.add(Unit::new(
             Encoding {
                 version: 5,
                 address_size: 4,
@@ -1958,9 +1950,9 @@ mod tests {
             },
             LineProgram::none(),
         ));
-        assert_eq!(units.count(), 3);
+        assert_eq!(dwarf.units.count(), 3);
         {
-            let unit1 = units.get_mut(unit_id1);
+            let unit1 = dwarf.units.get_mut(unit_id1);
             assert_eq!(unit1.version(), 4);
             assert_eq!(unit1.address_size(), 8);
             assert_eq!(unit1.format(), Format::Dwarf32);
@@ -2001,7 +1993,7 @@ mod tests {
                 assert_eq!(child1.get(constants::DW_AT_name), Some(&tmp));
 
                 // Test attrs_mut
-                let name = AttributeValue::StringRef(strings.add(&b"child1"[..]));
+                let name = AttributeValue::StringRef(dwarf.strings.add(&b"child1"[..]));
                 {
                     let attr = child1.attrs_mut().next().unwrap();
                     assert_eq!(attr.name(), constants::DW_AT_name);
@@ -2021,7 +2013,7 @@ mod tests {
                 assert_eq!(child2.get(constants::DW_AT_name), Some(&tmp));
 
                 // Test replace
-                let name = AttributeValue::StringRef(strings.add(&b"child2"[..]));
+                let name = AttributeValue::StringRef(dwarf.strings.add(&b"child2"[..]));
                 child2.set(constants::DW_AT_name, name.clone());
                 assert_eq!(child2.get(constants::DW_AT_name), Some(&name));
             }
@@ -2035,7 +2027,7 @@ mod tests {
             }
         }
         {
-            let unit2 = units.get(unit2);
+            let unit2 = dwarf.units.get(unit2);
             assert_eq!(unit2.version(), 2);
             assert_eq!(unit2.address_size(), 4);
             assert_eq!(unit2.format(), Format::Dwarf64);
@@ -2050,32 +2042,23 @@ mod tests {
         }
 
         let mut sections = Sections::new(EndianVec::new(LittleEndian));
-        let debug_line_str_offsets = DebugLineStrOffsets::none();
-        let debug_str_offsets = strings.write(&mut sections.debug_str).unwrap();
-        units
-            .write(&mut sections, &debug_line_str_offsets, &debug_str_offsets)
-            .unwrap();
+        dwarf.write(&mut sections).unwrap();
 
         println!("{:?}", sections.debug_str);
         println!("{:?}", sections.debug_info);
         println!("{:?}", sections.debug_abbrev);
 
-        let dwarf = read::Dwarf {
-            debug_abbrev: read::DebugAbbrev::new(sections.debug_abbrev.slice(), LittleEndian),
-            debug_info: read::DebugInfo::new(sections.debug_info.slice(), LittleEndian),
-            debug_str: read::DebugStr::new(sections.debug_str.slice(), LittleEndian),
-            ..Default::default()
-        };
-        let mut read_units = dwarf.units();
+        let read_dwarf = sections.read(LittleEndian);
+        let mut read_units = read_dwarf.units();
 
         {
             let read_unit1 = read_units.next().unwrap().unwrap();
-            let unit1 = units.get(unit_id1);
+            let unit1 = dwarf.units.get(unit_id1);
             assert_eq!(unit1.version(), read_unit1.version());
             assert_eq!(unit1.address_size(), read_unit1.address_size());
             assert_eq!(unit1.format(), read_unit1.format());
 
-            let read_unit1 = dwarf.unit(read_unit1).unwrap();
+            let read_unit1 = read_dwarf.unit(read_unit1).unwrap();
             let mut read_entries = read_unit1.entries();
 
             let root = unit1.get(unit1.root());
@@ -2095,7 +2078,7 @@ mod tests {
                     .unwrap()
                     .unwrap();
                 assert_eq!(
-                    dwarf
+                    read_dwarf
                         .attr_string(&read_unit1, read_producer)
                         .unwrap()
                         .slice(),
@@ -2118,14 +2101,17 @@ mod tests {
                     AttributeValue::StringRef(name) => *name,
                     otherwise => panic!("unexpected {:?}", otherwise),
                 };
-                let name = strings.get(name);
+                let name = dwarf.strings.get(name);
                 assert_eq!(name, b"child1");
                 let read_name = read_child
                     .attr_value(constants::DW_AT_name)
                     .unwrap()
                     .unwrap();
                 assert_eq!(
-                    dwarf.attr_string(&read_unit1, read_name).unwrap().slice(),
+                    read_dwarf
+                        .attr_string(&read_unit1, read_name)
+                        .unwrap()
+                        .slice(),
                     name
                 );
             }
@@ -2143,14 +2129,17 @@ mod tests {
                     AttributeValue::StringRef(name) => *name,
                     otherwise => panic!("unexpected {:?}", otherwise),
                 };
-                let name = strings.get(name);
+                let name = dwarf.strings.get(name);
                 assert_eq!(name, b"child2");
                 let read_name = read_child
                     .attr_value(constants::DW_AT_name)
                     .unwrap()
                     .unwrap();
                 assert_eq!(
-                    dwarf.attr_string(&read_unit1, read_name).unwrap().slice(),
+                    read_dwarf
+                        .attr_string(&read_unit1, read_name)
+                        .unwrap()
+                        .slice(),
                     name
                 );
             }
@@ -2160,12 +2149,12 @@ mod tests {
 
         {
             let read_unit2 = read_units.next().unwrap().unwrap();
-            let unit2 = units.get(unit2);
+            let unit2 = dwarf.units.get(unit2);
             assert_eq!(unit2.version(), read_unit2.version());
             assert_eq!(unit2.address_size(), read_unit2.address_size());
             assert_eq!(unit2.format(), read_unit2.format());
 
-            let abbrevs = dwarf.abbreviations(&read_unit2).unwrap();
+            let abbrevs = read_dwarf.abbreviations(&read_unit2).unwrap();
             let mut read_entries = read_unit2.entries(&abbrevs);
 
             {
@@ -2181,12 +2170,12 @@ mod tests {
 
         {
             let read_unit3 = read_units.next().unwrap().unwrap();
-            let unit3 = units.get(unit3);
+            let unit3 = dwarf.units.get(unit3);
             assert_eq!(unit3.version(), read_unit3.version());
             assert_eq!(unit3.address_size(), read_unit3.address_size());
             assert_eq!(unit3.format(), read_unit3.format());
 
-            let abbrevs = dwarf.abbreviations(&read_unit3).unwrap();
+            let abbrevs = read_dwarf.abbreviations(&read_unit3).unwrap();
             let mut read_entries = read_unit3.entries(&abbrevs);
 
             {
@@ -2202,22 +2191,15 @@ mod tests {
 
         assert!(read_units.next().unwrap().is_none());
 
-        let mut convert_line_strings = LineStringTable::default();
-        let mut convert_strings = StringTable::default();
-        let convert_units = UnitTable::from(
-            &dwarf,
-            &mut convert_line_strings,
-            &mut convert_strings,
-            &|address| Some(Address::Constant(address)),
-        )
-        .unwrap();
-        assert_eq!(convert_units.count(), units.count());
+        let convert_dwarf =
+            Dwarf::from(&read_dwarf, &|address| Some(Address::Constant(address))).unwrap();
+        assert_eq!(convert_dwarf.units.count(), dwarf.units.count());
 
-        for i in 0..convert_units.count() {
-            let unit_id = units.id(i);
-            let unit = units.get(unit_id);
-            let convert_unit_id = convert_units.id(i);
-            let convert_unit = convert_units.get(convert_unit_id);
+        for i in 0..convert_dwarf.units.count() {
+            let unit_id = dwarf.units.id(i);
+            let unit = dwarf.units.get(unit_id);
+            let convert_unit_id = convert_dwarf.units.id(i);
+            let convert_unit = convert_dwarf.units.get(convert_unit_id);
             assert_eq!(convert_unit.version(), unit.version());
             assert_eq!(convert_unit.address_size(), unit.address_size());
             assert_eq!(convert_unit.format(), unit.format());
@@ -2234,21 +2216,8 @@ mod tests {
 
     #[test]
     fn test_attribute_value() {
-        // Create a string table and a string with a non-zero id/offset.
-        let mut strings = StringTable::default();
-        strings.add("string one");
-        let string_id = strings.add("string two");
-        let mut debug_str = DebugStr::from(EndianVec::new(LittleEndian));
-        let debug_str_offsets = strings.write(&mut debug_str).unwrap();
-        let read_debug_str = read::DebugStr::new(debug_str.slice(), LittleEndian);
-
-        let mut line_strings = LineStringTable::default();
-        line_strings.add("line string one");
-        let line_string_id = line_strings.add("line string two");
-        let mut debug_line_str = DebugLineStr::from(EndianVec::new(LittleEndian));
-        let debug_line_str_offsets = line_strings.write(&mut debug_line_str).unwrap();
-        let read_debug_line_str =
-            read::DebugLineStr::from(read::EndianSlice::new(debug_line_str.slice(), LittleEndian));
+        let string_data = "string data";
+        let line_string_data = "line string data";
 
         let data = vec![1, 2, 3, 4];
         let read_data = read::EndianSlice::new(&[1, 2, 3, 4], LittleEndian);
@@ -2260,18 +2229,16 @@ mod tests {
             LittleEndian,
         ));
 
-        let mut ranges = RangeListTable::default();
-        let range_id = ranges.add(RangeList(vec![Range::StartEnd {
+        let range = RangeList(vec![Range::StartEnd {
             begin: Address::Constant(0x1234),
             end: Address::Constant(0x2345),
-        }]));
+        }]);
 
-        let mut locations = LocationListTable::default();
-        let loc_id = locations.add(LocationList(vec![Location::StartEnd {
+        let location = LocationList(vec![Location::StartEnd {
             begin: Address::Constant(0x1234),
             end: Address::Constant(0x2345),
             data: expression.clone(),
-        }]));
+        }]);
 
         for &version in &[2, 3, 4, 5] {
             for &address_size in &[4, 8] {
@@ -2282,38 +2249,18 @@ mod tests {
                         address_size,
                     };
 
-                    let mut sections = Sections::new(EndianVec::new(LittleEndian));
-                    let range_list_offsets = ranges.write(&mut sections, encoding).unwrap();
-                    let loc_list_offsets = locations.write(&mut sections, encoding, None).unwrap();
+                    let mut dwarf = Dwarf::new();
+                    let unit = dwarf.units.add(Unit::new(encoding, LineProgram::none()));
+                    let unit = dwarf.units.get_mut(unit);
+                    let loc_id = unit.locations.add(location.clone());
+                    let range_id = unit.ranges.add(range.clone());
+                    // Create a string with a non-zero id/offset.
+                    dwarf.strings.add("dummy string");
+                    let string_id = dwarf.strings.add(string_data);
+                    dwarf.line_strings.add("dummy line string");
+                    let line_string_id = dwarf.line_strings.add(line_string_data);
 
-                    let read_debug_ranges =
-                        read::DebugRanges::new(sections.debug_ranges.slice(), LittleEndian);
-                    let read_debug_rnglists =
-                        read::DebugRngLists::new(sections.debug_rnglists.slice(), LittleEndian);
-
-                    let read_debug_loc =
-                        read::DebugLoc::new(sections.debug_loc.slice(), LittleEndian);
-                    let read_debug_loclists =
-                        read::DebugLocLists::new(sections.debug_loclists.slice(), LittleEndian);
-
-                    let mut units = UnitTable::default();
-                    let unit = units.add(Unit::new(encoding, LineProgram::none()));
-                    let unit = units.get(unit);
-                    let encoding = Encoding {
-                        format,
-                        version,
-                        address_size,
-                    };
-                    let from_unit = read::UnitHeader::new(
-                        encoding,
-                        0,
-                        read::UnitType::Compilation,
-                        DebugAbbrevOffset(0),
-                        DebugInfoOffset(0).into(),
-                        read::EndianSlice::new(&[], LittleEndian),
-                    );
-
-                    for (name, value, expect_value) in &[
+                    let attributes = &[
                         (
                             constants::DW_AT_name,
                             AttributeValue::Address(Address::Constant(0x1234)),
@@ -2377,11 +2324,6 @@ mod tests {
                             read::AttributeValue::DebugInfoRefSup(DebugInfoOffset(0x1234)),
                         ),
                         (
-                            constants::DW_AT_location,
-                            AttributeValue::LocationListRef(loc_id),
-                            read::AttributeValue::SecOffset(loc_list_offsets.get(loc_id).0),
-                        ),
-                        (
                             constants::DW_AT_macro_info,
                             AttributeValue::DebugMacinfoRef(DebugMacinfoOffset(0x1234)),
                             read::AttributeValue::SecOffset(0x1234),
@@ -2392,31 +2334,14 @@ mod tests {
                             read::AttributeValue::SecOffset(0x1234),
                         ),
                         (
-                            constants::DW_AT_ranges,
-                            AttributeValue::RangeListRef(range_id),
-                            read::AttributeValue::SecOffset(range_list_offsets.get(range_id).0),
-                        ),
-                        (
                             constants::DW_AT_name,
                             AttributeValue::DebugTypesRef(DebugTypeSignature(0x1234)),
                             read::AttributeValue::DebugTypesRef(DebugTypeSignature(0x1234)),
                         ),
                         (
                             constants::DW_AT_name,
-                            AttributeValue::StringRef(string_id),
-                            read::AttributeValue::DebugStrRef(debug_str_offsets.get(string_id)),
-                        ),
-                        (
-                            constants::DW_AT_name,
                             AttributeValue::DebugStrRefSup(DebugStrOffset(0x1234)),
                             read::AttributeValue::DebugStrRefSup(DebugStrOffset(0x1234)),
-                        ),
-                        (
-                            constants::DW_AT_name,
-                            AttributeValue::LineStringRef(line_string_id),
-                            read::AttributeValue::DebugLineStrRef(
-                                debug_line_str_offsets.get(line_string_id),
-                            ),
                         ),
                         (
                             constants::DW_AT_name,
@@ -2483,38 +2408,47 @@ mod tests {
                             AttributeValue::Inline(constants::DwInl(0x12)),
                             read::AttributeValue::Udata(0x12),
                         ),
-                    ][..]
-                    {
-                        let form = value.form(encoding).unwrap();
-                        let attr = Attribute {
-                            name: *name,
-                            value: value.clone(),
-                        };
+                    ];
 
-                        let offsets = UnitOffsets::none();
-                        let line_program_offset = None;
-                        let mut debug_info_refs = Vec::new();
-                        let mut unit_refs = Vec::new();
-                        let mut debug_info = DebugInfo::from(EndianVec::new(LittleEndian));
-                        attr.value
-                            .write(
-                                &mut debug_info,
-                                &mut debug_info_refs,
-                                &mut unit_refs,
-                                unit,
-                                &offsets,
-                                line_program_offset,
-                                &debug_line_str_offsets,
-                                &debug_str_offsets,
-                                &range_list_offsets,
-                                &loc_list_offsets,
-                            )
-                            .unwrap();
+                    let mut add_attribute = |name, value| {
+                        let entry_id = unit.add(unit.root(), constants::DW_TAG_subprogram);
+                        let entry = unit.get_mut(entry_id);
+                        entry.set(name, value);
+                    };
+                    for (name, value, _) in attributes {
+                        add_attribute(*name, value.clone());
+                    }
+                    add_attribute(
+                        constants::DW_AT_location,
+                        AttributeValue::LocationListRef(loc_id),
+                    );
+                    add_attribute(
+                        constants::DW_AT_ranges,
+                        AttributeValue::RangeListRef(range_id),
+                    );
+                    add_attribute(constants::DW_AT_name, AttributeValue::StringRef(string_id));
+                    add_attribute(
+                        constants::DW_AT_name,
+                        AttributeValue::LineStringRef(line_string_id),
+                    );
 
-                        let spec = read::AttributeSpecification::new(*name, form, None);
-                        let mut r = read::EndianSlice::new(debug_info.slice(), LittleEndian);
-                        let read_attr = read::parse_attribute(&mut r, encoding, spec).unwrap();
-                        let read_value = &read_attr.raw_value();
+                    let mut sections = Sections::new(EndianVec::new(LittleEndian));
+                    dwarf.write(&mut sections).unwrap();
+
+                    let read_dwarf = sections.read(LittleEndian);
+                    let mut read_units = read_dwarf.units();
+                    let read_unit = read_units.next().unwrap().unwrap();
+                    let read_unit = read_dwarf.unit(read_unit).unwrap();
+                    let read_unit = read_unit.unit_ref(&read_dwarf);
+                    let mut read_entries = read_unit.entries();
+                    let (_, _root) = read_entries.next_dfs().unwrap().unwrap();
+
+                    let mut get_attribute = |name| {
+                        let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
+                        entry.attr(name).unwrap().unwrap()
+                    };
+                    for (name, _, expect_value) in attributes {
+                        let read_value = &get_attribute(*name).raw_value();
                         // read::AttributeValue is invariant in the lifetime of R.
                         // The lifetimes here are all okay, so transmute it.
                         let read_value = unsafe {
@@ -2524,50 +2458,95 @@ mod tests {
                             >(read_value)
                         };
                         assert_eq!(read_value, expect_value);
+                    }
 
-                        let dwarf = read::Dwarf {
-                            debug_str: read_debug_str,
-                            debug_line_str: read_debug_line_str,
-                            ranges: read::RangeLists::new(read_debug_ranges, read_debug_rnglists),
-                            locations: read::LocationLists::new(
-                                read_debug_loc,
-                                read_debug_loclists,
-                            ),
-                            ..Default::default()
-                        };
+                    let read_attr = get_attribute(constants::DW_AT_location).value();
+                    let read::AttributeValue::LocationListsRef(read_loc_offset) = read_attr else {
+                        panic!("unexpected {:?}", read_attr);
+                    };
+                    let mut read_locations = read_unit.locations(read_loc_offset).unwrap();
+                    let read_location = read_locations.next().unwrap().unwrap();
+                    assert_eq!(read_location.range.begin, 0x1234);
+                    assert_eq!(read_location.range.end, 0x2345);
+                    assert_eq!(read_location.data, read_expression);
 
-                        let unit = read::Unit {
-                            header: from_unit,
-                            abbreviations: Arc::new(read::Abbreviations::default()),
-                            name: None,
-                            comp_dir: None,
-                            low_pc: 0,
-                            str_offsets_base: DebugStrOffsetsBase(0),
-                            addr_base: DebugAddrBase(0),
-                            loclists_base: DebugLocListsBase(0),
-                            rnglists_base: DebugRngListsBase(0),
-                            line_program: None,
-                            dwo_id: None,
-                        };
+                    let read_attr = get_attribute(constants::DW_AT_ranges).value();
+                    let read::AttributeValue::RangeListsRef(read_range_offset) = read_attr else {
+                        panic!("unexpected {:?}", read_attr);
+                    };
+                    let read_range_offset = read_unit.ranges_offset_from_raw(read_range_offset);
+                    let mut read_ranges = read_unit.ranges(read_range_offset).unwrap();
+                    let read_range = read_ranges.next().unwrap().unwrap();
+                    assert_eq!(read_range.begin, 0x1234);
+                    assert_eq!(read_range.end, 0x2345);
 
-                        let mut context = convert::ConvertUnitContext {
-                            dwarf: &dwarf,
-                            unit: &unit,
-                            line_strings: &mut line_strings,
-                            strings: &mut strings,
-                            ranges: &mut ranges,
-                            locations: &mut locations,
-                            convert_address: &|address| Some(Address::Constant(address)),
-                            base_address: Address::Constant(0),
-                            line_program_offset: None,
-                            line_program_files: Vec::new(),
-                            entry_ids: &HashMap::new(),
-                        };
+                    let read_string = get_attribute(constants::DW_AT_name).raw_value();
+                    let read::AttributeValue::DebugStrRef(read_string_offset) = read_string else {
+                        panic!("unexpected {:?}", read_string);
+                    };
+                    assert_eq!(
+                        read_dwarf.string(read_string_offset).unwrap().slice(),
+                        string_data.as_bytes()
+                    );
 
-                        let convert_attr =
-                            Attribute::from(&mut context, &read_attr).unwrap().unwrap();
+                    let read_line_string = get_attribute(constants::DW_AT_name).raw_value();
+                    let read::AttributeValue::DebugLineStrRef(read_line_string_offset) =
+                        read_line_string
+                    else {
+                        panic!("unexpected {:?}", read_line_string);
+                    };
+                    assert_eq!(
+                        read_dwarf
+                            .line_string(read_line_string_offset)
+                            .unwrap()
+                            .slice(),
+                        line_string_data.as_bytes()
+                    );
+
+                    let convert_dwarf =
+                        Dwarf::from(&read_dwarf, &|address| Some(Address::Constant(address)))
+                            .unwrap();
+                    let convert_unit = convert_dwarf.units.get(convert_dwarf.units.id(0));
+                    let convert_root = convert_unit.get(convert_unit.root());
+                    let mut convert_entries = convert_root.children();
+
+                    let mut get_convert_attr = |name| {
+                        let convert_entry = convert_unit.get(*convert_entries.next().unwrap());
+                        convert_entry.get(name).unwrap()
+                    };
+                    for (name, attr, _) in attributes {
+                        let convert_attr = get_convert_attr(*name);
                         assert_eq!(convert_attr, attr);
                     }
+
+                    let convert_attr = get_convert_attr(constants::DW_AT_location);
+                    let AttributeValue::LocationListRef(convert_loc_id) = convert_attr else {
+                        panic!("unexpected {:?}", convert_attr);
+                    };
+                    let convert_location = convert_unit.locations.get(*convert_loc_id);
+                    assert_eq!(*convert_location, location);
+
+                    let convert_attr = get_convert_attr(constants::DW_AT_ranges);
+                    let AttributeValue::RangeListRef(convert_range_id) = convert_attr else {
+                        panic!("unexpected {:?}", convert_attr);
+                    };
+                    let convert_range = convert_unit.ranges.get(*convert_range_id);
+                    assert_eq!(*convert_range, range);
+
+                    let convert_attr = get_convert_attr(constants::DW_AT_name);
+                    let AttributeValue::StringRef(convert_string_id) = convert_attr else {
+                        panic!("unexpected {:?}", convert_attr);
+                    };
+                    let convert_string = convert_dwarf.strings.get(*convert_string_id);
+                    assert_eq!(convert_string, string_data.as_bytes());
+
+                    let convert_attr = get_convert_attr(constants::DW_AT_name);
+                    let AttributeValue::LineStringRef(convert_line_string_id) = convert_attr else {
+                        panic!("unexpected {:?}", convert_attr);
+                    };
+                    let convert_line_string =
+                        convert_dwarf.line_strings.get(*convert_line_string_id);
+                    assert_eq!(convert_line_string, line_string_data.as_bytes());
                 }
             }
         }
@@ -2575,8 +2554,8 @@ mod tests {
 
     #[test]
     fn test_unit_ref() {
-        let mut units = UnitTable::default();
-        let unit_id1 = units.add(Unit::new(
+        let mut dwarf = Dwarf::new();
+        let unit_id1 = dwarf.units.add(Unit::new(
             Encoding {
                 version: 4,
                 address_size: 8,
@@ -2584,8 +2563,8 @@ mod tests {
             },
             LineProgram::none(),
         ));
-        assert_eq!(unit_id1, units.id(0));
-        let unit_id2 = units.add(Unit::new(
+        assert_eq!(unit_id1, dwarf.units.id(0));
+        let unit_id2 = dwarf.units.add(Unit::new(
             Encoding {
                 version: 2,
                 address_size: 4,
@@ -2593,13 +2572,13 @@ mod tests {
             },
             LineProgram::none(),
         ));
-        assert_eq!(unit_id2, units.id(1));
-        let unit1_child1 = UnitEntryId::new(units.get(unit_id1).base_id, 1);
-        let unit1_child2 = UnitEntryId::new(units.get(unit_id1).base_id, 2);
-        let unit2_child1 = UnitEntryId::new(units.get(unit_id2).base_id, 1);
-        let unit2_child2 = UnitEntryId::new(units.get(unit_id2).base_id, 2);
+        assert_eq!(unit_id2, dwarf.units.id(1));
+        let unit1_child1 = UnitEntryId::new(dwarf.units.get(unit_id1).base_id, 1);
+        let unit1_child2 = UnitEntryId::new(dwarf.units.get(unit_id1).base_id, 2);
+        let unit2_child1 = UnitEntryId::new(dwarf.units.get(unit_id2).base_id, 1);
+        let unit2_child2 = UnitEntryId::new(dwarf.units.get(unit_id2).base_id, 2);
         {
-            let unit1 = units.get_mut(unit_id1);
+            let unit1 = dwarf.units.get_mut(unit_id1);
             let root = unit1.root();
             let child_id1 = unit1.add(root, constants::DW_TAG_subprogram);
             assert_eq!(child_id1, unit1_child1);
@@ -2618,7 +2597,7 @@ mod tests {
             }
         }
         {
-            let unit2 = units.get_mut(unit_id2);
+            let unit2 = dwarf.units.get_mut(unit_id2);
             let root = unit2.root();
             let child_id1 = unit2.add(root, constants::DW_TAG_subprogram);
             assert_eq!(child_id1, unit2_child1);
@@ -2637,101 +2616,67 @@ mod tests {
             }
         }
 
-        let debug_line_str_offsets = DebugLineStrOffsets::none();
-        let debug_str_offsets = DebugStrOffsets::none();
         let mut sections = Sections::new(EndianVec::new(LittleEndian));
-        let debug_info_offsets = units
-            .write(&mut sections, &debug_line_str_offsets, &debug_str_offsets)
-            .unwrap();
+        dwarf.write(&mut sections).unwrap();
 
         println!("{:?}", sections.debug_info);
         println!("{:?}", sections.debug_abbrev);
 
-        let dwarf = read::Dwarf {
-            debug_abbrev: read::DebugAbbrev::new(sections.debug_abbrev.slice(), LittleEndian),
-            debug_info: read::DebugInfo::new(sections.debug_info.slice(), LittleEndian),
-            ..Default::default()
-        };
+        let read_dwarf = sections.read(LittleEndian);
+        let mut read_units = read_dwarf.units();
 
-        let mut read_units = dwarf.units();
-        {
-            let read_unit1 = read_units.next().unwrap().unwrap();
-            assert_eq!(
-                read_unit1.offset(),
-                debug_info_offsets.unit(unit_id1).into()
-            );
+        let read_unit = read_units.next().unwrap().unwrap();
+        let abbrevs = read_dwarf.abbreviations(&read_unit).unwrap();
+        let mut read_entries = read_unit.entries(&abbrevs);
+        let (_, _root) = read_entries.next_dfs().unwrap().unwrap();
+        let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
+        let read_unit1_child1_attr = entry.attr_value(constants::DW_AT_type).unwrap();
+        let read_unit1_child1_section_offset =
+            entry.offset().to_debug_info_offset(&read_unit).unwrap();
+        let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
+        let read_unit1_child2_attr = entry.attr_value(constants::DW_AT_type).unwrap();
+        let read_unit1_child2_offset = entry.offset();
 
-            let abbrevs = dwarf.abbreviations(&read_unit1).unwrap();
-            let mut read_entries = read_unit1.entries(&abbrevs);
-            {
-                let (_, _read_root) = read_entries.next_dfs().unwrap().unwrap();
-            }
-            {
-                let (_, read_child1) = read_entries.next_dfs().unwrap().unwrap();
-                let offset = debug_info_offsets
-                    .entry(unit_id1, unit1_child2)
-                    .to_unit_offset(&read_unit1)
-                    .unwrap();
-                assert_eq!(
-                    read_child1.attr_value(constants::DW_AT_type).unwrap(),
-                    Some(read::AttributeValue::UnitRef(offset))
-                );
-            }
-            {
-                let (_, read_child2) = read_entries.next_dfs().unwrap().unwrap();
-                let offset = debug_info_offsets.entry(unit_id2, unit2_child1);
-                assert_eq!(
-                    read_child2.attr_value(constants::DW_AT_type).unwrap(),
-                    Some(read::AttributeValue::DebugInfoRef(offset))
-                );
-            }
-        }
-        {
-            let read_unit2 = read_units.next().unwrap().unwrap();
-            assert_eq!(
-                read_unit2.offset(),
-                debug_info_offsets.unit(unit_id2).into()
-            );
+        let read_unit = read_units.next().unwrap().unwrap();
+        let abbrevs = read_dwarf.abbreviations(&read_unit).unwrap();
+        let mut read_entries = read_unit.entries(&abbrevs);
+        let (_, _root) = read_entries.next_dfs().unwrap().unwrap();
+        let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
+        let read_unit2_child1_attr = entry.attr_value(constants::DW_AT_type).unwrap();
+        let read_unit2_child1_section_offset =
+            entry.offset().to_debug_info_offset(&read_unit).unwrap();
+        let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
+        let read_unit2_child2_attr = entry.attr_value(constants::DW_AT_type).unwrap();
+        let read_unit2_child2_offset = entry.offset();
 
-            let abbrevs = dwarf.abbreviations(&read_unit2).unwrap();
-            let mut read_entries = read_unit2.entries(&abbrevs);
-            {
-                let (_, _read_root) = read_entries.next_dfs().unwrap().unwrap();
-            }
-            {
-                let (_, read_child1) = read_entries.next_dfs().unwrap().unwrap();
-                let offset = debug_info_offsets
-                    .entry(unit_id2, unit2_child2)
-                    .to_unit_offset(&read_unit2)
-                    .unwrap();
-                assert_eq!(
-                    read_child1.attr_value(constants::DW_AT_type).unwrap(),
-                    Some(read::AttributeValue::UnitRef(offset))
-                );
-            }
-            {
-                let (_, read_child2) = read_entries.next_dfs().unwrap().unwrap();
-                let offset = debug_info_offsets.entry(unit_id1, unit1_child1);
-                assert_eq!(
-                    read_child2.attr_value(constants::DW_AT_type).unwrap(),
-                    Some(read::AttributeValue::DebugInfoRef(offset))
-                );
-            }
-        }
+        assert_eq!(
+            read_unit1_child1_attr,
+            Some(read::AttributeValue::UnitRef(read_unit1_child2_offset))
+        );
+        assert_eq!(
+            read_unit1_child2_attr,
+            Some(read::AttributeValue::DebugInfoRef(
+                read_unit2_child1_section_offset
+            ))
+        );
+        assert_eq!(
+            read_unit2_child1_attr,
+            Some(read::AttributeValue::UnitRef(read_unit2_child2_offset))
+        );
+        assert_eq!(
+            read_unit2_child2_attr,
+            Some(read::AttributeValue::DebugInfoRef(
+                read_unit1_child1_section_offset
+            ))
+        );
 
-        let mut convert_line_strings = LineStringTable::default();
-        let mut convert_strings = StringTable::default();
-        let convert_units = UnitTable::from(
-            &dwarf,
-            &mut convert_line_strings,
-            &mut convert_strings,
-            &|address| Some(Address::Constant(address)),
-        )
-        .unwrap();
-        assert_eq!(convert_units.count(), units.count());
+        let convert_dwarf =
+            Dwarf::from(&read_dwarf, &|address| Some(Address::Constant(address))).unwrap();
+        let convert_units = &convert_dwarf.units;
+        assert_eq!(convert_units.count(), dwarf.units.count());
 
         for i in 0..convert_units.count() {
-            let unit = units.get(units.id(i));
+            let unit = dwarf.units.get(dwarf.units.id(i));
             let convert_unit = convert_units.get(convert_units.id(i));
             assert_eq!(convert_unit.version(), unit.version());
             assert_eq!(convert_unit.address_size(), unit.address_size());
@@ -2802,8 +2747,7 @@ mod tests {
             id
         }
 
-        fn add_children(units: &mut UnitTable, unit_id: UnitId) {
-            let unit = units.get_mut(unit_id);
+        fn add_children(unit: &mut Unit) {
             let root = unit.root();
             let child1 = add_child(unit, root, constants::DW_TAG_subprogram, "child1");
             add_child(unit, child1, constants::DW_TAG_variable, "grandchild1");
@@ -2828,11 +2772,11 @@ mod tests {
         }
 
         fn check_sibling<R: read::Reader<Offset = usize>>(
-            unit: &read::UnitHeader<R>,
-            debug_abbrev: &read::DebugAbbrev<R>,
+            unit: read::UnitHeader<R>,
+            dwarf: &read::Dwarf<R>,
         ) {
-            let abbrevs = unit.abbreviations(debug_abbrev).unwrap();
-            let mut entries = unit.entries(&abbrevs);
+            let unit = dwarf.unit(unit).unwrap();
+            let mut entries = unit.entries();
             // root
             entries.next_dfs().unwrap().unwrap();
             // child1
@@ -2852,31 +2796,29 @@ mod tests {
             version: 4,
             address_size: 8,
         };
-        let mut units = UnitTable::default();
-        let unit_id1 = units.add(Unit::new(encoding, LineProgram::none()));
-        add_children(&mut units, unit_id1);
-        let unit_id2 = units.add(Unit::new(encoding, LineProgram::none()));
-        add_children(&mut units, unit_id2);
+        let mut dwarf = Dwarf::new();
+        let unit_id1 = dwarf.units.add(Unit::new(encoding, LineProgram::none()));
+        add_children(dwarf.units.get_mut(unit_id1));
+        let unit_id2 = dwarf.units.add(Unit::new(encoding, LineProgram::none()));
+        add_children(dwarf.units.get_mut(unit_id2));
 
-        let debug_line_str_offsets = DebugLineStrOffsets::none();
-        let debug_str_offsets = DebugStrOffsets::none();
         let mut sections = Sections::new(EndianVec::new(LittleEndian));
-        units
-            .write(&mut sections, &debug_line_str_offsets, &debug_str_offsets)
-            .unwrap();
+        dwarf.write(&mut sections).unwrap();
 
         println!("{:?}", sections.debug_info);
         println!("{:?}", sections.debug_abbrev);
 
-        let read_debug_info = read::DebugInfo::new(sections.debug_info.slice(), LittleEndian);
-        let read_debug_abbrev = read::DebugAbbrev::new(sections.debug_abbrev.slice(), LittleEndian);
-        let mut read_units = read_debug_info.units();
-        check_sibling(&read_units.next().unwrap().unwrap(), &read_debug_abbrev);
-        check_sibling(&read_units.next().unwrap().unwrap(), &read_debug_abbrev);
+        let read_dwarf = sections.read(LittleEndian);
+        let mut read_units = read_dwarf.units();
+        check_sibling(read_units.next().unwrap().unwrap(), &read_dwarf);
+        check_sibling(read_units.next().unwrap().unwrap(), &read_dwarf);
     }
 
     #[test]
     fn test_line_ref() {
+        let file_string1 = LineString::String(b"file1".to_vec());
+        let file_string2 = LineString::String(b"file2".to_vec());
+
         for &version in &[2, 3, 4, 5] {
             for &address_size in &[4, 8] {
                 for &format in &[Format::Dwarf32, Format::Dwarf64] {
@@ -2895,151 +2837,90 @@ mod tests {
                         None,
                     );
                     let dir = line_program.default_directory();
-                    let file1 =
-                        line_program.add_file(LineString::String(b"file1".to_vec()), dir, None);
-                    let file2 =
-                        line_program.add_file(LineString::String(b"file2".to_vec()), dir, None);
+                    let file1 = line_program.add_file(file_string1.clone(), dir, None);
+                    let file2 = line_program.add_file(file_string2.clone(), dir, None);
 
-                    // Write, read, and convert the line program, so that we have the info
-                    // required to convert the attributes.
-                    let line_strings = DebugLineStrOffsets::none();
-                    let strings = DebugStrOffsets::none();
-                    let mut debug_line = DebugLine::from(EndianVec::new(LittleEndian));
-                    let line_program_offset = line_program
-                        .write(&mut debug_line, encoding, &line_strings, &strings)
-                        .unwrap();
-                    let read_debug_line = read::DebugLine::new(debug_line.slice(), LittleEndian);
-                    let read_line_program = read_debug_line
-                        .program(
-                            line_program_offset,
-                            address_size,
-                            Some(read::EndianSlice::new(b"comp_dir", LittleEndian)),
-                            Some(read::EndianSlice::new(b"comp_name", LittleEndian)),
-                        )
-                        .unwrap();
-                    let dwarf = read::Dwarf::default();
-                    let mut convert_line_strings = LineStringTable::default();
-                    let mut convert_strings = StringTable::default();
-                    let (_, line_program_files) = LineProgram::from(
-                        read_line_program,
-                        &dwarf,
-                        &mut convert_line_strings,
-                        &mut convert_strings,
-                        &|address| Some(Address::Constant(address)),
-                    )
-                    .unwrap();
+                    let mut unit = Unit::new(encoding, line_program);
+                    let root = unit.get_mut(unit.root());
+                    root.set(
+                        constants::DW_AT_name,
+                        AttributeValue::String(b"comp_name".to_vec()),
+                    );
+                    root.set(
+                        constants::DW_AT_comp_dir,
+                        AttributeValue::String(b"comp_dir".to_vec()),
+                    );
+                    root.set(constants::DW_AT_stmt_list, AttributeValue::LineProgramRef);
 
-                    // Fake the unit.
-                    let mut units = UnitTable::default();
-                    let unit = units.add(Unit::new(encoding, LineProgram::none()));
-                    let unit = units.get(unit);
-                    let from_unit = read::UnitHeader::new(
-                        encoding,
-                        0,
-                        read::UnitType::Compilation,
-                        DebugAbbrevOffset(0),
-                        DebugInfoOffset(0).into(),
-                        read::EndianSlice::new(&[], LittleEndian),
+                    let child = unit.add(unit.root(), constants::DW_TAG_subprogram);
+                    unit.get_mut(child).set(
+                        constants::DW_AT_decl_file,
+                        AttributeValue::FileIndex(Some(file1)),
                     );
 
-                    for (name, value, expect_value) in &[
-                        (
-                            constants::DW_AT_stmt_list,
-                            AttributeValue::LineProgramRef,
-                            read::AttributeValue::SecOffset(line_program_offset.0),
-                        ),
-                        (
-                            constants::DW_AT_decl_file,
-                            AttributeValue::FileIndex(Some(file1)),
-                            read::AttributeValue::Udata(file1.raw()),
-                        ),
-                        (
-                            constants::DW_AT_decl_file,
-                            AttributeValue::FileIndex(Some(file2)),
-                            read::AttributeValue::Udata(file2.raw()),
-                        ),
-                    ][..]
-                    {
-                        let mut ranges = RangeListTable::default();
-                        let mut locations = LocationListTable::default();
-                        let mut strings = StringTable::default();
-                        let mut line_strings = LineStringTable::default();
+                    let child = unit.add(unit.root(), constants::DW_TAG_subprogram);
+                    unit.get_mut(child).set(
+                        constants::DW_AT_call_file,
+                        AttributeValue::FileIndex(Some(file2)),
+                    );
 
-                        let form = value.form(encoding).unwrap();
-                        let attr = Attribute {
-                            name: *name,
-                            value: value.clone(),
+                    let mut dwarf = Dwarf::new();
+                    dwarf.units.add(unit);
+
+                    let mut sections = Sections::new(EndianVec::new(LittleEndian));
+                    dwarf.write(&mut sections).unwrap();
+
+                    let read_dwarf = sections.read(LittleEndian);
+                    let mut read_units = read_dwarf.units();
+                    let read_unit = read_units.next().unwrap().unwrap();
+                    let read_unit = read_dwarf.unit(read_unit).unwrap();
+                    let read_unit = read_unit.unit_ref(&read_dwarf);
+                    let read_line_program = read_unit.line_program.as_ref().unwrap().header();
+                    let mut read_entries = read_unit.entries();
+                    let (_, _root) = read_entries.next_dfs().unwrap().unwrap();
+
+                    let mut get_path = |name| {
+                        let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
+                        let read_attr = entry.attr(name).unwrap().unwrap();
+                        let read::AttributeValue::FileIndex(read_file_index) = read_attr.value()
+                        else {
+                            panic!("unexpected {:?}", read_attr);
                         };
+                        let read_file = read_line_program.file(read_file_index).unwrap();
+                        read_unit
+                            .attr_string(read_file.path_name())
+                            .unwrap()
+                            .slice()
+                    };
 
-                        let mut debug_info_refs = Vec::new();
-                        let mut unit_refs = Vec::new();
-                        let mut debug_info = DebugInfo::from(EndianVec::new(LittleEndian));
-                        let offsets = UnitOffsets::none();
-                        let debug_line_str_offsets = DebugLineStrOffsets::none();
-                        let debug_str_offsets = DebugStrOffsets::none();
-                        let range_list_offsets = RangeListOffsets::none();
-                        let loc_list_offsets = LocationListOffsets::none();
-                        attr.value
-                            .write(
-                                &mut debug_info,
-                                &mut debug_info_refs,
-                                &mut unit_refs,
-                                unit,
-                                &offsets,
-                                Some(line_program_offset),
-                                &debug_line_str_offsets,
-                                &debug_str_offsets,
-                                &range_list_offsets,
-                                &loc_list_offsets,
-                            )
+                    let read_path = get_path(constants::DW_AT_decl_file);
+                    assert_eq!(read_path, b"file1");
+
+                    let read_path = get_path(constants::DW_AT_call_file);
+                    assert_eq!(read_path, b"file2");
+
+                    let convert_dwarf =
+                        Dwarf::from(&read_dwarf, &|address| Some(Address::Constant(address)))
                             .unwrap();
+                    let convert_unit = convert_dwarf.units.get(convert_dwarf.units.id(0));
+                    let convert_root = convert_unit.get(convert_unit.root());
+                    let mut convert_entries = convert_root.children();
 
-                        let spec = read::AttributeSpecification::new(*name, form, None);
-                        let mut r = read::EndianSlice::new(debug_info.slice(), LittleEndian);
-                        let read_attr = read::parse_attribute(&mut r, encoding, spec).unwrap();
-                        let read_value = &read_attr.raw_value();
-                        // read::AttributeValue is invariant in the lifetime of R.
-                        // The lifetimes here are all okay, so transmute it.
-                        let read_value = unsafe {
-                            mem::transmute::<
-                                &read::AttributeValue<read::EndianSlice<'_, LittleEndian>>,
-                                &read::AttributeValue<read::EndianSlice<'_, LittleEndian>>,
-                            >(read_value)
+                    let mut get_convert_path = |name| {
+                        let convert_entry = convert_unit.get(*convert_entries.next().unwrap());
+                        let convert_attr = convert_entry.get(name).unwrap();
+                        let AttributeValue::FileIndex(Some(convert_file_index)) = convert_attr
+                        else {
+                            panic!("unexpected {:?}", convert_attr);
                         };
-                        assert_eq!(read_value, expect_value);
+                        convert_unit.line_program.get_file(*convert_file_index).0
+                    };
 
-                        let unit = read::Unit {
-                            header: from_unit,
-                            abbreviations: Arc::new(read::Abbreviations::default()),
-                            name: None,
-                            comp_dir: None,
-                            low_pc: 0,
-                            str_offsets_base: DebugStrOffsetsBase(0),
-                            addr_base: DebugAddrBase(0),
-                            loclists_base: DebugLocListsBase(0),
-                            rnglists_base: DebugRngListsBase(0),
-                            line_program: None,
-                            dwo_id: None,
-                        };
+                    let convert_path = get_convert_path(constants::DW_AT_decl_file);
+                    assert_eq!(convert_path, &file_string1);
 
-                        let mut context = convert::ConvertUnitContext {
-                            dwarf: &dwarf,
-                            unit: &unit,
-                            line_strings: &mut line_strings,
-                            strings: &mut strings,
-                            ranges: &mut ranges,
-                            locations: &mut locations,
-                            convert_address: &|address| Some(Address::Constant(address)),
-                            base_address: Address::Constant(0),
-                            line_program_offset: Some(line_program_offset),
-                            line_program_files: line_program_files.clone(),
-                            entry_ids: &HashMap::new(),
-                        };
-
-                        let convert_attr =
-                            Attribute::from(&mut context, &read_attr).unwrap().unwrap();
-                        assert_eq!(convert_attr, attr);
-                    }
+                    let convert_path = get_convert_path(constants::DW_AT_call_file);
+                    assert_eq!(convert_path, &file_string2);
                 }
             }
         }
@@ -3070,15 +2951,11 @@ mod tests {
                 AttributeValue::FileIndex(file_id),
             );
 
-            let mut units = UnitTable::default();
-            units.add(unit);
+            let mut dwarf = Dwarf::new();
+            dwarf.units.add(unit);
 
-            let debug_line_str_offsets = DebugLineStrOffsets::none();
-            let debug_str_offsets = DebugStrOffsets::none();
             let mut sections = Sections::new(EndianVec::new(LittleEndian));
-            units
-                .write(&mut sections, &debug_line_str_offsets, &debug_str_offsets)
-                .unwrap();
+            dwarf.write(&mut sections).unwrap();
             assert_eq!(!used, sections.debug_line.slice().is_empty());
         }
     }
@@ -3091,11 +2968,11 @@ mod tests {
         }
         fn check_name<R: read::Reader>(
             entry: &read::DebuggingInformationEntry<'_, '_, R>,
-            debug_str: &read::DebugStr<R>,
+            unit: read::UnitRef<'_, R>,
             name: &str,
         ) {
             let name_attr = entry.attr(constants::DW_AT_name).unwrap().unwrap();
-            let entry_name = name_attr.string_value(debug_str).unwrap();
+            let entry_name = unit.attr_string(name_attr.value()).unwrap();
             let entry_name_str = entry_name.to_string().unwrap();
             assert_eq!(entry_name_str, name);
         }
@@ -3129,23 +3006,22 @@ mod tests {
         // Write DWARF data which should only include `child2`, `child3` and `child4`
         dwarf.write(&mut sections).unwrap();
 
-        let read_debug_info = read::DebugInfo::new(sections.debug_info.slice(), LittleEndian);
-        let read_debug_abbrev = read::DebugAbbrev::new(sections.debug_abbrev.slice(), LittleEndian);
-        let read_debug_str = read::DebugStr::new(sections.debug_str.slice(), LittleEndian);
-        let read_unit = read_debug_info.units().next().unwrap().unwrap();
-        let abbrevs = read_unit.abbreviations(&read_debug_abbrev).unwrap();
-        let mut entries = read_unit.entries(&abbrevs);
+        let read_dwarf = sections.read(LittleEndian);
+        let read_unit = read_dwarf.units().next().unwrap().unwrap();
+        let read_unit = read_dwarf.unit(read_unit).unwrap();
+        let read_unit = read_unit.unit_ref(&read_dwarf);
+        let mut entries = read_unit.entries();
         // root
         entries.next_dfs().unwrap().unwrap();
         // child2
         let (_, read_child2) = entries.next_dfs().unwrap().unwrap();
-        check_name(read_child2, &read_debug_str, "child2");
+        check_name(read_child2, read_unit, "child2");
         // child3
         let (_, read_child3) = entries.next_dfs().unwrap().unwrap();
-        check_name(read_child3, &read_debug_str, "child3");
+        check_name(read_child3, read_unit, "child3");
         // child4
         let (_, read_child4) = entries.next_dfs().unwrap().unwrap();
-        check_name(read_child4, &read_debug_str, "child4");
+        check_name(read_child4, read_unit, "child4");
         // There should be no more entries
         assert!(entries.next_dfs().unwrap().is_none());
     }
