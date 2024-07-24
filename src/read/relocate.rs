@@ -3,15 +3,18 @@ use alloc::borrow::Cow;
 use core::fmt::Debug;
 
 use crate::common::Format;
-use crate::read::{Reader, ReaderOffset, ReaderOffsetId, Result};
+use crate::read::{Reader, ReaderAddress, ReaderOffset, ReaderOffsetId, Result};
 
 /// Trait for relocating addresses and offsets while reading a section.
-pub trait Relocate<T: ReaderOffset = usize> {
+pub trait Relocate<Offset: ReaderOffset = usize, FromAddress: ReaderAddress = u64> {
+    /// The type of a relocated address.
+    type ToAddress: ReaderAddress<Length = FromAddress::Length>;
+
     /// Relocate an address which was read from the given section offset.
-    fn relocate_address(&self, offset: T, value: u64) -> Result<u64>;
+    fn relocate_address(&self, offset: Offset, value: FromAddress) -> Result<Self::ToAddress>;
 
     /// Relocate a value which was read from the given section offset.
-    fn relocate_offset(&self, offset: T, value: T) -> Result<T>;
+    fn relocate_offset(&self, offset: Offset, value: Offset) -> Result<Offset>;
 }
 
 /// A `Reader` which applies relocations to addresses and offsets.
@@ -20,7 +23,11 @@ pub trait Relocate<T: ReaderOffset = usize> {
 /// such as those in a relocatable object file.
 /// It is generally not used for reading sections in an executable file.
 #[derive(Debug, Clone)]
-pub struct RelocateReader<R: Reader<Offset = usize>, T: Relocate<R::Offset>> {
+pub struct RelocateReader<R, T>
+where
+    R: Reader,
+    T: Relocate<R::Offset, R::Address>,
+{
     section: R,
     reader: R,
     relocate: T,
@@ -28,8 +35,8 @@ pub struct RelocateReader<R: Reader<Offset = usize>, T: Relocate<R::Offset>> {
 
 impl<R, T> RelocateReader<R, T>
 where
-    R: Reader<Offset = usize>,
-    T: Relocate<R::Offset>,
+    R: Reader,
+    T: Relocate<R::Offset, R::Address>,
 {
     /// Create a new `RelocateReader` which applies relocations to the given section reader.
     pub fn new(section: R, relocate: T) -> Self {
@@ -44,13 +51,14 @@ where
 
 impl<R, T> Reader for RelocateReader<R, T>
 where
-    R: Reader<Offset = usize>,
-    T: Relocate<R::Offset> + Debug + Clone,
+    R: Reader,
+    T: Relocate<R::Offset, R::Address> + Debug + Clone,
 {
     type Endian = R::Endian;
     type Offset = R::Offset;
+    type Address = T::ToAddress;
 
-    fn read_address(&mut self, address_size: u8) -> Result<u64> {
+    fn read_address(&mut self, address_size: u8) -> Result<Self::Address> {
         let offset = self.reader.offset_from(&self.section);
         let value = self.reader.read_address(address_size)?;
         self.relocate.relocate_address(offset, value)

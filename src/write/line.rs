@@ -1004,7 +1004,7 @@ mod convert {
         /// Create a line number program by reading the data from the given program.
         ///
         /// Return the program and a mapping from file index to `FileId`.
-        pub fn from<R: Reader<Offset = usize>>(
+        pub fn from<R: Reader<Offset = usize, Address = u64>>(
             mut from_program: read::IncompleteLineProgram<R>,
             dwarf: &read::Dwarf<R>,
             line_strings: &mut write::LineStringTable,
@@ -1179,7 +1179,7 @@ mod convert {
     }
 
     impl LineString {
-        fn from<R: Reader<Offset = usize>>(
+        fn from<R: Reader<Offset = usize, Address = u64>>(
             from_attr: read::AttributeValue<R>,
             dwarf: &read::Dwarf<R>,
             line_strings: &mut write::LineStringTable,

@@ -1,4 +1,4 @@
-use crate::common::{Encoding, Format};
+use crate::common::Encoding;
 use crate::read::{Error, Reader, Result};
 
 #[derive(Debug, Clone, Copy)]
@@ -8,26 +8,13 @@ pub(crate) struct ListsHeader {
     offset_entry_count: u32,
 }
 
-impl Default for ListsHeader {
-    fn default() -> Self {
-        ListsHeader {
-            encoding: Encoding {
-                format: Format::Dwarf32,
-                version: 5,
-                address_size: 0,
-            },
-            offset_entry_count: 0,
-        }
-    }
-}
-
 impl ListsHeader {
     /// Return the serialized size of the table header.
     #[allow(dead_code)]
     #[inline]
     fn size(self) -> u8 {
         // initial_length + version + address_size + segment_selector_size + offset_entry_count
-        ListsHeader::size_for_encoding(self.encoding)
+        Self::size_for_encoding(self.encoding)
     }
 
     /// Return the serialized size of the table header.

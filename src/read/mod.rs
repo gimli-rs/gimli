@@ -387,6 +387,8 @@ pub enum Error {
     UnknownCallFrameInstruction(constants::DwCfa),
     /// The end of an address range was before the beginning.
     InvalidAddressRange,
+    /// An address range offset was an address instead of an offset.
+    InvalidAddressRangeOffset,
     /// An address calculation overflowed.
     ///
     /// This is returned in cases where the address is expected to be
@@ -402,6 +404,8 @@ pub enum Error {
     NoUnwindInfoForAddress,
     /// An offset value was larger than the maximum supported value.
     UnsupportedOffset,
+    /// An address offset could not be determined.
+    UnsupportedAddressOffset,
     /// The given pointer encoding is either unknown or invalid.
     UnknownPointerEncoding(constants::DwEhPe),
     /// Did not find an entry at the given offset.
@@ -549,6 +553,9 @@ impl Error {
             Error::InvalidAddressRange => {
                 "The end of an address range must not be before the beginning."
             }
+            Error::InvalidAddressRangeOffset => {
+                "An address range offset was an address instead of an offset."
+            }
             Error::AddressOverflow => "An address calculation overflowed.",
             Error::CfiInstructionInInvalidContext => {
                 "Encountered a call frame instruction in a context in which it is not valid."
@@ -561,6 +568,7 @@ impl Error {
             Error::UnsupportedOffset => {
                 "An offset value was larger than the maximum supported value."
             }
+            Error::UnsupportedAddressOffset => "An address offset could not be determined.",
             Error::UnknownPointerEncoding(_) => {
                 "The given pointer encoding is either unknown or invalid."
             }

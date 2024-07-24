@@ -612,7 +612,7 @@ pub(crate) mod convert {
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<FrameTable>
         where
-            R: Reader<Offset = usize>,
+            R: Reader<Offset = usize, Address = u64>,
             Section: read::UnwindSection<R>,
             Section::Offset: read::UnwindOffset<usize>,
         {
@@ -658,7 +658,7 @@ pub(crate) mod convert {
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<CommonInformationEntry>
         where
-            R: Reader<Offset = usize>,
+            R: Reader<Offset = usize, Address = u64>,
             Section: read::UnwindSection<R>,
             Section::Offset: read::UnwindOffset<usize>,
         {
@@ -710,7 +710,7 @@ pub(crate) mod convert {
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<FrameDescriptionEntry>
         where
-            R: Reader<Offset = usize>,
+            R: Reader<Offset = usize, Address = u64>,
             Section: read::UnwindSection<R>,
             Section::Offset: read::UnwindOffset<usize>,
         {
@@ -757,7 +757,7 @@ pub(crate) mod convert {
             offset: &mut u32,
         ) -> ConvertResult<Option<CallFrameInstruction>>
         where
-            R: Reader<Offset = usize>,
+            R: Reader<Offset = usize, Address = u64>,
             Section: read::UnwindSection<R>,
         {
             let convert_expression =

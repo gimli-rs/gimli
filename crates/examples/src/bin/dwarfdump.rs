@@ -3,7 +3,7 @@
 
 use fallible_iterator::FallibleIterator;
 use gimli::{Section, UnitHeader, UnitOffset, UnitSectionOffset, UnitType, UnwindSection};
-use object::{Object, ObjectSection};
+use object::{Object, ObjectSection, ObjectSymbol};
 use regex::bytes::Regex;
 use std::borrow::Cow;
 use std::cmp;
@@ -24,6 +24,7 @@ enum Error {
     Gimli(gimli::Error),
     Object(object::read::Error),
     Io,
+    Local(&'static str),
 }
 
 impl fmt::Display for Error {
@@ -33,7 +34,7 @@ impl fmt::Display for Error {
     }
 }
 
-fn writeln_error<W: Write, R: Reader>(
+fn writeln_error<'a, W: Write, R: Reader<'a>>(
     w: &mut W,
     dwarf: &gimli::Dwarf<R>,
     err: Error,
@@ -47,6 +48,7 @@ fn writeln_error<W: Write, R: Reader>(
             Error::Gimli(err) => dwarf.format_error(err),
             Error::Object(err) => format!("{}:{:?}", "An object error occurred while reading", err),
             Error::Io => "An I/O error occurred while writing.".to_string(),
+            Error::Local(err) => err.to_string(),
         }
     )
 }
@@ -147,12 +149,12 @@ where
 }
 
 #[derive(Debug, Default)]
-struct RelocationMap(object::read::RelocationMap);
+struct RelocationMap(HashMap<u64, RelocationMapEntry>);
 
 impl RelocationMap {
-    fn add(&mut self, file: &object::File, section: &object::Section) {
+    fn add_all(&mut self, file: &object::File, section: &object::Section) {
         for (offset, relocation) in section.relocations() {
-            if let Err(e) = self.0.add(file, offset, relocation) {
+            if let Err(e) = self.add(file, offset, relocation) {
                 eprintln!(
                     "Relocation error for section {} at offset 0x{:08x}: {}",
                     section.name().unwrap(),
@@ -162,23 +164,185 @@ impl RelocationMap {
             }
         }
     }
+
+    fn add(
+        &mut self,
+        file: &object::File,
+        offset: u64,
+        relocation: object::Relocation,
+    ) -> Result<()> {
+        let mut entry = RelocationMapEntry {
+            name: None,
+            implicit_addend: relocation.has_implicit_addend(),
+            addend: relocation.addend() as u64,
+        };
+        match relocation.kind() {
+            object::RelocationKind::Absolute => match relocation.target() {
+                object::RelocationTarget::Symbol(symbol_idx) => {
+                    let symbol = file.symbol_by_index(symbol_idx)?;
+                    entry.name = if symbol.kind() == object::SymbolKind::Section {
+                        let section_index = symbol.section().index().unwrap();
+                        let section = file.section_by_index(section_index)?;
+                        Some(section.name()?.into())
+                    } else {
+                        Some(symbol.name()?.into())
+                    };
+                    entry.addend = symbol.address().wrapping_add(entry.addend);
+                }
+                object::RelocationTarget::Section(section_idx) => {
+                    let section = file.section_by_index(section_idx)?;
+                    // DWARF parsers expect references to DWARF sections to be section offsets,
+                    // not addresses. Addresses are useful for everything else.
+                    if section.kind() != object::SectionKind::Debug {
+                        entry.addend = section.address().wrapping_add(entry.addend);
+                    }
+                }
+                _ => {
+                    return Err(Error::Local("Unsupported relocation target"));
+                }
+            },
+            _ => {
+                return Err(Error::Local("Unsupported relocation type"));
+            }
+        }
+        if self.0.insert(offset, entry).is_some() {
+            return Err(Error::Local("Multiple relocations for offset"));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct RelocationMapEntry {
+    name: Option<String>,
+    implicit_addend: bool,
+    addend: u64,
+}
+
+impl RelocationMapEntry {
+    fn addend(&self, value: u64) -> u64 {
+        if self.implicit_addend {
+            // Use the explicit addend too, because it may have the symbol value.
+            value.wrapping_add(self.addend)
+        } else {
+            self.addend
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Address<'a> {
+    Constant(u64),
+    Symbol { name: &'a str, addend: u64 },
+}
+
+impl Default for Address<'_> {
+    fn default() -> Self {
+        Address::Constant(0)
+    }
+}
+
+impl fmt::LowerHex for Address<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Address::Constant(address) => write!(f, "{:#x}", address),
+            Address::Symbol { name, addend } => write!(f, "{}+{:#x}", name, addend),
+        }
+    }
+}
+
+impl gimli::ReaderAddress for Address<'_> {
+    type Length = u64;
+
+    fn default_size() -> u8 {
+        mem::size_of::<usize>() as u8
+    }
+
+    fn max_size() -> u8 {
+        8
+    }
+
+    fn size(address_bytes: u8) -> gimli::Result<u8> {
+        u64::size(address_bytes)
+    }
+
+    fn address(_address: u64, _size: u8) -> gimli::Result<Self> {
+        unimplemented!()
+    }
+
+    fn length(length: u64, size: u8) -> gimli::Result<Self::Length> {
+        u64::length(length, size)
+    }
+
+    fn add(self, offset: u64, size: u8) -> gimli::Result<Self> {
+        // Be more liberal for the purposes of dwarfdump.
+        Ok(self.wrapping_add(offset, size))
+    }
+
+    fn wrapping_add(self, offset: u64, size: u8) -> Self {
+        let mask = u64::ones(size);
+        match self {
+            Address::Constant(address) => Address::Constant(address.wrapping_add(offset) & mask),
+            Address::Symbol { name, addend } => Address::Symbol {
+                name,
+                addend: addend.wrapping_add(offset) & mask,
+            },
+        }
+    }
+
+    fn offset_from(self, _address: Self) -> gimli::Result<u64> {
+        Err(gimli::Error::UnsupportedAddressOffset)
+    }
+
+    fn constant(self) -> Option<u64> {
+        match self {
+            Address::Constant(address) => Some(address),
+            Address::Symbol { .. } => None,
+        }
+    }
+
+    fn zeroes() -> Self {
+        Address::Constant(0)
+    }
+
+    fn ones(size: u8) -> Self {
+        Address::Constant(u64::ones(size))
+    }
 }
 
 impl<'a> gimli::read::Relocate for &'a RelocationMap {
-    fn relocate_address(&self, offset: usize, value: u64) -> gimli::Result<u64> {
-        Ok(self.0.relocate(offset as u64, value))
+    type ToAddress = Address<'a>;
+
+    fn relocate_address(&self, offset: usize, value: u64) -> gimli::Result<Address<'a>> {
+        let offset = offset as u64;
+        let address = if let Some(relocation) = self.0.get(&offset) {
+            let addend = relocation.addend(value);
+            if let Some(name) = relocation.name.as_ref() {
+                Address::Symbol { name, addend }
+            } else {
+                Address::Constant(addend)
+            }
+        } else {
+            Address::Constant(value)
+        };
+        Ok(address)
     }
 
     fn relocate_offset(&self, offset: usize, value: usize) -> gimli::Result<usize> {
-        <usize as gimli::ReaderOffset>::from_u64(self.0.relocate(offset as u64, value as u64))
+        let offset = offset as u64;
+        if let Some(relocation) = self.0.get(&offset) {
+            <usize as gimli::ReaderOffset>::from_u64(relocation.addend(value as u64))
+        } else {
+            Ok(value)
+        }
     }
 }
 
 type Relocate<'a, R> = gimli::RelocateReader<R, &'a RelocationMap>;
 
-trait Reader: gimli::Reader<Offset = usize> + Send + Sync {}
+trait Reader<'a>: gimli::Reader<Offset = usize, Address = Address<'a>> + Send + Sync {}
 
-impl<'a, R: gimli::Reader<Offset = usize> + Send + Sync> Reader for Relocate<'a, R> {}
+impl<'a, T: gimli::Reader<Offset = usize, Address = Address<'a>> + Send + Sync> Reader<'a> for T {}
 
 #[derive(Default)]
 struct Flags<'a> {
@@ -410,7 +574,7 @@ fn load_file_section<'input, 'arena, Endian: gimli::Endianity>(
         Some(ref section) => {
             // DWO sections never have relocations, so don't bother.
             if !is_dwo {
-                relocations.add(file, section);
+                relocations.add_all(file, section);
             }
             section.uncompressed_data()?
         }
@@ -535,7 +699,7 @@ where
     Ok(())
 }
 
-fn dump_eh_frame<R: Reader, W: Write>(
+fn dump_eh_frame<'a, R: Reader<'a>, W: Write>(
     w: &mut W,
     file: &object::File,
     mut eh_frame: gimli::EhFrame<R>,
@@ -572,16 +736,16 @@ fn dump_eh_frame<R: Reader, W: Write>(
 
     let mut bases = gimli::BaseAddresses::default();
     if let Some(section) = file.section_by_name(".eh_frame_hdr") {
-        bases = bases.set_eh_frame_hdr(section.address());
+        bases = bases.set_eh_frame_hdr(Address::Constant(section.address()));
     }
     if let Some(section) = file.section_by_name(".eh_frame") {
-        bases = bases.set_eh_frame(section.address());
+        bases = bases.set_eh_frame(Address::Constant(section.address()));
     }
     if let Some(section) = file.section_by_name(".text") {
-        bases = bases.set_text(section.address());
+        bases = bases.set_text(Address::Constant(section.address()));
     }
     if let Some(section) = file.section_by_name(".got") {
-        bases = bases.set_got(section.address());
+        bases = bases.set_got(Address::Constant(section.address()));
     }
 
     // TODO: Print "__eh_frame" here on macOS, and more generally use the
@@ -681,7 +845,7 @@ fn dump_eh_frame<R: Reader, W: Write>(
     }
 }
 
-fn dump_pointer<W: Write>(w: &mut W, p: gimli::Pointer) -> Result<()> {
+fn dump_pointer<W: Write>(w: &mut W, p: gimli::Pointer<Address<'_>>) -> Result<()> {
     match p {
         gimli::Pointer::Direct(p) => {
             write!(w, "{:#x}", p)?;
@@ -694,7 +858,7 @@ fn dump_pointer<W: Write>(w: &mut W, p: gimli::Pointer) -> Result<()> {
 }
 
 #[allow(clippy::unneeded_field_pattern)]
-fn dump_cfi_instructions<R: Reader, W: Write>(
+fn dump_cfi_instructions<'a, R: Reader<'a>, W: Write>(
     w: &mut W,
     mut insns: gimli::CallFrameInstructionIter<R>,
     is_initial: bool,
@@ -890,7 +1054,7 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
     }
 }
 
-fn dump_dwp<R: Reader, W: Write + Send>(
+fn dump_dwp<'a, R: Reader<'a>, W: Write + Send>(
     w: &mut W,
     dwp: &gimli::DwarfPackage<R>,
     dwo_parent: &gimli::Dwarf<R>,
@@ -947,7 +1111,7 @@ where
     Ok(())
 }
 
-fn dump_dwp_sections<R: Reader, W: Write + Send>(
+fn dump_dwp_sections<'a, R: Reader<'a>, W: Write + Send>(
     w: &mut W,
     dwp: &gimli::DwarfPackage<R>,
     dwo_parent: &gimli::Dwarf<R>,
@@ -978,7 +1142,7 @@ where
     Ok(())
 }
 
-fn dump_info<R: Reader, W: Write + Send>(
+fn dump_info<'a, R: Reader<'a>, W: Write + Send>(
     w: &mut W,
     dwarf: &gimli::Dwarf<R>,
     dwo_parent_units: Option<&HashMap<gimli::DwoId, gimli::Unit<R>>>,
@@ -1013,7 +1177,7 @@ where
     parallel_output(w, 16, units, process_unit)
 }
 
-fn dump_types<R: Reader, W: Write>(
+fn dump_types<'a, R: Reader<'a>, W: Write>(
     w: &mut W,
     dwarf: &gimli::Dwarf<R>,
     dwo_parent_units: Option<&HashMap<gimli::DwoId, gimli::Unit<R>>>,
@@ -1028,7 +1192,7 @@ fn dump_types<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_unit<R: Reader, W: Write>(
+fn dump_unit<'a, R: Reader<'a>, W: Write>(
     w: &mut W,
     header: UnitHeader<R>,
     dwarf: &gimli::Dwarf<R>,
@@ -1107,7 +1271,7 @@ fn spaces(buf: &mut String, len: usize) -> &str {
 // " GOFF=0x{:08x}" adds exactly 16 spaces.
 const GOFF_SPACES: usize = 16;
 
-fn write_offset<R: Reader, W: Write>(
+fn write_offset<'a, R: Reader<'a>, W: Write>(
     w: &mut W,
     unit: &gimli::Unit<R>,
     offset: gimli::UnitOffset<R::Offset>,
@@ -1125,7 +1289,7 @@ fn write_offset<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_entries<R: Reader, W: Write>(
+fn dump_entries<'a, R: Reader<'a>, W: Write>(
     w: &mut W,
     unit: gimli::UnitRef<R>,
     flags: &Flags,
@@ -1181,7 +1345,7 @@ fn dump_entries<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_attr_value<R: Reader, W: Write>(
+fn dump_attr_value<'a, R: Reader<'a>, W: Write>(
     w: &mut W,
     attr: &gimli::Attribute<R>,
     unit: gimli::UnitRef<R>,
@@ -1423,7 +1587,7 @@ fn dump_type_signature<W: Write>(w: &mut W, signature: gimli::DebugTypeSignature
     Ok(())
 }
 
-fn dump_file_index<R: Reader, W: Write>(
+fn dump_file_index<'a, R: Reader<'a>, W: Write>(
     w: &mut W,
     file_index: u64,
     unit: gimli::UnitRef<R>,
@@ -1461,7 +1625,7 @@ fn dump_file_index<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_exprloc<R: Reader, W: Write>(
+fn dump_exprloc<'a, R: Reader<'a>, W: Write>(
     w: &mut W,
     unit: gimli::UnitRef<R>,
     data: &gimli::Expression<R>,
@@ -1500,7 +1664,7 @@ fn dump_exprloc<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_op<R: Reader, W: Write>(
+fn dump_op<'a, R: Reader<'a>, W: Write>(
     w: &mut W,
     unit: gimli::UnitRef<R>,
     mut pc: R,
@@ -1681,7 +1845,7 @@ fn dump_op<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_range<W: Write>(w: &mut W, range: Option<gimli::Range>) -> Result<()> {
+fn dump_range<W: Write>(w: &mut W, range: Option<gimli::Range<Address>>) -> Result<()> {
     if let Some(range) = range {
         write!(w, " [{:#x}, {:#x}]", range.begin, range.end)?;
     } else {
@@ -1690,7 +1854,7 @@ fn dump_range<W: Write>(w: &mut W, range: Option<gimli::Range>) -> Result<()> {
     Ok(())
 }
 
-fn dump_loc_list<R: Reader, W: Write>(
+fn dump_loc_list<'a, R: Reader<'a>, W: Write>(
     w: &mut W,
     offset: gimli::LocationListsOffset<R::Offset>,
     unit: gimli::UnitRef<R>,
@@ -1756,8 +1920,13 @@ fn dump_loc_list<R: Reader, W: Write>(
                 begin,
                 end,
                 ref data,
+            } => {
+                write!(w, "<address-pair {:#x}, {:#x}>", begin, end)?;
+                dump_range(w, range)?;
+                dump_exprloc(w, unit, data)?;
+                writeln!(w)?;
             }
-            | gimli::RawLocListEntry::OffsetPair {
+            gimli::RawLocListEntry::OffsetPair {
                 begin,
                 end,
                 ref data,
@@ -1797,7 +1966,7 @@ fn dump_loc_list<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_range_list<R: Reader, W: Write>(
+fn dump_range_list<'a, R: Reader<'a>, W: Write>(
     w: &mut W,
     offset: gimli::RangeListsOffset<R::Offset>,
     unit: gimli::UnitRef<R>,
@@ -1847,8 +2016,12 @@ fn dump_range_list<R: Reader, W: Write>(
                 dump_range(w, range)?;
                 writeln!(w)?;
             }
-            gimli::RawRngListEntry::AddressOrOffsetPair { begin, end }
-            | gimli::RawRngListEntry::OffsetPair { begin, end } => {
+            gimli::RawRngListEntry::AddressOrOffsetPair { begin, end } => {
+                write!(w, "<address-pair {:#x}, {:#x}>", begin, end)?;
+                dump_range(w, range)?;
+                writeln!(w)?;
+            }
+            gimli::RawRngListEntry::OffsetPair { begin, end } => {
                 write!(w, "<offset-pair {:#x}, {:#x}>", begin, end)?;
                 dump_range(w, range)?;
                 writeln!(w)?;
@@ -1868,7 +2041,7 @@ fn dump_range_list<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<()> {
+fn dump_line<'a, R: Reader<'a>, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<()> {
     let mut iter = dwarf.units();
     while let Some(header) = iter.next()? {
         writeln!(
@@ -1898,7 +2071,10 @@ fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<
     Ok(())
 }
 
-fn dump_line_program<R: Reader, W: Write>(w: &mut W, unit: gimli::UnitRef<R>) -> Result<()> {
+fn dump_line_program<'a, R: Reader<'a>, W: Write>(
+    w: &mut W,
+    unit: gimli::UnitRef<R>,
+) -> Result<()> {
     if let Some(program) = unit.line_program.clone() {
         {
             let header = program.header();
@@ -2136,7 +2312,7 @@ fn dump_line_program<R: Reader, W: Write>(w: &mut W, unit: gimli::UnitRef<R>) ->
     Ok(())
 }
 
-fn dump_pubnames<R: Reader, W: Write>(
+fn dump_pubnames<'a, R: Reader<'a>, W: Write>(
     w: &mut W,
     debug_pubnames: &gimli::DebugPubNames<R>,
     debug_info: &gimli::DebugInfo<R>,
@@ -2168,7 +2344,7 @@ fn dump_pubnames<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_pubtypes<R: Reader, W: Write>(
+fn dump_pubtypes<'a, R: Reader<'a>, W: Write>(
     w: &mut W,
     debug_pubtypes: &gimli::DebugPubTypes<R>,
     debug_info: &gimli::DebugInfo<R>,
@@ -2200,7 +2376,7 @@ fn dump_pubtypes<R: Reader, W: Write>(
     Ok(())
 }
 
-fn dump_aranges<R: Reader, W: Write>(
+fn dump_aranges<'a, R: Reader<'a>, W: Write>(
     w: &mut W,
     debug_aranges: &gimli::DebugAranges<R>,
 ) -> Result<()> {

@@ -5,32 +5,60 @@ use alloc::borrow::Cow;
 #[cfg(feature = "read")]
 use alloc::string::String;
 use core::fmt;
+use core::marker::PhantomData;
 use core::ops::{Deref, Range, RangeFrom, RangeTo};
 use core::str;
 
 use crate::endianity::Endianity;
-use crate::read::{Error, Reader, ReaderOffsetId, Result};
+use crate::read::{Error, Reader, ReaderAddress, ReaderOffsetId, Result};
 
 /// A `&[u8]` slice with endianity metadata.
 ///
 /// This implements the `Reader` trait, which is used for all reading of DWARF sections.
 #[derive(Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct EndianSlice<'input, Endian>
+pub struct EndianSlice<'input, Endian, Address = u64>
 where
     Endian: Endianity,
 {
     slice: &'input [u8],
     endian: Endian,
+    // While an `EndianSlice` could work with any integer address type,
+    // the `Reader` trait requires a specific address type.
+    address: PhantomData<Address>,
 }
 
-impl<'input, Endian> EndianSlice<'input, Endian>
+impl<'input, Endian> EndianSlice<'input, Endian, u64>
 where
     Endian: Endianity,
 {
     /// Construct a new `EndianSlice` with the given slice and endianity.
+    ///
+    /// This constructor uses the default address type of `u64`.
     #[inline]
-    pub fn new(slice: &'input [u8], endian: Endian) -> EndianSlice<'input, Endian> {
-        EndianSlice { slice, endian }
+    pub fn new(slice: &'input [u8], endian: Endian) -> Self {
+        EndianSlice {
+            slice,
+            endian,
+            address: PhantomData,
+        }
+    }
+}
+
+impl<'input, Endian, Address> EndianSlice<'input, Endian, Address>
+where
+    Endian: Endianity,
+{
+    /// Construct a new `EndianSlice` with the given slice and endianity.
+    ///
+    /// This constructor allows the address type to be customized instead
+    /// of defaulting to `u64`.
+    #[inline]
+    pub fn new_custom(slice: &'input [u8], endian: Endian) -> Self {
+        EndianSlice {
+            slice,
+            endian,
+            address: PhantomData,
+        }
     }
 
     /// Return a reference to the raw slice.
@@ -54,7 +82,10 @@ where
     pub fn split_at(
         &self,
         idx: usize,
-    ) -> (EndianSlice<'input, Endian>, EndianSlice<'input, Endian>) {
+    ) -> (
+        EndianSlice<'input, Endian, Address>,
+        EndianSlice<'input, Endian, Address>,
+    ) {
         (self.range_to(..idx), self.range_from(idx..))
     }
 
@@ -67,7 +98,7 @@ where
     /// Return the offset of the start of the slice relative to the start
     /// of the given slice.
     #[inline]
-    pub fn offset_from(&self, base: EndianSlice<'input, Endian>) -> usize {
+    pub fn offset_from(&self, base: EndianSlice<'input, Endian, Address>) -> usize {
         let base_ptr = base.slice.as_ptr() as usize;
         let ptr = self.slice.as_ptr() as usize;
         debug_assert!(base_ptr <= ptr);
@@ -90,7 +121,13 @@ where
     pub fn to_string_lossy(&self) -> Cow<'input, str> {
         String::from_utf8_lossy(self.slice)
     }
+}
 
+impl<'input, Endian, Address> EndianSlice<'input, Endian, Address>
+where
+    Endian: Endianity,
+    Address: ReaderAddress,
+{
     #[inline]
     fn read_slice(&mut self, len: usize) -> Result<&'input [u8]> {
         if self.slice.len() < len {
@@ -109,7 +146,7 @@ where
 /// implement `Index<Range<usize>>` to return a new `EndianSlice` the way we would
 /// like to. Instead, we abandon fancy indexing operators and have these plain
 /// old methods.
-impl<'input, Endian> EndianSlice<'input, Endian>
+impl<'input, Endian, Address> EndianSlice<'input, Endian, Address>
 where
     Endian: Endianity,
 {
@@ -124,10 +161,11 @@ where
     /// assert_eq!(endian_slice.range(1..3),
     ///            EndianSlice::new(&slice[1..3], LittleEndian));
     /// ```
-    pub fn range(&self, idx: Range<usize>) -> EndianSlice<'input, Endian> {
+    pub fn range(&self, idx: Range<usize>) -> EndianSlice<'input, Endian, Address> {
         EndianSlice {
             slice: &self.slice[idx],
             endian: self.endian,
+            address: PhantomData,
         }
     }
 
@@ -142,10 +180,11 @@ where
     /// assert_eq!(endian_slice.range_from(2..),
     ///            EndianSlice::new(&slice[2..], LittleEndian));
     /// ```
-    pub fn range_from(&self, idx: RangeFrom<usize>) -> EndianSlice<'input, Endian> {
+    pub fn range_from(&self, idx: RangeFrom<usize>) -> EndianSlice<'input, Endian, Address> {
         EndianSlice {
             slice: &self.slice[idx],
             endian: self.endian,
+            address: PhantomData,
         }
     }
 
@@ -160,15 +199,16 @@ where
     /// assert_eq!(endian_slice.range_to(..3),
     ///            EndianSlice::new(&slice[..3], LittleEndian));
     /// ```
-    pub fn range_to(&self, idx: RangeTo<usize>) -> EndianSlice<'input, Endian> {
+    pub fn range_to(&self, idx: RangeTo<usize>) -> EndianSlice<'input, Endian, Address> {
         EndianSlice {
             slice: &self.slice[idx],
             endian: self.endian,
+            address: PhantomData,
         }
     }
 }
 
-impl<'input, Endian> Deref for EndianSlice<'input, Endian>
+impl<'input, Endian, Address> Deref for EndianSlice<'input, Endian, Address>
 where
     Endian: Endianity,
 {
@@ -178,7 +218,7 @@ where
     }
 }
 
-impl<'input, Endian: Endianity> fmt::Debug for EndianSlice<'input, Endian> {
+impl<'input, Endian: Endianity, Address> fmt::Debug for EndianSlice<'input, Endian, Address> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> core::result::Result<(), fmt::Error> {
         fmt.debug_tuple("EndianSlice")
             .field(&self.endian)
@@ -216,12 +256,14 @@ impl fmt::Debug for DebugLen {
     }
 }
 
-impl<'input, Endian> Reader for EndianSlice<'input, Endian>
+impl<'input, Endian, Address> Reader for EndianSlice<'input, Endian, Address>
 where
     Endian: Endianity,
+    Address: ReaderAddress,
 {
     type Endian = Endian;
     type Offset = usize;
+    type Address = Address;
 
     #[inline]
     fn endian(&self) -> Endian {
@@ -294,7 +336,11 @@ where
     #[inline]
     fn split(&mut self, len: usize) -> Result<Self> {
         let slice = self.read_slice(len)?;
-        Ok(EndianSlice::new(slice, self.endian))
+        Ok(EndianSlice {
+            slice,
+            endian: self.endian,
+            address: self.address,
+        })
     }
 
     #[cfg(not(feature = "read"))]
@@ -335,6 +381,15 @@ where
 mod tests {
     use super::*;
     use crate::endianity::NativeEndian;
+
+    /// Ensure that `Unit<R>` is covariant wrt R.
+    #[test]
+    fn test_endian_slice_variance() {
+        /// This only needs to compile.
+        fn _f<'a: 'b, 'b, E: Endianity>(x: EndianSlice<'a, E>) -> EndianSlice<'b, E> {
+            x
+        }
+    }
 
     #[test]
     fn test_endian_slice_split_at() {

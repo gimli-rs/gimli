@@ -3,6 +3,7 @@ use alloc::borrow::Cow;
 use core::convert::TryInto;
 use core::fmt::Debug;
 use core::hash::Hash;
+use core::mem;
 use core::ops::{Add, AddAssign, Sub};
 
 use crate::common::Format;
@@ -18,7 +19,7 @@ use crate::read::{Error, Result};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReaderOffsetId(pub u64);
 
-/// A trait for offsets with a DWARF section.
+/// A trait for offsets within a DWARF section.
 ///
 /// This allows consumers to choose a size that is appropriate for their address space.
 pub trait ReaderOffset:
@@ -189,44 +190,251 @@ impl ReaderOffset for usize {
 
 /// A trait for addresses within a DWARF section.
 ///
-/// Currently this is a simple extension trait for `u64`, but it may be expanded
-/// in the future to support user-defined address types.
-pub(crate) trait ReaderAddress: Sized {
-    /// Add a length to an address of the given size.
+/// This allows consumers to choose a size that is appropriate for their machine,
+/// or to use a type that includes symbol information.
+///
+/// The `u64` implementation allows for addresses up to 64 bits in size,
+/// with the size determined by the DWARF data.
+///
+/// The [`Address32`] and [`Address64`] implementations allow for addresses
+/// of exactly 32 or 64 bits in size, respectively.
+pub trait ReaderAddress: Debug + Default + Copy + Eq + Ord {
+    /// The type used to store the length of an address range.
+    type Length: Debug + Default + Copy + Eq + From<u8> + Into<u64>;
+
+    /// The default address size to use. This will usually be the native address size.
+    fn default_size() -> u8;
+
+    /// The maximum address size supported by this type.
+    fn max_size() -> u8;
+
+    /// Convert a u8 to an address size.
+    ///
+    /// This will return an error if the size is not supported.
+    fn size(bytes: u8) -> Result<u8>;
+
+    /// Convert a u64 to an address.
+    fn address(address: u64, size: u8) -> Result<Self>;
+
+    /// Convert a u64 to a length of an address range.
+    ///
+    /// Returns an error if the length is too large for the address size,
+    /// but allows for the possibility that the length is a negative value.
+    fn length(length: u64, size: u8) -> Result<Self::Length>;
+
+    /// Add a length to an address.
     ///
     /// Returns an error for overflow.
-    fn add_sized(self, length: u64, size: u8) -> Result<Self>;
+    fn add(self, length: Self::Length, size: u8) -> Result<Self>;
 
     /// Add a length to an address of the given size.
     ///
     /// Wraps the result to the size of the address to allow for the possibility
     /// that the length is a negative value.
-    fn wrapping_add_sized(self, length: u64, size: u8) -> Self;
+    fn wrapping_add(self, length: Self::Length, size: u8) -> Self;
+
+    /// Calculate the distance between two addresses.
+    ///
+    /// Returns an error if the distance is negative or cannot be determined.
+    fn offset_from(self, address: Self) -> Result<Self::Length>;
+
+    /// If the address is a constant, return it.
+    fn constant(self) -> Option<Self::Length>;
+
+    /// The all-zeroes value of the address type.
+    fn zeroes() -> Self;
 
     /// The all-ones value of an address of the given size.
-    fn ones_sized(size: u8) -> Self;
+    fn ones(size: u8) -> Self;
 }
 
 impl ReaderAddress for u64 {
-    #[inline]
-    fn add_sized(self, length: u64, size: u8) -> Result<Self> {
-        let address = self.checked_add(length).ok_or(Error::AddressOverflow)?;
-        let mask = Self::ones_sized(size);
+    type Length = u64;
+
+    fn default_size() -> u8 {
+        mem::size_of::<usize>() as u8
+    }
+
+    fn max_size() -> u8 {
+        8
+    }
+
+    fn size(address_bytes: u8) -> Result<u8> {
+        match address_bytes {
+            1 | 2 | 4 | 8 => Ok(address_bytes),
+            _ => Err(Error::UnsupportedAddressSize(address_bytes)),
+        }
+    }
+
+    fn address(address: u64, size: u8) -> Result<Self> {
+        let mask = Self::ones(size);
         if address & !mask != 0 {
             return Err(Error::AddressOverflow);
         }
         Ok(address)
     }
 
-    #[inline]
-    fn wrapping_add_sized(self, length: u64, size: u8) -> Self {
-        let mask = Self::ones_sized(size);
-        self.wrapping_add(length) & mask
+    fn length(length: u64, size: u8) -> Result<Self::Length> {
+        let mask = Self::ones(size);
+        if (length & !mask != 0) && (length & !mask != !mask) {
+            return Err(Error::AddressOverflow);
+        }
+        Ok(length & mask)
     }
 
-    #[inline]
-    fn ones_sized(size: u8) -> Self {
+    fn add(self, offset: Self::Length, size: u8) -> Result<Self> {
+        let address = self.checked_add(offset).ok_or(Error::AddressOverflow)?;
+        Self::address(address, size)
+    }
+
+    fn wrapping_add(self, offset: Self::Length, size: u8) -> Self {
+        let mask = Self::ones(size);
+        self.wrapping_add(offset) & mask
+    }
+
+    fn offset_from(self, address: Self) -> Result<Self::Length> {
+        self.checked_sub(address)
+            .ok_or(Error::UnsupportedAddressOffset)
+    }
+
+    fn constant(self) -> Option<Self::Length> {
+        Some(self)
+    }
+
+    fn zeroes() -> Self {
+        0
+    }
+
+    fn ones(size: u8) -> Self {
         !0 >> (64 - size * 8)
+    }
+}
+
+/// A 32-bit address.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Address32(pub u32);
+
+impl ReaderAddress for Address32 {
+    type Length = u32;
+
+    fn default_size() -> u8 {
+        4
+    }
+
+    fn max_size() -> u8 {
+        4
+    }
+
+    fn size(address_bytes: u8) -> Result<u8> {
+        match address_bytes {
+            4 => Ok(4),
+            _ => Err(Error::UnsupportedAddressSize(address_bytes)),
+        }
+    }
+
+    fn address(address: u64, size: u8) -> Result<Self> {
+        let mask = u64::from(Self::ones(size).0);
+        if address & !mask != 0 {
+            return Err(Error::AddressOverflow);
+        }
+        Ok(Address32(address as u32))
+    }
+
+    fn length(length: u64, size: u8) -> Result<Self::Length> {
+        let mask = u64::from(Self::ones(size).0);
+        if (length & !mask != 0) && (length & !mask != !mask) {
+            return Err(Error::AddressOverflow);
+        }
+        Ok(length as u32)
+    }
+
+    fn add(self, offset: Self::Length, _size: u8) -> Result<Self> {
+        self.0
+            .checked_add(offset)
+            .map(Address32)
+            .ok_or(Error::AddressOverflow)
+    }
+
+    fn wrapping_add(self, offset: Self::Length, _size: u8) -> Self {
+        Address32(self.0.wrapping_add(offset))
+    }
+
+    fn offset_from(self, address: Self) -> Result<Self::Length> {
+        self.0
+            .checked_sub(address.0)
+            .ok_or(Error::UnsupportedAddressOffset)
+    }
+
+    fn constant(self) -> Option<Self::Length> {
+        Some(self.0)
+    }
+
+    fn zeroes() -> Self {
+        Address32(0)
+    }
+
+    fn ones(_size: u8) -> Self {
+        Address32(!0)
+    }
+}
+
+/// A 64-bit address.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Address64(pub u64);
+
+impl ReaderAddress for Address64 {
+    type Length = u64;
+
+    fn default_size() -> u8 {
+        8
+    }
+
+    fn max_size() -> u8 {
+        8
+    }
+
+    fn size(address_bytes: u8) -> Result<u8> {
+        match address_bytes {
+            8 => Ok(8),
+            _ => Err(Error::UnsupportedAddressSize(address_bytes)),
+        }
+    }
+
+    fn address(address: u64, _size: u8) -> Result<Self> {
+        Ok(Address64(address))
+    }
+
+    fn length(length: u64, _size: u8) -> Result<Self::Length> {
+        Ok(length)
+    }
+
+    fn add(self, offset: Self::Length, _size: u8) -> Result<Self> {
+        self.0
+            .checked_add(offset)
+            .map(Address64)
+            .ok_or(Error::AddressOverflow)
+    }
+
+    fn wrapping_add(self, offset: Self::Length, _size: u8) -> Self {
+        Address64(self.0.wrapping_add(offset))
+    }
+
+    fn offset_from(self, address: Self) -> Result<Self::Length> {
+        self.0
+            .checked_sub(address.0)
+            .ok_or(Error::UnsupportedAddressOffset)
+    }
+
+    fn constant(self) -> Option<Self::Length> {
+        Some(self.0)
+    }
+
+    fn zeroes() -> Self {
+        Address64(0)
+    }
+
+    fn ones(_size: u8) -> Self {
+        Address64(!0)
     }
 }
 
@@ -259,8 +467,11 @@ pub trait Reader: Debug + Clone {
     /// The endianity of bytes that are read.
     type Endian: Endianity;
 
-    /// The type used for offsets and lengths.
+    /// The type used for offsets and lengths in the DWARF section data.
     type Offset: ReaderOffset;
+
+    /// The type used for target machine addresses.
+    type Address: ReaderAddress;
 
     /// Return the endianity of bytes that are read.
     fn endian(&self) -> Self::Endian;
@@ -495,24 +706,51 @@ pub trait Reader: Debug + Clone {
         }
     }
 
-    /// Read a byte and validate it as an address size.
-    fn read_address_size(&mut self) -> Result<u8> {
-        let size = self.read_u8()?;
-        match size {
-            1 | 2 | 4 | 8 => Ok(size),
-            _ => Err(Error::UnsupportedAddressSize(size)),
-        }
+    /// Validate an address size.
+    ///
+    /// This uses [`ReaderAddress::size`] to validate the size.
+    fn address_size(size: u8) -> Result<u8> {
+        Self::Address::size(size)
     }
 
-    /// Read an address-sized integer, and return it as a `u64`.
-    fn read_address(&mut self, address_size: u8) -> Result<u64> {
-        match address_size {
-            1 => self.read_u8().map(u64::from),
-            2 => self.read_u16().map(u64::from),
-            4 => self.read_u32().map(u64::from),
+    /// Read a byte and validate it as an address size.
+    ///
+    /// This uses [`Reader::address_size`] to validate the size.
+    fn read_address_size(&mut self) -> Result<u8> {
+        self.read_u8().and_then(Self::address_size)
+    }
+
+    /// Read an address-sized integer.
+    ///
+    /// This uses [`ReaderAddress::address`] to convert the integer into an address.
+    /// Implementations of `Reader` should override this method if a different
+    /// conversion is needed.
+    fn read_address(&mut self, address_size: u8) -> Result<Self::Address> {
+        let address = match address_size {
+            1 => self.read_u8().map(Into::into),
+            2 => self.read_u16().map(Into::into),
+            4 => self.read_u32().map(Into::into),
             8 => self.read_u64(),
             otherwise => Err(Error::UnsupportedAddressSize(otherwise)),
-        }
+        }?;
+        Self::Address::address(address, address_size)
+    }
+
+    /// Read the length of an address range.
+    ///
+    /// This uses [`ReaderAddress::length`] to convert the integer into a length.
+    fn read_address_range(
+        &mut self,
+        address_size: u8,
+    ) -> Result<<Self::Address as ReaderAddress>::Length> {
+        let range = match address_size {
+            1 => self.read_u8().map(Into::into),
+            2 => self.read_u16().map(Into::into),
+            4 => self.read_u32().map(Into::into),
+            8 => self.read_u64(),
+            otherwise => Err(Error::UnsupportedAddressSize(otherwise)),
+        }?;
+        Self::Address::length(range, address_size)
     }
 
     /// Parse a word-sized integer according to the DWARF format.

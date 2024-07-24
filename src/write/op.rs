@@ -844,7 +844,7 @@ pub(crate) mod convert {
 
     impl Expression {
         /// Create an expression from the input expression.
-        pub fn from<R: Reader<Offset = usize>>(
+        pub fn from<R: Reader<Offset = usize, Address = u64>>(
             from_expression: read::Expression<R>,
             encoding: Encoding,
             dwarf: Option<&read::Dwarf<R>>,
@@ -1069,7 +1069,6 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    #[allow(clippy::type_complexity)]
     fn test_operation() {
         for version in [2, 3, 4, 5] {
             for address_size in [4, 8] {

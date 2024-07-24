@@ -314,7 +314,7 @@ mod convert {
 
     impl LocationList {
         /// Create a location list by reading the data from the give location list iter.
-        pub(crate) fn from<R: Reader<Offset = usize>>(
+        pub(crate) fn from<R: Reader<Offset = usize, Address = u64>>(
             mut from: read::RawLocListIter<R>,
             context: &ConvertUnitContext<'_, R>,
         ) -> ConvertResult<Self> {

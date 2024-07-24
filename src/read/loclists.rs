@@ -202,7 +202,7 @@ impl<R: Reader> LocationLists<R> {
         &self,
         offset: LocationListsOffset<R::Offset>,
         unit_encoding: Encoding,
-        base_address: u64,
+        base_address: R::Address,
         debug_addr: &DebugAddr<R>,
         debug_addr_base: DebugAddrBase<R::Offset>,
     ) -> Result<LocListIter<R>> {
@@ -221,7 +221,7 @@ impl<R: Reader> LocationLists<R> {
         &self,
         offset: LocationListsOffset<R::Offset>,
         unit_encoding: Encoding,
-        base_address: u64,
+        base_address: R::Address,
         debug_addr: &DebugAddr<R>,
         debug_addr_base: DebugAddrBase<R::Offset>,
     ) -> Result<LocListIter<R>> {
@@ -338,16 +338,16 @@ pub enum RawLocListEntry<R: Reader> {
     /// A location from DWARF version <= 4.
     AddressOrOffsetPair {
         /// Start of range. May be an address or an offset.
-        begin: u64,
+        begin: R::Address,
         /// End of range. May be an address or an offset.
-        end: u64,
+        end: R::Address,
         /// expression
         data: Expression<R>,
     },
     /// DW_LLE_base_address
     BaseAddress {
         /// base address
-        addr: u64,
+        addr: R::Address,
     },
     /// DW_LLE_base_addressx
     BaseAddressx {
@@ -375,9 +375,9 @@ pub enum RawLocListEntry<R: Reader> {
     /// DW_LLE_offset_pair
     OffsetPair {
         /// start of range
-        begin: u64,
+        begin: <R::Address as ReaderAddress>::Length,
         /// end of range
-        end: u64,
+        end: <R::Address as ReaderAddress>::Length,
         /// expression
         data: Expression<R>,
     },
@@ -389,16 +389,16 @@ pub enum RawLocListEntry<R: Reader> {
     /// DW_LLE_start_end
     StartEnd {
         /// start of range
-        begin: u64,
+        begin: R::Address,
         /// end of range
-        end: u64,
+        end: R::Address,
         /// expression
         data: Expression<R>,
     },
     /// DW_LLE_start_length
     StartLength {
         /// start of range
-        begin: u64,
+        begin: R::Address,
         /// length of range
         length: u64,
         /// expression
@@ -420,12 +420,13 @@ fn parse_data<R: Reader>(input: &mut R, encoding: Encoding) -> Result<Expression
 impl<R: Reader> RawLocListEntry<R> {
     /// Parse a location list entry from `.debug_loclists`
     fn parse(input: &mut R, encoding: Encoding, format: LocListsFormat) -> Result<Option<Self>> {
+        let address_size = encoding.address_size;
         Ok(match format {
             LocListsFormat::Bare => {
-                let range = RawRange::parse(input, encoding.address_size)?;
+                let range = RawRange::parse(input, address_size)?;
                 if range.is_end() {
                     None
-                } else if range.is_base_address(encoding.address_size) {
+                } else if range.is_base_address(address_size) {
                     Some(RawLocListEntry::BaseAddress { addr: range.end })
                 } else {
                     let len = R::Offset::from_u16(input.read_u16()?);
@@ -458,23 +459,23 @@ impl<R: Reader> RawLocListEntry<R> {
                     data: parse_data(input, encoding)?,
                 }),
                 constants::DW_LLE_offset_pair => Some(RawLocListEntry::OffsetPair {
-                    begin: input.read_uleb128()?,
-                    end: input.read_uleb128()?,
+                    begin: R::Address::length(input.read_uleb128()?, address_size)?,
+                    end: R::Address::length(input.read_uleb128()?, address_size)?,
                     data: parse_data(input, encoding)?,
                 }),
                 constants::DW_LLE_default_location => Some(RawLocListEntry::DefaultLocation {
                     data: parse_data(input, encoding)?,
                 }),
                 constants::DW_LLE_base_address => Some(RawLocListEntry::BaseAddress {
-                    addr: input.read_address(encoding.address_size)?,
+                    addr: input.read_address(address_size)?,
                 }),
                 constants::DW_LLE_start_end => Some(RawLocListEntry::StartEnd {
-                    begin: input.read_address(encoding.address_size)?,
-                    end: input.read_address(encoding.address_size)?,
+                    begin: input.read_address(address_size)?,
+                    end: input.read_address(address_size)?,
                     data: parse_data(input, encoding)?,
                 }),
                 constants::DW_LLE_start_length => Some(RawLocListEntry::StartLength {
-                    begin: input.read_address(encoding.address_size)?,
+                    begin: input.read_address(address_size)?,
                     length: input.read_uleb128()?,
                     data: parse_data(input, encoding)?,
                 }),
@@ -535,7 +536,7 @@ impl<R: Reader> fallible_iterator::FallibleIterator for RawLocListIter<R> {
 #[derive(Debug)]
 pub struct LocListIter<R: Reader> {
     raw: RawLocListIter<R>,
-    base_address: u64,
+    base_address: R::Address,
     debug_addr: DebugAddr<R>,
     debug_addr_base: DebugAddrBase<R::Offset>,
 }
@@ -544,7 +545,7 @@ impl<R: Reader> LocListIter<R> {
     /// Construct a `LocListIter`.
     fn new(
         raw: RawLocListIter<R>,
-        base_address: u64,
+        base_address: R::Address,
         debug_addr: DebugAddr<R>,
         debug_addr_base: DebugAddrBase<R::Offset>,
     ) -> LocListIter<R> {
@@ -557,7 +558,7 @@ impl<R: Reader> LocListIter<R> {
     }
 
     #[inline]
-    fn get_address(&self, index: DebugAddrIndex<R::Offset>) -> Result<u64> {
+    fn get_address(&self, index: DebugAddrIndex<R::Offset>) -> Result<R::Address> {
         self.debug_addr
             .get_address(self.raw.encoding.address_size, self.debug_addr_base, index)
     }
@@ -594,9 +595,13 @@ impl<R: Reader> LocListIter<R> {
         raw_loc: RawLocListEntry<R>,
     ) -> Result<Option<LocationListEntry<R>>> {
         let address_size = self.raw.encoding.address_size;
-        let mask = u64::ones_sized(address_size);
+        let mask = R::Address::ones(address_size);
         let tombstone = if self.raw.encoding.version <= 4 {
-            mask - 1
+            // mask - 1
+            mask.wrapping_add(
+                R::Address::length(-1i64 as u64, address_size)?,
+                address_size,
+            )
         } else {
             mask
         };
@@ -621,23 +626,37 @@ impl<R: Reader> LocListIter<R> {
                 data,
             } => {
                 let begin = self.get_address(begin)?;
-                let end = begin.wrapping_add_sized(length, address_size);
+                let length = R::Address::length(length, address_size)?;
+                let end = begin.wrapping_add(length, address_size);
                 (Range { begin, end }, data)
             }
             RawLocListEntry::DefaultLocation { data } => (
                 Range {
-                    begin: 0,
-                    end: u64::MAX,
+                    begin: R::Address::zeroes(),
+                    end: R::Address::ones(address_size),
                 },
                 data,
             ),
-            RawLocListEntry::AddressOrOffsetPair { begin, end, data }
-            | RawLocListEntry::OffsetPair { begin, end, data } => {
+            RawLocListEntry::AddressOrOffsetPair { begin, end, data } => {
                 if self.base_address == tombstone {
                     return Ok(None);
                 }
-                let mut range = Range { begin, end };
-                range.add_base_address(self.base_address, self.raw.encoding.address_size);
+                let range = if self.base_address == R::Address::zeroes() {
+                    // This is an address pair.
+                    Range { begin, end }
+                } else if let (Some(begin), Some(end)) = (begin.constant(), end.constant()) {
+                    // This is an offset pair.
+                    Range { begin, end }.add_base_address(self.base_address, address_size)
+                } else {
+                    return Err(Error::InvalidAddressRangeOffset);
+                };
+                (range, data)
+            }
+            RawLocListEntry::OffsetPair { begin, end, data } => {
+                if self.base_address == tombstone {
+                    return Ok(None);
+                }
+                let range = Range { begin, end }.add_base_address(self.base_address, address_size);
                 (range, data)
             }
             RawLocListEntry::StartEnd { begin, end, data } => (Range { begin, end }, data),
@@ -646,7 +665,8 @@ impl<R: Reader> LocListIter<R> {
                 length,
                 data,
             } => {
-                let end = begin.wrapping_add_sized(length, address_size);
+                let length = R::Address::length(length, address_size)?;
+                let end = begin.wrapping_add(length, address_size);
                 (Range { begin, end }, data)
             }
         };
@@ -673,7 +693,7 @@ impl<R: Reader> fallible_iterator::FallibleIterator for LocListIter<R> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LocationListEntry<R: Reader> {
     /// The address range that this location is valid for.
-    pub range: Range,
+    pub range: Range<R::Address>,
 
     /// The data containing a single location description.
     pub data: Expression<R>,
@@ -881,7 +901,7 @@ mod tests {
             Ok(Some(LocationListEntry {
                 range: Range {
                     begin: 0,
-                    end: u64::MAX,
+                    end: 0xffff_ffff,
                 },
                 data: Expression(EndianSlice::new(&[10, 0, 0, 0], LittleEndian)),
             }))

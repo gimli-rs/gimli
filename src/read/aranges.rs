@@ -248,7 +248,7 @@ impl<R: Reader> ArangeEntryIter<R> {
     /// when iteration is complete and all aranges have already been parsed and
     /// yielded. If an error occurs while parsing the next arange, then this error
     /// is returned as `Err(e)`, and all subsequent calls return `Ok(None)`.
-    pub fn next(&mut self) -> Result<Option<ArangeEntry>> {
+    pub fn next(&mut self) -> Result<Option<ArangeEntry<R::Address>>> {
         if self.input.is_empty() {
             return Ok(None);
         }
@@ -269,7 +269,7 @@ impl<R: Reader> ArangeEntryIter<R> {
 
 #[cfg(feature = "fallible-iterator")]
 impl<R: Reader> fallible_iterator::FallibleIterator for ArangeEntryIter<R> {
-    type Item = ArangeEntry;
+    type Item = ArangeEntry<R::Address>;
     type Error = Error;
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
@@ -279,14 +279,14 @@ impl<R: Reader> fallible_iterator::FallibleIterator for ArangeEntryIter<R> {
 
 /// A single parsed arange.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ArangeEntry {
-    range: Range,
-    length: u64,
+pub struct ArangeEntry<A: ReaderAddress = u64> {
+    range: Range<A>,
+    length: A::Length,
 }
 
-impl ArangeEntry {
+impl<A: ReaderAddress> ArangeEntry<A> {
     /// Parse a single arange. Return `None` for the null arange, `Some` for an actual arange.
-    fn parse<R: Reader>(input: &mut R, encoding: Encoding) -> Result<Option<Self>> {
+    fn parse<R: Reader<Address = A>>(input: &mut R, encoding: Encoding) -> Result<Option<Self>> {
         let address_size = encoding.address_size;
 
         let tuple_length = R::Offset::from_u8(2 * address_size);
@@ -296,35 +296,35 @@ impl ArangeEntry {
         }
 
         let begin = input.read_address(address_size)?;
-        let length = input.read_address(address_size)?;
+        let length = input.read_address_range(address_size)?;
         // Calculate end now so that we can handle overflow.
-        let end = begin.add_sized(length, address_size)?;
+        let end = begin.add(length, address_size)?;
         let range = Range { begin, end };
 
-        match (begin, length) {
+        match (range.begin == A::default(), length.into()) {
             // This is meant to be a null terminator, but in practice it can occur
             // before the end, possibly due to a linker omitting a function and
             // leaving an unrelocated entry.
-            (0, 0) => Self::parse(input, encoding),
+            (true, 0) => Self::parse(input, encoding),
             _ => Ok(Some(ArangeEntry { range, length })),
         }
     }
 
     /// Return the beginning address of this arange.
     #[inline]
-    pub fn address(&self) -> u64 {
+    pub fn address(&self) -> A {
         self.range.begin
     }
 
     /// Return the length of this arange.
     #[inline]
-    pub fn length(&self) -> u64 {
+    pub fn length(&self) -> A::Length {
         self.length
     }
 
     /// Return the range.
     #[inline]
-    pub fn range(&self) -> Range {
+    pub fn range(&self) -> Range<A> {
         self.range
     }
 }

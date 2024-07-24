@@ -18,6 +18,8 @@ use std::{borrow, env, error, fs};
 struct RelocationMap(object::read::RelocationMap);
 
 impl<'a> gimli::read::Relocate for &'a RelocationMap {
+    type ToAddress = u64;
+
     fn relocate_address(&self, offset: usize, value: u64) -> gimli::Result<u64> {
         Ok(self.0.relocate(offset as u64, value))
     }
