@@ -810,6 +810,23 @@ where
             _ => Err(Error::InvalidExpression(name)),
         }
     }
+
+    /// If `bytes` contains one DW_OP_stack_value and nothing else, reads it and returns true.
+    /// Otherwise leaves `bytes` unchanged and returns false.
+    fn peek_stack_value_and_eof(bytes: &mut R) -> Result<bool> {
+        if bytes.len().into_u64() != 1 {
+            return Ok(false);
+        }
+        let mut temp = bytes.clone();
+        let opcode = temp.read_u8()?;
+        let name = constants::DwOp(opcode);
+        Ok(if name == constants::DW_OP_stack_value {
+            bytes.read_u8()?;
+            true
+        } else {
+            false
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -1243,6 +1260,25 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
                 size,
                 space,
             } => {
+                if !space && base_type.0.into_u64() == 0 &&
+                    size == self.encoding.address_size &&
+                    self.expression_stack.is_empty() &&
+                    Operation::peek_stack_value_and_eof(&mut self.pc)? {
+
+                    // Ignore [DW_OP_deref, DW_OP_stack_value] at the end of
+                    // expression.
+                    //
+                    // This is a workaround for what may be a quirk in LLVM:
+                    // sometimes [DW_OP_deref, DW_OP_stack_value] is used for
+                    // variables whose type is a struct bigger than 8 bytes.
+                    // Taken literally, these instructions say to read 8 bytes
+                    // at the address and report the result as the value of the
+                    // variable, which makes no sense. Usually such address
+                    // points to the whole struct, not just its first 8 bytes,
+                    // so we can report the address without dereferencing it.
+                    return Ok(OperationEvaluationResult::Incomplete);
+                }
+
                 let entry = self.pop()?;
                 let addr = entry.to_u64(self.addr_mask)?;
                 let addr_space = if space {
@@ -3745,21 +3781,21 @@ mod tests {
             None,
             None,
             None,
-            |eval, result| {
+            |eval, mut result| {
                 let buf = EndianSlice::new(&[], LittleEndian);
                 match result {
                     EvaluationResult::RequiresAtLocation(_) => {}
                     _ => panic!(),
                 };
 
-                eval.resume_with_at_location(buf)?;
+                result = eval.resume_with_at_location(buf)?;
 
                 match result {
                     EvaluationResult::RequiresAtLocation(_) => {}
                     _ => panic!(),
                 };
 
-                eval.resume_with_at_location(buf)?;
+                result = eval.resume_with_at_location(buf)?;
 
                 match result {
                     EvaluationResult::RequiresAtLocation(_) => {}
@@ -3788,21 +3824,21 @@ mod tests {
             None,
             None,
             None,
-            |eval, result| {
+            |eval, mut result| {
                 let buf = EndianSlice::new(SUBR, LittleEndian);
                 match result {
                     EvaluationResult::RequiresAtLocation(_) => {}
                     _ => panic!(),
                 };
 
-                eval.resume_with_at_location(buf)?;
+                result = eval.resume_with_at_location(buf)?;
 
                 match result {
                     EvaluationResult::RequiresAtLocation(_) => {}
                     _ => panic!(),
                 };
 
-                eval.resume_with_at_location(buf)?;
+                result = eval.resume_with_at_location(buf)?;
 
                 match result {
                     EvaluationResult::RequiresAtLocation(_) => {}
@@ -4135,5 +4171,67 @@ mod tests {
                 },
             );
         }
+    }
+
+    #[test]
+    fn test_eval_omit_deref_stack_value() {
+        use self::AssemblerEntry::*;
+        use crate::constants::*;
+
+        #[rustfmt::skip]
+        let program = [
+            Op(DW_OP_breg6), Sleb((-248i64) as u64),
+            Op(DW_OP_deref_size), U8(8),
+            Op(DW_OP_deref),
+            Op(DW_OP_stack_value),
+        ];
+
+        let result = [Piece {
+            size_in_bits: None,
+            bit_offset: None,
+            location: Location::Address {
+                address: 0xcafebabe,
+            },
+        }];
+
+        check_eval_with_args(
+            &program,
+            Ok(&result),
+            encoding8(),
+            None,
+            None,
+            None,
+            |eval, mut result| {
+                match result {
+                    EvaluationResult::RequiresRegister {
+                        register,
+                        base_type,
+                    } => {
+                        assert_eq!(register.0, 6);
+                        assert_eq!(base_type.0.into_u64(), 0);
+                    }
+                    _ => panic!("Unexpected result: {:?}", result),
+                }
+
+                result = eval.resume_with_register(Value::Generic(0xbabadeda))?;
+
+                match result {
+                    EvaluationResult::RequiresMemory {
+                        address,
+                        size,
+                        space,
+                        base_type,
+                    } => {
+                        assert_eq!(address, 0xbabadeda - 248);
+                        assert_eq!(size, 8);
+                        assert!(space.is_none());
+                        assert_eq!(base_type.0.into_u64(), 0);
+                    }
+                    _ => panic!("Unexpected result: {:?}", result),
+                }
+
+                eval.resume_with_memory(Value::Generic(0xcafebabe))
+            },
+        );
     }
 }
