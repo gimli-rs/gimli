@@ -1260,11 +1260,12 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
                 size,
                 space,
             } => {
-                if !space && base_type.0.into_u64() == 0 &&
-                    size == self.encoding.address_size &&
-                    self.expression_stack.is_empty() &&
-                    Operation::peek_stack_value_and_eof(&mut self.pc)? {
-
+                if !space
+                    && base_type.0.into_u64() == 0
+                    && size == self.encoding.address_size
+                    && self.expression_stack.is_empty()
+                    && Operation::peek_stack_value_and_eof(&mut self.pc)?
+                {
                     // Ignore [DW_OP_deref, DW_OP_stack_value] at the end of
                     // expression.
                     //
