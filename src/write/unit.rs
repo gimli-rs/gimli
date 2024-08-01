@@ -1135,7 +1135,7 @@ impl AttributeValue {
             }
             AttributeValue::FileIndex(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                uleb128_size(val.map(FileId::raw).unwrap_or(0))
+                uleb128_size(val.map(|id| id.raw(unit.version())).unwrap_or(0))
             }
         }
     }
@@ -1373,7 +1373,7 @@ impl AttributeValue {
             }
             AttributeValue::FileIndex(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
-                w.write_uleb128(val.map(FileId::raw).unwrap_or(0))?;
+                w.write_uleb128(val.map(|id| id.raw(unit.version())).unwrap_or(0))?;
             }
         }
         Ok(())
@@ -1889,8 +1889,7 @@ pub(crate) mod convert {
                 read::AttributeValue::Inline(val) => AttributeValue::Inline(val),
                 read::AttributeValue::Ordering(val) => AttributeValue::Ordering(val),
                 read::AttributeValue::FileIndex(val) => {
-                    if val == 0 {
-                        // 0 means not specified, even for version 5.
+                    if val == 0 && context.unit.encoding().version <= 4 {
                         AttributeValue::FileIndex(None)
                     } else {
                         match context.line_program_files.get(val as usize) {
@@ -2816,8 +2815,11 @@ mod tests {
 
     #[test]
     fn test_line_ref() {
-        let file_string1 = LineString::String(b"file1".to_vec());
-        let file_string2 = LineString::String(b"file2".to_vec());
+        let dir_bytes = b"dir";
+        let file_bytes1 = b"file1";
+        let file_bytes2 = b"file2";
+        let file_string1 = LineString::String(file_bytes1.to_vec());
+        let file_string2 = LineString::String(file_bytes2.to_vec());
 
         for &version in &[2, 3, 4, 5] {
             for &address_size in &[4, 8] {
@@ -2832,11 +2834,12 @@ mod tests {
                     let mut line_program = LineProgram::new(
                         encoding,
                         LineEncoding::default(),
-                        LineString::String(b"comp_dir".to_vec()),
-                        LineString::String(b"comp_name".to_vec()),
+                        LineString::String(dir_bytes.to_vec()),
+                        file_string1.clone(),
                         None,
                     );
                     let dir = line_program.default_directory();
+                    // For version >= 5, this will reuse the existing file at index 0.
                     let file1 = line_program.add_file(file_string1.clone(), dir, None);
                     let file2 = line_program.add_file(file_string2.clone(), dir, None);
 
@@ -2844,11 +2847,11 @@ mod tests {
                     let root = unit.get_mut(unit.root());
                     root.set(
                         constants::DW_AT_name,
-                        AttributeValue::String(b"comp_name".to_vec()),
+                        AttributeValue::String(file_bytes1.to_vec()),
                     );
                     root.set(
                         constants::DW_AT_comp_dir,
-                        AttributeValue::String(b"comp_dir".to_vec()),
+                        AttributeValue::String(dir_bytes.to_vec()),
                     );
                     root.set(constants::DW_AT_stmt_list, AttributeValue::LineProgramRef);
 
@@ -2887,17 +2890,20 @@ mod tests {
                             panic!("unexpected {:?}", read_attr);
                         };
                         let read_file = read_line_program.file(read_file_index).unwrap();
-                        read_unit
+                        let read_path = read_unit
                             .attr_string(read_file.path_name())
                             .unwrap()
-                            .slice()
+                            .slice();
+                        (read_file_index, read_path)
                     };
 
-                    let read_path = get_path(constants::DW_AT_decl_file);
-                    assert_eq!(read_path, b"file1");
+                    let (read_index, read_path) = get_path(constants::DW_AT_decl_file);
+                    assert_eq!(read_index, if version >= 5 { 0 } else { 1 });
+                    assert_eq!(read_path, file_bytes1);
 
-                    let read_path = get_path(constants::DW_AT_call_file);
-                    assert_eq!(read_path, b"file2");
+                    let (read_index, read_path) = get_path(constants::DW_AT_call_file);
+                    assert_eq!(read_index, if version >= 5 { 1 } else { 2 });
+                    assert_eq!(read_path, file_bytes2);
 
                     let convert_dwarf =
                         Dwarf::from(&read_dwarf, &|address| Some(Address::Constant(address)))
