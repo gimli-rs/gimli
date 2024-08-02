@@ -383,6 +383,8 @@ pub enum Error {
     UnsupportedTypeOperation,
     /// The shift value in an expression must be a non-negative integer.
     InvalidShiftExpression,
+    /// The size of a deref expression must not be larger than the size of an address.
+    InvalidDerefSize(u8),
     /// An unknown DW_CFA_* instruction.
     UnknownCallFrameInstruction(constants::DwCfa),
     /// The end of an address range was before the beginning.
@@ -544,6 +546,9 @@ impl Error {
             }
             Error::InvalidShiftExpression => {
                 "The shift value in an expression must be a non-negative integer."
+            }
+            Error::InvalidDerefSize(_) => {
+                "The size of a deref expression must not be larger than the size of an address."
             }
             Error::UnknownCallFrameInstruction(_) => "An unknown DW_CFA_* instructiion",
             Error::InvalidAddressRange => {

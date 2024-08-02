@@ -1243,6 +1243,9 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
                 size,
                 space,
             } => {
+                if size > self.encoding.address_size {
+                    return Err(Error::InvalidDerefSize(size));
+                }
                 let entry = self.pop()?;
                 let addr = entry.to_u64(self.addr_mask)?;
                 let addr_space = if space {
@@ -3501,6 +3504,46 @@ mod tests {
                             }
                         }
                         _ => panic!(),
+                    };
+                }
+
+                Ok(result)
+            },
+        );
+
+        #[rustfmt::skip]
+        let program = [
+            Op(DW_OP_addr), U32(0x7fff_ffff),
+            Op(DW_OP_deref_size), U8(8),
+        ];
+        check_eval_with_args(
+            &program,
+            Err(Error::InvalidDerefSize(8)),
+            encoding4(),
+            None,
+            None,
+            None,
+            |eval, mut result| {
+                while result != EvaluationResult::Complete {
+                    result = match result {
+                        EvaluationResult::RequiresMemory {
+                            address,
+                            size,
+                            space,
+                            base_type,
+                        } => {
+                            assert_eq!(base_type, UnitOffset(0));
+                            let mut v = address << 2;
+                            if let Some(value) = space {
+                                v += value;
+                            }
+                            v &= (1u64 << (8 * size)) - 1;
+                            eval.resume_with_memory(Value::Generic(v))?
+                        }
+                        EvaluationResult::RequiresRelocatedAddress(address) => {
+                            eval.resume_with_relocated_address(address)?
+                        }
+                        _ => panic!("Unexpected result: {:?}", result),
                     };
                 }
 
