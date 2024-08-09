@@ -46,7 +46,7 @@ use crate::read::{
 /// # unreachable!()
 /// # }
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct DwarfSections<T> {
     /// The `.debug_abbrev` section.
     pub debug_abbrev: DebugAbbrev<T>,
@@ -771,7 +771,7 @@ impl<R: Clone> Dwarf<R> {
 /// # unreachable!()
 /// # }
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct DwarfPackageSections<T> {
     /// The `.debug_cu_index` section.
     pub cu_index: DebugCuIndex<T>,
