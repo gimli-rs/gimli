@@ -2217,9 +2217,13 @@ fn dump_aranges<R: Reader, W: Write>(
             header.encoding().address_size,
         )?;
         let mut aranges = header.entries();
-        while let Some(arange) = aranges.next()? {
-            let range = arange.range();
-            writeln!(w, "[{:#x}, {:#x})", range.begin, range.end)?;
+        while let Some(raw) = aranges.next_raw()? {
+            if let Some(arange) = aranges.convert_raw(raw.clone())? {
+                let range = arange.range();
+                writeln!(w, "[{:#x}, {:#x})", range.begin, range.end)?;
+            } else {
+                writeln!(w, "[{:#x}, {:#x}) (ignored)", raw.address(), raw.length())?;
+            }
         }
     }
     Ok(())
