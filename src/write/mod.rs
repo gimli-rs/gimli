@@ -323,6 +323,12 @@ mod convert {
         UnsupportedLineInstruction,
         /// Writing this form of line string is not implemented yet.
         UnsupportedLineStringForm,
+        /// A `DW_LNE_end_sequence` instruction was missing at the end of a sequence.
+        MissingLineEndSequence,
+        /// The name of the compilation unit is missing.
+        MissingCompilationName,
+        /// The path of the compilation directory is missing.
+        MissingCompilationDirectory,
         /// A `.debug_line` file index is invalid.
         InvalidFileIndex,
         /// A `.debug_line` directory index is invalid.
@@ -374,6 +380,14 @@ mod convert {
                     f,
                     "Writing this form of line string is not implemented yet."
                 ),
+                MissingLineEndSequence => write!(
+                    f,
+                    "A `DW_LNE_end_sequence` instruction was missing at the end of a sequence."
+                ),
+                MissingCompilationName => write!(f, "The name of the compilation unit is missing."),
+                MissingCompilationDirectory => {
+                    write!(f, "The path of the compilation directory is missing.")
+                }
                 InvalidFileIndex => write!(f, "A `.debug_line` file index is invalid."),
                 InvalidDirectoryIndex => write!(f, "A `.debug_line` directory index is invalid."),
                 InvalidLineBase => write!(f, "A `.debug_line` line base is invalid."),

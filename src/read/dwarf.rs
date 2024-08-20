@@ -441,6 +441,31 @@ impl<R: Reader> Dwarf<R> {
         }
     }
 
+    /// Return an attribute value as a string slice.
+    ///
+    /// This only handles forms that are usable without an associated unit.
+    ///
+    /// If the attribute value is one of:
+    ///
+    /// - an inline `DW_FORM_string` string
+    /// - a `DW_FORM_strp` reference to an offset into the `.debug_str` section
+    /// - a `DW_FORM_strp_sup` reference to an offset into a supplementary
+    ///   object file
+    /// - a `DW_FORM_line_strp` reference to an offset into the `.debug_line_str`
+    ///   section
+    ///
+    /// then return the attribute's string value. Returns an error if the attribute
+    /// value does not have a string form, or if a string form has an invalid value.
+    pub fn attr_line_string(&self, attr: AttributeValue<R>) -> Result<R> {
+        match attr {
+            AttributeValue::String(string) => Ok(string),
+            AttributeValue::DebugStrRef(offset) => self.string(offset),
+            AttributeValue::DebugStrRefSup(offset) => self.sup_string(offset),
+            AttributeValue::DebugLineStrRef(offset) => self.line_string(offset),
+            _ => Err(Error::ExpectedStringAttributeValue),
+        }
+    }
+
     /// Return the address at the given index.
     pub fn address(&self, unit: &Unit<R>, index: DebugAddrIndex<R::Offset>) -> Result<u64> {
         self.debug_addr
