@@ -421,6 +421,7 @@ impl<R: Reader> Dwarf<R> {
     }
 
     /// Return an attribute value as a string slice.
+    ///
     /// This only handles forms that are usable without an associated unit.
     ///
     /// If the attribute value is one of:

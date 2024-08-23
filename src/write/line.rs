@@ -1044,7 +1044,8 @@ mod convert {
                 match row {
                     LineConvertRow::SetAddress(address, row) => {
                         if convert.in_sequence() {
-                            return Err(ConvertError::InvalidAddress);
+                            // TODO: this is valid DWARF
+                            return Err(ConvertError::UnsupportedLineSetAddress);
                         }
                         let address =
                             convert_address(address).ok_or(ConvertError::InvalidAddress)?;
@@ -1053,17 +1054,22 @@ mod convert {
                     }
                     LineConvertRow::Row(row) => {
                         if !convert.in_sequence() {
+                            // This is valid DWARF but unusual.
                             convert.begin_sequence(None);
                         }
                         convert.generate_row(row);
                     }
                     LineConvertRow::EndSequence(length) => {
                         if !convert.in_sequence() {
+                            // Preserve empty sequences.
                             convert.begin_sequence(None);
                         }
                         convert.end_sequence(length);
                     }
                 }
+            }
+            if convert.in_sequence() {
+                return Err(ConvertError::MissingLineEndSequence);
             }
             Ok(convert.program())
         }
@@ -1072,7 +1078,7 @@ mod convert {
     /// The result of [`LineConvert::read_row`].
     #[derive(Debug)]
     pub enum LineConvertRow {
-        /// A row that used a `DW_LNS_set_address` instruction.
+        /// A row that used a `DW_LNE_set_address` instruction.
         ///
         /// This is expected to be the first row in a sequence,
         /// but [`LineConvert::read_row`] doesn't enforce that.
@@ -1101,9 +1107,89 @@ mod convert {
     }
 
     /// The state for the conversion of a line number program.
+    ///
+    /// This is used for the implementation of [`LineProgram::from`].
+    ///
+    /// Users may want to use this directly instead of [`LineProgram::from`] in order
+    /// to implement transformations on the line number program during the conversion.
+    /// For example, it may be useful to modify the addresses of the rows to match a
+    /// corresponding transformation of the machine instructions.
+    ///
+    /// After calling [`LineConvert::new`], you may call either [`LineConvert::read_row`]
+    /// to read the next row, or [`LineConvert::read_sequence`] to read a sequence of rows.
+    ///
+    /// ## Example Usage
+    ///
+    /// Convert a line program using [`LineConvert::read_row`].
+    ///
+    /// ```rust,no_run
+    /// use gimli::write::{Address, LineConvert, LineConvertRow};
+    /// # fn example() -> Result<(), gimli::write::ConvertError> {
+    /// #    type Reader = gimli::read::EndianSlice<'static, gimli::LittleEndian>;
+    /// #    let from_program: gimli::read::IncompleteLineProgram<Reader> = unimplemented!();
+    /// #    let from_dwarf: gimli::read::Dwarf<_> = unimplemented!();
+    /// #    let mut line_strings = gimli::write::LineStringTable::default();
+    /// #    let mut strings = gimli::write::StringTable::default();
+    /// // Choose an encoding for the new program. This can copy the original encoding,
+    /// // or use a different one.
+    /// let encoding = from_program.header().encoding();
+    /// let line_encoding = from_program.header().line_encoding();
+    /// // Start the conversion. This will convert the header, directories and files.
+    /// let mut convert = LineConvert::new(
+    ///     &from_dwarf,
+    ///     from_program,
+    ///     None,
+    ///     encoding,
+    ///     line_encoding,
+    ///     &mut line_strings,
+    ///     &mut strings,
+    /// )?;
+    /// // Read and convert each row in the program.
+    /// while let Some(row) = convert.read_row()? {
+    ///     match row {
+    ///         LineConvertRow::SetAddress(address, row) => {
+    ///             if convert.in_sequence() {
+    ///                 // There was a `DW_LNE_set_address` instruction in the middle of a
+    ///                 // sequence. `gimli::write::LineProgram` doesn't currently support this.
+    ///                 // You may be able to handle this by converting `address` into an address
+    ///                 // offset for the current sequence (and adjusting future row offsets),
+    ///                 // or by splitting the sequence into two.
+    ///                 return Err(gimli::write::ConvertError::UnsupportedLineSetAddress);
+    ///             }
+    ///             convert.begin_sequence(Some(Address::Constant(address)));
+    ///             convert.generate_row(row);
+    ///         }
+    ///         LineConvertRow::Row(row) => {
+    ///             if !convert.in_sequence() {
+    ///                 // There wasn't a `DW_LNE_set_address` instruction at the start of the
+    ///                 // sequence. This is unusual in practice, but you can support it by
+    ///                 // starting a sequence without an address. This will use the initial
+    ///                 // address defined by DWARF, which is 0. The row itself can can still
+    ///                 // have a non-zero address offset.
+    ///                 convert.begin_sequence(None);
+    ///             }
+    ///             convert.generate_row(row);
+    ///         }
+    ///         LineConvertRow::EndSequence(length) => {
+    ///             if !convert.in_sequence() {
+    ///                 // The sequence had no rows. We can either match this with an empty
+    ///                 // sequence in the converted program, or ignore it.
+    ///                 convert.begin_sequence(None);
+    ///             }
+    ///             convert.end_sequence(length);
+    ///         }
+    ///     }
+    /// }
+    /// if convert.in_sequence() {
+    ///    // The sequence was never ended. This is invalid DWARF.
+    ///    return Err(gimli::write::ConvertError::MissingLineEndSequence);
+    /// }
+    /// let (program, files) = convert.program();
+    /// # Ok(())
+    /// # }
+    /// ```
     #[derive(Debug)]
     pub struct LineConvert<'a, R: Reader> {
-        #[allow(unused)]
         from_dwarf: &'a read::Dwarf<R>,
         from_program: read::IncompleteLineProgram<R>,
         from_row: read::LineRow,
@@ -1111,9 +1197,8 @@ mod convert {
         files: Vec<FileId>,
         dirs: Vec<DirectoryId>,
         program: LineProgram,
-        #[allow(unused)]
         line_strings: &'a mut write::LineStringTable,
-        #[allow(unused)]
+        #[allow(unused)] // May need LineString::StringRef in future.
         strings: &'a mut write::StringTable,
     }
 
@@ -1122,6 +1207,12 @@ mod convert {
         ///
         /// `encoding` and `line_encoding` apply to the converted program, and
         /// may be different from the source program.
+        ///
+        /// The compilation directory and name are taken from the source program header.
+        /// For DWARF version <= 4, this relies on the correct directory and name being
+        /// passed to [`read::DebugLine::program`]. However, for split DWARF the line program
+        /// is associated with a skeleton compilation unit which may not have the correct
+        /// name. In this case, the name should be passed as `from_comp_name`.
         pub fn new(
             from_dwarf: &'a read::Dwarf<R>,
             from_program: read::IncompleteLineProgram<R>,
@@ -1141,12 +1232,34 @@ mod convert {
                 Some(comp_dir) => {
                     Self::convert_string(comp_dir, from_dwarf, encoding, line_strings)?
                 }
-                None => LineString::new(&[][..], encoding, line_strings),
+                None => {
+                    if encoding.version >= 5 {
+                        return Err(ConvertError::MissingCompilationDirectory);
+                    } else {
+                        // This value won't be emitted, but we need to provide something.
+                        LineString::String(Vec::new())
+                    }
+                }
             };
 
             let comp_name = match from_comp_name {
                 Some(comp_name) => LineString::new(comp_name.to_slice()?, encoding, line_strings),
-                None => LineString::new(&[][..], encoding, line_strings),
+                None => match from_header.file(0) {
+                    Some(comp_file) => Self::convert_string(
+                        comp_file.path_name(),
+                        from_dwarf,
+                        encoding,
+                        line_strings,
+                    )?,
+                    None => {
+                        if encoding.version >= 5 {
+                            return Err(ConvertError::MissingCompilationName);
+                        } else {
+                            // This value won't be emitted, but we need to provide something.
+                            LineString::String(Vec::new())
+                        }
+                    }
+                },
             };
 
             if from_header.line_base() > 0 {
@@ -1244,7 +1357,7 @@ mod convert {
 
         /// Read the next row from the source program.
         ///
-        /// Use [`LineConvert::generate_row`] to add the row to the program.
+        /// See [`LineConvert`] for an example of how to add the row to the converted program.
         pub fn read_row(&mut self) -> ConvertResult<Option<LineConvertRow>> {
             let mut tombstone = false;
             let mut address = None;
@@ -1279,6 +1392,7 @@ mod convert {
                         )?;
                         self.files
                             .push(self.program.add_file(from_name, from_dir, from_info));
+                        continue;
                     }
                     _ => {}
                 }
@@ -1338,6 +1452,29 @@ mod convert {
         }
 
         /// Read the next sequence from the source program.
+        ///
+        /// This will read all rows in the sequence, and return the sequence when it ends.
+        /// Returns `None` if there are no more rows in the program.
+        ///
+        /// Note that this will return an error for `DW_LNE_set_address` in the middle of
+        /// a sequence, or a missing `DW_LNE_end_sequence`.
+        ///
+        /// ## Example Usage
+        ///
+        /// ```rust,no_run
+        /// # use gimli::write::{Address, LineConvert, LineConvertRow};
+        /// # fn example<R: gimli::Reader>(mut convert: LineConvert<R>) -> Result<(), gimli::write::ConvertError> {
+        /// // Read and convert each sequence in the program.
+        /// while let Some(sequence) = convert.read_sequence()? {
+        ///     convert.begin_sequence(sequence.start.map(Address::Constant));
+        ///     for row in sequence.rows {
+        ///         convert.generate_row(row);
+        ///     }
+        ///     convert.end_sequence(sequence.length);
+        /// }
+        /// # Ok(())
+        /// # }
+        /// ```
         pub fn read_sequence(&mut self) -> ConvertResult<Option<LineConvertSequence>> {
             let mut start = None;
             let mut rows = Vec::new();
@@ -1346,7 +1483,7 @@ mod convert {
                     LineConvertRow::SetAddress(address, row) => {
                         // We only support the setting the address for the first row in a sequence.
                         if !rows.is_empty() {
-                            return Err(ConvertError::InvalidAddress);
+                            return Err(ConvertError::UnsupportedLineSetAddress);
                         }
                         start = Some(address);
                         rows.push(row);
@@ -1362,6 +1499,9 @@ mod convert {
                         }));
                     }
                 }
+            }
+            if !rows.is_empty() {
+                return Err(ConvertError::MissingLineEndSequence);
             }
             Ok(None)
         }
@@ -1388,6 +1528,9 @@ mod convert {
         }
 
         /// Return the program and a mapping from source file index to `FileId`.
+        ///
+        /// The file index mapping is 0 based, regardless of the DWARF version.
+        /// For DWARF version <= 4, the entry at index 0 should not be used.
         pub fn program(self) -> (LineProgram, Vec<FileId>) {
             (self.program, self.files)
         }
@@ -1810,9 +1953,15 @@ mod tests {
                         let mut program = program.clone();
                         program.row = test.0;
                         program.generate_row();
+                        program.end_sequence(test.0.address_offset);
                         assert_eq!(
-                            &program.instructions[base_instructions.len()..],
+                            &program.instructions
+                                [base_instructions.len()..program.instructions.len() - 1],
                             &test.1[..]
+                        );
+                        assert_eq!(
+                            program.instructions.last(),
+                            Some(&LineInstruction::EndSequence)
                         );
 
                         // Test LineProgram::from().
@@ -1834,8 +1983,13 @@ mod tests {
                         let convert_program = &convert_unit.line_program;
 
                         assert_eq!(
-                            &convert_program.instructions[base_instructions.len()..],
+                            &convert_program.instructions
+                                [base_instructions.len()..convert_program.instructions.len() - 1],
                             &test.1[..]
+                        );
+                        assert_eq!(
+                            convert_program.instructions.last(),
+                            Some(&LineInstruction::EndSequence)
                         );
                     }
                 }
@@ -2141,6 +2295,7 @@ mod tests {
                     program.row().file = file_id;
                     program.row().line = 0x10000;
                     program.generate_row();
+                    program.end_sequence(20);
 
                     let mut unit = Unit::new(encoding, program);
                     let root = unit.get_mut(unit.root());
