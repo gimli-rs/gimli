@@ -311,6 +311,11 @@ impl LineProgram {
 
     /// Begin a new sequence and set its base address.
     ///
+    /// It is not necessary to call this method, since all of the other methods
+    /// will automatically begin a sequence if one has not already begun.
+    /// However, it may be useful in rare cases where you need to begin a sequence
+    /// while optionally setting the address.
+    ///
     /// # Panics
     ///
     /// Panics if a sequence has already begun.
@@ -322,15 +327,23 @@ impl LineProgram {
         }
     }
 
+    /// Set the address for the next row.
+    ///
+    /// This begins a sequence if one has not already begun.
+    ///
+    /// This does not begin a new sequence if one has already begun. Hence, the caller must
+    /// ensure that this address is greater than or equal to the address of the previous row.
+    pub fn set_address(&mut self, address: Address) {
+        self.in_sequence = true;
+        self.instructions.push(LineInstruction::SetAddress(address));
+    }
+
     /// End the sequence, and reset the row to its default values.
     ///
     /// Only the `address_offset` and op_index` fields of the current row are used.
     ///
-    /// # Panics
-    ///
-    /// Panics if a sequence has not begun.
+    /// This will emit an `EndSequence` instruction even if a sequence has not begun.
     pub fn end_sequence(&mut self, address_offset: u64) {
-        assert!(self.in_sequence);
         self.in_sequence = false;
         self.row.address_offset = address_offset;
         let op_advance = self.op_advance();
@@ -360,13 +373,12 @@ impl LineProgram {
     /// After the instructions are generated, it sets `discriminator` to 0, and sets
     /// `basic_block`, `prologue_end`, and `epilogue_begin` to false.
     ///
+    /// This begins a sequence if one has not already begun.
+    ///
     /// # Panics
     ///
-    /// Panics if a sequence has not begun.
     /// Panics if the address_offset decreases.
     pub fn generate_row(&mut self) {
-        assert!(self.in_sequence);
-
         // Output fields that are reset on every row.
         if self.row.discriminator != 0 {
             self.instructions
@@ -1043,27 +1055,15 @@ mod convert {
             while let Some(row) = convert.read_row()? {
                 match row {
                     LineConvertRow::SetAddress(address, row) => {
-                        if convert.in_sequence() {
-                            // TODO: this is valid DWARF
-                            return Err(ConvertError::UnsupportedLineSetAddress);
-                        }
                         let address =
                             convert_address(address).ok_or(ConvertError::InvalidAddress)?;
-                        convert.begin_sequence(Some(address));
+                        convert.set_address(address);
                         convert.generate_row(row);
                     }
                     LineConvertRow::Row(row) => {
-                        if !convert.in_sequence() {
-                            // This is valid DWARF but unusual.
-                            convert.begin_sequence(None);
-                        }
                         convert.generate_row(row);
                     }
                     LineConvertRow::EndSequence(length) => {
-                        if !convert.in_sequence() {
-                            // Preserve empty sequences.
-                            convert.begin_sequence(None);
-                        }
                         convert.end_sequence(length);
                     }
                 }
@@ -1148,34 +1148,13 @@ mod convert {
     /// while let Some(row) = convert.read_row()? {
     ///     match row {
     ///         LineConvertRow::SetAddress(address, row) => {
-    ///             if convert.in_sequence() {
-    ///                 // There was a `DW_LNE_set_address` instruction in the middle of a
-    ///                 // sequence. `gimli::write::LineProgram` doesn't currently support this.
-    ///                 // You may be able to handle this by converting `address` into an address
-    ///                 // offset for the current sequence (and adjusting future row offsets),
-    ///                 // or by splitting the sequence into two.
-    ///                 return Err(gimli::write::ConvertError::UnsupportedLineSetAddress);
-    ///             }
-    ///             convert.begin_sequence(Some(Address::Constant(address)));
+    ///             convert.set_address(Address::Constant(address));
     ///             convert.generate_row(row);
     ///         }
     ///         LineConvertRow::Row(row) => {
-    ///             if !convert.in_sequence() {
-    ///                 // There wasn't a `DW_LNE_set_address` instruction at the start of the
-    ///                 // sequence. This is unusual in practice, but you can support it by
-    ///                 // starting a sequence without an address. This will use the initial
-    ///                 // address defined by DWARF, which is 0. The row itself can can still
-    ///                 // have a non-zero address offset.
-    ///                 convert.begin_sequence(None);
-    ///             }
     ///             convert.generate_row(row);
     ///         }
     ///         LineConvertRow::EndSequence(length) => {
-    ///             if !convert.in_sequence() {
-    ///                 // The sequence had no rows. We can either match this with an empty
-    ///                 // sequence in the converted program, or ignore it.
-    ///                 convert.begin_sequence(None);
-    ///             }
     ///             convert.end_sequence(length);
     ///         }
     ///     }
@@ -1511,6 +1490,11 @@ mod convert {
             self.program.begin_sequence(address);
         }
 
+        /// Call [`LineProgram::set_address`] for the converted program.
+        pub fn set_address(&mut self, address: Address) {
+            self.program.set_address(address);
+        }
+
         /// Call [`LineProgram::end_sequence`] for the converted program.
         pub fn end_sequence(&mut self, address_offset: u64) {
             self.program.end_sequence(address_offset);
@@ -1679,6 +1663,153 @@ mod tests {
     }
 
     #[test]
+    fn test_line_sequence() {
+        let dir1 = &b"dir1"[..];
+        let file1 = &b"file1"[..];
+        let file2 = &b"file2"[..];
+
+        for &version in &[2, 3, 4, 5] {
+            for &address_size in &[4, 8] {
+                for &format in &[Format::Dwarf32, Format::Dwarf64] {
+                    let encoding = Encoding {
+                        format,
+                        version,
+                        address_size,
+                    };
+                    let mut program = LineProgram::new(
+                        encoding,
+                        LineEncoding::default(),
+                        LineString::String(dir1.to_vec()),
+                        LineString::String(file1.to_vec()),
+                        None,
+                    );
+                    let dir_id = program.default_directory();
+                    program.add_file(LineString::String(file1.to_vec()), dir_id, None);
+                    // Ensure the default file index is valid.
+                    program.add_file(LineString::String(file2.to_vec()), dir_id, None);
+
+                    // Test instructions added by sequence related methods.
+                    {
+                        let mut program = program.clone();
+                        let address = Address::Constant(0x12);
+                        program.begin_sequence(Some(address));
+                        assert_eq!(
+                            program.instructions,
+                            vec![LineInstruction::SetAddress(address)]
+                        );
+                    }
+
+                    {
+                        let mut program = program.clone();
+                        program.begin_sequence(None);
+                        assert_eq!(program.instructions, Vec::new());
+                    }
+
+                    {
+                        let mut program = program.clone();
+                        let address = Address::Constant(0x12);
+                        program.set_address(address);
+                        assert_eq!(
+                            program.instructions,
+                            vec![LineInstruction::SetAddress(address)]
+                        );
+                    }
+
+                    {
+                        let mut program = program.clone();
+                        program.generate_row();
+                        assert_eq!(program.instructions, vec![LineInstruction::Copy]);
+                    }
+
+                    {
+                        let mut program = program.clone();
+                        program.end_sequence(0x1234);
+                        assert_eq!(
+                            program.instructions,
+                            vec![
+                                LineInstruction::AdvancePc(0x1234),
+                                LineInstruction::EndSequence
+                            ]
+                        );
+                    }
+
+                    {
+                        let mut program = program.clone();
+                        program.end_sequence(0);
+                        assert_eq!(program.instructions, vec![LineInstruction::EndSequence]);
+                    }
+
+                    // Test conversion of sequences.
+                    let mut expected_instructions = Vec::new();
+
+                    // Basic sequence.
+                    let address = Address::Constant(0x12);
+                    program.begin_sequence(Some(address));
+                    program.generate_row();
+                    program.end_sequence(0x1234);
+                    expected_instructions.extend_from_slice(&[
+                        LineInstruction::SetAddress(address),
+                        LineInstruction::Copy,
+                        LineInstruction::AdvancePc(0x1234),
+                        LineInstruction::EndSequence,
+                    ]);
+
+                    // Empty sequence.
+                    program.begin_sequence(None);
+                    program.end_sequence(0);
+                    expected_instructions.extend_from_slice(&[LineInstruction::EndSequence]);
+
+                    // Multiple `DW_LNE_set_address`.
+                    let address1 = Address::Constant(0x12);
+                    let address2 = Address::Constant(0x34);
+                    program.set_address(address1);
+                    program.generate_row();
+                    program.set_address(address2);
+                    program.generate_row();
+                    program.end_sequence(0x1234);
+                    expected_instructions.extend_from_slice(&[
+                        LineInstruction::SetAddress(address1),
+                        LineInstruction::Copy,
+                        LineInstruction::SetAddress(address2),
+                        LineInstruction::Copy,
+                        LineInstruction::AdvancePc(0x1234),
+                        LineInstruction::EndSequence,
+                    ]);
+
+                    // No `DW_LNE_set_address`.
+                    program.generate_row();
+                    program.end_sequence(0x1234);
+                    expected_instructions.extend_from_slice(&[
+                        LineInstruction::Copy,
+                        LineInstruction::AdvancePc(0x1234),
+                        LineInstruction::EndSequence,
+                    ]);
+
+                    assert_eq!(program.instructions, expected_instructions);
+
+                    let mut unit = Unit::new(encoding, program);
+                    let root = unit.get_mut(unit.root());
+                    root.set(constants::DW_AT_stmt_list, AttributeValue::LineProgramRef);
+
+                    let mut dwarf = Dwarf::new();
+                    dwarf.units.add(unit);
+
+                    let mut sections = Sections::new(EndianVec::new(LittleEndian));
+                    dwarf.write(&mut sections).unwrap();
+                    let read_dwarf = sections.read(LittleEndian);
+
+                    let convert_dwarf =
+                        Dwarf::from(&read_dwarf, &|address| Some(Address::Constant(address)))
+                            .unwrap();
+                    let convert_unit = convert_dwarf.units.iter().next().unwrap().1;
+                    let convert_program = &convert_unit.line_program;
+                    assert_eq!(convert_program.instructions, expected_instructions);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn test_line_row() {
         let dir1 = &b"dir1"[..];
         let file1 = &b"file1"[..];
@@ -1712,38 +1843,7 @@ mod tests {
                     let file2_id =
                         program.add_file(LineString::String(file2.to_vec()), dir_id, None);
 
-                    // Test sequences.
-                    {
-                        let mut program = program.clone();
-                        let address = Address::Constant(0x12);
-                        program.begin_sequence(Some(address));
-                        assert_eq!(
-                            program.instructions,
-                            vec![LineInstruction::SetAddress(address)]
-                        );
-                    }
-
-                    {
-                        let mut program = program.clone();
-                        program.begin_sequence(None);
-                        assert_eq!(program.instructions, Vec::new());
-                    }
-
-                    {
-                        let mut program = program.clone();
-                        program.begin_sequence(None);
-                        program.end_sequence(0x1234);
-                        assert_eq!(
-                            program.instructions,
-                            vec![
-                                LineInstruction::AdvancePc(0x1234),
-                                LineInstruction::EndSequence
-                            ]
-                        );
-                    }
-
                     // Create a base program.
-                    program.begin_sequence(None);
                     program.row.line = 0x1000;
                     program.generate_row();
                     let base_row = program.row;
@@ -2148,7 +2248,7 @@ mod tests {
                             None,
                         );
                         for address_advance in addresses.clone() {
-                            program.begin_sequence(Some(Address::Constant(0x1000)));
+                            program.set_address(Address::Constant(0x1000));
                             program.row().line = 0x10000;
                             program.generate_row();
                             for line_advance in lines.clone() {
@@ -2244,7 +2344,7 @@ mod tests {
                         file.clone(),
                         None,
                     );
-                    program.begin_sequence(Some(Address::Constant(0x1000)));
+                    program.set_address(Address::Constant(0x1000));
                     program.row().line = 0x10000;
                     program.generate_row();
 
@@ -2291,7 +2391,7 @@ mod tests {
                     let dir_id = program.default_directory();
                     let file_id =
                         program.add_file(LineString::String(b"file1".to_vec()), dir_id, None);
-                    program.begin_sequence(Some(Address::Constant(0x1000)));
+                    program.set_address(Address::Constant(0x1000));
                     program.row().file = file_id;
                     program.row().line = 0x10000;
                     program.generate_row();
