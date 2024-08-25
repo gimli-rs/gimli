@@ -1054,11 +1054,10 @@ mod convert {
 
             while let Some(row) = convert.read_row()? {
                 match row {
-                    LineConvertRow::SetAddress(address, row) => {
+                    LineConvertRow::SetAddress(address) => {
                         let address =
                             convert_address(address).ok_or(ConvertError::InvalidAddress)?;
                         convert.set_address(address);
-                        convert.generate_row(row);
                     }
                     LineConvertRow::Row(row) => {
                         convert.generate_row(row);
@@ -1078,15 +1077,11 @@ mod convert {
     /// The result of [`LineConvert::read_row`].
     #[derive(Debug)]
     pub enum LineConvertRow {
-        /// A row that used a `DW_LNE_set_address` instruction.
+        /// The address from a `DW_LNE_set_address` instruction.
         ///
-        /// This is expected to be the first row in a sequence,
-        /// but [`LineConvert::read_row`] doesn't enforce that.
-        ///
-        /// This row will have its `address_offset` field set to 0.
         /// All subsequent rows in the sequence will have their `address_offset`
         /// field set to an offset from this address.
-        SetAddress(u64, LineRow),
+        SetAddress(u64),
         /// A row produced by the line number program.
         Row(LineRow),
         /// The address offset of the end of the sequence.
@@ -1096,14 +1091,39 @@ mod convert {
     /// The result of [`LineConvert::read_sequence`].
     #[derive(Debug)]
     pub struct LineConvertSequence {
-        /// The address of the first instruction in the sequence.
+        /// The address of the first instruction in the given rows.
+        ///
+        /// This will be `None` if there was no `DW_LNE_set_address` instruction.
         pub start: Option<u64>,
-        /// The offset in bytes of the next instruction after the sequence.
-        pub length: u64,
+        /// The location of the next instruction after the given rows.
+        pub end: LineConvertSequenceEnd,
         /// The rows in the sequence.
         ///
         /// The `LineRow::address` fields are set to an offset from `Self::start`.
         pub rows: Vec<LineRow>,
+    }
+
+    /// The location of the next instruction after a sequence of rows.
+    #[derive(Debug)]
+    pub enum LineConvertSequenceEnd {
+        /// An offset in bytes from [`LineConvertSequence::start`].
+        Length(u64),
+        /// An address set by a `DW_LNE_set_address` instruction.
+        Address(u64),
+    }
+
+    /// The next action to take in the conversion of a line number program.
+    #[derive(Debug)]
+    enum LineConvertState {
+        /// Read and evaluate instructions for the next row.
+        ReadRow,
+        /// Return `self.address` then switch to `ConvertRow`.
+        SetAddress,
+        /// Convert `self.from_row` to a `LineRow`.
+        ///
+        /// If this state occurred after a `SetAddress`, `self.address` is still the
+        /// address that was set.
+        ConvertRow,
     }
 
     /// The state for the conversion of a line number program.
@@ -1147,9 +1167,8 @@ mod convert {
     /// // Read and convert each row in the program.
     /// while let Some(row) = convert.read_row()? {
     ///     match row {
-    ///         LineConvertRow::SetAddress(address, row) => {
+    ///         LineConvertRow::SetAddress(address) => {
     ///             convert.set_address(Address::Constant(address));
-    ///             convert.generate_row(row);
     ///         }
     ///         LineConvertRow::Row(row) => {
     ///             convert.generate_row(row);
@@ -1179,6 +1198,8 @@ mod convert {
         line_strings: &'a mut write::LineStringTable,
         #[allow(unused)] // May need LineString::StringRef in future.
         strings: &'a mut write::StringTable,
+        address: Option<u64>,
+        state: LineConvertState,
     }
 
     impl<'a, R: Reader + 'a> LineConvert<'a, R> {
@@ -1290,6 +1311,8 @@ mod convert {
                 program,
                 line_strings,
                 strings,
+                address: None,
+                state: LineConvertState::ReadRow,
             })
         }
 
@@ -1338,8 +1361,23 @@ mod convert {
         ///
         /// See [`LineConvert`] for an example of how to add the row to the converted program.
         pub fn read_row(&mut self) -> ConvertResult<Option<LineConvertRow>> {
+            match self.state {
+                LineConvertState::ReadRow => {}
+                LineConvertState::SetAddress => {
+                    if let Some(address) = self.address.take() {
+                        self.state = LineConvertState::ConvertRow;
+                        return Ok(Some(LineConvertRow::SetAddress(address)));
+                    }
+                    self.state = LineConvertState::ReadRow;
+                    return Ok(Some(LineConvertRow::Row(self.convert_row()?)));
+                }
+                LineConvertState::ConvertRow => {
+                    self.state = LineConvertState::ReadRow;
+                    return Ok(Some(LineConvertRow::Row(self.convert_row()?)));
+                }
+            }
             let mut tombstone = false;
-            let mut address = None;
+            self.address = None;
             self.from_row.reset(self.from_program.header());
             while let Some(instruction) = self
                 .from_instructions
@@ -1357,7 +1395,7 @@ mod convert {
                             !0 >> (64 - self.from_program.header().encoding().address_size * 8);
                         tombstone = val == tombstone_address;
                         if !tombstone {
-                            address = Some(val);
+                            self.address = Some(val);
                         }
                         continue;
                     }
@@ -1385,7 +1423,7 @@ mod convert {
                     // tombstones we loop immediately.
                     if self.from_row.end_sequence() {
                         tombstone = false;
-                        address = None;
+                        self.address = None;
                     }
                     self.from_row.reset(self.from_program.header());
                     continue;
@@ -1393,63 +1431,69 @@ mod convert {
                 if self.from_row.end_sequence() {
                     return Ok(Some(LineConvertRow::EndSequence(self.from_row.address())));
                 }
-                let row = LineRow {
-                    address_offset: self.from_row.address(),
-                    op_index: self.from_row.op_index(),
-                    file: {
-                        let file = self.from_row.file_index();
-                        if file >= self.files.len() as u64 {
-                            return Err(ConvertError::InvalidFileIndex);
-                        }
-                        if file == 0 && self.from_program.header().version() <= 4 {
-                            return Err(ConvertError::InvalidFileIndex);
-                        }
-                        self.files[file as usize]
-                    },
-                    line: match self.from_row.line() {
-                        Some(line) => line.get(),
-                        None => 0,
-                    },
-                    column: match self.from_row.column() {
-                        read::ColumnType::LeftEdge => 0,
-                        read::ColumnType::Column(val) => val.get(),
-                    },
-                    discriminator: self.from_row.discriminator(),
-                    is_statement: self.from_row.is_stmt(),
-                    basic_block: self.from_row.basic_block(),
-                    prologue_end: self.from_row.prologue_end(),
-                    epilogue_begin: self.from_row.epilogue_begin(),
-                    isa: self.from_row.isa(),
-                };
-                if let Some(address) = address {
-                    return Ok(Some(LineConvertRow::SetAddress(address, row)));
+                if let Some(address) = self.address.take() {
+                    self.state = LineConvertState::ConvertRow;
+                    return Ok(Some(LineConvertRow::SetAddress(address)));
                 } else {
-                    return Ok(Some(LineConvertRow::Row(row)));
+                    self.state = LineConvertState::ReadRow;
+                    return Ok(Some(LineConvertRow::Row(self.convert_row()?)));
                 }
             }
             Ok(None)
         }
 
+        fn convert_row(&self) -> ConvertResult<LineRow> {
+            Ok(LineRow {
+                address_offset: self.from_row.address(),
+                op_index: self.from_row.op_index(),
+                file: {
+                    let file = self.from_row.file_index();
+                    if file >= self.files.len() as u64 {
+                        return Err(ConvertError::InvalidFileIndex);
+                    }
+                    if file == 0 && self.from_program.header().version() <= 4 {
+                        return Err(ConvertError::InvalidFileIndex);
+                    }
+                    self.files[file as usize]
+                },
+                line: match self.from_row.line() {
+                    Some(line) => line.get(),
+                    None => 0,
+                },
+                column: match self.from_row.column() {
+                    read::ColumnType::LeftEdge => 0,
+                    read::ColumnType::Column(val) => val.get(),
+                },
+                discriminator: self.from_row.discriminator(),
+                is_statement: self.from_row.is_stmt(),
+                basic_block: self.from_row.basic_block(),
+                prologue_end: self.from_row.prologue_end(),
+                epilogue_begin: self.from_row.epilogue_begin(),
+                isa: self.from_row.isa(),
+            })
+        }
+
         /// Read the next sequence from the source program.
         ///
-        /// This will read all rows in the sequence, and return the sequence when it ends.
-        /// Returns `None` if there are no more rows in the program.
-        ///
-        /// Note that this will return an error for `DW_LNE_set_address` in the middle of
-        /// a sequence, or a missing `DW_LNE_end_sequence`.
+        /// This will read rows in the sequence up to either the end of the sequence,
+        /// or the next `DW_LNE_set_address` instruction.
         ///
         /// ## Example Usage
         ///
         /// ```rust,no_run
-        /// # use gimli::write::{Address, LineConvert, LineConvertRow};
+        /// # use gimli::write::{Address, LineConvert, LineConvertSequenceEnd};
         /// # fn example<R: gimli::Reader>(mut convert: LineConvert<R>) -> Result<(), gimli::write::ConvertError> {
         /// // Read and convert each sequence in the program.
         /// while let Some(sequence) = convert.read_sequence()? {
-        ///     convert.begin_sequence(sequence.start.map(Address::Constant));
+        ///     if let Some(start) = sequence.start {
+        ///         convert.set_address(Address::Constant(start));
+        ///     }
         ///     for row in sequence.rows {
         ///         convert.generate_row(row);
         ///     }
-        ///     convert.end_sequence(sequence.length);
+        ///     if let LineConvertSequenceEnd::Length(length) = sequence.end {
+        ///         convert.end_sequence(length);
+        ///     }
         /// }
         /// # Ok(())
         /// # }
@@ -1457,15 +1501,27 @@ mod convert {
         pub fn read_sequence(&mut self) -> ConvertResult<Option<LineConvertSequence>> {
             let mut start = None;
             let mut rows = Vec::new();
+            match self.state {
+                LineConvertState::ReadRow => {}
+                LineConvertState::SetAddress | LineConvertState::ConvertRow => {
+                    start = self.address;
+                    rows.push(self.convert_row()?);
+                    self.state = LineConvertState::ReadRow;
+                }
+            }
             while let Some(row) = self.read_row()? {
                 match row {
-                    LineConvertRow::SetAddress(address, row) => {
-                        // We only support the setting the address for the first row in a sequence.
+                    LineConvertRow::SetAddress(address) => {
                         if !rows.is_empty() {
-                            return Err(ConvertError::UnsupportedLineSetAddress);
+                            self.address = Some(address);
+                            self.state = LineConvertState::SetAddress;
+                            return Ok(Some(LineConvertSequence {
+                                start,
+                                end: LineConvertSequenceEnd::Address(address),
+                                rows,
+                            }));
                         }
                         start = Some(address);
-                        rows.push(row);
                     }
                     LineConvertRow::Row(row) => {
                         rows.push(row);
@@ -1473,7 +1529,7 @@ mod convert {
                     LineConvertRow::EndSequence(length) => {
                         return Ok(Some(LineConvertSequence {
                             start,
-                            length,
+                            end: LineConvertSequenceEnd::Length(length),
                             rows,
                         }));
                     }

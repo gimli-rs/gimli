@@ -337,8 +337,6 @@ mod convert {
         UnsupportedLineInstruction,
         /// Writing this form of line string is not implemented yet.
         UnsupportedLineStringForm,
-        /// A `DW_LNE_set_address` instruction occurred after the start of a sequence.
-        UnsupportedLineSetAddress,
         /// A `DW_LNE_end_sequence` instruction was missing at the end of a sequence.
         MissingLineEndSequence,
         /// The name of the compilation unit is missing.
@@ -395,10 +393,6 @@ mod convert {
                 UnsupportedLineStringForm => write!(
                     f,
                     "Writing this form of line string is not implemented yet."
-                ),
-                UnsupportedLineSetAddress => write!(
-                    f,
-                    "A `DW_LNE_set_address` instruction occurred after the start of a sequence."
                 ),
                 MissingLineEndSequence => write!(
                     f,
