@@ -689,7 +689,7 @@ impl LineProgram {
 }
 
 /// A row in the line number table that corresponds to a machine instruction.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LineRow {
     /// The offset of the instruction from the start address of the sequence.
     pub address_offset: u64,
@@ -1071,7 +1071,7 @@ mod convert {
     }
 
     /// The result of [`LineConvert::read_row`].
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum LineConvertRow {
         /// The address from a `DW_LNE_set_address` instruction.
         ///
@@ -1085,7 +1085,7 @@ mod convert {
     }
 
     /// The result of [`LineConvert::read_sequence`].
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub struct LineConvertSequence {
         /// The address of the first instruction in the given rows.
         ///
@@ -1100,7 +1100,7 @@ mod convert {
     }
 
     /// The location of the next instruction after a sequence of rows.
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum LineConvertSequenceEnd {
         /// An offset in bytes from [`LineConvertSequence::start`].
         Length(u64),
@@ -1793,69 +1793,172 @@ mod tests {
 
                     // Test conversion of sequences.
                     let mut expected_instructions = Vec::new();
+                    let mut sequence_rows = Vec::new();
+                    let mut expected_rows = Vec::new();
+                    let mut expected_sequences = Vec::new();
 
                     // Basic sequence.
-                    let address = Address::Constant(0x12);
-                    program.begin_sequence(Some(address));
+                    let address = 0x12;
+                    let length = 0x1234;
+
+                    expected_rows.push(LineConvertRow::SetAddress(address));
+                    program.begin_sequence(Some(Address::Constant(address)));
+
+                    expected_rows.push(LineConvertRow::Row(program.row));
+                    sequence_rows.push(program.row);
                     program.generate_row();
-                    program.end_sequence(0x1234);
+
+                    expected_rows.push(LineConvertRow::EndSequence(length));
+                    expected_sequences.push(LineConvertSequence {
+                        start: Some(0x12),
+                        end: LineConvertSequenceEnd::Length(length),
+                        rows: std::mem::take(&mut sequence_rows),
+                    });
+                    program.end_sequence(length);
+
                     expected_instructions.extend_from_slice(&[
-                        LineInstruction::SetAddress(address),
+                        LineInstruction::SetAddress(Address::Constant(address)),
                         LineInstruction::Copy,
-                        LineInstruction::AdvancePc(0x1234),
+                        LineInstruction::AdvancePc(length),
                         LineInstruction::EndSequence,
                     ]);
 
                     // Empty sequence.
                     program.begin_sequence(None);
+
+                    expected_rows.push(LineConvertRow::EndSequence(0));
+                    expected_sequences.push(LineConvertSequence {
+                        start: None,
+                        end: LineConvertSequenceEnd::Length(0),
+                        rows: std::mem::take(&mut sequence_rows),
+                    });
                     program.end_sequence(0);
+
                     expected_instructions.extend_from_slice(&[LineInstruction::EndSequence]);
 
-                    // Multiple `DW_LNE_set_address`.
-                    let address1 = Address::Constant(0x12);
-                    let address2 = Address::Constant(0x34);
-                    program.set_address(address1);
+                    // Multiple `DW_LNE_set_address` with tombstone.
+                    let address1 = 0x12;
+                    let address2 = 0x34;
+                    let tombstone = !0u64 >> (64 - address_size * 8);
+
+                    expected_rows.push(LineConvertRow::SetAddress(address1));
+                    program.set_address(Address::Constant(address1));
+
+                    expected_rows.push(LineConvertRow::Row(program.row));
+                    sequence_rows.push(program.row);
                     program.generate_row();
-                    program.set_address(address2);
+
+                    program.set_address(Address::Constant(tombstone));
                     program.generate_row();
-                    program.end_sequence(0x1234);
+
+                    expected_rows.push(LineConvertRow::SetAddress(address2));
+                    expected_sequences.push(LineConvertSequence {
+                        start: Some(address1),
+                        end: LineConvertSequenceEnd::Address(address2),
+                        rows: std::mem::take(&mut sequence_rows),
+                    });
+                    program.set_address(Address::Constant(address2));
+
+                    expected_rows.push(LineConvertRow::Row(program.row));
+                    sequence_rows.push(program.row);
+                    program.generate_row();
+
+                    expected_rows.push(LineConvertRow::EndSequence(length));
+                    expected_sequences.push(LineConvertSequence {
+                        start: Some(address2),
+                        end: LineConvertSequenceEnd::Length(length),
+                        rows: std::mem::take(&mut sequence_rows),
+                    });
+                    program.end_sequence(length);
+
                     expected_instructions.extend_from_slice(&[
-                        LineInstruction::SetAddress(address1),
+                        LineInstruction::SetAddress(Address::Constant(address1)),
                         LineInstruction::Copy,
-                        LineInstruction::SetAddress(address2),
+                        LineInstruction::SetAddress(Address::Constant(address2)),
                         LineInstruction::Copy,
-                        LineInstruction::AdvancePc(0x1234),
+                        LineInstruction::AdvancePc(length),
                         LineInstruction::EndSequence,
                     ]);
 
                     // No `DW_LNE_set_address`.
+                    expected_rows.push(LineConvertRow::Row(program.row));
+                    sequence_rows.push(program.row);
                     program.generate_row();
-                    program.end_sequence(0x1234);
+
+                    expected_rows.push(LineConvertRow::EndSequence(length));
+                    expected_sequences.push(LineConvertSequence {
+                        start: None,
+                        end: LineConvertSequenceEnd::Length(length),
+                        rows: std::mem::take(&mut sequence_rows),
+                    });
+                    program.end_sequence(length);
+
                     expected_instructions.extend_from_slice(&[
                         LineInstruction::Copy,
-                        LineInstruction::AdvancePc(0x1234),
+                        LineInstruction::AdvancePc(length),
                         LineInstruction::EndSequence,
                     ]);
 
-                    assert_eq!(program.instructions, expected_instructions);
-
+                    // Write the DWARF.
                     let mut unit = Unit::new(encoding, program);
                     let root = unit.get_mut(unit.root());
                     root.set(constants::DW_AT_stmt_list, AttributeValue::LineProgramRef);
-
                     let mut dwarf = Dwarf::new();
                     dwarf.units.add(unit);
-
                     let mut sections = Sections::new(EndianVec::new(LittleEndian));
                     dwarf.write(&mut sections).unwrap();
-                    let read_dwarf = sections.read(LittleEndian);
 
+                    // Read the DWARF.
+                    let read_dwarf = sections.read(LittleEndian);
+                    let read_unit_header = read_dwarf.units().next().unwrap().unwrap();
+                    let read_unit = read_dwarf.unit(read_unit_header).unwrap();
+                    let read_program = &read_unit.line_program.unwrap();
+
+                    // Test LineProgram::from.
                     let convert_dwarf =
                         Dwarf::from(&read_dwarf, &|address| Some(Address::Constant(address)))
                             .unwrap();
                     let convert_unit = convert_dwarf.units.iter().next().unwrap().1;
                     let convert_program = &convert_unit.line_program;
                     assert_eq!(convert_program.instructions, expected_instructions);
+
+                    // Test LineConvert::read_row.
+                    let mut convert_line_strings = LineStringTable::default();
+                    let mut convert_strings = StringTable::default();
+                    let mut convert_line = LineConvert::new(
+                        &read_dwarf,
+                        read_program.clone(),
+                        None,
+                        read_program.header().encoding(),
+                        read_program.header().line_encoding(),
+                        &mut convert_line_strings,
+                        &mut convert_strings,
+                    )
+                    .unwrap();
+                    let mut convert_rows = Vec::new();
+                    while let Some(convert_row) = convert_line.read_row().unwrap() {
+                        convert_rows.push(convert_row);
+                    }
+                    assert_eq!(convert_rows, expected_rows);
+
+                    // Test LineConvert::read_sequence.
+                    let mut convert_line_strings = LineStringTable::default();
+                    let mut convert_strings = StringTable::default();
+                    let mut convert_line = LineConvert::new(
+                        &read_dwarf,
+                        read_program.clone(),
+                        None,
+                        read_program.header().encoding(),
+                        read_program.header().line_encoding(),
+                        &mut convert_line_strings,
+                        &mut convert_strings,
+                    )
+                    .unwrap();
+                    let mut convert_sequences = Vec::new();
+                    while let Some(convert_sequence) = convert_line.read_sequence().unwrap() {
+                        convert_sequences.push(convert_sequence);
+                    }
+                    assert_eq!(convert_sequences, expected_sequences);
                 }
             }
         }
