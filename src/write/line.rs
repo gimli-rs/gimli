@@ -1038,14 +1038,10 @@ mod convert {
         ) -> ConvertResult<(LineProgram, Vec<FileId>)> {
             let encoding = from_program.header().encoding();
             let line_encoding = from_program.header().line_encoding();
-            let comp_name = match from_program.header().file(0) {
-                Some(file) => Some(from_dwarf.attr_line_string(file.path_name())?),
-                None => None,
-            };
             let mut convert = LineConvert::new(
                 from_dwarf,
                 from_program,
-                comp_name,
+                None,
                 encoding,
                 line_encoding,
                 line_strings,
