@@ -3,7 +3,7 @@
 //! The resulting object file can be linked with a C runtime to create a complete executable:
 //! ```sh
 //! $ cargo run --bin simple_write
-//! $ gcc -o hello hello.o
+//! $ gcc -o hello hello.o -z noexecstack
 //! $ ./hello
 //! Hello, world!
 //! ```
@@ -48,8 +48,9 @@ impl RelocateWriter for Section {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let binary_format = object::BinaryFormat::native_object();
     let mut obj = object::write::Object::new(
-        object::BinaryFormat::native_object(),
+        binary_format,
         object::Architecture::X86_64,
         object::Endianness::Little,
     );
@@ -69,7 +70,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Choose the encoding parameters.
     let encoding = Encoding {
         format: Format::Dwarf32,
-        version: 5,
+        version: if binary_format == object::BinaryFormat::Coff {
+            // The COFF toolchain I used didn't work with DWARF version 5.
+            4
+        } else {
+            5
+        },
         address_size: 8,
     };
 
@@ -148,7 +154,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if section.data.len() == 0 {
             return Ok(());
         }
-        let section_id = obj.add_section(Vec::new(), id.name().into(), object::SectionKind::Debug);
+        let kind = if id.is_string() {
+            object::SectionKind::DebugString
+        } else {
+            object::SectionKind::Debug
+        };
+        let section_id = obj.add_section(Vec::new(), id.name().into(), kind);
         obj.set_section_data(section_id, section.data.take(), 1);
 
         // Record the section ID so that it can be used for relocations.
@@ -166,14 +177,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // The `eh_pe` field is not used in this example because we are not writing
             // unwind information.
             debug_assert!(reloc.eh_pe.is_none());
-            let symbol = match reloc.target {
+            let (symbol, kind) = match reloc.target {
                 RelocationTarget::Section(id) => {
-                    obj.section_symbol(sections.get(id).unwrap().id.unwrap())
+                    let kind = if binary_format == object::BinaryFormat::Coff {
+                        object::RelocationKind::SectionOffset
+                    } else {
+                        object::RelocationKind::Absolute
+                    };
+                    let symbol = obj.section_symbol(sections.get(id).unwrap().id.unwrap());
+                    (symbol, kind)
                 }
                 RelocationTarget::Symbol(id) => {
                     // The main function is the only symbol we have defined.
                     debug_assert_eq!(id, 0);
-                    main_symbol
+                    (main_symbol, object::RelocationKind::Absolute)
                 }
             };
             obj.add_relocation(
@@ -183,7 +200,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     symbol,
                     addend: reloc.addend,
                     flags: object::RelocationFlags::Generic {
-                        kind: object::RelocationKind::Absolute,
+                        kind,
                         encoding: object::RelocationEncoding::Generic,
                         size: reloc.size * 8,
                     },
