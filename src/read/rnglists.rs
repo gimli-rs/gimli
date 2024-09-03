@@ -556,6 +556,7 @@ impl<R: Reader> RngListIter<R> {
             }
             RawRngListEntry::AddressOrOffsetPair { begin, end }
             | RawRngListEntry::OffsetPair { begin, end } => {
+                // Skip tombstone entries (see below).
                 if self.base_address == tombstone {
                     return Ok(None);
                 }
@@ -570,7 +571,17 @@ impl<R: Reader> RngListIter<R> {
             }
         };
 
-        if range.begin == tombstone || range.begin > range.end {
+        // Skip tombstone entries.
+        //
+        // DWARF specifies a tombstone value of -1 or -2, but many linkers use 0 or 1.
+        // However, 0/1 may be a valid address, so we can't always reliably skip them.
+        // One case where we can skip them is for address pairs, where both values are
+        // replaced by tombstones and thus `begin` equals `end`. Since these entries
+        // are empty, it's safe to skip them even if they aren't tombstones.
+        //
+        // In addition to skipping tombstone entries, we also skip invalid entries
+        // where `begin` is greater than `end`. This can occur due to compiler bugs.
+        if range.begin == tombstone || range.begin >= range.end {
             return Ok(None);
         }
 
@@ -658,6 +669,7 @@ mod tests {
         let format = Format::Dwarf32;
         for size in [4, 8] {
             let tombstone = u64::ones_sized(size);
+            let tombstone_0 = 0;
             let encoding = Encoding {
                 format,
                 version: 5,
@@ -669,7 +681,8 @@ mod tests {
                 .word(size, 0x0301_0400)
                 .word(size, 0x0301_0500)
                 .word(size, tombstone)
-                .word(size, 0x0301_0600);
+                .word(size, 0x0301_0600)
+                .word(size, tombstone_0);
             let buf = section.get_contents().unwrap();
             let debug_addr = &DebugAddr::from(EndianSlice::new(&buf, LittleEndian));
             let debug_addr_base = DebugAddrBase(0);
@@ -699,12 +712,6 @@ mod tests {
             section = section.L8(DW_RLE_offset_pair.0).uleb(0x10400).uleb(0x10500);
             expect_range(0x0201_0400, 0x0201_0500);
 
-            // An empty offset pair followed by a normal offset pair.
-            section = section.L8(DW_RLE_offset_pair.0).uleb(0x10600).uleb(0x10600);
-            expect_range(0x0201_0600, 0x0201_0600);
-            section = section.L8(DW_RLE_offset_pair.0).uleb(0x10800).uleb(0x10900);
-            expect_range(0x0201_0800, 0x0201_0900);
-
             section = section
                 .L8(DW_RLE_start_end.0)
                 .word(size, 0x201_0a00)
@@ -721,11 +728,6 @@ mod tests {
             section = section.L8(DW_RLE_base_address.0).word(size, 0);
             section = section.L8(DW_RLE_offset_pair.0).uleb(0).uleb(1);
             expect_range(0, 1);
-
-            // An offset pair that starts and ends at 0.
-            section = section.L8(DW_RLE_base_address.0).word(size, 0);
-            section = section.L8(DW_RLE_offset_pair.0).uleb(0).uleb(0);
-            expect_range(0, 0);
 
             // An offset pair that ends at -1.
             section = section.L8(DW_RLE_base_address.0).word(size, 0);
@@ -759,6 +761,19 @@ mod tests {
                 .L8(DW_RLE_start_length.0)
                 .word(size, tombstone)
                 .uleb(0x100);
+
+            // Ignore some instances of 0 for tombstone.
+            section = section.L8(DW_RLE_startx_endx.0).uleb(6).uleb(6);
+            section = section
+                .L8(DW_RLE_start_end.0)
+                .word(size, tombstone_0)
+                .word(size, tombstone_0);
+
+            // Ignore empty ranges.
+            section = section.L8(DW_RLE_base_address.0).word(size, 0);
+            section = section.L8(DW_RLE_offset_pair.0).uleb(0).uleb(0);
+            section = section.L8(DW_RLE_base_address.0).word(size, 0x10000);
+            section = section.L8(DW_RLE_offset_pair.0).uleb(0x1234).uleb(0x1234);
 
             // A valid range after the tombstones.
             section = section
@@ -868,7 +883,6 @@ mod tests {
             expect_range(0x0201_0400, 0x0201_0500);
             // An empty range followed by a normal range.
             section = section.word(size, 0x10600).word(size, 0x10600);
-            expect_range(0x0201_0600, 0x0201_0600);
             section = section.word(size, 0x10800).word(size, 0x10900);
             expect_range(0x0201_0800, 0x0201_0900);
             // A range that starts at 0.
