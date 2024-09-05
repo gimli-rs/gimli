@@ -365,6 +365,13 @@ impl SectionId {
             _ => return None,
         })
     }
+
+    /// Returns true if this is a mergeable string section.
+    ///
+    /// This is useful for determining the correct section flags.
+    pub fn is_string(self) -> bool {
+        matches!(self, SectionId::DebugStr | SectionId::DebugLineStr)
+    }
 }
 
 /// An optionally-provided implementation-defined compilation unit ID to enable
