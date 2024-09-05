@@ -683,808 +683,284 @@ pub struct LocationListEntry<R: Reader> {
 mod tests {
     use super::*;
     use crate::common::Format;
+    use crate::constants::*;
     use crate::endianity::LittleEndian;
     use crate::read::{EndianSlice, Range};
     use crate::test_util::GimliSectionMethods;
+    use alloc::vec::Vec;
     use test_assembler::{Endian, Label, LabelMaker, Section};
 
     #[test]
-    fn test_loclists_32() {
-        let tombstone = !0u32;
-        let encoding = Encoding {
-            format: Format::Dwarf32,
-            version: 5,
-            address_size: 4,
-        };
+    fn test_loclists() {
+        let format = Format::Dwarf32;
+        for size in [4, 8] {
+            let tombstone = u64::ones_sized(size);
+            let encoding = Encoding {
+                format,
+                version: 5,
+                address_size: size,
+            };
 
-        let section = Section::with_endian(Endian::Little)
-            .L32(0x0300_0000)
-            .L32(0x0301_0300)
-            .L32(0x0301_0400)
-            .L32(0x0301_0500)
-            .L32(tombstone)
-            .L32(0x0301_0600);
-        let buf = section.get_contents().unwrap();
-        let debug_addr = &DebugAddr::from(EndianSlice::new(&buf, LittleEndian));
-        let debug_addr_base = DebugAddrBase(0);
+            let section = Section::with_endian(Endian::Little)
+                .word(size, 0x0300_0000)
+                .word(size, 0x0301_0300)
+                .word(size, 0x0301_0400)
+                .word(size, 0x0301_0500)
+                .word(size, tombstone)
+                .word(size, 0x0301_0600);
+            let buf = section.get_contents().unwrap();
+            let debug_addr = &DebugAddr::from(EndianSlice::new(&buf, LittleEndian));
+            let debug_addr_base = DebugAddrBase(0);
 
-        let start = Label::new();
-        let first = Label::new();
-        let size = Label::new();
-        #[rustfmt::skip]
-        let section = Section::with_endian(Endian::Little)
-            // Header
-            .mark(&start)
-            .L32(&size)
-            .L16(encoding.version)
-            .L8(encoding.address_size)
-            .L8(0)
-            .L32(0)
-            .mark(&first)
-            // OffsetPair
-            .L8(4).uleb(0x10200).uleb(0x10300).uleb(4).L32(2)
-            // A base address selection followed by an OffsetPair.
-            .L8(6).L32(0x0200_0000)
-            .L8(4).uleb(0x10400).uleb(0x10500).uleb(4).L32(3)
-            // An empty OffsetPair followed by a normal OffsetPair.
-            .L8(4).uleb(0x10600).uleb(0x10600).uleb(4).L32(4)
-            .L8(4).uleb(0x10800).uleb(0x10900).uleb(4).L32(5)
-            // A StartEnd
-            .L8(7).L32(0x201_0a00).L32(0x201_0b00).uleb(4).L32(6)
-            // A StartLength
-            .L8(8).L32(0x201_0c00).uleb(0x100).uleb(4).L32(7)
-            // An OffsetPair that starts at 0.
-            .L8(4).uleb(0).uleb(1).uleb(4).L32(8)
-            // An OffsetPair that ends at -1.
-            .L8(6).L32(0)
-            .L8(4).uleb(0).uleb(0xffff_ffff).uleb(4).L32(9)
-            // A DefaultLocation
-            .L8(5).uleb(4).L32(10)
-            // A BaseAddressx + OffsetPair
-            .L8(1).uleb(0)
-            .L8(4).uleb(0x10100).uleb(0x10200).uleb(4).L32(11)
-            // A StartxEndx
-            .L8(2).uleb(1).uleb(2).uleb(4).L32(12)
-            // A StartxLength
-            .L8(3).uleb(3).uleb(0x100).uleb(4).L32(13)
+            let length = Label::new();
+            let start = Label::new();
+            let first = Label::new();
+            let end = Label::new();
+            let mut section = Section::with_endian(Endian::Little)
+                .initial_length(format, &length, &start)
+                .L16(encoding.version)
+                .L8(encoding.address_size)
+                .L8(0)
+                .L32(0)
+                .mark(&first);
 
-            // Tombstone entries, all of which should be ignored.
-            // A BaseAddressx that is a tombstone.
-            .L8(1).uleb(4)
-            .L8(4).uleb(0x11100).uleb(0x11200).uleb(4).L32(20)
-            // A BaseAddress that is a tombstone.
-            .L8(6).L32(tombstone)
-            .L8(4).uleb(0x11300).uleb(0x11400).uleb(4).L32(21)
-            // A StartxEndx that is a tombstone.
-            .L8(2).uleb(4).uleb(5).uleb(4).L32(22)
-            // A StartxLength that is a tombstone.
-            .L8(3).uleb(4).uleb(0x100).uleb(4).L32(23)
-            // A StartEnd that is a tombstone.
-            .L8(7).L32(tombstone).L32(0x201_1500).uleb(4).L32(24)
-            // A StartLength that is a tombstone.
-            .L8(8).L32(tombstone).uleb(0x100).uleb(4).L32(25)
-            // A StartEnd (not ignored)
-            .L8(7).L32(0x201_1600).L32(0x201_1700).uleb(4).L32(26)
+            let mut expected_locations = Vec::new();
+            let mut expect_location = |begin, end, data| {
+                expected_locations.push(LocationListEntry {
+                    range: Range { begin, end },
+                    data: Expression(EndianSlice::new(data, LittleEndian)),
+                });
+            };
 
-            // A range end.
-            .L8(0)
-            // Some extra data.
-            .L32(0xffff_ffff);
-        size.set_const((&section.here() - &start - 4) as u64);
+            // An offset pair using the unit base address.
+            section = section.L8(DW_LLE_offset_pair.0).uleb(0x10200).uleb(0x10300);
+            section = section.uleb(4).L32(2);
+            expect_location(0x0101_0200, 0x0101_0300, &[2, 0, 0, 0]);
 
-        let buf = section.get_contents().unwrap();
-        let debug_loc = DebugLoc::new(&[], LittleEndian);
-        let debug_loclists = DebugLocLists::new(&buf, LittleEndian);
-        let loclists = LocationLists::new(debug_loc, debug_loclists);
-        let offset = LocationListsOffset((&first - &start) as usize);
-        let mut locations = loclists
-            .locations(offset, encoding, 0x0100_0000, debug_addr, debug_addr_base)
-            .unwrap();
+            section = section.L8(DW_LLE_base_address.0).word(size, 0x0200_0000);
+            section = section.L8(DW_LLE_offset_pair.0).uleb(0x10400).uleb(0x10500);
+            section = section.uleb(4).L32(3);
+            expect_location(0x0201_0400, 0x0201_0500, &[3, 0, 0, 0]);
 
-        // A normal location.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0101_0200,
-                    end: 0x0101_0300,
-                },
-                data: Expression(EndianSlice::new(&[2, 0, 0, 0], LittleEndian)),
-            }))
-        );
+            // An empty offset pair followed by a normal offset pair.
+            section = section.L8(DW_LLE_offset_pair.0).uleb(0x10600).uleb(0x10600);
+            section = section.uleb(4).L32(4);
+            expect_location(0x0201_0600, 0x0201_0600, &[4, 0, 0, 0]);
+            section = section.L8(DW_LLE_offset_pair.0).uleb(0x10800).uleb(0x10900);
+            section = section.uleb(4).L32(5);
+            expect_location(0x0201_0800, 0x0201_0900, &[5, 0, 0, 0]);
 
-        // A base address selection followed by a normal location.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_0400,
-                    end: 0x0201_0500,
-                },
-                data: Expression(EndianSlice::new(&[3, 0, 0, 0], LittleEndian)),
-            }))
-        );
+            section = section
+                .L8(DW_LLE_start_end.0)
+                .word(size, 0x201_0a00)
+                .word(size, 0x201_0b00);
+            section = section.uleb(4).L32(6);
+            expect_location(0x0201_0a00, 0x0201_0b00, &[6, 0, 0, 0]);
 
-        // An empty location range followed by a normal location.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_0600,
-                    end: 0x0201_0600,
-                },
-                data: Expression(EndianSlice::new(&[4, 0, 0, 0], LittleEndian)),
-            }))
-        );
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_0800,
-                    end: 0x0201_0900,
-                },
-                data: Expression(EndianSlice::new(&[5, 0, 0, 0], LittleEndian)),
-            }))
-        );
+            section = section
+                .L8(DW_LLE_start_length.0)
+                .word(size, 0x201_0c00)
+                .uleb(0x100);
+            section = section.uleb(4).L32(7);
+            expect_location(0x0201_0c00, 0x0201_0d00, &[7, 0, 0, 0]);
 
-        // A normal location.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_0a00,
-                    end: 0x0201_0b00,
-                },
-                data: Expression(EndianSlice::new(&[6, 0, 0, 0], LittleEndian)),
-            }))
-        );
+            // An offset pair that starts at 0.
+            section = section.L8(DW_LLE_base_address.0).word(size, 0);
+            section = section.L8(DW_LLE_offset_pair.0).uleb(0).uleb(1);
+            section = section.uleb(4).L32(8);
+            expect_location(0, 1, &[8, 0, 0, 0]);
 
-        // A normal location.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_0c00,
-                    end: 0x0201_0d00,
-                },
-                data: Expression(EndianSlice::new(&[7, 0, 0, 0], LittleEndian)),
-            }))
-        );
+            // An offset pair that starts and ends at 0.
+            section = section.L8(DW_LLE_base_address.0).word(size, 0);
+            section = section.L8(DW_LLE_offset_pair.0).uleb(0).uleb(0);
+            section = section.uleb(4).L32(8);
+            expect_location(0, 0, &[8, 0, 0, 0]);
 
-        // A location range that starts at 0.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0200_0000,
-                    end: 0x0200_0001,
-                },
-                data: Expression(EndianSlice::new(&[8, 0, 0, 0], LittleEndian)),
-            }))
-        );
+            // An offset pair that ends at -1.
+            section = section.L8(DW_LLE_base_address.0).word(size, 0);
+            section = section.L8(DW_LLE_offset_pair.0).uleb(0).uleb(tombstone);
+            section = section.uleb(4).L32(9);
+            expect_location(0, tombstone, &[9, 0, 0, 0]);
 
-        // A location range that ends at -1.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0000_0000,
-                    end: 0xffff_ffff,
-                },
-                data: Expression(EndianSlice::new(&[9, 0, 0, 0], LittleEndian)),
-            }))
-        );
+            section = section.L8(DW_LLE_default_location.0).uleb(4).L32(10);
+            expect_location(0, u64::MAX, &[10, 0, 0, 0]);
 
-        // A DefaultLocation.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0,
-                    end: u64::MAX,
-                },
-                data: Expression(EndianSlice::new(&[10, 0, 0, 0], LittleEndian)),
-            }))
-        );
+            section = section.L8(DW_LLE_base_addressx.0).uleb(0);
+            section = section.L8(DW_LLE_offset_pair.0).uleb(0x10100).uleb(0x10200);
+            section = section.uleb(4).L32(11);
+            expect_location(0x0301_0100, 0x0301_0200, &[11, 0, 0, 0]);
 
-        // A BaseAddressx + OffsetPair
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0301_0100,
-                    end: 0x0301_0200,
-                },
-                data: Expression(EndianSlice::new(&[11, 0, 0, 0], LittleEndian)),
-            }))
-        );
+            section = section.L8(DW_LLE_startx_endx.0).uleb(1).uleb(2);
+            section = section.uleb(4).L32(12);
+            expect_location(0x0301_0300, 0x0301_0400, &[12, 0, 0, 0]);
 
-        // A StartxEndx
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0301_0300,
-                    end: 0x0301_0400,
-                },
-                data: Expression(EndianSlice::new(&[12, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A StartxLength
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0301_0500,
-                    end: 0x0301_0600,
-                },
-                data: Expression(EndianSlice::new(&[13, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A StartEnd location following the tombstones
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_1600,
-                    end: 0x0201_1700,
-                },
-                data: Expression(EndianSlice::new(&[26, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A location list end.
-        assert_eq!(locations.next(), Ok(None));
-
-        // An offset at the end of buf.
-        let mut locations = loclists
-            .locations(
-                LocationListsOffset(buf.len()),
-                encoding,
-                0x0100_0000,
-                debug_addr,
-                debug_addr_base,
-            )
-            .unwrap();
-        assert_eq!(locations.next(), Ok(None));
-    }
-
-    #[test]
-    fn test_loclists_64() {
-        let tombstone = !0u64;
-        let encoding = Encoding {
-            format: Format::Dwarf64,
-            version: 5,
-            address_size: 8,
-        };
-
-        let section = Section::with_endian(Endian::Little)
-            .L64(0x0300_0000)
-            .L64(0x0301_0300)
-            .L64(0x0301_0400)
-            .L64(0x0301_0500)
-            .L64(tombstone)
-            .L64(0x0301_0600);
-        let buf = section.get_contents().unwrap();
-        let debug_addr = &DebugAddr::from(EndianSlice::new(&buf, LittleEndian));
-        let debug_addr_base = DebugAddrBase(0);
-
-        let start = Label::new();
-        let first = Label::new();
-        let size = Label::new();
-        #[rustfmt::skip]
-        let section = Section::with_endian(Endian::Little)
-            // Header
-            .mark(&start)
-            .L32(0xffff_ffff)
-            .L64(&size)
-            .L16(encoding.version)
-            .L8(encoding.address_size)
-            .L8(0)
-            .L32(0)
-            .mark(&first)
-            // OffsetPair
-            .L8(4).uleb(0x10200).uleb(0x10300).uleb(4).L32(2)
-            // A base address selection followed by an OffsetPair.
-            .L8(6).L64(0x0200_0000)
-            .L8(4).uleb(0x10400).uleb(0x10500).uleb(4).L32(3)
-            // An empty OffsetPair followed by a normal OffsetPair.
-            .L8(4).uleb(0x10600).uleb(0x10600).uleb(4).L32(4)
-            .L8(4).uleb(0x10800).uleb(0x10900).uleb(4).L32(5)
-            // A StartEnd
-            .L8(7).L64(0x201_0a00).L64(0x201_0b00).uleb(4).L32(6)
-            // A StartLength
-            .L8(8).L64(0x201_0c00).uleb(0x100).uleb(4).L32(7)
-            // An OffsetPair that starts at 0.
-            .L8(4).uleb(0).uleb(1).uleb(4).L32(8)
-            // An OffsetPair that ends at -1.
-            .L8(6).L64(0)
-            .L8(4).uleb(0).uleb(0xffff_ffff).uleb(4).L32(9)
-            // A DefaultLocation
-            .L8(5).uleb(4).L32(10)
-            // A BaseAddressx + OffsetPair
-            .L8(1).uleb(0)
-            .L8(4).uleb(0x10100).uleb(0x10200).uleb(4).L32(11)
-            // A StartxEndx
-            .L8(2).uleb(1).uleb(2).uleb(4).L32(12)
-            // A StartxLength
-            .L8(3).uleb(3).uleb(0x100).uleb(4).L32(13)
+            section = section.L8(DW_LLE_startx_length.0).uleb(3).uleb(0x100);
+            section = section.uleb(4).L32(13);
+            expect_location(0x0301_0500, 0x0301_0600, &[13, 0, 0, 0]);
 
             // Tombstone entries, all of which should be ignored.
-            // A BaseAddressx that is a tombstone.
-            .L8(1).uleb(4)
-            .L8(4).uleb(0x11100).uleb(0x11200).uleb(4).L32(20)
-            // A BaseAddress that is a tombstone.
-            .L8(6).L64(tombstone)
-            .L8(4).uleb(0x11300).uleb(0x11400).uleb(4).L32(21)
-            // A StartxEndx that is a tombstone.
-            .L8(2).uleb(4).uleb(5).uleb(4).L32(22)
-            // A StartxLength that is a tombstone.
-            .L8(3).uleb(4).uleb(0x100).uleb(4).L32(23)
-            // A StartEnd that is a tombstone.
-            .L8(7).L64(tombstone).L64(0x201_1500).uleb(4).L32(24)
-            // A StartLength that is a tombstone.
-            .L8(8).L64(tombstone).uleb(0x100).uleb(4).L32(25)
-            // A StartEnd (not ignored)
-            .L8(7).L64(0x201_1600).L64(0x201_1700).uleb(4).L32(26)
+            section = section.L8(DW_LLE_base_addressx.0).uleb(4);
+            section = section.L8(DW_LLE_offset_pair.0).uleb(0x11100).uleb(0x11200);
+            section = section.uleb(4).L32(20);
 
-            // A range end.
-            .L8(0)
+            section = section.L8(DW_LLE_base_address.0).word(size, tombstone);
+            section = section.L8(DW_LLE_offset_pair.0).uleb(0x11300).uleb(0x11400);
+            section = section.uleb(4).L32(21);
+
+            section = section.L8(DW_LLE_startx_endx.0).uleb(4).uleb(5);
+            section = section.uleb(4).L32(22);
+            section = section.L8(DW_LLE_startx_length.0).uleb(4).uleb(0x100);
+            section = section.uleb(4).L32(23);
+            section = section
+                .L8(DW_LLE_start_end.0)
+                .word(size, tombstone)
+                .word(size, 0x201_1500);
+            section = section.uleb(4).L32(24);
+            section = section
+                .L8(DW_LLE_start_length.0)
+                .word(size, tombstone)
+                .uleb(0x100);
+            section = section.uleb(4).L32(25);
+
+            // A valid range after the tombstones.
+            section = section
+                .L8(DW_LLE_start_end.0)
+                .word(size, 0x201_1600)
+                .word(size, 0x201_1700);
+            section = section.uleb(4).L32(26);
+            expect_location(0x0201_1600, 0x0201_1700, &[26, 0, 0, 0]);
+
+            section = section.L8(DW_LLE_end_of_list.0);
+            section = section.mark(&end);
             // Some extra data.
-            .L32(0xffff_ffff);
-        size.set_const((&section.here() - &start - 12) as u64);
+            section = section.word(size, 0x1234_5678);
+            length.set_const((&end - &start) as u64);
 
-        let buf = section.get_contents().unwrap();
-        let debug_loc = DebugLoc::new(&[], LittleEndian);
-        let debug_loclists = DebugLocLists::new(&buf, LittleEndian);
-        let loclists = LocationLists::new(debug_loc, debug_loclists);
-        let offset = LocationListsOffset((&first - &start) as usize);
-        let mut locations = loclists
-            .locations(offset, encoding, 0x0100_0000, debug_addr, debug_addr_base)
-            .unwrap();
+            let offset = LocationListsOffset((&first - &section.start()) as usize);
+            let buf = section.get_contents().unwrap();
+            let debug_loc = DebugLoc::new(&[], LittleEndian);
+            let debug_loclists = DebugLocLists::new(&buf, LittleEndian);
+            let loclists = LocationLists::new(debug_loc, debug_loclists);
+            let mut locations = loclists
+                .locations(offset, encoding, 0x0100_0000, debug_addr, debug_addr_base)
+                .unwrap();
 
-        // A normal location.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0101_0200,
-                    end: 0x0101_0300,
-                },
-                data: Expression(EndianSlice::new(&[2, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A base address selection followed by a normal location.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_0400,
-                    end: 0x0201_0500,
-                },
-                data: Expression(EndianSlice::new(&[3, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // An empty location range followed by a normal location.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_0600,
-                    end: 0x0201_0600,
-                },
-                data: Expression(EndianSlice::new(&[4, 0, 0, 0], LittleEndian)),
-            }))
-        );
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_0800,
-                    end: 0x0201_0900,
-                },
-                data: Expression(EndianSlice::new(&[5, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A normal location.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_0a00,
-                    end: 0x0201_0b00,
-                },
-                data: Expression(EndianSlice::new(&[6, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A normal location.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_0c00,
-                    end: 0x0201_0d00,
-                },
-                data: Expression(EndianSlice::new(&[7, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A location range that starts at 0.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0200_0000,
-                    end: 0x0200_0001,
-                },
-                data: Expression(EndianSlice::new(&[8, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A location range that ends at -1.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0000_0000,
-                    end: 0xffff_ffff,
-                },
-                data: Expression(EndianSlice::new(&[9, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A DefaultLocation.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0,
-                    end: u64::MAX,
-                },
-                data: Expression(EndianSlice::new(&[10, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A BaseAddressx + OffsetPair
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0301_0100,
-                    end: 0x0301_0200,
-                },
-                data: Expression(EndianSlice::new(&[11, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A StartxEndx
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0301_0300,
-                    end: 0x0301_0400,
-                },
-                data: Expression(EndianSlice::new(&[12, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A StartxLength
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0301_0500,
-                    end: 0x0301_0600,
-                },
-                data: Expression(EndianSlice::new(&[13, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A StartEnd location following the tombstones
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_1600,
-                    end: 0x0201_1700,
-                },
-                data: Expression(EndianSlice::new(&[26, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A location list end.
-        assert_eq!(locations.next(), Ok(None));
-
-        // An offset at the end of buf.
-        let mut locations = loclists
-            .locations(
-                LocationListsOffset(buf.len()),
-                encoding,
-                0x0100_0000,
-                debug_addr,
-                debug_addr_base,
-            )
-            .unwrap();
-        assert_eq!(locations.next(), Ok(None));
+            for expected_location in expected_locations {
+                let location = locations.next();
+                assert_eq!(
+                    location,
+                    Ok(Some(expected_location)),
+                    "read {:x?}, expect {:x?}",
+                    location,
+                    expected_location
+                );
+            }
+            assert_eq!(locations.next(), Ok(None));
+        }
     }
 
     #[test]
-    fn test_location_list_32() {
-        let tombstone = !0u32 - 1;
-        let start = Label::new();
-        let first = Label::new();
-        #[rustfmt::skip]
-        let section = Section::with_endian(Endian::Little)
-            // A location before the offset.
-            .mark(&start)
-            .L32(0x10000).L32(0x10100).L16(4).L32(1)
-            .mark(&first)
+    fn test_location_list() {
+        for size in [4, 8] {
+            let base = u64::ones_sized(size);
+            let tombstone = u64::ones_sized(size) - 1;
+            let start = Label::new();
+            let first = Label::new();
+            let mut section = Section::with_endian(Endian::Little)
+                // A location before the offset.
+                .mark(&start)
+                .word(size, 0x10000)
+                .word(size, 0x10100)
+                .L16(4)
+                .L32(1)
+                .mark(&first);
+
+            let mut expected_locations = Vec::new();
+            let mut expect_location = |begin, end, data| {
+                expected_locations.push(LocationListEntry {
+                    range: Range { begin, end },
+                    data: Expression(EndianSlice::new(data, LittleEndian)),
+                });
+            };
+
             // A normal location.
-            .L32(0x10200).L32(0x10300).L16(4).L32(2)
+            section = section.word(size, 0x10200).word(size, 0x10300);
+            section = section.L16(4).L32(2);
+            expect_location(0x0101_0200, 0x0101_0300, &[2, 0, 0, 0]);
             // A base address selection followed by a normal location.
-            .L32(0xffff_ffff).L32(0x0200_0000)
-            .L32(0x10400).L32(0x10500).L16(4).L32(3)
+            section = section.word(size, base).word(size, 0x0200_0000);
+            section = section.word(size, 0x10400).word(size, 0x10500);
+            section = section.L16(4).L32(3);
+            expect_location(0x0201_0400, 0x0201_0500, &[3, 0, 0, 0]);
             // An empty location range followed by a normal location.
-            .L32(0x10600).L32(0x10600).L16(4).L32(4)
-            .L32(0x10800).L32(0x10900).L16(4).L32(5)
+            section = section.word(size, 0x10600).word(size, 0x10600);
+            section = section.L16(4).L32(4);
+            expect_location(0x0201_0600, 0x0201_0600, &[4, 0, 0, 0]);
+            section = section.word(size, 0x10800).word(size, 0x10900);
+            section = section.L16(4).L32(5);
+            expect_location(0x0201_0800, 0x0201_0900, &[5, 0, 0, 0]);
             // A location range that starts at 0.
-            .L32(0).L32(1).L16(4).L32(6)
+            section = section.word(size, base).word(size, 0);
+            section = section.word(size, 0).word(size, 1);
+            section = section.L16(4).L32(6);
+            expect_location(0, 1, &[6, 0, 0, 0]);
             // A location range that ends at -1.
-            .L32(0xffff_ffff).L32(0x0000_0000)
-            .L32(0).L32(0xffff_ffff).L16(4).L32(7)
+            section = section.word(size, base).word(size, 0);
+            section = section.word(size, 0).word(size, base);
+            section = section.L16(4).L32(7);
+            expect_location(0, base, &[7, 0, 0, 0]);
             // A normal location with tombstone.
-            .L32(tombstone).L32(tombstone).L16(4).L32(8)
+            section = section.word(size, tombstone).word(size, tombstone);
+            section = section.L16(4).L32(8);
             // A base address selection with tombstone followed by a normal location.
-            .L32(0xffff_ffff).L32(tombstone)
-            .L32(0x10a00).L32(0x10b00).L16(4).L32(9)
+            section = section.word(size, base).word(size, tombstone);
+            section = section.word(size, 0x10a00).word(size, 0x10b00);
+            section = section.L16(4).L32(9);
             // A location list end.
-            .L32(0).L32(0)
+            section = section.word(size, 0).word(size, 0);
             // Some extra data.
-            .L32(0);
+            section = section.word(size, 0x1234_5678);
 
-        let buf = section.get_contents().unwrap();
-        let debug_loc = DebugLoc::new(&buf, LittleEndian);
-        let debug_loclists = DebugLocLists::new(&[], LittleEndian);
-        let loclists = LocationLists::new(debug_loc, debug_loclists);
-        let offset = LocationListsOffset((&first - &start) as usize);
-        let debug_addr = &DebugAddr::from(EndianSlice::new(&[], LittleEndian));
-        let debug_addr_base = DebugAddrBase(0);
-        let encoding = Encoding {
-            format: Format::Dwarf32,
-            version: 4,
-            address_size: 4,
-        };
-        let mut locations = loclists
-            .locations(offset, encoding, 0x0100_0000, debug_addr, debug_addr_base)
-            .unwrap();
+            let buf = section.get_contents().unwrap();
+            let debug_loc = DebugLoc::new(&buf, LittleEndian);
+            let debug_loclists = DebugLocLists::new(&[], LittleEndian);
+            let loclists = LocationLists::new(debug_loc, debug_loclists);
+            let offset = LocationListsOffset((&first - &start) as usize);
+            let debug_addr = &DebugAddr::from(EndianSlice::new(&[], LittleEndian));
+            let debug_addr_base = DebugAddrBase(0);
+            let encoding = Encoding {
+                format: Format::Dwarf32,
+                version: 4,
+                address_size: size,
+            };
+            let mut locations = loclists
+                .locations(offset, encoding, 0x0100_0000, debug_addr, debug_addr_base)
+                .unwrap();
 
-        // A normal location.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0101_0200,
-                    end: 0x0101_0300,
-                },
-                data: Expression(EndianSlice::new(&[2, 0, 0, 0], LittleEndian)),
-            }))
-        );
+            for expected_location in expected_locations {
+                let location = locations.next();
+                assert_eq!(
+                    location,
+                    Ok(Some(expected_location)),
+                    "read {:x?}, expect {:x?}",
+                    location,
+                    expected_location
+                );
+            }
+            assert_eq!(locations.next(), Ok(None));
 
-        // A base address selection followed by a normal location.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_0400,
-                    end: 0x0201_0500,
-                },
-                data: Expression(EndianSlice::new(&[3, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // An empty location range followed by a normal location.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_0600,
-                    end: 0x0201_0600,
-                },
-                data: Expression(EndianSlice::new(&[4, 0, 0, 0], LittleEndian)),
-            }))
-        );
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_0800,
-                    end: 0x0201_0900,
-                },
-                data: Expression(EndianSlice::new(&[5, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A location range that starts at 0.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0200_0000,
-                    end: 0x0200_0001,
-                },
-                data: Expression(EndianSlice::new(&[6, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A location range that ends at -1.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0000_0000,
-                    end: 0xffff_ffff,
-                },
-                data: Expression(EndianSlice::new(&[7, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A location list end.
-        assert_eq!(locations.next(), Ok(None));
-
-        // An offset at the end of buf.
-        let mut locations = loclists
-            .locations(
-                LocationListsOffset(buf.len()),
-                encoding,
-                0x0100_0000,
-                debug_addr,
-                debug_addr_base,
-            )
-            .unwrap();
-        assert_eq!(locations.next(), Ok(None));
-    }
-
-    #[test]
-    fn test_location_list_64() {
-        let tombstone = !0u64 - 1;
-        let start = Label::new();
-        let first = Label::new();
-        #[rustfmt::skip]
-        let section = Section::with_endian(Endian::Little)
-            // A location before the offset.
-            .mark(&start)
-            .L64(0x10000).L64(0x10100).L16(4).L32(1)
-            .mark(&first)
-            // A normal location.
-            .L64(0x10200).L64(0x10300).L16(4).L32(2)
-            // A base address selection followed by a normal location.
-            .L64(0xffff_ffff_ffff_ffff).L64(0x0200_0000)
-            .L64(0x10400).L64(0x10500).L16(4).L32(3)
-            // An empty location range followed by a normal location.
-            .L64(0x10600).L64(0x10600).L16(4).L32(4)
-            .L64(0x10800).L64(0x10900).L16(4).L32(5)
-            // A location range that starts at 0.
-            .L64(0).L64(1).L16(4).L32(6)
-            // A location range that ends at -1.
-            .L64(0xffff_ffff_ffff_ffff).L64(0x0000_0000)
-            .L64(0).L64(0xffff_ffff_ffff_ffff).L16(4).L32(7)
-            // A normal location with tombstone.
-            .L64(tombstone).L64(tombstone).L16(4).L32(8)
-            // A base address selection with tombstone followed by a normal location.
-            .L64(0xffff_ffff_ffff_ffff).L64(tombstone)
-            .L64(0x10a00).L64(0x10b00).L16(4).L32(9)
-            // A location list end.
-            .L64(0).L64(0)
-            // Some extra data.
-            .L64(0);
-
-        let buf = section.get_contents().unwrap();
-        let debug_loc = DebugLoc::new(&buf, LittleEndian);
-        let debug_loclists = DebugLocLists::new(&[], LittleEndian);
-        let loclists = LocationLists::new(debug_loc, debug_loclists);
-        let offset = LocationListsOffset((&first - &start) as usize);
-        let debug_addr = &DebugAddr::from(EndianSlice::new(&[], LittleEndian));
-        let debug_addr_base = DebugAddrBase(0);
-        let encoding = Encoding {
-            format: Format::Dwarf64,
-            version: 4,
-            address_size: 8,
-        };
-        let mut locations = loclists
-            .locations(offset, encoding, 0x0100_0000, debug_addr, debug_addr_base)
-            .unwrap();
-
-        // A normal location.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0101_0200,
-                    end: 0x0101_0300,
-                },
-                data: Expression(EndianSlice::new(&[2, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A base address selection followed by a normal location.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_0400,
-                    end: 0x0201_0500,
-                },
-                data: Expression(EndianSlice::new(&[3, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // An empty location range followed by a normal location.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_0600,
-                    end: 0x0201_0600,
-                },
-                data: Expression(EndianSlice::new(&[4, 0, 0, 0], LittleEndian)),
-            }))
-        );
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0201_0800,
-                    end: 0x0201_0900,
-                },
-                data: Expression(EndianSlice::new(&[5, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A location range that starts at 0.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0200_0000,
-                    end: 0x0200_0001,
-                },
-                data: Expression(EndianSlice::new(&[6, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A location range that ends at -1.
-        assert_eq!(
-            locations.next(),
-            Ok(Some(LocationListEntry {
-                range: Range {
-                    begin: 0x0,
-                    end: 0xffff_ffff_ffff_ffff,
-                },
-                data: Expression(EndianSlice::new(&[7, 0, 0, 0], LittleEndian)),
-            }))
-        );
-
-        // A location list end.
-        assert_eq!(locations.next(), Ok(None));
-
-        // An offset at the end of buf.
-        let mut locations = loclists
-            .locations(
-                LocationListsOffset(buf.len()),
-                encoding,
-                0x0100_0000,
-                debug_addr,
-                debug_addr_base,
-            )
-            .unwrap();
-        assert_eq!(locations.next(), Ok(None));
+            // An offset at the end of buf.
+            let mut locations = loclists
+                .locations(
+                    LocationListsOffset(buf.len()),
+                    encoding,
+                    0x0100_0000,
+                    debug_addr,
+                    debug_addr_base,
+                )
+                .unwrap();
+            assert_eq!(locations.next(), Ok(None));
+        }
     }
 
     #[test]
