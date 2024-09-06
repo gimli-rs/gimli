@@ -828,12 +828,16 @@ impl LineRow {
             }
 
             LineInstruction::SetAddress(address) => {
+                // If the address is a tombstone, then skip instructions until the next address.
+                // DWARF specifies a tombstone value of -1, but many linkers use 0.
+                // However, 0 may be a valid address, so we only skip that if we have previously
+                // seen a higher address. Additionally, gold may keep the relocation addend,
+                // so we treat all lower addresses as tombstones instead of just 0.
+                // This works because DWARF specifies that addresses are monotonically increasing
+                // within a sequence; the alternative is to return an error.
                 let tombstone_address = !0 >> (64 - program.header().encoding.address_size * 8);
-                self.tombstone = address == tombstone_address;
+                self.tombstone = address < self.address || address == tombstone_address;
                 if !self.tombstone {
-                    if address < self.address {
-                        return Err(Error::InvalidAddressRange);
-                    }
                     self.address = address;
                     self.op_index.0 = 0;
                 }
@@ -2877,13 +2881,14 @@ mod tests {
     #[test]
     fn test_exec_set_address_backwards() {
         let header = make_test_header(EndianSlice::new(&[], LittleEndian));
-        let mut registers = LineRow::new(&header);
-        registers.address = 1;
+        let mut initial_registers = LineRow::new(&header);
+        initial_registers.address = 1;
         let opcode = LineInstruction::SetAddress(0);
 
-        let mut program = IncompleteLineProgram { header };
-        let result = registers.execute(opcode, &mut program);
-        assert_eq!(result, Err(Error::InvalidAddressRange));
+        let mut expected_registers = initial_registers;
+        expected_registers.tombstone = true;
+
+        assert_exec_opcode(header, initial_registers, opcode, expected_registers, false);
     }
 
     #[test]
