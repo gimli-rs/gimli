@@ -17,7 +17,7 @@ jobs:
             os: macOS-latest
     runs-on: ${{matrix.os}}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install rust
       uses: dtolnay/rust-toolchain@master
       with:
@@ -42,7 +42,7 @@ jobs:
   msrv-read:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install rust
       uses: dtolnay/rust-toolchain@1.60.0
     - name: Build
@@ -53,7 +53,7 @@ jobs:
   msrv:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install rust
       uses: dtolnay/rust-toolchain@1.65.0
     - name: Build
@@ -65,20 +65,18 @@ jobs:
     name: Build fuzz targets
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install rust nightly
         uses: dtolnay/rust-toolchain@nightly
       - name: Install `cargo fuzz`
         run: cargo install cargo-fuzz --vers '^0.11.0'
       - run: cargo fuzz build -Oa
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: fuzz-targets
-          path: fuzz/target/x86_64-unknown-linux-gnu/release/debug_*
-      - uses: actions/upload-artifact@v3
-        with:
-          name: fuzz-targets
-          path: fuzz/target/x86_64-unknown-linux-gnu/release/eh_*
+          path: |
+            fuzz/target/x86_64-unknown-linux-gnu/release/debug_*
+            fuzz/target/x86_64-unknown-linux-gnu/release/eh_*
 
   run_fuzz_targets:
     strategy:
@@ -89,14 +87,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone the fuzz corpora
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: gimli-rs/gimli-libfuzzer-corpora
           path: corpora
       - name: Download fuzz targets
-        uses: actions/download-artifact@v1
+        uses: actions/download-artifact@v4
         with:
           name: fuzz-targets
+          path: fuzz-targets
         # Note: -max_total_time=300 == 300 seconds == 5 minutes.
       - name: Run `${{matrix.fuzz_target}}` fuzz target
         run: |
@@ -109,7 +108,7 @@ jobs:
       # can debug them.
       - name: Upload fuzz artifacts
         if: failure()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{matrix.fuzz_target}}_artifacts
           path: ./${{matrix.fuzz_target}}_artifacts
@@ -117,7 +116,7 @@ jobs:
   features:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install rust stable
         uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
@@ -130,7 +129,7 @@ jobs:
   bench:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install rust nightly
         uses: dtolnay/rust-toolchain@nightly
       - run: cargo bench
@@ -145,7 +144,7 @@ jobs:
           - powerpc64-unknown-linux-gnu
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -158,7 +157,7 @@ jobs:
   rustfmt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -171,7 +170,7 @@ jobs:
       image: xd009642/tarpaulin
       options: --security-opt seccomp=unconfined
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install rust stable
         uses: dtolnay/rust-toolchain@stable
       - name: Run cargo-tarpaulin
@@ -185,7 +184,7 @@ jobs:
   doc:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install rust stable
         uses: dtolnay/rust-toolchain@stable
       - run: cargo doc
