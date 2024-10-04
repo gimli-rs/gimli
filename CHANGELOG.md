@@ -2,6 +2,41 @@
 
 --------------------------------------------------------------------------------
 
+## 0.31.1
+
+Released 2024/10/04.
+
+### Changed
+
+* Changed `read::Evaluation::evaluate` to validate `DW_OP_deref_size`.
+  [#739](https://github.com/gimli-rs/gimli/pull/739)
+
+* Changed `write::LineProgram` to allow use of file index 0 for DWARF version 5.
+  [#740](https://github.com/gimli-rs/gimli/pull/740)
+
+* Improved the workaround for reading zero length entries in `.debug_frame`.
+  [#741](https://github.com/gimli-rs/gimli/pull/741)
+
+* Implemented `Default` for `read::DwarfSections` and `read::DwarfPackageSections`.
+  [#742](https://github.com/gimli-rs/gimli/pull/742)
+
+* Changed `read::ArangeEntryIter` to handle tombstones in `.debug_aranges`.
+  [#743](https://github.com/gimli-rs/gimli/pull/743)
+
+* Improved handling handling of 0 for tombstones in `DW_LNE_set_address`
+  and address pairs in ranges and locations.
+  [#750](https://github.com/gimli-rs/gimli/pull/750)
+
+* Changed the `read::ArrayLike` trait implementation to use const generics.
+  [#752](https://github.com/gimli-rs/gimli/pull/752)
+
+### Added
+
+* Added `MIPS::HI` and `MIPS::LO`.
+  [#749](https://github.com/gimli-rs/gimli/pull/749)
+
+--------------------------------------------------------------------------------
+
 ## 0.31.0
 
 Released 2024/07/16.
