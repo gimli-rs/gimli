@@ -1656,7 +1656,7 @@ where
     ///
     /// Note: For DWARF v5 files this may return an empty attribute that
     /// indicates that no source code is available, which this function
-    /// represents as Some(<zero-length attr>).
+    /// represents as `Some(<zero-length attr>)`.
     pub fn source(&self) -> Option<AttributeValue<R, Offset>> {
         self.source.clone()
     }
