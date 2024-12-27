@@ -1,5 +1,8 @@
+use core::ops::ControlFlow;
+
 use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
@@ -18,6 +21,8 @@ use crate::read::{
     ReaderOffsetId, Result, RngListIter, Section, UnitHeader, UnitIndex, UnitIndexSectionIterator,
     UnitOffset, UnitType,
 };
+
+use super::Attribute;
 
 /// All of the commonly used DWARF sections.
 ///
@@ -1527,6 +1532,160 @@ impl<'a, R: Reader> UnitRef<'a, R> {
     pub fn attr_locations(&self, attr: AttributeValue<R>) -> Result<Option<LocListIter<R>>> {
         self.dwarf.attr_locations(self.unit, attr)
     }
+
+    /// Iterate over an entry's attributes, including those inherited from an abstract instance.
+    ///
+    /// DWARF allows attributes to be "shared" by concrete instances of an "abstract instance root".
+    /// For example, inlined functions rarely store attributes inline, instead
+    /// containing a `DW_AT_abstract_origin` that points to declaration with more
+    /// information. This function, unlike [`DebuggingInformationEntry::attrs()`],
+    /// includes those shared attributes in addition to the attrs stored inline.
+    ///
+    /// `recursion_limit` limits the maximum number of times a reference to an abtract instance is followed.
+    /// 16 is a conservative default.
+    ///
+    /// `cb` is called once for each relevant attribute. Note that if an error occurs, `cb` may
+    /// still be called before the error is encountered. Be cautious about mutating state.
+    /// The `usize` argument is the number of times we have followed a concrete entry to an abstract entry.
+    /// It will always be less than `recursion_depth`.
+    // The `isize` argument is the delta traversal depth within the current entry, as documented by [`EntriesCursor::next_dfs`].
+    pub fn shared_attrs(
+        &self,
+        offset: UnitOffset<R::Offset>,
+        recursion_limit: usize,
+        cb: impl FnMut(&Attribute<R>, usize) -> Result<ControlFlow<()>>,
+    ) -> Result<()> {
+        let collect = |mut units: DebugInfoUnitHeadersIter<R>| {
+            let mut vec = vec![];
+            while let Some(unit) = units.next()? {
+                if let Some(offset) = unit.offset().as_debug_info_offset() {
+                    vec.push(offset);
+                }
+            }
+            Ok(vec)
+        };
+        let unit_offsets_cache: Result<_> = collect(self.dwarf.units());
+        let sup_offsets_cache = if let Some(sup) = self.dwarf.sup() {
+            collect(sup.units())?
+        } else {
+            Vec::new()
+        };
+        let mut state = LookupContext {
+            cb,
+            unit_offsets_cache: unit_offsets_cache?,
+            sup_offsets_cache,
+        };
+        let entry = self.unit.entry(offset)?;
+        self.parse_children(entry, &mut state, recursion_limit, 0)?;
+        Ok(())
+    }
+
+    fn parse_children(
+        &self,
+        die: DebuggingInformationEntry<'_, '_, R>,
+        context: &mut LookupContext<impl FnMut(&Attribute<R>, usize) -> Result<ControlFlow<()>>, R>,
+        recursion_limit: usize,
+        recursion_iterations: usize,
+    ) -> Result<ControlFlow<()>> {
+        let mut attrs = die.attrs();
+        while let Some(attr) = attrs.next()? {
+            if let ControlFlow::Break(()) = (context.cb)(&attr, recursion_iterations)? {
+                return Ok(ControlFlow::Break(()));
+            }
+            match attr.name() {
+                constants::DW_AT_specification
+                | constants::DW_AT_abstract_origin
+                | constants::DW_AT_extension => {
+                    self.lookup_attr(attr.value(), context, recursion_limit, recursion_iterations)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(ControlFlow::Continue(()))
+    }
+
+    fn lookup_attr(
+        self,
+        attr: AttributeValue<R>,
+        context: &mut LookupContext<impl FnMut(&Attribute<R>, usize) -> Result<ControlFlow<()>>, R>,
+        recursion_limit: usize,
+        recursion_iterations: usize,
+    ) -> Result<ControlFlow<()>> {
+        if recursion_limit == 0 {
+            return Ok(ControlFlow::Continue(()));
+        }
+
+        let unit_slot;
+        let mut unit = self;
+        let relative_offset = match attr {
+            AttributeValue::UnitRef(offset) => offset,
+            AttributeValue::DebugInfoRef(dr) => {
+                let (new_unit, relative_offset) =
+                    self.find_unit(&context, DebugFile::Primary, dr)?;
+                unit_slot = new_unit;
+                unit.unit = &unit_slot;
+                relative_offset
+            }
+            AttributeValue::DebugInfoRefSup(dr) => {
+                let (new_unit, relative_offset) =
+                    self.find_unit(&context, DebugFile::Supplementary, dr)?;
+                unit_slot = new_unit;
+                unit.unit = &unit_slot;
+                relative_offset
+            }
+            _ => return Ok(ControlFlow::Continue(())),
+        };
+
+        let entry = unit.entry(relative_offset)?;
+        unit.parse_children(
+            entry,
+            context,
+            recursion_iterations + 1,
+            recursion_limit - 1,
+        )
+    }
+
+    fn find_unit<F>(
+        &self,
+        state: &LookupContext<F, R>,
+        file_type: DebugFile,
+        direct_ref: DebugInfoOffset<R::Offset>,
+    ) -> Result<(Unit<R, R::Offset>, UnitOffset<R::Offset>)> {
+        let unit_cache = match file_type {
+            DebugFile::Primary => &state.unit_offsets_cache,
+            DebugFile::Supplementary => &state.sup_offsets_cache,
+        };
+        let header_offset = match unit_cache.binary_search(&direct_ref) {
+            Ok(i) => unit_cache[i],
+            Err(i) => {
+                if i > 0 {
+                    unit_cache[i - 1]
+                } else {
+                    return Err(Error::NoEntryAtGivenOffset);
+                }
+            }
+        };
+        let header = self.dwarf.debug_info.header_from_offset(header_offset)?;
+        let relative_offset = direct_ref
+            .to_unit_offset(&header)
+            .ok_or(Error::NoEntryAtGivenOffset)?;
+        let unit = Unit::new(self.dwarf, header)?;
+        Ok((unit, relative_offset))
+    }
+}
+
+struct LookupContext<F, R: Reader> {
+    /// A cache of the start offsets for each of the units in this file.
+    unit_offsets_cache: Vec<DebugInfoOffset<R::Offset>>,
+    sup_offsets_cache: Vec<DebugInfoOffset<R::Offset>>,
+    cb: F,
+}
+
+enum DebugFile {
+    /// This debuginfo lives in the main dwarf unit.
+    Primary,
+    /// This debuginfo lives in the `sup` section of the dwarf unit.
+    Supplementary,
 }
 
 impl<T: ReaderOffset> UnitSectionOffset<T> {
