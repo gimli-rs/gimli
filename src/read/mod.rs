@@ -550,7 +550,7 @@ impl Error {
             Error::InvalidDerefSize(_) => {
                 "The size of a deref expression must not be larger than the size of an address."
             }
-            Error::UnknownCallFrameInstruction(_) => "An unknown DW_CFA_* instructiion",
+            Error::UnknownCallFrameInstruction(_) => "An unknown DW_CFA_* instruction",
             Error::InvalidAddressRange => {
                 "The end of an address range must not be before the beginning."
             }
