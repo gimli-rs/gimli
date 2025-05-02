@@ -189,6 +189,7 @@ struct Flags<'a> {
     pubnames: bool,
     pubtypes: bool,
     aranges: bool,
+    addr: bool,
     dwo: bool,
     dwp: bool,
     dwo_parent: Option<object::File<'a>>,
@@ -216,6 +217,7 @@ fn main() {
     opts.optflag("p", "", "print .debug_pubnames section");
     opts.optflag("r", "", "print .debug_aranges section");
     opts.optflag("y", "", "print .debug_pubtypes section");
+    opts.optflag("", "debug-addr", "print .debug_addr section");
     opts.optflag(
         "",
         "dwo",
@@ -281,6 +283,10 @@ fn main() {
         flags.aranges = true;
         all = false;
     }
+    if matches.opt_present("debug-addr") {
+        flags.addr = true;
+        all = false;
+    }
     if matches.opt_present("dwo") {
         flags.dwo = true;
     }
@@ -298,6 +304,7 @@ fn main() {
         flags.pubnames = true;
         flags.pubtypes = true;
         flags.aranges = true;
+        flags.addr = true;
     }
     flags.match_units = if let Some(r) = matches.opt_str("u") {
         match Regex::new(&r) {
@@ -526,6 +533,10 @@ where
     if flags.aranges {
         let debug_aranges = &gimli::Section::load(load_section).unwrap();
         dump_aranges(w, debug_aranges)?;
+    }
+    if flags.addr {
+        let debug_addr = &gimli::Section::load(load_section).unwrap();
+        dump_addr(w, debug_addr)?;
     }
     if flags.pubtypes {
         let debug_pubtypes = &gimli::Section::load(load_section).unwrap();
@@ -2225,6 +2236,33 @@ fn dump_aranges<R: Reader, W: Write>(
                 writeln!(w, "[{:#x}, {:#x}) (ignored)", raw.address(), raw.length())?;
             }
         }
+    }
+    Ok(())
+}
+
+fn dump_addr<R: Reader, W: Write>(w: &mut W, debug_addr: &gimli::DebugAddr<R>) -> Result<()> {
+    writeln!(w, "\n.debug_addr")?;
+
+    let mut headers = debug_addr.headers();
+    while let Some(header) = headers.next()? {
+        writeln!(
+            w,
+            "Address Table Header: length = 0x{:08x}, version = 0x{:04x}, addr_size = 0x{:02x}",
+            header.length(),
+            header.encoding().version,
+            header.encoding().address_size,
+        )?;
+        writeln!(w, "Addrs: [",)?;
+        let mut addrs = header.entries();
+        while let Some(addr) = addrs.next()? {
+            writeln!(
+                w,
+                "0x{:01$x}",
+                addr,
+                (header.encoding().address_size * 2) as usize,
+            )?
+        }
+        writeln!(w, "]",)?;
     }
     Ok(())
 }
