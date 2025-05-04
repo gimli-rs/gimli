@@ -1,5 +1,8 @@
+use core::ops::ControlFlow;
+
 use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
@@ -1346,6 +1349,217 @@ impl<R: Reader> Unit<R> {
     }
 }
 
+impl<R: Reader> Unit<R> {
+    /// Iterate over an entry's attributes, including those inherited from an abstract instance.
+    ///
+    /// DWARF allows attributes to be "shared" by concrete instances of an "abstract instance root".
+    /// For example, inlined functions rarely store attributes inline, instead
+    /// containing a `DW_AT_abstract_origin` that points to declaration with more
+    /// information. This function, unlike [`DebuggingInformationEntry::attrs()`],
+    /// includes those shared attributes in addition to the attrs stored inline.
+    ///
+    /// `recursion_limit` limits the maximum number of times a reference to an abtract instance is followed.
+    /// 16 is a conservative default.
+    ///
+    /// `callback` is called once for each relevant DIE. Note that if an error occurs, `callback` may
+    /// still be called before the error is encountered. Be cautious about mutating state.
+    /// The `usize` argument is the number of times we have followed a concrete entry to an abstract entry.
+    /// It will always be less than `recursion_depth`.
+    pub fn shared_attrs(
+        &self,
+        offset: UnitOffset<R::Offset>,
+        dwarf: &Dwarf<R>,
+        recursion_limit: usize,
+        cache: Option<SharedAttrsCache<R>>,
+        callback: impl FnMut(
+            &DebuggingInformationEntry<'_, '_, R>,
+            usize,
+        ) -> Result<ControlFlow<(), ContinueKind>>,
+    ) -> Result<()> {
+        let cache = match cache {
+            Some(c) => c,
+            None => SharedAttrsCache::from_dwarf(dwarf)?,
+        };
+        let mut state = LookupContext {
+            cb: callback,
+            cache,
+            dwarf,
+        };
+        let entry = self.entry(offset)?;
+        self.parse_children(entry, &mut state, recursion_limit, 0)?;
+        Ok(())
+    }
+
+    fn parse_children(
+        &self,
+        die: DebuggingInformationEntry<'_, '_, R>,
+        context: &mut LookupContext<
+            '_,
+            impl FnMut(
+                &DebuggingInformationEntry<'_, '_, R>,
+                usize,
+            ) -> Result<ControlFlow<(), ContinueKind>>,
+            R,
+        >,
+        recursion_limit: usize,
+        recursion_iterations: usize,
+    ) -> Result<ControlFlow<()>> {
+        match (context.cb)(&die, recursion_iterations)? {
+            ControlFlow::Break(()) => return Ok(ControlFlow::Break(())),
+            ControlFlow::Continue(ContinueKind::Sibling) => return Ok(ControlFlow::Continue(())),
+            ControlFlow::Continue(ContinueKind::Recurse) => {}
+        }
+        let mut attrs = die.attrs();
+        while let Some(attr) = attrs.next()? {
+            match attr.name() {
+                constants::DW_AT_specification
+                | constants::DW_AT_abstract_origin
+                | constants::DW_AT_extension => {
+                    self.lookup_attr(attr.value(), context, recursion_limit, recursion_iterations)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(ControlFlow::Continue(()))
+    }
+
+    fn lookup_attr(
+        &self,
+        attr: AttributeValue<R>,
+        context: &mut LookupContext<
+            '_,
+            impl FnMut(
+                &DebuggingInformationEntry<'_, '_, R>,
+                usize,
+            ) -> Result<ControlFlow<(), ContinueKind>>,
+            R,
+        >,
+        recursion_limit: usize,
+        recursion_iterations: usize,
+    ) -> Result<ControlFlow<()>> {
+        if recursion_limit == 0 {
+            return Ok(ControlFlow::Continue(()));
+        }
+
+        let unit_slot;
+        let mut unit = self;
+        let relative_offset = match attr {
+            AttributeValue::UnitRef(offset) => offset,
+            AttributeValue::DebugInfoRef(dr) => {
+                let (new_unit, relative_offset) =
+                    self.find_unit(&context, DebugFile::Primary, dr)?;
+                unit_slot = new_unit;
+                unit = &unit_slot;
+                relative_offset
+            }
+            AttributeValue::DebugInfoRefSup(dr) => {
+                let (new_unit, relative_offset) =
+                    self.find_unit(&context, DebugFile::Supplementary, dr)?;
+                unit_slot = new_unit;
+                unit = &unit_slot;
+                relative_offset
+            }
+            _ => return Ok(ControlFlow::Continue(())),
+        };
+
+        let entry = unit.entry(relative_offset)?;
+        unit.parse_children(
+            entry,
+            context,
+            recursion_iterations + 1,
+            recursion_limit - 1,
+        )
+    }
+    fn find_unit<F>(
+        &self,
+        state: &LookupContext<'_, F, R>,
+        file_type: DebugFile,
+        direct_ref: DebugInfoOffset<R::Offset>,
+    ) -> Result<(Unit<R, R::Offset>, UnitOffset<R::Offset>)> {
+        let unit_cache = match file_type {
+            DebugFile::Primary => &state.cache.unit_offsets_cache,
+            DebugFile::Supplementary => &state.cache.sup_offsets_cache,
+        };
+        let header_offset = match unit_cache.binary_search(&direct_ref) {
+            Ok(i) => unit_cache[i],
+            Err(i) => {
+                if i > 0 {
+                    unit_cache[i - 1]
+                } else {
+                    return Err(Error::NoEntryAtGivenOffset);
+                }
+            }
+        };
+        let header = state.dwarf.debug_info.header_from_offset(header_offset)?;
+        let relative_offset = direct_ref
+            .to_unit_offset(&header)
+            .ok_or(Error::NoEntryAtGivenOffset)?;
+        let unit = Unit::new(state.dwarf, header)?;
+        Ok((unit, relative_offset))
+    }
+}
+
+/// Used by [`Unit::shared_attrs`].
+#[derive(Debug)]
+pub enum ContinueKind {
+    /// Recurse into any abstract instances.
+    Recurse,
+    /// Continue processing sibling tags, but do not recurse into the current tag.
+    Sibling,
+}
+
+/// A cache used internally by [`Unit::shared_attrs`].
+///
+/// Reusing this cache between calls to `shared_attrs` will improve performance.
+/// Note that this is specific to the [`Dwarf`] it was created from. Do not use it with a different DWARF file.
+///
+/// The contents of this cache is intentionally not public.
+
+// A cache of the start offsets for each of the units in this file.
+#[derive(Debug)]
+pub struct SharedAttrsCache<R: Reader> {
+    unit_offsets_cache: Vec<DebugInfoOffset<R::Offset>>,
+    sup_offsets_cache: Vec<DebugInfoOffset<R::Offset>>,
+}
+
+impl<R: Reader> SharedAttrsCache<R> {
+    fn from_dwarf(dwarf: &Dwarf<R>) -> Result<Self> {
+        let collect = |mut units: DebugInfoUnitHeadersIter<R>| -> Result<_> {
+            let mut vec = vec![];
+            while let Some(unit) = units.next()? {
+                if let Some(offset) = unit.offset().as_debug_info_offset() {
+                    vec.push(offset);
+                }
+            }
+            vec.sort_unstable();
+            Ok(vec)
+        };
+        let unit_offsets_cache = collect(dwarf.units())?;
+        let sup_offsets_cache = if let Some(sup) = dwarf.sup() {
+            collect(sup.units())?
+        } else {
+            Vec::new()
+        };
+        Ok(Self {
+            unit_offsets_cache,
+            sup_offsets_cache,
+        })
+    }
+}
+
+struct LookupContext<'a, F, R: Reader> {
+    cache: SharedAttrsCache<R>,
+    dwarf: &'a Dwarf<R>,
+    cb: F,
+}
+
+enum DebugFile {
+    /// This debuginfo lives in the main dwarf unit.
+    Primary,
+    /// This debuginfo lives in the `sup` section of the dwarf unit.
+    Supplementary,
+}
+
 /// A reference to a `Unit` and its associated `Dwarf`.
 ///
 /// These often need to be passed around together, so this struct makes that easier.
@@ -1526,6 +1740,23 @@ impl<'a, R: Reader> UnitRef<'a, R> {
     /// See [`Dwarf::attr_locations`] for more information.
     pub fn attr_locations(&self, attr: AttributeValue<R>) -> Result<Option<LocListIter<R>>> {
         self.dwarf.attr_locations(self.unit, attr)
+    }
+
+    /// Iterate over an entry's attributes, including those inherited from an abstract instance.
+    ///
+    /// See [`Unit::shared_attrs`] for more information.
+    pub fn shared_attrs(
+        &self,
+        offset: UnitOffset<R::Offset>,
+        recursion_limit: usize,
+        cache: Option<SharedAttrsCache<R>>,
+        callback: impl FnMut(
+            &DebuggingInformationEntry<'_, '_, R>,
+            usize,
+        ) -> Result<ControlFlow<(), ContinueKind>>,
+    ) -> Result<()> {
+        self.unit
+            .shared_attrs(offset, &self.dwarf, recursion_limit, cache, callback)
     }
 }
 
