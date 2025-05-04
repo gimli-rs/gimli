@@ -1142,6 +1142,7 @@ fn dump_entries<R: Reader, W: Write>(
     flags: &Flags,
 ) -> Result<()> {
     let mut spaces_buf = String::new();
+    let mut deferred_macinfo = Vec::new();
 
     let mut entries = unit.entries_raw(None)?;
     while !entries.is_empty() {
@@ -1186,9 +1187,23 @@ fn dump_entries<R: Reader, W: Write>(
                         writeln_error(w, unit.dwarf, err, "Failed to dump attribute value")?
                     }
                 };
+                // dump_attr_value only prints the offset for the macro info attribute.
+                // The content is too long to print inline, so store the offset to print later.
+                if attr.name() == gimli::DW_AT_macro_info {
+                    if let gimli::AttributeValue::DebugMacinfoRef(offset) = attr.value() {
+                        deferred_macinfo.push(offset);
+                    }
+                }
             }
         }
     }
+
+    for offset in deferred_macinfo {
+        writeln!(w)?;
+        writeln!(w, "Macros <.debug_macinfo+0x{:08x}>", offset.0)?;
+        dump_macinfo_list(w, unit, offset)?;
+    }
+
     Ok(())
 }
 
@@ -2263,6 +2278,76 @@ fn dump_addr<R: Reader, W: Write>(w: &mut W, debug_addr: &gimli::DebugAddr<R>) -
             )?
         }
         writeln!(w, "]",)?;
+    }
+    Ok(())
+}
+
+fn dump_macinfo_list<R: Reader, W: Write>(
+    w: &mut W,
+    unit: gimli::UnitRef<'_, R>,
+    offset: gimli::DebugMacinfoOffset,
+) -> Result<()> {
+    let mut indent = 2; // base indent is 2 spaces
+    let mut macinfo_iter = unit.macinfo(offset)?;
+    while let Some(macinfo) = macinfo_iter.next()? {
+        match macinfo {
+            gimli::DebugMacInfoItem::StartFile { .. } => {
+                // print the item first, then indent
+                write!(w, "{:indent$}", "", indent = indent)?;
+                dump_macinfo(w, unit, macinfo)?;
+                indent += 2;
+            }
+            gimli::DebugMacInfoItem::EndFile => {
+                // unindent first, then print the item
+                indent -= 2;
+                write!(w, "{:indent$}", "", indent = indent)?;
+                dump_macinfo(w, unit, macinfo)?;
+            }
+            _ => {
+                // no indentation change
+                write!(w, "{:indent$}", "", indent = indent)?;
+                dump_macinfo(w, unit, macinfo)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn dump_macinfo<R: Reader, W: Write>(
+    w: &mut W,
+    unit: gimli::UnitRef<'_, R>,
+    macinfo: gimli::DebugMacInfoItem<R>,
+) -> Result<()> {
+    match macinfo {
+        gimli::DebugMacInfoItem::Define { line, text } => {
+            writeln!(
+                w,
+                "DW_MACINFO_define - lineno: {line}, macro: {}",
+                text.to_string_lossy()?
+            )?;
+        }
+        gimli::DebugMacInfoItem::Undef { line, name } => {
+            writeln!(
+                w,
+                "DW_MACINFO_undef - lineno: {line}, macro: {}",
+                name.to_string_lossy()?
+            )?;
+        }
+        gimli::DebugMacInfoItem::StartFile { line, file } => {
+            write!(w, "DW_MACINFO_start_file - lineno: {line}, file: ")?;
+            dump_file_index(w, file, unit)?;
+            writeln!(w)?;
+        }
+        gimli::DebugMacInfoItem::EndFile => {
+            writeln!(w, "DW_MACINFO_end_file")?;
+        }
+        gimli::DebugMacInfoItem::VendorExt { numeric, string } => {
+            writeln!(
+                w,
+                "DW_MACINFO_vendor_ext - number: {numeric}, string: {}",
+                string.to_string_lossy()?
+            )?;
+        }
     }
     Ok(())
 }

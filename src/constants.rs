@@ -1402,6 +1402,26 @@ impl DwEhPe {
     }
 }
 
+dw!(
+/// Type codes for macro definitions in the `.debug_macinfo section`.
+///
+/// `.debug_macinfo` is defined in Dwarf 2, 3, and 4. Dwarf 5 defines `.debug_macro` instead.
+/// See Section 7.22 (Macro Information) in the Dwarf 4 Standard.
+DwMacInfo(u8) {
+// "The series of entries for a given compilation unit ends with an entry containing a type code of 0"
+    DW_MACINFO_null = 0x00,
+// macro definition; uses two operands: line number (LEB128) and the defined macro symbol (null terminated string)
+    DW_MACINFO_define = 0x01,
+// macro undefinition; uses two operands: line number (LEB128) and the undefined macro symbol (null terminated string)
+    DW_MACINFO_undef = 0x02,
+// The start of a new source file inclusion. Uses two operands: line number (LEB128) and an index into the line number table of the compilation unit (LEB128).
+    DW_MACINFO_start_file = 0x03,
+// The end of the current source file inclusion. Has no operands.
+    DW_MACINFO_end_file = 0x04,
+// Vendor specific macro information directives. Has two operands: a constant (LEB128) and a null terminated string, whose meaning is vendor specific.
+    DW_MACINFO_vendor_ext = 0xff,
+});
+
 #[cfg(test)]
 mod tests {
     use super::*;
