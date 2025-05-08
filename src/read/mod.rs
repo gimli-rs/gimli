@@ -233,6 +233,11 @@ pub use self::loclists::*;
 #[cfg(feature = "read")]
 mod lookup;
 
+#[cfg(feature = "read")]
+mod macros;
+#[cfg(feature = "read")]
+pub use self::macros::*;
+
 mod op;
 pub use self::op::*;
 
@@ -450,6 +455,8 @@ pub enum Error {
     UnknownIndexSection(constants::DwSect),
     /// Unknown section type in version 2 `.dwp` index.
     UnknownIndexSectionV2(constants::DwSectV2),
+    /// Invalid macinfo type in `.debug_macinfo`.
+    InvalidMacinfoType(u8),
 }
 
 impl fmt::Display for Error {
@@ -603,6 +610,7 @@ impl Error {
             Error::InvalidIndexRow => "Invalid hash row in `.dwp` index.",
             Error::UnknownIndexSection(_) => "Unknown section type in `.dwp` index.",
             Error::UnknownIndexSectionV2(_) => "Unknown section type in version 2 `.dwp` index.",
+            Error::InvalidMacinfoType(_) => "Invalid macinfo type in `.debug_macinfo`.",
         }
     }
 }

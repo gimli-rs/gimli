@@ -3,20 +3,21 @@ use alloc::sync::Arc;
 
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
-    DebugLocListsIndex, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
-    DebugStrOffsetsIndex, DebugTypeSignature, DebugTypesOffset, DwarfFileType, DwoId, Encoding,
-    LocationListsOffset, RangeListsOffset, RawRangeListsOffset, SectionId, UnitSectionOffset,
+    DebugLocListsIndex, DebugMacinfoOffset, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset,
+    DebugStrOffsetsBase, DebugStrOffsetsIndex, DebugTypeSignature, DebugTypesOffset, DwarfFileType,
+    DwoId, Encoding, LocationListsOffset, RangeListsOffset, RawRangeListsOffset, SectionId,
+    UnitSectionOffset,
 };
 use crate::constants;
 use crate::read::{
     Abbreviations, AbbreviationsCache, AbbreviationsCacheStrategy, AttributeValue, DebugAbbrev,
     DebugAddr, DebugAranges, DebugCuIndex, DebugInfo, DebugInfoUnitHeadersIter, DebugLine,
-    DebugLineStr, DebugLoc, DebugLocLists, DebugRanges, DebugRngLists, DebugStr, DebugStrOffsets,
-    DebugTuIndex, DebugTypes, DebugTypesUnitHeadersIter, DebuggingInformationEntry, EntriesCursor,
-    EntriesRaw, EntriesTree, Error, IncompleteLineProgram, IndexSectionId, LocListIter,
-    LocationLists, Range, RangeLists, RawLocListIter, RawRngListIter, Reader, ReaderOffset,
-    ReaderOffsetId, Result, RngListIter, Section, UnitHeader, UnitIndex, UnitIndexSectionIterator,
-    UnitOffset, UnitType,
+    DebugLineStr, DebugLoc, DebugLocLists, DebugMacInfo, DebugMacInfoIterator, DebugRanges,
+    DebugRngLists, DebugStr, DebugStrOffsets, DebugTuIndex, DebugTypes, DebugTypesUnitHeadersIter,
+    DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree, Error,
+    IncompleteLineProgram, IndexSectionId, LocListIter, LocationLists, Range, RangeLists,
+    RawLocListIter, RawRngListIter, Reader, ReaderOffset, ReaderOffsetId, Result, RngListIter,
+    Section, UnitHeader, UnitIndex, UnitIndexSectionIterator, UnitOffset, UnitType,
 };
 
 /// All of the commonly used DWARF sections.
@@ -60,6 +61,8 @@ pub struct DwarfSections<T> {
     pub debug_line: DebugLine<T>,
     /// The `.debug_line_str` section.
     pub debug_line_str: DebugLineStr<T>,
+    /// The `.debug_macinfo` section.
+    pub debug_macinfo: DebugMacInfo<T>,
     /// The `.debug_str` section.
     pub debug_str: DebugStr<T>,
     /// The `.debug_str_offsets` section.
@@ -93,6 +96,7 @@ impl<T> DwarfSections<T> {
             debug_info: Section::load(&mut section)?,
             debug_line: Section::load(&mut section)?,
             debug_line_str: Section::load(&mut section)?,
+            debug_macinfo: Section::load(&mut section)?,
             debug_str: Section::load(&mut section)?,
             debug_str_offsets: Section::load(&mut section)?,
             debug_types: Section::load(&mut section)?,
@@ -115,6 +119,7 @@ impl<T> DwarfSections<T> {
             debug_info: self.debug_info.borrow(&mut borrow),
             debug_line: self.debug_line.borrow(&mut borrow),
             debug_line_str: self.debug_line_str.borrow(&mut borrow),
+            debug_macinfo: self.debug_macinfo.borrow(&mut borrow),
             debug_str: self.debug_str.borrow(&mut borrow),
             debug_str_offsets: self.debug_str_offsets.borrow(&mut borrow),
             debug_types: self.debug_types.borrow(&mut borrow),
@@ -176,6 +181,9 @@ pub struct Dwarf<R> {
 
     /// The `.debug_line_str` section.
     pub debug_line_str: DebugLineStr<R>,
+
+    /// The `.debug_macinfo` section.
+    pub debug_macinfo: DebugMacInfo<R>,
 
     /// The `.debug_str` section.
     pub debug_str: DebugStr<R>,
@@ -242,6 +250,7 @@ impl<T> Dwarf<T> {
             debug_info: sections.debug_info,
             debug_line: sections.debug_line,
             debug_line_str: sections.debug_line_str,
+            debug_macinfo: sections.debug_macinfo,
             debug_str: sections.debug_str,
             debug_str_offsets: sections.debug_str_offsets,
             debug_types: sections.debug_types,
@@ -292,6 +301,7 @@ impl<T> Dwarf<T> {
             debug_info: self.debug_info.borrow(&mut borrow),
             debug_line: self.debug_line.borrow(&mut borrow),
             debug_line_str: self.debug_line_str.borrow(&mut borrow),
+            debug_macinfo: self.debug_macinfo.borrow(&mut borrow),
             debug_str: self.debug_str.borrow(&mut borrow),
             debug_str_offsets: self.debug_str_offsets.borrow(&mut borrow),
             debug_types: self.debug_types.borrow(&mut borrow),
@@ -725,6 +735,14 @@ impl<R: Reader> Dwarf<R> {
         }
         err.description().into()
     }
+
+    /// Return a fallible iterator over the macro information from `.debug_macinfo` for the given offset.
+    pub fn macinfo(
+        &self,
+        offset: DebugMacinfoOffset<R::Offset>,
+    ) -> Result<DebugMacInfoIterator<R>> {
+        self.debug_macinfo.get_macinfo(offset)
+    }
 }
 
 impl<R: Clone> Dwarf<R> {
@@ -1074,6 +1092,7 @@ impl<R: Reader> DwarfPackage<R> {
 
         let debug_aranges = self.empty.clone().into();
         let debug_line_str = self.empty.clone().into();
+        let debug_macinfo = self.empty.clone().into();
 
         Ok(Dwarf {
             debug_abbrev,
@@ -1082,6 +1101,7 @@ impl<R: Reader> DwarfPackage<R> {
             debug_info,
             debug_line,
             debug_line_str,
+            debug_macinfo,
             debug_str,
             debug_str_offsets,
             debug_types,
@@ -1526,6 +1546,14 @@ impl<'a, R: Reader> UnitRef<'a, R> {
     /// See [`Dwarf::attr_locations`] for more information.
     pub fn attr_locations(&self, attr: AttributeValue<R>) -> Result<Option<LocListIter<R>>> {
         self.dwarf.attr_locations(self.unit, attr)
+    }
+
+    /// Try to return an iterator for the list of `DebugMacInfoItem` at the given offset.
+    pub fn macinfo(
+        &self,
+        offset: DebugMacinfoOffset<R::Offset>,
+    ) -> Result<DebugMacInfoIterator<R>> {
+        self.dwarf.macinfo(offset)
     }
 }
 
