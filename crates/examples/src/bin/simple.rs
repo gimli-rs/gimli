@@ -7,6 +7,9 @@
 //! Most of the complexity is due to loading the sections from the object
 //! file and DWP file, which is not something that is provided by gimli itself.
 
+// style: allow verbose lifetimes
+#![allow(clippy::needless_lifetimes)]
+
 use gimli::Reader as _;
 use object::{Object, ObjectSection};
 use std::{borrow, env, error, fs};
