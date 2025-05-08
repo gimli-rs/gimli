@@ -2233,7 +2233,7 @@ where
         ctx: &'ctx mut UnwindContext<R::Offset, S>,
         fde: &FrameDescriptionEntry<R>,
     ) -> Self {
-        assert!(ctx.stack.len() >= 1);
+        assert!(!ctx.stack.is_empty());
         UnwindTable {
             code_alignment_factor: Wrapping(fde.cie().code_alignment_factor()),
             data_alignment_factor: Wrapping(fde.cie().data_alignment_factor()),
@@ -2253,7 +2253,7 @@ where
         ctx: &'ctx mut UnwindContext<R::Offset, S>,
         cie: &CommonInformationEntry<R>,
     ) -> Self {
-        assert!(ctx.stack.len() >= 1);
+        assert!(!ctx.stack.is_empty());
         UnwindTable {
             code_alignment_factor: Wrapping(cie.code_alignment_factor()),
             data_alignment_factor: Wrapping(cie.data_alignment_factor()),
@@ -2273,7 +2273,7 @@ where
     /// Unfortunately, this cannot be used with `FallibleIterator` because of
     /// the restricted lifetime of the yielded item.
     pub fn next_row(&mut self) -> Result<Option<&UnwindTableRow<R::Offset, S>>> {
-        assert!(self.ctx.stack.len() >= 1);
+        assert!(!self.ctx.stack.is_empty());
         self.ctx.set_start_address(self.next_start_address);
         self.current_row_valid = false;
 

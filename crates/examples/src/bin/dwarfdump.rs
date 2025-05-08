@@ -1,5 +1,7 @@
 // Allow clippy lints when building without clippy.
 #![allow(unknown_lints)]
+// style: allow verbose lifetimes
+#![allow(clippy::needless_lifetimes)]
 
 use fallible_iterator::FallibleIterator;
 use gimli::{Section, UnitHeader, UnitOffset, UnitSectionOffset, UnitType, UnwindSection};

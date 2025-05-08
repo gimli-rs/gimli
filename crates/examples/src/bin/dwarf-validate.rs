@@ -1,5 +1,7 @@
 // Allow clippy lints when building without clippy.
 #![allow(unknown_lints)]
+// style: allow verbose lifetimes
+#![allow(clippy::needless_lifetimes)]
 
 use gimli::{AttributeValue, UnitHeader};
 use object::{Object, ObjectSection};
