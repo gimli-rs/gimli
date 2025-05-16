@@ -1145,6 +1145,7 @@ fn dump_entries<R: Reader, W: Write>(
 ) -> Result<()> {
     let mut spaces_buf = String::new();
     let mut deferred_macinfo = Vec::new();
+    let mut deferred_macros = Vec::new();
 
     let mut entries = unit.entries_raw(None)?;
     while !entries.is_empty() {
@@ -1195,6 +1196,10 @@ fn dump_entries<R: Reader, W: Write>(
                     if let gimli::AttributeValue::DebugMacinfoRef(offset) = attr.value() {
                         deferred_macinfo.push(offset);
                     }
+                } else if attr.name() == gimli::DW_AT_macros {
+                    if let gimli::AttributeValue::DebugMacroRef(offset) = attr.value() {
+                        deferred_macros.push(offset);
+                    }
                 }
             }
         }
@@ -1204,6 +1209,12 @@ fn dump_entries<R: Reader, W: Write>(
         writeln!(w)?;
         writeln!(w, "Macros <.debug_macinfo+0x{:08x}>", offset.0)?;
         dump_macinfo_list(w, unit, offset)?;
+    }
+
+    for offset in deferred_macros {
+        writeln!(w)?;
+        writeln!(w, "Macros <.debug_macro+0x{:08x}>", offset.0)?;
+        dump_macro_list(w, unit, offset)?;
     }
 
     Ok(())
@@ -2293,13 +2304,13 @@ fn dump_macinfo_list<R: Reader, W: Write>(
     let mut macinfo_iter = unit.macinfo(offset)?;
     while let Some(macinfo) = macinfo_iter.next()? {
         match macinfo {
-            gimli::DebugMacInfoItem::StartFile { .. } => {
+            gimli::MacroEntry::StartFile { .. } => {
                 // print the item first, then indent
                 write!(w, "{:indent$}", "", indent = indent)?;
                 dump_macinfo(w, unit, macinfo)?;
                 indent += 2;
             }
-            gimli::DebugMacInfoItem::EndFile => {
+            gimli::MacroEntry::EndFile => {
                 // unindent first, then print the item
                 indent -= 2;
                 write!(w, "{:indent$}", "", indent = indent)?;
@@ -2318,37 +2329,150 @@ fn dump_macinfo_list<R: Reader, W: Write>(
 fn dump_macinfo<R: Reader, W: Write>(
     w: &mut W,
     unit: gimli::UnitRef<'_, R>,
-    macinfo: gimli::DebugMacInfoItem<R>,
+    macinfo: gimli::MacroEntry<R>,
 ) -> Result<()> {
     match macinfo {
-        gimli::DebugMacInfoItem::Define { line, text } => {
+        gimli::MacroEntry::Define { line, text } => {
             writeln!(
                 w,
                 "DW_MACINFO_define - lineno: {line}, macro: {}",
-                text.to_string_lossy()?
+                text.string(unit)?.to_string_lossy()?
             )?;
         }
-        gimli::DebugMacInfoItem::Undef { line, name } => {
+        gimli::MacroEntry::Undef { line, name } => {
             writeln!(
                 w,
                 "DW_MACINFO_undef - lineno: {line}, macro: {}",
-                name.to_string_lossy()?
+                name.string(unit)?.to_string_lossy()?
             )?;
         }
-        gimli::DebugMacInfoItem::StartFile { line, file } => {
+        gimli::MacroEntry::StartFile { line, file } => {
             write!(w, "DW_MACINFO_start_file - lineno: {line}, file: ")?;
             dump_file_index(w, file, unit)?;
             writeln!(w)?;
         }
-        gimli::DebugMacInfoItem::EndFile => {
+        gimli::MacroEntry::EndFile => {
             writeln!(w, "DW_MACINFO_end_file")?;
         }
-        gimli::DebugMacInfoItem::VendorExt { numeric, string } => {
+        gimli::MacroEntry::VendorExt { numeric, string } => {
             writeln!(
                 w,
                 "DW_MACINFO_vendor_ext - number: {numeric}, string: {}",
                 string.to_string_lossy()?
             )?;
+        }
+        gimli::MacroEntry::Import { .. } | gimli::MacroEntry::ImportSup { .. } => {
+            unreachable!(
+                "Import and ImportSup are only used in .debug_macro, but this code is for .debug_macinfo"
+            );
+        }
+    }
+    Ok(())
+}
+
+fn dump_macro_list<R: Reader, W: Write>(
+    w: &mut W,
+    unit: gimli::UnitRef<'_, R>,
+    offset: gimli::DebugMacroOffset,
+) -> Result<()> {
+    let mut indent = 2; // base indent is 2 spaces
+    let mut macro_iter = unit.macros(offset)?;
+    while let Some(macro_item) = macro_iter.next()? {
+        match macro_item {
+            gimli::MacroEntry::StartFile { .. } => {
+                // print the item first, then indent
+                write!(w, "{:indent$}", "", indent = indent)?;
+                dump_macro(w, unit, macro_item)?;
+                indent += 2;
+            }
+            gimli::MacroEntry::EndFile => {
+                // unindent first, then print the item
+                indent -= 2;
+                write!(w, "{:indent$}", "", indent = indent)?;
+                dump_macro(w, unit, macro_item)?;
+            }
+            _ => {
+                // no indentation change
+                write!(w, "{:indent$}", "", indent = indent)?;
+                dump_macro(w, unit, macro_item)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn dump_macro<R: Reader, W: Write>(
+    w: &mut W,
+    unit: gimli::UnitRef<'_, R>,
+    macro_item: gimli::MacroEntry<R>,
+) -> Result<()> {
+    match macro_item {
+        gimli::MacroEntry::Define { line, text } => {
+            match text {
+                gimli::MacroString::Direct(text) => writeln!(
+                    w,
+                    "DW_MACRO_define - lineno: {line}, macro: {}",
+                    text.to_string_lossy()?
+                )?,
+                gimli::MacroString::StringPointer(_) => writeln!(
+                    w,
+                    "DW_MACRO_define_strp - lineno: {line}, macro: {}",
+                    text.string(unit)?.to_string_lossy()?
+                )?,
+                gimli::MacroString::IndirectStringPointer(_) => writeln!(
+                    w,
+                    "DW_MACRO_define_strx - lineno: {line}, macro: {}",
+                    text.string(unit)?.to_string_lossy()?
+                )?,
+                gimli::MacroString::Supplementary(_) => writeln!(
+                    w,
+                    "DW_MACRO_define_sup - lineno: {line}, macro: {}",
+                    text.string(unit)?.to_string_lossy()?
+                )?,
+            };
+        }
+        gimli::MacroEntry::Undef { line, name } => {
+            match name {
+                gimli::MacroString::Direct(name) => writeln!(
+                    w,
+                    "DW_MACRO_undef - lineno: {line}, macro: {}",
+                    name.to_string_lossy()?
+                )?,
+                gimli::MacroString::StringPointer(_) => writeln!(
+                    w,
+                    "DW_MACRO_undef_strp - lineno: {line}, macro: {}",
+                    name.string(unit)?.to_string_lossy()?
+                )?,
+                gimli::MacroString::IndirectStringPointer(_) => writeln!(
+                    w,
+                    "DW_MACRO_undef_strx - lineno: {line}, macro: {}",
+                    name.string(unit)?.to_string_lossy()?
+                )?,
+                gimli::MacroString::Supplementary(_) => writeln!(
+                    w,
+                    "DW_MACRO_undef_sup - lineno: {line}, macro: {}",
+                    name.string(unit)?.to_string_lossy()?
+                )?,
+            };
+        }
+        gimli::MacroEntry::StartFile { line, file } => {
+            write!(w, "DW_MACRO_start_file - lineno: {line}, file: ")?;
+            dump_file_index(w, file, unit)?;
+            writeln!(w)?;
+        }
+        gimli::MacroEntry::EndFile => {
+            writeln!(w, "DW_MACRO_end_file")?;
+        }
+        gimli::MacroEntry::Import { offset } => {
+            writeln!(w, "<.debug_macro+0x{:08x}>", offset.0)?;
+        }
+        gimli::MacroEntry::ImportSup { offset } => {
+            writeln!(w, "<.debug_macro(sup)+0x{:08x}>", offset.0)?;
+        }
+        gimli::MacroEntry::VendorExt { .. } => {
+            unreachable!(
+                "VendorExt is only used in .debug_macinfo, but this code is for .debug_macro"
+            );
         }
     }
     Ok(())

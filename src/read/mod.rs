@@ -457,6 +457,10 @@ pub enum Error {
     UnknownIndexSectionV2(constants::DwSectV2),
     /// Invalid macinfo type in `.debug_macinfo`.
     InvalidMacinfoType(u8),
+    /// invalid macro type in `.debug_macro`.
+    InvalidMacroType(u8),
+    /// The optional `opcode_operands_table` in `.debug_macro` is currently not supported.
+    UnsupportedOpcodeOperandsTable,
 }
 
 impl fmt::Display for Error {
@@ -611,6 +615,10 @@ impl Error {
             Error::UnknownIndexSection(_) => "Unknown section type in `.dwp` index.",
             Error::UnknownIndexSectionV2(_) => "Unknown section type in version 2 `.dwp` index.",
             Error::InvalidMacinfoType(_) => "Invalid macinfo type in `.debug_macinfo`.",
+            Error::InvalidMacroType(_) => "Invalid macro type in `.debug_macro`.",
+            Error::UnsupportedOpcodeOperandsTable => {
+                "The optional `opcode_operands_table` in `.debug_macro` is currently not supported."
+            }
         }
     }
 }
