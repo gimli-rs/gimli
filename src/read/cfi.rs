@@ -2958,7 +2958,6 @@ impl<T: ReaderOffset> RegisterRule<T> {
 
 /// A parsed call frame instruction.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum CallFrameInstruction<T: ReaderOffset> {
     // 6.4.2.1 Row Creation Methods
     /// > 1. DW_CFA_set_loc
