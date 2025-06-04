@@ -1024,9 +1024,6 @@ mod convert {
 
                 let comp_name = match from_header.file(0) {
                     Some(comp_file) => {
-                        if comp_file.directory_index() != 0 {
-                            return Err(ConvertError::InvalidDirectoryIndex);
-                        }
                         LineString::from(comp_file.path_name(), dwarf, line_strings, strings)?
                     }
                     None => LineString::new(&[][..], encoding, line_strings),
