@@ -116,6 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         encoding,
         LineEncoding::default(),
         LineString::new(comp_dir, encoding, line_strings),
+        None,
         LineString::new(file_name, encoding, line_strings),
         None,
     );

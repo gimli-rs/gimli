@@ -2835,6 +2835,7 @@ mod tests {
                         encoding,
                         LineEncoding::default(),
                         LineString::String(dir_bytes.to_vec()),
+                        None,
                         file_string1.clone(),
                         None,
                     );
@@ -2945,6 +2946,7 @@ mod tests {
                 encoding,
                 LineEncoding::default(),
                 LineString::String(b"comp_dir".to_vec()),
+                None,
                 LineString::String(b"comp_name".to_vec()),
                 None,
             );
