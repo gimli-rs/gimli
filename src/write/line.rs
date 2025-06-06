@@ -78,13 +78,18 @@ pub struct LineProgram {
 impl LineProgram {
     /// Create a new `LineProgram`.
     ///
-    /// `comp_dir` defines the working directory of the compilation unit,
-    /// and must be the same as the `DW_AT_comp_dir` attribute
-    /// of the compilation unit DIE.
+    /// `working_dir` defines the working directory of the compilation unit.
     ///
-    /// `comp_file` and `comp_file_info` define the primary source file
-    /// of the compilation unit and must be the same as the `DW_AT_name`
-    /// attribute of the compilation unit DIE.
+    /// `source_dir`, `source_file` and `source_file_info` define the first
+    /// file entry. `source_dir` may be relative to `working_dir`, and may be
+    /// `None` if `source_file` is in `working_dir`. The first file entry
+    /// is usually the primary source file.
+    ///
+    /// The standard specifies that `working_dir` should be the same as the
+    /// `DW_AT_comp_dir` attribute of the compilation unit DIE, and the
+    /// combination of `source_dir` and `source_file` should be the same
+    /// as the `DW_AT_name` attribute of the compilation unit DIE.
+    /// However, neither of these are enforced by this library.
     ///
     /// # Panics
     ///
@@ -92,15 +97,15 @@ impl LineProgram {
     ///
     /// Panics if `line_encoding.line_base` + `line_encoding.line_range` <= 0.
     ///
-    /// Panics if `comp_dir` is empty or contains a null byte.
-    ///
-    /// Panics if `comp_file` is empty or contains a null byte.
+    /// Panics if `working_dir`, `source_dir`, or `source_file` are empty or
+    /// contain a null byte.
     pub fn new(
         encoding: Encoding,
         line_encoding: LineEncoding,
-        comp_dir: LineString,
-        comp_file: LineString,
-        comp_file_info: Option<FileInfo>,
+        working_dir: LineString,
+        source_dir: Option<LineString>,
+        source_file: LineString,
+        source_file_info: Option<FileInfo>,
     ) -> LineProgram {
         // We require a special opcode for a line advance of 0.
         // See the debug_asserts in generate_row().
@@ -121,13 +126,17 @@ impl LineProgram {
             file_has_md5: false,
             file_has_source: false,
         };
-        // For all DWARF versions, directory index 0 is comp_dir.
+        // For all DWARF versions, directory index 0 is working_dir.
         // For version <= 4, the entry is implicit. We still add
         // it here so that we use it, but we don't emit it.
-        let comp_dir_id = program.add_directory(comp_dir);
-        // For DWARF version >= 5, file index 0 is comp_file and must exist.
+        let working_dir_id = program.add_directory(working_dir);
+        // For DWARF version >= 5, file index 0 is source_file and must exist.
         if encoding.version >= 5 {
-            program.add_file(comp_file, comp_dir_id, comp_file_info);
+            let source_dir_id = match source_dir {
+                Some(source_dir) => program.add_directory(source_dir),
+                None => working_dir_id,
+            };
+            program.add_file(source_file, source_dir_id, source_file_info);
         }
         program
     }
@@ -271,6 +280,14 @@ impl LineProgram {
             index
         };
         FileId::new(index)
+    }
+
+    /// Get an iterator for the files.
+    pub fn files(&self) -> impl Iterator<Item = (FileId, &LineString, DirectoryId)> {
+        self.files
+            .iter()
+            .enumerate()
+            .map(move |(index, entry)| (FileId::new(index), &(entry.0).0, (entry.0).1))
     }
 
     /// Get a reference to a file entry.
@@ -1017,19 +1034,38 @@ mod convert {
                 let from_header = from_program.header();
                 let encoding = from_header.encoding();
 
-                let comp_dir = match from_header.directory(0) {
-                    Some(comp_dir) => LineString::from(comp_dir, dwarf, line_strings, strings)?,
+                let working_dir = match from_header.directory(0) {
+                    Some(working_dir) => {
+                        LineString::from(working_dir, dwarf, line_strings, strings)?
+                    }
                     None => LineString::new(&[][..], encoding, line_strings),
                 };
 
-                let comp_name = match from_header.file(0) {
-                    Some(comp_file) => {
-                        if comp_file.directory_index() != 0 {
-                            return Err(ConvertError::InvalidDirectoryIndex);
-                        }
-                        LineString::from(comp_file.path_name(), dwarf, line_strings, strings)?
+                let (source_dir, source_file) = match from_header.file(0) {
+                    Some(source_file) => {
+                        let source_dir_index = source_file.directory_index();
+                        let source_dir = if source_dir_index != 0 {
+                            match from_header.directory(source_dir_index) {
+                                Some(source_dir) => Some(LineString::from(
+                                    source_dir,
+                                    dwarf,
+                                    line_strings,
+                                    strings,
+                                )?),
+                                None => return Err(ConvertError::InvalidDirectoryIndex),
+                            }
+                        } else {
+                            None
+                        };
+                        let source_file = LineString::from(
+                            source_file.path_name(),
+                            dwarf,
+                            line_strings,
+                            strings,
+                        )?;
+                        (source_dir, source_file)
                     }
-                    None => LineString::new(&[][..], encoding, line_strings),
+                    None => (None, LineString::new(&[][..], encoding, line_strings)),
                 };
 
                 if from_header.line_base() > 0 {
@@ -1038,8 +1074,9 @@ mod convert {
                 let mut program = LineProgram::new(
                     encoding,
                     from_header.line_encoding(),
-                    comp_dir,
-                    comp_name,
+                    working_dir,
+                    source_dir,
+                    source_file,
                     None, // We'll set this later if needed when we add the file again.
                 );
 
@@ -1207,6 +1244,7 @@ mod tests {
                         encoding,
                         LineEncoding::default(),
                         dir1.clone(),
+                        None,
                         file1.clone(),
                         None,
                     );
@@ -1270,7 +1308,6 @@ mod tests {
                         AttributeValue::FileIndex(Some(file_id)),
                     );
 
-                    let mut dwarf = Dwarf::new();
                     dwarf.units.add(unit);
                 }
             }
@@ -1344,6 +1381,7 @@ mod tests {
                             ..Default::default()
                         },
                         LineString::String(dir1.to_vec()),
+                        None,
                         LineString::String(file1.to_vec()),
                         None,
                     );
@@ -1644,6 +1682,7 @@ mod tests {
                         encoding,
                         LineEncoding::default(),
                         LineString::String(dir1.to_vec()),
+                        None,
                         LineString::String(file1.to_vec()),
                         None,
                     );
@@ -1774,6 +1813,7 @@ mod tests {
                             encoding,
                             line_encoding,
                             LineString::String(dir1.to_vec()),
+                            None,
                             LineString::String(file1.to_vec()),
                             None,
                         );
@@ -1871,6 +1911,7 @@ mod tests {
                         encoding,
                         LineEncoding::default(),
                         LineString::String(b"dir".to_vec()),
+                        None,
                         file.clone(),
                         None,
                     );
@@ -1914,6 +1955,7 @@ mod tests {
                         encoding,
                         LineEncoding::default(),
                         LineString::String(Vec::new()),
+                        None,
                         LineString::String(Vec::new()),
                         None,
                     );
@@ -1939,6 +1981,80 @@ mod tests {
                     let _convert_dwarf =
                         Dwarf::from(&read_dwarf, &|address| Some(Address::Constant(address)))
                             .unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_separate_working_dir() {
+        let working_dir = LineString::String(b"working".to_vec());
+        let source_dir = LineString::String(b"source".to_vec());
+        let source_file = LineString::String(b"file".to_vec());
+
+        for &version in &[2, 3, 4, 5] {
+            for &address_size in &[4, 8] {
+                for &format in &[Format::Dwarf32, Format::Dwarf64] {
+                    let encoding = Encoding {
+                        format,
+                        version,
+                        address_size,
+                    };
+                    let mut program = LineProgram::new(
+                        encoding,
+                        LineEncoding::default(),
+                        working_dir.clone(),
+                        Some(source_dir.clone()),
+                        source_file.clone(),
+                        None,
+                    );
+
+                    assert_eq!(
+                        &working_dir,
+                        program.get_directory(program.default_directory())
+                    );
+
+                    // Ensure the program is not empty.
+                    let dir_id = program.add_directory(source_dir.clone());
+                    let file_id = program.add_file(source_file.clone(), dir_id, None);
+                    program.begin_sequence(Some(Address::Constant(0x1000)));
+                    program.row().file = file_id;
+                    program.row().line = 0x10000;
+                    program.generate_row();
+
+                    // Test LineProgram::from().
+                    let mut unit = Unit::new(encoding, program);
+                    let root = unit.get_mut(unit.root());
+                    root.set(
+                        constants::DW_AT_comp_dir,
+                        AttributeValue::String(b"working".to_vec()),
+                    );
+                    root.set(
+                        constants::DW_AT_name,
+                        AttributeValue::String(b"source/file".to_vec()),
+                    );
+                    root.set(constants::DW_AT_stmt_list, AttributeValue::LineProgramRef);
+
+                    let mut dwarf = Dwarf::new();
+                    dwarf.units.add(unit);
+
+                    let mut sections = Sections::new(EndianVec::new(LittleEndian));
+                    dwarf.write(&mut sections).unwrap();
+                    let read_dwarf = sections.read(LittleEndian);
+
+                    let convert_dwarf =
+                        Dwarf::from(&read_dwarf, &|address| Some(Address::Constant(address)))
+                            .unwrap();
+                    let convert_unit = convert_dwarf.units.iter().next().unwrap().1;
+                    let convert_program = &convert_unit.line_program;
+
+                    assert_eq!(
+                        &working_dir,
+                        convert_program.get_directory(convert_program.default_directory())
+                    );
+                    let (_file_id, file, dir_id) = convert_program.files().next().unwrap();
+                    assert_eq!(&source_file, file);
+                    assert_eq!(&source_dir, convert_program.get_directory(dir_id));
                 }
             }
         }
