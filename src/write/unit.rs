@@ -1709,6 +1709,9 @@ pub(crate) mod convert {
                 if from_attr.name() == constants::DW_AT_sibling {
                     // This may point to a null entry, so we have to treat it differently.
                     self.set_sibling(true);
+                } else if from_attr.name() == constants::DW_AT_GNU_locviews {
+                    // This is a GNU extension that is not supported, and is safe to ignore.
+                    // TODO: remove this when we support it.
                 } else if let Some(attr) = Attribute::from(context, &from_attr)? {
                     self.set(attr.name, attr.value);
                 }
