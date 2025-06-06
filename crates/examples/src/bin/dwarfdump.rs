@@ -895,9 +895,6 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
                 Nop => {
                     writeln!(w, "                DW_CFA_nop")?;
                 }
-                _ => {
-                    writeln!(w, "                {:?}", op)?;
-                }
             },
         }
     }
