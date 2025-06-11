@@ -456,9 +456,9 @@ pub enum Error {
     /// Unknown section type in version 2 `.dwp` index.
     UnknownIndexSectionV2(constants::DwSectV2),
     /// Invalid macinfo type in `.debug_macinfo`.
-    InvalidMacinfoType(u8),
-    /// invalid macro type in `.debug_macro`.
-    InvalidMacroType(u8),
+    InvalidMacinfoType(constants::DwMacinfo),
+    /// Invalid macro type in `.debug_macro`.
+    InvalidMacroType(constants::DwMacro),
     /// The optional `opcode_operands_table` in `.debug_macro` is currently not supported.
     UnsupportedOpcodeOperandsTable,
 }

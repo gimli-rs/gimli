@@ -2,21 +2,21 @@ use crate::common::{DebugMacinfoOffset, SectionId};
 use crate::endianity::Endianity;
 use crate::read::{EndianSlice, Reader, ReaderOffset, Section, UnitRef};
 use crate::{
-    constants, DebugLineOffset, DebugMacroOffset, DebugStrOffset, DebugStrOffsetsIndex, DwMacInfo,
+    constants, DebugLineOffset, DebugMacroOffset, DebugStrOffset, DebugStrOffsetsIndex, DwMacinfo,
     DwMacro, Error, Format, Result,
 };
 
 /// The raw contents of the `.debug_macinfo` section.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct DebugMacInfo<R> {
+pub struct DebugMacinfo<R> {
     pub(crate) section: R,
 }
 
-impl<'input, Endian> DebugMacInfo<EndianSlice<'input, Endian>>
+impl<'input, Endian> DebugMacinfo<EndianSlice<'input, Endian>>
 where
     Endian: Endianity,
 {
-    /// Construct a new `DebugMacInfo` instance from the data in the `.debug_macinfo`
+    /// Construct a new `DebugMacinfo` instance from the data in the `.debug_macinfo`
     /// section.
     ///
     /// It is the caller's responsibility to read the `.debug_macinfo` section and
@@ -24,52 +24,56 @@ where
     /// Linux, a Mach-O loader on macOS, etc.
     ///
     /// ```
-    /// use gimli::{DebugMacInfo, LittleEndian};
+    /// use gimli::{DebugMacinfo, LittleEndian};
     ///
     /// # let buf = [1, 0, 95, 95, 83, 84, 68, 67, 95, 95, 32, 49, 0];
     /// # let read_section_somehow = || &buf;
-    /// let debug_str = DebugMacInfo::new(read_section_somehow(), LittleEndian);
+    /// let debug_str = DebugMacinfo::new(read_section_somehow(), LittleEndian);
     /// ```
     pub fn new(macinfo_section: &'input [u8], endian: Endian) -> Self {
         Self::from(EndianSlice::new(macinfo_section, endian))
     }
 }
 
-impl<R: Reader> DebugMacInfo<R> {
+impl<R: Reader> DebugMacinfo<R> {
     /// Look up a macro reference the `.debug_macinfo` section by DebugMacinfoOffset.
     ///
     /// A macinfo offset points to a list of macro information entries in the `.debug_macinfo` section.
     /// To handle this, the function returns an iterator.
     ///
     /// ```
-    /// use gimli::{DebugMacInfo, DebugMacinfoOffset, LittleEndian};
+    /// use gimli::{DebugMacinfo, DebugMacinfoOffset, LittleEndian};
     ///
     /// # fn main() -> Result<(), gimli::Error> {
     /// # let buf = [1, 0, 95, 95, 83, 84, 68, 67, 95, 95, 32, 49, 0, 0];
     /// # let offset = DebugMacinfoOffset(0);
     /// # let read_section_somehow = || &buf;
     /// # let debug_macinfo_offset_somehow = || offset;
-    /// let debug_macinfo = DebugMacInfo::new(read_section_somehow(), LittleEndian);
+    /// let debug_macinfo = DebugMacinfo::new(read_section_somehow(), LittleEndian);
     /// let mut iter = debug_macinfo.get_macinfo(debug_macinfo_offset_somehow())?;
     /// while let Some(macinfo) = iter.next()? {
     ///     println!("Found macro info {:?}", macinfo);
     /// }
     /// # Ok(()) }
     /// ```
-    pub fn get_macinfo(&self, offset: DebugMacinfoOffset<R::Offset>) -> Result<MacInfoIter<R>> {
+    pub fn get_macinfo(&self, offset: DebugMacinfoOffset<R::Offset>) -> Result<MacroIter<R>> {
         let mut input = self.section.clone();
         input.skip(offset.0)?;
-        Ok(MacInfoIter { input })
+        Ok(MacroIter {
+            input,
+            format: Format::Dwarf32,
+            is_macro: false,
+        })
     }
 }
 
-impl<T> DebugMacInfo<T> {
-    /// Create a `DebugMacInfo` section that references the data in `self`.
+impl<T> DebugMacinfo<T> {
+    /// Create a `DebugMacinfo` section that references the data in `self`.
     ///
     /// This is useful when `R` implements `Reader` but `T` does not.
     ///
     /// Used by `DwarfSections::borrow`.
-    pub fn borrow<'a, F, R>(&'a self, mut borrow: F) -> DebugMacInfo<R>
+    pub fn borrow<'a, F, R>(&'a self, mut borrow: F) -> DebugMacinfo<R>
     where
         F: FnMut(&'a T) -> R,
     {
@@ -77,7 +81,7 @@ impl<T> DebugMacInfo<T> {
     }
 }
 
-impl<R> Section<R> for DebugMacInfo<R> {
+impl<R> Section<R> for DebugMacinfo<R> {
     fn id() -> SectionId {
         SectionId::DebugMacinfo
     }
@@ -87,78 +91,11 @@ impl<R> Section<R> for DebugMacInfo<R> {
     }
 }
 
-impl<R> From<R> for DebugMacInfo<R> {
+impl<R> From<R> for DebugMacinfo<R> {
     fn from(macinfo_section: R) -> Self {
-        DebugMacInfo {
+        DebugMacinfo {
             section: macinfo_section,
         }
-    }
-}
-
-/// Iterator over the entries in the `.debug_macinfo` section.
-#[derive(Clone, Debug)]
-pub struct MacInfoIter<R: Reader> {
-    input: R,
-}
-
-impl<R: Reader> MacInfoIter<R> {
-    /// Advance the iterator to the next entry in the `.debug_macinfo` section.
-    pub fn next(&mut self) -> Result<Option<MacroEntry<R>>> {
-        // Read the next entry from the input reader and return it as a DebugMacroItem.
-        let macinfo_type = DwMacInfo(self.input.read_u8()?);
-        match macinfo_type {
-            constants::DW_MACINFO_null => {
-                // found the end of the unit, return None to stop the iteration
-                self.input.empty();
-                Ok(None)
-            }
-            constants::DW_MACINFO_define => {
-                let line = self.input.read_uleb128()?;
-                let text = self.input.read_null_terminated_slice()?;
-                Ok(Some(MacroEntry::Define {
-                    line,
-                    text: MacroString::Direct(text),
-                }))
-            }
-            constants::DW_MACINFO_undef => {
-                let line = self.input.read_uleb128()?;
-                let name = self.input.read_null_terminated_slice()?;
-                Ok(Some(MacroEntry::Undef {
-                    line,
-                    name: MacroString::Direct(name),
-                }))
-            }
-            constants::DW_MACINFO_start_file => {
-                // two operands: line number (LEB128) and an index into the line number table of the compilation unit (LEB128).
-                let line = self.input.read_uleb128()?;
-                let file = self.input.read_uleb128()?;
-                Ok(Some(MacroEntry::StartFile { line, file }))
-            }
-            constants::DW_MACINFO_end_file => {
-                // no operands
-                Ok(Some(MacroEntry::EndFile))
-            }
-            constants::DW_MACINFO_vendor_ext => {
-                // two operands: a constant (LEB128) and a null terminated string, whose meaning is vendor specific
-                let numeric = self.input.read_uleb128()?;
-                let string = self.input.read_null_terminated_slice()?;
-                Ok(Some(MacroEntry::VendorExt { numeric, string }))
-            }
-            _ => {
-                self.input.empty();
-                Err(Error::InvalidMacinfoType(macinfo_type.0))
-            }
-        }
-    }
-}
-
-#[cfg(feature = "fallible-iterator")]
-impl<R: Reader> fallible_iterator::FallibleIterator for MacInfoIter<R> {
-    type Item = MacroEntry<R>;
-    type Error = Error;
-
-    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Error> {
-        MacInfoIter::next(self)
     }
 }
 
@@ -216,7 +153,11 @@ impl<R: Reader> DebugMacro<R> {
         let mut input = self.section.clone();
         input.skip(offset.0)?;
         let header = MacroUnitHeader::parse(&mut input)?;
-        Ok(MacroIter { input, header })
+        Ok(MacroIter {
+            input,
+            format: header.format(),
+            is_macro: true,
+        })
     }
 }
 
@@ -385,15 +326,20 @@ where
 #[derive(Clone, Debug)]
 pub struct MacroIter<R: Reader> {
     input: R,
-    header: MacroUnitHeader<R>,
+    format: Format,
+    is_macro: bool,
 }
 
 impl<R: Reader> MacroIter<R> {
     /// Advance the iterator to the next entry in the `.debug_macro` section.
     pub fn next(&mut self) -> Result<Option<MacroEntry<R>>> {
-        // Read the next entry from the input reader and return it as a DebugMacroItem.
+        // DW_MACINFO_* and DW_MACRO_* have the same values, so we can use the same parsing logic.
         let macro_type = DwMacro(self.input.read_u8()?);
         match macro_type {
+            DwMacro(0) => {
+                self.input.empty();
+                Ok(None)
+            }
             constants::DW_MACRO_define => {
                 let line = self.input.read_uleb128()?;
                 let text = self.input.read_null_terminated_slice()?;
@@ -411,56 +357,52 @@ impl<R: Reader> MacroIter<R> {
                 }))
             }
             constants::DW_MACRO_start_file => {
-                // two operands: line number (LEB128) and an index into the line number table of the compilation unit (LEB128).
                 let line = self.input.read_uleb128()?;
                 let file = self.input.read_uleb128()?;
                 Ok(Some(MacroEntry::StartFile { line, file }))
             }
-            constants::DW_MACRO_end_file => {
-                // no operands
-                Ok(Some(MacroEntry::EndFile))
-            }
-            constants::DW_MACRO_define_strp => {
+            constants::DW_MACRO_end_file => Ok(Some(MacroEntry::EndFile)),
+            constants::DW_MACRO_define_strp if self.is_macro => {
                 let line = self.input.read_uleb128()?;
-                let text_offset = DebugStrOffset(self.input.read_offset(self.header.format())?);
+                let text_offset = DebugStrOffset(self.input.read_offset(self.format)?);
                 Ok(Some(MacroEntry::Define {
                     line,
                     text: MacroString::StringPointer(text_offset),
                 }))
             }
-            constants::DW_MACRO_undef_strp => {
+            constants::DW_MACRO_undef_strp if self.is_macro => {
                 let line = self.input.read_uleb128()?;
-                let name_offset = DebugStrOffset(self.input.read_offset(self.header.format())?);
+                let name_offset = DebugStrOffset(self.input.read_offset(self.format)?);
                 Ok(Some(MacroEntry::Undef {
                     line,
                     name: MacroString::StringPointer(name_offset),
                 }))
             }
-            constants::DW_MACRO_import => {
-                let offset = DebugMacroOffset(self.input.read_offset(self.header.format())?);
+            constants::DW_MACRO_import if self.is_macro => {
+                let offset = DebugMacroOffset(self.input.read_offset(self.format)?);
                 Ok(Some(MacroEntry::Import { offset }))
             }
-            constants::DW_MACRO_define_sup => {
+            constants::DW_MACRO_define_sup if self.is_macro => {
                 let line = self.input.read_uleb128()?;
-                let text_offset = DebugStrOffset(self.input.read_offset(self.header.format())?);
+                let text_offset = DebugStrOffset(self.input.read_offset(self.format)?);
                 Ok(Some(MacroEntry::Define {
                     line,
                     text: MacroString::Supplementary(text_offset),
                 }))
             }
-            constants::DW_MACRO_undef_sup => {
+            constants::DW_MACRO_undef_sup if self.is_macro => {
                 let line = self.input.read_uleb128()?;
-                let name_offset = DebugStrOffset(self.input.read_offset(self.header.format())?);
+                let name_offset = DebugStrOffset(self.input.read_offset(self.format)?);
                 Ok(Some(MacroEntry::Undef {
                     line,
                     name: MacroString::Supplementary(name_offset),
                 }))
             }
-            constants::DW_MACRO_import_sup => {
-                let offset = DebugMacroOffset(self.input.read_offset(self.header.format())?);
+            constants::DW_MACRO_import_sup if self.is_macro => {
+                let offset = DebugMacroOffset(self.input.read_offset(self.format)?);
                 Ok(Some(MacroEntry::ImportSup { offset }))
             }
-            constants::DW_MACRO_define_strx => {
+            constants::DW_MACRO_define_strx if self.is_macro => {
                 let line = self.input.read_uleb128()?;
                 let index = self.input.read_uleb128().and_then(R::Offset::from_u64)?;
                 let text_index = DebugStrOffsetsIndex(index);
@@ -469,7 +411,7 @@ impl<R: Reader> MacroIter<R> {
                     text: MacroString::IndirectStringPointer(text_index),
                 }))
             }
-            constants::DW_MACRO_undef_strx => {
+            constants::DW_MACRO_undef_strx if self.is_macro => {
                 let line = self.input.read_uleb128()?;
                 let index = self.input.read_uleb128().and_then(R::Offset::from_u64)?;
                 let name_index = DebugStrOffsetsIndex(index);
@@ -478,20 +420,18 @@ impl<R: Reader> MacroIter<R> {
                     name: MacroString::IndirectStringPointer(name_index),
                 }))
             }
-            other if other.0 == 0 => {
-                // found the end of the unit, return None to stop the iteration
-                self.input.empty();
-                Ok(None)
-            }
-            other if other.0 >= constants::DW_MACRO_lo_user.0 => {
-                // to parse the user defined macro info we would need the opcode operands table.
-                // We should actually never get here since the opcode operands table is not parsed.
-                Err(Error::UnsupportedOpcodeOperandsTable)
-            }
             _ => {
-                // invalid macro type
-                self.input.empty();
-                Err(Error::InvalidMacroType(macro_type.0))
+                if self.is_macro {
+                    self.input.empty();
+                    Err(Error::InvalidMacroType(macro_type))
+                } else if macro_type.0 == constants::DW_MACINFO_vendor_ext.0 {
+                    let numeric = self.input.read_uleb128()?;
+                    let string = self.input.read_null_terminated_slice()?;
+                    Ok(Some(MacroEntry::VendorExt { numeric, string }))
+                } else {
+                    self.input.empty();
+                    Err(Error::InvalidMacinfoType(DwMacinfo(macro_type.0)))
+                }
             }
         }
     }
@@ -537,11 +477,11 @@ mod tests {
             .D8(crate::DW_MACINFO_vendor_ext.0)
             .uleb(5) // numeric constant: 5 - vendor specific
             .append_bytes(b"foo\0")
-            .D8(crate::DW_MACINFO_null.0); // end of unit
+            .D8(0); // end of unit
 
-        // Create a DebugMacInfo instance from the section
+        // Create a DebugMacinfo instance from the section
         let section = section.get_contents().unwrap();
-        let debug_macinfo = DebugMacInfo::from(EndianSlice::new(&section, LittleEndian));
+        let debug_macinfo = DebugMacinfo::from(EndianSlice::new(&section, LittleEndian));
 
         let offset = position.value().unwrap() as usize;
 
