@@ -11,13 +11,12 @@ use crate::common::{
 use crate::read::{
     Abbreviations, AbbreviationsCache, AbbreviationsCacheStrategy, AttributeValue, DebugAbbrev,
     DebugAddr, DebugAranges, DebugCuIndex, DebugInfo, DebugInfoUnitHeadersIter, DebugLine,
-    DebugLineStr, DebugLoc, DebugLocLists, DebugMacInfo, DebugMacro, DebugRanges, DebugRngLists,
+    DebugLineStr, DebugLoc, DebugLocLists, DebugMacinfo, DebugMacro, DebugRanges, DebugRngLists,
     DebugStr, DebugStrOffsets, DebugTuIndex, DebugTypes, DebugTypesUnitHeadersIter,
     DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree, Error,
-    IncompleteLineProgram, IndexSectionId, LocListIter, LocationLists, MacInfoIter, MacroIter,
-    Range, RangeLists, RawLocListIter, RawRngListIter, Reader, ReaderOffset, ReaderOffsetId,
-    Result, RngListIter, Section, UnitHeader, UnitIndex, UnitIndexSectionIterator, UnitOffset,
-    UnitType,
+    IncompleteLineProgram, IndexSectionId, LocListIter, LocationLists, MacroIter, Range,
+    RangeLists, RawLocListIter, RawRngListIter, Reader, ReaderOffset, ReaderOffsetId, Result,
+    RngListIter, Section, UnitHeader, UnitIndex, UnitIndexSectionIterator, UnitOffset, UnitType,
 };
 use crate::{constants, DebugMacroOffset};
 
@@ -63,7 +62,7 @@ pub struct DwarfSections<T> {
     /// The `.debug_line_str` section.
     pub debug_line_str: DebugLineStr<T>,
     /// The `.debug_macinfo` section.
-    pub debug_macinfo: DebugMacInfo<T>,
+    pub debug_macinfo: DebugMacinfo<T>,
     /// The `.debug_macro` section.
     pub debug_macro: DebugMacro<T>,
     /// The `.debug_str` section.
@@ -188,7 +187,7 @@ pub struct Dwarf<R> {
     pub debug_line_str: DebugLineStr<R>,
 
     /// The `.debug_macinfo` section.
-    pub debug_macinfo: DebugMacInfo<R>,
+    pub debug_macinfo: DebugMacinfo<R>,
 
     /// The `.debug_macro` section.
     pub debug_macro: DebugMacro<R>,
@@ -747,7 +746,7 @@ impl<R: Reader> Dwarf<R> {
     }
 
     /// Return a fallible iterator over the macro information from `.debug_macinfo` for the given offset.
-    pub fn macinfo(&self, offset: DebugMacinfoOffset<R::Offset>) -> Result<MacInfoIter<R>> {
+    pub fn macinfo(&self, offset: DebugMacinfoOffset<R::Offset>) -> Result<MacroIter<R>> {
         self.debug_macinfo.get_macinfo(offset)
     }
 
@@ -1562,12 +1561,12 @@ impl<'a, R: Reader> UnitRef<'a, R> {
         self.dwarf.attr_locations(self.unit, attr)
     }
 
-    /// Try to return an iterator for the list of `DebugMacInfoItem` at the given offset.
-    pub fn macinfo(&self, offset: DebugMacinfoOffset<R::Offset>) -> Result<MacInfoIter<R>> {
+    /// Try to return an iterator for the list of macros at the given `.debug_macinfo` offset.
+    pub fn macinfo(&self, offset: DebugMacinfoOffset<R::Offset>) -> Result<MacroIter<R>> {
         self.dwarf.macinfo(offset)
     }
 
-    /// Try to return an iterator for the list of `DebugMacroItem` at the given offset.
+    /// Try to return an iterator for the list of macros at the given `.debug_macro` offset.
     pub fn macros(&self, offset: DebugMacroOffset<R::Offset>) -> Result<MacroIter<R>> {
         self.dwarf.macros(offset)
     }
