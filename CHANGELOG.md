@@ -2,6 +2,42 @@
 
 --------------------------------------------------------------------------------
 
+## 0.32.0
+
+Released 2025/06/11.
+
+### Breaking changes
+
+* Added `read::Dwarf::debug_macinfo`, `read::Dwarf::debug_macro`, and associated
+  support.
+  [#759](https://github.com/gimli-rs/gimli/pull/759)
+  [#763](https://github.com/gimli-rs/gimli/pull/763)
+  [#772](https://github.com/gimli-rs/gimli/pull/772)
+
+* Removed `#[non_exhaustive]` from `read::CallFrameInstruction`.
+  [#764](https://github.com/gimli-rs/gimli/pull/764)
+
+* Added `source_dir` parameter to `write::LineProgram::new`.
+  [#768](https://github.com/gimli-rs/gimli/pull/768)
+
+### Changed
+
+* Fixed spelling in `Error::UnknownCallFrameInstruction` description.
+  [#758](https://github.com/gimli-rs/gimli/pull/758)
+
+* Removed `compiler-builtins` from `rustc-dep-of-std` dependencies.
+  [#769](https://github.com/gimli-rs/gimli/pull/769)
+
+* Changed `write::UnitTable::from` to ignore `DW_AT_GNU_locviews` attributes.
+  [#771](https://github.com/gimli-rs/gimli/pull/771)
+
+### Added
+
+* Added `DebugAddr::headers`.
+  [#760](https://github.com/gimli-rs/gimli/pull/760)
+
+--------------------------------------------------------------------------------
+
 ## 0.31.1
 
 Released 2024/10/04.
