@@ -371,6 +371,16 @@ DwAt(u16) {
     DW_AT_subscr_data = 0x0a,
     DW_AT_element_list = 0x0f,
     DW_AT_member = 0x14,
+    DW_AT_friends = 0x1f,
+    DW_AT_program = 0x23,
+    DW_AT_private = 0x24,
+    DW_AT_protected = 0x26,
+    DW_AT_public = 0x28,
+    DW_AT_pure_virtual = 0x29,
+    DW_AT_virtual = 0x30,
+    
+// Moved to 0x47 in DWARF 2+.
+    DW_AT_specification_v1 = 0x2b,
 
 // DWARF 1.
     DW_AT_sibling = 0x01,
