@@ -378,7 +378,7 @@ DwAt(u16) {
     DW_AT_public = 0x28,
     DW_AT_pure_virtual = 0x29,
     DW_AT_virtual = 0x30,
-    
+
 // Moved to 0x47 in DWARF 2+.
     DW_AT_specification_v1 = 0x2b,
 
