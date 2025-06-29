@@ -1196,8 +1196,10 @@ fn dump_entries<R: Reader, W: Write>(
 
         let mut indent = if baseline_depth > 0 && baseline_depth >= depth {
             break;
-        } else {
+        } else if depth > 0 {
             (depth - baseline_depth) as usize * 2 + 2
+        } else {
+            2
         };
 
         if !found_desired_offset {
