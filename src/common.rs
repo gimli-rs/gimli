@@ -232,6 +232,30 @@ impl<T> From<DebugTypesOffset<T>> for UnitSectionOffset<T> {
     }
 }
 
+impl<T> PartialEq<DebugInfoOffset<T>> for UnitSectionOffset<T>
+where
+    T: PartialEq,
+{
+    fn eq(&self, other: &DebugInfoOffset<T>) -> bool {
+        match self {
+            UnitSectionOffset::DebugInfoOffset(o) => o.eq(other),
+            UnitSectionOffset::DebugTypesOffset(_) => false,
+        }
+    }
+}
+
+impl<T> PartialEq<DebugTypesOffset<T>> for UnitSectionOffset<T>
+where
+    T: PartialEq,
+{
+    fn eq(&self, other: &DebugTypesOffset<T>) -> bool {
+        match self {
+            UnitSectionOffset::DebugInfoOffset(_) => false,
+            UnitSectionOffset::DebugTypesOffset(o) => o.eq(other),
+        }
+    }
+}
+
 impl<T> UnitSectionOffset<T>
 where
     T: Clone,

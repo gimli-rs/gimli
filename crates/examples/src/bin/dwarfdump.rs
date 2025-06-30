@@ -187,6 +187,7 @@ struct Flags<'a> {
     eh_frame: bool,
     goff: bool,
     info: bool,
+    types: bool,
     line: bool,
     pubnames: bool,
     pubtypes: bool,
@@ -197,6 +198,7 @@ struct Flags<'a> {
     dwo_parent: Option<object::File<'a>>,
     sup: Option<object::File<'a>>,
     raw: bool,
+    info_offset: Option<gimli::DebugInfoOffset>,
     match_units: Option<Regex>,
 }
 
@@ -215,6 +217,7 @@ fn main() {
     );
     opts.optflag("G", "", "show global die offsets");
     opts.optflag("i", "", "print .debug_info and .debug_types sections");
+    opts.optflagopt("", "debug-info", "print .debug_info section", "OFFSET");
     opts.optflag("l", "", "print .debug_line section");
     opts.optflag("p", "", "print .debug_pubnames section");
     opts.optflag("r", "", "print .debug_aranges section");
@@ -267,6 +270,23 @@ fn main() {
     }
     if matches.opt_present("i") {
         flags.info = true;
+        flags.types = true;
+        all = false;
+    }
+    if matches.opt_present("debug-info") {
+        flags.info = true;
+        if let Some(offset) = matches.opt_str("debug-info") {
+            let o = offset.to_ascii_lowercase();
+            flags.info_offset = Some(
+                match usize::from_str_radix(o.strip_prefix("0x").unwrap_or(&o), 16) {
+                    Ok(v) => gimli::DebugInfoOffset(v),
+                    Err(e) => {
+                        eprintln!("Invalid .debug_info offset {}: {}", offset, e);
+                        process::exit(1);
+                    }
+                },
+            );
+        }
         all = false;
     }
     if matches.opt_present("l") {
@@ -302,6 +322,7 @@ fn main() {
         // .eh_frame is excluded even when printing all information.
         // cosmetic flags like -G must be set explicitly too.
         flags.info = true;
+        flags.types = true;
         flags.line = true;
         flags.pubnames = true;
         flags.pubtypes = true;
@@ -523,6 +544,8 @@ where
     }
     if flags.info {
         dump_info(w, &dwarf, dwo_parent_units, flags)?;
+    }
+    if flags.types {
         dump_types(w, &dwarf, dwo_parent_units, flags)?;
     }
     if flags.line {
@@ -980,6 +1003,8 @@ where
     let dwarf = dwp.sections(sections, dwo_parent)?;
     if flags.info {
         dump_info(w, &dwarf, dwo_parent_units, flags)?;
+    }
+    if flags.types {
         dump_types(w, &dwarf, dwo_parent_units, flags)?;
     }
     if flags.line {
@@ -1007,12 +1032,13 @@ where
         }
     };
     let process_unit = |header: UnitHeader<R>, buf: &mut Vec<u8>| -> Result<()> {
-        dump_unit(buf, header, dwarf, dwo_parent_units, flags)?;
-        if !flags
-            .match_units
-            .as_ref()
-            .map(|r| r.is_match(buf))
-            .unwrap_or(true)
+        let output_unit = dump_unit(buf, header, dwarf, dwo_parent_units, flags)?;
+        if !output_unit
+            || !flags
+                .match_units
+                .as_ref()
+                .map(|r| r.is_match(buf))
+                .unwrap_or(true)
         {
             buf.clear();
         }
@@ -1044,16 +1070,31 @@ fn dump_unit<R: Reader, W: Write>(
     dwarf: &gimli::Dwarf<R>,
     dwo_parent_units: Option<&HashMap<gimli::DwoId, gimli::Unit<R>>>,
     flags: &Flags,
-) -> Result<()> {
+) -> Result<bool> {
     write!(w, "\nUNIT<")?;
-    match header.offset() {
+    let offset = match header.offset() {
         UnitSectionOffset::DebugInfoOffset(o) => {
             write!(w, ".debug_info+0x{:08x}", o.0)?;
+            if let Some(offset) = flags.info_offset {
+                if offset == o {
+                    // If the offset points to the very start of the unit, we
+                    // can process everything from here on normally.
+                    None
+                } else if let Some(o) = offset.to_unit_offset(&header) {
+                    Some(o)
+                } else {
+                    // Skip this unit and erase what we already wrote.
+                    return Ok(false);
+                }
+            } else {
+                None
+            }
         }
         UnitSectionOffset::DebugTypesOffset(o) => {
             write!(w, ".debug_types+0x{:08x}", o.0)?;
+            None
         }
-    }
+    };
     writeln!(w, ">: length = 0x{:x}, format = {:?}, version = {}, address_size = {}, abbrev_offset = 0x{:x}",
         header.unit_length(),
         header.format(),
@@ -1087,7 +1128,7 @@ fn dump_unit<R: Reader, W: Write>(
         Ok(unit) => unit,
         Err(err) => {
             writeln_error(w, dwarf, err.into(), "Failed to parse unit root entry")?;
-            return Ok(());
+            return Ok(true);
         }
     };
 
@@ -1100,11 +1141,11 @@ fn dump_unit<R: Reader, W: Write>(
     }
 
     let unit_ref = unit.unit_ref(dwarf);
-    let entries_result = dump_entries(w, unit_ref, flags);
+    let entries_result = dump_entries(w, unit_ref, flags, offset);
     if let Err(err) = entries_result {
         writeln_error(w, dwarf, err, "Failed to dump entries")?;
     }
-    Ok(())
+    Ok(true)
 }
 
 fn spaces(buf: &mut String, len: usize) -> &str {
@@ -1139,22 +1180,40 @@ fn dump_entries<R: Reader, W: Write>(
     w: &mut W,
     unit: gimli::UnitRef<R>,
     flags: &Flags,
+    desired_offset: Option<UnitOffset>,
 ) -> Result<()> {
     let mut spaces_buf = String::new();
     let mut deferred_macinfo = Vec::new();
     let mut deferred_macros = Vec::new();
 
     let mut entries = unit.entries_raw(None)?;
+    let mut found_desired_offset = desired_offset.is_none();
+    let mut baseline_depth = 0;
     while !entries.is_empty() {
         let offset = entries.next_offset();
         let depth = entries.next_depth();
         let abbrev = entries.read_abbreviation()?;
 
-        let mut indent = if depth >= 0 {
-            depth as usize * 2 + 2
+        let mut indent = if baseline_depth > 0 && baseline_depth >= depth {
+            break;
+        } else if depth > 0 {
+            (depth - baseline_depth) as usize * 2 + 2
         } else {
             2
         };
+
+        if !found_desired_offset {
+            let desired_offset = desired_offset.unwrap();
+            if offset != desired_offset {
+                let attributes = abbrev.map(|x| x.attributes()).unwrap_or(&[]);
+                entries.skip_attributes(attributes)?;
+                continue;
+            }
+            found_desired_offset = true;
+            baseline_depth = depth;
+            indent = 2;
+        }
+
         write!(w, "<{}{}>", if depth < 10 { " " } else { "" }, depth)?;
         write_offset(w, &unit, offset, flags)?;
         writeln!(
