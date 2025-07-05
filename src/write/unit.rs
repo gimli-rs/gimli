@@ -598,7 +598,7 @@ impl DebuggingInformationEntry {
     ) -> Result<()> {
         offsets.entries[self.id.index].offset = DebugInfoOffset(*offset);
         offsets.entries[self.id.index].abbrev = abbrevs.add(self.abbreviation(unit.encoding())?);
-        *offset += self.size(unit, offsets);
+        *offset += self.size(unit, offsets)?;
         if !self.children.is_empty() {
             for child in &self.children {
                 unit.entries[child.index].calculate_offsets(unit, offset, offsets, abbrevs)?;
@@ -609,15 +609,15 @@ impl DebuggingInformationEntry {
         Ok(())
     }
 
-    fn size(&self, unit: &Unit, offsets: &UnitOffsets) -> usize {
+    fn size(&self, unit: &Unit, offsets: &UnitOffsets) -> Result<usize> {
         let mut size = uleb128_size(offsets.abbrev(self.id));
         if self.sibling && !self.children.is_empty() {
             size += unit.format().word_size() as usize;
         }
         for attr in &self.attrs {
-            size += attr.value.size(unit, offsets);
+            size += attr.value.size(unit, offsets)?;
         }
-        size
+        Ok(size)
     }
 
     /// Write the entry to the given sections.
@@ -961,13 +961,13 @@ impl AttributeValue {
         Ok(form)
     }
 
-    fn size(&self, unit: &Unit, offsets: &UnitOffsets) -> usize {
+    fn size(&self, unit: &Unit, offsets: &UnitOffsets) -> Result<usize> {
         macro_rules! debug_assert_form {
             ($form:expr) => {
                 debug_assert_eq!(self.form(unit.encoding()).unwrap(), $form)
             };
         }
-        match *self {
+        Ok(match *self {
             AttributeValue::Address(_) => {
                 debug_assert_form!(constants::DW_FORM_addr);
                 unit.address_size() as usize
@@ -1002,7 +1002,7 @@ impl AttributeValue {
             }
             AttributeValue::Exprloc(ref val) => {
                 debug_assert_form!(constants::DW_FORM_exprloc);
-                let size = val.size(unit.encoding(), Some(offsets));
+                let size = val.size(unit.encoding(), Some(offsets))?;
                 uleb128_size(size as u64) + size
             }
             AttributeValue::Flag(_) => {
@@ -1137,7 +1137,7 @@ impl AttributeValue {
                 debug_assert_form!(constants::DW_FORM_udata);
                 uleb128_size(val.map(|id| id.raw(unit.version())).unwrap_or(0))
             }
-        }
+        })
     }
 
     /// Write the attribute value to the given sections.
@@ -1195,7 +1195,7 @@ impl AttributeValue {
             }
             AttributeValue::Exprloc(ref val) => {
                 debug_assert_form!(constants::DW_FORM_exprloc);
-                w.write_uleb128(val.size(unit.encoding(), Some(offsets)) as u64)?;
+                w.write_uleb128(val.size(unit.encoding(), Some(offsets))? as u64)?;
                 val.write(
                     &mut w.0,
                     Some(debug_info_refs),
@@ -1419,6 +1419,8 @@ pub(crate) struct UnitOffsets {
 
 impl UnitOffsets {
     /// Get the .debug_info offset for the given entry.
+    ///
+    /// Contains a debug assertion to ensure the offset is valid.
     #[inline]
     pub(crate) fn debug_info_offset(&self, entry: UnitEntryId) -> DebugInfoOffset {
         debug_assert_eq!(self.base_id, entry.base_id);
@@ -1428,10 +1430,26 @@ impl UnitOffsets {
     }
 
     /// Get the unit offset for the given entry.
+    ///
+    /// Contains a debug assertion to ensure the offset is valid.
     #[inline]
     pub(crate) fn unit_offset(&self, entry: UnitEntryId) -> u64 {
         let offset = self.debug_info_offset(entry);
         (offset.0 - self.unit.0) as u64
+    }
+
+    /// Try to get the unit offset for the given entry.
+    ///
+    /// Returns `None` if the offset has not been calculated yet.
+    #[inline]
+    pub(crate) fn try_unit_offset(&self, entry: UnitEntryId) -> Option<u64> {
+        debug_assert_eq!(self.base_id, entry.base_id);
+        let offset = self.entries[entry.index].offset;
+        if offset.0 == 0 {
+            None
+        } else {
+            Some((offset.0 - self.unit.0) as u64)
+        }
     }
 
     /// Get the abbreviation code for the given entry.
