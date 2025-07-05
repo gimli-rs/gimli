@@ -295,7 +295,7 @@ fn write_expression<W: Writer>(
     unit_offsets: Option<&UnitOffsets>,
     val: &Expression,
 ) -> Result<()> {
-    let size = val.size(encoding, unit_offsets) as u64;
+    let size = val.size(encoding, unit_offsets)? as u64;
     if encoding.version <= 4 {
         w.write_udata(size, 2)?;
     } else {
