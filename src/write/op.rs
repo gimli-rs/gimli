@@ -286,6 +286,7 @@ impl Expression {
             debug_assert_eq!(w.len(), offset);
             operation.write(w, refs.as_deref_mut(), encoding, unit_offsets, &offsets)?;
         }
+        debug_assert_eq!(w.len(), offset);
         Ok(())
     }
 }
@@ -511,7 +512,7 @@ impl Operation {
             None => Err(Error::UnsupportedCfiExpressionReference),
         };
         Ok(1 + match *self {
-            Operation::Raw(ref bytecode) => bytecode.len(),
+            Operation::Raw(ref bytecode) => return Ok(bytecode.len()),
             Operation::Simple(_) => 0,
             Operation::Address(_) => encoding.address_size as usize,
             Operation::UnsignedConstant(value) => {
@@ -1597,6 +1598,58 @@ mod tests {
                         convert_operations.next(),
                         Some(&Operation::Simple(constants::DW_OP_nop))
                     );
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[allow(clippy::type_complexity)]
+    fn test_expression_raw() {
+        for version in [2, 3, 4, 5] {
+            for address_size in [4, 8] {
+                for format in [Format::Dwarf32, Format::Dwarf64] {
+                    let encoding = Encoding {
+                        format,
+                        version,
+                        address_size,
+                    };
+
+                    let mut dwarf = Dwarf::new();
+                    let unit_id = dwarf.units.add(Unit::new(encoding, LineProgram::none()));
+                    let unit = dwarf.units.get_mut(unit_id);
+                    let subprogram_id = unit.add(unit.root(), constants::DW_TAG_subprogram);
+                    let subprogram = unit.get_mut(subprogram_id);
+                    let expression = Expression::raw(vec![constants::DW_OP_constu.0, 23]);
+                    subprogram.set(
+                        constants::DW_AT_location,
+                        AttributeValue::Exprloc(expression),
+                    );
+
+                    // Write the DWARF, then parse it.
+                    let mut sections = Sections::new(EndianVec::new(LittleEndian));
+                    dwarf.write(&mut sections).unwrap();
+
+                    let read_dwarf = sections.read(LittleEndian);
+                    let mut read_units = read_dwarf.units();
+                    let read_unit_header = read_units.next().unwrap().unwrap();
+                    let read_unit = read_dwarf.unit(read_unit_header).unwrap();
+                    let mut read_entries = read_unit.entries();
+                    let (_, read_entry) = read_entries.next_dfs().unwrap().unwrap();
+                    assert_eq!(read_entry.tag(), constants::DW_TAG_compile_unit);
+                    let (_, read_entry) = read_entries.next_dfs().unwrap().unwrap();
+                    assert_eq!(read_entry.tag(), constants::DW_TAG_subprogram);
+                    let read_attr = read_entry
+                        .attr_value(constants::DW_AT_location)
+                        .unwrap()
+                        .unwrap();
+                    let read_expression = read_attr.exprloc_value().unwrap();
+                    let mut read_operations = read_expression.operations(encoding);
+                    assert_eq!(
+                        read_operations.next(),
+                        Ok(Some(read::Operation::UnsignedConstant { value: 23 }))
+                    );
+                    assert_eq!(read_operations.next(), Ok(None));
                 }
             }
         }
