@@ -367,6 +367,12 @@ impl Abbreviation {
     /// Parse an abbreviation. Return `None` for the null abbreviation, `Some`
     /// for an actual abbreviation.
     fn parse<R: Reader>(input: &mut R) -> Result<Option<Abbreviation>> {
+        if input.is_empty() {
+            // Try to recover from missing null terminator.
+            // If the input was actually truncated, then we'll return an error later
+            // when trying to find the missing abbreviation.
+            return Ok(None);
+        }
         let code = input.read_uleb128()?;
         if code == 0 {
             return Ok(None);
