@@ -29,7 +29,7 @@ where
 {
     /// Construct a new `EndianSlice` with the given slice and endianity.
     #[inline]
-    pub fn new(slice: &'input [u8], endian: Endian) -> EndianSlice<'input, Endian> {
+    pub const fn new(slice: &'input [u8], endian: Endian) -> EndianSlice<'input, Endian> {
         EndianSlice { slice, endian }
     }
 
