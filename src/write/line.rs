@@ -68,6 +68,7 @@ pub struct LineProgram {
     /// For version 5, this controls whether to emit `DW_LNCT_LLVM_source`.
     pub file_has_source: bool,
 
+    empty_string: LineString,
     prev_row: LineRow,
     row: LineRow,
     // TODO: this probably should be either rows or sequences instead
@@ -125,6 +126,7 @@ impl LineProgram {
             file_has_size: false,
             file_has_md5: false,
             file_has_source: false,
+            empty_string: LineString::String(Vec::new()),
         };
         // For all DWARF versions, directory index 0 is working_dir.
         // For version <= 4, the entry is implicit. We still add
@@ -168,6 +170,7 @@ impl LineProgram {
             file_has_size: false,
             file_has_md5: false,
             file_has_source: false,
+            empty_string: LineString::String(Vec::new()),
         }
     }
 
@@ -631,7 +634,7 @@ impl LineProgram {
             }
             if self.file_has_source {
                 w.write_uleb128(u64::from(constants::DW_LNCT_LLVM_source.0))?;
-                w.write_uleb128(constants::DW_FORM_string.0.into())?;
+                w.write_uleb128(self.empty_string.form().0.into())?;
             }
 
             // File name entries.
@@ -658,11 +661,10 @@ impl LineProgram {
                     // Note: An empty DW_LNCT_LLVM_source is interpreted as missing
                     // source code. Included source code should always be
                     // terminated by a "\n" line ending.
-                    let empty_str = LineString::String(Vec::new());
-                    let source = info.source.as_ref().unwrap_or(&empty_str);
+                    let source = info.source.as_ref().unwrap_or(&self.empty_string);
                     source.write(
                         w,
-                        constants::DW_FORM_string,
+                        self.empty_string.form(),
                         self.encoding,
                         debug_line_str_offsets,
                         debug_str_offsets,
@@ -1097,7 +1099,11 @@ mod convert {
                 program.file_has_timestamp = from_header.file_has_timestamp();
                 program.file_has_size = from_header.file_has_size();
                 program.file_has_md5 = from_header.file_has_md5();
-                program.file_has_source = from_header.file_has_source();
+                if let Some(form) = from_header.file_source_form() {
+                    program.file_has_source = true;
+                    program.empty_string =
+                        LineString::empty_with_form(form, line_strings, strings)?;
+                }
                 for from_file in from_header.file_names().iter() {
                     let from_name =
                         LineString::from(from_file.path_name(), dwarf, line_strings, strings)?;
@@ -1211,6 +1217,21 @@ mod convert {
                 }
                 _ => return Err(ConvertError::UnsupportedLineStringForm),
             })
+        }
+
+        fn empty_with_form(
+            form: constants::DwForm,
+            line_strings: &mut write::LineStringTable,
+            strings: &mut write::StringTable,
+        ) -> ConvertResult<LineString> {
+            match form {
+                constants::DW_FORM_line_strp => {
+                    Ok(LineString::LineStringRef(line_strings.add(Vec::new())))
+                }
+                constants::DW_FORM_strp => Ok(LineString::StringRef(strings.add(Vec::new()))),
+                constants::DW_FORM_string => Ok(LineString::String(Vec::new())),
+                _ => Err(ConvertError::UnsupportedLineStringForm),
+            }
         }
     }
 }

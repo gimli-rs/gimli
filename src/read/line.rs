@@ -1204,6 +1204,13 @@ where
             .any(|x| x.content_type == constants::DW_LNCT_LLVM_source)
     }
 
+    pub(crate) fn file_source_form(&self) -> Option<constants::DwForm> {
+        self.file_name_entry_format
+            .iter()
+            .find(|x| x.content_type == constants::DW_LNCT_LLVM_source)
+            .map(|x| x.form)
+    }
+
     /// Get the list of source files that appear in this header's line program.
     pub fn file_names(&self) -> &[FileEntry<R, Offset>] {
         &self.file_names[..]
