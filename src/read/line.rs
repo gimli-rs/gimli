@@ -1204,7 +1204,7 @@ where
             .any(|x| x.content_type == constants::DW_LNCT_LLVM_source)
     }
 
-    pub(crate) fn source_form(&self) -> Option<constants::DwForm> {
+    pub(crate) fn file_source_form(&self) -> Option<constants::DwForm> {
         self.file_name_entry_format
             .iter()
             .find(|x| x.content_type == constants::DW_LNCT_LLVM_source)

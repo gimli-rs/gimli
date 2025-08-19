@@ -1099,7 +1099,11 @@ mod convert {
                 program.file_has_timestamp = from_header.file_has_timestamp();
                 program.file_has_size = from_header.file_has_size();
                 program.file_has_md5 = from_header.file_has_md5();
-                program.file_has_source = from_header.file_has_source();
+                if let Some(form) = from_header.file_source_form() {
+                    program.file_has_source = true;
+                    program.empty_string =
+                        LineString::empty_with_form(form, line_strings, strings)?;
+                }
                 for from_file in from_header.file_names().iter() {
                     let from_name =
                         LineString::from(from_file.path_name(), dwarf, line_strings, strings)?;
@@ -1120,13 +1124,6 @@ mod convert {
                         },
                     });
                     files.push(program.add_file(from_name, from_dir, from_info));
-                }
-                if program.file_has_source {
-                    program.empty_string = LineString::empty_with_header_source_form(
-                        from_header,
-                        line_strings,
-                        strings,
-                    )?;
                 }
 
                 program
@@ -1222,18 +1219,19 @@ mod convert {
             })
         }
 
-        fn empty_with_header_source_form<R: Reader<Offset = usize>>(
-            header: &read::LineProgramHeader<R>,
+        fn empty_with_form(
+            form: constants::DwForm,
             line_strings: &mut write::LineStringTable,
             strings: &mut write::StringTable,
         ) -> ConvertResult<LineString> {
-            Ok(match header.source_form() {
-                Some(constants::DW_FORM_line_strp) => {
-                    LineString::LineStringRef(line_strings.add([]))
+            match form {
+                constants::DW_FORM_line_strp => {
+                    Ok(LineString::LineStringRef(line_strings.add(Vec::new())))
                 }
-                Some(constants::DW_FORM_strp) => LineString::StringRef(strings.add([])),
-                Some(..) | None => LineString::String(Vec::new()),
-            })
+                constants::DW_FORM_strp => Ok(LineString::StringRef(strings.add(Vec::new()))),
+                constants::DW_FORM_string => Ok(LineString::String(Vec::new())),
+                _ => Err(ConvertError::UnsupportedLineStringForm),
+            }
         }
     }
 }
