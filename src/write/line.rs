@@ -7,7 +7,7 @@ use crate::constants;
 use crate::leb128;
 use crate::write::{
     Address, DebugLineStrOffsets, DebugStrOffsets, Error, LineStringId, LineStringTable, Result,
-    Section, StringId, Writer,
+    Section, StringId, StringTable, Writer,
 };
 
 /// The number assigned to the first special opcode.
@@ -68,7 +68,6 @@ pub struct LineProgram {
     /// For version 5, this controls whether to emit `DW_LNCT_LLVM_source`.
     pub file_has_source: bool,
 
-    empty_string: LineString,
     prev_row: LineRow,
     row: LineRow,
     // TODO: this probably should be either rows or sequences instead
@@ -126,7 +125,6 @@ impl LineProgram {
             file_has_size: false,
             file_has_md5: false,
             file_has_source: false,
-            empty_string: LineString::String(Vec::new()),
         };
         // For all DWARF versions, directory index 0 is working_dir.
         // For version <= 4, the entry is implicit. We still add
@@ -170,7 +168,6 @@ impl LineProgram {
             file_has_size: false,
             file_has_md5: false,
             file_has_source: false,
-            empty_string: LineString::String(Vec::new()),
         }
     }
 
@@ -632,9 +629,28 @@ impl LineProgram {
                 w.write_uleb128(u64::from(constants::DW_LNCT_MD5.0))?;
                 w.write_uleb128(constants::DW_FORM_data16.0.into())?;
             }
+            let file_source_form = self
+                .files
+                .iter()
+                .find_map(|file| file.1.source.as_ref().map(LineString::form))
+                .unwrap_or(constants::DW_FORM_string);
+            // Create a string to use for files with no source.
+            // Note: An empty DW_LNCT_LLVM_source is interpreted as missing
+            // source code. Included source code should always be
+            // terminated by a "\n" line ending.
+            let file_source_empty = match file_source_form {
+                // If any file source is set, then `get_empty` will succeed.
+                // If all are missing then `file_source_form` will be `DW_FORM_string`.
+                constants::DW_FORM_line_strp => debug_line_str_offsets
+                    .get_empty()
+                    .map(LineString::LineStringRef),
+                constants::DW_FORM_strp => debug_str_offsets.get_empty().map(LineString::StringRef),
+                _ => None,
+            }
+            .unwrap_or(LineString::String(Vec::new()));
             if self.file_has_source {
                 w.write_uleb128(u64::from(constants::DW_LNCT_LLVM_source.0))?;
-                w.write_uleb128(self.empty_string.form().0.into())?;
+                w.write_uleb128(file_source_form.0.into())?;
             }
 
             // File name entries.
@@ -658,13 +674,10 @@ impl LineProgram {
                     w.write(&info.md5)?;
                 }
                 if self.file_has_source {
-                    // Note: An empty DW_LNCT_LLVM_source is interpreted as missing
-                    // source code. Included source code should always be
-                    // terminated by a "\n" line ending.
-                    let source = info.source.as_ref().unwrap_or(&self.empty_string);
+                    let source = info.source.as_ref().unwrap_or(&file_source_empty);
                     source.write(
                         w,
-                        self.empty_string.form(),
+                        file_source_form,
                         self.encoding,
                         debug_line_str_offsets,
                         debug_str_offsets,
@@ -872,6 +885,19 @@ impl LineString {
         }
     }
 
+    /// Get a reference to the string data.
+    pub fn get<'a>(
+        &'a self,
+        strings: &'a StringTable,
+        line_strings: &'a LineStringTable,
+    ) -> &'a [u8] {
+        match self {
+            LineString::String(val) => val,
+            LineString::StringRef(val) => strings.get(*val),
+            LineString::LineStringRef(val) => line_strings.get(*val),
+        }
+    }
+
     fn form(&self) -> constants::DwForm {
         match *self {
             LineString::String(..) => constants::DW_FORM_string,
@@ -998,10 +1024,6 @@ pub struct FileInfo {
     /// Optionally some embedded sourcecode.
     ///
     /// Only used if version >= 5 and `LineProgram::file_has_source` is `true`.
-    ///
-    /// NOTE: This currently only supports the `LineString::String` variant,
-    /// since we're encoding the string with `DW_FORM_string`.
-    /// Other variants will result in an `LineStringFormMismatch` error.
     pub source: Option<LineString>,
 }
 
@@ -1099,11 +1121,7 @@ mod convert {
                 program.file_has_timestamp = from_header.file_has_timestamp();
                 program.file_has_size = from_header.file_has_size();
                 program.file_has_md5 = from_header.file_has_md5();
-                if let Some(form) = from_header.file_source_form() {
-                    program.file_has_source = true;
-                    program.empty_string =
-                        LineString::empty_with_form(form, line_strings, strings)?;
-                }
+                program.file_has_source = from_header.file_has_source();
                 for from_file in from_header.file_names().iter() {
                     let from_name =
                         LineString::from(from_file.path_name(), dwarf, line_strings, strings)?;
@@ -1217,21 +1235,6 @@ mod convert {
                 }
                 _ => return Err(ConvertError::UnsupportedLineStringForm),
             })
-        }
-
-        fn empty_with_form(
-            form: constants::DwForm,
-            line_strings: &mut write::LineStringTable,
-            strings: &mut write::StringTable,
-        ) -> ConvertResult<LineString> {
-            match form {
-                constants::DW_FORM_line_strp => {
-                    Ok(LineString::LineStringRef(line_strings.add(Vec::new())))
-                }
-                constants::DW_FORM_strp => Ok(LineString::StringRef(strings.add(Vec::new()))),
-                constants::DW_FORM_string => Ok(LineString::String(Vec::new())),
-                _ => Err(ConvertError::UnsupportedLineStringForm),
-            }
         }
     }
 }
@@ -2076,6 +2079,85 @@ mod tests {
                     let (_file_id, file, dir_id) = convert_program.files().next().unwrap();
                     assert_eq!(&source_file, file);
                     assert_eq!(&source_dir, convert_program.get_directory(dir_id));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_file_source() {
+        let version = 5;
+
+        let source1 = "source1";
+
+        for &address_size in &[4, 8] {
+            for &format in &[Format::Dwarf32, Format::Dwarf64] {
+                let encoding = Encoding {
+                    format,
+                    version,
+                    address_size,
+                };
+
+                let sources: &mut [&mut dyn Fn(&mut Dwarf) -> LineString] = &mut [
+                    &mut |_dwarf| LineString::String(source1.as_bytes().to_vec()),
+                    &mut |dwarf| LineString::StringRef(dwarf.strings.add(source1)),
+                    &mut |dwarf| LineString::LineStringRef(dwarf.line_strings.add(source1)),
+                ];
+
+                for source in sources {
+                    let mut dwarf = Dwarf::new();
+                    let source = Some(source(&mut dwarf));
+
+                    let mut program = LineProgram::new(
+                        encoding,
+                        LineEncoding::default(),
+                        LineString::String(b"dir".to_vec()),
+                        None,
+                        LineString::String(b"file".to_vec()),
+                        Some(FileInfo {
+                            timestamp: 0,
+                            size: 0,
+                            md5: [0; 16],
+                            source,
+                        }),
+                    );
+                    program.file_has_source = true;
+
+                    let file_id = program.files().next().unwrap().0;
+                    program.begin_sequence(Some(Address::Constant(0x1000)));
+                    program.row().file = file_id;
+                    program.row().line = 0x10000;
+                    program.generate_row();
+
+                    let mut unit = Unit::new(encoding, program);
+                    let root = unit.get_mut(unit.root());
+                    root.set(constants::DW_AT_stmt_list, AttributeValue::LineProgramRef);
+                    dwarf.units.add(unit);
+
+                    let mut sections = Sections::new(EndianVec::new(LittleEndian));
+                    dwarf.write(&mut sections).unwrap();
+
+                    let read_dwarf = sections.read(LittleEndian);
+                    let read_unit_header = read_dwarf.units().next().unwrap().unwrap();
+                    let read_unit = read_dwarf.unit(read_unit_header).unwrap();
+                    let read_unit = read_unit.unit_ref(&read_dwarf);
+                    let read_program = read_unit.line_program.clone().unwrap();
+                    let read_header = read_program.header();
+                    let read_file = read_header.file(0).unwrap();
+                    let read_source = read_unit.attr_string(read_file.source().unwrap()).unwrap();
+                    assert_eq!(read_source.slice(), source1.as_bytes());
+
+                    let convert_dwarf =
+                        Dwarf::from(&read_dwarf, &|address| Some(Address::Constant(address)))
+                            .unwrap();
+                    let (_, convert_unit) = convert_dwarf.units.iter().next().unwrap();
+                    let convert_program = &convert_unit.line_program;
+                    let convert_file_id = convert_program.files().next().unwrap().0;
+                    let convert_file_info = convert_program.get_file_info(convert_file_id);
+                    assert_eq!(
+                        convert_dwarf.get_line_string(convert_file_info.source.as_ref().unwrap()),
+                        source1.as_bytes(),
+                    );
                 }
             }
         }
