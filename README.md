@@ -26,11 +26,9 @@
 
 ## Install
 
-Add this to your `Cargo.toml`:
-
-```toml
-[dependencies]
-gimli = "0.32.0"
+To add a `gimli` dependency to your `Cargo.toml`, run:
+```console
+$ cargo add gimli
 ```
 
 The minimum supported Rust version is:
