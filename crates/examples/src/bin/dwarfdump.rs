@@ -1683,6 +1683,9 @@ fn dump_op<R: Reader, W: Write>(
                 write!(w, " 0x{:08x}", offset)?;
             }
         },
+        gimli::Operation::VariableValue { offset } => {
+            write!(w, " 0x{:08x}", offset.0)?;
+        }
         gimli::Operation::Piece {
             size_in_bits,
             bit_offset: None,
@@ -1771,7 +1774,8 @@ fn dump_op<R: Reader, W: Write>(
         | gimli::Operation::PushObjectAddress
         | gimli::Operation::TLS
         | gimli::Operation::CallFrameCFA
-        | gimli::Operation::StackValue => {}
+        | gimli::Operation::StackValue
+        | gimli::Operation::Uninitialized => {}
     };
     Ok(())
 }

@@ -426,6 +426,10 @@ enum Operation {
     ///
     /// Represents `DW_OP_call_ref`.
     CallRef(Reference),
+    /// Compute the value of a variable and push it on the stack.
+    ///
+    /// Represents `DW_OP_GNU_variable_value`.
+    VariableValue(Reference),
     /// Pop the top stack entry, convert it to a different type, and push it on the stack.
     ///
     /// Represents `DW_OP_convert`.
@@ -550,6 +554,7 @@ impl Operation {
             Operation::Branch(_) => 2,
             Operation::Call(_) => 4,
             Operation::CallRef(_) => encoding.format.word_size() as usize,
+            Operation::VariableValue(_) => encoding.format.word_size() as usize,
             Operation::Convert(base) => match base {
                 Some(base) => base_size(base)?,
                 None => 1,
@@ -713,6 +718,23 @@ impl Operation {
             }
             Operation::CallRef(entry) => {
                 w.write_u8(constants::DW_OP_call_ref.0)?;
+                let size = encoding.format.word_size();
+                match entry {
+                    Reference::Symbol(symbol) => w.write_reference(symbol, size)?,
+                    Reference::Entry(unit, entry) => {
+                        let refs = refs.ok_or(Error::InvalidReference)?;
+                        refs.push(DebugInfoReference {
+                            offset: w.len(),
+                            unit,
+                            entry,
+                            size,
+                        });
+                        w.write_udata(0, size)?;
+                    }
+                }
+            }
+            Operation::VariableValue(entry) => {
+                w.write_u8(constants::DW_OP_GNU_variable_value.0)?;
                 let size = encoding.format.word_size();
                 match entry {
                     Reference::Symbol(symbol) => w.write_reference(symbol, size)?,
@@ -969,6 +991,9 @@ pub(crate) mod convert {
                             Operation::CallRef(convert_debug_info_offset(offset)?)
                         }
                     },
+                    read::Operation::VariableValue { offset } => {
+                        Operation::VariableValue(convert_debug_info_offset(offset)?)
+                    }
                     read::Operation::TLS => Operation::Simple(constants::DW_OP_form_tls_address),
                     read::Operation::CallFrameCFA => {
                         Operation::Simple(constants::DW_OP_call_frame_cfa)
@@ -1046,6 +1071,9 @@ pub(crate) mod convert {
                             let entry = convert_unit_offset(base_type)?;
                             Operation::Reinterpret(Some(entry))
                         }
+                    }
+                    read::Operation::Uninitialized => {
+                        Operation::Simple(constants::DW_OP_GNU_uninit)
                     }
                     read::Operation::WasmLocal { index } => Operation::WasmLocal(index),
                     read::Operation::WasmGlobal { index } => Operation::WasmGlobal(index),
