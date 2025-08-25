@@ -2,6 +2,18 @@
 
 --------------------------------------------------------------------------------
 
+## 0.32.2
+
+Released 2025/08/26.
+
+### Changed
+
+* Removed `PartialEq<Debug*Offset>` implementations for `UnitSectionOffset`.
+  These were an unintended breaking change.
+  [#789](https://github.com/gimli-rs/gimli/pull/789)
+
+--------------------------------------------------------------------------------
+
 ## 0.32.1
 
 Released 2025/08/22.
