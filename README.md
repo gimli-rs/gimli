@@ -46,6 +46,11 @@ The minimum supported Rust version is:
 
   * [A simple `.debug_line` parser](./crates/examples/src/bin/simple_line.rs)
 
+  * [A simple DWARF writer](./crates/examples/src/bin/simple_write.rs)
+
+  * [A simple DWARF converter](./crates/examples/src/bin/simple_convert.rs)
+    to read DWARF sections then write them back out again.
+
   * [A `dwarfdump` clone](./crates/examples/src/bin/dwarfdump.rs)
 
   * [An `addr2line` clone](https://github.com/gimli-rs/addr2line)
