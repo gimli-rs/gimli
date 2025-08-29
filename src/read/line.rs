@@ -835,8 +835,8 @@ impl LineRow {
                 // so we treat all lower addresses as tombstones instead of just 0.
                 // This works because DWARF specifies that addresses are monotonically increasing
                 // within a sequence; the alternative is to return an error.
-                let tombstone_address = !0 >> (64 - program.header().encoding.address_size * 8);
-                self.tombstone = address < self.address || address == tombstone_address;
+                self.tombstone = address < self.address
+                    || address >= u64::min_tombstone(program.header().encoding.address_size);
                 if !self.tombstone {
                     self.address = address;
                     self.op_index.0 = 0;
