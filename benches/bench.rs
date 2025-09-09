@@ -3,16 +3,100 @@
 extern crate test;
 
 use gimli::{
-    AttributeValue, DebugAbbrev, DebugAddr, DebugAddrBase, DebugAranges, DebugInfo, DebugLine,
-    DebugLineOffset, DebugLoc, DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges,
+    leb128, AttributeValue, DebugAbbrev, DebugAddr, DebugAddrBase, DebugAranges, DebugInfo,
+    DebugLine, DebugLineOffset, DebugLoc, DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges,
     DebugRngLists, Encoding, EndianSlice, EntriesTreeNode, Expression, LittleEndian, LocationLists,
-    Operation, RangeLists, RangeListsOffset, Reader, ReaderOffset,
+    NativeEndian, Operation, RangeLists, RangeListsOffset, Reader, ReaderOffset,
 };
 use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use std::rc::Rc;
+
+/// Benchmark reading of small (one or two byte in encoded form)
+/// unsigned LEB128 values.
+#[bench]
+fn bench_reading_leb128_unsigned_small(b: &mut test::Bencher) {
+    let data = (0..255)
+        .map(|n| {
+            let mut buf = Vec::new();
+            leb128::write::unsigned(&mut buf, n).unwrap();
+
+            let mut slice = EndianSlice::new(buf.as_slice(), NativeEndian);
+            assert_eq!(leb128::read::unsigned(&mut slice).unwrap(), n);
+
+            (buf.into_boxed_slice(), n)
+        })
+        .collect::<Vec<_>>();
+
+    let () = b.iter(|| {
+        for (data, _) in &data {
+            let mut slice = test::black_box(EndianSlice::new(data, NativeEndian));
+            let v = leb128::read::unsigned(&mut slice).unwrap();
+            test::black_box(v);
+        }
+    });
+}
+
+/// Benchmark reading of large unsigned LEB128 values.
+#[bench]
+fn bench_reading_leb128_unsigned_large(b: &mut test::Bencher) {
+    #[rustfmt::skip]
+    let data = [
+        (&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01][..], u64::MAX),
+        (&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f, 0x00][..], u64::MAX / 2),
+        (&[0xd5, 0xaa, 0xd5, 0xaa, 0xd5, 0xaa, 0xd5, 0xaa, 0x55, 0x00][..], u64::MAX / 3),
+        (&[0xb3, 0xe6, 0xcc, 0x99, 0xb3, 0xe6, 0xcc, 0x99, 0x33, 0x00][..], u64::MAX / 5),
+        (&[0xaa, 0xd5, 0xaa, 0xd5, 0xaa, 0xd5, 0xaa, 0xd5, 0x2a, 0x00][..], u64::MAX / 6),
+        (&[0x92, 0xc9, 0xa4, 0x92, 0xc9, 0xa4, 0x92, 0xc9, 0x24, 0x00][..], u64::MAX / 7),
+        (&[0xf1, 0xb8, 0x9c, 0x8e, 0xc7, 0xe3, 0xf1, 0xb8, 0x1c, 0x00][..], u64::MAX / 9),
+        (&[0x99, 0xb3, 0xe6, 0xcc, 0x99, 0xb3, 0xe6, 0xcc, 0x19, 0x00][..], u64::MAX / 10),
+        (&[0xd1, 0x8b, 0xdd, 0xe8, 0xc5, 0xae, 0xf4, 0xa2, 0x17, 0x00][..], u64::MAX / 11),
+        (&[0xd5, 0xaa, 0xd5, 0xaa, 0xd5, 0xaa, 0xd5, 0xaa, 0x15, 0x00][..], u64::MAX / 12),
+        (&[0xb1, 0xa7, 0xec, 0x89, 0xbb, 0xe2, 0xce, 0xd8, 0x13, 0x00][..], u64::MAX / 13),
+        (&[0xc9, 0xa4, 0x92, 0xc9, 0xa4, 0x92, 0xc9, 0xa4, 0x12, 0x00][..], u64::MAX / 14),
+        (&[0x91, 0xa2, 0xc4, 0x88, 0x91, 0xa2, 0xc4, 0x88, 0x11, 0x00][..], u64::MAX / 15),
+    ];
+
+    for (data, expected) in data {
+        let mut slice = test::black_box(EndianSlice::new(data, NativeEndian));
+        let v = leb128::read::unsigned(&mut slice).unwrap();
+        assert_eq!(v, expected);
+    }
+
+    let () = b.iter(|| {
+        for (data, _) in data {
+            let mut slice = test::black_box(EndianSlice::new(data, NativeEndian));
+            let v = leb128::read::unsigned(&mut slice).unwrap();
+            test::black_box(v);
+        }
+    });
+}
+
+/// Benchmark reading of small u16 LEB128 values.
+#[bench]
+fn bench_reading_leb128_u16_small(b: &mut test::Bencher) {
+    let data = (0u16..255)
+        .map(|n| {
+            let mut buf = Vec::new();
+            leb128::write::unsigned(&mut buf, u64::from(n)).unwrap();
+
+            let mut slice = EndianSlice::new(buf.as_slice(), NativeEndian);
+            assert_eq!(leb128::read::u16(&mut slice).unwrap(), n);
+
+            (buf.into_boxed_slice(), n)
+        })
+        .collect::<Vec<_>>();
+
+    let () = b.iter(|| {
+        for (data, _) in &data {
+            let mut slice = test::black_box(EndianSlice::new(data, NativeEndian));
+            let v = leb128::read::unsigned(&mut slice).unwrap();
+            test::black_box(v);
+        }
+    });
+}
 
 pub fn read_section(section: &str) -> Vec<u8> {
     let mut path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into()));

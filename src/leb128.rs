@@ -80,8 +80,14 @@ pub mod read {
     /// Read an unsigned LEB128 number from the given `Reader` and
     /// return it or an error if reading failed.
     pub fn unsigned<R: Reader>(r: &mut R) -> Result<u64> {
-        let mut result = 0;
-        let mut shift = 0;
+        // The first iteration of this loop is unpeeled for better code
+        // gen for the statistically likely case of single byte values.
+        let byte = r.read_u8()?;
+        if byte & CONTINUATION_BIT == 0 {
+            return Ok(u64::from(byte));
+        }
+        let mut result = u64::from(low_bits_of_byte(byte));
+        let mut shift = 7;
 
         loop {
             let byte = r.read_u8()?;
@@ -104,11 +110,11 @@ pub mod read {
     /// return it or an error if reading failed.
     pub fn u16<R: Reader>(r: &mut R) -> Result<u16> {
         let byte = r.read_u8()?;
-        let mut result = u16::from(low_bits_of_byte(byte));
         if byte & CONTINUATION_BIT == 0 {
-            return Ok(result);
+            return Ok(u16::from(byte));
         }
 
+        let mut result = u16::from(low_bits_of_byte(byte));
         let byte = r.read_u8()?;
         result |= u16::from(low_bits_of_byte(byte)) << 7;
         if byte & CONTINUATION_BIT == 0 {
@@ -332,6 +338,14 @@ mod tests {
             12857,
             read::unsigned(&mut readable).expect("Should read number")
         );
+    }
+
+    #[test]
+    fn test_read_unsigned_invalid() {
+        let buf = &[0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 2][..];
+        let mut readable = EndianSlice::new(buf, NativeEndian);
+        let err = read::unsigned(&mut readable).unwrap_err();
+        assert!(matches!(err, Error::BadUnsignedLeb128), "{}", err);
     }
 
     // Examples from the DWARF 4 standard, section 7.6, figure 23.
