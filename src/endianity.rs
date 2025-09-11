@@ -185,7 +185,7 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
         buf[..8].copy_from_slice(&bytes);
     }
 
-    /// Writes an unsigned 64 bit integer `n` to `buf`.
+    /// Writes an unsigned 128 bit integer `n` to `buf`.
     ///
     /// # Panics
     ///
