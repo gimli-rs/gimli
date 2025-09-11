@@ -189,7 +189,7 @@ pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
     ///
     /// # Panics
     ///
-    /// Panics when `buf.len() < 8`.
+    /// Panics when `buf.len() < 16`.
     #[inline]
     fn write_u128(self, buf: &mut [u8], n: u128) {
         let bytes = if self.is_big_endian() {
