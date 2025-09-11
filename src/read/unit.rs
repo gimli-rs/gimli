@@ -978,6 +978,16 @@ where
     /// anything else."
     Data8(u64),
 
+    /// An sixteen byte constant data value. How to interpret the bytes depends on context.
+    ///
+    /// These bytes have been converted from `R::Endian`. This may need to be reversed
+    /// if this was not required.
+    ///
+    /// From section 7 of the standard: "Depending on context, it may be a
+    /// signed integer, an unsigned integer, a floating-point constant, or
+    /// anything else."
+    Data16(u128),
+
     /// A signed integer constant.
     Sdata(i64),
 
@@ -2035,8 +2045,8 @@ pub(crate) fn parse_attribute<R: Reader>(
                 }
             }
             constants::DW_FORM_data16 => {
-                let block = input.split(R::Offset::from_u8(16))?;
-                AttributeValue::Block(block)
+                let data = input.read_u128()?;
+                AttributeValue::Data16(data)
             }
             constants::DW_FORM_udata => {
                 let data = input.read_uleb128()?;

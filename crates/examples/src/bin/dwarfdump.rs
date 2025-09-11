@@ -1298,7 +1298,8 @@ fn dump_attr_value<R: Reader, W: Write>(
         gimli::AttributeValue::Data1(_)
         | gimli::AttributeValue::Data2(_)
         | gimli::AttributeValue::Data4(_)
-        | gimli::AttributeValue::Data8(_) => {
+        | gimli::AttributeValue::Data8(_)
+        | gimli::AttributeValue::Data16(_) => {
             if let (Some(udata), Some(sdata)) = (attr.udata_value(), attr.sdata_value()) {
                 if sdata >= 0 {
                     writeln!(w, "{}", udata)?;

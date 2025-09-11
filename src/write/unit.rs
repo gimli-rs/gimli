@@ -770,6 +770,15 @@ pub enum AttributeValue {
     /// anything else."
     Data8(u64),
 
+    /// An sixteen byte constant data value. How to interpret the bytes depends on context.
+    ///
+    /// This value will be converted to the target endian before writing.
+    ///
+    /// From section 7 of the standard: "Depending on context, it may be a
+    /// signed integer, an unsigned integer, a floating-point constant, or
+    /// anything else."
+    Data16(u128),
+
     /// A signed integer constant.
     Sdata(i64),
 
@@ -907,6 +916,7 @@ impl AttributeValue {
             AttributeValue::Data2(_) => constants::DW_FORM_data2,
             AttributeValue::Data4(_) => constants::DW_FORM_data4,
             AttributeValue::Data8(_) => constants::DW_FORM_data8,
+            AttributeValue::Data16(_) => constants::DW_FORM_data16,
             AttributeValue::Exprloc(_) => constants::DW_FORM_exprloc,
             AttributeValue::Flag(_) => constants::DW_FORM_flag,
             AttributeValue::FlagPresent => constants::DW_FORM_flag_present,
@@ -994,6 +1004,10 @@ impl AttributeValue {
             AttributeValue::Data8(_) => {
                 debug_assert_form!(constants::DW_FORM_data8);
                 8
+            }
+            AttributeValue::Data16(_) => {
+                debug_assert_form!(constants::DW_FORM_data16);
+                16
             }
             AttributeValue::Sdata(val) => {
                 debug_assert_form!(constants::DW_FORM_sdata);
@@ -1187,6 +1201,10 @@ impl AttributeValue {
             AttributeValue::Data8(val) => {
                 debug_assert_form!(constants::DW_FORM_data8);
                 w.write_u64(val)?;
+            }
+            AttributeValue::Data16(val) => {
+                debug_assert_form!(constants::DW_FORM_data16);
+                w.write_u128(val)?;
             }
             AttributeValue::Sdata(val) => {
                 debug_assert_form!(constants::DW_FORM_sdata);
@@ -1762,6 +1780,7 @@ pub(crate) mod convert {
                 read::AttributeValue::Data2(val) => AttributeValue::Data2(val),
                 read::AttributeValue::Data4(val) => AttributeValue::Data4(val),
                 read::AttributeValue::Data8(val) => AttributeValue::Data8(val),
+                read::AttributeValue::Data16(val) => AttributeValue::Data16(val),
                 read::AttributeValue::Sdata(val) => AttributeValue::Sdata(val),
                 read::AttributeValue::Udata(val) => AttributeValue::Udata(val),
                 read::AttributeValue::Exprloc(expression) => {

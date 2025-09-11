@@ -154,6 +154,13 @@ pub trait Writer {
         self.write(&bytes)
     }
 
+    /// Write a u128.
+    fn write_u128(&mut self, val: u128) -> Result<()> {
+        let mut bytes = [0; 16];
+        self.endian().write_u128(&mut bytes, val);
+        self.write(&bytes)
+    }
+
     /// Write a u8 at the given offset.
     fn write_u8_at(&mut self, offset: usize, val: u8) -> Result<()> {
         let bytes = [val];
@@ -178,6 +185,13 @@ pub trait Writer {
     fn write_u64_at(&mut self, offset: usize, val: u64) -> Result<()> {
         let mut bytes = [0; 8];
         self.endian().write_u64(&mut bytes, val);
+        self.write_at(offset, &bytes)
+    }
+
+    /// Write a u128 at the given offset.
+    fn write_u128_at(&mut self, offset: usize, val: u128) -> Result<()> {
+        let mut bytes = [0; 8];
+        self.endian().write_u128(&mut bytes, val);
         self.write_at(offset, &bytes)
     }
 
