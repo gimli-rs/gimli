@@ -391,6 +391,9 @@ fn main() {
                 continue;
             }
         };
+        // SAFETY: This is not safe. `gimli` does not mitigate against modifications to
+        // the file while it is being read. For this tool, we consider the risk of this
+        // happening to be low, and the consequences harmless if it does happen.
         let file = match unsafe { memmap2::Mmap::map(&file) } {
             Ok(mmap) => mmap,
             Err(err) => {

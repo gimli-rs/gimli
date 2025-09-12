@@ -53,6 +53,10 @@ fn main() {
     let dwp_path = args.next();
 
     let file = fs::File::open(path).unwrap();
+    // SAFETY: This is not safe. `gimli` does not mitigate against modifications to the
+    // file while it is being read. See the `memmap2` documentation and take your own
+    // precautions. `fs::read` could be used instead if you don't mind loading the entire
+    // file into memory.
     let mmap = unsafe { memmap2::Mmap::map(&file).unwrap() };
     let object = object::File::parse(&*mmap).unwrap();
     let endian = if object.is_little_endian() {
