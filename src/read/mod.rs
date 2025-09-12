@@ -41,7 +41,9 @@
 //!
 //! Full example programs:
 //!
-//!   * [A simple parser](https://github.com/gimli-rs/gimli/blob/master/crates/examples/src/bin/simple.rs)
+//!   * [A simple `.debug_info` parser](https://github.com/gimli-rs/gimli/blob/master/crates/examples/src/bin/simple.rs)
+//!
+//!   * [A simple `.debug_line` parser](https://github.com/gimli-rs/gimli/blob/master/crates/examples/src/bin/simple_line.rs)
 //!
 //!   * [A `dwarfdump`
 //!     clone](https://github.com/gimli-rs/gimli/blob/master/crates/examples/src/bin/dwarfdump.rs)

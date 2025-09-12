@@ -10,7 +10,7 @@ fallible-iterator = { version = "0.3.0", default-features = false, optional = tr
 getopts = "0.2"
 memmap2 = "0.9.4"
 num_cpus = "1"
-object = { version = "0.37.1", features = ["wasm", "write"] }
+object = { version = "0.37.1", features = ["wasm", "write", "build"] }
 rayon = "1.0"
 regex = "1"
 typed-arena = "2"
@@ -34,6 +34,10 @@ required-features = ["read", "std"]
 [[bin]]
 name = "simple_write"
 required-features = ["write"]
+
+[[bin]]
+name = "simple_convert"
+required-features = ["read", "write"]
 
 [[bin]]
 name = "dwarfdump"
