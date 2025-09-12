@@ -594,12 +594,6 @@ impl<R: Reader> LocListIter<R> {
         raw_loc: RawLocListEntry<R>,
     ) -> Result<Option<LocationListEntry<R>>> {
         let address_size = self.raw.encoding.address_size;
-        let mask = u64::ones_sized(address_size);
-        let tombstone = if self.raw.encoding.version <= 4 {
-            mask - 1
-        } else {
-            mask
-        };
 
         let (range, data) = match raw_loc {
             RawLocListEntry::BaseAddress { addr } => {
@@ -634,11 +628,11 @@ impl<R: Reader> LocListIter<R> {
             RawLocListEntry::AddressOrOffsetPair { begin, end, data }
             | RawLocListEntry::OffsetPair { begin, end, data } => {
                 // Skip tombstone entries (see below).
-                if self.base_address == tombstone {
+                if self.base_address >= u64::min_tombstone(address_size) {
                     return Ok(None);
                 }
                 let mut range = Range { begin, end };
-                range.add_base_address(self.base_address, self.raw.encoding.address_size);
+                range.add_base_address(self.base_address, address_size);
                 (range, data)
             }
             RawLocListEntry::StartEnd { begin, end, data } => (Range { begin, end }, data),
@@ -662,7 +656,7 @@ impl<R: Reader> LocListIter<R> {
         //
         // In addition to skipping tombstone entries, we also skip invalid entries
         // where `begin` is greater than `end`. This can occur due to compiler bugs.
-        if range.begin == tombstone || range.begin >= range.end {
+        if range.begin >= u64::min_tombstone(address_size) || range.begin >= range.end {
             return Ok(None);
         }
 

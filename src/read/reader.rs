@@ -203,8 +203,30 @@ pub(crate) trait ReaderAddress: Sized {
     /// that the length is a negative value.
     fn wrapping_add_sized(self, length: u64, size: u8) -> Self;
 
+    /// The all-zeros value of an address.
+    fn zeros() -> Self;
+
     /// The all-ones value of an address of the given size.
     fn ones_sized(size: u8) -> Self;
+
+    /// Return the minimum value for a tombstone address.
+    ///
+    /// A variety of values may be used as tombstones in DWARF data.  DWARF 6 specifies a
+    /// tombstone value of -1, and this is compatible with most sections in earlier DWARF
+    /// versions. However, for .debug_loc and .debug_ranges in DWARF 4 and earlier, the
+    /// tombstone value is -2, because -1 already has a special meaning. -2 has also been
+    /// seen in .debug_line, possibly from a proprietary fork of lld.
+    ///
+    /// So this function returns -2 (cast to an unsigned value), and callers can consider
+    /// addresses greater than or equal to this value to be tombstones.
+    ///
+    /// Prior to the use of -1 or -2 for tombstones, it was common to use 0 or 1.
+    /// Additionally, gold may leave the relocation addend in place. These values are not
+    /// handled by this function, so callers will need to handle them separately if they
+    /// want to.
+    fn min_tombstone(size: u8) -> Self {
+        Self::zeros().wrapping_add_sized(-2i64 as u64, size)
+    }
 }
 
 impl ReaderAddress for u64 {
@@ -222,6 +244,11 @@ impl ReaderAddress for u64 {
     fn wrapping_add_sized(self, length: u64, size: u8) -> Self {
         let mask = Self::ones_sized(size);
         self.wrapping_add(length) & mask
+    }
+
+    #[inline]
+    fn zeros() -> Self {
+        0
     }
 
     #[inline]
@@ -550,5 +577,18 @@ pub trait Reader: Debug + Clone {
             otherwise => Err(Error::UnsupportedOffsetSize(otherwise)),
         }
         .and_then(Self::Offset::from_u64)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_min_tombstone() {
+        assert_eq!(u64::min_tombstone(1), 0xfe);
+        assert_eq!(u64::min_tombstone(2), 0xfffe);
+        assert_eq!(u64::min_tombstone(4), 0xffff_fffe);
+        assert_eq!(u64::min_tombstone(8), 0xffff_ffff_ffff_fffe);
     }
 }
