@@ -765,7 +765,7 @@ aliases {
 
 /// Intel i386 architecture specific definitions.
 ///
-/// See Intel386 psABi version 1.1 at the [X86 psABI wiki](https://github.com/hjl-tools/x86-psABI/wiki/X86-psABI).
+/// See section 2.4.2 of the [i386 psABI](https://gitlab.com/x86-psABIs/i386-ABI).
 #[derive(Debug, Clone, Copy)]
 pub struct X86;
 
@@ -827,7 +827,7 @@ registers!(X86, {
 
 /// AMD64 architecture specific definitions.
 ///
-/// See x86-64 psABI version 1.0 at the [X86 psABI wiki](https://github.com/hjl-tools/x86-psABI/wiki/X86-psABI).
+/// See section 3.6.2 of the [x86-64 psABI](https://gitlab.com/x86-psABIs/x86-64-ABI).
 #[derive(Debug, Clone, Copy)]
 pub struct X86_64;
 
@@ -931,6 +931,33 @@ registers!(X86_64, {
     K5 = (123, "k5"),
     K6 = (124, "k6"),
     K7 = (125, "k7"),
+
+    R16 = (130, "r16"),
+    R17 = (131, "r17"),
+    R18 = (132, "r18"),
+    R19 = (133, "r19"),
+    R20 = (134, "r20"),
+    R21 = (135, "r21"),
+    R22 = (136, "r22"),
+    R23 = (137, "r23"),
+    R24 = (138, "r24"),
+    R25 = (139, "r25"),
+    R26 = (140, "r26"),
+    R27 = (141, "r27"),
+    R28 = (142, "r28"),
+    R29 = (143, "r29"),
+    R30 = (144, "r30"),
+    R31 = (145, "r31"),
+
+    TMM0 = (146, "tmm0"),
+    TMM1 = (147, "tmm1"),
+    TMM2 = (148, "tmm2"),
+    TMM3 = (149, "tmm3"),
+    TMM4 = (150, "tmm4"),
+    TMM5 = (151, "tmm5"),
+    TMM6 = (152, "tmm6"),
+    TMM7 = (153, "tmm7"),
+    TILECFG = (154, "tilecfg"),
 });
 
 /// PowerPC 64bit
