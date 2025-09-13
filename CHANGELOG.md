@@ -2,6 +2,23 @@
 
 --------------------------------------------------------------------------------
 
+## 0.32.3
+
+Released 2025/09/13.
+
+### Changed
+
+* Changed parsing to accept -2 for tombstone values in `.debug_line`,
+  `.debug_aranges`, `.debug_loclists`, and `.debug_rnglists`.
+  [#791](https://github.com/gimli-rs/gimli/pull/791)
+
+### Added
+
+* Added more x86-64 register definitions.
+  [#794](https://github.com/gimli-rs/gimli/pull/794)
+
+--------------------------------------------------------------------------------
+
 ## 0.32.2
 
 Released 2025/08/26.
