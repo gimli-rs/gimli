@@ -505,6 +505,10 @@ impl LineProgram {
 
     /// Write the line number program to the given section.
     ///
+    /// `encoding` contains the encoding parameters of the associated compilation unit.
+    /// This is not used for writing the line number program, but is used to check for
+    /// compatibility with [`Self::encoding`].
+    ///
     /// # Panics
     ///
     /// Panics if `self.is_none()`.
@@ -517,8 +521,11 @@ impl LineProgram {
     ) -> Result<DebugLineOffset> {
         assert!(!self.is_none());
 
-        if encoding.version < self.version()
-            || encoding.format != self.format()
+        // `.debug_line` and `.debug_info` may use different versions, but version 5
+        // allows a file index of 0, which is not allowed in earlier versions.
+        //
+        // Also check that address size matches since there is no reason for it to differ.
+        if encoding.version < 5 && self.version() >= 5
             || encoding.address_size != self.address_size()
         {
             return Err(Error::IncompatibleLineProgramEncoding);
