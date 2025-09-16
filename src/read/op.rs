@@ -163,6 +163,13 @@ where
         /// The DIE to use.
         offset: DieReference<Offset>,
     },
+    /// Compute the value of a variable and push it on the stack.
+    ///
+    /// Represents `DW_OP_GNU_variable_value`.
+    VariableValue {
+        /// The `.debug_info` offset of the variable.
+        offset: DebugInfoOffset<Offset>,
+    },
     /// Compute the address of a thread-local variable and push it on
     /// the stack.
     TLS,
@@ -266,6 +273,10 @@ where
         /// The DIE of the base type.
         base_type: UnitOffset<Offset>,
     },
+    /// Indicates that the value in the computed location is uninitialized.
+    ///
+    /// Represents `DW_OP_GNU_uninit`.
+    Uninitialized,
     /// The index of a local in the currently executing function.
     ///
     /// Represents `DW_OP_WASM_location 0x00`.
@@ -685,6 +696,12 @@ where
                     offset: DieReference::DebugInfoRef(DebugInfoOffset(value)),
                 })
             }
+            constants::DW_OP_GNU_variable_value => {
+                let value = bytes.read_offset(encoding.format)?;
+                Ok(Operation::VariableValue {
+                    offset: DebugInfoOffset(value),
+                })
+            }
             constants::DW_OP_form_tls_address | constants::DW_OP_GNU_push_tls_address => {
                 Ok(Operation::TLS)
             }
@@ -788,6 +805,7 @@ where
                     base_type: UnitOffset(base_type),
                 })
             }
+            constants::DW_OP_GNU_uninit => Ok(Operation::Uninitialized),
             constants::DW_OP_WASM_location => match bytes.read_u8()? {
                 0x0 => {
                     let index = bytes.read_uleb128_u32()?;
@@ -1595,7 +1613,9 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
                     EvaluationResult::RequiresBaseType(base_type),
                 ));
             }
-            Operation::WasmLocal { .. }
+            Operation::VariableValue { .. }
+            | Operation::Uninitialized
+            | Operation::WasmLocal { .. }
             | Operation::WasmGlobal { .. }
             | Operation::WasmStack { .. } => {
                 return Err(Error::UnsupportedEvaluation);
@@ -2230,6 +2250,7 @@ mod tests {
             (constants::DW_OP_GNU_push_tls_address, Operation::TLS),
             (constants::DW_OP_call_frame_cfa, Operation::CallFrameCFA),
             (constants::DW_OP_stack_value, Operation::StackValue),
+            (constants::DW_OP_GNU_uninit, Operation::Uninitialized),
         ];
 
         let input = [];
@@ -2364,6 +2385,13 @@ mod tests {
                     offset: DieReference::DebugInfoRef(DebugInfoOffset(0x1234_5678)),
                 },
             ),
+            (
+                constants::DW_OP_GNU_variable_value,
+                0x1234_5678,
+                Operation::VariableValue {
+                    offset: DebugInfoOffset(0x1234_5678),
+                },
+            ),
         ];
 
         for item in inputs.iter() {
@@ -2403,6 +2431,13 @@ mod tests {
                 0x1234_5678_1234_5678,
                 Operation::Call {
                     offset: DieReference::DebugInfoRef(DebugInfoOffset(0x1234_5678_1234_5678)),
+                },
+            ),
+            (
+                constants::DW_OP_GNU_variable_value,
+                0x1234_5678_1234_5678,
+                Operation::VariableValue {
+                    offset: DebugInfoOffset(0x1234_5678_1234_5678),
                 },
             ),
         ];

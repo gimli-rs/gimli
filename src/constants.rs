@@ -1316,6 +1316,8 @@ DwOp(u8) {
 
     // GNU extensions
     DW_OP_GNU_push_tls_address = 0xe0,
+    DW_OP_GNU_uninit = 0xf0,
+    DW_OP_GNU_encoded_addr = 0xf1,
     DW_OP_GNU_implicit_pointer = 0xf2,
     DW_OP_GNU_entry_value = 0xf3,
     DW_OP_GNU_const_type = 0xf4,
@@ -1326,6 +1328,7 @@ DwOp(u8) {
     DW_OP_GNU_parameter_ref = 0xfa,
     DW_OP_GNU_addr_index = 0xfb,
     DW_OP_GNU_const_index = 0xfc,
+    DW_OP_GNU_variable_value = 0xfd,
 
     // Wasm extensions
     DW_OP_WASM_location = 0xed,
