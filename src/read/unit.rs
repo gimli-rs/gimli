@@ -4400,7 +4400,7 @@ mod tests {
         ];
         let unit = test_parse_attribute_unit_default();
         let form = constants::DW_FORM_data16;
-        let value = AttributeValue::Data16(0x10_0f_0e0d_0c0b_0a09_0807_0605_0403_0201);
+        let value = AttributeValue::Data16(0x100f_0e0d_0c0b_0a09_0807_0605_0403_0201);
         test_parse_attribute(&buf, 16, &unit, form, value);
     }
 
