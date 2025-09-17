@@ -978,6 +978,16 @@ where
     /// anything else."
     Data8(u64),
 
+    /// An sixteen byte constant data value. How to interpret the bytes depends on context.
+    ///
+    /// These bytes have been converted from `R::Endian`. This may need to be reversed
+    /// if this was not required.
+    ///
+    /// From section 7 of the standard: "Depending on context, it may be a
+    /// signed integer, an unsigned integer, a floating-point constant, or
+    /// anything else."
+    Data16(u128),
+
     /// A signed integer constant.
     Sdata(i64),
 
@@ -2035,8 +2045,8 @@ pub(crate) fn parse_attribute<R: Reader>(
                 }
             }
             constants::DW_FORM_data16 => {
-                let block = input.split(R::Offset::from_u8(16))?;
-                AttributeValue::Block(block)
+                let data = input.read_u128()?;
+                AttributeValue::Data16(data)
             }
             constants::DW_FORM_udata => {
                 let data = input.read_uleb128()?;
@@ -4380,6 +4390,18 @@ mod tests {
         let form = constants::DW_FORM_data8;
         let value = AttributeValue::Data8(0x0807_0605_0403_0201);
         test_parse_attribute(&buf, 8, &unit, form, value);
+    }
+
+    #[test]
+    fn test_parse_attribute_data16() {
+        let buf = [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+            0x0f, 0x10, 0x99, 0x99,
+        ];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_data16;
+        let value = AttributeValue::Data16(0x100f_0e0d_0c0b_0a09_0807_0605_0403_0201);
+        test_parse_attribute(&buf, 16, &unit, form, value);
     }
 
     #[test]

@@ -435,6 +435,13 @@ pub trait Reader: Debug + Clone {
         Ok(self.endian().read_u64(&a))
     }
 
+    /// Read a u128.
+    #[inline]
+    fn read_u128(&mut self) -> Result<u128> {
+        let a: [u8; 16] = self.read_u8_array()?;
+        Ok(self.endian().read_u128(&a))
+    }
+
     /// Read an i64.
     #[inline]
     fn read_i64(&mut self) -> Result<i64> {
