@@ -2326,6 +2326,11 @@ mod tests {
                         ),
                         (
                             constants::DW_AT_name,
+                            AttributeValue::Data16(0x1234),
+                            read::AttributeValue::Data16(0x1234),
+                        ),
+                        (
+                            constants::DW_AT_name,
                             AttributeValue::Sdata(0x1234),
                             read::AttributeValue::Sdata(0x1234),
                         ),

@@ -4393,6 +4393,18 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_attribute_data16() {
+        let buf = [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+            0x0f, 0x10, 0x99, 0x99,
+        ];
+        let unit = test_parse_attribute_unit_default();
+        let form = constants::DW_FORM_data16;
+        let value = AttributeValue::Data16(0x10_0f_0e0d_0c0b_0a09_0807_0605_0403_0201);
+        test_parse_attribute(&buf, 16, &unit, form, value);
+    }
+
+    #[test]
     fn test_parse_attribute_udata() {
         let mut buf = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
