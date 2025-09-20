@@ -149,18 +149,20 @@ impl<T> DwarfSections<T> {
     /// let dwarf_sections: gimli::DwarfSections<Vec<u8>> = gimli::DwarfSections::load(loader)?;
     /// let dwarf_sup_sections: gimli::DwarfSections<Vec<u8>> = gimli::DwarfSections::load(sup_loader)?;
     /// // Create references to the DWARF sections.
-    /// let dwarf = dwarf_sections.borrow_with_sup(&dwarf_sup_sections, |section| {
+    /// let dwarf = dwarf_sections.borrow_with_sup(Some(&dwarf_sup_sections), |section| {
     ///     gimli::EndianSlice::new(&section, gimli::LittleEndian)
     /// });
     /// # unreachable!()
     /// # }
     /// ```
-    pub fn borrow_with_sup<'a, F, R>(&'a self, sup: &'a Self, mut borrow: F) -> Dwarf<R>
+    pub fn borrow_with_sup<'a, F, R>(&'a self, sup: Option<&'a Self>, mut borrow: F) -> Dwarf<R>
     where
         F: FnMut(&'a T) -> R,
     {
         let mut dwarf = self.borrow(&mut borrow);
-        dwarf.set_sup(sup.borrow(&mut borrow));
+        if let Some(sup) = sup {
+            dwarf.set_sup(sup.borrow(&mut borrow));
+        }
         dwarf
     }
 }
@@ -1697,7 +1699,7 @@ mod tests {
     fn test_format_error() {
         let dwarf_sections = DwarfSections::load(|_| -> Result<_> { Ok(vec![1, 2]) }).unwrap();
         let sup_sections = DwarfSections::load(|_| -> Result<_> { Ok(vec![1, 2]) }).unwrap();
-        let dwarf = dwarf_sections.borrow_with_sup(&sup_sections, |section| {
+        let dwarf = dwarf_sections.borrow_with_sup(Some(&sup_sections), |section| {
             EndianSlice::new(section, LittleEndian)
         });
 
