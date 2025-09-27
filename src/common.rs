@@ -283,6 +283,8 @@ pub enum SectionId {
     DebugMacinfo,
     /// The `.debug_macro` section.
     DebugMacro,
+    /// The `.debug_names` section.
+    DebugNames,
     /// The `.debug_pubnames` section.
     DebugPubNames,
     /// The `.debug_pubtypes` section.
@@ -319,6 +321,7 @@ impl SectionId {
             SectionId::DebugLocLists => ".debug_loclists",
             SectionId::DebugMacinfo => ".debug_macinfo",
             SectionId::DebugMacro => ".debug_macro",
+            SectionId::DebugNames => ".debug_names",
             SectionId::DebugPubNames => ".debug_pubnames",
             SectionId::DebugPubTypes => ".debug_pubtypes",
             SectionId::DebugRanges => ".debug_ranges",

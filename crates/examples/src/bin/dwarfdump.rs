@@ -4,7 +4,9 @@
 #![allow(clippy::needless_lifetimes)]
 
 use fallible_iterator::FallibleIterator;
-use gimli::{Section, UnitHeader, UnitOffset, UnitSectionOffset, UnitType, UnwindSection};
+use gimli::{
+    ReaderOffset, Section, UnitHeader, UnitOffset, UnitSectionOffset, UnitType, UnwindSection,
+};
 use object::{Object, ObjectSection};
 use regex::bytes::Regex;
 use std::borrow::Cow;
@@ -193,6 +195,7 @@ struct Flags<'a> {
     pubtypes: bool,
     aranges: bool,
     addr: bool,
+    names: bool,
     dwo: bool,
     dwp: bool,
     dwo_parent: Option<object::File<'a>>,
@@ -223,6 +226,7 @@ fn main() {
     opts.optflag("r", "", "print .debug_aranges section");
     opts.optflag("y", "", "print .debug_pubtypes section");
     opts.optflag("", "debug-addr", "print .debug_addr section");
+    opts.optflag("", "debug-names", "print .debug_names section");
     opts.optflag(
         "",
         "dwo",
@@ -309,6 +313,10 @@ fn main() {
         flags.addr = true;
         all = false;
     }
+    if matches.opt_present("debug-names") {
+        flags.names = true;
+        all = false;
+    }
     if matches.opt_present("dwo") {
         flags.dwo = true;
     }
@@ -328,6 +336,7 @@ fn main() {
         flags.pubtypes = true;
         flags.aranges = true;
         flags.addr = true;
+        flags.names = true;
     }
     flags.match_units = if let Some(r) = matches.opt_str("u") {
         match Regex::new(&r) {
@@ -414,7 +423,7 @@ fn main() {
         } else {
             gimli::RunTimeEndian::Big
         };
-        let ret = dump_file(&file, endian, &flags);
+        let ret = dump_file(&file, endian, &flags, file_path);
         match ret {
             Ok(_) => (),
             Err(err) => eprintln!("Failed to dump '{}': {}", file_path, err,),
@@ -456,7 +465,12 @@ fn load_file_section<'input, 'arena, Endian: gimli::Endianity>(
     Ok(Relocate::new(section, relocations))
 }
 
-fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags) -> Result<()>
+fn dump_file<Endian>(
+    file: &object::File,
+    endian: Endian,
+    flags: &Flags,
+    file_path: &str,
+) -> Result<()>
 where
     Endian: gimli::Endianity + Send + Sync,
 {
@@ -569,6 +583,10 @@ where
     if flags.pubtypes {
         let debug_pubtypes = &gimli::Section::load(load_section).unwrap();
         dump_pubtypes(w, debug_pubtypes, &dwarf.debug_info)?;
+    }
+    if flags.names {
+        let debug_names = &gimli::Section::load(load_section).unwrap();
+        dump_names(w, debug_names, &dwarf, file_path, file)?;
     }
     w.flush()?;
     Ok(())
@@ -2468,4 +2486,454 @@ fn dump_macro<R: Reader, W: Write>(
         }
     }
     Ok(())
+}
+
+fn dump_names<R: Reader, W: Write>(
+    w: &mut W,
+    debug_names: &gimli::DebugNames<R>,
+    dwarf: &gimli::Dwarf<R>,
+    file_path: &str,
+    file: &object::File,
+) -> Result<()> {
+    // Add file format line to match system dwarfdump
+    let file_format = match file.format() {
+        object::BinaryFormat::Elf => "ELF",
+        object::BinaryFormat::MachO => match file.architecture() {
+            object::Architecture::Aarch64 => "Mach-O arm64",
+            object::Architecture::X86_64 => "Mach-O x86-64",
+            object::Architecture::I386 => "Mach-O i386",
+            _ => "Mach-O",
+        },
+        object::BinaryFormat::Pe => "PE",
+        object::BinaryFormat::Wasm => "WASM",
+        _ => "Unknown",
+    };
+    writeln!(w, "{}:\tfile format {}", file_path, file_format)?;
+    writeln!(w)?; // Empty line after file format
+    writeln!(w, ".debug_names contents:")?;
+
+    let mut units = debug_names.units();
+    // TODO This accessor looks strange, should it just get the value directly without an iterator?
+    let mut unit_index = 0;
+    while let Some((header, content)) = units.next()? {
+        writeln!(
+            w,
+            "Name Index @ 0x{:x} {{",
+            unit_index * header.length().into_u64()
+        )?;
+
+        // Header section matching system dwarfdump format
+        writeln!(w, "  Header {{")?;
+        writeln!(w, "    Length: 0x{:X}", header.length().into_u64())?;
+        writeln!(
+            w,
+            "    Format: {}",
+            match header.format() {
+                gimli::Format::Dwarf32 => "DWARF32",
+                gimli::Format::Dwarf64 => "DWARF64",
+            }
+        )?;
+        writeln!(w, "    Version: {}", header.version())?;
+        writeln!(w, "    CU count: {}", header.comp_unit_count())?;
+        writeln!(w, "    Local TU count: {}", header.local_type_unit_count())?;
+        writeln!(
+            w,
+            "    Foreign TU count: {}",
+            header.foreign_type_unit_count()
+        )?;
+        writeln!(w, "    Bucket count: {}", header.bucket_count())?;
+        writeln!(w, "    Name count: {}", header.name_count())?;
+        writeln!(
+            w,
+            "    Abbreviations table size: 0x{:X}",
+            header.abbrev_table_size()
+        )?;
+
+        // Display augmentation string
+        if header.augmentation_string_size() > 0 {
+            let mut aug_reader = header.augmentation_string().clone();
+            let mut aug_string = Vec::new();
+            while !aug_reader.is_empty() {
+                match aug_reader.read_u8() {
+                    Ok(b) => aug_string.push(b),
+                    Err(_) => break,
+                }
+            }
+            if let Ok(aug_str) = String::from_utf8(aug_string) {
+                writeln!(w, "    Augmentation: '{}'", aug_str)?;
+            }
+        }
+        writeln!(w, "  }}")?;
+
+        let unit = gimli::DebugNamesUnit::new(header, content);
+
+        // Compilation Unit offsets section
+        if unit.header().comp_unit_count() > 0 {
+            writeln!(w, "  Compilation Unit offsets [")?;
+            match unit.comp_unit_offsets() {
+                Ok(offsets) => {
+                    for (i, offset) in offsets.iter().enumerate() {
+                        writeln!(w, "    CU[{}]: 0x{:08x}", i, offset.0)?;
+                    }
+                }
+                Err(_) => writeln!(w, "    Error reading CU offsets")?,
+            }
+            writeln!(w, "  ]")?;
+        }
+
+        // Abbreviations section
+        writeln!(w, "  Abbreviations [")?;
+        match unit.abbreviation_table() {
+            Ok(abbrev_table) => {
+                for abbrev in abbrev_table.abbreviations() {
+                    writeln!(w, "    Abbreviation 0x{:x} {{", abbrev.code())?;
+                    writeln!(w, "      Tag: {}", format_tag(abbrev.tag()))?;
+                    for attr in abbrev.attributes() {
+                        writeln!(
+                            w,
+                            "      {}: {}",
+                            format_idx(attr.name()),
+                            format_form(attr.form())
+                        )?;
+                    }
+                    writeln!(w, "    }}")?;
+                }
+            }
+            Err(e) => writeln!(w, "    Error reading abbreviations: {:?}", e)?,
+        }
+        writeln!(w, "  ]")?;
+
+        // Bucket-based output with name resolution
+        match dump_names_by_bucket(w, &unit, dwarf) {
+            Ok(_) => {}
+            Err(e) => writeln!(w, "  Error dumping names by bucket: {:?}", e)?,
+        }
+
+        writeln!(w, "}}")?;
+        unit_index += 1;
+    }
+
+    Ok(())
+}
+
+/// Format DWARF tag for display
+fn format_tag(tag: gimli::DwTag) -> String {
+    format!(
+        "DW_TAG_{}",
+        match tag {
+            gimli::DW_TAG_base_type => "base_type",
+            gimli::DW_TAG_class_type => "class_type",
+            gimli::DW_TAG_subprogram => "subprogram",
+            gimli::DW_TAG_variable => "variable",
+            gimli::DW_TAG_formal_parameter => "formal_parameter",
+            gimli::DW_TAG_typedef => "typedef",
+            gimli::DW_TAG_structure_type => "structure_type",
+            gimli::DW_TAG_union_type => "union_type",
+            gimli::DW_TAG_enumeration_type => "enumeration_type",
+            gimli::DW_TAG_unspecified_type => "unspecified_type",
+            gimli::DW_TAG_namespace => "namespace",
+            gimli::DW_TAG_pointer_type => "pointer_type",
+            _ => return format!("DW_TAG_unknown(0x{:x})", tag.0),
+        }
+    )
+}
+
+/// Format DWARF index type for display
+fn format_idx(idx: gimli::DwIdx) -> String {
+    match idx {
+        gimli::DW_IDX_die_offset => "DW_IDX_die_offset".to_string(),
+        gimli::DW_IDX_parent => "DW_IDX_parent".to_string(),
+        gimli::DW_IDX_compile_unit => "DW_IDX_compile_unit".to_string(),
+        gimli::DW_IDX_type_unit => "DW_IDX_type_unit".to_string(),
+        gimli::DW_IDX_type_hash => "DW_IDX_type_hash".to_string(),
+        _ => format!("DW_IDX_unknown(0x{:x})", idx.0),
+    }
+}
+
+/// Format DWARF form for display
+fn format_form(form: gimli::DwForm) -> String {
+    match form {
+        gimli::DW_FORM_ref4 => "DW_FORM_ref4".to_string(),
+        gimli::DW_FORM_flag_present => "DW_FORM_flag_present".to_string(),
+        gimli::DW_FORM_strx => "DW_FORM_strx".to_string(),
+        gimli::DW_FORM_data1 => "DW_FORM_data1".to_string(),
+        gimli::DW_FORM_data2 => "DW_FORM_data2".to_string(),
+        gimli::DW_FORM_data4 => "DW_FORM_data4".to_string(),
+        gimli::DW_FORM_data8 => "DW_FORM_data8".to_string(),
+        _ => format!("DW_FORM_unknown(0x{:x})", form.0),
+    }
+}
+
+/// Dump names organized by hash buckets with full name resolution and entry parsing
+/// Parse all entries in a series starting at the given offset
+/// Returns a vector of relative offsets for each entry in the series
+fn parse_entry_series<R: Reader>(
+    unit: &gimli::DebugNamesUnit<R>,
+    start_offset: R::Offset,
+    abbrev_table: &gimli::NameAbbreviationTable,
+) -> Result<Vec<R::Offset>> {
+    let mut entry_reader = unit.entry_pool_reader()?;
+    entry_reader.skip(start_offset)?;
+
+    let mut series_offsets = Vec::with_capacity(4); // Most series have 1-4 entries
+    let mut current_offset = start_offset;
+
+    loop {
+        // Read abbreviation code
+        let abbrev_code = entry_reader.read_uleb128()?;
+
+        // If abbreviation code is 0, this is the terminator
+        if abbrev_code == 0 {
+            break;
+        }
+
+        // Record this entry's offset
+        series_offsets.push(current_offset);
+
+        // Look up abbreviation to skip the entry properly
+        if let Some(abbrev) = abbrev_table.get(abbrev_code) {
+            // Skip all attributes in this entry
+            for attr in abbrev.attributes() {
+                match attr.form() {
+                    gimli::constants::DW_FORM_ref1 | gimli::constants::DW_FORM_data1 => {
+                        let _ = entry_reader.read_u8()?;
+                    }
+                    gimli::constants::DW_FORM_ref2 | gimli::constants::DW_FORM_data2 => {
+                        let _ = entry_reader.read_u16()?;
+                    }
+                    gimli::constants::DW_FORM_ref4 | gimli::constants::DW_FORM_data4 => {
+                        let _ = entry_reader.read_u32()?;
+                    }
+                    gimli::constants::DW_FORM_ref8 | gimli::constants::DW_FORM_data8 => {
+                        let _ = entry_reader.read_u64()?;
+                    }
+                    gimli::constants::DW_FORM_udata => {
+                        let _ = entry_reader.read_uleb128()?;
+                    }
+                    gimli::constants::DW_FORM_flag_present => {
+                        // No data to skip
+                    }
+                    _ => {
+                        // Unknown form - just skip 1 byte as fallback
+                        let _ = entry_reader.read_u8()?;
+                    }
+                }
+            }
+        } else {
+            // Unknown abbreviation - break the series parsing
+            break;
+        }
+
+        // Update current offset for next entry - reader position relative to entry pool start
+        let reader_position = entry_reader.offset_from(&unit.entry_pool_reader()?);
+        current_offset = reader_position;
+    }
+
+    Ok(series_offsets)
+}
+
+fn dump_names_by_bucket<R: Reader, W: Write>(
+    w: &mut W,
+    unit: &gimli::DebugNamesUnit<R>,
+    dwarf: &gimli::Dwarf<R>,
+) -> Result<()> {
+    // Get all the required data from the debug_names unit
+    let hash_buckets = unit.hash_buckets()?;
+    let hash_array = unit.hash_array()?;
+    let string_offsets = unit.string_offsets()?;
+    let entry_offsets = unit.entry_offsets()?;
+    let abbrev_table = unit.abbreviation_table()?;
+
+    // Following DWARF 5 Section 6.1.1.4.5 Hash Lookup Table:
+    // "All symbols that have the same index into the bucket list follow one another in the
+    // hashes array, and the indexed entry in the bucket list refers to the first symbol."
+
+    use std::collections::{BTreeMap, HashMap};
+
+    // Collect names by bucket following DWARF 5 Section 6.1.1.4.5:
+    // "All symbols that have the same index into the bucket list follow one another in the
+    // hashes array, and the indexed entry in the bucket list refers to the first symbol."
+    let mut bucket_names: BTreeMap<usize, Vec<(usize, u32, R::Offset, R::Offset)>> =
+        BTreeMap::new();
+
+    for (bucket_idx, &bucket_start) in hash_buckets.iter().enumerate() {
+        if bucket_start > 0 {
+            let start_index = (bucket_start - 1) as usize; // Convert to 0-based index
+            let mut current_index = start_index;
+
+            // Follow the chain: collect all consecutive entries that belong to this bucket
+            while current_index < hash_array.len() {
+                let current_hash = hash_array[current_index];
+                let computed_bucket = (current_hash as usize) % hash_buckets.len();
+
+                if computed_bucket == bucket_idx {
+                    // This entry belongs to our bucket
+                    bucket_names
+                        .entry(bucket_idx)
+                        .or_insert_with(|| Vec::with_capacity(2)) // Most buckets have 1-2 entries
+                        .push((
+                            current_index,
+                            current_hash,
+                            string_offsets[current_index],
+                            entry_offsets[current_index],
+                        ));
+                    current_index += 1;
+                } else {
+                    // Hit a hash from different bucket, stop chain traversal for this bucket
+                    break;
+                }
+            }
+        }
+    }
+
+    // Group entries by resolved string content to handle multiple entries per name
+    // Following DWARF 5 spec: "If two different symbol names produce the same hash value,
+    // that hash value will occur twice in the hashes array"
+    let mut bucket_display: BTreeMap<usize, Vec<(usize, u32, R::Offset, String, Vec<R::Offset>)>> =
+        BTreeMap::new();
+
+    for (bucket_idx, names) in bucket_names {
+        let mut string_groups: HashMap<String, (usize, u32, R::Offset, Vec<R::Offset>)> =
+            HashMap::new();
+
+        for (name_idx, hash, string_offset, entry_offset) in names {
+            let string_content = resolve_string_name(dwarf, string_offset);
+
+            // Parse all entries in the series for this entry offset
+            let series_entry_offsets = match parse_entry_series(unit, entry_offset, &abbrev_table) {
+                Ok(offsets) => offsets,
+                Err(_) => {
+                    // Fallback to single entry if series parsing fails
+                    vec![entry_offset]
+                }
+            };
+
+            match string_groups.get_mut(&string_content) {
+                Some((_, _, _, entry_offsets)) => {
+                    // Add all entries in the series to existing string group
+                    entry_offsets.extend(series_entry_offsets);
+                }
+                None => {
+                    // Create new string group with all entries in the series
+                    string_groups.insert(
+                        string_content.clone(),
+                        (name_idx, hash, string_offset, series_entry_offsets),
+                    );
+                }
+            }
+        }
+
+        // Convert to display format, maintaining original array index order
+        let mut bucket_entries: Vec<(usize, u32, R::Offset, String, Vec<R::Offset>)> =
+            string_groups
+                .into_iter()
+                .map(
+                    |(string_content, (name_idx, hash, string_offset, entry_offsets))| {
+                        (name_idx, hash, string_offset, string_content, entry_offsets)
+                    },
+                )
+                .collect();
+
+        // Sort by original array index to match system dwarfdump ordering
+        bucket_entries.sort_by_key(|(name_idx, _, _, _, _)| *name_idx);
+        bucket_display.insert(bucket_idx, bucket_entries);
+    }
+
+    // Display buckets with global name numbering
+    let mut global_name_counter = 1;
+    for bucket_idx in 0..hash_buckets.len() {
+        writeln!(w, "  Bucket {} [", bucket_idx)?;
+
+        if let Some(bucket_entries) = bucket_display.get(&bucket_idx) {
+            for (_name_idx, hash, string_offset, string_name, entry_offsets) in bucket_entries {
+                writeln!(w, "    Name {} {{", global_name_counter)?;
+                writeln!(w, "      Hash: 0x{:X}", hash)?;
+                writeln!(
+                    w,
+                    "      String: 0x{:08x} \"{}\"",
+                    string_offset.into_u64(),
+                    string_name
+                )?;
+
+                // Show all entries for this name
+                let entry_pool_base = unit.entry_pool_base()?;
+                for entry_offset in entry_offsets {
+                    let absolute_entry_offset = entry_pool_base + entry_offset.into_u64();
+                    writeln!(w, "      Entry @ 0x{:x} {{", absolute_entry_offset)?;
+
+                    match unit.parse_entry_pool_entry(*entry_offset, &abbrev_table, entry_pool_base)
+                    {
+                        Ok(parsed_entry) => {
+                            writeln!(w, "        Abbrev: 0x{:x}", parsed_entry.abbrev_code())?;
+                            writeln!(w, "        Tag: {}", format_tag(parsed_entry.tag()))?;
+                            writeln!(
+                                w,
+                                "        DW_IDX_die_offset: 0x{:08x}",
+                                parsed_entry.die_offset()
+                            )?;
+                            match parsed_entry.parent_info() {
+                                Some(parent_offset) => {
+                                    writeln!(
+                                        w,
+                                        "        DW_IDX_parent: Entry @ 0x{:x}",
+                                        parent_offset
+                                    )?;
+                                }
+                                None => {
+                                    writeln!(w, "        DW_IDX_parent: <parent not indexed>")?;
+                                }
+                            }
+
+                            // Display additional DW_IDX attributes if present
+                            if let Some(compile_unit) = parsed_entry.compile_unit {
+                                writeln!(w, "        DW_IDX_compile_unit: 0x{:08x}", compile_unit)?;
+                            }
+                            if let Some(type_unit) = parsed_entry.type_unit {
+                                writeln!(w, "        DW_IDX_type_unit: 0x{:08x}", type_unit)?;
+                            }
+                            if let Some(type_hash) = parsed_entry.type_hash {
+                                writeln!(w, "        DW_IDX_type_hash: 0x{:016x}", type_hash)?;
+                            }
+                        }
+                        Err(_) => {
+                            writeln!(w, "        Error parsing entry")?;
+                        }
+                    }
+                    writeln!(w, "      }}")?;
+                }
+                writeln!(w, "    }}")?;
+                global_name_counter += 1;
+            }
+        } else {
+            writeln!(w, "    EMPTY")?;
+        }
+        writeln!(w, "  ]")?;
+    }
+
+    Ok(())
+}
+
+/// Resolve a string offset to actual string content from debug_str
+fn resolve_string_name<R: Reader>(dwarf: &gimli::Dwarf<R>, string_offset: R::Offset) -> String {
+    match dwarf
+        .debug_str
+        .get_str(gimli::DebugStrOffset(string_offset))
+    {
+        Ok(string_reader) => {
+            let mut bytes = Vec::with_capacity(32); // Most symbol names are < 32 bytes
+            let mut reader = string_reader.clone();
+            while !reader.is_empty() {
+                match reader.read_u8() {
+                    Ok(0) => break, // null terminator
+                    Ok(b) => bytes.push(b),
+                    Err(_) => break,
+                }
+            }
+            String::from_utf8_lossy(&bytes).into_owned()
+        }
+        Err(_) => format!(
+            "<error resolving string at 0x{:x}>",
+            string_offset.into_u64()
+        ),
+    }
 }

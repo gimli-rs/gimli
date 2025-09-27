@@ -1,5 +1,6 @@
 use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
@@ -11,12 +12,13 @@ use crate::common::{
 use crate::read::{
     Abbreviations, AbbreviationsCache, AbbreviationsCacheStrategy, AttributeValue, DebugAbbrev,
     DebugAddr, DebugAranges, DebugCuIndex, DebugInfo, DebugInfoUnitHeadersIter, DebugLine,
-    DebugLineStr, DebugLoc, DebugLocLists, DebugMacinfo, DebugMacro, DebugRanges, DebugRngLists,
-    DebugStr, DebugStrOffsets, DebugTuIndex, DebugTypes, DebugTypesUnitHeadersIter,
+    DebugLineStr, DebugLoc, DebugLocLists, DebugMacinfo, DebugMacro, DebugNames, DebugRanges,
+    DebugRngLists, DebugStr, DebugStrOffsets, DebugTuIndex, DebugTypes, DebugTypesUnitHeadersIter,
     DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree, Error,
-    IncompleteLineProgram, IndexSectionId, LocListIter, LocationLists, MacroIter, Range,
-    RangeLists, RawLocListIter, RawRngListIter, Reader, ReaderOffset, ReaderOffsetId, Result,
-    RngListIter, Section, UnitHeader, UnitIndex, UnitIndexSectionIterator, UnitOffset, UnitType,
+    IncompleteLineProgram, IndexSectionId, LocListIter, LocationLists, MacroIter, NameLookupResult,
+    Range, RangeLists, RawLocListIter, RawRngListIter, Reader, ReaderOffset, ReaderOffsetId,
+    Result, RngListIter, Section, UnitHeader, UnitIndex, UnitIndexSectionIterator, UnitOffset,
+    UnitType,
 };
 use crate::{constants, DebugMacroOffset};
 
@@ -79,6 +81,8 @@ pub struct DwarfSections<T> {
     pub debug_ranges: DebugRanges<T>,
     /// The `.debug_rnglists` section.
     pub debug_rnglists: DebugRngLists<T>,
+    /// The `.debug_names` section.
+    pub debug_names: DebugNames<T>,
 }
 
 impl<T> DwarfSections<T> {
@@ -107,6 +111,7 @@ impl<T> DwarfSections<T> {
             debug_loclists: Section::load(&mut section)?,
             debug_ranges: Section::load(&mut section)?,
             debug_rnglists: Section::load(&mut section)?,
+            debug_names: Section::load(&mut section)?,
         })
     }
 
@@ -131,6 +136,7 @@ impl<T> DwarfSections<T> {
             debug_loclists: self.debug_loclists.borrow(&mut borrow),
             debug_ranges: self.debug_ranges.borrow(&mut borrow),
             debug_rnglists: self.debug_rnglists.borrow(&mut borrow),
+            debug_names: self.debug_names.borrow(&mut borrow),
         })
     }
 
@@ -207,6 +213,9 @@ pub struct Dwarf<R> {
     /// The range lists in the `.debug_ranges` and `.debug_rnglists` sections.
     pub ranges: RangeLists<R>,
 
+    /// The `.debug_names` section.
+    pub debug_names: DebugNames<R>,
+
     /// The type of this file.
     pub file_type: DwarfFileType,
 
@@ -264,6 +273,7 @@ impl<T> Dwarf<T> {
             debug_types: sections.debug_types,
             locations: LocationLists::new(sections.debug_loc, sections.debug_loclists),
             ranges: RangeLists::new(sections.debug_ranges, sections.debug_rnglists),
+            debug_names: sections.debug_names,
             file_type: DwarfFileType::Main,
             sup: None,
             abbreviations_cache: AbbreviationsCache::new(),
@@ -316,6 +326,7 @@ impl<T> Dwarf<T> {
             debug_types: self.debug_types.borrow(&mut borrow),
             locations: self.locations.borrow(&mut borrow),
             ranges: self.ranges.borrow(&mut borrow),
+            debug_names: self.debug_names.borrow(&mut borrow),
             file_type: self.file_type,
             sup: self.sup().map(|sup| Arc::new(sup.borrow(borrow))),
             abbreviations_cache: AbbreviationsCache::new(),
@@ -754,6 +765,147 @@ impl<R: Reader> Dwarf<R> {
     pub fn macros(&self, offset: DebugMacroOffset<R::Offset>) -> Result<MacroIter<R>> {
         self.debug_macro.get_macros(offset)
     }
+
+    /// Find all debugging entries with the given name using debug_names acceleration.
+    ///
+    /// This method searches the `.debug_names` section for entries matching the specified
+    /// name and returns a vector of `NameLookupResult`s containing the resolved information.
+    /// If the debug_names section is empty, this returns an empty vector.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The symbol name to search for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let dwarf = Dwarf::load(loader)?;
+    /// let entries = dwarf.find_entries_by_name("main")?;
+    /// for entry in entries {
+    ///     println!("Found entry: {} at {:?}", entry.name(), entry.tag());
+    /// }
+    /// ```
+    pub fn find_entries_by_name(&self, name: &str) -> Result<Vec<NameLookupResult<R>>> {
+        self.find_entries_by_name_impl(name, None)
+    }
+
+    /// Find function entries with the given name using debug_names acceleration.
+    ///
+    /// This is a convenience method that filters results to only include entries
+    /// with the `DW_TAG_subprogram` tag.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The function name to search for
+    pub fn find_functions_by_name(&self, name: &str) -> Result<Vec<NameLookupResult<R>>> {
+        self.find_entries_by_name_impl(name, Some(constants::DW_TAG_subprogram))
+    }
+
+    /// Find variable entries with the given name using debug_names acceleration.
+    ///
+    /// This is a convenience method that filters results to only include entries
+    /// with the `DW_TAG_variable` tag.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The variable name to search for
+    pub fn find_variables_by_name(&self, name: &str) -> Result<Vec<NameLookupResult<R>>> {
+        self.find_entries_by_name_impl(name, Some(constants::DW_TAG_variable))
+    }
+
+    /// Internal implementation for name-based lookups with optional tag filtering.
+    fn find_entries_by_name_impl(
+        &self,
+        name: &str,
+        tag_filter: Option<constants::DwTag>,
+    ) -> Result<Vec<NameLookupResult<R>>> {
+        let mut results = Vec::new();
+
+        // Iterate through all debug_names units
+        let mut units = self.debug_names.units();
+        while let Some((header, content)) = units.next()? {
+            let unit = crate::read::DebugNamesUnit::new(header, content);
+
+            // Get compilation unit offsets for resolving entries
+            let cu_offsets = unit.comp_unit_offsets()?;
+
+            // Get the hash table for this unit
+            let hash_table = unit.hash_table()?;
+
+            // Compute the hash for the name using DJB algorithm (DWARF 5 standard)
+            let hash = self.compute_djb_hash(name);
+
+            // Look up entries by hash
+            let name_indices = hash_table.lookup_by_hash(hash)?;
+
+            // Get abbreviation table and entry pool base
+            let abbrev_table = unit.abbreviation_table()?;
+            let entry_pool_base = unit.entry_pool_base()?;
+
+            for name_index in name_indices {
+                // Resolve the actual string to verify it matches
+                if let Some(resolved_name) =
+                    hash_table.resolve_name_at_index(&self.debug_str, name_index)
+                {
+                    if resolved_name == name {
+                        // Get the entry offset for this name index
+                        let entry_offsets = hash_table.entry_offsets();
+                        if name_index < entry_offsets.len() {
+                            let entry_offset = entry_offsets[name_index];
+
+                            // Parse the entry using the lower-level API to get ParsedEntry
+                            if let Ok(parsed_entry) = unit.parse_entry_pool_entry(
+                                entry_offset,
+                                &abbrev_table,
+                                entry_pool_base,
+                            ) {
+                                // Apply tag filter if specified
+                                if let Some(required_tag) = tag_filter {
+                                    if parsed_entry.tag() != required_tag {
+                                        continue;
+                                    }
+                                }
+
+                                // Determine the compilation unit offset
+                                // For now, use the first CU if available, or offset 0
+                                let cu_offset = cu_offsets.get(0).copied().unwrap_or_else(|| {
+                                    crate::common::DebugInfoOffset(R::Offset::from_u64(0).unwrap())
+                                });
+
+                                let die_unit_offset = crate::read::UnitOffset(
+                                    R::Offset::from_u64(parsed_entry.die_offset() as u64).unwrap(),
+                                );
+
+                                let result = NameLookupResult::new(
+                                    parsed_entry,
+                                    resolved_name,
+                                    cu_offset,
+                                    die_unit_offset,
+                                );
+
+                                results.push(result);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
+    /// Compute the DJB hash for a name string following the DWARF 5 specification.
+    ///
+    /// This implements the same hash function used internally by debug_names
+    /// for consistency with the DWARF 5 standard.
+    pub fn compute_djb_hash(&self, name: &str) -> u32 {
+        const DJB_HASH_INITIAL: u32 = 5381;
+        let mut hash = DJB_HASH_INITIAL;
+        for byte in name.bytes() {
+            hash = hash.wrapping_mul(33).wrapping_add(byte as u32);
+        }
+        hash
+    }
 }
 
 impl<R: Clone> Dwarf<R> {
@@ -1120,6 +1272,7 @@ impl<R: Reader> DwarfPackage<R> {
             debug_types,
             locations: LocationLists::new(debug_loc, debug_loclists),
             ranges: RangeLists::new(debug_ranges, debug_rnglists),
+            debug_names: self.empty.clone().into(), // TODO This looks wrong?
             file_type: DwarfFileType::Dwo,
             sup: parent.sup.clone(),
             abbreviations_cache: AbbreviationsCache::new(),
