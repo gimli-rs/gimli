@@ -786,7 +786,8 @@ impl<R: Reader> Dwarf<R> {
     /// }
     /// ```
     pub fn find_entries_by_name(&self, name: &str) -> Result<Vec<NameLookupResult<R>>> {
-        self.find_entries_by_name_impl(name, None)
+        self.debug_names
+            .find_all_entries_by_name(name, &self.debug_str)
     }
 
     /// Find function entries with the given name using debug_names acceleration.
@@ -798,7 +799,8 @@ impl<R: Reader> Dwarf<R> {
     ///
     /// * `name` - The function name to search for
     pub fn find_functions_by_name(&self, name: &str) -> Result<Vec<NameLookupResult<R>>> {
-        self.find_entries_by_name_impl(name, Some(constants::DW_TAG_subprogram))
+        self.debug_names
+            .find_functions_by_name(name, &self.debug_str)
     }
 
     /// Find variable entries with the given name using debug_names acceleration.
@@ -810,101 +812,8 @@ impl<R: Reader> Dwarf<R> {
     ///
     /// * `name` - The variable name to search for
     pub fn find_variables_by_name(&self, name: &str) -> Result<Vec<NameLookupResult<R>>> {
-        self.find_entries_by_name_impl(name, Some(constants::DW_TAG_variable))
-    }
-
-    /// Internal implementation for name-based lookups with optional tag filtering.
-    fn find_entries_by_name_impl(
-        &self,
-        name: &str,
-        tag_filter: Option<constants::DwTag>,
-    ) -> Result<Vec<NameLookupResult<R>>> {
-        let mut results = Vec::new();
-
-        // Iterate through all debug_names units
-        let mut units = self.debug_names.units();
-        while let Some((header, content)) = units.next()? {
-            let unit = crate::read::DebugNamesUnit::new(header, content);
-
-            // Get compilation unit offsets for resolving entries
-            let cu_offsets = unit.comp_unit_offsets()?;
-
-            // Get the hash table for this unit
-            let hash_table = unit.hash_table()?;
-
-            // Compute the hash for the name using DJB algorithm (DWARF 5 standard)
-            let hash = self.compute_djb_hash(name);
-
-            // Look up entries by hash
-            let name_indices = hash_table.lookup_by_hash(hash)?;
-
-            // Get abbreviation table and entry pool base
-            let abbrev_table = unit.abbreviation_table()?;
-            let entry_pool_base = unit.entry_pool_base()?;
-
-            for name_index in name_indices {
-                // Resolve the actual string to verify it matches
-                if let Some(resolved_name) =
-                    hash_table.resolve_name_at_index(&self.debug_str, name_index)
-                {
-                    if resolved_name == name {
-                        // Get the entry offset for this name index
-                        let entry_offsets = hash_table.entry_offsets();
-                        if name_index < entry_offsets.len() {
-                            let entry_offset = entry_offsets[name_index];
-
-                            // Parse the entry using the lower-level API to get ParsedEntry
-                            if let Ok(parsed_entry) = unit.parse_entry_pool_entry(
-                                entry_offset,
-                                &abbrev_table,
-                                entry_pool_base,
-                            ) {
-                                // Apply tag filter if specified
-                                if let Some(required_tag) = tag_filter {
-                                    if parsed_entry.tag() != required_tag {
-                                        continue;
-                                    }
-                                }
-
-                                // Determine the compilation unit offset
-                                // For now, use the first CU if available, or offset 0
-                                let cu_offset = cu_offsets.get(0).copied().unwrap_or_else(|| {
-                                    crate::common::DebugInfoOffset(R::Offset::from_u64(0).unwrap())
-                                });
-
-                                let die_unit_offset = crate::read::UnitOffset(
-                                    R::Offset::from_u64(parsed_entry.die_offset() as u64).unwrap(),
-                                );
-
-                                let result = NameLookupResult::new(
-                                    parsed_entry,
-                                    resolved_name,
-                                    cu_offset,
-                                    die_unit_offset,
-                                );
-
-                                results.push(result);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(results)
-    }
-
-    /// Compute the DJB hash for a name string following the DWARF 5 specification.
-    ///
-    /// This implements the same hash function used internally by debug_names
-    /// for consistency with the DWARF 5 standard.
-    pub fn compute_djb_hash(&self, name: &str) -> u32 {
-        const DJB_HASH_INITIAL: u32 = 5381;
-        let mut hash = DJB_HASH_INITIAL;
-        for byte in name.bytes() {
-            hash = hash.wrapping_mul(33).wrapping_add(byte as u32);
-        }
-        hash
+        self.debug_names
+            .find_variables_by_name(name, &self.debug_str)
     }
 }
 

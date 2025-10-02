@@ -1,4 +1,4 @@
-//! DWARF 5 `.debug_names` section support.
+//! Functions for parsing DWARF 5 `.debug_names` sections.
 //!
 //! The `.debug_names` section provides an accelerated access table for debugging
 //! information entries (DIEs) organized by name. This section is defined in
@@ -15,208 +15,78 @@
 //! - **Entry Pool**: Parsed entries with abbreviation codes and attributes
 //! - **Abbreviation Table**: Describes entry structure and attributes
 //!
-//! # Key Features
+//! Per DWARF 5 Section 6.1.1.3, a `.debug_names` section can contain multiple
+//! name index tables. There are two strategies:
+//! - **Per-module index**: Single table covering all compilation units (most common)
+//! - **Per-CU indexes**: Separate tables for individual compilation units
 //!
-//! - **Fast name lookup**: O(1) average case via hash table
-//! - **Series support**: Handles multiple entries per name (DWARF 5 Section 6.1.1.4.6)
-//! - **DWARF 5 compliant**: Follows specification for hash chain traversal
-//! - **Safe parsing**: No unsafe code, comprehensive error handling
+//! The choice depends on the compiler/linker. When looking up names, all tables
+//! must be searched since a name could appear in any table.
 //!
-//! # Example Usage
-//!
-//! ```ignore
-//! let debug_names = dwarf.debug_names.unwrap();
-//! for unit in debug_names.units() {
-//!     let unit = unit?;
-//!     let hash_table = unit.hash_table()?;
-//!
-//!     // Lookup names in a specific bucket
-//!     let names = hash_table.names_in_bucket(bucket_index)?;
-//!     for name_index in names {
-//!         let entry = hash_table.parse_entry_at_index(name_index)?;
-//!         println!("Found entry: {:?}", entry);
-//!     }
-//! }
-//! ```
-//!
-//! # DW_IDX Attribute Constants
-//!
-//! The entry pool contains entries with attributes identified by DW_IDX constants.
-//! Each constant represents a different type of information about debug information entries:
-//!
-//! - **`DW_IDX_die_offset`**: Offset to the DIE in the `.debug_info` section.
-//!   This is the primary attribute that points to the actual debugging information
-//!   entry for the named symbol. Required for all entries.
-//!
-//! - **`DW_IDX_parent`**: Reference to the parent entry in the debug_names table.
-//!   Can be either a flag (DW_FORM_flag_present) indicating the presence of a parent,
-//!   or an offset pointing to the parent entry. Used for hierarchical relationships.
-//!
-//! - **`DW_IDX_compile_unit`**: Index or offset pointing to the compilation unit
-//!   header in `.debug_info`. Identifies which compilation unit contains this symbol.
-//!   Useful for cross-reference and organization.
-//!
-//! - **`DW_IDX_type_unit`**: Index or offset pointing to the type unit header
-//!   in `.debug_types` or `.debug_info` (DWARF 5). Used for type information
-//!   that may be defined separately from the main compilation units.
-//!
-//! - **`DW_IDX_type_hash`**: 64-bit hash value of the type signature for type units.
-//!   Enables efficient type matching and deduplication across compilation units.
-//!   Typically used with DW_IDX_type_unit.
-//!
-//! These constants are defined in the DWARF 5 specification Section 6.1.1.4.4
-//! and enable rich metadata to be associated with each named symbol in the accelerated
-//! access table.
-
 use crate::common::{DebugInfoOffset, DebugStrOffset, Format, SectionId};
 use crate::constants::{self, DwTag};
 use crate::endianity::Endianity;
 use crate::read::{
     DebugStr, EndianSlice, Error, Reader, ReaderOffset, Result, Section, UnitOffset,
 };
-
-#[cfg(feature = "std")]
-use std::{string::String, vec::Vec};
-
-#[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 
-/// A single parsed name entry from the `.debug_names` section.
+/// A parsed entry from the `.debug_names` section.
 #[derive(Debug, Clone)]
 pub struct NameEntry<R: Reader> {
-    unit_header_offset: DebugInfoOffset<R::Offset>,
-    die_offset: UnitOffset<R::Offset>,
-    name: R,
-}
-
-impl<R: Reader> NameEntry<R> {
-    /// Returns the name this entry refers to.
-    pub fn name(&self) -> &R {
-        &self.name
-    }
-
-    /// Returns the offset into the .debug_info section for the header of the compilation unit
-    /// which contains this name.
-    pub fn unit_header_offset(&self) -> DebugInfoOffset<R::Offset> {
-        self.unit_header_offset
-    }
-
-    /// Returns the offset into the compilation unit for the debugging information entry which
-    /// has this name.
-    pub fn die_offset(&self) -> UnitOffset<R::Offset> {
-        self.die_offset
-    }
-}
-
-/// A parsed entry from the entry pool in a `.debug_names` unit.
-///
-/// This structure represents a fully parsed debug information entry (DIE) reference
-/// from the DWARF 5 debug_names section. Each entry corresponds to a named symbol
-/// in the debugging information and provides efficient access to its location and
-/// relationships within the DWARF data.
-///
-/// According to DWARF 5 Section 6.1.1.4.6, each entry in the entry pool contains:
-/// - An abbreviation code referencing the abbreviation table
-/// - Attributes as described by the abbreviation declaration
-/// - At minimum, a die_offset attribute pointing to the actual DIE
-///
-/// # Example Usage
-/// ```ignore
-/// let parsed_entry = unit.parse_entry_pool_entry(offset, &abbrev_table, base)?;
-/// println!("DIE at offset: 0x{:x}", parsed_entry.die_offset());
-/// if let Some(parent) = parsed_entry.parent_info() {
-///     println!("Parent entry at: 0x{:x}", parent);
-/// }
-/// ```
-#[derive(Debug, Clone)]
-pub struct ParsedEntry {
-    /// The abbreviation code used for this entry.
-    ///
-    /// References an entry in the abbreviation table that describes
-    /// the structure and attributes of this debug information entry.
+    /// The abbreviation code for this entry.
     pub abbrev_code: u64,
 
     /// The DIE tag for this entry.
-    ///
-    /// Specifies the kind of debugging information entry (e.g., DW_TAG_subprogram,
-    /// DW_TAG_variable, DW_TAG_typedef) as defined in DWARF 5 Section 7.5.
     pub tag: DwTag,
 
     /// The offset to the DIE within the compilation unit.
-    ///
-    /// This offset is relative to the start of the compilation unit's
-    /// debug information and can be used to locate the full DIE data.
-    pub die_offset: u32,
+    pub die_offset: UnitOffset<R::Offset>,
 
-    /// Parent information for hierarchical relationships.
-    ///
-    /// Contains the absolute offset of the parent entry in the entry pool
-    /// if this entry has a parent relationship. None indicates either
-    /// no parent (top-level entry) or that parent information is not indexed.
+    /// The offset to the parent entry in the entry pool, if indexed.
     pub parent_info: Option<u64>,
 
-    /// Index or offset pointing to the compilation unit header.
-    ///
-    /// Identifies which compilation unit contains this symbol. This corresponds
-    /// to the DW_IDX_compile_unit attribute and enables cross-reference between
-    /// the debug_names table and the actual compilation unit data.
+    /// The compilation unit index (DW_IDX_compile_unit).
     pub compile_unit: Option<u64>,
 
-    /// Index or offset pointing to the type unit header.
-    ///
-    /// Used for type information that may be defined separately from the main
-    /// compilation units. This corresponds to the DW_IDX_type_unit attribute
-    /// and points to type unit headers in .debug_types or .debug_info.
+    /// The type unit index (DW_IDX_type_unit).
     pub type_unit: Option<u64>,
 
-    /// 64-bit hash value of the type signature for type units.
-    ///
-    /// Enables efficient type matching and deduplication across compilation units.
-    /// This corresponds to the DW_IDX_type_hash attribute and is typically used
-    /// in conjunction with DW_IDX_type_unit for type identification.
+    /// The type signature hash (DW_IDX_type_hash).
     pub type_hash: Option<u64>,
 }
 
-impl ParsedEntry {
+impl<R: Reader> NameEntry<R> {
     /// Returns the abbreviation code for this entry.
+    #[inline]
     pub fn abbrev_code(&self) -> u64 {
         self.abbrev_code
     }
 
     /// Returns the DIE tag for this entry.
+    #[inline]
     pub fn tag(&self) -> DwTag {
         self.tag
     }
 
     /// Returns the offset to the DIE within the compilation unit.
-    pub fn die_offset(&self) -> u32 {
+    #[inline]
+    pub fn die_offset(&self) -> UnitOffset<R::Offset> {
         self.die_offset
     }
 
     /// Returns the parent information, if any.
+    #[inline]
     pub fn parent_info(&self) -> Option<u64> {
         self.parent_info
     }
 }
 
-/// A result from a debug_names lookup that includes both the parsed entry and resolved information.
-///
-/// This type provides a high-level interface for debug_names lookup results, combining
-/// the parsed entry data with additional resolved information for convenience.
-///
-/// # Example Usage
-///
-/// ```ignore
-/// let results = dwarf.find_functions_by_name("main")?;
-/// for result in results {
-///     let (unit, die) = result.resolve_die(&dwarf)?;
-///     println!("Found function: {:?}", die);
-/// }
-/// ```
+/// A name lookup result from the `.debug_names` section.
 #[derive(Debug, Clone)]
 pub struct NameLookupResult<R: Reader> {
-    /// The parsed entry from the debug_names section.
-    pub parsed_entry: ParsedEntry,
+    /// The entry from the debug_names section.
+    pub entry: NameEntry<R>,
 
     /// The resolved name string for this entry.
     pub name: String,
@@ -231,13 +101,13 @@ pub struct NameLookupResult<R: Reader> {
 impl<R: Reader> NameLookupResult<R> {
     /// Create a new NameLookupResult.
     pub fn new(
-        parsed_entry: ParsedEntry,
+        entry: NameEntry<R>,
         name: String,
         compilation_unit_offset: DebugInfoOffset<R::Offset>,
         die_unit_offset: UnitOffset<R::Offset>,
     ) -> Self {
         Self {
-            parsed_entry,
+            entry,
             name,
             compilation_unit_offset,
             die_unit_offset,
@@ -245,64 +115,38 @@ impl<R: Reader> NameLookupResult<R> {
     }
 
     /// Returns the DIE tag for this entry.
+    #[inline]
     pub fn tag(&self) -> constants::DwTag {
-        self.parsed_entry.tag()
+        self.entry.tag()
     }
 
     /// Returns the abbreviation code for this entry.
+    #[inline]
     pub fn abbrev_code(&self) -> u64 {
-        self.parsed_entry.abbrev_code()
+        self.entry.abbrev_code()
     }
 
     /// Returns the resolved name for this entry.
+    #[inline]
     pub fn name(&self) -> &str {
         &self.name
     }
 
     /// Returns the compilation unit offset.
+    #[inline]
     pub fn compilation_unit_offset(&self) -> DebugInfoOffset<R::Offset> {
         self.compilation_unit_offset
     }
 
     /// Returns the DIE offset within its compilation unit.
+    #[inline]
     pub fn die_unit_offset(&self) -> UnitOffset<R::Offset> {
         self.die_unit_offset
     }
 
-    /// Resolve this entry to get information about the DIE.
-    ///
-    /// This method validates that the debug_names entry points to a valid DIE
-    /// and returns information about it. For more complex operations that need
-    /// the actual DIE, use `resolve_unit()` to get the unit and then navigate
-    /// to the DIE manually.
-    ///
-    /// # Arguments
-    ///
-    /// * `dwarf` - The main Dwarf structure containing all sections
-    ///
-    /// # Returns
-    ///
-    /// Returns true if the DIE exists and is accessible, false otherwise.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let results = dwarf.find_functions_by_name("main")?;
-    /// for result in results {
-    ///     if result.validate_die(&dwarf)? {
-    ///         let unit = result.resolve_unit(&dwarf)?;
-    ///         // Use unit to access the DIE...
-    ///     }
-    /// }
-    /// ```
+    /// Validate that this entry points to an accessible DIE.
     pub fn validate_die(&self, dwarf: &crate::read::Dwarf<R>) -> Result<bool> {
-        // Get the unit header for this compilation unit
-        let unit_header = dwarf
-            .debug_info
-            .header_from_offset(self.compilation_unit_offset)?;
-
-        // Parse the full unit including abbreviations
-        let unit = dwarf.unit(unit_header)?;
+        let unit = self.resolve_unit(dwarf)?;
 
         // Create a cursor and navigate to the specific DIE
         let mut cursor = unit.entries_at_offset(self.die_unit_offset)?;
@@ -312,13 +156,6 @@ impl<R: Reader> NameLookupResult<R> {
     }
 
     /// Get the compilation unit header for this entry.
-    ///
-    /// This is a lighter-weight alternative to `resolve_die` that only
-    /// returns the unit header without parsing the full unit or DIE.
-    ///
-    /// # Arguments
-    ///
-    /// * `dwarf` - The main Dwarf structure containing all sections
     pub fn resolve_unit_header(
         &self,
         dwarf: &crate::read::Dwarf<R>,
@@ -329,13 +166,6 @@ impl<R: Reader> NameLookupResult<R> {
     }
 
     /// Resolve this entry to its full compilation unit.
-    ///
-    /// This method loads and parses the complete compilation unit that
-    /// contains this debug_names entry.
-    ///
-    /// # Arguments
-    ///
-    /// * `dwarf` - The main Dwarf structure containing all sections
     pub fn resolve_unit(&self, dwarf: &crate::read::Dwarf<R>) -> Result<crate::read::Unit<R>> {
         let unit_header = self.resolve_unit_header(dwarf)?;
         dwarf.unit(unit_header)
@@ -349,8 +179,6 @@ pub struct DebugNamesHeader<R: Reader> {
     length: R::Offset,
     /// Version of the name index table format (should be 5 for DWARF 5).
     version: u16,
-    /// Padding for alignment.
-    padding: u16,
     /// Number of compilation units in the CU list.
     comp_unit_count: u32,
     /// Number of type units in the local TU list.
@@ -373,61 +201,67 @@ pub struct DebugNamesHeader<R: Reader> {
 
 impl<R: Reader> DebugNamesHeader<R> {
     /// Return the version of this debug names table.
+    #[inline]
     pub fn version(&self) -> u16 {
         self.version
     }
 
-    /// Return the amout of padding in this index.
-    pub fn padding(&self) -> u16 {
-        self.padding
-    }
-
     /// Return the number of compilation units in this index.
+    #[inline]
     pub fn comp_unit_count(&self) -> u32 {
         self.comp_unit_count
     }
 
     /// Return the number of local type units in this index.
+    #[inline]
     pub fn local_type_unit_count(&self) -> u32 {
         self.local_type_unit_count
     }
 
     /// Return the number of foreign type units in this index.
+    #[inline]
     pub fn foreign_type_unit_count(&self) -> u32 {
         self.foreign_type_unit_count
     }
 
     /// Return the number of buckets in the hash table.
+    #[inline]
     pub fn bucket_count(&self) -> u32 {
         self.bucket_count
     }
 
     /// Return the number of unique name entries.
+    #[inline]
     pub fn name_count(&self) -> u32 {
         self.name_count
     }
 
     /// Return the size of the abbreviations table in bytes.
+    #[inline]
     pub fn abbrev_table_size(&self) -> u32 {
         self.abbrev_table_size
     }
 
     /// Return the augmentation string size.
+    #[inline]
     pub fn augmentation_string_size(&self) -> u32 {
         self.augmentation_string_size
     }
 
     /// Return the augmentation string.
+    #[inline]
     pub fn augmentation_string(&self) -> &R {
         &self.augmentation_string
     }
 
     /// Return the unit length.
+    #[inline]
     pub fn length(&self) -> R::Offset {
         self.length
     }
 
     /// Return the format (DWARF32 or DWARF64).
+    #[inline]
     pub fn format(&self) -> Format {
         self.format
     }
@@ -459,7 +293,7 @@ where
     /// ```
     /// use gimli::{DebugNames, LittleEndian};
     ///
-    /// # let buf = [];
+    /// # let buf = [0x00, 0x01, 0x02, 0x03];
     /// # let read_debug_names_section_somehow = || &buf;
     /// let debug_names =
     ///     DebugNames::new(read_debug_names_section_somehow(), LittleEndian);
@@ -485,8 +319,6 @@ impl<T> DebugNames<T> {
 
 impl<R: Reader> DebugNames<R> {
     /// Parse the header of the first name index table.
-    ///
-    /// Returns the header and a reader positioned after the header.
     pub fn header(&self) -> Result<(DebugNamesHeader<R>, R)> {
         let mut reader = self.section.clone();
         let header = DebugNamesHeader::parse(&mut reader)?;
@@ -498,6 +330,117 @@ impl<R: Reader> DebugNames<R> {
         DebugNamesUnitIter {
             input: self.section.clone(),
         }
+    }
+
+    /// Find entries by name with optional tag filtering.
+    pub fn find_entries_by_name<S>(
+        &self,
+        name: &str,
+        debug_str: &DebugStr<S>,
+        tag_filter: Option<constants::DwTag>,
+    ) -> Result<Vec<NameLookupResult<R>>>
+    where
+        S: Reader<Offset = R::Offset>,
+    {
+        use fallible_iterator::FallibleIterator;
+        let mut results = Vec::new();
+
+        // Compute the hash for the name
+        let hash = compute_djb_hash(name);
+
+        // Iterate through all debug_names units
+        let mut units = self.units();
+        while let Some((header, content)) = units.next()? {
+            let unit = DebugNamesUnit::new(header, content)?;
+            let cu_offsets: Vec<_> = unit.comp_unit_offsets().collect()?;
+            let hash_table = unit.hash_table();
+            let name_indices = hash_table.lookup_by_hash(hash)?;
+            let abbrev_table = unit.abbreviation_table()?;
+
+            for name_index in name_indices {
+                // Resolve the actual string to verify it matches
+                if let Some(resolved_name) = hash_table.resolve_name_at_index(debug_str, name_index)
+                {
+                    if resolved_name == name {
+                        // Get the entry offset for this name index
+                        let mut entry_iter = hash_table.entry_offsets();
+                        entry_iter.skip_to(name_index)?;
+                        if let Some(entry_offset) = entry_iter.next()? {
+                            // Parse the entry using the lower-level API to get NameEntry
+                            if let Ok(entry) =
+                                unit.parse_entry_pool_entry(entry_offset, &abbrev_table)
+                            {
+                                // Apply tag filter if specified
+                                if let Some(required_tag) = tag_filter {
+                                    if entry.tag() != required_tag {
+                                        continue;
+                                    }
+                                }
+
+                                // Determine the compilation unit offset using the CU index from the entry
+                                let cu_offset = match entry.compile_unit {
+                                    Some(cu_index) => {
+                                        match cu_offsets.get(cu_index as usize).copied() {
+                                            Some(offset) => offset,
+                                            None => continue, // Skip entry if CU index is out of bounds
+                                        }
+                                    }
+                                    None => continue, // Skip entry if no CU index specified
+                                };
+
+                                let die_unit_offset = entry.die_offset();
+                                let result = NameLookupResult::new(
+                                    entry,
+                                    resolved_name,
+                                    cu_offset,
+                                    die_unit_offset,
+                                );
+
+                                results.push(result);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
+    /// Find all entries in the debug_names section by name (no tag filtering).
+    pub fn find_all_entries_by_name<S>(
+        &self,
+        name: &str,
+        debug_str: &DebugStr<S>,
+    ) -> Result<Vec<NameLookupResult<R>>>
+    where
+        S: Reader<Offset = R::Offset>,
+    {
+        self.find_entries_by_name(name, debug_str, None)
+    }
+
+    /// Find function entries (DW_TAG_subprogram) by name.
+    pub fn find_functions_by_name<S>(
+        &self,
+        name: &str,
+        debug_str: &DebugStr<S>,
+    ) -> Result<Vec<NameLookupResult<R>>>
+    where
+        S: Reader<Offset = R::Offset>,
+    {
+        self.find_entries_by_name(name, debug_str, Some(constants::DW_TAG_subprogram))
+    }
+
+    /// Find variable entries (DW_TAG_variable) by name.
+    pub fn find_variables_by_name<S>(
+        &self,
+        name: &str,
+        debug_str: &DebugStr<S>,
+    ) -> Result<Vec<NameLookupResult<R>>>
+    where
+        S: Reader<Offset = R::Offset>,
+    {
+        self.find_entries_by_name(name, debug_str, Some(constants::DW_TAG_variable))
     }
 }
 
@@ -517,6 +460,15 @@ impl<R> From<R> for DebugNames<R> {
             section: debug_names_section,
         }
     }
+}
+
+/// Compute the DJB hash for a name (DWARF 5 Section 7.33)
+fn compute_djb_hash(name: &str) -> u32 {
+    let mut hash: u32 = 5381;
+    for byte in name.bytes() {
+        hash = hash.wrapping_mul(33).wrapping_add(byte as u32);
+    }
+    hash
 }
 
 impl<R: Reader> DebugNamesHeader<R> {
@@ -540,14 +492,12 @@ impl<R: Reader> DebugNamesHeader<R> {
         let abbrev_table_size = input.read_u32()?;
         let augmentation_string_size = input.read_u32()?;
 
-        // Read the augmentation string
         let augmentation_string =
             input.split(R::Offset::from_u64(augmentation_string_size as u64)?)?;
 
         Ok(DebugNamesHeader {
             length,
             version,
-            padding,
             comp_unit_count,
             local_type_unit_count,
             foreign_type_unit_count,
@@ -580,9 +530,6 @@ impl<R: Reader> DebugNamesUnitIter<R> {
         let header = DebugNamesHeader::parse(&mut self.input)?;
 
         // Calculate the remaining content length for this unit
-        // Header size: version(2) + padding(2) + comp_unit_count(4) + local_type_unit_count(4) +
-        //              foreign_type_unit_count(4) + bucket_count(4) + name_count(4) +
-        //              abbrev_table_size(4) + augmentation_string_size(4) + augmentation_string = 32 bytes + augmentation_string_size
         let header_size_without_length = 32u64 + header.augmentation_string_size() as u64;
         let content_length = header.length.into_u64() - header_size_without_length;
 
@@ -599,140 +546,152 @@ impl<R: Reader> DebugNamesUnitIter<R> {
 /// hash buckets, and name entries that make up the accelerated lookup structure.
 #[derive(Debug)]
 pub struct DebugNamesUnit<R: Reader> {
-    header: DebugNamesHeader<R>,
-    content: R,
+    version: u16,
+    format: Format,
+    augmentation_string: R,
+
+    // Counts for iteration
+    comp_unit_count: u32,
+    local_type_unit_count: u32,
+    foreign_type_unit_count: u32,
+    bucket_count: u32,
+    name_count: u32,
+    abbrev_table_size: u32,
+
+    // Pre-sliced readers for each section
+    comp_unit_list: R,
+    local_type_unit_list: R,
+    foreign_type_unit_list: R,
+    hash_table_data: R,
+    name_table_data: R,
+    abbreviation_table: R,
+    entry_pool: R,
+}
+
+/// Read a DW_FORM value as u64 (for debug_names entry pool attributes).
+///
+/// This handles the subset of DWARF forms used in debug_names entry pools
+/// (DW_IDX_* attributes). Returns the form value as a u64.
+fn read_debug_names_form_value<R: Reader>(reader: &mut R, form: constants::DwForm) -> Result<u64> {
+    match form {
+        constants::DW_FORM_ref1 | constants::DW_FORM_data1 => Ok(reader.read_u8()? as u64),
+        constants::DW_FORM_ref2 | constants::DW_FORM_data2 => Ok(reader.read_u16()? as u64),
+        constants::DW_FORM_ref4 | constants::DW_FORM_data4 => Ok(reader.read_u32()? as u64),
+        constants::DW_FORM_ref8 | constants::DW_FORM_data8 => Ok(reader.read_u64()?),
+        constants::DW_FORM_udata => Ok(reader.read_uleb128()?),
+        form => Err(Error::UnknownForm(form)),
+    }
+}
+
+/// Skip a DW_FORM value without reading (for debug_names entry pool attributes).
+///
+/// This handles the subset of DWARF forms used in debug_names entry pools.
+/// Used for skipping unknown attributes while maintaining correct parsing position.
+fn skip_debug_names_form_value<R: Reader>(reader: &mut R, form: constants::DwForm) -> Result<()> {
+    match form {
+        constants::DW_FORM_ref1 | constants::DW_FORM_data1 => {
+            reader.read_u8()?;
+        }
+        constants::DW_FORM_ref2 | constants::DW_FORM_data2 => {
+            reader.read_u16()?;
+        }
+        constants::DW_FORM_ref4 | constants::DW_FORM_data4 => {
+            reader.read_u32()?;
+        }
+        constants::DW_FORM_ref8 | constants::DW_FORM_data8 => {
+            reader.read_u64()?;
+        }
+        constants::DW_FORM_udata => {
+            reader.read_uleb128()?;
+        }
+        constants::DW_FORM_flag_present => {
+            // No data to skip
+        }
+        form => return Err(Error::UnknownForm(form)),
+    }
+    Ok(())
 }
 
 impl<R: Reader> DebugNamesUnit<R> {
     /// Create a new name index table from a header and content.
-    pub fn new(header: DebugNamesHeader<R>, content: R) -> Self {
-        DebugNamesUnit { header, content }
+    pub fn new(header: DebugNamesHeader<R>, content: R) -> Result<Self> {
+        let mut reader = content;
+
+        // Calculate section sizes once
+        let offset_size = header.format.word_size() as u64;
+
+        let cu_list_size = header.comp_unit_count as u64 * offset_size;
+        let local_tu_size = header.local_type_unit_count as u64 * offset_size;
+        let foreign_tu_size = header.foreign_type_unit_count as u64 * 8; // Always 8 bytes per signature
+        let hash_table_size = (header.bucket_count as u64 + header.name_count as u64) * 4; // 4 bytes per u32
+        let name_table_size = header.name_count as u64 * offset_size * 2; // Two offset arrays
+        let abbrev_size = header.abbrev_table_size as u64;
+
+        // Slice each section once (split() advances the reader automatically)
+        let comp_unit_list = reader.split(R::Offset::from_u64(cu_list_size)?)?;
+        let local_type_unit_list = reader.split(R::Offset::from_u64(local_tu_size)?)?;
+        let foreign_type_unit_list = reader.split(R::Offset::from_u64(foreign_tu_size)?)?;
+        let hash_table_data = reader.split(R::Offset::from_u64(hash_table_size)?)?;
+        let name_table_data = reader.split(R::Offset::from_u64(name_table_size)?)?;
+        let abbreviation_table = reader.split(R::Offset::from_u64(abbrev_size)?)?;
+
+        // Remaining data is the entry pool
+        let entry_pool = reader;
+
+        Ok(DebugNamesUnit {
+            version: header.version,
+            format: header.format,
+            augmentation_string: header.augmentation_string,
+            comp_unit_count: header.comp_unit_count,
+            local_type_unit_count: header.local_type_unit_count,
+            foreign_type_unit_count: header.foreign_type_unit_count,
+            bucket_count: header.bucket_count,
+            name_count: header.name_count,
+            abbrev_table_size: header.abbrev_table_size,
+            comp_unit_list,
+            local_type_unit_list,
+            foreign_type_unit_list,
+            hash_table_data,
+            name_table_data,
+            abbreviation_table,
+            entry_pool,
+        })
     }
 
-    /// Get the header for this name index table.
-    pub fn header(&self) -> &DebugNamesHeader<R> {
-        &self.header
-    }
-
-    /// Get a reader positioned at the start of the CU list following DWARF 5 Section 6.1.1.2.
-    ///
-    /// According to DWARF 5 spec Section 6.1.1.2, the structure is:
-    /// Header → CU list → Local TU list → Foreign TU list → Hash table → Name table → Abbreviation table → Entry pool
-    fn content_reader(&self) -> R {
-        self.content.clone()
-    }
-
-    // Section size calculation methods
-
-    /// Calculate the byte size of the CU list section.
-    fn cu_list_size(&self) -> u64 {
-        let offset_size = match self.header.format {
-            Format::Dwarf32 => 4,
-            Format::Dwarf64 => 8,
-        };
-        self.header.comp_unit_count as u64 * offset_size
-    }
-
-    /// Calculate the byte size of the local TU list section.
-    fn local_tu_list_size(&self) -> u64 {
-        let offset_size = match self.header.format {
-            Format::Dwarf32 => 4,
-            Format::Dwarf64 => 8,
-        };
-        self.header.local_type_unit_count as u64 * offset_size
-    }
-
-    /// Calculate the byte size of the foreign TU list section.
-    fn foreign_tu_list_size(&self) -> u64 {
-        self.header.foreign_type_unit_count as u64 * 8 // Always 8 bytes per signature
-    }
-
-    /// Calculate the byte size of the hash table section (buckets + array).
-    fn hash_table_size(&self) -> u64 {
-        (self.header.bucket_count as u64 + self.header.name_count as u64) * 4 // 4 bytes per u32
-    }
-
-    /// Calculate the byte size of the name table section (string offsets + entry offsets).
-    fn name_table_size(&self) -> u64 {
-        let offset_size = match self.header.format {
-            Format::Dwarf32 => 4,
-            Format::Dwarf64 => 8,
-        };
-        self.header.name_count as u64 * offset_size * 2 // Two offset arrays
-    }
-
-    // Section navigation methods
-
-    /// Get a reader positioned at the local TU list section.
-    fn local_tu_list_reader(&self) -> Result<R> {
-        let mut reader = self.content_reader();
-        let cu_list_size = self.cu_list_size();
-        reader.skip(R::Offset::from_u64(cu_list_size)?)?;
-        Ok(reader)
-    }
-
-    /// Get a reader positioned at the foreign TU list section.
-    fn foreign_tu_list_reader(&self) -> Result<R> {
-        let mut reader = self.content_reader();
-        let skip_size = self.cu_list_size() + self.local_tu_list_size();
-        reader.skip(R::Offset::from_u64(skip_size)?)?;
-        Ok(reader)
-    }
-
-    /// Get a reader positioned at the hash table section.
-    fn hash_table_reader(&self) -> Result<R> {
-        let mut reader = self.content_reader();
-        let skip_size =
-            self.cu_list_size() + self.local_tu_list_size() + self.foreign_tu_list_size();
-        reader.skip(R::Offset::from_u64(skip_size)?)?;
-        Ok(reader)
-    }
-
-    /// Get a reader positioned at the name table section.
-    fn name_table_reader(&self) -> Result<R> {
-        let mut reader = self.content_reader();
-        let skip_size = self.cu_list_size()
-            + self.local_tu_list_size()
-            + self.foreign_tu_list_size()
-            + self.hash_table_size();
-        reader.skip(R::Offset::from_u64(skip_size)?)?;
-        Ok(reader)
-    }
-
-    /// Get a reader positioned at the abbreviation table section.
-    fn abbreviation_table_reader(&self) -> Result<R> {
-        let mut reader = self.content_reader();
-        let skip_size = self.cu_list_size()
-            + self.local_tu_list_size()
-            + self.foreign_tu_list_size()
-            + self.hash_table_size()
-            + self.name_table_size();
-        reader.skip(R::Offset::from_u64(skip_size)?)?;
-        Ok(reader)
-    }
-
-    /// Get the compilation unit offsets table.
-    /// According to DWARF 5 Section 6.1.1.2, CU list immediately follows the header.
-    pub fn comp_unit_offsets(&self) -> Result<Vec<DebugInfoOffset<R::Offset>>> {
-        let mut reader = self.content_reader();
-        let mut offsets = Vec::with_capacity(self.header.comp_unit_count as usize);
-
-        for _ in 0..self.header.comp_unit_count {
-            let offset = reader.read_offset(self.header.format)?;
-            offsets.push(DebugInfoOffset(offset));
+    /// Get the header information for this name index table.
+    /// Returns a newly constructed header from the stored metadata.
+    pub fn header(&self) -> DebugNamesHeader<R> {
+        DebugNamesHeader {
+            length: R::Offset::from_u8(0),
+            version: self.version,
+            comp_unit_count: self.comp_unit_count,
+            local_type_unit_count: self.local_type_unit_count,
+            foreign_type_unit_count: self.foreign_type_unit_count,
+            bucket_count: self.bucket_count,
+            name_count: self.name_count,
+            abbrev_table_size: self.abbrev_table_size,
+            augmentation_string_size: self.augmentation_string.len().into_u64() as u32,
+            format: self.format,
+            augmentation_string: self.augmentation_string.clone(),
         }
+    }
 
-        Ok(offsets)
+    /// Iterate over the compilation unit offsets.
+    pub fn comp_unit_offsets(&self) -> CompUnitOffsetsIter<R> {
+        CompUnitOffsetsIter {
+            reader: self.comp_unit_list.clone(),
+            remaining: self.comp_unit_count,
+            format: self.format,
+        }
     }
 
     /// Get the local type unit offsets table.
-    /// According to DWARF 5 Section 6.1.1.2, local TU list follows the CU list.
     pub fn local_type_unit_offsets(&self) -> Result<Vec<DebugInfoOffset<R::Offset>>> {
-        let mut reader = self.local_tu_list_reader()?;
-        let mut offsets = Vec::with_capacity(self.header.local_type_unit_count as usize);
+        let mut reader = self.local_type_unit_list.clone();
+        let mut offsets = Vec::with_capacity(self.local_type_unit_count as usize);
 
-        for _ in 0..self.header.local_type_unit_count {
-            let offset = reader.read_offset(self.header.format)?;
+        for _ in 0..self.local_type_unit_count {
+            let offset = reader.read_offset(self.format)?;
             offsets.push(DebugInfoOffset(offset));
         }
 
@@ -740,12 +699,11 @@ impl<R: Reader> DebugNamesUnit<R> {
     }
 
     /// Get the foreign type unit signatures table.
-    /// According to DWARF 5 Section 6.1.1.2, foreign TU list follows the local TU list.
     pub fn foreign_type_unit_signatures(&self) -> Result<Vec<u64>> {
-        let mut reader = self.foreign_tu_list_reader()?;
-        let mut signatures = Vec::with_capacity(self.header.foreign_type_unit_count as usize);
+        let mut reader = self.foreign_type_unit_list.clone();
+        let mut signatures = Vec::with_capacity(self.foreign_type_unit_count as usize);
 
-        for _ in 0..self.header.foreign_type_unit_count {
+        for _ in 0..self.foreign_type_unit_count {
             let signature = reader.read_u64()?;
             signatures.push(signature);
         }
@@ -753,95 +711,57 @@ impl<R: Reader> DebugNamesUnit<R> {
         Ok(signatures)
     }
 
-    /// Get the hash bucket array.
-    /// According to DWARF 5 Section 6.1.1.2, hash buckets are first part of the hash table.
-    pub fn hash_buckets(&self) -> Result<Vec<u32>> {
-        let mut reader = self.hash_table_reader()?;
-        let mut buckets = Vec::with_capacity(self.header.bucket_count as usize);
-
-        for _ in 0..self.header.bucket_count {
-            let bucket = reader.read_u32()?;
-            buckets.push(bucket);
+    /// Iterate over the hash bucket array.
+    pub fn hash_buckets(&self) -> HashBucketsIter<R> {
+        HashBucketsIter {
+            reader: self.hash_table_data.clone(),
+            remaining: self.bucket_count,
         }
-
-        Ok(buckets)
     }
 
-    /// Get the hash array (name indices).
-    /// According to DWARF 5 Section 6.1.1.2, hash array is second part of the hash table.
-    pub fn hash_array(&self) -> Result<Vec<u32>> {
-        let mut reader = self.hash_table_reader()?;
-        let mut hash_array = Vec::with_capacity(self.header.name_count as usize);
+    /// Iterate over the hash array (name indices).
+    pub fn hash_array(&self) -> HashArrayIter<R> {
+        let mut reader = self.hash_table_data.clone();
+        // Skip hash buckets to get to hash array.
+        reader
+            .skip(R::Offset::from_u64(self.bucket_count as u64 * 4).unwrap())
+            .unwrap();
 
-        // Skip hash buckets to get to hash array
-        for _ in 0..self.header.bucket_count {
-            reader.read_u32()?;
+        HashArrayIter {
+            reader,
+            remaining: self.name_count,
         }
-
-        for _ in 0..self.header.name_count {
-            let hash = reader.read_u32()?;
-            hash_array.push(hash);
-        }
-
-        Ok(hash_array)
     }
 
-    /// Get the string offset table.
-    /// According to DWARF 5 Section 6.1.1.2, string offsets are first part of the name table.
-    pub fn string_offsets(&self) -> Result<Vec<R::Offset>> {
-        let mut reader = self.name_table_reader()?;
-        let mut string_offsets = Vec::with_capacity(self.header.name_count as usize);
-
-        for _ in 0..self.header.name_count {
-            let offset = reader.read_offset(self.header.format)?;
-            string_offsets.push(offset);
+    /// Iterate over the string offset table.
+    pub fn string_offsets(&self) -> StringOffsetsIter<R> {
+        StringOffsetsIter {
+            reader: self.name_table_data.clone(),
+            remaining: self.name_count,
+            format: self.format,
         }
-
-        Ok(string_offsets)
     }
 
-    /// Get the entry offset table.
-    /// According to DWARF 5 Section 6.1.1.2, entry offsets are second part of the name table.
-    pub fn entry_offsets(&self) -> Result<Vec<R::Offset>> {
-        let mut reader = self.name_table_reader()?;
-        let mut entry_offsets = Vec::with_capacity(self.header.name_count as usize);
+    /// Iterate over the entry offset table.
+    pub fn entry_offsets(&self) -> EntryOffsetsIter<R> {
+        let mut reader = self.name_table_data.clone();
+        // Skip string offset table to get to entry offset table.
+        let offset_size = self.format.word_size() as u64;
+        reader
+            .skip(R::Offset::from_u64(self.name_count as u64 * offset_size).unwrap())
+            .unwrap();
 
-        // Skip string offset table to get to entry offset table
-        for _ in 0..self.header.name_count {
-            reader.read_offset(self.header.format)?;
+        EntryOffsetsIter {
+            reader,
+            remaining: self.name_count,
+            format: self.format,
         }
-
-        for _ in 0..self.header.name_count {
-            let offset = reader.read_offset(self.header.format)?;
-            entry_offsets.push(offset);
-        }
-
-        Ok(entry_offsets)
     }
 
     /// Parse the abbreviation table for this name index table.
-    /// According to DWARF 5 Section 6.1.1.2, abbreviation table follows the name table.
     pub fn abbreviation_table(&self) -> Result<NameAbbreviationTable> {
-        let mut reader = self.abbreviation_table_reader()?;
-        let abbrev_table_size = self.header.abbrev_table_size() as u64;
-        let abbrev_reader = reader.split(R::Offset::from_u64(abbrev_table_size)?)?;
-
+        let abbrev_reader = self.abbreviation_table.clone();
         self.parse_abbreviation_table(abbrev_reader)
-    }
-
-    /// Get hex dump of abbreviation table bytes for debugging.
-    /// Uses the spec-compliant position for abbreviation table.
-    pub fn abbreviation_table_hex(&self) -> Result<Vec<u8>> {
-        let mut reader = self.abbreviation_table_reader()?;
-        let abbrev_table_size = self.header.abbrev_table_size() as u64;
-        let mut byte_reader = reader.split(R::Offset::from_u64(abbrev_table_size)?)?;
-
-        let mut bytes = Vec::new();
-        while !byte_reader.is_empty() {
-            bytes.push(byte_reader.read_u8()?);
-        }
-
-        Ok(bytes)
     }
 
     /// Parse the abbreviation table from a reader.
@@ -883,145 +803,18 @@ impl<R: Reader> DebugNamesUnit<R> {
         Ok(NameAbbreviationTable { abbreviations })
     }
 
-    /// Validates that the structure counts and sizes in the header match the actual data structure.
-    ///
-    /// This method performs comprehensive validation according to DWARF 5 specification:
-    /// - Verifies that section lengths match header counts
-    /// - Validates that hash bucket indices are within valid range
-    /// - Ensures name count consistency across hash arrays and name tables
-    /// - Checks that abbreviation table size matches actual abbreviation data
-    ///
-    /// Returns Ok(()) if the structure is valid, or an error describing the validation failure.
-    pub fn validate_structure(&self) -> Result<()> {
-        // 1. Validate hash table structure consistency
-        let hash_buckets = self.hash_buckets()?;
-        let hash_array = self.hash_array()?;
-
-        // Check that hash bucket indices are valid
-        for (_bucket_index, &bucket_value) in hash_buckets.iter().enumerate() {
-            if bucket_value != 0 && (bucket_value as usize) > hash_array.len() {
-                return Err(Error::BadLength);
-            }
-        }
-
-        // 2. Validate name count consistency
-        let string_offsets = self.string_offsets()?;
-        let entry_offsets = self.entry_offsets()?;
-
-        if hash_array.len() != self.header.name_count as usize {
-            return Err(Error::BadLength);
-        }
-
-        if string_offsets.len() != self.header.name_count as usize {
-            return Err(Error::BadLength);
-        }
-
-        if entry_offsets.len() != self.header.name_count as usize {
-            return Err(Error::BadLength);
-        }
-
-        // 3. Validate compilation unit count consistency
-        let cu_offsets = self.comp_unit_offsets()?;
-        if cu_offsets.len() != self.header.comp_unit_count as usize {
-            return Err(Error::BadLength);
-        }
-
-        // 4. Validate local type unit count consistency
-        let local_tu_offsets = self.local_type_unit_offsets()?;
-        if local_tu_offsets.len() != self.header.local_type_unit_count as usize {
-            return Err(Error::BadLength);
-        }
-
-        // 5. Validate foreign type unit count consistency
-        let foreign_tu_signatures = self.foreign_type_unit_signatures()?;
-        if foreign_tu_signatures.len() != self.header.foreign_type_unit_count as usize {
-            return Err(Error::BadLength);
-        }
-
-        // 6. Validate hash bucket count consistency
-        if hash_buckets.len() != self.header.bucket_count as usize {
-            return Err(Error::BadLength);
-        }
-
-        // 7. Validate abbreviation table size by parsing and measuring
-        let abbrev_hex = self.abbreviation_table_hex()?;
-        if abbrev_hex.len() as u32 != self.header.abbrev_table_size {
-            return Err(Error::BadLength);
-        }
-
-        Ok(())
-    }
-
     /// Get a reader positioned at the entry pool.
-    /// According to DWARF 5 Section 6.1.1.2, entry pool follows the abbreviation table.
-    pub fn entry_pool_reader(&self) -> Result<R> {
-        let mut reader = self.abbreviation_table_reader()?;
-        let abbrev_table_size = self.header.abbrev_table_size() as u64;
-        reader.skip(R::Offset::from_u64(abbrev_table_size)?)?;
-        Ok(reader)
+    pub fn entry_pool_reader(&self) -> R {
+        self.entry_pool.clone()
     }
 
-    /// Parse an entry from the entry pool.
-    ///
-    /// This method parses a single entry from the entry pool using the provided
-    /// entry offset and abbreviation table. It returns a ParsedEntry containing
-    /// the abbreviation code, DIE tag, die offset, and parent information.
-    /// Read a value from a DWARF form, returning it as u64.
-    /// Handles all standard reference and data forms used in debug_names.
-    fn read_form_value(reader: &mut R, form: constants::DwForm) -> Result<u64> {
-        match form {
-            constants::DW_FORM_ref1 | constants::DW_FORM_data1 => Ok(reader.read_u8()? as u64),
-            constants::DW_FORM_ref2 | constants::DW_FORM_data2 => Ok(reader.read_u16()? as u64),
-            constants::DW_FORM_ref4 | constants::DW_FORM_data4 => Ok(reader.read_u32()? as u64),
-            constants::DW_FORM_ref8 | constants::DW_FORM_data8 => Ok(reader.read_u64()?),
-            constants::DW_FORM_udata => Ok(reader.read_uleb128()?),
-            form => Err(Error::UnknownForm(form)),
-        }
-    }
-
-    /// Skip a value in a DWARF form without reading it.
-    /// Used for skipping unknown attributes while maintaining correct parsing position.
-    fn skip_form_value(reader: &mut R, form: constants::DwForm) -> Result<()> {
-        match form {
-            constants::DW_FORM_ref1 | constants::DW_FORM_data1 => {
-                let _ = reader.read_u8()?;
-            }
-            constants::DW_FORM_ref2 | constants::DW_FORM_data2 => {
-                let _ = reader.read_u16()?;
-            }
-            constants::DW_FORM_ref4 | constants::DW_FORM_data4 => {
-                let _ = reader.read_u32()?;
-            }
-            constants::DW_FORM_ref8 | constants::DW_FORM_data8 => {
-                let _ = reader.read_u64()?;
-            }
-            constants::DW_FORM_udata => {
-                let _ = reader.read_uleb128()?;
-            }
-            constants::DW_FORM_flag_present => {
-                // No data to skip
-            }
-            form => return Err(Error::UnknownForm(form)),
-        }
-        Ok(())
-    }
-
-    /// Parse a single entry from the entry pool using DWARF 5 specification.
-    ///
-    /// This method parses a single entry from the entry pool using the provided
-    /// entry offset and abbreviation table. It returns a ParsedEntry containing
-    /// the abbreviation code, DIE tag, die offset, and parent information.
-    ///
-    /// According to DWARF 5 Section 6.1.1.4.6, each entry in the entry pool
-    /// begins with an abbreviation code and is followed by attributes as
-    /// described by the abbreviation declaration for that code.
+    /// Parse a single entry from the entry pool.
     pub fn parse_entry_pool_entry(
         &self,
         entry_offset: R::Offset,
         abbrev_table: &NameAbbreviationTable,
-        entry_pool_base: u64,
-    ) -> Result<ParsedEntry> {
-        let mut entry_reader = self.entry_pool_reader()?;
+    ) -> Result<NameEntry<R>> {
+        let mut entry_reader = self.entry_pool_reader();
         entry_reader.skip(entry_offset)?;
 
         // Read abbreviation code
@@ -1042,7 +835,8 @@ impl<R: Reader> DebugNamesUnit<R> {
             for attr in abbrev.attributes() {
                 match attr.name() {
                     constants::DW_IDX_die_offset => {
-                        die_offset = Self::read_form_value(&mut entry_reader, attr.form())? as u32;
+                        die_offset =
+                            read_debug_names_form_value(&mut entry_reader, attr.form())? as u32;
                     }
                     constants::DW_IDX_parent => {
                         match attr.form() {
@@ -1051,29 +845,30 @@ impl<R: Reader> DebugNamesUnit<R> {
                                 has_parent_flag = true;
                             }
                             form => {
-                                let parent_offset = Self::read_form_value(&mut entry_reader, form)?;
-                                parent_ref = Some(entry_pool_base + parent_offset);
+                                let parent_offset =
+                                    read_debug_names_form_value(&mut entry_reader, form)?;
+                                parent_ref = Some(parent_offset);
                             }
                         }
                     }
                     constants::DW_IDX_compile_unit => {
                         // Points to the compilation unit header in .debug_info
                         compile_unit_offset =
-                            Some(Self::read_form_value(&mut entry_reader, attr.form())?);
+                            Some(read_debug_names_form_value(&mut entry_reader, attr.form())?);
                     }
                     constants::DW_IDX_type_unit => {
                         // Points to the type unit header in .debug_types or .debug_info
                         type_unit_offset =
-                            Some(Self::read_form_value(&mut entry_reader, attr.form())?);
+                            Some(read_debug_names_form_value(&mut entry_reader, attr.form())?);
                     }
                     constants::DW_IDX_type_hash => {
                         // 64-bit hash of the type signature for type units
                         type_hash_value =
-                            Some(Self::read_form_value(&mut entry_reader, attr.form())?);
+                            Some(read_debug_names_form_value(&mut entry_reader, attr.form())?);
                     }
                     _ => {
                         // Skip unknown or non-standard attributes
-                        Self::skip_form_value(&mut entry_reader, attr.form())?;
+                        skip_debug_names_form_value(&mut entry_reader, attr.form())?;
                     }
                 }
             }
@@ -1087,10 +882,10 @@ impl<R: Reader> DebugNamesUnit<R> {
                 None // No parent information
             };
 
-            Ok(ParsedEntry {
+            Ok(NameEntry {
                 abbrev_code,
                 tag,
-                die_offset,
+                die_offset: UnitOffset(R::Offset::from_u64(die_offset as u64)?),
                 parent_info,
                 compile_unit: compile_unit_offset,
                 type_unit: type_unit_offset,
@@ -1101,198 +896,94 @@ impl<R: Reader> DebugNamesUnit<R> {
         }
     }
 
-    /// Calculate the base offset of the entry pool within the .debug_names section.
-    ///
-    /// This is the absolute offset from the start of the debug_names section to
-    /// the beginning of the entry pool.
-    pub fn entry_pool_base(&self) -> Result<u64> {
-        let header = &self.header;
-
-        // Start with header size
-        let mut offset = match header.format {
-            Format::Dwarf32 => 4 + 2 + 2 + 4 + 4 + 4 + 4 + 4 + 4 + 4, // length + version + padding + cu_count + ... + augmentation_length
-            Format::Dwarf64 => 12 + 2 + 2 + 4 + 4 + 4 + 4 + 4 + 4 + 4, // 64-bit length + version + padding + ...
-        } as u64;
-
-        // Add augmentation string length
-        offset += header.augmentation_string.len().into_u64();
-
-        // Add CU list size
-        offset += (header.comp_unit_count as u64) * 4;
-
-        // Add Local TU list size (empty)
-        offset += (header.local_type_unit_count as u64) * 4;
-
-        // Add Foreign TU list size (empty)
-        offset += (header.foreign_type_unit_count as u64) * 4;
-
-        // Add hash buckets size
-        offset += (header.bucket_count as u64) * 4;
-
-        // Add hash array size
-        offset += (header.name_count as u64) * 4;
-
-        // Add string offsets array size
-        offset += (header.name_count as u64) * 4;
-
-        // Add entry offsets array size
-        offset += (header.name_count as u64) * 4;
-
-        // Add abbreviation table size
-        offset += header.abbrev_table_size as u64;
-
-        Ok(offset)
-    }
-
-    /// Resolve a string name from the .debug_str section using a string offset.
-    ///
-    /// Takes a string offset from the name table and resolves it to the actual string
-    /// from the .debug_str section. This is a common operation when displaying
-    /// name entries from the debug_names index.
-    ///
-    /// Returns the resolved string, or an error message if resolution fails.
+    /// Resolve a string from the `.debug_str` section.
     pub fn resolve_string_name<S>(
         &self,
         debug_str: &DebugStr<S>,
         string_offset: R::Offset,
-    ) -> String
+    ) -> Result<String>
     where
         S: Reader<Offset = R::Offset>,
     {
-        match debug_str.get_str(DebugStrOffset(string_offset)) {
-            Ok(string_reader) => {
-                let mut bytes = Vec::new();
-                let mut reader = string_reader.clone();
-                while !reader.is_empty() {
-                    match reader.read_u8() {
-                        Ok(0) => break, // null terminator
-                        Ok(b) => bytes.push(b),
-                        Err(_) => break,
-                    }
-                }
-                String::from_utf8_lossy(&bytes).into_owned()
-            }
-            Err(_) => format!(
-                "<error resolving string at 0x{:x}>",
-                string_offset.into_u64()
-            ),
-        }
+        let string_reader = debug_str.get_str(DebugStrOffset(string_offset))?;
+        Ok(string_reader.to_string_lossy()?.into_owned())
     }
 
-    /// Get the hash table structure for this name index table.
-    ///
-    /// Returns a HashTable wrapper that provides navigational access to
-    /// the hash buckets and hash array according to DWARF 5 specification.
-    /// This enables efficient name lookup operations.
-    pub fn hash_table(&self) -> Result<HashTable<'_, R>> {
-        let hash_buckets = self.hash_buckets()?;
-        let hash_array = self.hash_array()?;
-        let string_offsets = self.string_offsets()?;
-        let entry_offsets = self.entry_offsets()?;
-
-        Ok(HashTable {
-            unit: self,
-            hash_buckets,
-            hash_array,
-            string_offsets,
-            entry_offsets,
-        })
+    /// Get the hash table for this name index.
+    pub fn hash_table(&self) -> HashTable<'_, R> {
+        HashTable { unit: self }
     }
 
-    /// Iterate over all name entries in this index table.
-    ///
-    /// Parses name entries from the entry pool according to the DWARF 5 specification.
-    /// Each entry contains information about a named debugging information entry (DIE)
-    /// including its offset and parent relationships.
+    /// Iterate over all name entries in this index.
     pub fn entries(&self) -> Result<NameEntryIter<'_, R>> {
         // Pre-load the data we need for parsing entries
-        let entry_offsets = self.entry_offsets()?;
-        let string_offsets = self.string_offsets()?;
+        use fallible_iterator::FallibleIterator;
+        let entry_offsets: Vec<_> = self.entry_offsets().collect()?;
         let abbrev_table = self.abbreviation_table()?;
 
         Ok(NameEntryIter {
             unit: self,
             entry_offsets,
-            string_offsets,
             current_index: 0,
             abbrev_table,
         })
     }
 }
 
-/// A hash table structure for efficient name lookup in a debug_names unit.
-///
-/// The HashTable provides access to the DWARF 5 hash table mechanism
-/// described in Section 6.1.1.2 of the DWARF 5 specification. It implements
-/// the hash bucket system that enables O(1) average case lookup of debugging
-/// information entries by name.
-///
-/// # Hash Table Structure (DWARF 5 Section 6.1.1.4.5)
-///
-/// The hash table consists of:
-/// - **Hash buckets**: Array of indices into the hash array (0 = empty bucket)
-/// - **Hash array**: Array of hash values for all names in the index
-/// - **String offsets**: Array of offsets into the .debug_str section
-/// - **Entry offsets**: Array of offsets into the entry pool
-///
-/// # Hash Chain Traversal
-///
-/// According to the DWARF 5 specification: "All symbols that have the same index
-/// into the bucket list follow one another in the hashes array, and the indexed
-/// entry in the bucket list refers to the first symbol."
-///
-/// # Example Usage
-/// ```ignore
-/// let hash_table = unit.hash_table()?;
-/// let bucket_names = hash_table.names_in_bucket(bucket_index)?;
-/// for name_index in bucket_names {
-///     if let Some(name) = hash_table.resolve_name_at_index(&debug_str, name_index) {
-///         println!("Found name: {}", name);
-///     }
-/// }
-/// ```
+/// A hash table for efficient name lookup in a `.debug_names` unit.
 #[derive(Debug)]
 pub struct HashTable<'a, R: Reader> {
     unit: &'a DebugNamesUnit<R>,
-    hash_buckets: Vec<u32>,
-    hash_array: Vec<u32>,
-    string_offsets: Vec<R::Offset>,
-    entry_offsets: Vec<R::Offset>,
 }
 
 impl<'a, R: Reader> HashTable<'a, R> {
     /// Get the number of hash buckets.
     pub fn bucket_count(&self) -> usize {
-        self.hash_buckets.len()
+        self.unit.bucket_count as usize
     }
 
     /// Get the number of names in the hash table.
     pub fn name_count(&self) -> usize {
-        self.hash_array.len()
+        self.unit.name_count as usize
     }
 
-    /// Get the hash buckets array.
-    /// Each bucket contains an index into the hash array, or 0 if empty.
-    pub fn hash_buckets(&self) -> &[u32] {
-        &self.hash_buckets
+    /// Iterate over hash buckets.
+    pub fn hash_buckets_iter(&self) -> HashBucketsIter<R> {
+        self.unit.hash_buckets()
     }
 
-    /// Get the hash array.
-    /// Contains hash values for all names in the index.
-    pub fn hash_array(&self) -> &[u32] {
-        &self.hash_array
+    /// Iterate over the hash array.
+    pub fn hash_array_iter(&self) -> HashArrayIter<R> {
+        self.unit.hash_array()
     }
 
-    /// Get the string offsets array.
-    /// Contains offsets into .debug_str for each name.
-    pub fn string_offsets(&self) -> &[R::Offset] {
-        &self.string_offsets
+    /// Get entry offsets iterator.
+    pub fn entry_offsets(&self) -> EntryOffsetsIter<R> {
+        self.unit.entry_offsets()
     }
 
-    /// Get the entry offsets array.
-    /// Contains offsets into the entry pool for each name.
-    pub fn entry_offsets(&self) -> &[R::Offset] {
-        &self.entry_offsets
+    /// Get a specific bucket value by index (used internally).
+    fn get_bucket(&self, index: usize) -> Result<u32> {
+        let mut iter = self.unit.hash_buckets();
+        iter.skip_to(index)?;
+        iter.next()?
+            .ok_or(Error::UnexpectedEof(self.unit.hash_table_data.offset_id()))
+    }
+
+    /// Get a specific hash value by index (used internally).
+    fn get_hash(&self, index: usize) -> Result<u32> {
+        let mut iter = self.unit.hash_array();
+        iter.skip_to(index)?;
+        iter.next()?
+            .ok_or(Error::UnexpectedEof(self.unit.hash_table_data.offset_id()))
+    }
+
+    /// Get a specific string offset by index (used internally).
+    fn get_string_offset(&self, index: usize) -> Result<R::Offset> {
+        let mut iter = self.unit.string_offsets();
+        iter.skip_to(index)?;
+        iter.next()?
+            .ok_or(Error::UnexpectedEof(self.unit.name_table_data.offset_id()))
     }
 
     /// Get all name indices for a specific hash bucket.
@@ -1300,11 +991,7 @@ impl<'a, R: Reader> HashTable<'a, R> {
     /// Returns a vector of indices into the hash array that belong to the given bucket.
     /// This follows the DWARF 5 hash collision handling mechanism.
     pub fn bucket_names(&self, bucket_index: usize) -> Result<Vec<usize>> {
-        if bucket_index >= self.hash_buckets.len() {
-            return Ok(Vec::new());
-        }
-
-        let bucket_value = self.hash_buckets[bucket_index];
+        let bucket_value = self.get_bucket(bucket_index)?;
         if bucket_value == 0 {
             return Ok(Vec::new()); // Empty bucket
         }
@@ -1314,9 +1001,9 @@ impl<'a, R: Reader> HashTable<'a, R> {
 
         // Collect all consecutive names in this bucket
         // (hash table uses linear probing for collision resolution)
-        for i in start_index..self.hash_array.len() {
-            let hash = self.hash_array[i];
-            if hash % (self.hash_buckets.len() as u32) == bucket_index as u32 {
+        for i in start_index..self.name_count() {
+            let hash = self.get_hash(i)?;
+            if hash % (self.bucket_count() as u32) == bucket_index as u32 {
                 indices.push(i);
             } else if i > start_index {
                 // No longer in the same bucket chain
@@ -1332,9 +1019,8 @@ impl<'a, R: Reader> HashTable<'a, R> {
     where
         S: Reader<Offset = R::Offset>,
     {
-        if index < self.string_offsets.len() {
-            let string_offset = self.string_offsets[index];
-            Some(self.unit.resolve_string_name(debug_str, string_offset))
+        if let Ok(string_offset) = self.get_string_offset(index) {
+            self.unit.resolve_string_name(debug_str, string_offset).ok()
         } else {
             None
         }
@@ -1345,17 +1031,16 @@ impl<'a, R: Reader> HashTable<'a, R> {
         &self,
         index: usize,
     ) -> Result<Option<(u64, constants::DwTag, UnitOffset<R::Offset>)>> {
-        if index < self.entry_offsets.len() {
-            let entry_offset = self.entry_offsets[index];
+        let mut iter = self.entry_offsets();
+        iter.skip_to(index)?;
+        if let Some(entry_offset) = iter.next()? {
             let abbrev_table = self.unit.abbreviation_table()?;
-            let entry_pool_base = self.unit.entry_pool_base()?;
-            let parsed =
-                self.unit
-                    .parse_entry_pool_entry(entry_offset, &abbrev_table, entry_pool_base)?;
+            let parsed = self
+                .unit
+                .parse_entry_pool_entry(entry_offset, &abbrev_table)?;
 
-            // Convert to the old format for compatibility
-            let die_offset = UnitOffset(R::Offset::from_u64(parsed.die_offset as u64)?);
-            Ok(Some((parsed.abbrev_code, parsed.tag, die_offset)))
+            // Return the parsed data
+            Ok(Some((parsed.abbrev_code, parsed.tag, parsed.die_offset)))
         } else {
             Ok(None)
         }
@@ -1369,24 +1054,23 @@ impl<'a, R: Reader> HashTable<'a, R> {
         }
     }
 
-    /// Look up entries by hash value.
-    ///
-    /// Given a hash value, finds the appropriate bucket and returns all
-    /// name indices that hash to that value. This is the core lookup
-    /// mechanism for efficient name resolution.
+    /// Look up name indices by hash value.
     pub fn lookup_by_hash(&self, hash_value: u32) -> Result<Vec<usize>> {
-        if self.hash_buckets.is_empty() {
+        let bucket_count = self.bucket_count();
+        if bucket_count == 0 {
             return Ok(Vec::new());
         }
 
-        let bucket_index = (hash_value as usize) % self.hash_buckets.len();
+        let bucket_index = (hash_value as usize) % bucket_count;
         let bucket_names = self.bucket_names(bucket_index)?;
 
         // Filter by exact hash match
         let mut matching_indices = Vec::new();
         for &name_index in &bucket_names {
-            if name_index < self.hash_array.len() && self.hash_array[name_index] == hash_value {
-                matching_indices.push(name_index);
+            if let Ok(hash) = self.get_hash(name_index) {
+                if hash == hash_value {
+                    matching_indices.push(name_index);
+                }
             }
         }
 
@@ -1411,7 +1095,6 @@ impl<'a, R: Reader> BucketNavigator<'a, R> {
     }
 
     /// Move to the next bucket.
-    /// Returns true if successfully moved, false if at the end.
     pub fn next(&mut self) -> bool {
         if self.current_bucket < self.hash_table.bucket_count() {
             self.current_bucket += 1;
@@ -1422,7 +1105,6 @@ impl<'a, R: Reader> BucketNavigator<'a, R> {
     }
 
     /// Move to the previous bucket.
-    /// Returns true if successfully moved, false if at the beginning.
     pub fn previous(&mut self) -> bool {
         if self.current_bucket > 0 {
             self.current_bucket -= 1;
@@ -1444,10 +1126,7 @@ impl<'a, R: Reader> BucketNavigator<'a, R> {
 
     /// Get the bucket value (index into hash array) for the current bucket.
     pub fn current_bucket_value(&self) -> Option<u32> {
-        self.hash_table
-            .hash_buckets()
-            .get(self.current_bucket)
-            .copied()
+        self.hash_table.get_bucket(self.current_bucket).ok()
     }
 
     /// Check if the current bucket is empty.
@@ -1455,8 +1134,7 @@ impl<'a, R: Reader> BucketNavigator<'a, R> {
         self.current_bucket_value().unwrap_or(0) == 0
     }
 
-    /// Skip empty buckets and move to the next non-empty bucket.
-    /// Returns true if a non-empty bucket was found, false if reached the end.
+    /// Skip to the next non-empty bucket.
     pub fn next_non_empty(&mut self) -> bool {
         while self.next() {
             if !self.current_bucket_is_empty() {
@@ -1507,74 +1185,206 @@ impl<'a, R: Reader> BucketIter<'a, R> {
     }
 }
 
+/// An iterator over compilation unit offsets in a debug_names unit.
+#[derive(Debug, Clone)]
+pub struct CompUnitOffsetsIter<R: Reader> {
+    reader: R,
+    remaining: u32,
+    format: Format,
+}
+
+impl<R: Reader> CompUnitOffsetsIter<R> {
+    /// Advance the iterator and return the next compilation unit offset.
+    pub fn next(&mut self) -> Result<Option<DebugInfoOffset<R::Offset>>> {
+        if self.remaining == 0 {
+            return Ok(None);
+        }
+        self.remaining -= 1;
+        let offset = self.reader.read_offset(self.format)?;
+        Ok(Some(DebugInfoOffset(offset)))
+    }
+}
+
+#[cfg(feature = "fallible-iterator")]
+impl<R: Reader> fallible_iterator::FallibleIterator for CompUnitOffsetsIter<R> {
+    type Item = DebugInfoOffset<R::Offset>;
+    type Error = Error;
+
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
+        CompUnitOffsetsIter::next(self)
+    }
+}
+
+/// An iterator over hash buckets in a debug_names unit.
+#[derive(Debug, Clone)]
+pub struct HashBucketsIter<R: Reader> {
+    reader: R,
+    remaining: u32,
+}
+
+impl<R: Reader> HashBucketsIter<R> {
+    /// Skip to a specific index in the iterator.
+    pub fn skip_to(&mut self, index: usize) -> Result<()> {
+        for _ in 0..index.min(self.remaining as usize) {
+            self.reader.read_u32()?;
+            self.remaining -= 1;
+        }
+        Ok(())
+    }
+
+    /// Advance the iterator and return the next hash bucket value.
+    pub fn next(&mut self) -> Result<Option<u32>> {
+        if self.remaining == 0 {
+            return Ok(None);
+        }
+        self.remaining -= 1;
+        Ok(Some(self.reader.read_u32()?))
+    }
+}
+
+#[cfg(feature = "fallible-iterator")]
+impl<R: Reader> fallible_iterator::FallibleIterator for HashBucketsIter<R> {
+    type Item = u32;
+    type Error = Error;
+
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
+        HashBucketsIter::next(self)
+    }
+}
+
+/// An iterator over hash array values in a debug_names unit.
+#[derive(Debug, Clone)]
+pub struct HashArrayIter<R: Reader> {
+    reader: R,
+    remaining: u32,
+}
+
+impl<R: Reader> HashArrayIter<R> {
+    /// Skip to a specific index in the iterator.
+    pub fn skip_to(&mut self, index: usize) -> Result<()> {
+        for _ in 0..index.min(self.remaining as usize) {
+            self.reader.read_u32()?;
+            self.remaining -= 1;
+        }
+        Ok(())
+    }
+
+    /// Advance the iterator and return the next hash value.
+    pub fn next(&mut self) -> Result<Option<u32>> {
+        if self.remaining == 0 {
+            return Ok(None);
+        }
+        self.remaining -= 1;
+        Ok(Some(self.reader.read_u32()?))
+    }
+}
+
+#[cfg(feature = "fallible-iterator")]
+impl<R: Reader> fallible_iterator::FallibleIterator for HashArrayIter<R> {
+    type Item = u32;
+    type Error = Error;
+
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
+        HashArrayIter::next(self)
+    }
+}
+
+/// An iterator over string offsets in a debug_names unit.
+#[derive(Debug, Clone)]
+pub struct StringOffsetsIter<R: Reader> {
+    reader: R,
+    remaining: u32,
+    format: Format,
+}
+
+impl<R: Reader> StringOffsetsIter<R> {
+    /// Skip to a specific index in the iterator.
+    pub fn skip_to(&mut self, index: usize) -> Result<()> {
+        for _ in 0..index.min(self.remaining as usize) {
+            self.reader.read_offset(self.format)?;
+            self.remaining -= 1;
+        }
+        Ok(())
+    }
+
+    /// Advance the iterator and return the next string offset.
+    pub fn next(&mut self) -> Result<Option<R::Offset>> {
+        if self.remaining == 0 {
+            return Ok(None);
+        }
+        self.remaining -= 1;
+        Ok(Some(self.reader.read_offset(self.format)?))
+    }
+}
+
+#[cfg(feature = "fallible-iterator")]
+impl<R: Reader> fallible_iterator::FallibleIterator for StringOffsetsIter<R> {
+    type Item = R::Offset;
+    type Error = Error;
+
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
+        StringOffsetsIter::next(self)
+    }
+}
+
+/// An iterator over entry offsets in a debug_names unit.
+#[derive(Debug, Clone)]
+pub struct EntryOffsetsIter<R: Reader> {
+    reader: R,
+    remaining: u32,
+    format: Format,
+}
+
+impl<R: Reader> EntryOffsetsIter<R> {
+    /// Skip to a specific index in the iterator.
+    pub fn skip_to(&mut self, index: usize) -> Result<()> {
+        for _ in 0..index.min(self.remaining as usize) {
+            self.reader.read_offset(self.format)?;
+            self.remaining -= 1;
+        }
+        Ok(())
+    }
+
+    /// Advance the iterator and return the next entry offset.
+    pub fn next(&mut self) -> Result<Option<R::Offset>> {
+        if self.remaining == 0 {
+            return Ok(None);
+        }
+        self.remaining -= 1;
+        Ok(Some(self.reader.read_offset(self.format)?))
+    }
+}
+
+#[cfg(feature = "fallible-iterator")]
+impl<R: Reader> fallible_iterator::FallibleIterator for EntryOffsetsIter<R> {
+    type Item = R::Offset;
+    type Error = Error;
+
+    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
+        EntryOffsetsIter::next(self)
+    }
+}
+
 /// An iterator over the name entries in a name index table.
 #[derive(Debug)]
 pub struct NameEntryIter<'a, R: Reader> {
     unit: &'a DebugNamesUnit<R>,
     entry_offsets: Vec<R::Offset>,
-    string_offsets: Vec<R::Offset>,
     current_index: usize,
     abbrev_table: NameAbbreviationTable,
 }
 
 impl<'a, R: Reader> NameEntryIter<'a, R> {
-    /// Read a value from a DWARF form, returning it as u64.
-    fn read_form_value(reader: &mut R, form: constants::DwForm) -> Result<u64> {
-        match form {
-            constants::DW_FORM_ref1 | constants::DW_FORM_data1 => Ok(reader.read_u8()? as u64),
-            constants::DW_FORM_ref2 | constants::DW_FORM_data2 => Ok(reader.read_u16()? as u64),
-            constants::DW_FORM_ref4 | constants::DW_FORM_data4 => Ok(reader.read_u32()? as u64),
-            constants::DW_FORM_ref8 | constants::DW_FORM_data8 => Ok(reader.read_u64()?),
-            constants::DW_FORM_udata => Ok(reader.read_uleb128()?),
-            form => Err(Error::UnknownForm(form)),
-        }
-    }
-
-    /// Skip a value in a DWARF form without reading it.
-    fn skip_form_value(reader: &mut R, form: constants::DwForm) -> Result<()> {
-        match form {
-            constants::DW_FORM_ref1 | constants::DW_FORM_data1 => {
-                let _ = reader.read_u8()?;
-            }
-            constants::DW_FORM_ref2 | constants::DW_FORM_data2 => {
-                let _ = reader.read_u16()?;
-            }
-            constants::DW_FORM_ref4 | constants::DW_FORM_data4 => {
-                let _ = reader.read_u32()?;
-            }
-            constants::DW_FORM_ref8 | constants::DW_FORM_data8 => {
-                let _ = reader.read_u64()?;
-            }
-            constants::DW_FORM_udata => {
-                let _ = reader.read_uleb128()?;
-            }
-            constants::DW_FORM_flag_present => {
-                // No data to skip
-            }
-            form => return Err(Error::UnknownForm(form)),
-        }
-        Ok(())
-    }
-
     /// Advance the iterator and return the next name entry.
-    ///
-    /// Returns the newly parsed name entry as `Ok(Some(entry))`. Returns
-    /// `Ok(None)` when iteration is complete and all entries have already been
-    /// parsed and yielded. If an error occurs while parsing the next entry,
-    /// then this error is returned as `Err(e)`, and all subsequent calls return
-    /// `Ok(None)`.
     pub fn next(&mut self) -> Result<Option<NameEntry<R>>> {
         if self.current_index >= self.entry_offsets.len() {
             return Ok(None);
         }
 
-        // Get the unit reference
         let unit = self.unit;
-
         let entry_offset = self.entry_offsets[self.current_index];
-        let string_offset = self.string_offsets[self.current_index];
 
-        match self.parse_entry_at_offset(unit, entry_offset, string_offset) {
+        match unit.parse_entry_pool_entry(entry_offset, &self.abbrev_table) {
             Ok(entry) => {
                 self.current_index += 1;
                 Ok(Some(entry))
@@ -1584,68 +1394,6 @@ impl<'a, R: Reader> NameEntryIter<'a, R> {
                 self.current_index = self.entry_offsets.len();
                 Err(e)
             }
-        }
-    }
-
-    /// Parse a single name entry from the entry pool at the given offset.
-    fn parse_entry_at_offset(
-        &self,
-        unit: &DebugNamesUnit<R>,
-        entry_offset: R::Offset,
-        _string_offset: R::Offset,
-    ) -> Result<NameEntry<R>> {
-        let mut entry_reader = unit.entry_pool_reader()?;
-        entry_reader.skip(entry_offset)?;
-
-        // Read abbreviation code
-        let abbrev_code = entry_reader.read_uleb128()?;
-
-        // Look up abbreviation
-        if let Some(abbrev) = self.abbrev_table.get(abbrev_code) {
-            let mut die_offset = UnitOffset(R::Offset::from_u64(0)?);
-
-            // Parse attributes to extract the DIE offset
-            for attr in abbrev.attributes() {
-                match attr.name() {
-                    constants::DW_IDX_die_offset => {
-                        let offset_val = Self::read_form_value(&mut entry_reader, attr.form())?;
-                        die_offset = UnitOffset(R::Offset::from_u64(offset_val)?);
-                    }
-                    constants::DW_IDX_parent => {
-                        // Skip parent information for this simplified parser
-                        Self::skip_form_value(&mut entry_reader, attr.form())?;
-                    }
-                    constants::DW_IDX_compile_unit => {
-                        // Points to the compilation unit header in .debug_info
-                        Self::skip_form_value(&mut entry_reader, attr.form())?;
-                    }
-                    constants::DW_IDX_type_unit => {
-                        // Points to the type unit header in .debug_types or .debug_info
-                        Self::skip_form_value(&mut entry_reader, attr.form())?;
-                    }
-                    constants::DW_IDX_type_hash => {
-                        // 64-bit hash of the type signature for type units
-                        Self::skip_form_value(&mut entry_reader, attr.form())?;
-                    }
-                    _ => {
-                        // Skip unknown or non-standard attributes
-                        Self::skip_form_value(&mut entry_reader, attr.form())?;
-                    }
-                }
-            }
-
-            // Create a reader for the string name from the string offset
-            // For now, we'll create a minimal reader - this could be improved
-            // to actually resolve the string from debug_str
-            let name_reader = unit.content.clone();
-
-            Ok(NameEntry {
-                unit_header_offset: DebugInfoOffset(R::Offset::from_u64(0)?),
-                die_offset,
-                name: name_reader,
-            })
-        } else {
-            Err(Error::UnknownAbbreviation(abbrev_code))
         }
     }
 }
@@ -1787,6 +1535,7 @@ mod tests {
             augmentation: &str,
         ) -> Self {
             // For now, calculate length manually based on expected content
+            // TODO Is this hardcoded or can it be derived another way?
             // Header: 32 bytes + augmentation length
             // Data: CU offsets + Local TU offsets + Foreign TU offsets + Hash buckets + Hash array + String offsets + Entry offsets + Abbrev table + Entry pool
             let cu_offsets_size = cu_count * 4;
@@ -2574,15 +2323,22 @@ mod tests {
         if let Ok(Some((header, content))) = units.next() {
             assert_eq!(header.name_count(), 2);
 
-            let unit = DebugNamesUnit::new(header, content);
+            let unit = DebugNamesUnit::new(header, content).expect("Should create unit");
 
             // Test accessing data arrays
-            let hash_buckets = unit.hash_buckets().expect("Should parse hash buckets");
+            use fallible_iterator::FallibleIterator;
+            let hash_buckets: Vec<_> = unit
+                .hash_buckets()
+                .collect()
+                .expect("Should parse hash buckets");
             assert_eq!(hash_buckets.len(), 2);
             assert_eq!(hash_buckets[0], 1);
             assert_eq!(hash_buckets[1], 0);
 
-            let hash_array = unit.hash_array().expect("Should parse hash array");
+            let hash_array: Vec<_> = unit
+                .hash_array()
+                .collect()
+                .expect("Should parse hash array");
             assert_eq!(hash_array.len(), 2);
             assert_eq!(hash_array[0], 0x12345678);
             assert_eq!(hash_array[1], 0x9abcdef0);
@@ -2623,7 +2379,7 @@ mod tests {
         let mut units = debug_names.units();
 
         if let Ok(Some((header, content))) = units.next() {
-            let unit = DebugNamesUnit::new(header, content);
+            let unit = DebugNamesUnit::new(header, content).expect("Should create unit");
 
             match unit.entries() {
                 Ok(mut entries) => {

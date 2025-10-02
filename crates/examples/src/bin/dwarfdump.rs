@@ -2565,18 +2565,24 @@ fn dump_names<R: Reader, W: Write>(
         }
         writeln!(w, "  }}")?;
 
-        let unit = gimli::DebugNamesUnit::new(header, content);
+        let unit = match gimli::DebugNamesUnit::new(header, content) {
+            Ok(unit) => unit,
+            Err(e) => {
+                writeln!(w, "  Error creating unit: {}", e)?;
+                continue;
+            }
+        };
 
         // Compilation Unit offsets section
         if unit.header().comp_unit_count() > 0 {
             writeln!(w, "  Compilation Unit offsets [")?;
-            match unit.comp_unit_offsets() {
-                Ok(offsets) => {
-                    for (i, offset) in offsets.iter().enumerate() {
-                        writeln!(w, "    CU[{}]: 0x{:08x}", i, offset.0)?;
-                    }
+            {
+                let mut iter = unit.comp_unit_offsets();
+                let mut i = 0;
+                while let Some(offset) = iter.next()? {
+                    writeln!(w, "    CU[{}]: 0x{:08x}", i, offset.0)?;
+                    i += 1;
                 }
-                Err(_) => writeln!(w, "    Error reading CU offsets")?,
             }
             writeln!(w, "  ]")?;
         }
@@ -2587,14 +2593,9 @@ fn dump_names<R: Reader, W: Write>(
             Ok(abbrev_table) => {
                 for abbrev in abbrev_table.abbreviations() {
                     writeln!(w, "    Abbreviation 0x{:x} {{", abbrev.code())?;
-                    writeln!(w, "      Tag: {}", format_tag(abbrev.tag()))?;
+                    writeln!(w, "      Tag: {}", abbrev.tag())?;
                     for attr in abbrev.attributes() {
-                        writeln!(
-                            w,
-                            "      {}: {}",
-                            format_idx(attr.name()),
-                            format_form(attr.form())
-                        )?;
+                        writeln!(w, "      {}: {}", attr.name(), attr.form())?;
                     }
                     writeln!(w, "    }}")?;
                 }
@@ -2616,55 +2617,6 @@ fn dump_names<R: Reader, W: Write>(
     Ok(())
 }
 
-/// Format DWARF tag for display
-fn format_tag(tag: gimli::DwTag) -> String {
-    format!(
-        "DW_TAG_{}",
-        match tag {
-            gimli::DW_TAG_base_type => "base_type",
-            gimli::DW_TAG_class_type => "class_type",
-            gimli::DW_TAG_subprogram => "subprogram",
-            gimli::DW_TAG_variable => "variable",
-            gimli::DW_TAG_formal_parameter => "formal_parameter",
-            gimli::DW_TAG_typedef => "typedef",
-            gimli::DW_TAG_structure_type => "structure_type",
-            gimli::DW_TAG_union_type => "union_type",
-            gimli::DW_TAG_enumeration_type => "enumeration_type",
-            gimli::DW_TAG_unspecified_type => "unspecified_type",
-            gimli::DW_TAG_namespace => "namespace",
-            gimli::DW_TAG_pointer_type => "pointer_type",
-            _ => return format!("DW_TAG_unknown(0x{:x})", tag.0),
-        }
-    )
-}
-
-/// Format DWARF index type for display
-fn format_idx(idx: gimli::DwIdx) -> String {
-    match idx {
-        gimli::DW_IDX_die_offset => "DW_IDX_die_offset".to_string(),
-        gimli::DW_IDX_parent => "DW_IDX_parent".to_string(),
-        gimli::DW_IDX_compile_unit => "DW_IDX_compile_unit".to_string(),
-        gimli::DW_IDX_type_unit => "DW_IDX_type_unit".to_string(),
-        gimli::DW_IDX_type_hash => "DW_IDX_type_hash".to_string(),
-        _ => format!("DW_IDX_unknown(0x{:x})", idx.0),
-    }
-}
-
-/// Format DWARF form for display
-fn format_form(form: gimli::DwForm) -> String {
-    match form {
-        gimli::DW_FORM_ref4 => "DW_FORM_ref4".to_string(),
-        gimli::DW_FORM_flag_present => "DW_FORM_flag_present".to_string(),
-        gimli::DW_FORM_strx => "DW_FORM_strx".to_string(),
-        gimli::DW_FORM_data1 => "DW_FORM_data1".to_string(),
-        gimli::DW_FORM_data2 => "DW_FORM_data2".to_string(),
-        gimli::DW_FORM_data4 => "DW_FORM_data4".to_string(),
-        gimli::DW_FORM_data8 => "DW_FORM_data8".to_string(),
-        _ => format!("DW_FORM_unknown(0x{:x})", form.0),
-    }
-}
-
-/// Dump names organized by hash buckets with full name resolution and entry parsing
 /// Parse all entries in a series starting at the given offset
 /// Returns a vector of relative offsets for each entry in the series
 fn parse_entry_series<R: Reader>(
@@ -2672,7 +2624,7 @@ fn parse_entry_series<R: Reader>(
     start_offset: R::Offset,
     abbrev_table: &gimli::NameAbbreviationTable,
 ) -> Result<Vec<R::Offset>> {
-    let mut entry_reader = unit.entry_pool_reader()?;
+    let mut entry_reader = unit.entry_pool_reader();
     entry_reader.skip(start_offset)?;
 
     let mut series_offsets = Vec::with_capacity(4); // Most series have 1-4 entries
@@ -2725,7 +2677,7 @@ fn parse_entry_series<R: Reader>(
         }
 
         // Update current offset for next entry - reader position relative to entry pool start
-        let reader_position = entry_reader.offset_from(&unit.entry_pool_reader()?);
+        let reader_position = entry_reader.offset_from(&unit.entry_pool_reader());
         current_offset = reader_position;
     }
 
@@ -2738,10 +2690,11 @@ fn dump_names_by_bucket<R: Reader, W: Write>(
     dwarf: &gimli::Dwarf<R>,
 ) -> Result<()> {
     // Get all the required data from the debug_names unit
-    let hash_buckets = unit.hash_buckets()?;
-    let hash_array = unit.hash_array()?;
-    let string_offsets = unit.string_offsets()?;
-    let entry_offsets = unit.entry_offsets()?;
+    use fallible_iterator::FallibleIterator;
+    let hash_buckets: Vec<_> = unit.hash_buckets().collect()?;
+    let hash_array: Vec<_> = unit.hash_array().collect()?;
+    let string_offsets: Vec<_> = unit.string_offsets().collect()?;
+    let entry_offsets: Vec<_> = unit.entry_offsets().collect()?;
     let abbrev_table = unit.abbreviation_table()?;
 
     // Following DWARF 5 Section 6.1.1.4.5 Hash Lookup Table:
@@ -2856,22 +2809,19 @@ fn dump_names_by_bucket<R: Reader, W: Write>(
                 )?;
 
                 // Show all entries for this name
-                let entry_pool_base = unit.entry_pool_base()?;
                 for entry_offset in entry_offsets {
-                    let absolute_entry_offset = entry_pool_base + entry_offset.into_u64();
-                    writeln!(w, "      Entry @ 0x{:x} {{", absolute_entry_offset)?;
+                    writeln!(w, "      Entry @ offset 0x{:x} {{", entry_offset.into_u64())?;
 
-                    match unit.parse_entry_pool_entry(*entry_offset, &abbrev_table, entry_pool_base)
-                    {
-                        Ok(parsed_entry) => {
-                            writeln!(w, "        Abbrev: 0x{:x}", parsed_entry.abbrev_code())?;
-                            writeln!(w, "        Tag: {}", format_tag(parsed_entry.tag()))?;
+                    match unit.parse_entry_pool_entry(*entry_offset, &abbrev_table) {
+                        Ok(entry) => {
+                            writeln!(w, "        Abbrev: 0x{:x}", entry.abbrev_code())?;
+                            writeln!(w, "        Tag: {}", entry.tag())?;
                             writeln!(
                                 w,
                                 "        DW_IDX_die_offset: 0x{:08x}",
-                                parsed_entry.die_offset()
+                                entry.die_offset().0.into_u64()
                             )?;
-                            match parsed_entry.parent_info() {
+                            match entry.parent_info() {
                                 Some(parent_offset) => {
                                     writeln!(
                                         w,
@@ -2885,13 +2835,13 @@ fn dump_names_by_bucket<R: Reader, W: Write>(
                             }
 
                             // Display additional DW_IDX attributes if present
-                            if let Some(compile_unit) = parsed_entry.compile_unit {
+                            if let Some(compile_unit) = entry.compile_unit {
                                 writeln!(w, "        DW_IDX_compile_unit: 0x{:08x}", compile_unit)?;
                             }
-                            if let Some(type_unit) = parsed_entry.type_unit {
+                            if let Some(type_unit) = entry.type_unit {
                                 writeln!(w, "        DW_IDX_type_unit: 0x{:08x}", type_unit)?;
                             }
-                            if let Some(type_hash) = parsed_entry.type_hash {
+                            if let Some(type_hash) = entry.type_hash {
                                 writeln!(w, "        DW_IDX_type_hash: 0x{:016x}", type_hash)?;
                             }
                         }
