@@ -15,7 +15,7 @@ use crate::endianity::Endianity;
 use crate::read::abbrev::get_attribute_size;
 use crate::read::{
     Abbreviation, Abbreviations, AttributeSpecification, DebugAbbrev, DebugStr, EndianSlice, Error,
-    Expression, Reader, ReaderOffset, Result, Section, UnitOffset,
+    Expression, Reader, ReaderAddress, ReaderOffset, Result, Section, UnitOffset,
 };
 
 impl<T: ReaderOffset> DebugTypesOffset<T> {
@@ -556,6 +556,17 @@ where
     /// Parse this unit's abbreviations.
     pub fn abbreviations(&self, debug_abbrev: &DebugAbbrev<R>) -> Result<Abbreviations> {
         debug_abbrev.abbreviations(self.debug_abbrev_offset())
+    }
+
+    /// Return true if the given address is a tombstone.
+    ///
+    /// This currently checks if the address is -1 or -2 for the address size of the unit.
+    ///
+    /// Note that this cannot detect the use of 0 as a tombstone since that is ambiguous.
+    /// The caller must use their own knowledge of valid address ranges to determine that
+    /// if required.
+    pub fn is_tombstone_address(&self, address: u64) -> bool {
+        address >= u64::min_tombstone(self.encoding.address_size)
     }
 }
 
