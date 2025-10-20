@@ -1385,7 +1385,7 @@ impl<R: Reader> Unit<R> {
 ///
 /// These often need to be passed around together, so this struct makes that easier.
 ///
-/// It implements `Deref` to `Unit`, so you can use it as if it were a `Unit`.
+/// It implements `Deref` to `&'a Unit`, so you can use it as if it were a `Unit`.
 /// It also implements methods that correspond to methods on `Dwarf` that take a `Unit`.
 #[derive(Debug)]
 pub struct UnitRef<'a, R: Reader> {
@@ -1405,10 +1405,10 @@ impl<'a, R: Reader> Clone for UnitRef<'a, R> {
 impl<'a, R: Reader> Copy for UnitRef<'a, R> {}
 
 impl<'a, R: Reader> core::ops::Deref for UnitRef<'a, R> {
-    type Target = Unit<R>;
+    type Target = &'a Unit<R>;
 
     fn deref(&self) -> &Self::Target {
-        self.unit
+        &self.unit
     }
 }
 
