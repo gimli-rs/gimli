@@ -145,7 +145,7 @@ impl RangeListTable {
         w.write_u8(encoding.address_size)?;
         w.write_u8(0)?; // segment_selector_size
         w.write_u32(0)?; // offset_entry_count (when set to zero DW_FORM_rnglistx can't be used, see section 7.28)
-                         // FIXME implement DW_FORM_rnglistx writing and implement the offset entry list
+        // FIXME implement DW_FORM_rnglistx writing and implement the offset entry list
 
         for range_list in self.ranges.iter() {
             offsets.push(w.offset());
@@ -315,6 +315,7 @@ mod convert {
 #[cfg(feature = "read")]
 mod tests {
     use super::*;
+    use crate::LittleEndian;
     use crate::common::{
         DebugAbbrevOffset, DebugAddrBase, DebugInfoOffset, DebugLocListsBase, DebugRngListsBase,
         DebugStrOffsetsBase, Format,
@@ -324,7 +325,6 @@ mod tests {
         ConvertUnitContext, EndianVec, LineStringTable, LocationListTable, Range, RangeListTable,
         StringTable,
     };
-    use crate::LittleEndian;
     use std::collections::HashMap;
     use std::sync::Arc;
 

@@ -1090,10 +1090,10 @@ pub(crate) mod convert {
 #[cfg(feature = "read")]
 mod tests {
     use super::*;
+    use crate::LittleEndian;
     use crate::common::{DebugInfoOffset, Format};
     use crate::read;
     use crate::write::{AttributeValue, Dwarf, EndianVec, LineProgram, Sections, Unit};
-    use crate::LittleEndian;
     use std::collections::HashMap;
 
     #[test]

@@ -1460,7 +1460,7 @@ impl<R: Reader> CommonInformationEntry<R> {
 
     /// True if this CIE's FDEs have a LSDA.
     pub fn has_lsda(&self) -> bool {
-        self.augmentation.map_or(false, |a| a.lsda.is_some())
+        self.augmentation.is_some_and(|a| a.lsda.is_some())
     }
 
     /// Return the encoding of the LSDA address for this CIE's FDEs.
@@ -1490,7 +1490,7 @@ impl<R: Reader> CommonInformationEntry<R> {
 
     /// True if this CIE's FDEs are trampolines for signal handlers.
     pub fn is_signal_trampoline(&self) -> bool {
-        self.augmentation.map_or(false, |a| a.is_signal_trampoline)
+        self.augmentation.is_some_and(|a| a.is_signal_trampoline)
     }
 
     /// > A constant that is factored out of all advance location instructions
@@ -3717,7 +3717,7 @@ fn parse_encoded_value<R: Reader>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::{parse_cfi_entry, AugmentationData, RegisterRuleMap, UnwindContext};
+    use super::{AugmentationData, RegisterRuleMap, UnwindContext, parse_cfi_entry};
     use crate::common::Format;
     use crate::constants;
     use crate::endianity::{BigEndian, Endianity, LittleEndian, NativeEndian};

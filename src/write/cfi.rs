@@ -597,7 +597,7 @@ pub(crate) mod convert {
     use super::*;
     use crate::read::{self, Reader};
     use crate::write::{ConvertError, ConvertResult};
-    use std::collections::{hash_map, HashMap};
+    use std::collections::{HashMap, hash_map};
 
     impl FrameTable {
         /// Create a frame table by reading the data in the given section.

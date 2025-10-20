@@ -691,49 +691,29 @@ impl Value {
             Value::Generic(v1) => {
                 let v1 = sign_extend(v1, addr_mask);
                 let value = if v2 >= u64::from(mask_bit_size(addr_mask)) {
-                    if v1 < 0 {
-                        !0
-                    } else {
-                        0
-                    }
+                    if v1 < 0 { !0 } else { 0 }
                 } else {
                     (v1 >> v2) as u64
                 };
                 Value::Generic(value)
             }
             Value::I8(v1) => Value::I8(if v2 >= 8 {
-                if v1 < 0 {
-                    !0
-                } else {
-                    0
-                }
+                if v1 < 0 { !0 } else { 0 }
             } else {
                 v1 >> v2
             }),
             Value::I16(v1) => Value::I16(if v2 >= 16 {
-                if v1 < 0 {
-                    !0
-                } else {
-                    0
-                }
+                if v1 < 0 { !0 } else { 0 }
             } else {
                 v1 >> v2
             }),
             Value::I32(v1) => Value::I32(if v2 >= 32 {
-                if v1 < 0 {
-                    !0
-                } else {
-                    0
-                }
+                if v1 < 0 { !0 } else { 0 }
             } else {
                 v1 >> v2
             }),
             Value::I64(v1) => Value::I64(if v2 >= 64 {
-                if v1 < 0 {
-                    !0
-                } else {
-                    0
-                }
+                if v1 < 0 { !0 } else { 0 }
             } else {
                 v1 >> v2
             }),

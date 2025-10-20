@@ -39,23 +39,12 @@ jobs:
             $(find ./target/debug -type f -perm -100 | grep gimli | head -n 1) \
             > /dev/null
 
-  msrv-read:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Install rust
-      uses: dtolnay/rust-toolchain@1.60.0
-    - name: Build
-      run: cargo build --verbose --no-default-features --features read-all -p gimli
-    - name: Test
-      run: cargo test --verbose --no-default-features --features read-all -p gimli
-
   msrv:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
     - name: Install rust
-      uses: dtolnay/rust-toolchain@1.65.0
+      uses: dtolnay/rust-toolchain@1.85.0
     - name: Build
       run: cargo build --verbose -p gimli
     - name: Test

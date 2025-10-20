@@ -3,10 +3,10 @@
 extern crate test;
 
 use gimli::{
-    leb128, AttributeValue, DebugAbbrev, DebugAddr, DebugAddrBase, DebugAranges, DebugInfo,
-    DebugLine, DebugLineOffset, DebugLoc, DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges,
+    AttributeValue, DebugAbbrev, DebugAddr, DebugAddrBase, DebugAranges, DebugInfo, DebugLine,
+    DebugLineOffset, DebugLoc, DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges,
     DebugRngLists, Encoding, EndianSlice, EntriesTreeNode, Expression, LittleEndian, LocationLists,
-    NativeEndian, Operation, RangeLists, RangeListsOffset, Reader, ReaderOffset,
+    NativeEndian, Operation, RangeLists, RangeListsOffset, Reader, ReaderOffset, leb128,
 };
 use std::env;
 use std::fs::File;

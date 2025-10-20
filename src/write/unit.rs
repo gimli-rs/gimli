@@ -1446,11 +1446,7 @@ impl UnitOffsets {
     fn debug_info_offset(&self, entry: UnitEntryId) -> Option<DebugInfoOffset> {
         debug_assert_eq!(self.base_id, entry.base_id);
         let offset = self.entries[entry.index].offset;
-        if offset.0 == 0 {
-            None
-        } else {
-            Some(offset)
-        }
+        if offset.0 == 0 { None } else { Some(offset) }
     }
 
     /// Get the unit offset for the given entry.
@@ -1947,13 +1943,13 @@ pub(crate) mod convert {
 #[cfg(feature = "read")]
 mod tests {
     use super::*;
+    use crate::LittleEndian;
     use crate::common::LineEncoding;
     use crate::constants;
     use crate::read;
     use crate::write::{
         Dwarf, DwarfUnit, EndianVec, LineString, Location, LocationList, Range, RangeList,
     };
-    use crate::LittleEndian;
     use std::mem;
 
     #[test]
@@ -2102,7 +2098,7 @@ mod tests {
                 assert!(read_root.has_children());
 
                 let producer = match root.get(constants::DW_AT_producer).unwrap() {
-                    AttributeValue::String(ref producer) => &**producer,
+                    AttributeValue::String(producer) => &**producer,
                     otherwise => panic!("unexpected {:?}", otherwise),
                 };
                 assert_eq!(producer, b"root");

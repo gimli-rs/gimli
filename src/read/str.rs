@@ -1,10 +1,10 @@
+use crate::Format;
 use crate::common::{
     DebugLineStrOffset, DebugStrOffset, DebugStrOffsetsBase, DebugStrOffsetsIndex, DwarfFileType,
     Encoding, SectionId,
 };
 use crate::endianity::Endianity;
 use crate::read::{EndianSlice, Reader, ReaderOffset, Result, Section};
-use crate::Format;
 
 /// The `DebugStr` struct represents the DWARF strings
 /// found in the `.debug_str` section.
@@ -250,8 +250,8 @@ impl<R> From<R> for DebugLineStr<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::GimliSectionMethods;
     use crate::LittleEndian;
+    use crate::test_util::GimliSectionMethods;
     use test_assembler::{Endian, Label, LabelMaker, Section};
 
     #[test]
