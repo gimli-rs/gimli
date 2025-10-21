@@ -1050,7 +1050,7 @@ mod convert {
         /// Create a line number program by reading the data from the given program.
         ///
         /// Return the program and a mapping from file index to `FileId`.
-        pub fn from<R: Reader<Offset = usize>>(
+        pub(crate) fn from<R: Reader<Offset = usize>>(
             mut from_program: read::IncompleteLineProgram<R>,
             dwarf: &read::Dwarf<R>,
             line_strings: &mut write::LineStringTable,
