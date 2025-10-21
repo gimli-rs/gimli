@@ -5,9 +5,9 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 
+use gimli::LittleEndian;
 use gimli::read;
 use gimli::write::{self, Address, EndianVec};
-use gimli::LittleEndian;
 
 fn read_section(section: &str) -> Vec<u8> {
     let mut path = PathBuf::new();

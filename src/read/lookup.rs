@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use crate::common::{DebugInfoOffset, Format};
-use crate::read::{parse_debug_info_offset, Error, Reader, ReaderOffset, Result, UnitOffset};
+use crate::read::{Error, Reader, ReaderOffset, Result, UnitOffset, parse_debug_info_offset};
 
 // The various "Accelerated Access" sections (DWARF standard v4 Section 6.1) all have
 // similar structures. They consist of a header with metadata and an offset into the

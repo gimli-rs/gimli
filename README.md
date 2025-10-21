@@ -31,10 +31,7 @@ To add a `gimli` dependency to your `Cargo.toml`, run:
 $ cargo add gimli
 ```
 
-The minimum supported Rust version is:
-
-* 1.60.0 for the `read` feature and its dependencies.
-* 1.65.0 for other features.
+The minimum supported Rust version is 1.85.
 
 ## Documentation
 

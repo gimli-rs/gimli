@@ -18,7 +18,7 @@ use crate::read::{
     RangeLists, RawLocListIter, RawRngListIter, Reader, ReaderOffset, ReaderOffsetId, Result,
     RngListIter, Section, UnitHeader, UnitIndex, UnitIndexSectionIterator, UnitOffset, UnitType,
 };
-use crate::{constants, DebugMacroOffset};
+use crate::{DebugMacroOffset, constants};
 
 /// All of the commonly used DWARF sections.
 ///

@@ -109,10 +109,10 @@ define_section!(
 #[cfg(feature = "read")]
 mod tests {
     use super::*;
+    use crate::LittleEndian;
     use crate::constants;
     use crate::read;
     use crate::write::EndianVec;
-    use crate::LittleEndian;
 
     #[test]
     fn test_abbreviation_table() {

@@ -1636,7 +1636,9 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
         match self.state {
             EvaluationState::Complete => self.value_result,
             _ => {
-                panic!("Called `Evaluation::value_result` on an `Evaluation` that has not been completed")
+                panic!(
+                    "Called `Evaluation::value_result` on an `Evaluation` that has not been completed"
+                )
             }
         }
     }
@@ -1806,7 +1808,9 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
                     let mut pc = bytes.clone();
                     mem::swap(&mut pc, &mut self.pc);
                     mem::swap(&mut bytes, &mut self.bytecode);
-                    self.expression_stack.try_push((pc, bytes)).map_err(|_| Error::StackFull)?;
+                    self.expression_stack
+                        .try_push((pc, bytes))
+                        .map_err(|_| Error::StackFull)?;
                 }
             }
             _ => panic!(

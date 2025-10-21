@@ -211,7 +211,7 @@ impl<W: Writer> Sections<W> {
 #[cfg(feature = "read")]
 mod tests {
     use super::*;
-    use crate::{read, write::EndianVec, Endianity};
+    use crate::{Endianity, read, write::EndianVec};
 
     impl<E: Endianity> Sections<EndianVec<E>> {
         pub(crate) fn read(&self, endian: E) -> read::Dwarf<read::EndianSlice<'_, E>> {

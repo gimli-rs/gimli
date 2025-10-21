@@ -64,7 +64,7 @@ fn low_bits_of_u64(val: u64) -> u8 {
 /// encoded.
 #[cfg(feature = "read-core")]
 pub mod read {
-    use super::{low_bits_of_byte, CONTINUATION_BIT, SIGN_BIT};
+    use super::{CONTINUATION_BIT, SIGN_BIT, low_bits_of_byte};
     use crate::read::{Error, Reader, Result};
 
     /// Read bytes until the LEB128 continuation bit is not set.
@@ -164,7 +164,7 @@ pub mod read {
 /// A module for writing integers encoded as LEB128.
 #[cfg(feature = "write")]
 pub mod write {
-    use super::{low_bits_of_u64, CONTINUATION_BIT};
+    use super::{CONTINUATION_BIT, low_bits_of_u64};
     use std::io;
 
     /// Write the given unsigned number using the LEB128 encoding to the given
@@ -255,7 +255,7 @@ pub mod write {
 #[cfg(test)]
 #[cfg(all(feature = "read", feature = "write"))]
 mod tests {
-    use super::{low_bits_of_byte, low_bits_of_u64, read, write, CONTINUATION_BIT};
+    use super::{CONTINUATION_BIT, low_bits_of_byte, low_bits_of_u64, read, write};
     use crate::endianity::NativeEndian;
     use crate::read::{EndianSlice, Error, ReaderOffsetId};
 

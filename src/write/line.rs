@@ -1250,9 +1250,9 @@ mod convert {
 #[cfg(feature = "read")]
 mod tests {
     use super::*;
+    use crate::LittleEndian;
     use crate::read;
     use crate::write::{AttributeValue, Dwarf, EndianVec, Sections, Unit};
-    use crate::LittleEndian;
 
     #[test]
     fn test_line_program() {
