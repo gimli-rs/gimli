@@ -866,7 +866,7 @@ pub(crate) mod convert {
 
     impl Expression {
         /// Create an expression from the input expression.
-        pub fn from<R: Reader<Offset = usize>>(
+        pub(crate) fn from<R: Reader<Offset = usize>>(
             from_expression: read::Expression<R>,
             encoding: Encoding,
             dwarf: Option<&read::Dwarf<R>>,
@@ -1094,7 +1094,6 @@ mod tests {
     use crate::common::{DebugInfoOffset, Format};
     use crate::read;
     use crate::write::{AttributeValue, Dwarf, EndianVec, LineProgram, Sections, Unit};
-    use std::collections::HashMap;
 
     #[test]
     #[allow(clippy::type_complexity)]
@@ -1602,20 +1601,39 @@ mod tests {
                     assert_eq!(read_operations.next(), Ok(Some(read::Operation::Nop)));
                     assert_eq!(read_operations.next(), Ok(None));
 
-                    let mut entry_ids = HashMap::new();
-                    entry_ids.insert(read_state.debug_info_offset.into(), (unit_id, entry_id));
-                    let convert_expression = Expression::from(
-                        read_expression,
-                        encoding,
-                        Some(&read_dwarf),
-                        Some(&read_unit),
-                        Some(&entry_ids),
-                        &|address| Some(Address::Constant(address)),
-                    )
-                    .unwrap();
+                    let convert_dwarf =
+                        Dwarf::from(&read_dwarf, &|address| Some(Address::Constant(address)))
+                            .unwrap();
+                    let (convert_unit_id, convert_unit) =
+                        convert_dwarf.units.iter().next().unwrap();
+                    let convert_root = convert_unit.get(convert_unit.root());
+                    let mut convert_entries = convert_root.children();
+                    let convert_entry_id = convert_entries.next().unwrap();
+                    let convert_subprogram = convert_unit.get(*convert_entries.next().unwrap());
+                    let convert_attr = convert_subprogram.get(constants::DW_AT_location).unwrap();
+                    let AttributeValue::Exprloc(convert_expression) = convert_attr else {
+                        panic!("unexpected {:?}", convert_attr);
+                    };
                     let mut convert_operations = convert_expression.operations.iter();
                     for (_, operation, _) in operations {
-                        assert_eq!(convert_operations.next(), Some(operation));
+                        let mut operation = operation.clone();
+                        match &mut operation {
+                            Operation::ConstantType(entry, _)
+                            | Operation::RegisterType(_, entry)
+                            | Operation::DerefType { base: entry, .. }
+                            | Operation::Call(entry)
+                            | Operation::Convert(Some(entry))
+                            | Operation::Reinterpret(Some(entry))
+                            | Operation::ParameterRef(entry) => {
+                                *entry = *convert_entry_id;
+                            }
+                            Operation::CallRef(entry)
+                            | Operation::ImplicitPointer { entry, .. } => {
+                                *entry = DebugInfoRef::Entry(convert_unit_id, *convert_entry_id);
+                            }
+                            _ => {}
+                        }
+                        assert_eq!(convert_operations.next(), Some(&operation));
                     }
                     assert_eq!(
                         convert_operations.next(),

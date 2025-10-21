@@ -1556,7 +1556,7 @@ pub(crate) mod convert {
         /// `Address::Constant(address)`. For relocatable addresses, it is the caller's
         /// responsibility to determine the symbol and addend corresponding to the address
         /// and return `Address::Symbol { symbol, addend }`.
-        pub fn from<R: Reader<Offset = usize>>(
+        pub(crate) fn from<R: Reader<Offset = usize>>(
             dwarf: &read::Dwarf<R>,
             line_strings: &mut write::LineStringTable,
             strings: &mut write::StringTable,
