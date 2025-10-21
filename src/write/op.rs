@@ -5,7 +5,7 @@ use crate::common::{Encoding, Register};
 use crate::constants::{self, DwOp};
 use crate::leb128::write::{sleb128_size, uleb128_size};
 use crate::write::{
-    Address, DebugInfoReference, Error, Reference, Result, UnitEntryId, UnitOffsets, Writer,
+    Address, DebugInfoFixup, DebugInfoRef, Error, Result, UnitEntryId, UnitOffsets, Writer,
 };
 
 /// The bytecode for a DWARF expression or location description.
@@ -181,7 +181,7 @@ impl Expression {
     }
 
     /// Add a `DW_OP_call_ref` operation to the expression.
-    pub fn op_call_ref(&mut self, entry: Reference) {
+    pub fn op_call_ref(&mut self, entry: DebugInfoRef) {
         self.operations.push(Operation::CallRef(entry));
     }
 
@@ -217,7 +217,7 @@ impl Expression {
     }
 
     /// Add a `DW_OP_implicit_pointer` or `DW_OP_GNU_implicit_pointer` operation to the expression.
-    pub fn op_implicit_pointer(&mut self, entry: Reference, byte_offset: i64) {
+    pub fn op_implicit_pointer(&mut self, entry: DebugInfoRef, byte_offset: i64) {
         self.operations
             .push(Operation::ImplicitPointer { entry, byte_offset });
     }
@@ -270,7 +270,7 @@ impl Expression {
     pub(crate) fn write<W: Writer>(
         &self,
         w: &mut W,
-        mut refs: Option<&mut Vec<DebugInfoReference>>,
+        mut refs: Option<&mut Vec<DebugInfoFixup>>,
         encoding: Encoding,
         unit_offsets: Option<&UnitOffsets>,
     ) -> Result<()> {
@@ -425,11 +425,11 @@ enum Operation {
     /// which may be in another compilation unit or shared object.
     ///
     /// Represents `DW_OP_call_ref`.
-    CallRef(Reference),
+    CallRef(DebugInfoRef),
     /// Compute the value of a variable and push it on the stack.
     ///
     /// Represents `DW_OP_GNU_variable_value`.
-    VariableValue(Reference),
+    VariableValue(DebugInfoRef),
     /// Pop the top stack entry, convert it to a different type, and push it on the stack.
     ///
     /// Represents `DW_OP_convert`.
@@ -464,7 +464,7 @@ enum Operation {
     /// Represents `DW_OP_implicit_pointer`.
     ImplicitPointer {
         /// The DIE of the value that this is an implicit pointer into.
-        entry: Reference,
+        entry: DebugInfoRef,
         /// The byte offset into the value that the implicit pointer points to.
         byte_offset: i64,
     },
@@ -598,7 +598,7 @@ impl Operation {
     pub(crate) fn write<W: Writer>(
         &self,
         w: &mut W,
-        refs: Option<&mut Vec<DebugInfoReference>>,
+        refs: Option<&mut Vec<DebugInfoFixup>>,
         encoding: Encoding,
         unit_offsets: Option<&UnitOffsets>,
         offsets: &[usize],
@@ -720,10 +720,10 @@ impl Operation {
                 w.write_u8(constants::DW_OP_call_ref.0)?;
                 let size = encoding.format.word_size();
                 match entry {
-                    Reference::Symbol(symbol) => w.write_reference(symbol, size)?,
-                    Reference::Entry(unit, entry) => {
+                    DebugInfoRef::Symbol(symbol) => w.write_reference(symbol, size)?,
+                    DebugInfoRef::Entry(unit, entry) => {
                         let refs = refs.ok_or(Error::InvalidReference)?;
-                        refs.push(DebugInfoReference {
+                        refs.push(DebugInfoFixup {
                             offset: w.len(),
                             unit,
                             entry,
@@ -737,10 +737,10 @@ impl Operation {
                 w.write_u8(constants::DW_OP_GNU_variable_value.0)?;
                 let size = encoding.format.word_size();
                 match entry {
-                    Reference::Symbol(symbol) => w.write_reference(symbol, size)?,
-                    Reference::Entry(unit, entry) => {
+                    DebugInfoRef::Symbol(symbol) => w.write_reference(symbol, size)?,
+                    DebugInfoRef::Entry(unit, entry) => {
                         let refs = refs.ok_or(Error::InvalidReference)?;
-                        refs.push(DebugInfoReference {
+                        refs.push(DebugInfoFixup {
                             offset: w.len(),
                             unit,
                             entry,
@@ -807,12 +807,12 @@ impl Operation {
                     encoding.format.word_size()
                 };
                 match entry {
-                    Reference::Symbol(symbol) => {
+                    DebugInfoRef::Symbol(symbol) => {
                         w.write_reference(symbol, size)?;
                     }
-                    Reference::Entry(unit, entry) => {
+                    DebugInfoRef::Entry(unit, entry) => {
                         let refs = refs.ok_or(Error::InvalidReference)?;
-                        refs.push(DebugInfoReference {
+                        refs.push(DebugInfoFixup {
                             offset: w.len(),
                             unit,
                             entry,
@@ -888,7 +888,7 @@ pub(crate) mod convert {
                 let id = entry_ids
                     .get(&UnitSectionOffset::DebugInfoOffset(offset))
                     .ok_or(ConvertError::InvalidDebugInfoRef)?;
-                Ok(Reference::Entry(id.0, id.1))
+                Ok(DebugInfoRef::Entry(id.0, id.1))
             };
 
             // Calculate offsets for use in branch/skip operations.
@@ -1114,7 +1114,7 @@ mod tests {
 
                     // Create an entry that can be referenced by the expression.
                     let entry_id = unit.add(unit.root(), constants::DW_TAG_base_type);
-                    let reference = Reference::Entry(unit_id, entry_id);
+                    let reference = DebugInfoRef::Entry(unit_id, entry_id);
 
                     // The offsets for the above entry when reading back the expression.
                     struct ReadState {
@@ -1774,7 +1774,7 @@ mod tests {
 
         // Create an expression containing the reference.
         let mut expression = Expression::new();
-        expression.op_call_ref(Reference::Entry(unit_id, entry_id));
+        expression.op_call_ref(DebugInfoRef::Entry(unit_id, entry_id));
 
         // Create an entry containing the expression.
         let subprogram_id = unit.add(unit.root(), constants::DW_TAG_subprogram);

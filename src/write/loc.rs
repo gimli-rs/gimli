@@ -4,7 +4,7 @@ use std::ops::{Deref, DerefMut};
 
 use crate::common::{Encoding, LocationListsOffset, SectionId};
 use crate::write::{
-    Address, BaseId, DebugInfoReference, Error, Expression, Result, Section, Sections, UnitOffsets,
+    Address, BaseId, DebugInfoFixup, Error, Expression, Result, Section, Sections, UnitOffsets,
     Writer,
 };
 
@@ -68,13 +68,13 @@ impl LocationListTable {
         match encoding.version {
             2..=4 => self.write_loc(
                 &mut sections.debug_loc,
-                &mut sections.debug_loc_refs,
+                &mut sections.debug_loc_fixups,
                 encoding,
                 unit_offsets,
             ),
             5 => self.write_loclists(
                 &mut sections.debug_loclists,
-                &mut sections.debug_loclists_refs,
+                &mut sections.debug_loclists_fixups,
                 encoding,
                 unit_offsets,
             ),
@@ -86,7 +86,7 @@ impl LocationListTable {
     fn write_loc<W: Writer>(
         &self,
         w: &mut DebugLoc<W>,
-        refs: &mut Vec<DebugInfoReference>,
+        refs: &mut Vec<DebugInfoFixup>,
         encoding: Encoding,
         unit_offsets: Option<&UnitOffsets>,
     ) -> Result<LocationListOffsets> {
@@ -165,7 +165,7 @@ impl LocationListTable {
     fn write_loclists<W: Writer>(
         &self,
         w: &mut DebugLocLists<W>,
-        refs: &mut Vec<DebugInfoReference>,
+        refs: &mut Vec<DebugInfoFixup>,
         encoding: Encoding,
         unit_offsets: Option<&UnitOffsets>,
     ) -> Result<LocationListOffsets> {
@@ -290,7 +290,7 @@ pub enum Location {
 
 fn write_expression<W: Writer>(
     w: &mut W,
-    refs: &mut Vec<DebugInfoReference>,
+    refs: &mut Vec<DebugInfoFixup>,
     encoding: Encoding,
     unit_offsets: Option<&UnitOffsets>,
     val: &Expression,
@@ -496,8 +496,8 @@ mod tests {
 
                     let mut sections = Sections::new(EndianVec::new(LittleEndian));
                     let loc_list_offsets = locations.write(&mut sections, encoding, None).unwrap();
-                    assert!(sections.debug_loc_refs.is_empty());
-                    assert!(sections.debug_loclists_refs.is_empty());
+                    assert!(sections.debug_loc_fixups.is_empty());
+                    assert!(sections.debug_loclists_fixups.is_empty());
 
                     let read_debug_loc =
                         read::DebugLoc::new(sections.debug_loc.slice(), LittleEndian);
