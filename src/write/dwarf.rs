@@ -117,8 +117,9 @@ impl DwarfUnit {
 #[cfg(feature = "read")]
 pub(crate) mod convert {
     use super::*;
+    use crate::common::LineEncoding;
     use crate::read::{self, Reader};
-    use crate::write::{Address, ConvertResult};
+    use crate::write::{Address, ConvertLine, ConvertResult};
 
     impl Dwarf {
         /// Create a `write::Dwarf` by converting a `read::Dwarf`.
@@ -143,6 +144,38 @@ pub(crate) mod convert {
                 line_strings,
                 strings,
             })
+        }
+
+        /// Start a new conversion of a line number program.
+        ///
+        /// See [`ConvertLine`] for an example of how to use this.
+        ///
+        /// `encoding` and `line_encoding` apply to the converted program, and
+        /// may be different from the source program.
+        ///
+        /// The working directory, source directory, and primary source file are taken from the
+        /// source program header.
+        /// For DWARF version <= 4, this relies on the correct working directory and name being
+        /// passed to [`read::DebugLine::program`]. However, for split DWARF the line program
+        /// is associated with a skeleton compilation unit which may not have the correct
+        /// name. In this case, the name should be passed as `comp_name`.
+        pub fn read_program<'a, R: Reader<Offset = usize>>(
+            &'a mut self,
+            dwarf: &'a read::Dwarf<R>,
+            program: read::IncompleteLineProgram<R>,
+            comp_name: Option<R>,
+            encoding: Encoding,
+            line_encoding: LineEncoding,
+        ) -> ConvertResult<ConvertLine<'a, R>> {
+            ConvertLine::new(
+                dwarf,
+                program,
+                comp_name,
+                encoding,
+                line_encoding,
+                &mut self.line_strings,
+                &mut self.strings,
+            )
         }
     }
 }

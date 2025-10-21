@@ -2983,10 +2983,10 @@ mod tests {
                     };
 
                     let convert_path = get_convert_path(constants::DW_AT_decl_file);
-                    assert_eq!(convert_path, &file_string1);
+                    assert_eq!(convert_dwarf.get_line_string(convert_path), file_bytes1);
 
                     let convert_path = get_convert_path(constants::DW_AT_call_file);
-                    assert_eq!(convert_path, &file_string2);
+                    assert_eq!(convert_dwarf.get_line_string(convert_path), file_bytes2);
                 }
             }
         }
