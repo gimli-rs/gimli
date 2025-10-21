@@ -35,14 +35,6 @@ where
 
     /// Return a reference to the raw slice.
     #[inline]
-    #[doc(hidden)]
-    #[deprecated(note = "Method renamed to EndianSlice::slice; use that instead.")]
-    pub fn buf(&self) -> &'input [u8] {
-        self.slice
-    }
-
-    /// Return a reference to the raw slice.
-    #[inline]
     pub fn slice(&self) -> &'input [u8] {
         self.slice
     }
