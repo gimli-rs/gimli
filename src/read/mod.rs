@@ -275,11 +275,6 @@ pub use self::value::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StoreOnHeap;
 
-/// `EndianBuf` has been renamed to `EndianSlice`. For ease of upgrading across
-/// `gimli` versions, we export this type alias.
-#[deprecated(note = "EndianBuf has been renamed to EndianSlice, use that instead.")]
-pub type EndianBuf<'input, Endian> = EndianSlice<'input, Endian>;
-
 /// An error that occurred when parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]

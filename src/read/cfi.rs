@@ -428,26 +428,6 @@ impl<'a, R: Reader + 'a> EhHdrTable<'a, R> {
         }
     }
 
-    #[inline]
-    #[doc(hidden)]
-    #[deprecated(note = "Method renamed to fde_for_address; use that instead.")]
-    pub fn lookup_and_parse<F>(
-        &self,
-        address: u64,
-        bases: &BaseAddresses,
-        frame: EhFrame<R>,
-        get_cie: F,
-    ) -> Result<FrameDescriptionEntry<R>>
-    where
-        F: FnMut(
-            &EhFrame<R>,
-            &BaseAddresses,
-            EhFrameOffset<R::Offset>,
-        ) -> Result<CommonInformationEntry<R>>,
-    {
-        self.fde_for_address(&frame, bases, address, get_cie)
-    }
-
     /// Returns the frame unwind information for the given address,
     /// or `NoUnwindInfoForAddress` if there are none.
     ///

@@ -111,10 +111,6 @@ impl<R> From<R> for DebugLine<R> {
     }
 }
 
-/// Deprecated. `LineNumberProgram` has been renamed to `LineProgram`.
-#[deprecated(note = "LineNumberProgram has been renamed to LineProgram, use that instead.")]
-pub type LineNumberProgram<R, Offset> = dyn LineProgram<R, Offset>;
-
 /// A `LineProgram` provides access to a `LineProgramHeader` and
 /// a way to add files to the files table if necessary. Gimli consumers should
 /// never need to use or see this trait.
@@ -154,10 +150,6 @@ where
         // Nop. Our file table is already complete.
     }
 }
-
-/// Deprecated. `StateMachine` has been renamed to `LineRows`.
-#[deprecated(note = "StateMachine has been renamed to LineRows, use that instead.")]
-pub type StateMachine<R, Program, Offset> = LineRows<R, Program, Offset>;
 
 /// Executes a `LineProgram` to iterate over the rows in the matrix of line number information.
 ///
@@ -257,10 +249,6 @@ where
         }
     }
 }
-
-/// Deprecated. `Opcode` has been renamed to `LineInstruction`.
-#[deprecated(note = "Opcode has been renamed to LineInstruction, use that instead.")]
-pub type Opcode<R> = LineInstruction<R, <R as Reader>::Offset>;
 
 /// A parsed line number program instruction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -516,10 +504,6 @@ where
     }
 }
 
-/// Deprecated. `OpcodesIter` has been renamed to `LineInstructions`.
-#[deprecated(note = "OpcodesIter has been renamed to LineInstructions, use that instead.")]
-pub type OpcodesIter<R> = LineInstructions<R>;
-
 /// An iterator yielding parsed instructions.
 ///
 /// See
@@ -568,10 +552,6 @@ impl<R: Reader> LineInstructions<R> {
         }
     }
 }
-
-/// Deprecated. `LineNumberRow` has been renamed to `LineRow`.
-#[deprecated(note = "LineNumberRow has been renamed to LineRow, use that instead.")]
-pub type LineNumberRow = LineRow;
 
 /// A row in the line number program's resulting matrix.
 ///
@@ -966,10 +946,6 @@ pub enum ColumnType {
     Column(NonZeroU64),
 }
 
-/// Deprecated. `LineNumberSequence` has been renamed to `LineSequence`.
-#[deprecated(note = "LineNumberSequence has been renamed to LineSequence, use that instead.")]
-pub type LineNumberSequence<R> = LineSequence<R>;
-
 /// A sequence within a line number program.  A sequence, as defined in section
 /// 6.2.5 of the standard, is a linear subset of a line number program within
 /// which addresses are monotonically increasing.
@@ -983,12 +959,6 @@ pub struct LineSequence<R: Reader> {
     pub end: u64,
     instructions: LineInstructions<R>,
 }
-
-/// Deprecated. `LineNumberProgramHeader` has been renamed to `LineProgramHeader`.
-#[deprecated(
-    note = "LineNumberProgramHeader has been renamed to LineProgramHeader, use that instead."
-)]
-pub type LineNumberProgramHeader<R, Offset> = LineProgramHeader<R, Offset>;
 
 /// A header for a line number program in the `.debug_line` section, as defined
 /// in section 6.2.4 of the standard.
@@ -1400,12 +1370,6 @@ where
     }
 }
 
-/// Deprecated. `IncompleteLineNumberProgram` has been renamed to `IncompleteLineProgram`.
-#[deprecated(
-    note = "IncompleteLineNumberProgram has been renamed to IncompleteLineProgram, use that instead."
-)]
-pub type IncompleteLineNumberProgram<R, Offset> = IncompleteLineProgram<R, Offset>;
-
 /// A line number program that has not been run to completion.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IncompleteLineProgram<R, Offset = <R as Reader>::Offset>
@@ -1492,12 +1456,6 @@ where
         Ok((program, sequences))
     }
 }
-
-/// Deprecated. `CompleteLineNumberProgram` has been renamed to `CompleteLineProgram`.
-#[deprecated(
-    note = "CompleteLineNumberProgram has been renamed to CompleteLineProgram, use that instead."
-)]
-pub type CompleteLineNumberProgram<R, Offset> = CompleteLineProgram<R, Offset>;
 
 /// A line number program that has previously been run to completion.
 #[derive(Clone, Debug, Eq, PartialEq)]
