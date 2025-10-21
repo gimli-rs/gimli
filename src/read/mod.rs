@@ -95,6 +95,8 @@
 //!
 //!   * [`DebugLocLists`](./struct.DebugLocLists.html): The `.debug_loclists` section.
 //!
+//!   * [`DebugNames`](./struct.DebugNames.html): The `.debug_names` section.
+//!
 //!   * [`DebugPubNames`](./struct.DebugPubNames.html): The `.debug_pubnames`
 //!     section.
 //!
@@ -252,6 +254,11 @@ pub use self::pubnames::*;
 mod pubtypes;
 #[cfg(feature = "read")]
 pub use self::pubtypes::*;
+
+#[cfg(feature = "read")]
+mod names;
+#[cfg(feature = "read")]
+pub use self::names::*;
 
 mod rnglists;
 pub use self::rnglists::*;

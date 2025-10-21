@@ -1,5 +1,6 @@
 use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 
 use crate::common::{
     DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
@@ -11,12 +12,13 @@ use crate::common::{
 use crate::read::{
     Abbreviations, AbbreviationsCache, AbbreviationsCacheStrategy, AttributeValue, DebugAbbrev,
     DebugAddr, DebugAranges, DebugCuIndex, DebugInfo, DebugInfoUnitHeadersIter, DebugLine,
-    DebugLineStr, DebugLoc, DebugLocLists, DebugMacinfo, DebugMacro, DebugRanges, DebugRngLists,
-    DebugStr, DebugStrOffsets, DebugTuIndex, DebugTypes, DebugTypesUnitHeadersIter,
+    DebugLineStr, DebugLoc, DebugLocLists, DebugMacinfo, DebugMacro, DebugNames, DebugRanges,
+    DebugRngLists, DebugStr, DebugStrOffsets, DebugTuIndex, DebugTypes, DebugTypesUnitHeadersIter,
     DebuggingInformationEntry, EntriesCursor, EntriesRaw, EntriesTree, Error,
-    IncompleteLineProgram, IndexSectionId, LocListIter, LocationLists, MacroIter, Range,
-    RangeLists, RawLocListIter, RawRngListIter, Reader, ReaderOffset, ReaderOffsetId, Result,
-    RngListIter, Section, UnitHeader, UnitIndex, UnitIndexSectionIterator, UnitOffset, UnitType,
+    IncompleteLineProgram, IndexSectionId, LocListIter, LocationLists, MacroIter, NameLookupResult,
+    Range, RangeLists, RawLocListIter, RawRngListIter, Reader, ReaderOffset, ReaderOffsetId,
+    Result, RngListIter, Section, UnitHeader, UnitIndex, UnitIndexSectionIterator, UnitOffset,
+    UnitType,
 };
 use crate::{DebugMacroOffset, constants};
 
@@ -79,6 +81,8 @@ pub struct DwarfSections<T> {
     pub debug_ranges: DebugRanges<T>,
     /// The `.debug_rnglists` section.
     pub debug_rnglists: DebugRngLists<T>,
+    /// The `.debug_names` section.
+    pub debug_names: DebugNames<T>,
 }
 
 impl<T> DwarfSections<T> {
@@ -107,6 +111,7 @@ impl<T> DwarfSections<T> {
             debug_loclists: Section::load(&mut section)?,
             debug_ranges: Section::load(&mut section)?,
             debug_rnglists: Section::load(&mut section)?,
+            debug_names: Section::load(&mut section)?,
         })
     }
 
@@ -131,6 +136,7 @@ impl<T> DwarfSections<T> {
             debug_loclists: self.debug_loclists.borrow(&mut borrow),
             debug_ranges: self.debug_ranges.borrow(&mut borrow),
             debug_rnglists: self.debug_rnglists.borrow(&mut borrow),
+            debug_names: self.debug_names.borrow(&mut borrow),
         })
     }
 
@@ -209,6 +215,9 @@ pub struct Dwarf<R> {
     /// The range lists in the `.debug_ranges` and `.debug_rnglists` sections.
     pub ranges: RangeLists<R>,
 
+    /// The `.debug_names` section.
+    pub debug_names: DebugNames<R>,
+
     /// The type of this file.
     pub file_type: DwarfFileType,
 
@@ -266,6 +275,7 @@ impl<T> Dwarf<T> {
             debug_types: sections.debug_types,
             locations: LocationLists::new(sections.debug_loc, sections.debug_loclists),
             ranges: RangeLists::new(sections.debug_ranges, sections.debug_rnglists),
+            debug_names: sections.debug_names,
             file_type: DwarfFileType::Main,
             sup: None,
             abbreviations_cache: AbbreviationsCache::new(),
@@ -318,6 +328,7 @@ impl<T> Dwarf<T> {
             debug_types: self.debug_types.borrow(&mut borrow),
             locations: self.locations.borrow(&mut borrow),
             ranges: self.ranges.borrow(&mut borrow),
+            debug_names: self.debug_names.borrow(&mut borrow),
             file_type: self.file_type,
             sup: self.sup().map(|sup| Arc::new(sup.borrow(borrow))),
             abbreviations_cache: AbbreviationsCache::new(),
@@ -781,6 +792,56 @@ impl<R: Reader> Dwarf<R> {
     pub fn macros(&self, offset: DebugMacroOffset<R::Offset>) -> Result<MacroIter<R>> {
         self.debug_macro.get_macros(offset)
     }
+
+    /// Find all debugging entries with the given name using debug_names acceleration.
+    ///
+    /// This method searches the `.debug_names` section for entries matching the specified
+    /// name and returns a vector of `NameLookupResult`s containing the resolved information.
+    /// If the debug_names section is empty, this returns an empty vector.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The symbol name to search for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let dwarf = Dwarf::load(loader)?;
+    /// let entries = dwarf.find_entries_by_name("main")?;
+    /// for entry in entries {
+    ///     println!("Found entry: {} at {:?}", entry.name(), entry.tag());
+    /// }
+    /// ```
+    pub fn find_entries_by_name(&self, name: &str) -> Result<Vec<NameLookupResult<R>>> {
+        self.debug_names
+            .find_all_entries_by_name(name, &self.debug_str)
+    }
+
+    /// Find function entries with the given name using debug_names acceleration.
+    ///
+    /// This is a convenience method that filters results to only include entries
+    /// with the `DW_TAG_subprogram` tag.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The function name to search for
+    pub fn find_functions_by_name(&self, name: &str) -> Result<Vec<NameLookupResult<R>>> {
+        self.debug_names
+            .find_functions_by_name(name, &self.debug_str)
+    }
+
+    /// Find variable entries with the given name using debug_names acceleration.
+    ///
+    /// This is a convenience method that filters results to only include entries
+    /// with the `DW_TAG_variable` tag.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The variable name to search for
+    pub fn find_variables_by_name(&self, name: &str) -> Result<Vec<NameLookupResult<R>>> {
+        self.debug_names
+            .find_variables_by_name(name, &self.debug_str)
+    }
 }
 
 impl<R: Clone> Dwarf<R> {
@@ -1147,6 +1208,7 @@ impl<R: Reader> DwarfPackage<R> {
             debug_types,
             locations: LocationLists::new(debug_loc, debug_loclists),
             ranges: RangeLists::new(debug_ranges, debug_rnglists),
+            debug_names: self.empty.clone().into(), // TODO This looks wrong?
             file_type: DwarfFileType::Dwo,
             sup: parent.sup.clone(),
             abbreviations_cache: AbbreviationsCache::new(),
