@@ -11,8 +11,8 @@ use crate::leb128::write::{sleb128_size, uleb128_size};
 use crate::write::{
     Abbreviation, AbbreviationTable, Address, AttributeSpecification, BaseId, DebugLineStrOffsets,
     DebugStrOffsets, Error, Expression, FileId, LineProgram, LineStringId, LocationListId,
-    LocationListOffsets, LocationListTable, RangeListId, RangeListOffsets, RangeListTable,
-    Reference, Result, Section, Sections, StringId, Writer,
+    LocationListOffsets, LocationListTable, RangeListId, RangeListOffsets, RangeListTable, Result,
+    Section, Sections, StringId, Writer,
 };
 
 define_id!(UnitId, "An identifier for a unit in a `UnitTable`.");
@@ -125,18 +125,18 @@ impl UnitTable {
             abbrevs.write(&mut sections.debug_abbrev)?;
         }
 
-        write_section_refs(
-            &mut sections.debug_info_refs,
+        write_debug_info_fixups(
+            &mut sections.debug_info_fixups,
             &mut sections.debug_info.0,
             &offsets,
         )?;
-        write_section_refs(
-            &mut sections.debug_loc_refs,
+        write_debug_info_fixups(
+            &mut sections.debug_loc_fixups,
             &mut sections.debug_loc.0,
             &offsets,
         )?;
-        write_section_refs(
-            &mut sections.debug_loclists_refs,
+        write_debug_info_fixups(
+            &mut sections.debug_loclists_fixups,
             &mut sections.debug_loclists.0,
             &offsets,
         )?;
@@ -145,18 +145,18 @@ impl UnitTable {
     }
 }
 
-fn write_section_refs<W: Writer>(
-    references: &mut Vec<DebugInfoReference>,
+fn write_debug_info_fixups<W: Writer>(
+    fixups: &mut Vec<DebugInfoFixup>,
     w: &mut W,
     offsets: &DebugInfoOffsets,
 ) -> Result<()> {
-    for r in references.drain(..) {
+    for fixup in fixups.drain(..) {
         let entry_offset = offsets
-            .entry(r.unit, r.entry)
+            .entry(fixup.unit, fixup.entry)
             .ok_or(Error::InvalidReference)?
             .0;
         debug_assert_ne!(entry_offset, 0);
-        w.write_offset_at(r.offset, entry_offset, SectionId::DebugInfo, r.size)?;
+        w.write_offset_at(fixup.offset, entry_offset, SectionId::DebugInfo, fixup.size)?;
     }
     Ok(())
 }
@@ -381,7 +381,7 @@ impl Unit {
         let mut unit_refs = Vec::new();
         self.entries[self.root.index].write(
             w,
-            &mut sections.debug_info_refs,
+            &mut sections.debug_info_fixups,
             &mut unit_refs,
             self,
             &mut offsets,
@@ -627,7 +627,7 @@ impl DebuggingInformationEntry {
     fn write<W: Writer>(
         &self,
         w: &mut DebugInfo<W>,
-        debug_info_refs: &mut Vec<DebugInfoReference>,
+        debug_info_refs: &mut Vec<DebugInfoFixup>,
         unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
         unit: &Unit,
         offsets: &mut UnitOffsets,
@@ -799,7 +799,7 @@ pub enum AttributeValue {
     UnitRef(UnitEntryId),
 
     /// A reference to a `DebuggingInformationEntry` in a potentially different unit.
-    DebugInfoRef(Reference),
+    DebugInfoRef(DebugInfoRef),
 
     /// An offset into the `.debug_info` section of the supplementary object file.
     ///
@@ -1161,7 +1161,7 @@ impl AttributeValue {
     fn write<W: Writer>(
         &self,
         w: &mut DebugInfo<W>,
-        debug_info_refs: &mut Vec<DebugInfoReference>,
+        debug_info_refs: &mut Vec<DebugInfoFixup>,
         unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
         unit: &Unit,
         offsets: &UnitOffsets,
@@ -1247,9 +1247,9 @@ impl AttributeValue {
                     unit.format().word_size()
                 };
                 match reference {
-                    Reference::Symbol(symbol) => w.write_reference(symbol, size)?,
-                    Reference::Entry(unit, entry) => {
-                        debug_info_refs.push(DebugInfoReference {
+                    DebugInfoRef::Symbol(symbol) => w.write_reference(symbol, size)?,
+                    DebugInfoRef::Entry(unit, entry) => {
+                        debug_info_refs.push(DebugInfoFixup {
                             offset: w.len(),
                             unit,
                             entry,
@@ -1487,10 +1487,28 @@ impl EntryOffset {
     }
 }
 
+/// A reference to a `.debug_info` entry.
+#[deprecated(note = "Renamed to DebugInfoRef")]
+pub type Reference = DebugInfoRef;
+
+/// A reference to a `.debug_info` entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DebugInfoRef {
+    /// An external symbol.
+    ///
+    /// The meaning of this value is decided by the writer, but
+    /// will typically be an index into a symbol table.
+    Symbol(usize),
+    /// An entry in the same section.
+    ///
+    /// This only supports references in units that are emitted together.
+    Entry(UnitId, UnitEntryId),
+}
+
 /// A reference to a `.debug_info` entry that has yet to be resolved.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct DebugInfoReference {
-    /// The offset within the section of the reference.
+pub(crate) struct DebugInfoFixup {
+    /// The offset within the section where the reference should be written.
     pub offset: usize,
     /// The size of the reference.
     pub size: u8,
@@ -1824,7 +1842,7 @@ pub(crate) mod convert {
                         .entry_ids
                         .get(&UnitSectionOffset::DebugInfoOffset(val))
                         .ok_or(ConvertError::InvalidDebugInfoRef)?;
-                    AttributeValue::DebugInfoRef(Reference::Entry(id.0, id.1))
+                    AttributeValue::DebugInfoRef(DebugInfoRef::Entry(id.0, id.1))
                 }
                 read::AttributeValue::DebugInfoRefSup(val) => AttributeValue::DebugInfoRefSup(val),
                 read::AttributeValue::DebugLineRef(val) => {
@@ -2630,7 +2648,7 @@ mod tests {
                 let child2 = unit1.get_mut(child_id2);
                 child2.set(
                     constants::DW_AT_type,
-                    AttributeValue::DebugInfoRef(Reference::Entry(unit_id2, unit2_child1)),
+                    AttributeValue::DebugInfoRef(DebugInfoRef::Entry(unit_id2, unit2_child1)),
                 );
             }
         }
@@ -2649,7 +2667,7 @@ mod tests {
                 let child2 = unit2.get_mut(child_id2);
                 child2.set(
                     constants::DW_AT_type,
-                    AttributeValue::DebugInfoRef(Reference::Entry(unit_id1, unit1_child1)),
+                    AttributeValue::DebugInfoRef(DebugInfoRef::Entry(unit_id1, unit1_child1)),
                 );
             }
         }
@@ -2735,8 +2753,11 @@ mod tests {
                 assert_eq!(convert_attr.name, attr.name);
                 match (convert_attr.value.clone(), attr.value.clone()) {
                     (
-                        AttributeValue::DebugInfoRef(Reference::Entry(convert_unit, convert_entry)),
-                        AttributeValue::DebugInfoRef(Reference::Entry(unit, entry)),
+                        AttributeValue::DebugInfoRef(DebugInfoRef::Entry(
+                            convert_unit,
+                            convert_entry,
+                        )),
+                        AttributeValue::DebugInfoRef(DebugInfoRef::Entry(unit, entry)),
                     ) => {
                         assert_eq!(convert_unit.index, unit.index);
                         assert_eq!(convert_entry.index, entry.index);
@@ -2755,8 +2776,11 @@ mod tests {
                 assert_eq!(convert_attr.name, attr.name);
                 match (convert_attr.value.clone(), attr.value.clone()) {
                     (
-                        AttributeValue::DebugInfoRef(Reference::Entry(convert_unit, convert_entry)),
-                        AttributeValue::DebugInfoRef(Reference::Entry(unit, entry)),
+                        AttributeValue::DebugInfoRef(DebugInfoRef::Entry(
+                            convert_unit,
+                            convert_entry,
+                        )),
+                        AttributeValue::DebugInfoRef(DebugInfoRef::Entry(unit, entry)),
                     ) => {
                         assert_eq!(convert_unit.index, unit.index);
                         assert_eq!(convert_entry.index, entry.index);
@@ -3121,7 +3145,7 @@ mod tests {
         let subprogram_id = unit.add(unit.root(), constants::DW_TAG_subprogram);
         unit.get_mut(subprogram_id).set(
             constants::DW_AT_type,
-            AttributeValue::DebugInfoRef(Reference::Entry(unit_id, entry_id)),
+            AttributeValue::DebugInfoRef(DebugInfoRef::Entry(unit_id, entry_id)),
         );
 
         // Writing the DWARF should fail.

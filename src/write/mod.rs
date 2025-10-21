@@ -282,20 +282,6 @@ pub enum Address {
     },
 }
 
-/// A reference to a `.debug_info` entry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Reference {
-    /// An external symbol.
-    ///
-    /// The meaning of this value is decided by the writer, but
-    /// will typically be an index into a symbol table.
-    Symbol(usize),
-    /// An entry in the same section.
-    ///
-    /// This only supports references in units that are emitted together.
-    Entry(UnitId, UnitEntryId),
-}
-
 // This type is only used in debug assertions.
 #[cfg(not(debug_assertions))]
 type BaseId = ();

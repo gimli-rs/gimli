@@ -100,9 +100,9 @@ impl DwarfUnit {
             &strings,
         )?;
         // None should exist because we didn't give out any UnitId.
-        assert!(sections.debug_info_refs.is_empty());
-        assert!(sections.debug_loc_refs.is_empty());
-        assert!(sections.debug_loclists_refs.is_empty());
+        assert!(sections.debug_info_fixups.is_empty());
+        assert!(sections.debug_loc_fixups.is_empty());
+        assert!(sections.debug_loclists_fixups.is_empty());
 
         abbrevs.write(&mut sections.debug_abbrev)?;
         Ok(())
