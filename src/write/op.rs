@@ -869,8 +869,7 @@ pub(crate) mod convert {
         pub(crate) fn from<R: Reader<Offset = usize>>(
             from_expression: read::Expression<R>,
             encoding: Encoding,
-            dwarf: Option<&read::Dwarf<R>>,
-            unit: Option<&read::Unit<R>>,
+            unit: Option<read::UnitRef<'_, R>>,
             entry_ids: Option<&HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>>,
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<Expression> {
@@ -878,7 +877,7 @@ pub(crate) mod convert {
                 let entry_ids = entry_ids.ok_or(ConvertError::UnsupportedOperation)?;
                 let unit = unit.ok_or(ConvertError::UnsupportedOperation)?;
                 let id = entry_ids
-                    .get(&offset.to_unit_section_offset(unit))
+                    .get(&offset.to_unit_section_offset(&unit))
                     .ok_or(ConvertError::InvalidUnitRef)?;
                 Ok(id.1)
             };
@@ -1023,7 +1022,6 @@ pub(crate) mod convert {
                         let expression = Expression::from(
                             read::Expression(expression),
                             encoding,
-                            dwarf,
                             unit,
                             entry_ids,
                             convert_address,
@@ -1040,16 +1038,14 @@ pub(crate) mod convert {
                         Operation::Address(address)
                     }
                     read::Operation::AddressIndex { index } => {
-                        let dwarf = dwarf.ok_or(ConvertError::UnsupportedOperation)?;
                         let unit = unit.ok_or(ConvertError::UnsupportedOperation)?;
-                        let val = dwarf.address(unit, index)?;
+                        let val = unit.address(index)?;
                         let address = convert_address(val).ok_or(ConvertError::InvalidAddress)?;
                         Operation::Address(address)
                     }
                     read::Operation::ConstantIndex { index } => {
-                        let dwarf = dwarf.ok_or(ConvertError::UnsupportedOperation)?;
                         let unit = unit.ok_or(ConvertError::UnsupportedOperation)?;
-                        let val = dwarf.address(unit, index)?;
+                        let val = unit.address(index)?;
                         Operation::UnsignedConstant(val)
                     }
                     read::Operation::TypedLiteral { base_type, value } => {

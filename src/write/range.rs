@@ -272,16 +272,16 @@ mod convert {
                     }
                     read::RawRngListEntry::BaseAddressx { addr } => {
                         have_base_address = true;
-                        let address = convert_address(context.dwarf.address(context.unit, addr)?)?;
+                        let address = convert_address(context.unit.address(addr)?)?;
                         Range::BaseAddress { address }
                     }
                     read::RawRngListEntry::StartxEndx { begin, end } => {
-                        let begin = convert_address(context.dwarf.address(context.unit, begin)?)?;
-                        let end = convert_address(context.dwarf.address(context.unit, end)?)?;
+                        let begin = convert_address(context.unit.address(begin)?)?;
+                        let end = convert_address(context.unit.address(end)?)?;
                         Range::StartEnd { begin, end }
                     }
                     read::RawRngListEntry::StartxLength { begin, length } => {
-                        let begin = convert_address(context.dwarf.address(context.unit, begin)?)?;
+                        let begin = convert_address(context.unit.address(begin)?)?;
                         Range::StartLength { begin, length }
                     }
                     read::RawRngListEntry::OffsetPair { begin, end } => {
@@ -399,8 +399,7 @@ mod tests {
                         dwo_id: None,
                     };
                     let context = ConvertUnitContext {
-                        dwarf: &dwarf,
-                        unit: &unit,
+                        unit: unit.unit_ref(&dwarf),
                         line_strings: &mut line_strings,
                         strings: &mut strings,
                         ranges: &mut ranges,
