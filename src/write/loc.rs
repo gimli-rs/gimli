@@ -325,7 +325,6 @@ mod convert {
                 Expression::from(
                     x,
                     context.unit.encoding(),
-                    Some(context.dwarf),
                     Some(context.unit),
                     Some(context.entry_ids),
                     context.convert_address,
@@ -368,12 +367,12 @@ mod convert {
                     }
                     read::RawLocListEntry::BaseAddressx { addr } => {
                         have_base_address = true;
-                        let address = convert_address(context.dwarf.address(context.unit, addr)?)?;
+                        let address = convert_address(context.unit.address(addr)?)?;
                         Location::BaseAddress { address }
                     }
                     read::RawLocListEntry::StartxEndx { begin, end, data } => {
-                        let begin = convert_address(context.dwarf.address(context.unit, begin)?)?;
-                        let end = convert_address(context.dwarf.address(context.unit, end)?)?;
+                        let begin = convert_address(context.unit.address(begin)?)?;
+                        let end = convert_address(context.unit.address(end)?)?;
                         let data = convert_expression(data)?;
                         Location::StartEnd { begin, end, data }
                     }
@@ -382,7 +381,7 @@ mod convert {
                         length,
                         data,
                     } => {
-                        let begin = convert_address(context.dwarf.address(context.unit, begin)?)?;
+                        let begin = convert_address(context.unit.address(begin)?)?;
                         let data = convert_expression(data)?;
                         Location::StartLength {
                             begin,
@@ -532,8 +531,7 @@ mod tests {
                         dwo_id: None,
                     };
                     let context = ConvertUnitContext {
-                        dwarf: &dwarf,
-                        unit: &unit,
+                        unit: unit.unit_ref(&dwarf),
                         line_strings: &mut line_strings,
                         strings: &mut strings,
                         ranges: &mut RangeListTable::default(),

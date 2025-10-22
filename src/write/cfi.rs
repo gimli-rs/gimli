@@ -761,7 +761,7 @@ pub(crate) mod convert {
             Section: read::UnwindSection<R>,
         {
             let convert_expression =
-                |x| Expression::from(x, from_cie.encoding(), None, None, None, convert_address);
+                |x| Expression::from(x, from_cie.encoding(), None, None, convert_address);
             // TODO: validate integer type conversions
             Ok(Some(match from_instruction {
                 read::CallFrameInstruction::SetLoc { .. } => {

@@ -1532,8 +1532,7 @@ pub(crate) mod convert {
     }
 
     pub(crate) struct ConvertUnitContext<'a, R: Reader<Offset = usize>> {
-        pub dwarf: &'a read::Dwarf<R>,
-        pub unit: &'a read::Unit<R>,
+        pub unit: read::UnitRef<'a, R>,
         pub line_strings: &'a mut write::LineStringTable,
         pub strings: &'a mut write::StringTable,
         pub ranges: &'a mut write::RangeListTable,
@@ -1649,7 +1648,7 @@ pub(crate) mod convert {
             strings: &mut write::StringTable,
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<Unit> {
-            let from_unit = unit.from_unit;
+            let from_unit = unit.from_unit.unit_ref(dwarf);
             let base_address =
                 convert_address(from_unit.low_pc).ok_or(ConvertError::InvalidAddress)?;
 
@@ -1675,8 +1674,7 @@ pub(crate) mod convert {
 
             let mut context = ConvertUnitContext {
                 entry_ids,
-                dwarf,
-                unit: &from_unit,
+                unit: from_unit,
                 line_strings,
                 strings,
                 ranges: &mut ranges,
@@ -1801,7 +1799,6 @@ pub(crate) mod convert {
                     let expression = Expression::from(
                         expression,
                         context.unit.encoding(),
-                        Some(context.dwarf),
                         Some(context.unit),
                         Some(context.entry_ids),
                         context.convert_address,
@@ -1816,7 +1813,7 @@ pub(crate) mod convert {
                     return Ok(None);
                 }
                 read::AttributeValue::DebugAddrIndex(index) => {
-                    let val = context.dwarf.address(context.unit, index)?;
+                    let val = context.unit.address(index)?;
                     match (context.convert_address)(val) {
                         Some(val) => AttributeValue::Address(val),
                         None => return Err(ConvertError::InvalidAddress),
@@ -1828,7 +1825,7 @@ pub(crate) mod convert {
                     }
                     let id = context
                         .entry_ids
-                        .get(&val.to_unit_section_offset(context.unit))
+                        .get(&val.to_unit_section_offset(&context.unit))
                         .ok_or(ConvertError::InvalidUnitRef)?;
                     AttributeValue::UnitRef(id.1)
                 }
@@ -1853,10 +1850,7 @@ pub(crate) mod convert {
                 read::AttributeValue::DebugMacinfoRef(val) => AttributeValue::DebugMacinfoRef(val),
                 read::AttributeValue::DebugMacroRef(val) => AttributeValue::DebugMacroRef(val),
                 read::AttributeValue::LocationListsRef(val) => {
-                    let iter = context
-                        .dwarf
-                        .locations
-                        .raw_locations(val, context.unit.encoding())?;
+                    let iter = context.unit.raw_locations(val)?;
                     let loc_list = LocationList::from(iter, context)?;
                     let loc_id = context.locations.add(loc_list);
                     AttributeValue::LocationListRef(loc_id)
@@ -1867,18 +1861,15 @@ pub(crate) mod convert {
                     return Ok(None);
                 }
                 read::AttributeValue::DebugLocListsIndex(index) => {
-                    let offset = context.dwarf.locations_offset(context.unit, index)?;
-                    let iter = context
-                        .dwarf
-                        .locations
-                        .raw_locations(offset, context.unit.encoding())?;
+                    let offset = context.unit.locations_offset(index)?;
+                    let iter = context.unit.raw_locations(offset)?;
                     let loc_list = LocationList::from(iter, context)?;
                     let loc_id = context.locations.add(loc_list);
                     AttributeValue::LocationListRef(loc_id)
                 }
                 read::AttributeValue::RangeListsRef(offset) => {
-                    let offset = context.dwarf.ranges_offset_from_raw(context.unit, offset);
-                    let iter = context.dwarf.raw_ranges(context.unit, offset)?;
+                    let offset = context.unit.ranges_offset_from_raw(offset);
+                    let iter = context.unit.raw_ranges(offset)?;
                     let range_list = RangeList::from(iter, context)?;
                     let range_id = context.ranges.add(range_list);
                     AttributeValue::RangeListRef(range_id)
@@ -1889,18 +1880,15 @@ pub(crate) mod convert {
                     return Ok(None);
                 }
                 read::AttributeValue::DebugRngListsIndex(index) => {
-                    let offset = context.dwarf.ranges_offset(context.unit, index)?;
-                    let iter = context
-                        .dwarf
-                        .ranges
-                        .raw_ranges(offset, context.unit.encoding())?;
+                    let offset = context.unit.ranges_offset(index)?;
+                    let iter = context.unit.raw_ranges(offset)?;
                     let range_list = RangeList::from(iter, context)?;
                     let range_id = context.ranges.add(range_list);
                     AttributeValue::RangeListRef(range_id)
                 }
                 read::AttributeValue::DebugTypesRef(val) => AttributeValue::DebugTypesRef(val),
                 read::AttributeValue::DebugStrRef(offset) => {
-                    let r = context.dwarf.string(offset)?;
+                    let r = context.unit.string(offset)?;
                     let id = context.strings.add(r.to_slice()?);
                     AttributeValue::StringRef(id)
                 }
@@ -1911,13 +1899,13 @@ pub(crate) mod convert {
                     return Ok(None);
                 }
                 read::AttributeValue::DebugStrOffsetsIndex(index) => {
-                    let offset = context.dwarf.string_offset(context.unit, index)?;
-                    let r = context.dwarf.string(offset)?;
+                    let offset = context.unit.string_offset(index)?;
+                    let r = context.unit.string(offset)?;
                     let id = context.strings.add(r.to_slice()?);
                     AttributeValue::StringRef(id)
                 }
                 read::AttributeValue::DebugLineStrRef(offset) => {
-                    let r = context.dwarf.line_string(offset)?;
+                    let r = context.unit.line_string(offset)?;
                     let id = context.line_strings.add(r.to_slice()?);
                     AttributeValue::LineStringRef(id)
                 }
