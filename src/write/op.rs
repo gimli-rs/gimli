@@ -859,10 +859,8 @@ impl Operation {
 #[cfg(feature = "read")]
 pub(crate) mod convert {
     use super::*;
-    use crate::common::UnitSectionOffset;
     use crate::read::{self, Reader};
-    use crate::write::{ConvertError, ConvertResult, UnitId};
-    use std::collections::HashMap;
+    use crate::write::{ConvertDebugInfoRef, ConvertError, ConvertResult};
 
     impl Expression {
         /// Create an expression from the input expression.
@@ -870,26 +868,9 @@ pub(crate) mod convert {
             from_expression: read::Expression<R>,
             encoding: Encoding,
             unit: Option<read::UnitRef<'_, R>>,
-            entry_ids: Option<&HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>>,
             convert_address: &dyn Fn(u64) -> Option<Address>,
+            refs: &dyn ConvertDebugInfoRef,
         ) -> ConvertResult<Expression> {
-            let convert_unit_offset = |offset: read::UnitOffset| -> ConvertResult<_> {
-                let entry_ids = entry_ids.ok_or(ConvertError::UnsupportedOperation)?;
-                let unit = unit.ok_or(ConvertError::UnsupportedOperation)?;
-                let id = entry_ids
-                    .get(&offset.to_unit_section_offset(&unit))
-                    .ok_or(ConvertError::InvalidUnitRef)?;
-                Ok(id.1)
-            };
-            let convert_debug_info_offset = |offset| -> ConvertResult<_> {
-                // TODO: support relocations
-                let entry_ids = entry_ids.ok_or(ConvertError::UnsupportedOperation)?;
-                let id = entry_ids
-                    .get(&UnitSectionOffset::DebugInfoOffset(offset))
-                    .ok_or(ConvertError::InvalidDebugInfoRef)?;
-                Ok(DebugInfoRef::Entry(id.0, id.1))
-            };
-
             // Calculate offsets for use in branch/skip operations.
             let mut offsets = Vec::new();
             let mut offset = 0;
@@ -910,7 +891,7 @@ pub(crate) mod convert {
                         space,
                     } => {
                         if base_type.0 != 0 {
-                            let base = convert_unit_offset(base_type)?;
+                            let base = refs.convert_unit_ref(base_type)?;
                             Operation::DerefType { space, size, base }
                         } else if size != encoding.address_size {
                             Operation::DerefSize { space, size }
@@ -972,7 +953,7 @@ pub(crate) mod convert {
                         base_type,
                     } => {
                         if base_type.0 != 0 {
-                            Operation::RegisterType(register, convert_unit_offset(base_type)?)
+                            Operation::RegisterType(register, refs.convert_unit_ref(base_type)?)
                         } else {
                             Operation::RegisterOffset(register, offset)
                         }
@@ -984,14 +965,14 @@ pub(crate) mod convert {
                     }
                     read::Operation::Call { offset } => match offset {
                         read::DieReference::UnitRef(offset) => {
-                            Operation::Call(convert_unit_offset(offset)?)
+                            Operation::Call(refs.convert_unit_ref(offset)?)
                         }
                         read::DieReference::DebugInfoRef(offset) => {
-                            Operation::CallRef(convert_debug_info_offset(offset)?)
+                            Operation::CallRef(refs.convert_debug_info_ref(offset)?)
                         }
                     },
                     read::Operation::VariableValue { offset } => {
-                        Operation::VariableValue(convert_debug_info_offset(offset)?)
+                        Operation::VariableValue(refs.convert_debug_info_ref(offset)?)
                     }
                     read::Operation::TLS => Operation::Simple(constants::DW_OP_form_tls_address),
                     read::Operation::CallFrameCFA => {
@@ -1015,7 +996,7 @@ pub(crate) mod convert {
                     }
                     read::Operation::StackValue => Operation::Simple(constants::DW_OP_stack_value),
                     read::Operation::ImplicitPointer { value, byte_offset } => {
-                        let entry = convert_debug_info_offset(value)?;
+                        let entry = refs.convert_debug_info_ref(value)?;
                         Operation::ImplicitPointer { entry, byte_offset }
                     }
                     read::Operation::EntryValue { expression } => {
@@ -1023,13 +1004,13 @@ pub(crate) mod convert {
                             read::Expression(expression),
                             encoding,
                             unit,
-                            entry_ids,
                             convert_address,
+                            refs,
                         )?;
                         Operation::EntryValue(expression)
                     }
                     read::Operation::ParameterRef { offset } => {
-                        let entry = convert_unit_offset(offset)?;
+                        let entry = refs.convert_unit_ref(offset)?;
                         Operation::ParameterRef(entry)
                     }
                     read::Operation::Address { address } => {
@@ -1049,14 +1030,14 @@ pub(crate) mod convert {
                         Operation::UnsignedConstant(val)
                     }
                     read::Operation::TypedLiteral { base_type, value } => {
-                        let entry = convert_unit_offset(base_type)?;
+                        let entry = refs.convert_unit_ref(base_type)?;
                         Operation::ConstantType(entry, value.to_slice()?.into_owned().into())
                     }
                     read::Operation::Convert { base_type } => {
                         if base_type.0 == 0 {
                             Operation::Convert(None)
                         } else {
-                            let entry = convert_unit_offset(base_type)?;
+                            let entry = refs.convert_unit_ref(base_type)?;
                             Operation::Convert(Some(entry))
                         }
                     }
@@ -1064,7 +1045,7 @@ pub(crate) mod convert {
                         if base_type.0 == 0 {
                             Operation::Reinterpret(None)
                         } else {
-                            let entry = convert_unit_offset(base_type)?;
+                            let entry = refs.convert_unit_ref(base_type)?;
                             Operation::Reinterpret(Some(entry))
                         }
                     }

@@ -310,26 +310,27 @@ mod convert {
     use super::*;
 
     use crate::read::{self, Reader};
-    use crate::write::{ConvertError, ConvertResult, ConvertUnitContext};
+    use crate::write::{ConvertDebugInfoRef, ConvertError, ConvertResult};
 
     impl LocationList {
         /// Create a location list by reading the data from the give location list iter.
         pub(crate) fn from<R: Reader<Offset = usize>>(
             mut from: read::RawLocListIter<R>,
-            context: &ConvertUnitContext<'_, R>,
+            from_unit: read::UnitRef<'_, R>,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
+            convert_debug_info_ref: &dyn ConvertDebugInfoRef,
         ) -> ConvertResult<Self> {
-            let mut have_base_address = context.base_address != Address::Constant(0);
-            let convert_address =
-                |x| (context.convert_address)(x).ok_or(ConvertError::InvalidAddress);
             let convert_expression = |x| {
                 Expression::from(
                     x,
-                    context.unit.encoding(),
-                    Some(context.unit),
-                    Some(context.entry_ids),
-                    context.convert_address,
+                    from_unit.encoding(),
+                    Some(from_unit),
+                    convert_address,
+                    convert_debug_info_ref,
                 )
             };
+            let convert_address = |x| convert_address(x).ok_or(ConvertError::InvalidAddress);
+            let mut have_base_address = from_unit.low_pc != 0;
             let mut loc_list = Vec::new();
             while let Some(from_loc) = from.next()? {
                 let loc = match from_loc {
@@ -367,12 +368,12 @@ mod convert {
                     }
                     read::RawLocListEntry::BaseAddressx { addr } => {
                         have_base_address = true;
-                        let address = convert_address(context.unit.address(addr)?)?;
+                        let address = convert_address(from_unit.address(addr)?)?;
                         Location::BaseAddress { address }
                     }
                     read::RawLocListEntry::StartxEndx { begin, end, data } => {
-                        let begin = convert_address(context.unit.address(begin)?)?;
-                        let end = convert_address(context.unit.address(end)?)?;
+                        let begin = convert_address(from_unit.address(begin)?)?;
+                        let end = convert_address(from_unit.address(end)?)?;
                         let data = convert_expression(data)?;
                         Location::StartEnd { begin, end, data }
                     }
@@ -381,7 +382,7 @@ mod convert {
                         length,
                         data,
                     } => {
-                        let begin = convert_address(context.unit.address(begin)?)?;
+                        let begin = convert_address(from_unit.address(begin)?)?;
                         let data = convert_expression(data)?;
                         Location::StartLength {
                             begin,
@@ -442,16 +443,11 @@ mod tests {
         DebugStrOffsetsBase, Format,
     };
     use crate::read;
-    use crate::write::{
-        ConvertUnitContext, EndianVec, LineStringTable, RangeListTable, StringTable,
-    };
-    use std::collections::HashMap;
+    use crate::write::{EndianVec, NoConvertDebugInfoRef};
     use std::sync::Arc;
 
     #[test]
     fn test_loc_list() {
-        let mut line_strings = LineStringTable::default();
-        let mut strings = StringTable::default();
         let mut expression = Expression::new();
         expression.op_constu(0);
 
@@ -530,19 +526,13 @@ mod tests {
                         line_program: None,
                         dwo_id: None,
                     };
-                    let context = ConvertUnitContext {
-                        unit: unit.unit_ref(&dwarf),
-                        line_strings: &mut line_strings,
-                        strings: &mut strings,
-                        ranges: &mut RangeListTable::default(),
-                        locations: &mut locations,
-                        convert_address: &|address| Some(Address::Constant(address)),
-                        base_address: Address::Constant(0),
-                        line_program_offset: None,
-                        line_program_files: Vec::new(),
-                        entry_ids: &HashMap::new(),
-                    };
-                    let convert_loc_list = LocationList::from(read_loc_list, &context).unwrap();
+                    let convert_loc_list = LocationList::from(
+                        read_loc_list,
+                        unit.unit_ref(&dwarf),
+                        &|address| Some(Address::Constant(address)),
+                        &NoConvertDebugInfoRef,
+                    )
+                    .unwrap();
 
                     if version <= 4 {
                         loc_list.0[0] = Location::StartEnd {
