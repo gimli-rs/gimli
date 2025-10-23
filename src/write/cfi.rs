@@ -596,7 +596,7 @@ fn factored_data_offset(offset: i32, factor: i8) -> Result<i32> {
 pub(crate) mod convert {
     use super::*;
     use crate::read::{self, Reader};
-    use crate::write::{ConvertError, ConvertResult};
+    use crate::write::{ConvertError, ConvertResult, NoConvertDebugInfoRef};
     use std::collections::{HashMap, hash_map};
 
     impl FrameTable {
@@ -760,8 +760,15 @@ pub(crate) mod convert {
             R: Reader<Offset = usize>,
             Section: read::UnwindSection<R>,
         {
-            let convert_expression =
-                |x| Expression::from(x, from_cie.encoding(), None, None, convert_address);
+            let convert_expression = |x| {
+                Expression::from(
+                    x,
+                    from_cie.encoding(),
+                    None,
+                    convert_address,
+                    &NoConvertDebugInfoRef,
+                )
+            };
             // TODO: validate integer type conversions
             Ok(Some(match from_instruction {
                 read::CallFrameInstruction::SetLoc { .. } => {

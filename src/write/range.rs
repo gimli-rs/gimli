@@ -226,17 +226,17 @@ mod convert {
     use super::*;
 
     use crate::read::{self, Reader};
-    use crate::write::{ConvertError, ConvertResult, ConvertUnitContext};
+    use crate::write::{ConvertError, ConvertResult};
 
     impl RangeList {
         /// Create a range list by reading the data from the give range list iter.
         pub(crate) fn from<R: Reader<Offset = usize>>(
             mut from: read::RawRngListIter<R>,
-            context: &ConvertUnitContext<'_, R>,
+            from_unit: read::UnitRef<'_, R>,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<Self> {
-            let mut have_base_address = context.base_address != Address::Constant(0);
-            let convert_address =
-                |x| (context.convert_address)(x).ok_or(ConvertError::InvalidAddress);
+            let convert_address = |x| convert_address(x).ok_or(ConvertError::InvalidAddress);
+            let mut have_base_address = from_unit.low_pc != 0;
             let mut ranges = Vec::new();
             while let Some(from_range) = from.next()? {
                 let range = match from_range {
@@ -272,16 +272,16 @@ mod convert {
                     }
                     read::RawRngListEntry::BaseAddressx { addr } => {
                         have_base_address = true;
-                        let address = convert_address(context.unit.address(addr)?)?;
+                        let address = convert_address(from_unit.address(addr)?)?;
                         Range::BaseAddress { address }
                     }
                     read::RawRngListEntry::StartxEndx { begin, end } => {
-                        let begin = convert_address(context.unit.address(begin)?)?;
-                        let end = convert_address(context.unit.address(end)?)?;
+                        let begin = convert_address(from_unit.address(begin)?)?;
+                        let end = convert_address(from_unit.address(end)?)?;
                         Range::StartEnd { begin, end }
                     }
                     read::RawRngListEntry::StartxLength { begin, length } => {
-                        let begin = convert_address(context.unit.address(begin)?)?;
+                        let begin = convert_address(from_unit.address(begin)?)?;
                         Range::StartLength { begin, length }
                     }
                     read::RawRngListEntry::OffsetPair { begin, end } => {
@@ -321,18 +321,11 @@ mod tests {
         DebugStrOffsetsBase, Format,
     };
     use crate::read;
-    use crate::write::{
-        ConvertUnitContext, EndianVec, LineStringTable, LocationListTable, Range, RangeListTable,
-        StringTable,
-    };
-    use std::collections::HashMap;
+    use crate::write::{EndianVec, Range, RangeListTable};
     use std::sync::Arc;
 
     #[test]
     fn test_range() {
-        let mut line_strings = LineStringTable::default();
-        let mut strings = StringTable::default();
-
         for &version in &[2, 3, 4, 5] {
             for &address_size in &[4, 8] {
                 for &format in &[Format::Dwarf32, Format::Dwarf64] {
@@ -398,19 +391,11 @@ mod tests {
                         line_program: None,
                         dwo_id: None,
                     };
-                    let context = ConvertUnitContext {
-                        unit: unit.unit_ref(&dwarf),
-                        line_strings: &mut line_strings,
-                        strings: &mut strings,
-                        ranges: &mut ranges,
-                        locations: &mut LocationListTable::default(),
-                        convert_address: &|address| Some(Address::Constant(address)),
-                        base_address: Address::Constant(0),
-                        line_program_offset: None,
-                        line_program_files: Vec::new(),
-                        entry_ids: &HashMap::new(),
-                    };
-                    let convert_range_list = RangeList::from(read_range_list, &context).unwrap();
+                    let convert_range_list =
+                        RangeList::from(read_range_list, unit.unit_ref(&dwarf), &|address| {
+                            Some(Address::Constant(address))
+                        })
+                        .unwrap();
 
                     if version <= 4 {
                         range_list.0[0] = Range::StartEnd {

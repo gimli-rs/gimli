@@ -1517,7 +1517,7 @@ pub(crate) struct DebugInfoFixup {
 #[cfg(feature = "read")]
 pub(crate) mod convert {
     use super::*;
-    use crate::common::{DwoId, UnitSectionOffset};
+    use crate::common::{DwoId, LocationListsOffset, RangeListsOffset, UnitSectionOffset};
     use crate::read::{self, Reader};
     use crate::write::{self, ConvertError, ConvertResult, LocationList, RangeList};
     use std::collections::HashMap;
@@ -1531,14 +1531,13 @@ pub(crate) mod convert {
         root: UnitEntryId,
     }
 
-    pub(crate) struct ConvertUnitContext<'a, R: Reader<Offset = usize>> {
+    struct ConvertUnitContext<'a, R: Reader<Offset = usize>> {
         pub unit: read::UnitRef<'a, R>,
         pub line_strings: &'a mut write::LineStringTable,
         pub strings: &'a mut write::StringTable,
         pub ranges: &'a mut write::RangeListTable,
         pub locations: &'a mut write::LocationListTable,
         pub convert_address: &'a dyn Fn(u64) -> Option<Address>,
-        pub base_address: Address,
         pub line_program_offset: Option<DebugLineOffset>,
         pub line_program_files: Vec<FileId>,
         pub entry_ids: &'a HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
@@ -1649,8 +1648,6 @@ pub(crate) mod convert {
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<Unit> {
             let from_unit = unit.from_unit.unit_ref(dwarf);
-            let base_address =
-                convert_address(from_unit.low_pc).ok_or(ConvertError::InvalidAddress)?;
 
             let (line_program_offset, line_program, line_program_files) =
                 match from_unit.line_program {
@@ -1680,7 +1677,6 @@ pub(crate) mod convert {
                 ranges: &mut ranges,
                 locations: &mut locations,
                 convert_address,
-                base_address,
                 line_program_offset,
                 line_program_files,
             };
@@ -1764,7 +1760,7 @@ pub(crate) mod convert {
 
     impl Attribute {
         /// Create an attribute by reading the data in the given sections.
-        pub(crate) fn from<R: Reader<Offset = usize>>(
+        fn from<R: Reader<Offset = usize>>(
             context: &mut ConvertUnitContext<'_, R>,
             from: &read::Attribute<R>,
         ) -> ConvertResult<Option<Attribute>> {
@@ -1778,7 +1774,7 @@ pub(crate) mod convert {
 
     impl AttributeValue {
         /// Create an attribute value by reading the data in the given sections.
-        pub(crate) fn from<R: Reader<Offset = usize>>(
+        fn from<R: Reader<Offset = usize>>(
             context: &mut ConvertUnitContext<'_, R>,
             from: read::AttributeValue<R>,
         ) -> ConvertResult<Option<AttributeValue>> {
@@ -1800,8 +1796,8 @@ pub(crate) mod convert {
                         expression,
                         context.unit.encoding(),
                         Some(context.unit),
-                        Some(context.entry_ids),
                         context.convert_address,
+                        context,
                     )?;
                     AttributeValue::Exprloc(expression)
                 }
@@ -1820,22 +1816,10 @@ pub(crate) mod convert {
                     }
                 }
                 read::AttributeValue::UnitRef(val) => {
-                    if !context.unit.header.is_valid_offset(val) {
-                        return Err(ConvertError::InvalidUnitRef);
-                    }
-                    let id = context
-                        .entry_ids
-                        .get(&val.to_unit_section_offset(&context.unit))
-                        .ok_or(ConvertError::InvalidUnitRef)?;
-                    AttributeValue::UnitRef(id.1)
+                    AttributeValue::UnitRef(context.convert_unit_ref(val)?)
                 }
                 read::AttributeValue::DebugInfoRef(val) => {
-                    // TODO: support relocation of this value
-                    let id = context
-                        .entry_ids
-                        .get(&UnitSectionOffset::DebugInfoOffset(val))
-                        .ok_or(ConvertError::InvalidDebugInfoRef)?;
-                    AttributeValue::DebugInfoRef(DebugInfoRef::Entry(id.0, id.1))
+                    AttributeValue::DebugInfoRef(context.convert_debug_info_ref(val)?)
                 }
                 read::AttributeValue::DebugInfoRefSup(val) => AttributeValue::DebugInfoRefSup(val),
                 read::AttributeValue::DebugLineRef(val) => {
@@ -1850,8 +1834,7 @@ pub(crate) mod convert {
                 read::AttributeValue::DebugMacinfoRef(val) => AttributeValue::DebugMacinfoRef(val),
                 read::AttributeValue::DebugMacroRef(val) => AttributeValue::DebugMacroRef(val),
                 read::AttributeValue::LocationListsRef(val) => {
-                    let iter = context.unit.raw_locations(val)?;
-                    let loc_list = LocationList::from(iter, context)?;
+                    let loc_list = context.convert_location_list(val)?;
                     let loc_id = context.locations.add(loc_list);
                     AttributeValue::LocationListRef(loc_id)
                 }
@@ -1862,15 +1845,13 @@ pub(crate) mod convert {
                 }
                 read::AttributeValue::DebugLocListsIndex(index) => {
                     let offset = context.unit.locations_offset(index)?;
-                    let iter = context.unit.raw_locations(offset)?;
-                    let loc_list = LocationList::from(iter, context)?;
+                    let loc_list = context.convert_location_list(offset)?;
                     let loc_id = context.locations.add(loc_list);
                     AttributeValue::LocationListRef(loc_id)
                 }
                 read::AttributeValue::RangeListsRef(offset) => {
                     let offset = context.unit.ranges_offset_from_raw(offset);
-                    let iter = context.unit.raw_ranges(offset)?;
-                    let range_list = RangeList::from(iter, context)?;
+                    let range_list = context.convert_range_list(offset)?;
                     let range_id = context.ranges.add(range_list);
                     AttributeValue::RangeListRef(range_id)
                 }
@@ -1881,8 +1862,7 @@ pub(crate) mod convert {
                 }
                 read::AttributeValue::DebugRngListsIndex(index) => {
                     let offset = context.unit.ranges_offset(index)?;
-                    let iter = context.unit.raw_ranges(offset)?;
-                    let range_list = RangeList::from(iter, context)?;
+                    let range_list = context.convert_range_list(offset)?;
                     let range_id = context.ranges.add(range_list);
                     AttributeValue::RangeListRef(range_id)
                 }
@@ -1941,6 +1921,69 @@ pub(crate) mod convert {
                 read::AttributeValue::DwoId(DwoId(val)) => AttributeValue::Udata(val),
             };
             Ok(Some(to))
+        }
+    }
+
+    impl<'a, R: Reader<Offset = usize>> ConvertUnitContext<'a, R> {
+        fn convert_location_list(
+            &self,
+            offset: LocationListsOffset,
+        ) -> ConvertResult<LocationList> {
+            let iter = self.unit.raw_locations(offset)?;
+            LocationList::from(iter, self.unit, self.convert_address, self)
+        }
+
+        fn convert_range_list(&self, offset: RangeListsOffset) -> ConvertResult<RangeList> {
+            let iter = self.unit.raw_ranges(offset)?;
+            RangeList::from(iter, self.unit, self.convert_address)
+        }
+
+        fn convert_unit_ref(&self, entry: read::UnitOffset) -> ConvertResult<UnitEntryId> {
+            if !self.unit.header.is_valid_offset(entry) {
+                return Err(ConvertError::InvalidUnitRef);
+            }
+            let id = self
+                .entry_ids
+                .get(&entry.to_unit_section_offset(&self.unit))
+                .ok_or(ConvertError::InvalidUnitRef)?;
+            Ok(id.1)
+        }
+
+        fn convert_debug_info_ref(&self, entry: DebugInfoOffset) -> ConvertResult<DebugInfoRef> {
+            // TODO: support relocation of this value
+            let id = self
+                .entry_ids
+                .get(&UnitSectionOffset::DebugInfoOffset(entry))
+                .ok_or(ConvertError::InvalidDebugInfoRef)?;
+            Ok(DebugInfoRef::Entry(id.0, id.1))
+        }
+    }
+
+    pub(crate) trait ConvertDebugInfoRef {
+        fn convert_unit_ref(&self, entry: read::UnitOffset) -> ConvertResult<UnitEntryId>;
+
+        fn convert_debug_info_ref(&self, entry: DebugInfoOffset) -> ConvertResult<DebugInfoRef>;
+    }
+
+    impl<'a, R: Reader<Offset = usize>> ConvertDebugInfoRef for ConvertUnitContext<'a, R> {
+        fn convert_unit_ref(&self, entry: read::UnitOffset) -> ConvertResult<UnitEntryId> {
+            ConvertUnitContext::convert_unit_ref(self, entry)
+        }
+
+        fn convert_debug_info_ref(&self, entry: DebugInfoOffset) -> ConvertResult<DebugInfoRef> {
+            ConvertUnitContext::convert_debug_info_ref(self, entry)
+        }
+    }
+
+    pub(crate) struct NoConvertDebugInfoRef;
+
+    impl ConvertDebugInfoRef for NoConvertDebugInfoRef {
+        fn convert_unit_ref(&self, _entry: read::UnitOffset) -> ConvertResult<UnitEntryId> {
+            Err(ConvertError::InvalidUnitRef)
+        }
+
+        fn convert_debug_info_ref(&self, _entry: DebugInfoOffset) -> ConvertResult<DebugInfoRef> {
+            Err(ConvertError::InvalidDebugInfoRef)
         }
     }
 }
