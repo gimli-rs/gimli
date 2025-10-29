@@ -434,6 +434,8 @@ pub enum Error {
     UnsupportedSegmentSize,
     /// A compilation unit or type unit is missing its top level DIE.
     MissingUnitDie,
+    /// A split DWARF section does not contain the split compilation unit.
+    MissingSplitUnit,
     /// A DIE attribute used an unsupported form.
     UnsupportedAttributeForm,
     /// Missing DW_LNCT_path in file entry format.
@@ -599,6 +601,9 @@ impl Error {
             Error::UnsupportedSegmentSize => "Nonzero segment size not supported yet",
             Error::MissingUnitDie => {
                 "A compilation unit or type unit is missing its top level DIE."
+            }
+            Error::MissingSplitUnit => {
+                "A split DWARF section does not contain the split compilation unit."
             }
             Error::UnsupportedAttributeForm => "A DIE attribute used an unsupported form.",
             Error::MissingFileEntryFormatPath => "Missing DW_LNCT_path in file entry format.",
