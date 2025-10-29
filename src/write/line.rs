@@ -1071,41 +1071,20 @@ mod convert {
             strings: &mut write::StringTable,
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<(LineProgram, Vec<FileId>)> {
-            let encoding = from_program.header().encoding();
-            let line_encoding = from_program.header().line_encoding();
-            let mut convert = ConvertLine::new(
+            let convert = ConvertLineProgram::new(
                 from_dwarf,
                 from_program,
                 None,
-                encoding,
-                line_encoding,
+                None,
+                None,
                 line_strings,
                 strings,
             )?;
-
-            while let Some(row) = convert.read_row()? {
-                match row {
-                    ConvertLineRow::SetAddress(address) => {
-                        let address =
-                            convert_address(address).ok_or(ConvertError::InvalidAddress)?;
-                        convert.set_address(address);
-                    }
-                    ConvertLineRow::Row(row) => {
-                        convert.generate_row(row);
-                    }
-                    ConvertLineRow::EndSequence(length) => {
-                        convert.end_sequence(length);
-                    }
-                }
-            }
-            if convert.in_sequence() {
-                return Err(ConvertError::MissingLineEndSequence);
-            }
-            Ok(convert.program())
+            convert.convert_all(convert_address)
         }
     }
 
-    /// The result of [`ConvertLine::read_row`].
+    /// The result of [`ConvertLineProgram::read_row`].
     #[derive(Debug, PartialEq, Eq)]
     pub enum ConvertLineRow {
         /// The address from a `DW_LNE_set_address` instruction.
@@ -1119,7 +1098,7 @@ mod convert {
         EndSequence(u64),
     }
 
-    /// The result of [`ConvertLine::read_sequence`].
+    /// The result of [`ConvertLineProgram::read_sequence`].
     #[derive(Debug, PartialEq, Eq)]
     pub struct ConvertLineSequence {
         /// The address of the first instruction in the given rows.
@@ -1159,42 +1138,39 @@ mod convert {
 
     /// The state for the conversion of a line number program.
     ///
-    /// After calling [`Dwarf::read_program`](write::Dwarf::read_program), you
-    /// may call either [`ConvertLine::read_row`] to read the next row, or
-    /// [`ConvertLine::read_sequence`] to read a sequence of rows.
+    /// After calling [`Dwarf::read_line_program`](crate::write::Dwarf::read_line_program),
+    /// you may call either [`ConvertLineProgram::read_row`] to read the next row, or
+    /// [`ConvertLineProgram::read_sequence`] to read a sequence of rows.
     ///
     /// If desired, you may transform the rows that are read. For example, it may be useful
     /// to modify the addresses of the rows to match a corresponding transformation of the
     /// machine instructions.
     ///
-    /// Next, you may call [`ConvertLine::set_address`], [`ConvertLine::generate_row`],
-    /// [`ConvertLine::end_sequence`] to update the converted line number program.
+    /// Next, you may call [`ConvertLineProgram::set_address`], [`ConvertLineProgram::generate_row`],
+    /// [`ConvertLineProgram::end_sequence`] to update the converted line number program.
     ///
-    /// Once all rows have been converted, you may call [`ConvertLine::program`] to
+    /// Once all rows have been converted, you may call [`ConvertLineProgram::program`] to
     /// obtain the converted program and a mapping for file indices.
     ///
     /// ## Example Usage
     ///
-    /// Convert a line program using [`ConvertLine::read_row`].
+    /// Convert a line program using [`ConvertLineProgram::read_row`].
     ///
     /// ```rust,no_run
-    /// use gimli::write::{Address, ConvertLine, ConvertLineRow};
+    /// use gimli::write::{Address, ConvertLineProgram, ConvertLineRow};
     /// # fn example() -> Result<(), gimli::write::ConvertError> {
     /// #    type Reader = gimli::read::EndianSlice<'static, gimli::LittleEndian>;
     /// #    let from_program: gimli::read::IncompleteLineProgram<Reader> = unimplemented!();
     /// #    let from_dwarf: gimli::read::Dwarf<_> = unimplemented!();
     /// let mut dwarf = gimli::write::Dwarf::new();
-    /// // Choose an encoding for the new program. This can copy the original encoding,
-    /// // or use a different one.
-    /// let encoding = from_program.header().encoding();
-    /// let line_encoding = from_program.header().line_encoding();
     /// // Start the conversion. This will convert the header, directories and files.
-    /// let mut convert = dwarf.read_program(
+    /// let mut convert = dwarf.read_line_program(
     ///     &from_dwarf,
     ///     from_program,
     ///     None,
-    ///     encoding,
-    ///     line_encoding,
+    ///     // Use the original encodings.
+    ///     None,
+    ///     None,
     /// )?;
     /// // Read and convert each row in the program.
     /// while let Some(row) = convert.read_row()? {
@@ -1219,7 +1195,7 @@ mod convert {
     /// # }
     /// ```
     #[derive(Debug)]
-    pub struct ConvertLine<'a, R: Reader> {
+    pub struct ConvertLineProgram<'a, R: Reader> {
         from_dwarf: &'a read::Dwarf<R>,
         from_program: read::IncompleteLineProgram<R>,
         from_row: read::LineRow,
@@ -1234,16 +1210,19 @@ mod convert {
         state: ConvertLineState,
     }
 
-    impl<'a, R: Reader + 'a> ConvertLine<'a, R> {
+    impl<'a, R: Reader + 'a> ConvertLineProgram<'a, R> {
         pub(crate) fn new(
             from_dwarf: &'a read::Dwarf<R>,
             from_program: read::IncompleteLineProgram<R>,
             mut from_comp_name: Option<R>,
-            encoding: Encoding,
-            line_encoding: LineEncoding,
+            encoding: Option<Encoding>,
+            line_encoding: Option<LineEncoding>,
             line_strings: &'a mut write::LineStringTable,
             strings: &'a mut write::StringTable,
         ) -> ConvertResult<Self> {
+            let encoding = encoding.unwrap_or(from_program.header().encoding());
+            let line_encoding = line_encoding.unwrap_or(from_program.header().line_encoding());
+
             // Create mappings in case the source has duplicate files or directories.
             let mut dirs = Vec::new();
             let mut files = Vec::new();
@@ -1338,7 +1317,7 @@ mod convert {
             // us preserve address relocations.
             let from_row = read::LineRow::new(from_program.header());
             let from_instructions = from_program.header().instructions();
-            Ok(ConvertLine {
+            Ok(ConvertLineProgram {
                 from_dwarf,
                 from_program,
                 from_row,
@@ -1396,7 +1375,7 @@ mod convert {
 
         /// Read the next row from the source program.
         ///
-        /// See [`ConvertLine`] for an example of how to add the row to the converted program.
+        /// See [`ConvertLineProgram`] for an example of how to add the row to the converted program.
         pub fn read_row(&mut self) -> ConvertResult<Option<ConvertLineRow>> {
             match self.state {
                 ConvertLineState::ReadRow => {}
@@ -1518,8 +1497,8 @@ mod convert {
         /// ## Example Usage
         ///
         /// ```rust,no_run
-        /// # use gimli::write::{Address, ConvertLine, ConvertLineSequenceEnd};
-        /// # fn example<R: gimli::Reader>(mut convert: ConvertLine<R>) -> Result<(), gimli::write::ConvertError> {
+        /// # use gimli::write::{Address, ConvertLineProgram, ConvertLineSequenceEnd};
+        /// # fn example<R: gimli::Reader>(mut convert: ConvertLineProgram<R>) -> Result<(), gimli::write::ConvertError> {
         /// // Read and convert each sequence in the program.
         /// while let Some(sequence) = convert.read_sequence()? {
         ///     if let Some(start) = sequence.start {
@@ -1610,6 +1589,37 @@ mod convert {
         /// For DWARF version <= 4, the entry at index 0 should not be used.
         pub fn program(self) -> (LineProgram, Vec<FileId>) {
             (self.program, self.files)
+        }
+
+        /// Convert the entire program.
+        ///
+        /// Returns the program and a mapping from source file index to `FileId`,
+        /// as for [`ConvertLineProgram::program`].
+        ///
+        /// See [`Dwarf::from`](crate::write::Dwarf::from) for the meaning of `convert_address`.
+        pub fn convert_all(
+            mut self,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
+        ) -> ConvertResult<(LineProgram, Vec<FileId>)> {
+            while let Some(row) = self.read_row()? {
+                match row {
+                    ConvertLineRow::SetAddress(address) => {
+                        let address =
+                            convert_address(address).ok_or(ConvertError::InvalidAddress)?;
+                        self.set_address(address);
+                    }
+                    ConvertLineRow::Row(row) => {
+                        self.generate_row(row);
+                    }
+                    ConvertLineRow::EndSequence(length) => {
+                        self.end_sequence(length);
+                    }
+                }
+            }
+            if self.in_sequence() {
+                return Err(ConvertError::MissingLineEndSequence);
+            }
+            Ok(self.program())
         }
     }
 }
@@ -1975,15 +1985,15 @@ mod tests {
                     let convert_program = &convert_unit.line_program;
                     assert_eq!(convert_program.instructions, expected_instructions);
 
-                    // Test ConvertLine::read_row.
+                    // Test ConvertLineProgram::read_row.
                     let mut convert_line_strings = LineStringTable::default();
                     let mut convert_strings = StringTable::default();
-                    let mut convert_line = ConvertLine::new(
+                    let mut convert_line = ConvertLineProgram::new(
                         &read_dwarf,
                         read_program.clone(),
                         None,
-                        read_program.header().encoding(),
-                        read_program.header().line_encoding(),
+                        None,
+                        None,
                         &mut convert_line_strings,
                         &mut convert_strings,
                     )
@@ -1994,15 +2004,15 @@ mod tests {
                     }
                     assert_eq!(convert_rows, expected_rows);
 
-                    // Test ConvertLine::read_sequence.
+                    // Test ConvertLineProgram::read_sequence.
                     let mut convert_line_strings = LineStringTable::default();
                     let mut convert_strings = StringTable::default();
-                    let mut convert_line = ConvertLine::new(
+                    let mut convert_line = ConvertLineProgram::new(
                         &read_dwarf,
                         read_program.clone(),
                         None,
-                        read_program.header().encoding(),
-                        read_program.header().line_encoding(),
+                        None,
+                        None,
                         &mut convert_line_strings,
                         &mut convert_strings,
                     )

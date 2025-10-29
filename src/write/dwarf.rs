@@ -119,7 +119,7 @@ pub(crate) mod convert {
     use super::*;
     use crate::common::LineEncoding;
     use crate::read::{self, Reader};
-    use crate::write::{Address, ConvertLine, ConvertResult};
+    use crate::write::{Address, ConvertLineProgram, ConvertResult};
 
     impl Dwarf {
         /// Create a `write::Dwarf` by converting a `read::Dwarf`.
@@ -148,10 +148,9 @@ pub(crate) mod convert {
 
         /// Start a new conversion of a line number program.
         ///
-        /// See [`ConvertLine`] for an example of how to use this.
-        ///
         /// `encoding` and `line_encoding` apply to the converted program, and
-        /// may be different from the source program.
+        /// may be different from the source program. If `None`, the encoding from
+        /// the source program is used.
         ///
         /// The working directory, source directory, and primary source file are taken from the
         /// source program header.
@@ -159,15 +158,17 @@ pub(crate) mod convert {
         /// passed to [`read::DebugLine::program`]. However, for split DWARF the line program
         /// is associated with a skeleton compilation unit which may not have the correct
         /// name. In this case, the name should be passed as `comp_name`.
-        pub fn read_program<'a, R: Reader<Offset = usize>>(
+        ///
+        /// See [`ConvertLineProgram`] for an example.
+        pub fn read_line_program<'a, R: Reader<Offset = usize>>(
             &'a mut self,
             dwarf: &'a read::Dwarf<R>,
             program: read::IncompleteLineProgram<R>,
             comp_name: Option<R>,
-            encoding: Encoding,
-            line_encoding: LineEncoding,
-        ) -> ConvertResult<ConvertLine<'a, R>> {
-            ConvertLine::new(
+            encoding: Option<Encoding>,
+            line_encoding: Option<LineEncoding>,
+        ) -> ConvertResult<ConvertLineProgram<'a, R>> {
+            ConvertLineProgram::new(
                 dwarf,
                 program,
                 comp_name,
