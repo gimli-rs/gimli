@@ -424,6 +424,11 @@ where
         self.length_including_self() - self.entries_buf.len()
     }
 
+    /// The unit offset of the root entry.
+    pub fn root_offset(&self) -> UnitOffset<Offset> {
+        UnitOffset(self.header_size())
+    }
+
     pub(crate) fn is_valid_offset(&self, offset: UnitOffset<Offset>) -> bool {
         let size_of_header = self.header_size();
         if offset.0 < size_of_header {
