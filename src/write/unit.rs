@@ -2374,10 +2374,6 @@ pub(crate) mod convert {
     ///     }
     ///     let root_id = unit.unit.root();
     ///     convert_attributes(&mut unit, root_id, &root_entry)?;
-    ///     // `skeleton_entry` is only present when `ConvertSplitUnitSection` is used.
-    ///     if let Some(skeleton_entry) = unit.read_skeleton_entry()? {
-    ///         convert_attributes(&mut unit, root_id, &skeleton_entry)?;
-    ///     }
     ///     while let Some((id, entry)) = unit.read_entry()? {
     ///         // `id` is `None` for DIEs that weren't reserved and thus don't need converting.
     ///         // This only happens when `FilterUnitSection` is used.
@@ -2451,7 +2447,6 @@ pub(crate) mod convert {
         ///     let split_dwarf = dwp.find_cu(dwo_id, skeleton_unit.dwarf)?.unwrap();
         ///     let mut convert_split = unit.convert_split(&split_dwarf)?;
         ///     let (split_unit, split_root_entry) = convert_split.read_unit()?;
-        ///     let skeleton_root_entry = split_unit.read_skeleton_entry()?.unwrap();
         ///     // Now you can convert the root entry attributes, and other entries.
         /// }
         /// # unreachable!()
@@ -2496,7 +2491,6 @@ pub(crate) mod convert {
         ///     }
         ///     let mut convert_split = unit.convert_split_with_filter(filter)?;
         ///     let (split_unit, split_root_entry) = convert_split.read_unit()?;
-        ///     let skeleton_root_entry = split_unit.read_skeleton_entry()?.unwrap();
         ///     // Now you can convert the root entry attributes, and other entries.
         /// }
         /// # unreachable!()
@@ -2552,34 +2546,6 @@ pub(crate) mod convert {
         ) {
             self.unit.line_program = line_program;
             self.line_program_files = line_program_files;
-        }
-
-        /// Read the root DIE of the skeleton unit if this is a split DWARF unit.
-        ///
-        /// This can be used to set additional attributes for the converted root DIE.
-        pub fn read_skeleton_entry(&mut self) -> ConvertResult<Option<ConvertUnitEntry<'a, R>>> {
-            let Some(from_unit) = self.from_skeleton_unit else {
-                return Ok(None);
-            };
-            let offset = from_unit.header.root_offset();
-
-            let mut from_entries = from_unit.entries_raw(None)?;
-            let Some(abbrev) = from_entries.read_abbreviation()? else {
-                // Null entry.
-                return Err(read::Error::NoEntryAtGivenOffset.into());
-            };
-
-            let mut entry = ConvertUnitEntry {
-                from_unit,
-                offset,
-                depth: 0,
-                tag: abbrev.tag(),
-                attrs: Vec::new(),
-                sibling: false,
-                parent: None,
-            };
-            entry.read_attributes(&mut from_entries, abbrev.attributes())?;
-            Ok(Some(entry))
         }
 
         /// Read the next DIE from the input.
