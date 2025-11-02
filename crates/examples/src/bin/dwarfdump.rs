@@ -554,17 +554,15 @@ where
     if flags.line {
         dump_line(w, &dwarf)?;
     }
+    if flags.addr {
+        dump_addr(w, &dwarf.debug_addr)?;
+    }
+    if flags.aranges {
+        dump_aranges(w, &dwarf.debug_aranges)?;
+    }
     if flags.pubnames {
         let debug_pubnames = &gimli::Section::load(load_section).unwrap();
         dump_pubnames(w, debug_pubnames, &dwarf.debug_info)?;
-    }
-    if flags.aranges {
-        let debug_aranges = &gimli::Section::load(load_section).unwrap();
-        dump_aranges(w, debug_aranges)?;
-    }
-    if flags.addr {
-        let debug_addr = &gimli::Section::load(load_section).unwrap();
-        dump_addr(w, debug_addr)?;
     }
     if flags.pubtypes {
         let debug_pubtypes = &gimli::Section::load(load_section).unwrap();
