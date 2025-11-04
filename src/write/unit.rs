@@ -210,6 +210,12 @@ impl Unit {
         }
     }
 
+    /// Set the encoding parameters for this unit.
+    #[inline]
+    pub fn set_encoding(&mut self, encoding: Encoding) {
+        self.encoding = encoding;
+    }
+
     /// Return the encoding parameters for this unit.
     #[inline]
     pub fn encoding(&self) -> Encoding {
@@ -250,9 +256,10 @@ impl Unit {
 
     /// Reserve a `DebuggingInformationEntry` in this unit and return its id.
     ///
-    /// # Panics
+    /// The id should be later passed to [`Self::add_reserved`].
     ///
-    /// Panics if `parent` is invalid.
+    /// This method is useful when you need an id to use for a reference to the
+    /// DIE prior to adding it.
     pub fn reserve(&mut self) -> UnitEntryId {
         DebuggingInformationEntry::new(
             self.base_id,
@@ -1870,7 +1877,7 @@ pub(crate) mod convert {
             match value {
                 read::AttributeValue::UnitRef(val) => {
                     // This checks that the offset is within bounds, but not that it refers to a valid DIE.
-                    if val.is_valid(&self.unit) {
+                    if val.is_in_bounds(&self.unit) {
                         self.deps
                             .add_edge(entry_offset, val.to_unit_section_offset(&self.unit));
                     }
@@ -1934,7 +1941,7 @@ pub(crate) mod convert {
                         offset: read::DieReference::UnitRef(offset),
                         ..
                     } => {
-                        if offset.is_valid(&self.unit) {
+                        if offset.is_in_bounds(&self.unit) {
                             self.deps
                                 .add_edge(entry_offset, offset.to_unit_section_offset(&self.unit));
                         }
@@ -1956,7 +1963,7 @@ pub(crate) mod convert {
         ///
         /// This can only be called for offsets within the current unit.
         pub fn require_entry(&mut self, offset: read::UnitOffset) {
-            debug_assert!(offset.is_valid(&self.unit));
+            debug_assert!(offset.is_in_bounds(&self.unit));
             self.deps
                 .require_entry(offset.to_unit_section_offset(&self.unit));
         }
@@ -2083,7 +2090,6 @@ pub(crate) mod convert {
         pub(crate) fn new(
             from_dwarf: &'a read::Dwarf<R>,
             dwarf: &'a mut Dwarf,
-            encoding: Option<Encoding>,
         ) -> ConvertResult<Self> {
             let mut convert = ConvertUnitSection {
                 from_dwarf,
@@ -2101,7 +2107,7 @@ pub(crate) mod convert {
             while let Some(from_unit) = from_units.next()? {
                 let from_unit = from_dwarf.unit(from_unit)?;
                 read_entry_offsets(&from_unit, &mut offsets)?;
-                convert.reserve_unit(from_unit, &offsets, encoding);
+                convert.reserve_unit(from_unit, &offsets);
             }
 
             Ok(convert)
@@ -2115,7 +2121,6 @@ pub(crate) mod convert {
         pub(crate) fn new_with_filter(
             dwarf: &'a mut Dwarf,
             filter: FilterUnitSection<'a, R>,
-            encoding: Option<Encoding>,
         ) -> ConvertResult<Self> {
             let mut convert = ConvertUnitSection {
                 from_dwarf: filter.dwarf,
@@ -2139,7 +2144,7 @@ pub(crate) mod convert {
                     }
                     end += 1;
                 }
-                convert.reserve_unit(from_unit, &offsets[start..end], encoding);
+                convert.reserve_unit(from_unit, &offsets[start..end]);
             }
             debug_assert_eq!(end, offsets.len());
 
@@ -2149,21 +2154,16 @@ pub(crate) mod convert {
         /// Create a placeholder for each entry in a unit.
         ///
         /// This allows us to assign IDs to entries before they are created.
-        fn reserve_unit(
-            &mut self,
-            from_unit: read::Unit<R>,
-            offsets: &[UnitSectionOffset],
-            encoding: Option<Encoding>,
-        ) {
+        fn reserve_unit(&mut self, from_unit: read::Unit<R>, offsets: &[UnitSectionOffset]) {
             let root_offset = from_unit
                 .header
                 .root_offset()
                 .to_unit_section_offset(&from_unit);
 
-            let unit_id = self.dwarf.units.add(Unit::new(
-                encoding.unwrap_or(from_unit.encoding()),
-                LineProgram::none(),
-            ));
+            let unit_id = self
+                .dwarf
+                .units
+                .add(Unit::new(from_unit.encoding(), LineProgram::none()));
             self.from_units.push((from_unit, unit_id));
             let unit = self.dwarf.units.get_mut(unit_id);
 
@@ -2364,7 +2364,7 @@ pub(crate) mod convert {
     /// # let loader = |name| -> Result<gimli::EndianSlice<gimli::RunTimeEndian>, gimli::Error> { unimplemented!() };
     /// let read_dwarf = gimli::read::Dwarf::load(loader)?;
     /// let mut write_dwarf = gimli::write::Dwarf::new();
-    /// let mut convert = write_dwarf.convert(&read_dwarf, None)?;
+    /// let mut convert = write_dwarf.convert(&read_dwarf)?;
     /// while let Some((mut unit, root_entry)) = convert.read_unit()? {
     ///     if let Some(convert_program) = unit.read_line_program(None, None)? {
     ///         let (program, files) = convert_program.convert_all(
@@ -2877,7 +2877,7 @@ pub(crate) mod convert {
         /// This conversion doesn't work for references from a skeleton unit,
         /// but those shouldn't occur in practice.
         pub fn convert_unit_ref(&self, entry: read::UnitOffset) -> ConvertResult<UnitEntryId> {
-            if !entry.is_valid(&self.from_unit) {
+            if !entry.is_in_bounds(&self.from_unit) {
                 return Err(ConvertError::InvalidUnitRef);
             }
             let id = self

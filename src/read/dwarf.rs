@@ -1633,9 +1633,9 @@ impl<T: ReaderOffset> UnitSectionOffset<T> {
 impl<T: ReaderOffset> UnitOffset<T> {
     /// Return true if this offset is within the entries of the given unit.
     ///
-    /// This only checks that the offset is within the unit entries, not that there is a
-    /// valid DIE at this offset.
-    pub fn is_valid<R>(&self, unit: &Unit<R>) -> bool
+    /// This only checks that the offset is within the range of the data for unit entries,
+    /// not that there is a valid DIE at this offset.
+    pub fn is_in_bounds<R>(&self, unit: &Unit<R>) -> bool
     where
         R: Reader<Offset = T>,
     {

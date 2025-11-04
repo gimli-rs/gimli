@@ -134,11 +134,12 @@ pub(crate) mod convert {
         ///
         /// `convert_address` should not be used for complex address transformations, as it
         /// will not be called for address offsets (such as in `DW_AT_high_pc`, line programs,
-        /// location lists, or range lists).
+        /// location lists, or range lists). If you need complex transformations, then you
+        /// need to use [`Dwarf::convert`] to enable you to transform the address offsets too.
         ///
         /// ## Example
         ///
-        /// Convert a DWARF section using `Dwarf::from`.
+        /// Convert DWARF sections using `Dwarf::from`.
         ///
         /// ```rust,no_run
         /// # fn example() -> Result<(), gimli::write::ConvertError> {
@@ -156,7 +157,7 @@ pub(crate) mod convert {
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<Dwarf> {
             let mut dwarf = Dwarf::default();
-            let mut convert = dwarf.convert(from_dwarf, None)?;
+            let mut convert = dwarf.convert(from_dwarf)?;
             while let Some((mut unit, root_entry)) = convert.read_unit()? {
                 if let Some(convert_program) = unit.read_line_program(None, None)? {
                     let (program, files) = convert_program.convert_all(convert_address)?;
@@ -183,7 +184,7 @@ pub(crate) mod convert {
         ///
         /// ## Example
         ///
-        /// Convert a DWARF section using `convert`.
+        /// Convert DWARF sections using `convert`.
         /// See [`ConvertUnit`](crate::write::ConvertUnit) for an example of the unit
         /// conversion.
         ///
@@ -192,20 +193,18 @@ pub(crate) mod convert {
         /// # let loader = |name| -> Result<gimli::EndianSlice<gimli::RunTimeEndian>, gimli::Error> { unimplemented!() };
         /// let read_dwarf = gimli::read::Dwarf::load(loader)?;
         /// let mut write_dwarf = gimli::write::Dwarf::new();
-        /// let mut convert = write_dwarf.convert(&read_dwarf, None)?;
+        /// let mut convert = write_dwarf.convert(&read_dwarf)?;
         /// while let Some((mut unit, root_entry)) = convert.read_unit()? {
         ///     // Now you can convert the root DIE attributes, and other DIEs.
         /// }
         /// # unreachable!()
         /// # }
         /// ```
-        // TODO: specify `encoding` per unit instead?
         pub fn convert<'a, R: Reader<Offset = usize>>(
             &'a mut self,
             dwarf: &'a read::Dwarf<R>,
-            encoding: Option<Encoding>,
         ) -> ConvertResult<ConvertUnitSection<'a, R>> {
-            ConvertUnitSection::new(dwarf, self, encoding)
+            ConvertUnitSection::new(dwarf, self)
         }
 
         /// Create a converter for some of the DIEs in the `.debug_info` section of the
@@ -237,7 +236,7 @@ pub(crate) mod convert {
         ///     }
         /// }
         /// let mut write_dwarf = gimli::write::Dwarf::new();
-        /// let mut convert = write_dwarf.convert_with_filter(filter, None)?;
+        /// let mut convert = write_dwarf.convert_with_filter(filter)?;
         /// while let Some((mut unit, root_entry)) = convert.read_unit()? {
         ///     // Now you can convert the root DIE attributes, and other DIEs.
         /// }
@@ -247,9 +246,8 @@ pub(crate) mod convert {
         pub fn convert_with_filter<'a, R: Reader<Offset = usize>>(
             &'a mut self,
             filter: FilterUnitSection<'a, R>,
-            encoding: Option<Encoding>,
         ) -> ConvertResult<ConvertUnitSection<'a, R>> {
-            ConvertUnitSection::new_with_filter(self, filter, encoding)
+            ConvertUnitSection::new_with_filter(self, filter)
         }
 
         /// Start a new conversion of a line number program.
