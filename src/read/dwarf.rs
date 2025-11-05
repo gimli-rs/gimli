@@ -1631,6 +1631,17 @@ impl<T: ReaderOffset> UnitSectionOffset<T> {
 }
 
 impl<T: ReaderOffset> UnitOffset<T> {
+    /// Return true if this offset is within the entries of the given unit.
+    ///
+    /// This only checks that the offset is within the range of the data for unit entries,
+    /// not that there is a valid DIE at this offset.
+    pub fn is_in_bounds<R>(&self, unit: &Unit<R>) -> bool
+    where
+        R: Reader<Offset = T>,
+    {
+        unit.header.is_valid_offset(*self)
+    }
+
     /// Convert an offset to be relative to the start of the .debug_info section,
     /// instead of relative to the start of the given compilation unit.
     ///

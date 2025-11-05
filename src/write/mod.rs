@@ -5,16 +5,17 @@
 //! This module works by building up a representation of the debugging information
 //! in memory, and then writing it all at once. It supports two major use cases:
 //!
-//! * Use the [`DwarfUnit`](./struct.DwarfUnit.html) type when writing DWARF
+//! * Use the [`DwarfUnit`] type when writing DWARF
 //!   for a single compilation unit.
 //!
-//! * Use the [`Dwarf`](./struct.Dwarf.html) type when writing DWARF for multiple
+//! * Use the [`Dwarf`] type when writing DWARF for multiple
 //!   compilation units.
 //!
 //! The module also supports reading in DWARF debugging information and writing it out
-//! again, possibly after modifying it. Create a [`read::Dwarf`](../read/struct.Dwarf.html)
-//! instance, and then use [`Dwarf::from`](./struct.Dwarf.html#method.from) to convert
-//! it to a writable instance.
+//! again, possibly after modifying it. Create a [`read::Dwarf`](crate::read::Dwarf)
+//! instance, and then use [`Dwarf::from`] to perform a simple conversion to a writable
+//! instance. [`Dwarf::convert`] or [`Dwarf::convert_with_filter`] can be used for
+//! more complex conversions.
 //!
 //! ## Example Usage
 //!
@@ -303,8 +304,6 @@ impl Default for BaseId {
 mod convert {
     use super::*;
     use crate::read;
-
-    pub(crate) use super::unit::convert::*;
 
     /// An error that occurred when converting a read value into a write value.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

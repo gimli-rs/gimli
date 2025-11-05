@@ -210,6 +210,12 @@ impl Unit {
         }
     }
 
+    /// Set the encoding parameters for this unit.
+    #[inline]
+    pub fn set_encoding(&mut self, encoding: Encoding) {
+        self.encoding = encoding;
+    }
+
     /// Return the encoding parameters for this unit.
     #[inline]
     pub fn encoding(&self) -> Encoding {
@@ -246,6 +252,37 @@ impl Unit {
     #[inline]
     pub fn root(&self) -> UnitEntryId {
         self.root
+    }
+
+    /// Reserve a `DebuggingInformationEntry` in this unit and return its id.
+    ///
+    /// The id should be later passed to [`Self::add_reserved`].
+    ///
+    /// This method is useful when you need an id to use for a reference to the
+    /// DIE prior to adding it.
+    pub fn reserve(&mut self) -> UnitEntryId {
+        DebuggingInformationEntry::new(
+            self.base_id,
+            &mut self.entries,
+            None,
+            constants::DW_TAG_null,
+        )
+    }
+
+    /// Set the parent and tag of a previously reserved `DebuggingInformationEntry`.
+    ///
+    /// The `parent` must be within the same unit.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `child` or `parent` is invalid, or if `child` is not a reserved entry.
+    pub fn add_reserved(&mut self, child: UnitEntryId, parent: UnitEntryId, tag: constants::DwTag) {
+        let entry = self.get_mut(child);
+        debug_assert_eq!(entry.parent, None);
+        debug_assert_eq!(entry.tag, constants::DW_TAG_null);
+        entry.parent = Some(parent);
+        entry.tag = tag;
+        self.get_mut(parent).children.push(child);
     }
 
     /// Add a new `DebuggingInformationEntry` to this unit and return its id.
@@ -1515,271 +1552,1130 @@ pub(crate) struct DebugInfoFixup {
 }
 
 #[cfg(feature = "read")]
+pub use convert::*;
+#[cfg(feature = "read")]
 pub(crate) mod convert {
     use super::*;
-    use crate::common::{DwoId, LocationListsOffset, RangeListsOffset, UnitSectionOffset};
+    use crate::common::{
+        DwoId, LineEncoding, LocationListsOffset, RangeListsOffset, UnitSectionOffset,
+    };
     use crate::read::{self, Reader};
-    use crate::write::{self, ConvertError, ConvertResult, LocationList, RangeList};
-    use std::collections::HashMap;
+    use crate::write::{
+        self, ConvertError, ConvertLineProgram, ConvertResult, Dwarf, LocationList, RangeList,
+    };
+    use std::collections::{HashMap, HashSet};
 
-    pub(crate) struct ConvertUnit<R: Reader<Offset = usize>> {
-        from_unit: read::Unit<R>,
-        base_id: BaseId,
-        encoding: Encoding,
-        entries: Vec<DebuggingInformationEntry>,
-        entry_offsets: Vec<read::UnitOffset>,
-        root: UnitEntryId,
+    #[derive(Debug, Default)]
+    struct FilterDependencies {
+        edges: HashMap<UnitSectionOffset, HashSet<UnitSectionOffset>>,
+        required: HashSet<UnitSectionOffset>,
     }
 
-    struct ConvertUnitContext<'a, R: Reader<Offset = usize>> {
-        pub unit: read::UnitRef<'a, R>,
-        pub line_strings: &'a mut write::LineStringTable,
-        pub strings: &'a mut write::StringTable,
-        pub ranges: &'a mut write::RangeListTable,
-        pub locations: &'a mut write::LocationListTable,
-        pub convert_address: &'a dyn Fn(u64) -> Option<Address>,
-        pub line_program_offset: Option<DebugLineOffset>,
-        pub line_program_files: Vec<FileId>,
-        pub entry_ids: &'a HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
-    }
-
-    impl UnitTable {
-        /// Create a unit table by reading the data in the given sections.
+    impl FilterDependencies {
+        /// Mark `entry` as a valid offset.
         ///
-        /// This also updates the given tables with the values that are referenced from
-        /// attributes in this section.
+        /// This must be called before adding an edge from an entry.
+        fn add_entry(&mut self, entry: UnitSectionOffset) {
+            debug_assert!(!self.edges.contains_key(&entry));
+            self.edges.insert(entry, HashSet::new());
+        }
+
+        /// If `from` is reachable then `to` is also reachable.
         ///
-        /// `convert_address` is a function to convert read addresses into the `Address`
-        /// type. For non-relocatable addresses, this function may simply return
-        /// `Address::Constant(address)`. For relocatable addresses, it is the caller's
-        /// responsibility to determine the symbol and addend corresponding to the address
-        /// and return `Address::Symbol { symbol, addend }`.
-        pub(crate) fn from<R: Reader<Offset = usize>>(
-            dwarf: &read::Dwarf<R>,
-            line_strings: &mut write::LineStringTable,
-            strings: &mut write::StringTable,
-            convert_address: &dyn Fn(u64) -> Option<Address>,
-        ) -> ConvertResult<UnitTable> {
-            let base_id = BaseId::default();
-            let mut unit_entries = Vec::new();
-            let mut entry_ids = HashMap::new();
+        /// Must have already called `add_entry(from)`.
+        ///
+        /// The edge will be ignored if `add_entry(to)` is never called
+        /// (either before or after).
+        fn add_edge(&mut self, from: UnitSectionOffset, to: UnitSectionOffset) {
+            self.edges.get_mut(&from).unwrap().insert(to);
+        }
 
-            let mut from_units = dwarf.units();
-            while let Some(from_unit) = from_units.next()? {
-                let unit_id = UnitId::new(base_id, unit_entries.len());
-                unit_entries.push(Unit::convert_entries(
-                    from_unit,
-                    unit_id,
-                    &mut entry_ids,
-                    dwarf,
-                )?);
+        /// Mark `entry` as reachable.
+        ///
+        /// This doesn't depend on `add_entry` being called for the entry
+        /// (but you probably should at some stage anyway).
+        fn require_entry(&mut self, entry: UnitSectionOffset) {
+            self.required.insert(entry);
+        }
+
+        /// Return a sorted list of all reachable entries.
+        fn get_reachable(&self) -> Vec<UnitSectionOffset> {
+            let mut reachable = self.required.clone();
+            let mut queue = Vec::new();
+            for i in self.required.iter() {
+                queue.push(*i);
             }
-
-            // Attributes must be converted in a separate pass so that we can handle
-            // references to other compilation units.
-            let mut units = Vec::new();
-            for unit_entries in unit_entries.drain(..) {
-                units.push(Unit::convert_attributes(
-                    unit_entries,
-                    &entry_ids,
-                    dwarf,
-                    line_strings,
-                    strings,
-                    convert_address,
-                )?);
+            while let Some(i) = queue.pop() {
+                if let Some(deps) = self.edges.get(&i) {
+                    for j in deps {
+                        if self.edges.contains_key(j) && reachable.insert(*j) {
+                            queue.push(*j);
+                        }
+                    }
+                }
             }
-
-            Ok(UnitTable { base_id, units })
+            let mut offsets: Vec<_> = reachable.into_iter().collect();
+            offsets.sort_unstable();
+            offsets
         }
     }
 
-    impl Unit {
-        /// Create a unit by reading the data in the input sections.
+    /// The state for identifying which DIEs in a `.debug_info` section
+    /// need to be converted.
+    ///
+    /// This is used to prune unneeded DIEs, and reserve IDs so that
+    /// DIE references can be converted.
+    ///
+    /// The user should call [`FilterUnitSection::read_unit`] and
+    /// [`FilterUnit::read_entry`] to traverse all DIEs in the section. Once there are
+    /// no more units, this state can be passed to [`Dwarf::convert_with_filter`] or
+    /// [`ConvertUnit::convert_split_with_filter`].
+    ///
+    /// ## Example
+    ///
+    /// Create a filter for the DIEs in a DWARF section.
+    ///
+    /// ```rust,no_run
+    /// # fn example() -> Result<(), gimli::write::ConvertError> {
+    /// # let loader = |name| -> Result<gimli::EndianSlice<gimli::RunTimeEndian>, gimli::Error> { unimplemented!() };
+    /// # let need_entry = &|entry: &gimli::write::FilterUnitEntry<_>| -> Result<bool, gimli::write::ConvertError> { Ok(false) };
+    /// let read_dwarf = gimli::read::Dwarf::load(loader)?;
+    /// let mut filter = gimli::write::FilterUnitSection::new(&read_dwarf)?;
+    /// while let Some(mut unit) = filter.read_unit()? {
+    ///     while let Some(entry) = unit.read_entry()? {
+    ///         if need_entry(&entry)? {
+    ///             unit.require_entry(entry.offset);
+    ///         }
+    ///     }
+    /// }
+    /// // `filter` can now be used to filter the DIEs during a conversion.
+    /// # unreachable!()
+    /// # }
+    /// ```
+    #[derive(Debug)]
+    pub struct FilterUnitSection<'a, R: Reader<Offset = usize>> {
+        dwarf: &'a read::Dwarf<R>,
+        unit_headers: read::DebugInfoUnitHeadersIter<R>,
+        skeleton_unit: Option<read::UnitRef<'a, R>>,
+        units: Vec<read::Unit<R>>,
+        deps: FilterDependencies,
+    }
+
+    impl<'a, R: Reader<Offset = usize>> FilterUnitSection<'a, R> {
+        /// Start parsing a `.debug_info` section.
         ///
-        /// Does not add entry attributes.
-        pub(crate) fn convert_entries<R: Reader<Offset = usize>>(
-            from_header: read::UnitHeader<R>,
-            unit_id: UnitId,
-            entry_ids: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
-            dwarf: &read::Dwarf<R>,
-        ) -> ConvertResult<ConvertUnit<R>> {
-            match from_header.type_() {
-                read::UnitType::Compilation => (),
-                _ => return Err(ConvertError::UnsupportedUnitType),
-            }
-            let base_id = BaseId::default();
-
-            let from_unit = dwarf.unit(from_header)?;
-            let encoding = from_unit.encoding();
-
-            let mut entries = Vec::new();
-            let mut entry_offsets = Vec::new();
-
-            let mut from_tree = from_unit.entries_tree(None)?;
-            let from_root = from_tree.root()?;
-            let root = DebuggingInformationEntry::convert_entry(
-                from_root,
-                &from_unit,
-                base_id,
-                &mut entries,
-                &mut entry_offsets,
-                entry_ids,
-                None,
-                unit_id,
-            )?;
-
-            Ok(ConvertUnit {
-                from_unit,
-                base_id,
-                encoding,
-                entries,
-                entry_offsets,
-                root,
+        /// ## Example
+        ///
+        /// ```rust,no_run
+        /// # fn example() -> Result<(), gimli::write::ConvertError> {
+        /// # let loader = |name| -> Result<gimli::EndianSlice<gimli::RunTimeEndian>, gimli::Error> { unimplemented!() };
+        /// let read_dwarf = gimli::read::Dwarf::load(loader)?;
+        /// let mut filter = gimli::write::FilterUnitSection::new(&read_dwarf)?;
+        /// # unreachable!()
+        /// # }
+        /// ```
+        pub fn new(dwarf: &'a read::Dwarf<R>) -> ConvertResult<Self> {
+            Ok(FilterUnitSection {
+                dwarf,
+                unit_headers: dwarf.units(),
+                skeleton_unit: None,
+                units: Vec::new(),
+                deps: FilterDependencies::default(),
             })
         }
 
-        /// Create entry attributes by reading the data in the input sections.
-        fn convert_attributes<R: Reader<Offset = usize>>(
-            unit: ConvertUnit<R>,
-            entry_ids: &HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
-            dwarf: &read::Dwarf<R>,
-            line_strings: &mut write::LineStringTable,
-            strings: &mut write::StringTable,
-            convert_address: &dyn Fn(u64) -> Option<Address>,
-        ) -> ConvertResult<Unit> {
-            let from_unit = unit.from_unit.unit_ref(dwarf);
+        /// Start parsing the `.debug_info` section for a split DWARF unit.
+        ///
+        /// ## Example
+        ///
+        /// ```rust,no_run
+        /// # fn example() -> Result<(), gimli::write::ConvertError> {
+        /// # let loader = |name| -> Result<gimli::EndianSlice<gimli::RunTimeEndian>, gimli::Error> { unimplemented!() };
+        /// # let skeleton_unit: gimli::UnitRef<'static, gimli::EndianSlice<gimli::RunTimeEndian>> = unimplemented!();
+        /// let dwp = gimli::read::DwarfPackage::load(loader, Default::default())?;
+        /// let dwo_id = skeleton_unit.dwo_id.unwrap();
+        /// let split_dwarf = dwp.find_cu(dwo_id, skeleton_unit.dwarf)?.unwrap();
+        /// let mut filter = gimli::write::FilterUnitSection::new_split(&split_dwarf, skeleton_unit)?;
+        /// # unreachable!()
+        /// # }
+        /// ```
+        pub fn new_split(
+            dwarf: &'a read::Dwarf<R>,
+            skeleton_unit: read::UnitRef<'a, R>,
+        ) -> ConvertResult<Self> {
+            Ok(FilterUnitSection {
+                dwarf,
+                unit_headers: dwarf.units(),
+                skeleton_unit: Some(skeleton_unit),
+                units: Vec::new(),
+                deps: FilterDependencies::default(),
+            })
+        }
 
-            let (line_program_offset, line_program, line_program_files) =
-                match from_unit.line_program {
-                    Some(ref from_program) => {
-                        let from_program = from_program.clone();
-                        let line_program_offset = from_program.header().offset();
-                        let (line_program, line_program_files) = LineProgram::from(
-                            from_program,
-                            dwarf,
-                            line_strings,
-                            strings,
-                            convert_address,
-                        )?;
-                        (Some(line_program_offset), line_program, line_program_files)
-                    }
-                    None => (None, LineProgram::none(), Vec::new()),
+        /// Read the next unit header and prepare to parse its DIEs.
+        pub fn read_unit(&'_ mut self) -> ConvertResult<Option<FilterUnit<'_, R>>> {
+            let Some(header) = self.unit_headers.next()? else {
+                return Ok(None);
+            };
+            let mut unit = self.dwarf.unit(header)?;
+            if let Some(skeleton_unit) = self.skeleton_unit {
+                unit.copy_relocated_attributes(&skeleton_unit);
+            }
+            self.units.push(unit);
+            let unit = self.units.last().unwrap().unit_ref(self.dwarf);
+
+            FilterUnit::new(unit, self.skeleton_unit, &mut self.deps).map(Some)
+        }
+    }
+
+    /// The state for identifying which DIEs in a `.debug_info` unit
+    /// need to be converted.
+    ///
+    /// This is created by [`FilterUnitSection::read_unit`].
+    ///
+    /// See [`FilterUnitSection`] for an example.
+    #[derive(Debug)]
+    pub struct FilterUnit<'a, R: Reader<Offset = usize>> {
+        /// The unit being read.
+        pub unit: read::UnitRef<'a, R>,
+        /// The skeleton unit being read if `unit` is a split unit.
+        pub skeleton_unit: Option<read::UnitRef<'a, R>>,
+        entries: read::EntriesRaw<'a, 'a, R>,
+        parents: Vec<FilterParent>,
+        deps: &'a mut FilterDependencies,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct FilterParent {
+        depth: isize,
+        offset: read::UnitOffset,
+        tag: constants::DwTag,
+    }
+
+    impl<'a, R: Reader<Offset = usize>> FilterUnit<'a, R> {
+        fn new(
+            unit: read::UnitRef<'a, R>,
+            skeleton_unit: Option<read::UnitRef<'a, R>>,
+            deps: &'a mut FilterDependencies,
+        ) -> ConvertResult<Self> {
+            let mut entries = unit.entries_raw(None)?;
+            let abbrev = entries
+                .read_abbreviation()?
+                .ok_or(read::Error::MissingUnitDie)?;
+            entries.skip_attributes(abbrev.attributes())?;
+            Ok(FilterUnit {
+                unit,
+                skeleton_unit,
+                entries,
+                parents: Vec::new(),
+                deps,
+            })
+        }
+
+        /// Read the next DIE.
+        ///
+        /// Returns `None` if the unit has no more DIEs.
+        ///
+        /// This also records dependencies for the DIE:
+        /// - the DIE always depends on its parent
+        /// - the parent may depend on the DIE
+        /// - the DIE depends on any DIEs that are referenced by its attributes
+        ///
+        /// The only task the user needs to perform is to call
+        /// [`FilterUnit::require_entry`] if the DIE is always required to be
+        /// converted. Typically, a DIE will be required if it has a valid address range.
+        pub fn read_entry(&mut self) -> ConvertResult<Option<FilterUnitEntry<'a, R>>> {
+            loop {
+                if self.entries.is_empty() {
+                    return Ok(None);
+                }
+
+                // Calculate offset and depth before reading the abbreviation code.
+                let offset = self.entries.next_offset();
+                let depth = self.entries.next_depth();
+
+                let Some(abbrev) = self.entries.read_abbreviation()? else {
+                    // Null entry.
+                    continue;
                 };
 
-            let mut ranges = RangeListTable::default();
-            let mut locations = LocationListTable::default();
+                while let Some(parent) = self.parents.last() {
+                    if parent.depth < depth {
+                        break;
+                    }
+                    self.parents.pop();
+                }
+                let parent = self.parents.last().copied();
 
-            let mut context = ConvertUnitContext {
-                entry_ids,
-                unit: from_unit,
-                line_strings,
-                strings,
-                ranges: &mut ranges,
-                locations: &mut locations,
-                convert_address,
-                line_program_offset,
-                line_program_files,
-            };
+                if abbrev.has_children() {
+                    self.parents.push(FilterParent {
+                        depth,
+                        offset,
+                        tag: abbrev.tag(),
+                    });
+                }
 
-            let mut entries = unit.entries;
-            for entry in &mut entries {
-                entry.convert_attributes(&mut context, &unit.entry_offsets)?;
+                let entry_offset = offset.to_unit_section_offset(&self.unit);
+                self.deps.add_entry(entry_offset);
+
+                let mut entry = FilterUnitEntry {
+                    unit: self.unit,
+                    offset,
+                    depth,
+                    tag: abbrev.tag(),
+                    attrs: Vec::new(),
+                    parent: parent.map(|p| p.offset),
+                    parent_tag: parent.map(|p| p.tag),
+                };
+                Self::read_attributes(&mut entry, &mut self.entries, abbrev.attributes())?;
+                for attr in &entry.attrs {
+                    self.add_attribute_refs(entry_offset, attr.value())?;
+                }
+                if let Some(parent) = parent {
+                    let parent_offset = parent.offset.to_unit_section_offset(&self.unit);
+                    self.deps.add_edge(entry_offset, parent_offset);
+                    if parent.tag != constants::DW_TAG_namespace && entry.has_die_back_edge() {
+                        self.deps.add_edge(parent_offset, entry_offset);
+                    }
+                }
+
+                return Ok(Some(entry));
             }
-
-            Ok(Unit {
-                base_id: unit.base_id,
-                encoding: unit.encoding,
-                line_program,
-                ranges,
-                locations,
-                entries,
-                root: unit.root,
-            })
-        }
-    }
-
-    impl DebuggingInformationEntry {
-        /// Create an entry by reading the data in the input sections.
-        ///
-        /// Does not add the entry attributes.
-        fn convert_entry<R: Reader<Offset = usize>>(
-            from: read::EntriesTreeNode<'_, '_, '_, R>,
-            from_unit: &read::Unit<R>,
-            base_id: BaseId,
-            entries: &mut Vec<DebuggingInformationEntry>,
-            entry_offsets: &mut Vec<read::UnitOffset>,
-            entry_ids: &mut HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
-            parent: Option<UnitEntryId>,
-            unit_id: UnitId,
-        ) -> ConvertResult<UnitEntryId> {
-            let from_entry = from.entry();
-            let id = DebuggingInformationEntry::new(base_id, entries, parent, from_entry.tag());
-            let offset = from_entry.offset();
-            entry_offsets.push(offset);
-            entry_ids.insert(offset.to_unit_section_offset(from_unit), (unit_id, id));
-
-            let mut from_children = from.children();
-            while let Some(from_child) = from_children.next()? {
-                DebuggingInformationEntry::convert_entry(
-                    from_child,
-                    from_unit,
-                    base_id,
-                    entries,
-                    entry_offsets,
-                    entry_ids,
-                    Some(id),
-                    unit_id,
-                )?;
-            }
-            Ok(id)
         }
 
-        /// Create an entry's attributes by reading the data in the input sections.
-        fn convert_attributes<R: Reader<Offset = usize>>(
-            &mut self,
-            context: &mut ConvertUnitContext<'_, R>,
-            entry_offsets: &[read::UnitOffset],
+        fn read_attributes(
+            entry: &mut FilterUnitEntry<'a, R>,
+            entries: &mut read::EntriesRaw<'_, '_, R>,
+            specs: &[read::AttributeSpecification],
         ) -> ConvertResult<()> {
-            let offset = entry_offsets[self.id.index];
-            let from = context.unit.entry(offset)?;
-            let mut from_attrs = from.attrs();
-            while let Some(from_attr) = from_attrs.next()? {
-                if from_attr.name() == constants::DW_AT_sibling {
-                    // This may point to a null entry, so we have to treat it differently.
-                    self.set_sibling(true);
-                } else if from_attr.name() == constants::DW_AT_GNU_locviews {
-                    // This is a GNU extension that is not supported, and is safe to ignore.
-                    // TODO: remove this when we support it.
-                } else if let Some(attr) = Attribute::from(context, &from_attr)? {
-                    self.set(attr.name, attr.value);
+            for spec in specs {
+                let attr = entries.read_attribute(*spec)?;
+                match attr.name() {
+                    // Skip DWARF metadata attributes.
+                    // TODO: should DWO attributes be conditionally kept?
+                    constants::DW_AT_sibling
+                    | constants::DW_AT_str_offsets_base
+                    | constants::DW_AT_addr_base
+                    | constants::DW_AT_rnglists_base
+                    | constants::DW_AT_loclists_base
+                    | constants::DW_AT_dwo_name
+                    | constants::DW_AT_GNU_addr_base
+                    | constants::DW_AT_GNU_ranges_base
+                    | constants::DW_AT_GNU_dwo_name
+                    | constants::DW_AT_GNU_dwo_id => {}
+                    _ => entry.attrs.push(attr),
                 }
             }
             Ok(())
         }
-    }
 
-    impl Attribute {
-        /// Create an attribute by reading the data in the given sections.
-        fn from<R: Reader<Offset = usize>>(
-            context: &mut ConvertUnitContext<'_, R>,
-            from: &read::Attribute<R>,
-        ) -> ConvertResult<Option<Attribute>> {
-            let value = AttributeValue::from(context, from.value())?;
-            Ok(value.map(|value| Attribute {
-                name: from.name(),
-                value,
-            }))
+        fn add_attribute_refs(
+            &mut self,
+            entry_offset: UnitSectionOffset,
+            value: read::AttributeValue<R>,
+        ) -> ConvertResult<()> {
+            match value {
+                read::AttributeValue::UnitRef(val) => {
+                    // This checks that the offset is within bounds, but not that it refers to a valid DIE.
+                    if val.is_in_bounds(&self.unit) {
+                        self.deps
+                            .add_edge(entry_offset, val.to_unit_section_offset(&self.unit));
+                    }
+                }
+                read::AttributeValue::DebugInfoRef(val) => {
+                    self.deps
+                        .add_edge(entry_offset, UnitSectionOffset::DebugInfoOffset(val));
+                }
+                read::AttributeValue::Exprloc(expression) => {
+                    self.add_expression_refs(entry_offset, expression.clone());
+                }
+                read::AttributeValue::LocationListsRef(val) => {
+                    self.add_location_refs(entry_offset, val)?;
+                }
+                read::AttributeValue::DebugLocListsIndex(index) => {
+                    self.add_location_refs(entry_offset, self.unit.locations_offset(index)?)?;
+                }
+                _ => (),
+            }
+            Ok(())
+        }
+
+        fn add_location_refs(
+            &mut self,
+            entry_offset: UnitSectionOffset,
+            offset: LocationListsOffset,
+        ) -> ConvertResult<()> {
+            let mut locations = self.unit.locations(offset)?;
+            while let Some(location) = locations.next()? {
+                self.add_expression_refs(entry_offset, location.data);
+            }
+            Ok(())
+        }
+
+        fn add_expression_refs(
+            &mut self,
+            entry_offset: UnitSectionOffset,
+            expression: read::Expression<R>,
+        ) {
+            let mut ops = expression.operations(self.unit.encoding());
+            // Ignore parsing errors. They can be handled in the conversion step.
+            while let Ok(Some(op)) = ops.next() {
+                match op {
+                    read::Operation::Deref {
+                        base_type: offset, ..
+                    }
+                    | read::Operation::RegisterOffset {
+                        base_type: offset, ..
+                    }
+                    | read::Operation::TypedLiteral {
+                        base_type: offset, ..
+                    }
+                    | read::Operation::Convert {
+                        base_type: offset, ..
+                    }
+                    | read::Operation::Reinterpret {
+                        base_type: offset, ..
+                    }
+                    | read::Operation::ParameterRef { offset, .. }
+                    | read::Operation::Call {
+                        offset: read::DieReference::UnitRef(offset),
+                        ..
+                    } => {
+                        if offset.is_in_bounds(&self.unit) {
+                            self.deps
+                                .add_edge(entry_offset, offset.to_unit_section_offset(&self.unit));
+                        }
+                    }
+                    read::Operation::Call {
+                        offset: read::DieReference::DebugInfoRef(ref_offset),
+                        ..
+                    } => {
+                        self.deps.add_edge(entry_offset, ref_offset.into());
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        /// Indicate that the DIE with the given offset is always required to be converted.
+        ///
+        /// Typically, this will be called if the DIE has a valid address range.
+        ///
+        /// This can only be called for offsets within the current unit.
+        pub fn require_entry(&mut self, offset: read::UnitOffset) {
+            debug_assert!(offset.is_in_bounds(&self.unit));
+            self.deps
+                .require_entry(offset.to_unit_section_offset(&self.unit));
         }
     }
 
-    impl AttributeValue {
-        /// Create an attribute value by reading the data in the given sections.
-        fn from<R: Reader<Offset = usize>>(
-            context: &mut ConvertUnitContext<'_, R>,
-            from: read::AttributeValue<R>,
-        ) -> ConvertResult<Option<AttributeValue>> {
-            let to = match from {
-                read::AttributeValue::Addr(val) => match (context.convert_address)(val) {
+    /// A DIE read by [`FilterUnit::read_entry`].
+    ///
+    /// See [`FilterUnitSection`] for an example.
+    #[derive(Debug)]
+    #[non_exhaustive]
+    pub struct FilterUnitEntry<'a, R: Reader<Offset = usize>> {
+        /// The unit that this DIE was read from.
+        ///
+        /// This may be a skeleton unit.
+        pub unit: read::UnitRef<'a, R>,
+        /// The offset of this DIE within the unit.
+        pub offset: read::UnitOffset,
+        /// The depth of this DIE in the tree.
+        ///
+        /// This may be useful for maintaining a stack of state corresponding to the
+        /// parent entries.
+        pub depth: isize,
+        /// The tag that was read for this DIE.
+        pub tag: constants::DwTag,
+        /// The attributes that were read for this DIE.
+        ///
+        /// This excludes attributes for DWARF metadata.
+        pub attrs: Vec<read::Attribute<R>>,
+        /// The offset of this DIE's parent, if any.
+        ///
+        /// This is set to `None` if the parent is the root of the unit.
+        pub parent: Option<read::UnitOffset>,
+        /// The tag of this DIE's parent, if any.
+        ///
+        /// This is set to `None` if the parent is the root of the unit.
+        pub parent_tag: Option<constants::DwTag>,
+    }
+
+    impl<'a, R: Reader<Offset = usize>> FilterUnitEntry<'a, R> {
+        /// Return `true` if this entry has an attribute with the given name.
+        pub fn has_attr(&self, name: constants::DwAt) -> bool {
+            self.attrs.iter().any(|attr| attr.name() == name)
+        }
+
+        /// Find the value of the first attribute with the given name.
+        pub fn attr_value(&self, name: constants::DwAt) -> Option<read::AttributeValue<R>> {
+            self.attrs
+                .iter()
+                .find(|attr| attr.name() == name)
+                .map(|attr| attr.value())
+        }
+
+        /// Return `true` if this DIE has a back-edge to its parent.
+        // DIEs can be broadly divided into three categories:
+        // 1. Extensions of their parents; effectively attributes: DW_TAG_variable, DW_TAG_member, etc.
+        // 2. Standalone entities referred to by other DIEs via 'reference' class attributes: types.
+        // 3. Structural entities that organize how the above relate to each other: namespaces.
+        // Here, we must make sure to return 'true' for DIEs in the first category since stripping them,
+        // provided their parent is alive, is always wrong. To be conservatively correct in the face
+        // of new/vendor tags, we maintain a "(mostly) known good" list of tags of the latter categories.
+        fn has_die_back_edge(&self) -> bool {
+            match self.tag {
+                constants::DW_TAG_array_type
+                | constants::DW_TAG_atomic_type
+                | constants::DW_TAG_base_type
+                | constants::DW_TAG_class_type
+                | constants::DW_TAG_const_type
+                | constants::DW_TAG_dwarf_procedure
+                | constants::DW_TAG_entry_point
+                | constants::DW_TAG_enumeration_type
+                | constants::DW_TAG_pointer_type
+                | constants::DW_TAG_ptr_to_member_type
+                | constants::DW_TAG_reference_type
+                | constants::DW_TAG_restrict_type
+                | constants::DW_TAG_rvalue_reference_type
+                | constants::DW_TAG_string_type
+                | constants::DW_TAG_structure_type
+                | constants::DW_TAG_typedef
+                | constants::DW_TAG_union_type
+                | constants::DW_TAG_unspecified_type
+                | constants::DW_TAG_volatile_type
+                | constants::DW_TAG_coarray_type
+                | constants::DW_TAG_common_block
+                | constants::DW_TAG_dynamic_type
+                | constants::DW_TAG_file_type
+                | constants::DW_TAG_immutable_type
+                | constants::DW_TAG_interface_type
+                | constants::DW_TAG_set_type
+                | constants::DW_TAG_shared_type
+                | constants::DW_TAG_subroutine_type
+                | constants::DW_TAG_packed_type
+                | constants::DW_TAG_template_alias
+                | constants::DW_TAG_namelist
+                | constants::DW_TAG_namespace
+                | constants::DW_TAG_imported_unit
+                | constants::DW_TAG_imported_declaration
+                | constants::DW_TAG_imported_module
+                | constants::DW_TAG_module => false,
+                constants::DW_TAG_subprogram => self.has_attr(constants::DW_AT_declaration),
+                _ => true,
+            }
+        }
+    }
+
+    /// The state for the conversion of a `.debug_info` section.
+    ///
+    /// Created by [`Dwarf::convert`] or [`Dwarf::convert_with_filter`].
+    #[derive(Debug)]
+    pub struct ConvertUnitSection<'a, R: Reader<Offset = usize>> {
+        from_dwarf: &'a read::Dwarf<R>,
+        from_units: Vec<(read::Unit<R>, UnitId)>,
+        /// The next unit in `from_units` to return from `read_unit`.
+        from_unit_index: usize,
+        /// The associated skeleton unit if this is a split DWARF section.
+        ///
+        /// If this is set then `from_units` will contain exactly one unit.
+        from_skeleton_unit: Option<read::UnitRef<'a, R>>,
+        entry_ids: HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
+        dwarf: &'a mut Dwarf,
+    }
+
+    impl<'a, R: Reader<Offset = usize>> ConvertUnitSection<'a, R> {
+        /// Create a converter for the `.debug_info` section of the given DWARF object.
+        pub(crate) fn new(
+            from_dwarf: &'a read::Dwarf<R>,
+            dwarf: &'a mut Dwarf,
+        ) -> ConvertResult<Self> {
+            let mut convert = ConvertUnitSection {
+                from_dwarf,
+                from_units: Vec::new(),
+                from_unit_index: 0,
+                from_skeleton_unit: None,
+                entry_ids: HashMap::new(),
+                dwarf,
+            };
+
+            // Assigns ids to all units and entries, so that we can convert
+            // references in attributes.
+            let mut offsets = Vec::new();
+            let mut from_units = from_dwarf.units();
+            while let Some(from_unit) = from_units.next()? {
+                let from_unit = from_dwarf.unit(from_unit)?;
+                read_entry_offsets(&from_unit, &mut offsets)?;
+                convert.reserve_unit(from_unit, &offsets);
+            }
+
+            Ok(convert)
+        }
+
+        /// Create a converter for the `.debug_info` section of the given DWARF object.
+        ///
+        /// Only reachable entries identified by `filter` will be reserved.
+        ///
+        /// Units with no reachable entries will be skipped.
+        pub(crate) fn new_with_filter(
+            dwarf: &'a mut Dwarf,
+            filter: FilterUnitSection<'a, R>,
+        ) -> ConvertResult<Self> {
+            let mut convert = ConvertUnitSection {
+                from_dwarf: filter.dwarf,
+                from_units: Vec::new(),
+                from_unit_index: 0,
+                from_skeleton_unit: filter.skeleton_unit,
+                entry_ids: HashMap::new(),
+                dwarf,
+            };
+
+            let offsets = filter.deps.get_reachable();
+
+            // Reserve all filtered entries.
+            let mut start;
+            let mut end = 0;
+            for from_unit in filter.units {
+                start = end;
+                while let Some(offset) = offsets.get(end) {
+                    if offset.to_unit_offset(&from_unit).is_none() {
+                        break;
+                    }
+                    end += 1;
+                }
+                convert.reserve_unit(from_unit, &offsets[start..end]);
+            }
+            debug_assert_eq!(end, offsets.len());
+
+            Ok(convert)
+        }
+
+        /// Create a placeholder for each entry in a unit.
+        ///
+        /// This allows us to assign IDs to entries before they are created.
+        fn reserve_unit(&mut self, from_unit: read::Unit<R>, offsets: &[UnitSectionOffset]) {
+            let root_offset = from_unit
+                .header
+                .root_offset()
+                .to_unit_section_offset(&from_unit);
+
+            let unit_id = self
+                .dwarf
+                .units
+                .add(Unit::new(from_unit.encoding(), LineProgram::none()));
+            self.from_units.push((from_unit, unit_id));
+            let unit = self.dwarf.units.get_mut(unit_id);
+
+            self.entry_ids.insert(root_offset, (unit_id, unit.root()));
+            for offset in offsets {
+                self.entry_ids.insert(*offset, (unit_id, unit.reserve()));
+            }
+        }
+
+        /// Read the next unit header and prepare to convert it.
+        ///
+        /// Returns a `ConvertUnit` for the unit, and a `ConvertUnitEntry` for the root
+        /// DIE.
+        ///
+        /// See [`ConvertUnit`] for an example of the unit conversion.
+        pub fn read_unit(
+            &mut self,
+        ) -> ConvertResult<Option<(ConvertUnit<'_, R>, ConvertUnitEntry<'_, R>)>> {
+            let Some((from_unit, unit_id)) = self.from_units.get(self.from_unit_index) else {
+                return Ok(None);
+            };
+            self.from_unit_index += 1;
+
+            let from_unit = from_unit.unit_ref(self.from_dwarf);
+
+            let mut unit = ConvertUnit {
+                from_unit,
+                from_skeleton_unit: self.from_skeleton_unit,
+                unit_id: *unit_id,
+                unit: self.dwarf.units.get_mut(*unit_id),
+                entry_ids: &self.entry_ids,
+                line_strings: &mut self.dwarf.line_strings,
+                strings: &mut self.dwarf.strings,
+                line_program_files: Vec::new(),
+                from_entries: from_unit.entries_raw(None)?,
+                parents: Vec::new(),
+            };
+            let (_id, entry) = unit.read_entry()?.ok_or(read::Error::MissingUnitDie)?;
+            Ok(Some((unit, entry)))
+        }
+    }
+
+    /// The state for the conversion of a split `.debug_info` section.
+    ///
+    /// Created by [`ConvertUnit::convert_split`] or
+    /// [`ConvertUnit::convert_split_with_filter`].
+    #[derive(Debug)]
+    pub struct ConvertSplitUnitSection<'a, R: Reader<Offset = usize>> {
+        from_dwarf: &'a read::Dwarf<R>,
+        from_unit: read::Unit<R>,
+        from_skeleton_unit: read::UnitRef<'a, R>,
+        entry_ids: HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
+        unit_id: UnitId,
+        unit: &'a mut write::Unit,
+        line_strings: &'a mut write::LineStringTable,
+        strings: &'a mut write::StringTable,
+    }
+
+    impl<'a, R: Reader<Offset = usize>> ConvertSplitUnitSection<'a, R> {
+        fn new(
+            skeleton: &'a mut ConvertUnit<'a, R>,
+            split_dwarf: &'a read::Dwarf<R>,
+        ) -> ConvertResult<Self> {
+            debug_assert!(skeleton.from_skeleton_unit.is_none());
+
+            let split_unit_header = split_dwarf
+                .units()
+                .next()?
+                .ok_or(read::Error::MissingSplitUnit)?;
+            let mut split_unit = split_dwarf.unit(split_unit_header)?;
+            split_unit.copy_relocated_attributes(&skeleton.from_unit);
+
+            let mut offsets = Vec::new();
+            read_entry_offsets(&split_unit, &mut offsets)?;
+
+            Self::new_with_offsets(skeleton, split_dwarf, split_unit, offsets)
+        }
+
+        fn new_with_filter(
+            skeleton: &'a mut ConvertUnit<'a, R>,
+            filter: FilterUnitSection<'a, R>,
+        ) -> ConvertResult<Self> {
+            debug_assert!(skeleton.from_skeleton_unit.is_none());
+
+            let split_unit = filter
+                .units
+                .into_iter()
+                .next()
+                .ok_or(read::Error::MissingSplitUnit)?;
+
+            let offsets = filter.deps.get_reachable();
+
+            Self::new_with_offsets(skeleton, filter.dwarf, split_unit, offsets)
+        }
+
+        fn new_with_offsets(
+            skeleton: &'a mut ConvertUnit<'a, R>,
+            split_dwarf: &'a read::Dwarf<R>,
+            split_unit: read::Unit<R>,
+            offsets: Vec<UnitSectionOffset>,
+        ) -> ConvertResult<Self> {
+            let root_offset = split_unit
+                .header
+                .root_offset()
+                .to_unit_section_offset(&split_unit);
+
+            // Replace the unit that was reserved for the skeleton unit.
+            let unit_id = skeleton.unit_id;
+            let unit = &mut *skeleton.unit;
+
+            let mut entry_ids = HashMap::new();
+            entry_ids.insert(root_offset, (unit_id, unit.root()));
+            for offset in offsets {
+                entry_ids.insert(offset, (unit_id, unit.reserve()));
+            }
+
+            Ok(ConvertSplitUnitSection {
+                from_dwarf: split_dwarf,
+                from_unit: split_unit,
+                from_skeleton_unit: skeleton.from_unit,
+                entry_ids,
+                unit_id,
+                unit,
+                line_strings: skeleton.line_strings,
+                strings: skeleton.strings,
+            })
+        }
+
+        /// Read the split unit header and prepare to convert it.
+        ///
+        /// Returns a `ConvertUnit` for the unit, and a `ConvertUnitEntry` for the root
+        /// DIE.
+        ///
+        /// See [`ConvertUnit`] for an example of the unit conversion.
+        pub fn read_unit(
+            &'_ mut self,
+        ) -> ConvertResult<(ConvertUnit<'_, R>, ConvertUnitEntry<'_, R>)> {
+            let from_unit = self.from_unit.unit_ref(self.from_dwarf);
+
+            let mut unit = ConvertUnit {
+                from_unit,
+                from_skeleton_unit: Some(self.from_skeleton_unit),
+                unit_id: self.unit_id,
+                unit: self.unit,
+                entry_ids: &self.entry_ids,
+                line_strings: self.line_strings,
+                strings: self.strings,
+                line_program_files: Vec::new(),
+                from_entries: from_unit.entries_raw(None)?,
+                parents: Vec::new(),
+            };
+            let (_id, entry) = unit.read_entry()?.ok_or(read::Error::MissingUnitDie)?;
+            Ok((unit, entry))
+        }
+    }
+
+    /// Read entry offsets for a unit.
+    ///
+    /// `offsets` is cleared first, allowing reuse of the allocation.
+    ///
+    /// Does not include the root entry.
+    fn read_entry_offsets<R: Reader<Offset = usize>>(
+        unit: &read::Unit<R>,
+        offsets: &mut Vec<UnitSectionOffset>,
+    ) -> ConvertResult<()> {
+        let mut from_entries = unit.entries_raw(None)?;
+
+        // The root entry is skipped because write::Unit always creates a root entry.
+        let abbrev = from_entries
+            .read_abbreviation()?
+            .ok_or(read::Error::MissingUnitDie)?;
+        from_entries.skip_attributes(abbrev.attributes())?;
+
+        offsets.clear();
+        while !from_entries.is_empty() {
+            let offset = from_entries.next_offset();
+            let Some(abbrev) = from_entries.read_abbreviation()? else {
+                continue;
+            };
+            from_entries.skip_attributes(abbrev.attributes())?;
+            offsets.push(offset.to_unit_section_offset(unit));
+        }
+
+        Ok(())
+    }
+
+    /// The state for the conversion of a `.debug_info` unit.
+    ///
+    /// This is created by [`ConvertUnitSection::read_unit`] or
+    /// [`ConvertSplitUnitSection::read_unit`].
+    ///
+    /// ## Example
+    ///
+    /// Convert a unit.
+    ///
+    /// ```rust,no_run
+    /// # fn example() -> Result<(), gimli::write::ConvertError> {
+    /// # let loader = |name| -> Result<gimli::EndianSlice<gimli::RunTimeEndian>, gimli::Error> { unimplemented!() };
+    /// let read_dwarf = gimli::read::Dwarf::load(loader)?;
+    /// let mut write_dwarf = gimli::write::Dwarf::new();
+    /// let mut convert = write_dwarf.convert(&read_dwarf)?;
+    /// while let Some((mut unit, root_entry)) = convert.read_unit()? {
+    ///     if let Some(convert_program) = unit.read_line_program(None, None)? {
+    ///         let (program, files) = convert_program.convert_all(
+    ///             &|address| Some(gimli::write::Address::Constant(address)),
+    ///         )?;
+    ///         unit.set_line_program(program, files);
+    ///     }
+    ///     let root_id = unit.unit.root();
+    ///     convert_attributes(&mut unit, root_id, &root_entry)?;
+    ///     while let Some((id, entry)) = unit.read_entry()? {
+    ///         // `id` is `None` for DIEs that weren't reserved and thus don't need converting.
+    ///         // This only happens when `FilterUnitSection` is used.
+    ///         if id.is_none() {
+    ///             continue;
+    ///         }
+    ///         let id = unit.add_entry(id, &entry);
+    ///         convert_attributes(&mut unit, id, &entry)?;
+    ///     }
+    /// }
+    ///
+    /// fn convert_attributes<R: gimli::Reader<Offset = usize>>(
+    ///     unit: &mut gimli::write::ConvertUnit<'_, R>,
+    ///     id: gimli::write::UnitEntryId,
+    ///     entry: &gimli::write::ConvertUnitEntry<'_, R>,
+    /// ) -> gimli::write::ConvertResult<()> {
+    ///     for attr in &entry.attrs {
+    ///         let value = unit.convert_attribute_value(
+    ///             entry.from_unit,
+    ///             attr.name(),
+    ///             attr.value(),
+    ///             &|address| Some(gimli::write::Address::Constant(address)),
+    ///         )?;
+    ///         unit.unit.get_mut(id).set(attr.name(), value);
+    ///     }
+    ///     Ok(())
+    /// }
+    /// # unreachable!()
+    /// # }
+    /// ```
+    #[derive(Debug)]
+    pub struct ConvertUnit<'a, R: Reader<Offset = usize>> {
+        /// The unit being read from.
+        pub from_unit: read::UnitRef<'a, R>,
+        /// The skeleton unit being read from if `from_unit` is a split unit.
+        pub from_skeleton_unit: Option<read::UnitRef<'a, R>>,
+        unit_id: UnitId,
+        /// The unit being written to.
+        pub unit: &'a mut write::Unit,
+        /// The table containing converted line strings.
+        pub line_strings: &'a mut write::LineStringTable,
+        /// The table containing converted strings.
+        pub strings: &'a mut write::StringTable,
+        line_program_files: Vec<FileId>,
+        entry_ids: &'a HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
+        from_entries: read::EntriesRaw<'a, 'a, R>,
+        parents: Vec<(isize, UnitEntryId)>,
+    }
+
+    impl<'a, R: Reader<Offset = usize>> ConvertUnit<'a, R> {
+        /// Create a converter for all DIEs in a split DWARF unit and its skeleton unit.
+        ///
+        /// `split_dwarf` is the unit's contribution to the DWARF sections
+        /// in a `DwarfPackage`, or the DWARF sections in a DWO file.
+        ///
+        /// ## Example
+        ///
+        /// Convert a split DWARF unit using `convert_split`.
+        ///
+        /// ```rust,no_run
+        /// # fn example() -> Result<(), gimli::write::ConvertError> {
+        /// # let loader = |name| -> Result<gimli::EndianSlice<gimli::RunTimeEndian>, gimli::Error> { unimplemented!() };
+        /// # let skeleton_unit: gimli::UnitRef<'static, gimli::EndianSlice<gimli::RunTimeEndian>> = unimplemented!();
+        /// let dwp = gimli::read::DwarfPackage::load(loader, Default::default())?;
+        /// let mut convert: gimli::write::ConvertUnitSection<_> = unimplemented!();
+        /// while let Some((mut unit, root_entry)) = convert.read_unit()? {
+        ///     let Some(dwo_id) = unit.from_unit.dwo_id else {
+        ///         // Not a split unit. Handling omitted for this example.
+        ///         continue;
+        ///     };
+        ///     let split_dwarf = dwp.find_cu(dwo_id, skeleton_unit.dwarf)?.unwrap();
+        ///     let mut convert_split = unit.convert_split(&split_dwarf)?;
+        ///     let (split_unit, split_root_entry) = convert_split.read_unit()?;
+        ///     // Now you can convert the root entry attributes, and other entries.
+        /// }
+        /// # unreachable!()
+        /// # }
+        /// ```
+        pub fn convert_split(
+            &'a mut self,
+            split_dwarf: &'a read::Dwarf<R>,
+        ) -> ConvertResult<ConvertSplitUnitSection<'a, R>> {
+            ConvertSplitUnitSection::new(self, split_dwarf)
+        }
+
+        /// Create a converter for some of the  DIEs in a split DWARF unit and its skeleton unit.
+        ///
+        /// `filter` determines which DIEs are converted. This can be created using
+        /// [`FilterUnitSection::new_split`].
+        ///
+        /// ## Example
+        ///
+        /// Convert a split DWARF unit using `convert_split_with_filter`.
+        ///
+        /// ```rust,no_run
+        /// # fn example() -> Result<(), gimli::write::ConvertError> {
+        /// # let loader = |name| -> Result<gimli::EndianSlice<gimli::RunTimeEndian>, gimli::Error> { unimplemented!() };
+        /// # let need_entry = &|entry: &gimli::write::FilterUnitEntry<_>| -> Result<bool, gimli::write::ConvertError> { Ok(false) };
+        /// # let skeleton_unit: gimli::UnitRef<'static, gimli::EndianSlice<gimli::RunTimeEndian>> = unimplemented!();
+        /// let dwp = gimli::read::DwarfPackage::load(loader, Default::default())?;
+        /// let mut convert: gimli::write::ConvertUnitSection<_> = unimplemented!();
+        /// while let Some((mut unit, root_entry)) = convert.read_unit()? {
+        ///     let Some(dwo_id) = unit.from_unit.dwo_id else {
+        ///         // Not a split unit. Handling omitted for this example.
+        ///         continue;
+        ///     };
+        ///     let split_dwarf = dwp.find_cu(dwo_id, skeleton_unit.dwarf)?.unwrap();
+        ///     let mut filter = gimli::write::FilterUnitSection::new_split(&split_dwarf, unit.from_unit)?;
+        ///     while let Some(mut unit) = filter.read_unit()? {
+        ///         while let Some(entry) = unit.read_entry()? {
+        ///             if need_entry(&entry)? {
+        ///                 unit.require_entry(entry.offset);
+        ///             }
+        ///         }
+        ///     }
+        ///     let mut convert_split = unit.convert_split_with_filter(filter)?;
+        ///     let (split_unit, split_root_entry) = convert_split.read_unit()?;
+        ///     // Now you can convert the root entry attributes, and other entries.
+        /// }
+        /// # unreachable!()
+        /// # }
+        /// ```
+        pub fn convert_split_with_filter(
+            &'a mut self,
+            filter: FilterUnitSection<'a, R>,
+        ) -> ConvertResult<ConvertSplitUnitSection<'a, R>> {
+            ConvertSplitUnitSection::new_with_filter(self, filter)
+        }
+
+        /// Start converting the line number program for this unit.
+        ///
+        /// `encoding` and `line_encoding` apply to the converted program, and
+        /// may be different from the source program. If `None`, the encoding from
+        /// the source program is used.
+        ///
+        /// Returns `Ok(None)` if there is no line number program for this unit.
+        ///
+        /// See [`ConvertLineProgram`] for an example of converting the program.
+        pub fn read_line_program(
+            &'_ mut self,
+            encoding: Option<Encoding>,
+            line_encoding: Option<LineEncoding>,
+        ) -> ConvertResult<Option<ConvertLineProgram<'_, R>>> {
+            let from_unit = self.from_skeleton_unit.unwrap_or(self.from_unit);
+            let Some(from_program) = &from_unit.line_program else {
+                return Ok(None);
+            };
+            ConvertLineProgram::new(
+                from_unit.dwarf,
+                from_program.clone(),
+                // If the program is in a skeleton unit, then pass the name from the split unit.
+                self.from_skeleton_unit
+                    .and_then(|_| self.from_unit.name.clone()),
+                encoding,
+                line_encoding,
+                self.line_strings,
+                self.strings,
+            )
+            .map(Some)
+        }
+
+        /// Sets the converted line program for the unit, and the mapping for converting
+        /// file index attributes.
+        ///
+        /// The parameters are from the result of [`ConvertLineProgram::program`].
+        pub fn set_line_program(
+            &mut self,
+            line_program: LineProgram,
+            line_program_files: Vec<FileId>,
+        ) {
+            self.unit.line_program = line_program;
+            self.line_program_files = line_program_files;
+        }
+
+        /// Read the next DIE from the input.
+        ///
+        /// Returns the `UnitEntryId` that was reserved for the entry, if any. If you wish
+        /// to use this ID, you must call [`Unit::add_reserved`] or [`ConvertUnit::add_entry`].
+        ///
+        /// Returns a [`ConvertUnitEntry`] containing information about the DIE and its
+        /// attributes.
+        ///
+        /// Returns `Ok(None)` if there are no more entries.
+        // TODO: allow reuse of `ConvertUnitEntry` to avoid allocations?
+        pub fn read_entry(
+            &mut self,
+        ) -> ConvertResult<Option<(Option<UnitEntryId>, ConvertUnitEntry<'a, R>)>> {
+            loop {
+                if self.from_entries.is_empty() {
+                    return Ok(None);
+                }
+
+                // Calculate offset and depth before reading the abbreviation code.
+                let offset = self.from_entries.next_offset();
+                let depth = self.from_entries.next_depth();
+
+                let Some(abbrev) = self.from_entries.read_abbreviation()? else {
+                    // Null entry.
+                    continue;
+                };
+
+                let section_offset = offset.to_unit_section_offset(&self.from_unit);
+                let id = self.entry_ids.get(&section_offset).map(|entry| entry.1);
+
+                let mut parent = None;
+                while let Some((parent_depth, parent_id)) = self.parents.last().copied() {
+                    if parent_depth < depth {
+                        parent = Some(parent_id);
+                        break;
+                    }
+                    self.parents.pop();
+                }
+
+                if let Some(id) = id {
+                    if abbrev.has_children() {
+                        self.parents.push((depth, id));
+                    }
+                }
+
+                let mut entry = ConvertUnitEntry {
+                    from_unit: self.from_unit,
+                    offset,
+                    depth,
+                    tag: abbrev.tag(),
+                    attrs: Vec::new(),
+                    sibling: false,
+                    parent,
+                };
+                entry.read_attributes(&mut self.from_entries, abbrev.attributes())?;
+                return Ok(Some((id, entry)));
+            }
+        }
+
+        /// Add an entry to the converted unit.
+        ///
+        /// The tag, parent, and `DW_AT_sibling` attribute are set using the
+        /// fields of `entry`. No other attributes are copied.
+        ///
+        /// `id` is the entry ID that was reserved, if any. This is usually the ID that
+        /// was returned by [`ConvertUnit::read_entry`]. [`Unit::add_reserved`] will
+        /// automatically be called for this ID. If not specified then a new ID is
+        /// created.
+        ///
+        /// Returns the ID of the entry (either reserved or newly created).
+        pub fn add_entry(
+            &mut self,
+            id: Option<UnitEntryId>,
+            entry: &ConvertUnitEntry<'_, R>,
+        ) -> UnitEntryId {
+            let parent = entry.parent.unwrap_or(self.unit.root());
+            match id {
+                Some(id) => {
+                    self.unit.add_reserved(id, parent, entry.tag);
+                    self.unit.get_mut(id).set_sibling(entry.sibling);
+                    id
+                }
+                None => {
+                    let id = self.unit.add(parent, entry.tag);
+                    self.unit.get_mut(id).set_sibling(entry.sibling);
+                    id
+                }
+            }
+        }
+
+        pub(crate) fn convert_attributes(
+            &mut self,
+            id: UnitEntryId,
+            entry: &ConvertUnitEntry<'_, R>,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
+        ) -> ConvertResult<()> {
+            for attr in &entry.attrs {
+                if attr.name() == constants::DW_AT_GNU_locviews {
+                    // This is a GNU extension that is not supported, and is safe to ignore.
+                    // TODO: remove this when we support it.
+                } else {
+                    let value = self.convert_attribute_value(
+                        entry.from_unit,
+                        attr.name(),
+                        attr.value(),
+                        convert_address,
+                    )?;
+                    self.unit.get_mut(id).set(attr.name(), value);
+                }
+            }
+            Ok(())
+        }
+
+        /// Convert an attribute value.
+        ///
+        /// [`Self::set_line_program`] must be called before converting
+        /// file index attributes.
+        ///
+        /// See [`Dwarf::from`](crate::write::Dwarf::from) for the meaning of `convert_address`.
+        pub fn convert_attribute_value(
+            &mut self,
+            from_unit: read::UnitRef<'_, R>,
+            name: constants::DwAt,
+            value: read::AttributeValue<R>,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
+        ) -> ConvertResult<AttributeValue> {
+            Ok(match value {
+                read::AttributeValue::Addr(val) => match (convert_address)(val) {
                     Some(val) => AttributeValue::Address(val),
                     None => return Err(ConvertError::InvalidAddress),
                 },
@@ -1792,101 +2688,92 @@ pub(crate) mod convert {
                 read::AttributeValue::Sdata(val) => AttributeValue::Sdata(val),
                 read::AttributeValue::Udata(val) => AttributeValue::Udata(val),
                 read::AttributeValue::Exprloc(expression) => {
-                    let expression = Expression::from(
-                        expression,
-                        context.unit.encoding(),
-                        Some(context.unit),
-                        context.convert_address,
-                        context,
-                    )?;
+                    if name == constants::DW_AT_vtable_elem_location {
+                        let bytecode = expression.0.to_slice()?;
+                        if bytecode.first().copied() == Some(constants::DW_OP_constu.0) {
+                            // This is a vtable index. We must preserve the DW_OP_constu
+                            // operation because gdb checks for it.
+                            // `convert_expression` is unsuitable because it may convert
+                            // to something like DW_OP_lit0.
+                            return Ok(AttributeValue::Exprloc(Expression::raw(bytecode.to_vec())));
+                        }
+                    }
+                    let expression =
+                        self.convert_expression(from_unit, expression, convert_address)?;
                     AttributeValue::Exprloc(expression)
                 }
                 // TODO: it would be nice to preserve the flag form.
                 read::AttributeValue::Flag(val) => AttributeValue::Flag(val),
-                read::AttributeValue::DebugAddrBase(_base) => {
-                    // We convert all address indices to addresses,
-                    // so this is unneeded.
-                    return Ok(None);
-                }
                 read::AttributeValue::DebugAddrIndex(index) => {
-                    let val = context.unit.address(index)?;
-                    match (context.convert_address)(val) {
+                    let val = from_unit.address(index)?;
+                    match convert_address(val) {
                         Some(val) => AttributeValue::Address(val),
                         None => return Err(ConvertError::InvalidAddress),
                     }
                 }
                 read::AttributeValue::UnitRef(val) => {
-                    AttributeValue::UnitRef(context.convert_unit_ref(val)?)
+                    // TODO: must not be in the skeleton unit
+                    AttributeValue::UnitRef(self.convert_unit_ref(val)?)
                 }
                 read::AttributeValue::DebugInfoRef(val) => {
-                    AttributeValue::DebugInfoRef(context.convert_debug_info_ref(val)?)
+                    // TODO: must not be in the skeleton unit
+                    AttributeValue::DebugInfoRef(self.convert_debug_info_ref(val)?)
                 }
                 read::AttributeValue::DebugInfoRefSup(val) => AttributeValue::DebugInfoRefSup(val),
                 read::AttributeValue::DebugLineRef(val) => {
-                    // There should only be the line program in the CU DIE which we've already
-                    // converted, so check if it matches that.
-                    if Some(val) == context.line_program_offset {
-                        AttributeValue::LineProgramRef
-                    } else {
+                    // There should only be a ref to the line program in the CU DIE.
+                    if Some(val)
+                        != from_unit
+                            .line_program
+                            .as_ref()
+                            .map(|program| program.header().offset())
+                    {
                         return Err(ConvertError::InvalidLineRef);
-                    }
+                    };
+                    AttributeValue::LineProgramRef
                 }
                 read::AttributeValue::DebugMacinfoRef(val) => AttributeValue::DebugMacinfoRef(val),
                 read::AttributeValue::DebugMacroRef(val) => AttributeValue::DebugMacroRef(val),
                 read::AttributeValue::LocationListsRef(val) => {
-                    let loc_list = context.convert_location_list(val)?;
-                    let loc_id = context.locations.add(loc_list);
+                    let loc_list = self.convert_location_list(from_unit, val, convert_address)?;
+                    let loc_id = self.unit.locations.add(loc_list);
                     AttributeValue::LocationListRef(loc_id)
                 }
-                read::AttributeValue::DebugLocListsBase(_base) => {
-                    // We convert all location list indices to offsets,
-                    // so this is unneeded.
-                    return Ok(None);
-                }
                 read::AttributeValue::DebugLocListsIndex(index) => {
-                    let offset = context.unit.locations_offset(index)?;
-                    let loc_list = context.convert_location_list(offset)?;
-                    let loc_id = context.locations.add(loc_list);
+                    let offset = from_unit.locations_offset(index)?;
+                    let loc_list =
+                        self.convert_location_list(from_unit, offset, convert_address)?;
+                    let loc_id = self.unit.locations.add(loc_list);
                     AttributeValue::LocationListRef(loc_id)
                 }
                 read::AttributeValue::RangeListsRef(offset) => {
-                    let offset = context.unit.ranges_offset_from_raw(offset);
-                    let range_list = context.convert_range_list(offset)?;
-                    let range_id = context.ranges.add(range_list);
+                    let offset = from_unit.ranges_offset_from_raw(offset);
+                    let range_list = self.convert_range_list(from_unit, offset, convert_address)?;
+                    let range_id = self.unit.ranges.add(range_list);
                     AttributeValue::RangeListRef(range_id)
                 }
-                read::AttributeValue::DebugRngListsBase(_base) => {
-                    // We convert all range list indices to offsets,
-                    // so this is unneeded.
-                    return Ok(None);
-                }
                 read::AttributeValue::DebugRngListsIndex(index) => {
-                    let offset = context.unit.ranges_offset(index)?;
-                    let range_list = context.convert_range_list(offset)?;
-                    let range_id = context.ranges.add(range_list);
+                    let offset = from_unit.ranges_offset(index)?;
+                    let range_list = self.convert_range_list(from_unit, offset, convert_address)?;
+                    let range_id = self.unit.ranges.add(range_list);
                     AttributeValue::RangeListRef(range_id)
                 }
                 read::AttributeValue::DebugTypesRef(val) => AttributeValue::DebugTypesRef(val),
                 read::AttributeValue::DebugStrRef(offset) => {
-                    let r = context.unit.string(offset)?;
-                    let id = context.strings.add(r.to_slice()?);
+                    let r = from_unit.string(offset)?;
+                    let id = self.strings.add(r.to_slice()?);
                     AttributeValue::StringRef(id)
                 }
                 read::AttributeValue::DebugStrRefSup(val) => AttributeValue::DebugStrRefSup(val),
-                read::AttributeValue::DebugStrOffsetsBase(_base) => {
-                    // We convert all string offsets to `.debug_str` references,
-                    // so this is unneeded.
-                    return Ok(None);
-                }
                 read::AttributeValue::DebugStrOffsetsIndex(index) => {
-                    let offset = context.unit.string_offset(index)?;
-                    let r = context.unit.string(offset)?;
-                    let id = context.strings.add(r.to_slice()?);
+                    let offset = from_unit.string_offset(index)?;
+                    let r = from_unit.string(offset)?;
+                    let id = self.strings.add(r.to_slice()?);
                     AttributeValue::StringRef(id)
                 }
                 read::AttributeValue::DebugLineStrRef(offset) => {
-                    let r = context.unit.line_string(offset)?;
-                    let id = context.line_strings.add(r.to_slice()?);
+                    let r = from_unit.line_string(offset)?;
+                    let id = self.line_strings.add(r.to_slice()?);
                     AttributeValue::LineStringRef(id)
                 }
                 read::AttributeValue::String(r) => AttributeValue::String(r.to_slice()?.into()),
@@ -1905,51 +2792,109 @@ pub(crate) mod convert {
                 read::AttributeValue::Inline(val) => AttributeValue::Inline(val),
                 read::AttributeValue::Ordering(val) => AttributeValue::Ordering(val),
                 read::AttributeValue::FileIndex(val) => {
-                    if val == 0 && context.unit.encoding().version <= 4 {
-                        AttributeValue::FileIndex(None)
-                    } else {
-                        match context.line_program_files.get(val as usize) {
-                            Some(id) => AttributeValue::FileIndex(Some(*id)),
-                            None => return Err(ConvertError::InvalidFileIndex),
-                        }
-                    }
+                    AttributeValue::FileIndex(self.convert_file_index(from_unit, val)?)
                 }
+                read::AttributeValue::DwoId(DwoId(val)) => AttributeValue::Udata(val),
                 // Should always be a more specific section reference.
                 read::AttributeValue::SecOffset(_) => {
                     return Err(ConvertError::InvalidAttributeValue);
                 }
-                read::AttributeValue::DwoId(DwoId(val)) => AttributeValue::Udata(val),
-            };
-            Ok(Some(to))
+                // These are only used for metadata attributes, and should have
+                // been skipped already.
+                read::AttributeValue::DebugAddrBase(_)
+                | read::AttributeValue::DebugLocListsBase(_)
+                | read::AttributeValue::DebugRngListsBase(_)
+                | read::AttributeValue::DebugStrOffsetsBase(_) => {
+                    return Err(ConvertError::InvalidAttributeValue);
+                }
+            })
         }
-    }
 
-    impl<'a, R: Reader<Offset = usize>> ConvertUnitContext<'a, R> {
-        fn convert_location_list(
+        /// Convert an expression.
+        ///
+        /// See [`Dwarf::from`](crate::write::Dwarf::from) for the meaning of `convert_address`.
+        pub fn convert_expression(
             &self,
+            from_unit: read::UnitRef<'_, R>,
+            expression: read::Expression<R>,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
+        ) -> ConvertResult<Expression> {
+            Expression::from(
+                expression,
+                from_unit.encoding(),
+                Some(from_unit),
+                convert_address,
+                self,
+            )
+        }
+
+        /// Convert a file index from a `DW_AT_decl_file` or similar attribute.
+        ///
+        /// [`Self::set_line_program`] must be called before converting
+        /// file index attributes.
+        pub fn convert_file_index(
+            &self,
+            from_unit: read::UnitRef<'_, R>,
+            index: u64,
+        ) -> ConvertResult<Option<FileId>> {
+            if index == 0 && from_unit.encoding().version <= 4 {
+                return Ok(None);
+            }
+            match self.line_program_files.get(index as usize) {
+                Some(id) => Ok(Some(*id)),
+                None => Err(ConvertError::InvalidFileIndex),
+            }
+        }
+
+        /// Convert a location list.
+        ///
+        /// See [`Dwarf::from`](crate::write::Dwarf::from) for the meaning of `convert_address`.
+        pub fn convert_location_list(
+            &self,
+            from_unit: read::UnitRef<'_, R>,
             offset: LocationListsOffset,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<LocationList> {
-            let iter = self.unit.raw_locations(offset)?;
-            LocationList::from(iter, self.unit, self.convert_address, self)
+            let iter = from_unit.raw_locations(offset)?;
+            LocationList::from(iter, from_unit, convert_address, self)
         }
 
-        fn convert_range_list(&self, offset: RangeListsOffset) -> ConvertResult<RangeList> {
-            let iter = self.unit.raw_ranges(offset)?;
-            RangeList::from(iter, self.unit, self.convert_address)
+        /// Convert a range list.
+        ///
+        /// See [`Dwarf::from`](crate::write::Dwarf::from) for the meaning of `convert_address`.
+        pub fn convert_range_list(
+            &self,
+            from_unit: read::UnitRef<'_, R>,
+            offset: RangeListsOffset,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
+        ) -> ConvertResult<RangeList> {
+            let iter = from_unit.raw_ranges(offset)?;
+            RangeList::from(iter, from_unit, convert_address)
         }
 
-        fn convert_unit_ref(&self, entry: read::UnitOffset) -> ConvertResult<UnitEntryId> {
-            if !self.unit.header.is_valid_offset(entry) {
+        /// Convert a reference to an entry in the same unit.
+        ///
+        /// This conversion doesn't work for references from a skeleton unit,
+        /// but those shouldn't occur in practice.
+        pub fn convert_unit_ref(&self, entry: read::UnitOffset) -> ConvertResult<UnitEntryId> {
+            if !entry.is_in_bounds(&self.from_unit) {
                 return Err(ConvertError::InvalidUnitRef);
             }
             let id = self
                 .entry_ids
-                .get(&entry.to_unit_section_offset(&self.unit))
+                .get(&entry.to_unit_section_offset(&self.from_unit))
                 .ok_or(ConvertError::InvalidUnitRef)?;
             Ok(id.1)
         }
 
-        fn convert_debug_info_ref(&self, entry: DebugInfoOffset) -> ConvertResult<DebugInfoRef> {
+        /// Convert a `.debug_info` reference.
+        ///
+        /// This conversion doesn't work for references from a skeleton unit,
+        /// but those shouldn't occur in practice.
+        pub fn convert_debug_info_ref(
+            &self,
+            entry: DebugInfoOffset,
+        ) -> ConvertResult<DebugInfoRef> {
             // TODO: support relocation of this value
             let id = self
                 .entry_ids
@@ -1959,19 +2904,120 @@ pub(crate) mod convert {
         }
     }
 
+    /// A DIE read by [`ConvertUnit::read_entry`].
+    #[derive(Debug)]
+    #[non_exhaustive]
+    pub struct ConvertUnitEntry<'a, R: Reader<Offset = usize>> {
+        /// The unit that this DIE was read from.
+        ///
+        /// This may be a skeleton unit.
+        pub from_unit: read::UnitRef<'a, R>,
+        /// The offset of this DIE within the unit.
+        pub offset: read::UnitOffset,
+        /// The depth of this DIE in the tree.
+        ///
+        /// This may be useful for maintaining a stack of state corresponding to the
+        /// parent entries.
+        pub depth: isize,
+        /// The tag that was read for this DIE.
+        pub tag: constants::DwTag,
+        /// The attributes that were read for this DIE.
+        ///
+        /// This excludes attributes for DWARF metadata.
+        pub attrs: Vec<read::Attribute<R>>,
+        /// True if the `DW_AT_sibling` attribute was present.
+        pub sibling: bool,
+        /// The id of the entry that was reserved for this DIE's parent, if any.
+        ///
+        /// You may ignore this value if you wish to use a different parent.
+        /// This is set to `None` if the parent is unknown or is the root DIE.
+        pub parent: Option<UnitEntryId>,
+    }
+
+    impl<'a, R: Reader<Offset = usize>> ConvertUnitEntry<'a, R> {
+        /// Read the DIE at the given offset.
+        ///
+        /// This does not affect the state of the reader.
+        /// The returned entry will not have a valid `depth` or `parent`.
+        /// This may be used for entries that were not filtered or reserved.
+        ///
+        /// Returns an error if there is no entry at the given offset.
+        pub fn read(
+            from_unit: read::UnitRef<'a, R>,
+            offset: read::UnitOffset,
+        ) -> ConvertResult<ConvertUnitEntry<'a, R>> {
+            let mut from_entries = from_unit.entries_raw(Some(offset))?;
+            let Some(abbrev) = from_entries.read_abbreviation()? else {
+                // Null entry.
+                return Err(read::Error::NoEntryAtGivenOffset.into());
+            };
+
+            let mut entry = ConvertUnitEntry {
+                from_unit,
+                offset,
+                depth: 0,
+                tag: abbrev.tag(),
+                attrs: Vec::new(),
+                sibling: false,
+                parent: None,
+            };
+            entry.read_attributes(&mut from_entries, abbrev.attributes())?;
+            Ok(entry)
+        }
+
+        fn read_attributes(
+            &mut self,
+            from_entries: &mut read::EntriesRaw<'_, '_, R>,
+            specs: &[read::AttributeSpecification],
+        ) -> ConvertResult<()> {
+            for spec in specs {
+                let attr = from_entries.read_attribute(*spec)?;
+                match attr.name() {
+                    // This may point to a null entry, so we have to treat it differently.
+                    constants::DW_AT_sibling => self.sibling = true,
+                    // Skip DWARF metadata attributes.
+                    // TODO: should DWO attributes be conditionally kept?
+                    constants::DW_AT_str_offsets_base
+                    | constants::DW_AT_addr_base
+                    | constants::DW_AT_rnglists_base
+                    | constants::DW_AT_loclists_base
+                    | constants::DW_AT_dwo_name
+                    | constants::DW_AT_GNU_addr_base
+                    | constants::DW_AT_GNU_ranges_base
+                    | constants::DW_AT_GNU_dwo_name
+                    | constants::DW_AT_GNU_dwo_id => {}
+                    _ => self.attrs.push(attr),
+                }
+            }
+            Ok(())
+        }
+
+        /// Return `true` if this entry has an attribute with the given name.
+        pub fn has_attr(&self, name: constants::DwAt) -> bool {
+            self.attrs.iter().any(|attr| attr.name() == name)
+        }
+
+        /// Find the value of the first attribute with the given name.
+        pub fn attr_value(&self, name: constants::DwAt) -> Option<read::AttributeValue<R>> {
+            self.attrs
+                .iter()
+                .find(|attr| attr.name() == name)
+                .map(|attr| attr.value())
+        }
+    }
+
     pub(crate) trait ConvertDebugInfoRef {
         fn convert_unit_ref(&self, entry: read::UnitOffset) -> ConvertResult<UnitEntryId>;
-
         fn convert_debug_info_ref(&self, entry: DebugInfoOffset) -> ConvertResult<DebugInfoRef>;
     }
 
-    impl<'a, R: Reader<Offset = usize>> ConvertDebugInfoRef for ConvertUnitContext<'a, R> {
+    impl<'a, R: Reader<Offset = usize>> ConvertDebugInfoRef for ConvertUnit<'a, R> {
         fn convert_unit_ref(&self, entry: read::UnitOffset) -> ConvertResult<UnitEntryId> {
-            ConvertUnitContext::convert_unit_ref(self, entry)
+            ConvertUnit::convert_unit_ref(self, entry)
         }
 
         fn convert_debug_info_ref(&self, entry: DebugInfoOffset) -> ConvertResult<DebugInfoRef> {
-            ConvertUnitContext::convert_debug_info_ref(self, entry)
+            ConvertUnit::convert_debug_info_ref(self, entry)
         }
     }
 

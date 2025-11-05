@@ -1060,30 +1060,6 @@ mod convert {
     use crate::read::{self, Reader};
     use crate::write::{self, ConvertError, ConvertResult};
 
-    impl LineProgram {
-        /// Create a line number program by reading the data from the given program.
-        ///
-        /// Return the program and a mapping from file index to `FileId`.
-        pub(crate) fn from<R: Reader<Offset = usize>>(
-            from_program: read::IncompleteLineProgram<R>,
-            from_dwarf: &read::Dwarf<R>,
-            line_strings: &mut write::LineStringTable,
-            strings: &mut write::StringTable,
-            convert_address: &dyn Fn(u64) -> Option<Address>,
-        ) -> ConvertResult<(LineProgram, Vec<FileId>)> {
-            let convert = ConvertLineProgram::new(
-                from_dwarf,
-                from_program,
-                None,
-                None,
-                None,
-                line_strings,
-                strings,
-            )?;
-            convert.convert_all(convert_address)
-        }
-    }
-
     /// The result of [`ConvertLineProgram::read_row`].
     #[derive(Debug, PartialEq, Eq)]
     pub enum ConvertLineRow {
@@ -1139,6 +1115,7 @@ mod convert {
     /// The state for the conversion of a line number program.
     ///
     /// After calling [`Dwarf::read_line_program`](crate::write::Dwarf::read_line_program),
+    /// or [`ConvertUnit::read_line_program`](write::ConvertUnit::read_line_program),
     /// you may call either [`ConvertLineProgram::read_row`] to read the next row, or
     /// [`ConvertLineProgram::read_sequence`] to read a sequence of rows.
     ///
@@ -1167,7 +1144,6 @@ mod convert {
     /// let mut convert = dwarf.read_line_program(
     ///     &from_dwarf,
     ///     from_program,
-    ///     None,
     ///     // Use the original encodings.
     ///     None,
     ///     None,
