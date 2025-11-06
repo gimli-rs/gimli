@@ -40,6 +40,10 @@ name = "simple_convert"
 required-features = ["read", "write"]
 
 [[bin]]
+name = "convert"
+required-features = ["read", "write", "std"]
+
+[[bin]]
 name = "dwarfdump"
 required-features = ["read", "std", "fallible-iterator"]
 
