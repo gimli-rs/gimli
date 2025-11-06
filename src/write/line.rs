@@ -6,8 +6,7 @@ use crate::common::{DebugLineOffset, Encoding, Format, LineEncoding, SectionId};
 use crate::constants;
 use crate::leb128;
 use crate::write::{
-    Address, DebugLineStrOffsets, DebugStrOffsets, Error, LineStringId, LineStringTable, Result,
-    Section, StringId, StringTable, Writer,
+    Address, Error, LineStringId, LineStringTable, Result, Section, StringId, StringTable, Writer,
 };
 
 /// The number assigned to the first special opcode.
@@ -528,8 +527,8 @@ impl LineProgram {
         &self,
         w: &mut DebugLine<W>,
         encoding: Encoding,
-        debug_line_str_offsets: &DebugLineStrOffsets,
-        debug_str_offsets: &DebugStrOffsets,
+        line_strings: &mut LineStringTable,
+        strings: &mut StringTable,
     ) -> Result<DebugLineOffset> {
         assert!(!self.is_none());
 
@@ -586,8 +585,8 @@ impl LineProgram {
                     w,
                     constants::DW_FORM_string,
                     self.encoding,
-                    debug_line_str_offsets,
-                    debug_str_offsets,
+                    line_strings,
+                    strings,
                 )?;
             }
             w.write_u8(0)?;
@@ -597,8 +596,8 @@ impl LineProgram {
                     w,
                     constants::DW_FORM_string,
                     self.encoding,
-                    debug_line_str_offsets,
-                    debug_str_offsets,
+                    line_strings,
+                    strings,
                 )?;
                 w.write_uleb128(dir.0 as u64)?;
                 w.write_uleb128(info.timestamp)?;
@@ -615,13 +614,7 @@ impl LineProgram {
             // Directory entries.
             w.write_uleb128(self.directories.len() as u64)?;
             for dir in self.directories.iter() {
-                dir.write(
-                    w,
-                    dir_form,
-                    self.encoding,
-                    debug_line_str_offsets,
-                    debug_str_offsets,
-                )?;
+                dir.write(w, dir_form, self.encoding, line_strings, strings)?;
             }
 
             // File name entry formats.
@@ -653,20 +646,6 @@ impl LineProgram {
                 .iter()
                 .find_map(|file| file.1.source.as_ref().map(LineString::form))
                 .unwrap_or(constants::DW_FORM_string);
-            // Create a string to use for files with no source.
-            // Note: An empty DW_LNCT_LLVM_source is interpreted as missing
-            // source code. Included source code should always be
-            // terminated by a "\n" line ending.
-            let file_source_empty = match file_source_form {
-                // If any file source is set, then `get_empty` will succeed.
-                // If all are missing then `file_source_form` will be `DW_FORM_string`.
-                constants::DW_FORM_line_strp => debug_line_str_offsets
-                    .get_empty()
-                    .map(LineString::LineStringRef),
-                constants::DW_FORM_strp => debug_str_offsets.get_empty().map(LineString::StringRef),
-                _ => None,
-            }
-            .unwrap_or(LineString::String(Vec::new()));
             if self.file_has_source {
                 w.write_uleb128(u64::from(constants::DW_LNCT_LLVM_source.0))?;
                 w.write_uleb128(file_source_form.0.into())?;
@@ -675,13 +654,7 @@ impl LineProgram {
             // File name entries.
             w.write_uleb128(self.files.len() as u64)?;
             let mut write_file = |file: &LineString, dir: DirectoryId, info: &FileInfo| {
-                file.write(
-                    w,
-                    file_form,
-                    self.encoding,
-                    debug_line_str_offsets,
-                    debug_str_offsets,
-                )?;
+                file.write(w, file_form, self.encoding, line_strings, strings)?;
                 w.write_uleb128(dir.0 as u64)?;
                 if self.file_has_timestamp {
                     w.write_uleb128(info.timestamp)?;
@@ -693,14 +666,22 @@ impl LineProgram {
                     w.write(&info.md5)?;
                 }
                 if self.file_has_source {
-                    let source = info.source.as_ref().unwrap_or(&file_source_empty);
-                    source.write(
-                        w,
-                        file_source_form,
-                        self.encoding,
-                        debug_line_str_offsets,
-                        debug_str_offsets,
-                    )?;
+                    if let Some(source) = info.source.as_ref() {
+                        source.write(w, file_source_form, self.encoding, line_strings, strings)?;
+                    } else {
+                        // Create a string to use for files with no source.
+                        // Note: An empty DW_LNCT_LLVM_source is interpreted as missing
+                        // source code. Included source code should always be
+                        // terminated by a "\n" line ending.
+                        let source = match file_source_form {
+                            constants::DW_FORM_line_strp => {
+                                LineString::LineStringRef(line_strings.add(&[]))
+                            }
+                            constants::DW_FORM_strp => LineString::StringRef(strings.add(&[])),
+                            _ => LineString::String(Vec::new()),
+                        };
+                        source.write(w, file_source_form, self.encoding, line_strings, strings)?;
+                    }
                 }
                 Ok(())
             };
@@ -930,8 +911,8 @@ impl LineString {
         w: &mut DebugLine<W>,
         form: constants::DwForm,
         encoding: Encoding,
-        debug_line_str_offsets: &DebugLineStrOffsets,
-        debug_str_offsets: &DebugStrOffsets,
+        line_strings: &LineStringTable,
+        strings: &StringTable,
     ) -> Result<()> {
         if form != self.form() {
             return Err(Error::LineStringFormMismatch);
@@ -950,7 +931,7 @@ impl LineString {
                     return Err(Error::NeedVersion(5));
                 }
                 w.write_offset(
-                    debug_str_offsets.get(val).0,
+                    strings.offset(val).0,
                     SectionId::DebugStr,
                     encoding.format.word_size(),
                 )?;
@@ -960,7 +941,7 @@ impl LineString {
                     return Err(Error::NeedVersion(5));
                 }
                 w.write_offset(
-                    debug_line_str_offsets.get(val).0,
+                    line_strings.offset(val).0,
                     SectionId::DebugLineStr,
                     encoding.format.word_size(),
                 )?;

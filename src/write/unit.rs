@@ -9,10 +9,10 @@ use crate::common::{
 use crate::constants;
 use crate::leb128::write::{sleb128_size, uleb128_size};
 use crate::write::{
-    Abbreviation, AbbreviationTable, Address, AttributeSpecification, BaseId, DebugLineStrOffsets,
-    DebugStrOffsets, Error, Expression, FileId, LineProgram, LineStringId, LocationListId,
-    LocationListOffsets, LocationListTable, RangeListId, RangeListOffsets, RangeListTable, Result,
-    Section, Sections, StringId, Writer,
+    Abbreviation, AbbreviationTable, Address, AttributeSpecification, BaseId, Error, Expression,
+    FileId, LineProgram, LineStringId, LineStringTable, LocationListId, LocationListOffsets,
+    LocationListTable, RangeListId, RangeListOffsets, RangeListTable, Result, Section, Sections,
+    StringId, StringTable, Writer,
 };
 
 define_id!(UnitId, "An identifier for a unit in a `UnitTable`.");
@@ -96,14 +96,11 @@ impl UnitTable {
     }
 
     /// Write the units to the given sections.
-    ///
-    /// `strings` must contain the `.debug_str` offsets of the corresponding
-    /// `StringTable`.
     pub fn write<W: Writer>(
         &mut self,
         sections: &mut Sections<W>,
-        line_strings: &DebugLineStrOffsets,
-        strings: &DebugStrOffsets,
+        line_strings: &mut LineStringTable,
+        strings: &mut StringTable,
     ) -> Result<DebugInfoOffsets> {
         let mut offsets = DebugInfoOffsets {
             base_id: self.base_id,
@@ -346,8 +343,8 @@ impl Unit {
         sections: &mut Sections<W>,
         abbrev_offset: DebugAbbrevOffset,
         abbrevs: &mut AbbreviationTable,
-        line_strings: &DebugLineStrOffsets,
-        strings: &DebugStrOffsets,
+        line_strings: &mut LineStringTable,
+        strings: &mut StringTable,
     ) -> Result<UnitOffsets> {
         let line_program = if self.line_program_in_use() {
             self.entries[self.root.index]
@@ -669,8 +666,8 @@ impl DebuggingInformationEntry {
         unit: &Unit,
         offsets: &mut UnitOffsets,
         line_program: Option<DebugLineOffset>,
-        line_strings: &DebugLineStrOffsets,
-        strings: &DebugStrOffsets,
+        line_strings: &LineStringTable,
+        strings: &StringTable,
         range_lists: &RangeListOffsets,
         loc_lists: &LocationListOffsets,
     ) -> Result<()> {
@@ -1203,8 +1200,8 @@ impl AttributeValue {
         unit: &Unit,
         offsets: &UnitOffsets,
         line_program: Option<DebugLineOffset>,
-        line_strings: &DebugLineStrOffsets,
-        strings: &DebugStrOffsets,
+        line_strings: &LineStringTable,
+        strings: &StringTable,
         range_lists: &RangeListOffsets,
         loc_lists: &LocationListOffsets,
     ) -> Result<()> {
@@ -1359,7 +1356,7 @@ impl AttributeValue {
             AttributeValue::StringRef(val) => {
                 debug_assert_form!(constants::DW_FORM_strp);
                 w.write_offset(
-                    strings.get(val).0,
+                    strings.offset(val).0,
                     SectionId::DebugStr,
                     unit.format().word_size(),
                 )?;
@@ -1371,7 +1368,7 @@ impl AttributeValue {
             AttributeValue::LineStringRef(val) => {
                 debug_assert_form!(constants::DW_FORM_line_strp);
                 w.write_offset(
-                    line_strings.get(val).0,
+                    line_strings.offset(val).0,
                     SectionId::DebugLineStr,
                     unit.format().word_size(),
                 )?;
