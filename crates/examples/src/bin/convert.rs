@@ -85,13 +85,10 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         .ok()
     });
 
-    // Read and convert the DWARF data into a `write::Dwarf`.
-    let mut write_dwarf = convert_dwarf(&read_dwarf, dwp.as_ref())?;
-
-    // Write the converted DWARF data to new section buffers.
+    // Read and convert the DWARF data, writing as we go.
     let mut write_dwarf_sections =
         gimli::write::Sections::new(gimli::write::EndianVec::new(endian));
-    write_dwarf.write(&mut write_dwarf_sections)?;
+    convert_dwarf(&read_dwarf, dwp.as_ref(), &mut write_dwarf_sections)?;
 
     // Start building a new ELF file.
     let mut write_elf = object::build::elf::Builder::new(object.endianness(), object.is_64());
@@ -126,10 +123,11 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     Ok(())
 }
 
-fn convert_dwarf<R: gimli::Reader<Offset = usize>>(
+fn convert_dwarf<R: gimli::Reader<Offset = usize>, W: gimli::write::Writer>(
     read_dwarf: &gimli::Dwarf<R>,
     dwp: Option<&gimli::DwarfPackage<R>>,
-) -> gimli::write::ConvertResult<gimli::write::Dwarf> {
+    write_sections: &mut gimli::write::Sections<W>,
+) -> gimli::write::ConvertResult<()> {
     let filter = filter_dwarf(read_dwarf)?;
 
     // The container for the converted DWARF. It is possible to use this for the
@@ -154,18 +152,25 @@ fn convert_dwarf<R: gimli::Reader<Offset = usize>>(
             let filter = filter_dwarf(&split_dwarf)?;
             let mut convert_split = unit.convert_split_with_filter(filter)?;
             let (mut split_unit, split_root_entry) = convert_split.read_unit()?;
-            convert_unit(&mut split_unit, &split_root_entry, Some(&root_entry))?;
+            convert_unit(
+                &mut split_unit,
+                &split_root_entry,
+                Some(&root_entry),
+                write_sections,
+            )?;
         } else {
-            convert_unit(&mut unit, &root_entry, None)?;
+            convert_unit(&mut unit, &root_entry, None, write_sections)?;
         }
     }
-    Ok(dwarf)
+    dwarf.write(write_sections)?;
+    Ok(())
 }
 
-fn convert_unit<R: gimli::Reader<Offset = usize>>(
+fn convert_unit<R: gimli::Reader<Offset = usize>, W: gimli::write::Writer>(
     unit: &mut gimli::write::ConvertUnit<'_, R>,
     root_entry: &gimli::write::ConvertUnitEntry<'_, R>,
     skeleton_root_entry: Option<&gimli::write::ConvertUnitEntry<'_, R>>,
+    write_sections: &mut gimli::write::Sections<W>,
 ) -> gimli::write::ConvertResult<()> {
     // The line program needs to be converted before file indices in DIE attributes.
     if let Some(mut convert_program) = unit.read_line_program(None, None)? {
@@ -197,6 +202,7 @@ fn convert_unit<R: gimli::Reader<Offset = usize>>(
         let id = unit.add_entry(id, &entry);
         convert_attributes(unit, id, &entry);
     }
+    unit.write(write_sections)?;
     Ok(())
 }
 
@@ -256,43 +262,63 @@ fn need_entry<R: gimli::Reader<Offset = usize>>(
         None | Some(gimli::DW_TAG_namespace) => {}
         _ => return Ok(false),
     }
-    if let Some(attr) = entry.attr_value(gimli::DW_AT_low_pc) {
-        if let Some(address) = entry.unit.attr_address(attr)? {
-            return Ok(!is_tombstone_address(entry, address));
-        }
-    } else if let Some(attr) = entry.attr_value(gimli::DW_AT_location) {
-        let gimli::read::AttributeValue::Exprloc(expression) = attr else {
-            panic!(
-                "Unexpected DW_AT_location for global at {:x?}",
-                entry.offset.to_unit_section_offset(&entry.unit)
-            );
-        };
-        // Check for a tombstone address in the location.
-        // TODO: haven't seen this happen in practice
-        let mut ops = expression.operations(entry.unit.encoding());
-        while let Some(op) = ops.next()? {
-            match op {
-                gimli::read::Operation::Address { address } => {
-                    if is_tombstone_address(entry, address) {
-                        return Ok(false);
-                    }
-                }
-                gimli::read::Operation::AddressIndex { index } => {
-                    let address = entry.unit.address(index)?;
-                    if is_tombstone_address(entry, address) {
-                        return Ok(false);
-                    }
-                }
-                gimli::read::Operation::UnsignedConstant { .. } | gimli::read::Operation::TLS => {}
-                _ => {
-                    panic!(
-                        "Unexpected DW_AT_location operation for static variable at {:x?}",
-                        entry.offset.to_unit_section_offset(&entry.unit)
-                    );
+    match entry.tag {
+        gimli::DW_TAG_subprogram => {
+            if let Some(attr) = entry.attr_value(gimli::DW_AT_low_pc) {
+                if let Some(address) = entry.unit.attr_address(attr)? {
+                    return Ok(!is_tombstone_address(entry, address));
                 }
             }
         }
-        return Ok(true);
+        gimli::DW_TAG_variable => {
+            if entry.has_attr(gimli::DW_AT_declaration) || entry.has_attr(gimli::DW_AT_const_value)
+            {
+                return Ok(true);
+            }
+            let Some(attr) = entry.attr_value(gimli::DW_AT_location) else {
+                eprintln!(
+                    "Warning: missing DW_AT_location for global variable at {:x?}",
+                    entry.offset.to_unit_section_offset(&entry.unit)
+                );
+                return Ok(false);
+            };
+            let gimli::read::AttributeValue::Exprloc(expression) = attr else {
+                eprintln!(
+                    "Warning: unhandled DW_AT_location form for global variable at {:x?}",
+                    entry.offset.to_unit_section_offset(&entry.unit)
+                );
+                return Ok(false);
+            };
+            // Check for a tombstone address in the location.
+            // TODO: haven't seen this happen in practice
+            let mut ops = expression.operations(entry.unit.encoding());
+            while let Some(op) = ops.next()? {
+                match op {
+                    gimli::read::Operation::Address { address } => {
+                        if is_tombstone_address(entry, address) {
+                            return Ok(false);
+                        }
+                    }
+                    gimli::read::Operation::AddressIndex { index } => {
+                        let address = entry.unit.address(index)?;
+                        if is_tombstone_address(entry, address) {
+                            return Ok(false);
+                        }
+                    }
+                    gimli::read::Operation::UnsignedConstant { .. }
+                    | gimli::read::Operation::TLS => {}
+                    _ => {
+                        eprintln!(
+                            "Warning: unhandled DW_AT_location operation for global variable at {:x?}",
+                            entry.offset.to_unit_section_offset(&entry.unit)
+                        );
+                        return Ok(false);
+                    }
+                }
+            }
+            return Ok(true);
+        }
+        _ => {}
     }
     Ok(false)
 }
