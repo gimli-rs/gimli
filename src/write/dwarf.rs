@@ -35,17 +35,18 @@ impl Dwarf {
 
     /// Write the DWARF information to the given sections.
     pub fn write<W: Writer>(&mut self, sections: &mut Sections<W>) -> Result<()> {
-        let line_strings = self.line_strings.write(&mut sections.debug_line_str)?;
-        let strings = self.strings.write(&mut sections.debug_str)?;
-        self.units.write(sections, &line_strings, &strings)?;
+        self.units
+            .write(sections, &mut self.line_strings, &mut self.strings)?;
         for line_program in &self.line_programs {
             line_program.write(
                 &mut sections.debug_line,
                 line_program.encoding(),
-                &line_strings,
-                &strings,
+                &mut self.line_strings,
+                &mut self.strings,
             )?;
         }
+        self.line_strings.write(&mut sections.debug_line_str)?;
+        self.strings.write(&mut sections.debug_str)?;
         Ok(())
     }
 
@@ -86,9 +87,6 @@ impl DwarfUnit {
 
     /// Write the DWARf information to the given sections.
     pub fn write<W: Writer>(&mut self, sections: &mut Sections<W>) -> Result<()> {
-        let line_strings = self.line_strings.write(&mut sections.debug_line_str)?;
-        let strings = self.strings.write(&mut sections.debug_str)?;
-
         let abbrev_offset = sections.debug_abbrev.offset();
         let mut abbrevs = AbbreviationTable::default();
 
@@ -96,8 +94,8 @@ impl DwarfUnit {
             sections,
             abbrev_offset,
             &mut abbrevs,
-            &line_strings,
-            &strings,
+            &mut self.line_strings,
+            &mut self.strings,
         )?;
         // None should exist because we didn't give out any UnitId.
         assert!(sections.debug_info_fixups.is_empty());
@@ -105,6 +103,8 @@ impl DwarfUnit {
         assert!(sections.debug_loclists_fixups.is_empty());
 
         abbrevs.write(&mut sections.debug_abbrev)?;
+        self.line_strings.write(&mut sections.debug_line_str)?;
+        self.strings.write(&mut sections.debug_str)?;
         Ok(())
     }
 
