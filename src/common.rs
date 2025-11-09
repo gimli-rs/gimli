@@ -212,45 +212,11 @@ impl<T> From<T> for EhFrameOffset<T> {
 }
 
 /// An offset into the `.debug_info` or `.debug_types` sections.
+///
+/// This type does not store which section the offset applies to. You will need to either
+/// determine that from the context of its use, or store a [`SectionId`] along with it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub enum UnitSectionOffset<T = usize> {
-    /// An offset into the `.debug_info` section.
-    DebugInfoOffset(DebugInfoOffset<T>),
-    /// An offset into the `.debug_types` section.
-    DebugTypesOffset(DebugTypesOffset<T>),
-}
-
-impl<T> From<DebugInfoOffset<T>> for UnitSectionOffset<T> {
-    fn from(offset: DebugInfoOffset<T>) -> Self {
-        UnitSectionOffset::DebugInfoOffset(offset)
-    }
-}
-
-impl<T> From<DebugTypesOffset<T>> for UnitSectionOffset<T> {
-    fn from(offset: DebugTypesOffset<T>) -> Self {
-        UnitSectionOffset::DebugTypesOffset(offset)
-    }
-}
-
-impl<T> UnitSectionOffset<T>
-where
-    T: Clone,
-{
-    /// Returns the `DebugInfoOffset` inside, or `None` otherwise.
-    pub fn as_debug_info_offset(&self) -> Option<DebugInfoOffset<T>> {
-        match self {
-            UnitSectionOffset::DebugInfoOffset(offset) => Some(offset.clone()),
-            UnitSectionOffset::DebugTypesOffset(_) => None,
-        }
-    }
-    /// Returns the `DebugTypesOffset` inside, or `None` otherwise.
-    pub fn as_debug_types_offset(&self) -> Option<DebugTypesOffset<T>> {
-        match self {
-            UnitSectionOffset::DebugInfoOffset(_) => None,
-            UnitSectionOffset::DebugTypesOffset(offset) => Some(offset.clone()),
-        }
-    }
-}
+pub struct UnitSectionOffset<T = usize>(pub T);
 
 /// An identifier for a DWARF section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]

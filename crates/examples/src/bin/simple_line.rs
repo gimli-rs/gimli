@@ -47,7 +47,7 @@ fn dump_file(
     while let Some(header) = iter.next()? {
         println!(
             "Line number info for unit at <.debug_info+0x{:x}>",
-            header.offset().as_debug_info_offset().unwrap().0
+            header.offset().0
         );
         let unit = dwarf.unit(header)?;
         let unit = unit.unit_ref(&dwarf);

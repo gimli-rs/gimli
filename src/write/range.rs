@@ -317,8 +317,8 @@ mod tests {
     use super::*;
     use crate::LittleEndian;
     use crate::common::{
-        DebugAbbrevOffset, DebugAddrBase, DebugInfoOffset, DebugLocListsBase, DebugRngListsBase,
-        DebugStrOffsetsBase, Format,
+        DebugAbbrevOffset, DebugAddrBase, DebugLocListsBase, DebugRngListsBase,
+        DebugStrOffsetsBase, Format, UnitSectionOffset,
     };
     use crate::read;
     use crate::write::{EndianVec, Range, RangeListTable};
@@ -377,7 +377,8 @@ mod tests {
                             0,
                             read::UnitType::Compilation,
                             DebugAbbrevOffset(0),
-                            DebugInfoOffset(0).into(),
+                            SectionId::DebugInfo,
+                            UnitSectionOffset(0),
                             read::EndianSlice::default(),
                         ),
                         abbreviations: Arc::new(read::Abbreviations::default()),

@@ -1855,11 +1855,13 @@ pub(crate) mod convert {
                     }
                 }
                 read::AttributeValue::DebugInfoRef(val) => {
-                    self.deps
-                        .add_edge(entry_offset, UnitSectionOffset::DebugInfoOffset(val));
+                    let offset = val
+                        .to_unit_section_offset(&self.unit)
+                        .ok_or(ConvertError::InvalidDebugInfoRef)?;
+                    self.deps.add_edge(entry_offset, offset);
                 }
                 read::AttributeValue::Exprloc(expression) => {
-                    self.add_expression_refs(entry_offset, expression.clone());
+                    self.add_expression_refs(entry_offset, expression.clone())?;
                 }
                 read::AttributeValue::LocationListsRef(val) => {
                     self.add_location_refs(entry_offset, val)?;
@@ -1879,7 +1881,7 @@ pub(crate) mod convert {
         ) -> ConvertResult<()> {
             let mut locations = self.unit.locations(offset)?;
             while let Some(location) = locations.next()? {
-                self.add_expression_refs(entry_offset, location.data);
+                self.add_expression_refs(entry_offset, location.data)?;
             }
             Ok(())
         }
@@ -1888,7 +1890,7 @@ pub(crate) mod convert {
             &mut self,
             entry_offset: UnitSectionOffset,
             expression: read::Expression<R>,
-        ) {
+        ) -> ConvertResult<()> {
             let mut ops = expression.operations(self.unit.encoding());
             // Ignore parsing errors. They can be handled in the conversion step.
             while let Ok(Some(op)) = ops.next() {
@@ -1922,11 +1924,15 @@ pub(crate) mod convert {
                         offset: read::DieReference::DebugInfoRef(ref_offset),
                         ..
                     } => {
-                        self.deps.add_edge(entry_offset, ref_offset.into());
+                        let offset = ref_offset
+                            .to_unit_section_offset(&self.unit)
+                            .ok_or(ConvertError::InvalidDebugInfoRef)?;
+                        self.deps.add_edge(entry_offset, offset);
                     }
                     _ => {}
                 }
             }
+            Ok(())
         }
 
         /// Indicate that the DIE with the given offset is always required to be converted.
@@ -2902,9 +2908,12 @@ pub(crate) mod convert {
             entry: DebugInfoOffset,
         ) -> ConvertResult<DebugInfoRef> {
             // TODO: support relocation of this value
+            let offset = entry
+                .to_unit_section_offset(&self.from_unit)
+                .ok_or(ConvertError::InvalidDebugInfoRef)?;
             let id = self
                 .entry_ids
-                .get(&UnitSectionOffset::DebugInfoOffset(entry))
+                .get(&offset)
                 .ok_or(ConvertError::InvalidDebugInfoRef)?;
             Ok(DebugInfoRef::Entry(id.0, id.1))
         }

@@ -4,7 +4,7 @@
 #![allow(clippy::needless_lifetimes)]
 
 use fallible_iterator::FallibleIterator;
-use gimli::{Section, UnitHeader, UnitOffset, UnitSectionOffset, UnitType, UnwindSection};
+use gimli::{Section, UnitHeader, UnitOffset, UnitType, UnwindSection};
 use object::{Object, ObjectSection};
 use regex::bytes::Regex;
 use std::borrow::Cow;
@@ -1033,13 +1033,12 @@ where
         }
     };
     let process_unit = |header: UnitHeader<R>, buf: &mut Vec<u8>| -> Result<()> {
-        let output_unit = dump_unit(buf, header, dwarf, dwo_parent_units, flags)?;
-        if !output_unit
-            || !flags
-                .match_units
-                .as_ref()
-                .map(|r| r.is_match(buf))
-                .unwrap_or(true)
+        dump_unit(buf, header, dwarf, dwo_parent_units, flags)?;
+        if !flags
+            .match_units
+            .as_ref()
+            .map(|r| r.is_match(buf))
+            .unwrap_or(true)
         {
             buf.clear();
         }
@@ -1071,32 +1070,28 @@ fn dump_unit<R: Reader, W: Write>(
     dwarf: &gimli::Dwarf<R>,
     dwo_parent_units: Option<&HashMap<gimli::DwoId, gimli::Unit<R>>>,
     flags: &Flags,
-) -> Result<bool> {
-    write!(w, "\nUNIT<")?;
-    let offset = match header.offset() {
-        UnitSectionOffset::DebugInfoOffset(o) => {
-            write!(w, ".debug_info+0x{:08x}", o.0)?;
-            if let Some(offset) = flags.info_offset {
-                if offset == o {
-                    // If the offset points to the very start of the unit, we
-                    // can process everything from here on normally.
-                    None
-                } else if let Some(o) = offset.to_unit_offset(&header) {
-                    Some(o)
-                } else {
-                    // Skip this unit and erase what we already wrote.
-                    return Ok(false);
-                }
-            } else {
+) -> Result<()> {
+    let offset = if let Some(o) = header.offset().to_debug_info_offset(&header) {
+        if let Some(offset) = flags.info_offset {
+            if offset == o {
+                // If the offset points to the very start of the unit, we
+                // can process everything from here on normally.
                 None
+            } else if let Some(o) = offset.to_unit_offset(&header) {
+                Some(o)
+            } else {
+                // Skip this unit.
+                return Ok(());
             }
-        }
-        UnitSectionOffset::DebugTypesOffset(o) => {
-            write!(w, ".debug_types+0x{:08x}", o.0)?;
+        } else {
             None
         }
+    } else {
+        None
     };
-    writeln!(w, ">: length = 0x{:x}, format = {:?}, version = {}, address_size = {}, abbrev_offset = 0x{:x}",
+    writeln!(w, "\nUNIT<{}+0x{:08x}>: length = 0x{:x}, format = {:?}, version = {}, address_size = {}, abbrev_offset = 0x{:x}",
+        header.section().name(),
+        header.offset().0,
         header.unit_length(),
         header.format(),
         header.version(),
@@ -1129,7 +1124,7 @@ fn dump_unit<R: Reader, W: Write>(
         Ok(unit) => unit,
         Err(err) => {
             writeln_error(w, dwarf, err.into(), "Failed to parse unit root entry")?;
-            return Ok(true);
+            return Ok(());
         }
     };
 
@@ -1146,7 +1141,7 @@ fn dump_unit<R: Reader, W: Write>(
     if let Err(err) = entries_result {
         writeln_error(w, dwarf, err, "Failed to dump entries")?;
     }
-    Ok(true)
+    Ok(())
 }
 
 fn spaces(buf: &mut String, len: usize) -> &str {
@@ -1167,11 +1162,7 @@ fn write_offset<R: Reader, W: Write>(
 ) -> Result<()> {
     write!(w, "<0x{:08x}", offset.0)?;
     if flags.goff {
-        let goff = match offset.to_unit_section_offset(unit) {
-            UnitSectionOffset::DebugInfoOffset(o) => o.0,
-            UnitSectionOffset::DebugTypesOffset(o) => o.0,
-        };
-        write!(w, " GOFF=0x{:08x}", goff)?;
+        write!(w, " GOFF=0x{:08x}", offset.to_unit_section_offset(unit).0)?;
     }
     write!(w, ">")?;
     Ok(())
@@ -1377,16 +1368,13 @@ fn dump_attr_value<R: Reader, W: Write>(
             writeln!(w, "{:#x}", address)?;
         }
         gimli::AttributeValue::UnitRef(offset) => {
-            write!(w, "0x{:08x}", offset.0)?;
-            match offset.to_unit_section_offset(&unit) {
-                UnitSectionOffset::DebugInfoOffset(goff) => {
-                    write!(w, "<.debug_info+0x{:08x}>", goff.0)?;
-                }
-                UnitSectionOffset::DebugTypesOffset(goff) => {
-                    write!(w, "<.debug_types+0x{:08x}>", goff.0)?;
-                }
-            }
-            writeln!(w)?;
+            writeln!(
+                w,
+                "0x{:08x}<{}+0x{:08x}>",
+                offset.0,
+                unit.section().name(),
+                offset.to_unit_section_offset(&unit).0,
+            )?;
         }
         gimli::AttributeValue::DebugInfoRef(offset) => {
             writeln!(w, "<.debug_info+0x{:08x}>", offset.0)?;
@@ -1975,7 +1963,7 @@ fn dump_line<R: Reader, W: Write>(w: &mut W, dwarf: &gimli::Dwarf<R>) -> Result<
         writeln!(
             w,
             "\n.debug_line: line number info for unit at .debug_info offset 0x{:08x}",
-            header.offset().as_debug_info_offset().unwrap().0
+            header.offset().0
         )?;
         let unit = match dwarf.unit(header) {
             Ok(unit) => unit,
