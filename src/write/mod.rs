@@ -310,6 +310,8 @@ mod convert {
     pub enum ConvertError {
         /// An error occurred when reading.
         Read(read::Error),
+        /// An error occurred when writing.
+        Write(Error),
         /// Writing of this attribute value is not implemented yet.
         UnsupportedAttributeValue,
         /// This attribute value is an invalid name/form combination.
@@ -359,6 +361,7 @@ mod convert {
             use self::ConvertError::*;
             match *self {
                 Read(ref e) => e.fmt(f),
+                Write(ref e) => e.fmt(f),
                 UnsupportedAttributeValue => {
                     write!(f, "Writing of this attribute value is not implemented yet.")
                 }
@@ -417,6 +420,12 @@ mod convert {
     impl From<read::Error> for ConvertError {
         fn from(e: read::Error) -> Self {
             ConvertError::Read(e)
+        }
+    }
+
+    impl From<Error> for ConvertError {
+        fn from(e: Error) -> Self {
+            ConvertError::Write(e)
         }
     }
 

@@ -101,61 +101,47 @@ impl UnitTable {
         sections: &mut Sections<W>,
         line_strings: &mut LineStringTable,
         strings: &mut StringTable,
-    ) -> Result<DebugInfoOffsets> {
-        let mut offsets = DebugInfoOffsets {
-            base_id: self.base_id,
-            units: Vec::new(),
-        };
+    ) -> Result<()> {
         for unit in &mut self.units {
+            if unit.written {
+                continue;
+            }
+
             // TODO: maybe share abbreviation tables
             let abbrev_offset = sections.debug_abbrev.offset();
             let mut abbrevs = AbbreviationTable::default();
 
-            offsets.units.push(unit.write(
-                sections,
-                abbrev_offset,
-                &mut abbrevs,
-                line_strings,
-                strings,
-            )?);
+            unit.write(sections, abbrev_offset, &mut abbrevs, line_strings, strings)?;
 
             abbrevs.write(&mut sections.debug_abbrev)?;
         }
 
-        write_debug_info_fixups(
-            &mut sections.debug_info_fixups,
-            &mut sections.debug_info.0,
-            &offsets,
-        )?;
-        write_debug_info_fixups(
-            &mut sections.debug_loc_fixups,
-            &mut sections.debug_loc.0,
-            &offsets,
-        )?;
-        write_debug_info_fixups(
+        self.write_debug_info_fixups(&mut sections.debug_info_fixups, &mut sections.debug_info.0)?;
+        self.write_debug_info_fixups(&mut sections.debug_loc_fixups, &mut sections.debug_loc.0)?;
+        self.write_debug_info_fixups(
             &mut sections.debug_loclists_fixups,
             &mut sections.debug_loclists.0,
-            &offsets,
         )?;
 
-        Ok(offsets)
+        Ok(())
     }
-}
 
-fn write_debug_info_fixups<W: Writer>(
-    fixups: &mut Vec<DebugInfoFixup>,
-    w: &mut W,
-    offsets: &DebugInfoOffsets,
-) -> Result<()> {
-    for fixup in fixups.drain(..) {
-        let entry_offset = offsets
-            .entry(fixup.unit, fixup.entry)
-            .ok_or(Error::InvalidReference)?
-            .0;
-        debug_assert_ne!(entry_offset, 0);
-        w.write_offset_at(fixup.offset, entry_offset, SectionId::DebugInfo, fixup.size)?;
+    fn write_debug_info_fixups<W: Writer>(
+        &self,
+        fixups: &mut Vec<DebugInfoFixup>,
+        w: &mut W,
+    ) -> Result<()> {
+        for fixup in fixups.drain(..) {
+            debug_assert_eq!(self.base_id, fixup.unit.base_id);
+            let entry_offset = self.units[fixup.unit.index]
+                .offsets
+                .debug_info_offset(fixup.entry)
+                .ok_or(Error::InvalidReference)?
+                .0;
+            w.write_offset_at(fixup.offset, entry_offset, SectionId::DebugInfo, fixup.size)?;
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 /// A unit's debugging information.
@@ -181,6 +167,10 @@ pub struct Unit {
     entries: Vec<DebuggingInformationEntry>,
     /// The index of the root entry in entries.
     root: UnitEntryId,
+    /// The unit has been written to the output sections.
+    written: bool,
+    /// The section offsets for the unit and DIEs after being written.
+    offsets: UnitOffsets,
 }
 
 impl Unit {
@@ -196,6 +186,11 @@ impl Unit {
             None,
             constants::DW_TAG_compile_unit,
         );
+        let offsets = UnitOffsets {
+            base_id,
+            unit: DebugInfoOffset(!0),
+            entries: Vec::new(),
+        };
         Unit {
             base_id,
             encoding,
@@ -204,6 +199,8 @@ impl Unit {
             locations,
             entries,
             root,
+            written: false,
+            offsets,
         }
     }
 
@@ -345,7 +342,9 @@ impl Unit {
         abbrevs: &mut AbbreviationTable,
         line_strings: &mut LineStringTable,
         strings: &mut StringTable,
-    ) -> Result<UnitOffsets> {
+    ) -> Result<()> {
+        debug_assert!(!self.written);
+
         let line_program = if self.line_program_in_use() {
             self.entries[self.root.index]
                 .set(constants::DW_AT_stmt_list, AttributeValue::LineProgramRef);
@@ -367,7 +366,7 @@ impl Unit {
             base_id: self.base_id,
             unit: w.offset(),
             // Entries can be written in any order, so create the complete vec now.
-            entries: vec![EntryOffset::none(); self.entries.len()],
+            entries: vec![DebugInfoOffset(0); self.entries.len()],
         };
 
         let length_offset = w.write_initial_length(self.format())?;
@@ -397,12 +396,14 @@ impl Unit {
         // However, references to base types in expressions use ULEB128, so base types
         // must be moved to the front before we can calculate offsets.
         self.reorder_base_types();
+        let mut codes = vec![0; self.entries.len()];
         let mut offset = w.len();
         self.entries[self.root.index].calculate_offsets(
             self,
             &mut offset,
             &mut offsets,
             abbrevs,
+            &mut codes,
         )?;
 
         let range_lists = self.ranges.write(sections, self.encoding)?;
@@ -418,7 +419,8 @@ impl Unit {
             &mut sections.debug_info_fixups,
             &mut unit_refs,
             self,
-            &mut offsets,
+            &offsets,
+            &codes,
             line_program,
             line_strings,
             strings,
@@ -438,7 +440,20 @@ impl Unit {
             )?;
         }
 
-        Ok(offsets)
+        self.offsets = offsets;
+        self.written = true;
+        Ok(())
+    }
+
+    fn skip(&mut self) {
+        self.written = true;
+    }
+
+    fn free(&mut self) {
+        self.line_program = LineProgram::none();
+        self.ranges = RangeListTable::default();
+        self.locations = LocationListTable::default();
+        self.entries = Vec::new();
     }
 
     /// Reorder base types to come first so that typed stack operations
@@ -632,13 +647,16 @@ impl DebuggingInformationEntry {
         offset: &mut usize,
         offsets: &mut UnitOffsets,
         abbrevs: &mut AbbreviationTable,
+        codes: &mut [u64],
     ) -> Result<()> {
-        offsets.entries[self.id.index].offset = DebugInfoOffset(*offset);
-        offsets.entries[self.id.index].abbrev = abbrevs.add(self.abbreviation(unit.encoding())?);
-        *offset += self.size(unit, offsets)?;
+        offsets.entries[self.id.index] = DebugInfoOffset(*offset);
+        let code = abbrevs.add(self.abbreviation(unit.encoding())?);
+        codes[self.id.index] = code;
+        *offset += self.size(unit, offsets, code)?;
         if !self.children.is_empty() {
             for child in &self.children {
-                unit.entries[child.index].calculate_offsets(unit, offset, offsets, abbrevs)?;
+                unit.entries[child.index]
+                    .calculate_offsets(unit, offset, offsets, abbrevs, codes)?;
             }
             // Null child
             *offset += 1;
@@ -646,8 +664,8 @@ impl DebuggingInformationEntry {
         Ok(())
     }
 
-    fn size(&self, unit: &Unit, offsets: &UnitOffsets) -> Result<usize> {
-        let mut size = uleb128_size(offsets.abbrev(self.id));
+    fn size(&self, unit: &Unit, offsets: &UnitOffsets, code: u64) -> Result<usize> {
+        let mut size = uleb128_size(code);
         if self.sibling && !self.children.is_empty() {
             size += unit.format().word_size() as usize;
         }
@@ -664,7 +682,8 @@ impl DebuggingInformationEntry {
         debug_info_refs: &mut Vec<DebugInfoFixup>,
         unit_refs: &mut Vec<(DebugInfoOffset, UnitEntryId)>,
         unit: &Unit,
-        offsets: &mut UnitOffsets,
+        offsets: &UnitOffsets,
+        codes: &[u64],
         line_program: Option<DebugLineOffset>,
         line_strings: &LineStringTable,
         strings: &StringTable,
@@ -672,7 +691,7 @@ impl DebuggingInformationEntry {
         loc_lists: &LocationListOffsets,
     ) -> Result<()> {
         debug_assert_eq!(offsets.debug_info_offset(self.id), Some(w.offset()));
-        w.write_uleb128(offsets.abbrev(self.id))?;
+        w.write_uleb128(codes[self.id.index])?;
 
         let sibling_offset = if self.sibling && !self.children.is_empty() {
             let offset = w.offset();
@@ -705,6 +724,7 @@ impl DebuggingInformationEntry {
                     unit_refs,
                     unit,
                     offsets,
+                    codes,
                     line_program,
                     line_strings,
                     strings,
@@ -1441,35 +1461,12 @@ define_section!(
     "A writable `.debug_info` section."
 );
 
-/// The section offsets of all elements within a `.debug_info` section.
-#[derive(Debug, Default)]
-pub struct DebugInfoOffsets {
-    base_id: BaseId,
-    units: Vec<UnitOffsets>,
-}
-
-impl DebugInfoOffsets {
-    /// Get the `.debug_info` section offset for the given unit.
-    #[inline]
-    pub fn unit(&self, unit: UnitId) -> DebugInfoOffset {
-        debug_assert_eq!(self.base_id, unit.base_id);
-        self.units[unit.index].unit
-    }
-
-    /// Get the `.debug_info` section offset for the given entry.
-    #[inline]
-    pub fn entry(&self, unit: UnitId, entry: UnitEntryId) -> Option<DebugInfoOffset> {
-        debug_assert_eq!(self.base_id, unit.base_id);
-        self.units[unit.index].debug_info_offset(entry)
-    }
-}
-
 /// The section offsets of all elements of a unit within a `.debug_info` section.
 #[derive(Debug)]
 pub(crate) struct UnitOffsets {
     base_id: BaseId,
     unit: DebugInfoOffset,
-    entries: Vec<EntryOffset>,
+    entries: Vec<DebugInfoOffset>,
 }
 
 impl UnitOffsets {
@@ -1479,7 +1476,7 @@ impl UnitOffsets {
     #[inline]
     fn debug_info_offset(&self, entry: UnitEntryId) -> Option<DebugInfoOffset> {
         debug_assert_eq!(self.base_id, entry.base_id);
-        let offset = self.entries[entry.index].offset;
+        let offset = self.entries[entry.index];
         if offset.0 == 0 { None } else { Some(offset) }
     }
 
@@ -1492,28 +1489,6 @@ impl UnitOffsets {
     pub(crate) fn unit_offset(&self, entry: UnitEntryId) -> Option<u64> {
         self.debug_info_offset(entry)
             .map(|offset| (offset.0 - self.unit.0) as u64)
-    }
-
-    /// Get the abbreviation code for the given entry.
-    #[inline]
-    pub(crate) fn abbrev(&self, entry: UnitEntryId) -> u64 {
-        debug_assert_eq!(self.base_id, entry.base_id);
-        self.entries[entry.index].abbrev
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct EntryOffset {
-    offset: DebugInfoOffset,
-    abbrev: u64,
-}
-
-impl EntryOffset {
-    fn none() -> Self {
-        EntryOffset {
-            offset: DebugInfoOffset(0),
-            abbrev: 0,
-        }
     }
 }
 
@@ -2633,6 +2608,40 @@ pub(crate) mod convert {
                     id
                 }
             }
+        }
+
+        /// Write the unit to the given sections.
+        ///
+        /// This unit will be written immediately, instead of when [`Dwarf::write`] is called.
+        /// Note that [`Dwarf::write`] must still be called after all units have been
+        /// converted.
+        ///
+        /// This also frees memory associated with DIEs for this, which is useful for
+        /// reducing total memory usage.
+        pub fn write<W: Writer>(&mut self, sections: &mut Sections<W>) -> Result<()> {
+            let abbrev_offset = sections.debug_abbrev.offset();
+            let mut abbrevs = AbbreviationTable::default();
+            self.unit.write(
+                sections,
+                abbrev_offset,
+                &mut abbrevs,
+                self.line_strings,
+                self.strings,
+            )?;
+            abbrevs.write(&mut sections.debug_abbrev)?;
+            self.unit.free();
+            Ok(())
+        }
+
+        /// Mark this unit as unneeded.
+        ///
+        /// This unit will not be written, even when [`Dwarf::write`] is called.
+        ///
+        /// This also frees memory associated with DIEs for this unit, which is useful for
+        /// reducing total memory usage.
+        pub fn skip(&mut self) {
+            self.unit.skip();
+            self.unit.free();
         }
 
         pub(crate) fn convert_attributes(
