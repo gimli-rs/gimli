@@ -165,6 +165,10 @@ pub struct Unit {
     // Limitations of current implementation:
     // - mutable iteration of children is messy due to borrow checker
     entries: Vec<DebuggingInformationEntry>,
+    /// The total number of entries, including reserved entries.
+    ///
+    /// This may be greater than `entries.len()`.
+    reserved: usize,
     /// The index of the root entry in entries.
     root: UnitEntryId,
     /// The unit has been written to the output sections.
@@ -179,13 +183,10 @@ impl Unit {
         let base_id = BaseId::default();
         let ranges = RangeListTable::default();
         let locations = LocationListTable::default();
-        let mut entries = Vec::new();
-        let root = DebuggingInformationEntry::new(
-            base_id,
-            &mut entries,
-            None,
-            constants::DW_TAG_compile_unit,
-        );
+        let root = UnitEntryId::new(base_id, 0);
+        let mut entry = DebuggingInformationEntry::reserve(root);
+        entry.tag = constants::DW_TAG_compile_unit;
+        let entries = vec![entry];
         let offsets = UnitOffsets {
             base_id,
             unit: DebugInfoOffset(!0),
@@ -198,6 +199,7 @@ impl Unit {
             ranges,
             locations,
             entries,
+            reserved: 1,
             root,
             written: false,
             offsets,
@@ -251,16 +253,14 @@ impl Unit {
     /// Reserve a `DebuggingInformationEntry` in this unit and return its id.
     ///
     /// The id should be later passed to [`Self::add_reserved`].
+    /// Do not use the id for any other methods prior to calling this.
     ///
     /// This method is useful when you need an id to use for a reference to the
     /// DIE prior to adding it.
     pub fn reserve(&mut self) -> UnitEntryId {
-        DebuggingInformationEntry::new(
-            self.base_id,
-            &mut self.entries,
-            None,
-            constants::DW_TAG_null,
-        )
+        let id = UnitEntryId::new(self.base_id, self.reserved);
+        self.reserved += 1;
+        id
     }
 
     /// Set the parent and tag of a previously reserved `DebuggingInformationEntry`.
@@ -271,6 +271,10 @@ impl Unit {
     ///
     /// Panics if `child` or `parent` is invalid, or if `child` is not a reserved entry.
     pub fn add_reserved(&mut self, child: UnitEntryId, parent: UnitEntryId, tag: constants::DwTag) {
+        while self.entries.len() < self.reserved {
+            let id = UnitEntryId::new(self.base_id, self.entries.len());
+            self.entries.push(DebuggingInformationEntry::reserve(id));
+        }
         let entry = self.get_mut(child);
         debug_assert_eq!(entry.parent, None);
         debug_assert_eq!(entry.tag, constants::DW_TAG_null);
@@ -288,8 +292,9 @@ impl Unit {
     /// Panics if `parent` is invalid.
     #[inline]
     pub fn add(&mut self, parent: UnitEntryId, tag: constants::DwTag) -> UnitEntryId {
-        debug_assert_eq!(self.base_id, parent.base_id);
-        DebuggingInformationEntry::new(self.base_id, &mut self.entries, Some(parent), tag)
+        let id = self.reserve();
+        self.add_reserved(id, parent, tag);
+        id
     }
 
     /// Get a reference to an entry.
@@ -494,32 +499,15 @@ pub struct DebuggingInformationEntry {
 
 impl DebuggingInformationEntry {
     /// Create a new `DebuggingInformationEntry`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `parent` is invalid.
-    #[allow(clippy::new_ret_no_self)]
-    fn new(
-        base_id: BaseId,
-        entries: &mut Vec<DebuggingInformationEntry>,
-        parent: Option<UnitEntryId>,
-        tag: constants::DwTag,
-    ) -> UnitEntryId {
-        let id = UnitEntryId::new(base_id, entries.len());
-        entries.push(DebuggingInformationEntry {
+    fn reserve(id: UnitEntryId) -> Self {
+        DebuggingInformationEntry {
             id,
-            parent,
-            tag,
+            parent: None,
+            tag: constants::DW_TAG_null,
             sibling: false,
             attrs: Vec::new(),
             children: Vec::new(),
-        });
-        if let Some(parent) = parent {
-            debug_assert_eq!(base_id, parent.base_id);
-            assert_ne!(parent, id);
-            entries[parent.index].children.push(id);
         }
-        id
     }
 
     /// Return the id of this entry.
@@ -1571,7 +1559,7 @@ pub(crate) mod convert {
         }
 
         /// Return a sorted list of all reachable entries.
-        fn get_reachable(&self) -> Vec<UnitSectionOffset> {
+        fn get_reachable(self) -> Vec<UnitSectionOffset> {
             let mut reachable = self.required.clone();
             let mut queue = Vec::new();
             for i in self.required.iter() {
