@@ -1523,7 +1523,7 @@ pub(crate) mod convert {
     use crate::write::{
         self, ConvertError, ConvertLineProgram, ConvertResult, Dwarf, LocationList, RangeList,
     };
-    use std::collections::{HashMap, HashSet};
+    use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
 
     #[derive(Debug, Default)]
     struct FilterDependencies {
@@ -1537,7 +1537,7 @@ pub(crate) mod convert {
         /// This must be called before adding an edge from an entry.
         fn add_entry(&mut self, entry: UnitSectionOffset) {
             debug_assert!(!self.edges.contains_key(&entry));
-            self.edges.insert(entry, HashSet::new());
+            self.edges.insert(entry, HashSet::default());
         }
 
         /// If `from` is reachable then `to` is also reachable.
@@ -2062,7 +2062,7 @@ pub(crate) mod convert {
                 from_units: Vec::new(),
                 from_unit_index: 0,
                 from_skeleton_unit: None,
-                entry_ids: HashMap::new(),
+                entry_ids: HashMap::default(),
                 dwarf,
             };
 
@@ -2093,7 +2093,7 @@ pub(crate) mod convert {
                 from_units: Vec::new(),
                 from_unit_index: 0,
                 from_skeleton_unit: filter.skeleton_unit,
-                entry_ids: HashMap::new(),
+                entry_ids: HashMap::default(),
                 dwarf,
             };
 
@@ -2240,7 +2240,7 @@ pub(crate) mod convert {
             let unit_id = skeleton.unit_id;
             let unit = &mut *skeleton.unit;
 
-            let mut entry_ids = HashMap::new();
+            let mut entry_ids = HashMap::default();
             entry_ids.insert(root_offset, (unit_id, unit.root()));
             for offset in offsets {
                 entry_ids.insert(offset, (unit_id, unit.reserve()));
