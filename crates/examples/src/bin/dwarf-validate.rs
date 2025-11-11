@@ -156,11 +156,11 @@ fn validate_info<W, R>(
             Ok(None) => break,
             Ok(Some(u)) => u,
         };
-        last_offset = u.offset().as_debug_info_offset().unwrap().0 + u.length_including_self();
+        last_offset = u.offset().0 + u.length_including_self();
         units.push(u);
     }
     let process_unit = |unit: UnitHeader<R>| -> UnitSummary {
-        let unit_offset = unit.offset().as_debug_info_offset().unwrap();
+        let unit_offset = unit.offset().to_debug_info_offset(&unit).unwrap();
         let mut ret = UnitSummary {
             internally_valid: false,
             offset: unit_offset,

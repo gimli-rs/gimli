@@ -130,10 +130,7 @@ fn dump_file(
     // Iterate over the compilation units.
     let mut iter = dwarf.units();
     while let Some(header) = iter.next()? {
-        println!(
-            "Unit at <.debug_info+0x{:x}>",
-            header.offset().as_debug_info_offset().unwrap().0
-        );
+        println!("Unit at <.debug_info+0x{:x}>", header.offset().0);
         let unit = dwarf.unit(header)?;
         let unit_ref = unit.unit_ref(&dwarf);
         dump_unit(unit_ref)?;

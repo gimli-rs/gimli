@@ -2,11 +2,10 @@ use alloc::string::String;
 use alloc::sync::Arc;
 
 use crate::common::{
-    DebugAddrBase, DebugAddrIndex, DebugInfoOffset, DebugLineStrOffset, DebugLocListsBase,
-    DebugLocListsIndex, DebugMacinfoOffset, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset,
-    DebugStrOffsetsBase, DebugStrOffsetsIndex, DebugTypeSignature, DebugTypesOffset, DwarfFileType,
-    DwoId, Encoding, LocationListsOffset, RangeListsOffset, RawRangeListsOffset, SectionId,
-    UnitSectionOffset,
+    DebugAddrBase, DebugAddrIndex, DebugLineStrOffset, DebugLocListsBase, DebugLocListsIndex,
+    DebugMacinfoOffset, DebugRngListsBase, DebugRngListsIndex, DebugStrOffset, DebugStrOffsetsBase,
+    DebugStrOffsetsIndex, DebugTypeSignature, DwarfFileType, DwoId, Encoding, LocationListsOffset,
+    RangeListsOffset, RawRangeListsOffset, SectionId,
 };
 use crate::read::{
     Abbreviations, AbbreviationsCache, AbbreviationsCacheStrategy, AttributeValue, DebugAbbrev,
@@ -1196,6 +1195,14 @@ where
     pub dwo_id: Option<DwoId>,
 }
 
+impl<'a, R: Reader> core::ops::Deref for Unit<R> {
+    type Target = UnitHeader<R>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.header
+    }
+}
+
 impl<R: Reader> Unit<R> {
     /// Construct a new `Unit` from the given unit header.
     #[inline]
@@ -1596,68 +1603,6 @@ impl<'a, R: Reader> UnitRef<'a, R> {
     /// Try to return an iterator for the list of macros at the given `.debug_macro` offset.
     pub fn macros(&self, offset: DebugMacroOffset<R::Offset>) -> Result<MacroIter<R>> {
         self.dwarf.macros(offset)
-    }
-}
-
-impl<T: ReaderOffset> UnitSectionOffset<T> {
-    /// Convert an offset to be relative to the start of the given unit,
-    /// instead of relative to the start of the section.
-    ///
-    /// Returns `None` if the offset is not within the unit entries.
-    pub fn to_unit_offset<R>(&self, unit: &Unit<R>) -> Option<UnitOffset<T>>
-    where
-        R: Reader<Offset = T>,
-    {
-        let (offset, unit_offset) = match (self, unit.header.offset()) {
-            (
-                UnitSectionOffset::DebugInfoOffset(offset),
-                UnitSectionOffset::DebugInfoOffset(unit_offset),
-            ) => (offset.0, unit_offset.0),
-            (
-                UnitSectionOffset::DebugTypesOffset(offset),
-                UnitSectionOffset::DebugTypesOffset(unit_offset),
-            ) => (offset.0, unit_offset.0),
-            _ => return None,
-        };
-        let offset = match offset.checked_sub(unit_offset) {
-            Some(offset) => UnitOffset(offset),
-            None => return None,
-        };
-        if !unit.header.is_valid_offset(offset) {
-            return None;
-        }
-        Some(offset)
-    }
-}
-
-impl<T: ReaderOffset> UnitOffset<T> {
-    /// Return true if this offset is within the entries of the given unit.
-    ///
-    /// This only checks that the offset is within the range of the data for unit entries,
-    /// not that there is a valid DIE at this offset.
-    pub fn is_in_bounds<R>(&self, unit: &Unit<R>) -> bool
-    where
-        R: Reader<Offset = T>,
-    {
-        unit.header.is_valid_offset(*self)
-    }
-
-    /// Convert an offset to be relative to the start of the .debug_info section,
-    /// instead of relative to the start of the given compilation unit.
-    ///
-    /// Does not check that the offset is valid.
-    pub fn to_unit_section_offset<R>(&self, unit: &Unit<R>) -> UnitSectionOffset<T>
-    where
-        R: Reader<Offset = T>,
-    {
-        match unit.header.offset() {
-            UnitSectionOffset::DebugInfoOffset(unit_offset) => {
-                DebugInfoOffset(unit_offset.0 + self.0).into()
-            }
-            UnitSectionOffset::DebugTypesOffset(unit_offset) => {
-                DebugTypesOffset(unit_offset.0 + self.0).into()
-            }
-        }
     }
 }
 

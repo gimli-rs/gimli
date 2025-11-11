@@ -218,13 +218,9 @@ fn convert_attributes<R: gimli::Reader<Offset = usize>>(
             Ok(value) => unit.unit.get_mut(id).set(attr.name(), value),
             Err(e) => {
                 // Invalid input DWARF has most often been seen for expressions.
-                let unit_offset = match unit.from_unit.header.offset() {
-                    gimli::UnitSectionOffset::DebugInfoOffset(o) => o.0,
-                    gimli::UnitSectionOffset::DebugTypesOffset(o) => o.0,
-                };
                 eprintln!(
                     "Warning: failed to convert attribute for DIE {:x}: {} = {:?}: {}",
-                    unit_offset + entry.offset.0,
+                    unit.from_unit.offset().0 + entry.offset.0,
                     attr.name(),
                     attr.raw_value(),
                     e
