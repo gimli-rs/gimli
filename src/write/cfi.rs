@@ -597,7 +597,8 @@ pub(crate) mod convert {
     use super::*;
     use crate::read::{self, Reader};
     use crate::write::{ConvertError, ConvertResult, NoConvertDebugInfoRef};
-    use std::collections::{HashMap, hash_map};
+    use fnv::FnvHashMap as HashMap;
+    use std::collections::hash_map;
 
     impl FrameTable {
         /// Create a frame table by reading the data in the given section.
@@ -620,7 +621,7 @@ pub(crate) mod convert {
 
             let mut frame_table = FrameTable::default();
 
-            let mut cie_ids = HashMap::new();
+            let mut cie_ids = HashMap::default();
             let mut entries = frame.entries(&bases);
             while let Some(entry) = entries.next()? {
                 let partial = match entry {

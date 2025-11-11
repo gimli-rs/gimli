@@ -21,6 +21,7 @@ rust-version = "1.85"
 
 [dependencies]
 fallible-iterator = { version = "0.3.0", default-features = false, optional = true }
+fnv = { version = "1.0.7", optional = true }
 indexmap = { version = "2.0.0", optional = true }
 stable_deref_trait = { version = "1.1.0", default-features = false, optional = true }
 
@@ -38,7 +39,7 @@ read = ["read-core"]
 read-all = ["read", "std", "fallible-iterator", "endian-reader"]
 endian-reader = ["read", "dep:stable_deref_trait"]
 fallible-iterator = ["dep:fallible-iterator"]
-write = ["dep:indexmap"]
+write = ["dep:fnv", "dep:indexmap"]
 std = ["fallible-iterator?/std", "stable_deref_trait?/std"]
 default = ["read-all", "write"]
 
