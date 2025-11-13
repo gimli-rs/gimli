@@ -1523,60 +1523,57 @@ pub(crate) mod convert {
     use crate::write::{
         self, ConvertError, ConvertLineProgram, ConvertResult, Dwarf, LocationList, RangeList,
     };
-    use fnv::{FnvHashMap as HashMap, FnvHashSet as HashSet};
+    use fnv::FnvHashMap as HashMap;
 
     #[derive(Debug, Default)]
     struct FilterDependencies {
-        edges: HashMap<UnitSectionOffset, HashSet<UnitSectionOffset>>,
-        required: HashSet<UnitSectionOffset>,
+        edges: HashMap<UnitSectionOffset, Vec<UnitSectionOffset>>,
+        required: Vec<UnitSectionOffset>,
     }
 
     impl FilterDependencies {
         /// Mark `entry` as a valid offset.
         ///
         /// This must be called before adding an edge from an entry.
-        fn add_entry(&mut self, entry: UnitSectionOffset) {
+        ///
+        /// Also add edges from `entry` to `deps`.
+        fn add_entry(&mut self, entry: UnitSectionOffset, deps: Vec<UnitSectionOffset>) {
             debug_assert!(!self.edges.contains_key(&entry));
-            self.edges.insert(entry, HashSet::default());
+            self.edges.insert(entry, deps);
         }
 
         /// If `from` is reachable then `to` is also reachable.
         ///
         /// Must have already called `add_entry(from)`.
         ///
-        /// The edge will be ignored if `add_entry(to)` is never called
+        /// The edge will be ignored if `add_entry` is never called for `to`
         /// (either before or after).
         fn add_edge(&mut self, from: UnitSectionOffset, to: UnitSectionOffset) {
-            self.edges.get_mut(&from).unwrap().insert(to);
+            self.edges.get_mut(&from).unwrap().push(to);
         }
 
         /// Mark `entry` as reachable.
         ///
-        /// This doesn't depend on `add_entry` being called for the entry
-        /// (but you probably should at some stage anyway).
+        /// The entry will be ignored if `add_entry` is never called for `entry`
+        /// (either before or after).
         fn require_entry(&mut self, entry: UnitSectionOffset) {
-            self.required.insert(entry);
+            self.required.push(entry);
         }
 
         /// Return a sorted list of all reachable entries.
-        fn get_reachable(self) -> Vec<UnitSectionOffset> {
-            let mut reachable = self.required.clone();
-            let mut queue = Vec::new();
-            for i in self.required.iter() {
-                queue.push(*i);
-            }
-            while let Some(i) = queue.pop() {
-                if let Some(deps) = self.edges.get(&i) {
-                    for j in deps {
-                        if self.edges.contains_key(j) && reachable.insert(*j) {
-                            queue.push(*j);
-                        }
+        fn get_reachable(mut self) -> Vec<UnitSectionOffset> {
+            let mut reachable = Vec::new();
+            let mut queue = vec![self.required];
+            while let Some(entries) = queue.pop() {
+                for entry in entries {
+                    if let Some(deps) = self.edges.remove(&entry) {
+                        reachable.push(entry);
+                        queue.push(deps);
                     }
                 }
             }
-            let mut offsets: Vec<_> = reachable.into_iter().collect();
-            offsets.sort_unstable();
-            offsets
+            reachable.sort_unstable();
+            reachable
         }
     }
 
@@ -1776,8 +1773,6 @@ pub(crate) mod convert {
                 }
 
                 let entry_offset = offset.to_unit_section_offset(&self.unit);
-                self.deps.add_entry(entry_offset);
-
                 let mut entry = FilterUnitEntry {
                     unit: self.unit,
                     offset,
@@ -1788,16 +1783,18 @@ pub(crate) mod convert {
                     parent_tag: parent.map(|p| p.tag),
                 };
                 Self::read_attributes(&mut entry, &mut self.entries, abbrev.attributes())?;
+                let mut deps = Vec::new();
                 for attr in &entry.attrs {
-                    self.add_attribute_refs(entry_offset, attr.value())?;
+                    self.add_attribute_refs(&mut deps, attr.value())?;
                 }
                 if let Some(parent) = parent {
                     let parent_offset = parent.offset.to_unit_section_offset(&self.unit);
-                    self.deps.add_edge(entry_offset, parent_offset);
+                    deps.push(parent_offset);
                     if parent.tag != constants::DW_TAG_namespace && entry.has_die_back_edge() {
                         self.deps.add_edge(parent_offset, entry_offset);
                     }
                 }
+                self.deps.add_entry(entry_offset, deps);
 
                 return Ok(Some(entry));
             }
@@ -1831,31 +1828,30 @@ pub(crate) mod convert {
 
         fn add_attribute_refs(
             &mut self,
-            entry_offset: UnitSectionOffset,
+            deps: &mut Vec<UnitSectionOffset>,
             value: read::AttributeValue<R>,
         ) -> ConvertResult<()> {
             match value {
                 read::AttributeValue::UnitRef(val) => {
                     // This checks that the offset is within bounds, but not that it refers to a valid DIE.
                     if val.is_in_bounds(&self.unit) {
-                        self.deps
-                            .add_edge(entry_offset, val.to_unit_section_offset(&self.unit));
+                        deps.push(val.to_unit_section_offset(&self.unit));
                     }
                 }
                 read::AttributeValue::DebugInfoRef(val) => {
                     let offset = val
                         .to_unit_section_offset(&self.unit)
                         .ok_or(ConvertError::InvalidDebugInfoRef)?;
-                    self.deps.add_edge(entry_offset, offset);
+                    deps.push(offset);
                 }
                 read::AttributeValue::Exprloc(expression) => {
-                    self.add_expression_refs(entry_offset, expression.clone())?;
+                    self.add_expression_refs(deps, expression.clone())?;
                 }
                 read::AttributeValue::LocationListsRef(val) => {
-                    self.add_location_refs(entry_offset, val)?;
+                    self.add_location_refs(deps, val)?;
                 }
                 read::AttributeValue::DebugLocListsIndex(index) => {
-                    self.add_location_refs(entry_offset, self.unit.locations_offset(index)?)?;
+                    self.add_location_refs(deps, self.unit.locations_offset(index)?)?;
                 }
                 _ => (),
             }
@@ -1864,19 +1860,19 @@ pub(crate) mod convert {
 
         fn add_location_refs(
             &mut self,
-            entry_offset: UnitSectionOffset,
+            deps: &mut Vec<UnitSectionOffset>,
             offset: LocationListsOffset,
         ) -> ConvertResult<()> {
             let mut locations = self.unit.locations(offset)?;
             while let Some(location) = locations.next()? {
-                self.add_expression_refs(entry_offset, location.data)?;
+                self.add_expression_refs(deps, location.data)?;
             }
             Ok(())
         }
 
         fn add_expression_refs(
             &mut self,
-            entry_offset: UnitSectionOffset,
+            deps: &mut Vec<UnitSectionOffset>,
             expression: read::Expression<R>,
         ) -> ConvertResult<()> {
             let mut ops = expression.operations(self.unit.encoding());
@@ -1904,8 +1900,7 @@ pub(crate) mod convert {
                         ..
                     } => {
                         if offset.is_in_bounds(&self.unit) {
-                            self.deps
-                                .add_edge(entry_offset, offset.to_unit_section_offset(&self.unit));
+                            deps.push(offset.to_unit_section_offset(&self.unit));
                         }
                     }
                     read::Operation::Call {
@@ -1915,7 +1910,7 @@ pub(crate) mod convert {
                         let offset = ref_offset
                             .to_unit_section_offset(&self.unit)
                             .ok_or(ConvertError::InvalidDebugInfoRef)?;
-                        self.deps.add_edge(entry_offset, offset);
+                        deps.push(offset);
                     }
                     _ => {}
                 }
