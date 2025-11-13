@@ -184,7 +184,7 @@ impl Unit {
         let ranges = RangeListTable::default();
         let locations = LocationListTable::default();
         let root = UnitEntryId::new(base_id, 0);
-        let mut entry = DebuggingInformationEntry::reserve(root);
+        let mut entry = DebuggingInformationEntry::new_reserved(root);
         entry.tag = constants::DW_TAG_compile_unit;
         let entries = vec![entry];
         let offsets = UnitOffsets {
@@ -273,7 +273,8 @@ impl Unit {
     pub fn add_reserved(&mut self, child: UnitEntryId, parent: UnitEntryId, tag: constants::DwTag) {
         while self.entries.len() < self.reserved {
             let id = UnitEntryId::new(self.base_id, self.entries.len());
-            self.entries.push(DebuggingInformationEntry::reserve(id));
+            self.entries
+                .push(DebuggingInformationEntry::new_reserved(id));
         }
         let entry = self.get_mut(child);
         debug_assert_eq!(entry.parent, None);
@@ -499,7 +500,7 @@ pub struct DebuggingInformationEntry {
 
 impl DebuggingInformationEntry {
     /// Create a new `DebuggingInformationEntry`.
-    fn reserve(id: UnitEntryId) -> Self {
+    fn new_reserved(id: UnitEntryId) -> Self {
         DebuggingInformationEntry {
             id,
             parent: None,
@@ -570,6 +571,14 @@ impl DebuggingInformationEntry {
             .map(|attr| &mut attr.value)
     }
 
+    /// Reserve capacity for additional attributes.
+    ///
+    /// This may give a performance improvement when the number of attributes
+    /// is known.
+    pub fn reserve(&mut self, additional: usize) {
+        self.attrs.reserve(additional);
+    }
+
     /// Set an attribute.
     ///
     /// Replaces any existing attribute with the same name.
@@ -578,7 +587,7 @@ impl DebuggingInformationEntry {
     ///
     /// Panics if `name` is `DW_AT_sibling`. Use `set_sibling` instead.
     pub fn set(&mut self, name: constants::DwAt, value: AttributeValue) {
-        assert_ne!(name, constants::DW_AT_sibling);
+        debug_assert_ne!(name, constants::DW_AT_sibling);
         if let Some(attr) = self.attrs.iter_mut().find(|attr| attr.name == name) {
             attr.value = value;
             return;
@@ -587,8 +596,6 @@ impl DebuggingInformationEntry {
     }
 
     /// Delete an attribute.
-    ///
-    /// Replaces any existing attribute with the same name.
     pub fn delete(&mut self, name: constants::DwAt) {
         self.attrs.retain(|x| x.name != name);
     }
@@ -1805,6 +1812,7 @@ pub(crate) mod convert {
             entries: &mut read::EntriesRaw<'_, '_, R>,
             specs: &[read::AttributeSpecification],
         ) -> ConvertResult<()> {
+            entry.attrs.reserve(specs.len());
             for spec in specs {
                 let attr = entries.read_attribute(*spec)?;
                 match attr.name() {
@@ -2585,18 +2593,17 @@ pub(crate) mod convert {
             entry: &ConvertUnitEntry<'_, R>,
         ) -> UnitEntryId {
             let parent = entry.parent.unwrap_or(self.unit.root());
-            match id {
+            let id = match id {
                 Some(id) => {
                     self.unit.add_reserved(id, parent, entry.tag);
-                    self.unit.get_mut(id).set_sibling(entry.sibling);
                     id
                 }
-                None => {
-                    let id = self.unit.add(parent, entry.tag);
-                    self.unit.get_mut(id).set_sibling(entry.sibling);
-                    id
-                }
-            }
+                None => self.unit.add(parent, entry.tag),
+            };
+            let new_entry = self.unit.get_mut(id);
+            new_entry.set_sibling(entry.sibling);
+            new_entry.reserve(entry.attrs.len());
+            id
         }
 
         /// Write the unit to the given sections.
@@ -2968,6 +2975,7 @@ pub(crate) mod convert {
             from_entries: &mut read::EntriesRaw<'_, '_, R>,
             specs: &[read::AttributeSpecification],
         ) -> ConvertResult<()> {
+            self.attrs.reserve(specs.len());
             for spec in specs {
                 let attr = from_entries.read_attribute(*spec)?;
                 match attr.name() {
