@@ -1,11 +1,10 @@
 use alloc::vec::Vec;
-use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
 
 use crate::common::{Encoding, LocationListsOffset, SectionId};
 use crate::write::{
-    Address, BaseId, DebugInfoFixup, Error, Expression, Result, Section, Sections, UnitOffsets,
-    Writer,
+    Address, BaseId, DebugInfoFixup, Error, Expression, FnvIndexSet, Result, Section, Sections,
+    UnitOffsets, Writer,
 };
 
 define_section!(
@@ -33,7 +32,7 @@ define_id!(
 #[derive(Debug, Default)]
 pub struct LocationListTable {
     base_id: BaseId,
-    locations: IndexSet<LocationList>,
+    locations: FnvIndexSet<LocationList>,
 }
 
 impl LocationListTable {

@@ -1,10 +1,9 @@
 use alloc::vec::Vec;
-use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
 
 use crate::common::{DebugAbbrevOffset, SectionId};
 use crate::constants;
-use crate::write::{Result, Section, Writer};
+use crate::write::{FnvIndexSet, Result, Section, Writer};
 
 /// A table of abbreviations that will be stored in a `.debug_abbrev` section.
 // Requirements:
@@ -13,7 +12,7 @@ use crate::write::{Result, Section, Writer};
 // - inserting a duplicate returns the code of the existing value
 #[derive(Debug, Default)]
 pub(crate) struct AbbreviationTable {
-    abbrevs: IndexSet<Abbreviation>,
+    abbrevs: FnvIndexSet<Abbreviation>,
 }
 
 impl AbbreviationTable {
