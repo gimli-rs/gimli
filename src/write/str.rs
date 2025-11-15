@@ -1,9 +1,8 @@
 use alloc::vec::Vec;
-use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
 
 use crate::common::{DebugLineStrOffset, DebugStrOffset, SectionId};
-use crate::write::{BaseId, Result, Section, Writer};
+use crate::write::{BaseId, FnvIndexSet, Result, Section, Writer};
 
 // Requirements:
 // - values are `[u8]`, null bytes are not allowed
@@ -23,7 +22,7 @@ macro_rules! define_string_table {
         #[derive(Debug, Default)]
         pub struct $name {
             base_id: BaseId,
-            strings: IndexSet<Vec<u8>>,
+            strings: FnvIndexSet<Vec<u8>>,
             offsets: Vec<$offset>,
             len: usize,
         }

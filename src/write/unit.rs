@@ -1530,11 +1530,11 @@ pub(crate) mod convert {
     use crate::write::{
         self, ConvertError, ConvertLineProgram, ConvertResult, Dwarf, LocationList, RangeList,
     };
-    use fnv::FnvHashMap as HashMap;
+    use fnv::FnvHashMap;
 
     #[derive(Debug, Default)]
     struct FilterDependencies {
-        edges: HashMap<UnitSectionOffset, Vec<UnitSectionOffset>>,
+        edges: FnvHashMap<UnitSectionOffset, Vec<UnitSectionOffset>>,
         required: Vec<UnitSectionOffset>,
     }
 
@@ -2050,7 +2050,7 @@ pub(crate) mod convert {
         ///
         /// If this is set then `from_units` will contain exactly one unit.
         from_skeleton_unit: Option<read::UnitRef<'a, R>>,
-        entry_ids: HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
+        entry_ids: FnvHashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
         dwarf: &'a mut Dwarf,
     }
 
@@ -2065,7 +2065,7 @@ pub(crate) mod convert {
                 from_units: Vec::new(),
                 from_unit_index: 0,
                 from_skeleton_unit: None,
-                entry_ids: HashMap::default(),
+                entry_ids: FnvHashMap::default(),
                 dwarf,
             };
 
@@ -2096,7 +2096,7 @@ pub(crate) mod convert {
                 from_units: Vec::new(),
                 from_unit_index: 0,
                 from_skeleton_unit: filter.skeleton_unit,
-                entry_ids: HashMap::default(),
+                entry_ids: FnvHashMap::default(),
                 dwarf,
             };
 
@@ -2184,7 +2184,7 @@ pub(crate) mod convert {
         from_dwarf: &'a read::Dwarf<R>,
         from_unit: read::Unit<R>,
         from_skeleton_unit: read::UnitRef<'a, R>,
-        entry_ids: HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
+        entry_ids: FnvHashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
         unit_id: UnitId,
         unit: &'a mut write::Unit,
         line_strings: &'a mut write::LineStringTable,
@@ -2243,7 +2243,7 @@ pub(crate) mod convert {
             let unit_id = skeleton.unit_id;
             let unit = &mut *skeleton.unit;
 
-            let mut entry_ids = HashMap::default();
+            let mut entry_ids = FnvHashMap::default();
             entry_ids.insert(root_offset, (unit_id, unit.root()));
             for offset in offsets {
                 entry_ids.insert(offset, (unit_id, unit.reserve()));
@@ -2387,7 +2387,7 @@ pub(crate) mod convert {
         /// The table containing converted strings.
         pub strings: &'a mut write::StringTable,
         line_program_files: Vec<FileId>,
-        entry_ids: &'a HashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
+        entry_ids: &'a FnvHashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
         from_entries: read::EntriesRaw<'a, 'a, R>,
         parents: Vec<(isize, UnitEntryId)>,
     }

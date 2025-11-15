@@ -1,10 +1,9 @@
 use alloc::vec::Vec;
-use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
 
 use crate::common::{DebugFrameOffset, EhFrameOffset, Encoding, Format, Register, SectionId};
 use crate::constants;
-use crate::write::{Address, BaseId, Error, Expression, Result, Section, Writer};
+use crate::write::{Address, BaseId, Error, Expression, FnvIndexSet, Result, Section, Writer};
 
 define_section!(
     DebugFrame,
@@ -22,7 +21,7 @@ pub struct FrameTable {
     /// Base id for CIEs.
     base_id: BaseId,
     /// The common information entries.
-    cies: IndexSet<CommonInformationEntry>,
+    cies: FnvIndexSet<CommonInformationEntry>,
     /// The frame description entries.
     fdes: Vec<(CieId, FrameDescriptionEntry)>,
 }
@@ -597,7 +596,7 @@ pub(crate) mod convert {
     use super::*;
     use crate::read::{self, Reader};
     use crate::write::{ConvertError, ConvertResult, NoConvertDebugInfoRef};
-    use fnv::FnvHashMap as HashMap;
+    use fnv::FnvHashMap;
     use std::collections::hash_map;
 
     impl FrameTable {
@@ -621,7 +620,7 @@ pub(crate) mod convert {
 
             let mut frame_table = FrameTable::default();
 
-            let mut cie_ids = HashMap::default();
+            let mut cie_ids = FnvHashMap::default();
             let mut entries = frame.entries(&bases);
             while let Some(entry) = entries.next()? {
                 let partial = match entry {

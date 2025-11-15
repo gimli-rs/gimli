@@ -65,6 +65,9 @@ use std::result;
 
 use crate::constants;
 
+type FnvIndexMap<T, V> = indexmap::IndexMap<T, V, fnv::FnvBuildHasher>;
+type FnvIndexSet<T> = indexmap::IndexSet<T, fnv::FnvBuildHasher>;
+
 mod endian_vec;
 pub use self::endian_vec::*;
 

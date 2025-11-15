@@ -1,9 +1,8 @@
 use alloc::vec::Vec;
-use indexmap::IndexSet;
 use std::ops::{Deref, DerefMut};
 
 use crate::common::{Encoding, RangeListsOffset, SectionId};
-use crate::write::{Address, BaseId, Error, Result, Section, Sections, Writer};
+use crate::write::{Address, BaseId, Error, FnvIndexSet, Result, Section, Sections, Writer};
 
 define_section!(
     DebugRanges,
@@ -30,7 +29,7 @@ define_id!(
 #[derive(Debug, Default)]
 pub struct RangeListTable {
     base_id: BaseId,
-    ranges: IndexSet<RangeList>,
+    ranges: FnvIndexSet<RangeList>,
 }
 
 impl RangeListTable {

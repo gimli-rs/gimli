@@ -1,12 +1,12 @@
 use alloc::vec::Vec;
-use indexmap::{IndexMap, IndexSet};
 use std::ops::{Deref, DerefMut};
 
 use crate::common::{DebugLineOffset, Encoding, Format, LineEncoding, SectionId};
 use crate::constants;
 use crate::leb128;
 use crate::write::{
-    Address, Error, LineStringId, LineStringTable, Result, Section, StringId, StringTable, Writer,
+    Address, Error, FnvIndexMap, FnvIndexSet, LineStringId, LineStringTable, Result, Section,
+    StringId, StringTable, Writer,
 };
 
 /// The number assigned to the first special opcode.
@@ -29,7 +29,7 @@ pub struct LineProgram {
     /// directory of the compilation unit.
     ///
     /// The first entry is for the working directory of the compilation unit.
-    directories: IndexSet<LineString>,
+    directories: FnvIndexSet<LineString>,
 
     /// A list of source file entries.
     ///
@@ -39,7 +39,7 @@ pub struct LineProgram {
     /// directory. Otherwise the directory is meaningless.
     ///
     /// Does not include comp_file, even for version >= 5.
-    files: IndexMap<(LineString, DirectoryId), FileInfo>,
+    files: FnvIndexMap<(LineString, DirectoryId), FileInfo>,
 
     /// True if the file entries may have valid timestamps.
     ///
@@ -114,8 +114,8 @@ impl LineProgram {
             none: false,
             encoding,
             line_encoding,
-            directories: IndexSet::new(),
-            files: IndexMap::new(),
+            directories: FnvIndexSet::default(),
+            files: FnvIndexMap::default(),
             prev_row: LineRow::initial_state(encoding, line_encoding),
             row: LineRow::initial_state(encoding, line_encoding),
             instructions: Vec::new(),
@@ -157,8 +157,8 @@ impl LineProgram {
             none: true,
             encoding,
             line_encoding,
-            directories: IndexSet::new(),
-            files: IndexMap::new(),
+            directories: FnvIndexSet::default(),
+            files: FnvIndexMap::default(),
             prev_row: LineRow::initial_state(encoding, line_encoding),
             row: LineRow::initial_state(encoding, line_encoding),
             instructions: Vec::new(),
