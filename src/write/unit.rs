@@ -615,9 +615,10 @@ impl DebuggingInformationEntry {
 
     /// Return the type abbreviation for this DIE.
     fn abbreviation(&self, encoding: Encoding) -> Result<Abbreviation> {
-        let mut attrs = Vec::new();
+        let sibling = self.sibling && !self.children.is_empty();
+        let mut attrs = Vec::with_capacity(usize::from(sibling) + self.attrs.len());
 
-        if self.sibling && !self.children.is_empty() {
+        if sibling {
             let form = match encoding.format {
                 Format::Dwarf32 => constants::DW_FORM_ref4,
                 Format::Dwarf64 => constants::DW_FORM_ref8,
