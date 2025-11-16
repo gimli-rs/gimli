@@ -105,19 +105,18 @@ via `cargo fuzz add <my_new_target>`.
 
 ## <a id="benchmarking"></a> Benchmarking
 
-The benchmarks require nightly `rustc`, so use `rustup`:
+Run the benchmarks with `cargo`:
 
 ```
-$ rustup run nightly cargo bench
+$ cargo bench
 ```
 
-We aim to be the fastest DWARF library. Period.
+The benchmarks use criterion, so they can be run with stable rust,
+and they can report differences between runs. Please run this for
+non-trivial changes, and note any relevant differences in your pull
+request. Some of the benchmarks are a bit noisy unfortunately.
 
-Please provide before and after benchmark results with your pull requests. You
-may also find [`cargo benchcmp`](https://github.com/BurntSushi/cargo-benchcmp)
-handy for comparing results.
-
-Pull requests adding `#[bench]` micro-benchmarks that exercise a new edge case
+Pull requests adding benchmarks that exercise a new edge case
 are very welcome!
 
 ## <a id="style"></a> Style

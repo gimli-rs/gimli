@@ -1,6 +1,5 @@
-#![feature(test)]
-
-extern crate test;
+use criterion::{Bencher, Criterion, criterion_main};
+use std::hint::black_box;
 
 use gimli::{
     AttributeValue, DebugAbbrev, DebugAddr, DebugAddrBase, DebugAranges, DebugInfo, DebugLine,
@@ -14,10 +13,23 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+criterion_main!(benches);
+fn benches() {
+    bench_leb128();
+    bench_read();
+    cfi::bench_cfi();
+}
+
+fn bench_leb128() {
+    let mut c = Criterion::default().configure_from_args();
+    c.bench_function("leb128 unsigned small", bench_reading_leb128_unsigned_small);
+    c.bench_function("leb128 unsigned large", bench_reading_leb128_unsigned_large);
+    c.bench_function("leb128 u16 large", bench_reading_leb128_u16_small);
+}
+
 /// Benchmark reading of small (one or two byte in encoded form)
 /// unsigned LEB128 values.
-#[bench]
-fn bench_reading_leb128_unsigned_small(b: &mut test::Bencher) {
+fn bench_reading_leb128_unsigned_small(b: &mut Bencher) {
     let data = (0..255)
         .map(|n| {
             let mut buf = Vec::new();
@@ -32,16 +44,15 @@ fn bench_reading_leb128_unsigned_small(b: &mut test::Bencher) {
 
     let () = b.iter(|| {
         for (data, _) in &data {
-            let mut slice = test::black_box(EndianSlice::new(data, NativeEndian));
+            let mut slice = black_box(EndianSlice::new(data, NativeEndian));
             let v = leb128::read::unsigned(&mut slice).unwrap();
-            test::black_box(v);
+            black_box(v);
         }
     });
 }
 
 /// Benchmark reading of large unsigned LEB128 values.
-#[bench]
-fn bench_reading_leb128_unsigned_large(b: &mut test::Bencher) {
+fn bench_reading_leb128_unsigned_large(b: &mut Bencher) {
     #[rustfmt::skip]
     let data = [
         (&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01][..], u64::MAX),
@@ -60,23 +71,22 @@ fn bench_reading_leb128_unsigned_large(b: &mut test::Bencher) {
     ];
 
     for (data, expected) in data {
-        let mut slice = test::black_box(EndianSlice::new(data, NativeEndian));
+        let mut slice = black_box(EndianSlice::new(data, NativeEndian));
         let v = leb128::read::unsigned(&mut slice).unwrap();
         assert_eq!(v, expected);
     }
 
     let () = b.iter(|| {
         for (data, _) in data {
-            let mut slice = test::black_box(EndianSlice::new(data, NativeEndian));
+            let mut slice = black_box(EndianSlice::new(data, NativeEndian));
             let v = leb128::read::unsigned(&mut slice).unwrap();
-            test::black_box(v);
+            black_box(v);
         }
     });
 }
 
 /// Benchmark reading of small u16 LEB128 values.
-#[bench]
-fn bench_reading_leb128_u16_small(b: &mut test::Bencher) {
+fn bench_reading_leb128_u16_small(b: &mut Bencher) {
     let data = (0u16..255)
         .map(|n| {
             let mut buf = Vec::new();
@@ -91,11 +101,60 @@ fn bench_reading_leb128_u16_small(b: &mut test::Bencher) {
 
     let () = b.iter(|| {
         for (data, _) in &data {
-            let mut slice = test::black_box(EndianSlice::new(data, NativeEndian));
+            let mut slice = black_box(EndianSlice::new(data, NativeEndian));
             let v = leb128::read::unsigned(&mut slice).unwrap();
-            test::black_box(v);
+            black_box(v);
         }
     });
+}
+
+fn bench_read() {
+    let mut c = Criterion::default().sample_size(50).configure_from_args();
+    c.bench_function("parse .debug_info entries", bench_parsing_debug_info);
+    c.bench_function(
+        "parse .debug_info entries EndianRcSlice",
+        bench_parsing_debug_info_with_endian_rc_slice,
+    );
+    c.bench_function(
+        "parse .debug_info entries_tree",
+        bench_parsing_debug_info_tree,
+    );
+    c.bench_function(
+        "parse .debug_info entries_raw",
+        bench_parsing_debug_info_raw,
+    );
+
+    let mut c = Criterion::default().configure_from_args();
+    c.bench_function("parse .debug_abbrev", bench_parsing_debug_abbrev);
+    c.bench_function("parse .debug_aranges", bench_parsing_debug_aranges);
+    c.bench_function("parse .debug_pubnames", bench_parsing_debug_pubnames);
+    c.bench_function("parse .debug_pubtypes", bench_parsing_debug_pubtypes);
+    c.bench_function(
+        "parse .debug_line opcodes",
+        bench_parsing_line_number_program_opcodes,
+    );
+    c.bench_function(
+        "parse .debug_line rows",
+        bench_executing_line_number_programs,
+    );
+    c.bench_function("parse .debug_loc", bench_parsing_debug_loc);
+    c.bench_function("parse .debug_ranges", bench_parsing_debug_ranges);
+    c.bench_function(
+        "parse .debug_info expressions",
+        bench_parsing_debug_info_expressions,
+    );
+    c.bench_function(
+        "evaluate .debug_info expressions",
+        bench_evaluating_debug_info_expressions,
+    );
+    c.bench_function(
+        "parse .debug_loc expressions",
+        bench_parsing_debug_loc_expressions,
+    );
+    c.bench_function(
+        "evaluate .debug_loc expressions",
+        bench_evaluating_debug_loc_expressions,
+    );
 }
 
 pub fn read_section(section: &str) -> Vec<u8> {
@@ -111,8 +170,7 @@ pub fn read_section(section: &str) -> Vec<u8> {
     buf
 }
 
-#[bench]
-fn bench_parsing_debug_abbrev(b: &mut test::Bencher) {
+fn bench_parsing_debug_abbrev(b: &mut Bencher) {
     let debug_info = read_section("debug_info");
     let debug_info = DebugInfo::new(&debug_info, LittleEndian);
     let unit = debug_info
@@ -125,7 +183,7 @@ fn bench_parsing_debug_abbrev(b: &mut test::Bencher) {
 
     b.iter(|| {
         let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
-        test::black_box(
+        black_box(
             unit.abbreviations(&debug_abbrev)
                 .expect("Should parse abbreviations"),
         );
@@ -149,7 +207,7 @@ fn impl_bench_parsing_debug_info<R: Reader>(
             loop {
                 match attrs.next() {
                     Ok(Some(ref attr)) => {
-                        test::black_box(attr);
+                        black_box(attr);
                     }
                     Ok(None) => break,
                     e @ Err(_) => {
@@ -161,8 +219,7 @@ fn impl_bench_parsing_debug_info<R: Reader>(
     }
 }
 
-#[bench]
-fn bench_parsing_debug_info(b: &mut test::Bencher) {
+fn bench_parsing_debug_info(b: &mut Bencher) {
     let debug_info = read_section("debug_info");
     let debug_info = DebugInfo::new(&debug_info, LittleEndian);
 
@@ -172,8 +229,7 @@ fn bench_parsing_debug_info(b: &mut test::Bencher) {
     b.iter(|| impl_bench_parsing_debug_info(debug_info, debug_abbrev));
 }
 
-#[bench]
-fn bench_parsing_debug_info_with_endian_rc_slice(b: &mut test::Bencher) {
+fn bench_parsing_debug_info_with_endian_rc_slice(b: &mut Bencher) {
     let debug_info = read_section("debug_info");
     let debug_info = Rc::from(&debug_info[..]);
     let debug_info = gimli::EndianRcSlice::new(debug_info, LittleEndian);
@@ -187,8 +243,7 @@ fn bench_parsing_debug_info_with_endian_rc_slice(b: &mut test::Bencher) {
     b.iter(|| impl_bench_parsing_debug_info(debug_info.clone(), debug_abbrev.clone()));
 }
 
-#[bench]
-fn bench_parsing_debug_info_tree(b: &mut test::Bencher) {
+fn bench_parsing_debug_info_tree(b: &mut Bencher) {
     let debug_abbrev = read_section("debug_abbrev");
     let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
@@ -218,7 +273,7 @@ fn parse_debug_info_tree<R: Reader>(node: EntriesTreeNode<R>) {
         loop {
             match attrs.next() {
                 Ok(Some(ref attr)) => {
-                    test::black_box(attr);
+                    black_box(attr);
                 }
                 Ok(None) => break,
                 e @ Err(_) => {
@@ -233,8 +288,7 @@ fn parse_debug_info_tree<R: Reader>(node: EntriesTreeNode<R>) {
     }
 }
 
-#[bench]
-fn bench_parsing_debug_info_raw(b: &mut test::Bencher) {
+fn bench_parsing_debug_info_raw(b: &mut Bencher) {
     let debug_abbrev = read_section("debug_abbrev");
     let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
@@ -260,7 +314,7 @@ fn bench_parsing_debug_info_raw(b: &mut test::Bencher) {
                     for spec in abbrev.attributes().iter().cloned() {
                         match raw.read_attribute(spec) {
                             Ok(ref attr) => {
-                                test::black_box(attr);
+                                black_box(attr);
                             }
                             e @ Err(_) => {
                                 e.expect("Should parse attribute");
@@ -273,8 +327,7 @@ fn bench_parsing_debug_info_raw(b: &mut test::Bencher) {
     });
 }
 
-#[bench]
-fn bench_parsing_debug_aranges(b: &mut test::Bencher) {
+fn bench_parsing_debug_aranges(b: &mut Bencher) {
     let debug_aranges = read_section("debug_aranges");
     let debug_aranges = DebugAranges::new(&debug_aranges, LittleEndian);
 
@@ -283,34 +336,32 @@ fn bench_parsing_debug_aranges(b: &mut test::Bencher) {
         while let Some(header) = headers.next().expect("Should parse arange header OK") {
             let mut entries = header.entries();
             while let Some(arange) = entries.next().expect("Should parse arange entry OK") {
-                test::black_box(arange);
+                black_box(arange);
             }
         }
     });
 }
 
-#[bench]
-fn bench_parsing_debug_pubnames(b: &mut test::Bencher) {
+fn bench_parsing_debug_pubnames(b: &mut Bencher) {
     let debug_pubnames = read_section("debug_pubnames");
     let debug_pubnames = DebugPubNames::new(&debug_pubnames, LittleEndian);
 
     b.iter(|| {
         let mut pubnames = debug_pubnames.items();
         while let Some(pubname) = pubnames.next().expect("Should parse pubname OK") {
-            test::black_box(pubname);
+            black_box(pubname);
         }
     });
 }
 
-#[bench]
-fn bench_parsing_debug_pubtypes(b: &mut test::Bencher) {
+fn bench_parsing_debug_pubtypes(b: &mut Bencher) {
     let debug_pubtypes = read_section("debug_pubtypes");
     let debug_pubtypes = DebugPubTypes::new(&debug_pubtypes, LittleEndian);
 
     b.iter(|| {
         let mut pubtypes = debug_pubtypes.items();
         while let Some(pubtype) = pubtypes.next().expect("Should parse pubtype OK") {
-            test::black_box(pubtype);
+            black_box(pubtype);
         }
     });
 }
@@ -321,8 +372,7 @@ fn bench_parsing_debug_pubtypes(b: &mut test::Bencher) {
 const OFFSET: DebugLineOffset = DebugLineOffset(0);
 const ADDRESS_SIZE: u8 = 8;
 
-#[bench]
-fn bench_parsing_line_number_program_opcodes(b: &mut test::Bencher) {
+fn bench_parsing_line_number_program_opcodes(b: &mut Bencher) {
     let debug_line = read_section("debug_line");
     let debug_line = DebugLine::new(&debug_line, LittleEndian);
 
@@ -337,13 +387,12 @@ fn bench_parsing_line_number_program_opcodes(b: &mut test::Bencher) {
             .next_instruction(header)
             .expect("Should parse instruction")
         {
-            test::black_box(instruction);
+            black_box(instruction);
         }
     });
 }
 
-#[bench]
-fn bench_executing_line_number_programs(b: &mut test::Bencher) {
+fn bench_executing_line_number_programs(b: &mut Bencher) {
     let debug_line = read_section("debug_line");
     let debug_line = DebugLine::new(&debug_line, LittleEndian);
 
@@ -357,13 +406,12 @@ fn bench_executing_line_number_programs(b: &mut test::Bencher) {
             .next_row()
             .expect("Should parse and execute all rows in the line number program")
         {
-            test::black_box(row);
+            black_box(row);
         }
     });
 }
 
-#[bench]
-fn bench_parsing_debug_loc(b: &mut test::Bencher) {
+fn bench_parsing_debug_loc(b: &mut Bencher) {
     let debug_info = read_section("debug_info");
     let debug_info = DebugInfo::new(&debug_info, LittleEndian);
 
@@ -418,14 +466,13 @@ fn bench_parsing_debug_loc(b: &mut test::Bencher) {
                 .locations(offset, encoding, base_address, &debug_addr, debug_addr_base)
                 .expect("Should parse locations OK");
             while let Some(loc) = locs.next().expect("Should parse next location") {
-                test::black_box(loc);
+                black_box(loc);
             }
         }
     });
 }
 
-#[bench]
-fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
+fn bench_parsing_debug_ranges(b: &mut Bencher) {
     let debug_info = read_section("debug_info");
     let debug_info = DebugInfo::new(&debug_info, LittleEndian);
 
@@ -480,7 +527,7 @@ fn bench_parsing_debug_ranges(b: &mut test::Bencher) {
                 .ranges(offset, encoding, base_address, &debug_addr, debug_addr_base)
                 .expect("Should parse ranges OK");
             while let Some(range) = ranges.next().expect("Should parse next range") {
-                test::black_box(range);
+                black_box(range);
             }
         }
     });
@@ -512,8 +559,7 @@ fn debug_info_expressions<R: Reader>(
     expressions
 }
 
-#[bench]
-fn bench_parsing_debug_info_expressions(b: &mut test::Bencher) {
+fn bench_parsing_debug_info_expressions(b: &mut Bencher) {
     let debug_abbrev = read_section("debug_abbrev");
     let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
@@ -532,8 +578,7 @@ fn bench_parsing_debug_info_expressions(b: &mut test::Bencher) {
     });
 }
 
-#[bench]
-fn bench_evaluating_debug_info_expressions(b: &mut test::Bencher) {
+fn bench_evaluating_debug_info_expressions(b: &mut Bencher) {
     let debug_abbrev = read_section("debug_abbrev");
     let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
@@ -547,7 +592,7 @@ fn bench_evaluating_debug_info_expressions(b: &mut test::Bencher) {
             let mut eval = expression.evaluation(encoding);
             eval.set_initial_value(0);
             let result = eval.evaluate().expect("Should evaluate expression");
-            test::black_box(result);
+            black_box(result);
         }
     });
 }
@@ -602,8 +647,7 @@ fn debug_loc_expressions<R: Reader>(
     expressions
 }
 
-#[bench]
-fn bench_parsing_debug_loc_expressions(b: &mut test::Bencher) {
+fn bench_parsing_debug_loc_expressions(b: &mut Bencher) {
     let debug_info = read_section("debug_info");
     let debug_info = DebugInfo::new(&debug_info, LittleEndian);
 
@@ -629,8 +673,7 @@ fn bench_parsing_debug_loc_expressions(b: &mut test::Bencher) {
     });
 }
 
-#[bench]
-fn bench_evaluating_debug_loc_expressions(b: &mut test::Bencher) {
+fn bench_evaluating_debug_loc_expressions(b: &mut Bencher) {
     let debug_info = read_section("debug_info");
     let debug_info = DebugInfo::new(&debug_info, LittleEndian);
 
@@ -651,13 +694,11 @@ fn bench_evaluating_debug_loc_expressions(b: &mut test::Bencher) {
             let mut eval = expression.evaluation(encoding);
             eval.set_initial_value(0);
             let result = eval.evaluate().expect("Should evaluate expression");
-            test::black_box(result);
+            black_box(result);
         }
     });
 }
 
-// See comment above `test_parse_self_eh_frame`.
-#[cfg(target_pointer_width = "64")]
 mod cfi {
     use super::*;
     use fallible_iterator::FallibleIterator;
@@ -667,10 +708,40 @@ mod cfi {
         UnwindSection,
     };
 
-    #[bench]
-    fn iterate_entries_and_do_not_parse_any_fde(b: &mut test::Bencher) {
+    pub(super) fn bench_cfi() {
+        let mut c = Criterion::default().configure_from_args();
+        c.bench_function(
+            "parse .eh_frame CIEs",
+            iterate_entries_and_do_not_parse_any_fde,
+        );
+        c.bench_function("parse .eh_frame FDEs", iterate_entries_and_parse_every_fde);
+        c.bench_function(
+            "parse .eh_frame FDE instructions",
+            iterate_entries_and_parse_every_fde_and_instructions,
+        );
+        c.bench_function(
+            "parse .eh_frame FDE rows",
+            iterate_entries_evaluate_every_fde,
+        );
+        c.bench_function(
+            "parse .eh_frame longest FDE instructions",
+            parse_longest_fde_instructions,
+        );
+        c.bench_function(
+            "parse .eh_frame longest FDE rows, new ctx",
+            eval_longest_fde_instructions_new_ctx_everytime,
+        );
+        c.bench_function(
+            "parse .eh_frame longest FDE rows, reuse ctx",
+            eval_longest_fde_instructions_same_ctx,
+        );
+    }
+
+    fn iterate_entries_and_do_not_parse_any_fde(b: &mut Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
+        let mut eh_frame = EhFrame::new(&eh_frame, LittleEndian);
+        // The `.eh_frame` fixture data was created on a 64-bit machine.
+        eh_frame.set_address_size(8);
 
         let bases = BaseAddresses::default()
             .set_eh_frame(0)
@@ -680,15 +751,16 @@ mod cfi {
         b.iter(|| {
             let mut entries = eh_frame.entries(&bases);
             while let Some(entry) = entries.next().expect("Should parse CFI entry OK") {
-                test::black_box(entry);
+                black_box(entry);
             }
         });
     }
 
-    #[bench]
-    fn iterate_entries_and_parse_every_fde(b: &mut test::Bencher) {
+    fn iterate_entries_and_parse_every_fde(b: &mut Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
+        let mut eh_frame = EhFrame::new(&eh_frame, LittleEndian);
+        // The `.eh_frame` fixture data was created on a 64-bit machine.
+        eh_frame.set_address_size(8);
 
         let bases = BaseAddresses::default()
             .set_eh_frame(0)
@@ -700,23 +772,24 @@ mod cfi {
             while let Some(entry) = entries.next().expect("Should parse CFI entry OK") {
                 match entry {
                     CieOrFde::Cie(cie) => {
-                        test::black_box(cie);
+                        black_box(cie);
                     }
                     CieOrFde::Fde(partial) => {
                         let fde = partial
                             .parse(EhFrame::cie_from_offset)
                             .expect("Should be able to get CIE for FED");
-                        test::black_box(fde);
+                        black_box(fde);
                     }
                 };
             }
         });
     }
 
-    #[bench]
-    fn iterate_entries_and_parse_every_fde_and_instructions(b: &mut test::Bencher) {
+    fn iterate_entries_and_parse_every_fde_and_instructions(b: &mut Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
+        let mut eh_frame = EhFrame::new(&eh_frame, LittleEndian);
+        // The `.eh_frame` fixture data was created on a 64-bit machine.
+        eh_frame.set_address_size(8);
 
         let bases = BaseAddresses::default()
             .set_eh_frame(0)
@@ -732,7 +805,7 @@ mod cfi {
                         while let Some(i) =
                             instrs.next().expect("Can parse next CFI instruction OK")
                         {
-                            test::black_box(i);
+                            black_box(i);
                         }
                     }
                     CieOrFde::Fde(partial) => {
@@ -743,7 +816,7 @@ mod cfi {
                         while let Some(i) =
                             instrs.next().expect("Can parse next CFI instruction OK")
                         {
-                            test::black_box(i);
+                            black_box(i);
                         }
                     }
                 };
@@ -751,10 +824,11 @@ mod cfi {
         });
     }
 
-    #[bench]
-    fn iterate_entries_evaluate_every_fde(b: &mut test::Bencher) {
+    fn iterate_entries_evaluate_every_fde(b: &mut Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
+        let mut eh_frame = EhFrame::new(&eh_frame, LittleEndian);
+        // The `.eh_frame` fixture data was created on a 64-bit machine.
+        eh_frame.set_address_size(8);
 
         let bases = BaseAddresses::default()
             .set_eh_frame(0)
@@ -778,7 +852,7 @@ mod cfi {
                         while let Some(row) =
                             table.next_row().expect("Should get next unwind table row")
                         {
-                            test::black_box(row);
+                            black_box(row);
                         }
                     }
                 };
@@ -828,10 +902,11 @@ mod cfi {
         longest.expect("At least one FDE in .eh_frame").1
     }
 
-    #[bench]
-    fn parse_longest_fde_instructions(b: &mut test::Bencher) {
+    fn parse_longest_fde_instructions(b: &mut Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
+        let mut eh_frame = EhFrame::new(&eh_frame, LittleEndian);
+        // The `.eh_frame` fixture data was created on a 64-bit machine.
+        eh_frame.set_address_size(8);
         let bases = BaseAddresses::default()
             .set_eh_frame(0)
             .set_got(0)
@@ -841,15 +916,16 @@ mod cfi {
         b.iter(|| {
             let mut instrs = fde.instructions(&eh_frame, &bases);
             while let Some(i) = instrs.next().expect("Should parse instruction OK") {
-                test::black_box(i);
+                black_box(i);
             }
         });
     }
 
-    #[bench]
-    fn eval_longest_fde_instructions_new_ctx_everytime(b: &mut test::Bencher) {
+    fn eval_longest_fde_instructions_new_ctx_everytime(b: &mut Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
+        let mut eh_frame = EhFrame::new(&eh_frame, LittleEndian);
+        // The `.eh_frame` fixture data was created on a 64-bit machine.
+        eh_frame.set_address_size(8);
         let bases = BaseAddresses::default()
             .set_eh_frame(0)
             .set_got(0)
@@ -862,15 +938,16 @@ mod cfi {
                 .rows(&eh_frame, &bases, &mut ctx)
                 .expect("Should initialize the ctx OK");
             while let Some(row) = table.next_row().expect("Should get next unwind table row") {
-                test::black_box(row);
+                black_box(row);
             }
         });
     }
 
-    #[bench]
-    fn eval_longest_fde_instructions_same_ctx(b: &mut test::Bencher) {
+    fn eval_longest_fde_instructions_same_ctx(b: &mut Bencher) {
         let eh_frame = read_section("eh_frame");
-        let eh_frame = EhFrame::new(&eh_frame, LittleEndian);
+        let mut eh_frame = EhFrame::new(&eh_frame, LittleEndian);
+        // The `.eh_frame` fixture data was created on a 64-bit machine.
+        eh_frame.set_address_size(8);
         let bases = BaseAddresses::default()
             .set_eh_frame(0)
             .set_got(0)
@@ -884,7 +961,7 @@ mod cfi {
                 .rows(&eh_frame, &bases, &mut ctx)
                 .expect("Should initialize the ctx OK");
             while let Some(row) = table.next_row().expect("Should get next unwind table row") {
-                test::black_box(row);
+                black_box(row);
             }
         });
     }
