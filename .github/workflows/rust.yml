@@ -119,8 +119,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install rust stable
+        uses: dtolnay/rust-toolchain@stable
       - run: cargo bench
 
   cross:
