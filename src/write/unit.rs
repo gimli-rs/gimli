@@ -623,7 +623,11 @@ impl DebuggingInformationEntry {
                 Format::Dwarf32 => constants::DW_FORM_ref4,
                 Format::Dwarf64 => constants::DW_FORM_ref8,
             };
-            attrs.push(AttributeSpecification::new(constants::DW_AT_sibling, form));
+            attrs.push(AttributeSpecification::new(
+                constants::DW_AT_sibling,
+                form,
+                None,
+            ));
         }
 
         for attr in &self.attrs {
@@ -770,10 +774,8 @@ impl Attribute {
 
     /// Return the type specification for this attribute.
     fn specification(&self, encoding: Encoding) -> Result<AttributeSpecification> {
-        Ok(AttributeSpecification::new(
-            self.name,
-            self.value.form(encoding)?,
-        ))
+        let (form, implicit_const) = self.value.form(encoding)?;
+        Ok(AttributeSpecification::new(self.name, form, implicit_const))
     }
 }
 
@@ -834,6 +836,16 @@ pub enum AttributeValue {
 
     /// An unsigned integer constant.
     Udata(u64),
+
+    /// An implicit signed integer constant.
+    ///
+    /// The constant is stored in the abbreviation instead of being repeated
+    /// for each DIE using the abbreviation.
+    ///
+    /// This may be used instead of any value that is a constant, such as
+    /// [`AttributeValue::Language`], but you need to specify the raw value
+    /// here instead of using a typed constant.
+    ImplicitConst(i64),
 
     /// "The information bytes contain a DWARF expression (see Section 2.5) or
     /// location description (see Section 2.6)."
@@ -948,10 +960,9 @@ pub enum AttributeValue {
 
 impl AttributeValue {
     /// Return the form that will be used to encode this value.
-    pub fn form(&self, encoding: Encoding) -> Result<constants::DwForm> {
+    pub fn form(&self, encoding: Encoding) -> Result<(constants::DwForm, Option<i64>)> {
         // TODO: missing forms:
         // - DW_FORM_indirect
-        // - DW_FORM_implicit_const
         // - FW_FORM_block1/block2/block4
         // - DW_FORM_str/strx1/strx2/strx3/strx4
         // - DW_FORM_addrx/addrx1/addrx2/addrx3/addrx4
@@ -1020,14 +1031,17 @@ impl AttributeValue {
             | AttributeValue::FileIndex(_)
             | AttributeValue::Udata(_) => constants::DW_FORM_udata,
             AttributeValue::Sdata(_) => constants::DW_FORM_sdata,
+            AttributeValue::ImplicitConst(val) => {
+                return Ok((constants::DW_FORM_implicit_const, Some(val)));
+            }
         };
-        Ok(form)
+        Ok((form, None))
     }
 
     fn size(&self, unit: &Unit, offsets: &UnitOffsets) -> Result<usize> {
         macro_rules! debug_assert_form {
             ($form:expr) => {
-                debug_assert_eq!(self.form(unit.encoding()).unwrap(), $form)
+                debug_assert_eq!(self.form(unit.encoding()).unwrap().0, $form)
             };
         }
         Ok(match *self {
@@ -1062,6 +1076,10 @@ impl AttributeValue {
             AttributeValue::Sdata(val) => {
                 debug_assert_form!(constants::DW_FORM_sdata);
                 sleb128_size(val)
+            }
+            AttributeValue::ImplicitConst(_) => {
+                debug_assert_form!(constants::DW_FORM_implicit_const);
+                0
             }
             AttributeValue::Udata(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
@@ -1223,7 +1241,7 @@ impl AttributeValue {
     ) -> Result<()> {
         macro_rules! debug_assert_form {
             ($form:expr) => {
-                debug_assert_eq!(self.form(unit.encoding()).unwrap(), $form)
+                debug_assert_eq!(self.form(unit.encoding()).unwrap().0, $form)
             };
         }
         match *self {
@@ -1259,6 +1277,9 @@ impl AttributeValue {
             AttributeValue::Sdata(val) => {
                 debug_assert_form!(constants::DW_FORM_sdata);
                 w.write_sleb128(val)?;
+            }
+            AttributeValue::ImplicitConst(_) => {
+                debug_assert_form!(constants::DW_FORM_implicit_const);
             }
             AttributeValue::Udata(val) => {
                 debug_assert_form!(constants::DW_FORM_udata);
@@ -2363,8 +2384,7 @@ pub(crate) mod convert {
     ///     for attr in &entry.attrs {
     ///         let value = unit.convert_attribute_value(
     ///             entry.from_unit,
-    ///             attr.name(),
-    ///             attr.value(),
+    ///             attr,
     ///             &|address| Some(gimli::write::Address::Constant(address)),
     ///         )?;
     ///         unit.unit.get_mut(id).set(attr.name(), value);
@@ -2681,12 +2701,8 @@ pub(crate) mod convert {
                     // This is a GNU extension that is not supported, and is safe to ignore.
                     // TODO: remove this when we support it.
                 } else {
-                    let value = self.convert_attribute_value(
-                        entry.from_unit,
-                        attr.name(),
-                        attr.value(),
-                        convert_address,
-                    )?;
+                    let value =
+                        self.convert_attribute_value(entry.from_unit, attr, convert_address)?;
                     self.unit.get_mut(id).set(attr.name(), value);
                 }
             }
@@ -2702,11 +2718,20 @@ pub(crate) mod convert {
         pub fn convert_attribute_value(
             &mut self,
             from_unit: read::UnitRef<'_, R>,
-            name: constants::DwAt,
-            value: read::AttributeValue<R>,
+            attr: &read::Attribute<R>,
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<AttributeValue> {
-            Ok(match value {
+            if attr.form() == constants::DW_FORM_implicit_const {
+                let implicit_const_value = match attr.raw_value() {
+                    read::AttributeValue::Sdata(val) => val,
+                    _ => return Err(ConvertError::InvalidAttributeValue),
+                };
+                // TODO: should we limit which names this is supported for?
+                // For example, if it occurred for DW_AT_decl_file then we
+                // wouldn't correct convert the file index.
+                return Ok(AttributeValue::ImplicitConst(implicit_const_value));
+            }
+            Ok(match attr.value() {
                 read::AttributeValue::Addr(val) => match (convert_address)(val) {
                     Some(val) => AttributeValue::Address(val),
                     None => return Err(ConvertError::InvalidAddress),
@@ -2720,7 +2745,7 @@ pub(crate) mod convert {
                 read::AttributeValue::Sdata(val) => AttributeValue::Sdata(val),
                 read::AttributeValue::Udata(val) => AttributeValue::Udata(val),
                 read::AttributeValue::Exprloc(expression) => {
-                    if name == constants::DW_AT_vtable_elem_location {
+                    if attr.name() == constants::DW_AT_vtable_elem_location {
                         let bytecode = expression.0.to_slice()?;
                         if bytecode.first().copied() == Some(constants::DW_OP_constu.0) {
                             // This is a vtable index. We must preserve the DW_OP_constu
@@ -2734,8 +2759,13 @@ pub(crate) mod convert {
                         self.convert_expression(from_unit, expression, convert_address)?;
                     AttributeValue::Exprloc(expression)
                 }
-                // TODO: it would be nice to preserve the flag form.
-                read::AttributeValue::Flag(val) => AttributeValue::Flag(val),
+                read::AttributeValue::Flag(val) => {
+                    if attr.form() == constants::DW_FORM_flag_present {
+                        AttributeValue::FlagPresent
+                    } else {
+                        AttributeValue::Flag(val)
+                    }
+                }
                 read::AttributeValue::DebugAddrIndex(index) => {
                     let val = from_unit.address(index)?;
                     match convert_address(val) {
@@ -3467,6 +3497,11 @@ mod tests {
                             read::AttributeValue::Udata(0x1234),
                         ),
                         (
+                            constants::DW_AT_language,
+                            AttributeValue::ImplicitConst(0x12),
+                            read::AttributeValue::Sdata(0x12),
+                        ),
+                        (
                             constants::DW_AT_name,
                             AttributeValue::Exprloc(expression.clone()),
                             read::AttributeValue::Exprloc(read_expression),
@@ -3476,13 +3511,11 @@ mod tests {
                             AttributeValue::Flag(false),
                             read::AttributeValue::Flag(false),
                         ),
-                        /*
                         (
                             constants::DW_AT_name,
                             AttributeValue::FlagPresent,
                             read::AttributeValue::Flag(true),
                         ),
-                        */
                         (
                             constants::DW_AT_name,
                             AttributeValue::DebugInfoRefSup(DebugInfoOffset(0x1234)),

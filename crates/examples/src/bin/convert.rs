@@ -212,7 +212,7 @@ fn convert_attributes<R: gimli::Reader<Offset = usize>>(
     entry: &gimli::write::ConvertUnitEntry<'_, R>,
 ) {
     for attr in &entry.attrs {
-        match unit.convert_attribute_value(entry.from_unit, attr.name(), attr.value(), &|address| {
+        match unit.convert_attribute_value(entry.from_unit, attr, &|address| {
             Some(gimli::write::Address::Constant(address))
         }) {
             Ok(value) => unit.unit.get_mut(id).set(attr.name(), value),
