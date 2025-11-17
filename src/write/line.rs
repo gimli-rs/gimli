@@ -1554,7 +1554,7 @@ mod convert {
         /// as for [`ConvertLineProgram::program`].
         ///
         /// See [`Dwarf::from`](crate::write::Dwarf::from) for the meaning of `convert_address`.
-        pub fn convert_all(
+        pub fn convert(
             mut self,
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<(LineProgram, Vec<FileId>)> {

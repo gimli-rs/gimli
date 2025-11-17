@@ -18,6 +18,7 @@ fn benches() {
     bench_leb128();
     bench_read();
     cfi::bench_cfi();
+    write::bench_write();
 }
 
 fn bench_leb128() {
@@ -157,17 +158,21 @@ fn bench_read() {
     );
 }
 
-pub fn read_section(section: &str) -> Vec<u8> {
+pub fn try_read_section(section: &str) -> Option<Vec<u8>> {
     let mut path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into()));
     path.push("./fixtures/self/");
     path.push(section);
 
+    let mut file = File::open(&path).ok()?;
     assert!(path.is_file());
-    let mut file = File::open(path).unwrap();
 
     let mut buf = Vec::new();
     file.read_to_end(&mut buf).unwrap();
-    buf
+    Some(buf)
+}
+
+pub fn read_section(section: &str) -> Vec<u8> {
+    try_read_section(section).unwrap()
 }
 
 fn bench_parsing_debug_abbrev(b: &mut Bencher) {
@@ -963,6 +968,60 @@ mod cfi {
             while let Some(row) = table.next_row().expect("Should get next unwind table row") {
                 black_box(row);
             }
+        });
+    }
+}
+
+mod write {
+    use super::*;
+    use gimli::{read, write};
+
+    pub(super) fn bench_write() {
+        let mut c = Criterion::default().configure_from_args();
+        c.bench_function("convert simple", convert_simple);
+        c.bench_function("convert incremental", convert_incremental);
+    }
+
+    fn convert_simple(b: &mut Bencher) {
+        let read_sections = read::DwarfSections::load::<_, ()>(|id| {
+            let mut name = id.name().chars();
+            name.next();
+            Ok(try_read_section(name.as_str()).unwrap_or_default())
+        })
+        .unwrap();
+        let read_dwarf = read_sections.borrow(|s| EndianSlice::new(s, LittleEndian));
+
+        b.iter(|| {
+            let mut write_sections = write::Sections::new(write::EndianVec::new(LittleEndian));
+            let mut write_dwarf = write::Dwarf::from(&read_dwarf, &|address| {
+                Some(write::Address::Constant(address))
+            })
+            .unwrap();
+            write_dwarf.write(&mut write_sections).unwrap();
+            black_box(write_sections)
+        });
+    }
+
+    fn convert_incremental(b: &mut Bencher) {
+        let read_sections = read::DwarfSections::load::<_, ()>(|id| {
+            let mut name = id.name().chars();
+            name.next();
+            Ok(try_read_section(name.as_str()).unwrap_or_default())
+        })
+        .unwrap();
+        let read_dwarf = read_sections.borrow(|s| EndianSlice::new(s, LittleEndian));
+
+        b.iter(|| {
+            let mut write_sections = write::Sections::new(write::EndianVec::new(LittleEndian));
+            let mut write_dwarf = write::Dwarf::new();
+            let mut convert_dwarf = write_dwarf.convert(&read_dwarf).unwrap();
+            while let Some((mut unit, root)) = convert_dwarf.read_unit().unwrap() {
+                unit.convert(&root, &|address| Some(write::Address::Constant(address)))
+                    .unwrap();
+                unit.write(&mut write_sections).unwrap();
+            }
+            write_dwarf.write(&mut write_sections).unwrap();
+            black_box(write_sections)
         });
     }
 }

@@ -2337,7 +2337,7 @@ pub(crate) mod convert {
     /// let mut convert = write_dwarf.convert(&read_dwarf)?;
     /// while let Some((mut unit, root_entry)) = convert.read_unit()? {
     ///     if let Some(convert_program) = unit.read_line_program(None, None)? {
-    ///         let (program, files) = convert_program.convert_all(
+    ///         let (program, files) = convert_program.convert(
     ///             &|address| Some(gimli::write::Address::Constant(address)),
     ///         )?;
     ///         unit.set_line_program(program, files);
@@ -2639,6 +2639,35 @@ pub(crate) mod convert {
         pub fn skip(&mut self) {
             self.unit.skip();
             self.unit.free();
+        }
+
+        /// Convert everything in the unit.
+        ///
+        /// This will convert all DIEs, and the values referenced by the attributes
+        /// such as strings, ranges, locations and line programs.
+        /// The converted values will be stored in [`Self::unit`].
+        ///
+        /// `root_entry` must be the entry returned by [`ConvertUnitSection::read_unit`].
+        ///
+        /// See [`Dwarf::from`](crate::write::Dwarf::from) for the meaning of `convert_address`.
+        pub fn convert(
+            &mut self,
+            root_entry: &ConvertUnitEntry<'_, R>,
+            convert_address: &dyn Fn(u64) -> Option<Address>,
+        ) -> ConvertResult<()> {
+            if let Some(convert_program) = self.read_line_program(None, None)? {
+                let (program, files) = convert_program.convert(convert_address)?;
+                self.set_line_program(program, files);
+            }
+            self.convert_attributes(self.unit.root(), root_entry, convert_address)?;
+            while let Some((id, entry)) = self.read_entry()? {
+                if id.is_none() {
+                    continue;
+                }
+                let id = self.add_entry(id, &entry);
+                self.convert_attributes(id, &entry, convert_address)?;
+            }
+            Ok(())
         }
 
         pub(crate) fn convert_attributes(
