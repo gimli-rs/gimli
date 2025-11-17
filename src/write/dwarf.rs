@@ -159,18 +159,7 @@ pub(crate) mod convert {
             let mut dwarf = Dwarf::default();
             let mut convert = dwarf.convert(from_dwarf)?;
             while let Some((mut unit, root_entry)) = convert.read_unit()? {
-                if let Some(convert_program) = unit.read_line_program(None, None)? {
-                    let (program, files) = convert_program.convert_all(convert_address)?;
-                    unit.set_line_program(program, files);
-                }
-                unit.convert_attributes(unit.unit.root(), &root_entry, convert_address)?;
-                while let Some((id, entry)) = unit.read_entry()? {
-                    if id.is_none() {
-                        continue;
-                    }
-                    let id = unit.add_entry(id, &entry);
-                    unit.convert_attributes(id, &entry, convert_address)?;
-                }
+                unit.convert(&root_entry, convert_address)?;
             }
             // TODO: convert the line programs that were not referenced by a unit.
             Ok(dwarf)
