@@ -1236,6 +1236,7 @@ where
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Attribute<R: Reader> {
     name: constants::DwAt,
+    form: constants::DwForm,
     value: AttributeValue<R>,
 }
 
@@ -1243,6 +1244,11 @@ impl<R: Reader> Attribute<R> {
     /// Get this attribute's name.
     pub fn name(&self) -> constants::DwAt {
         self.name
+    }
+
+    /// Get the form that was used to encode this attribute's value.
+    pub fn form(&self) -> constants::DwForm {
+        self.form
     }
 
     /// Get this attribute's raw value.
@@ -2312,6 +2318,7 @@ pub(crate) fn parse_attribute<R: Reader>(
         };
         let attr = Attribute {
             name: spec.name(),
+            form: spec.form(),
             value,
         };
         return Ok(attr);
@@ -4356,6 +4363,7 @@ mod tests {
             let (value, expect_udata, expect_sdata) = *test;
             let attribute = Attribute {
                 name: DW_AT_data_member_location,
+                form: constants::DW_FORM_null, // Doesn't matter
                 value,
             };
             assert_eq!(attribute.udata_value(), expect_udata);
@@ -4404,6 +4412,7 @@ mod tests {
 
         let expect = Attribute {
             name: constants::DW_AT_low_pc,
+            form,
             value,
         };
 
@@ -5049,6 +5058,7 @@ mod tests {
                     attr,
                     Attribute {
                         name: constants::DW_AT_name,
+                        form: constants::DW_FORM_string,
                         value: AttributeValue::String(EndianSlice::new(b"foo", LittleEndian)),
                     }
                 );
@@ -5066,6 +5076,7 @@ mod tests {
                     attr,
                     Attribute {
                         name: constants::DW_AT_low_pc,
+                        form: constants::DW_FORM_addr,
                         value: AttributeValue::Addr(0x2a),
                     }
                 );
@@ -5083,6 +5094,7 @@ mod tests {
                     attr,
                     Attribute {
                         name: constants::DW_AT_high_pc,
+                        form: constants::DW_FORM_addr,
                         value: AttributeValue::Addr(0x539),
                     }
                 );
@@ -5158,6 +5170,7 @@ mod tests {
                     attr,
                     Attribute {
                         name: constants::DW_AT_name,
+                        form: constants::DW_FORM_string,
                         value: AttributeValue::String(EndianSlice::new(b"foo", LittleEndian)),
                     }
                 );
