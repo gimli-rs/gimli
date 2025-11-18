@@ -77,9 +77,6 @@ impl RangeListTable {
         for range_list in self.ranges.iter() {
             offsets.push(w.offset());
             for range in &range_list.0 {
-                // Note that we must ensure none of the ranges have both begin == 0 and end == 0.
-                // We do this by ensuring that begin != end, which is a bit more restrictive
-                // than required, but still seems reasonable.
                 match *range {
                     Range::BaseAddress { address } => {
                         let marker = !0 >> (64 - address_size * 8);
@@ -87,32 +84,14 @@ impl RangeListTable {
                         w.write_address(address, address_size)?;
                     }
                     Range::OffsetPair { begin, end } => {
-                        if begin == end {
+                        if begin == 0 && end == 0 {
                             return Err(Error::InvalidRange);
                         }
                         w.write_udata(begin, address_size)?;
                         w.write_udata(end, address_size)?;
                     }
-                    Range::StartEnd { begin, end } => {
-                        if begin == end {
-                            return Err(Error::InvalidRange);
-                        }
-                        w.write_address(begin, address_size)?;
-                        w.write_address(end, address_size)?;
-                    }
-                    Range::StartLength { begin, length } => {
-                        let end = match begin {
-                            Address::Constant(begin) => Address::Constant(begin + length),
-                            Address::Symbol { symbol, addend } => Address::Symbol {
-                                symbol,
-                                addend: addend + length as i64,
-                            },
-                        };
-                        if begin == end {
-                            return Err(Error::InvalidRange);
-                        }
-                        w.write_address(begin, address_size)?;
-                        w.write_address(end, address_size)?;
+                    Range::StartEnd { .. } | Range::StartLength { .. } => {
+                        return Err(Error::NeedVersion(5));
                     }
                 }
             }
@@ -235,42 +214,14 @@ mod convert {
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<Self> {
             let convert_address = |x| convert_address(x).ok_or(ConvertError::InvalidAddress);
-            let mut have_base_address = from_unit.low_pc != 0;
             let mut ranges = Vec::new();
             while let Some(from_range) = from.next()? {
                 let range = match from_range {
-                    read::RawRngListEntry::AddressOrOffsetPair { begin, end } => {
-                        // These were parsed as addresses, even if they are offsets.
-                        let begin = convert_address(begin)?;
-                        let end = convert_address(end)?;
-                        match (begin, end) {
-                            (Address::Constant(begin_offset), Address::Constant(end_offset)) => {
-                                if have_base_address {
-                                    Range::OffsetPair {
-                                        begin: begin_offset,
-                                        end: end_offset,
-                                    }
-                                } else {
-                                    Range::StartEnd { begin, end }
-                                }
-                            }
-                            _ => {
-                                if have_base_address {
-                                    // At least one of begin/end is an address, but we also have
-                                    // a base address. Adding addresses is undefined.
-                                    return Err(ConvertError::InvalidRangeRelativeAddress);
-                                }
-                                Range::StartEnd { begin, end }
-                            }
-                        }
-                    }
                     read::RawRngListEntry::BaseAddress { addr } => {
-                        have_base_address = true;
                         let address = convert_address(addr)?;
                         Range::BaseAddress { address }
                     }
                     read::RawRngListEntry::BaseAddressx { addr } => {
-                        have_base_address = true;
                         let address = convert_address(from_unit.address(addr)?)?;
                         Range::BaseAddress { address }
                     }
@@ -335,14 +286,6 @@ mod tests {
                     };
 
                     let mut range_list = RangeList(vec![
-                        Range::StartLength {
-                            begin: Address::Constant(6666),
-                            length: 7777,
-                        },
-                        Range::StartEnd {
-                            begin: Address::Constant(4444),
-                            end: Address::Constant(5555),
-                        },
                         Range::BaseAddress {
                             address: Address::Constant(1111),
                         },
@@ -351,6 +294,18 @@ mod tests {
                             end: 3333,
                         },
                     ]);
+                    if version >= 5 {
+                        range_list.0.extend([
+                            Range::StartLength {
+                                begin: Address::Constant(6666),
+                                length: 7777,
+                            },
+                            Range::StartEnd {
+                                begin: Address::Constant(4444),
+                                end: Address::Constant(5555),
+                            },
+                        ]);
+                    }
 
                     let mut ranges = RangeListTable::default();
                     let range_list_id = ranges.add(range_list.clone());
@@ -396,13 +351,6 @@ mod tests {
                             Some(Address::Constant(address))
                         })
                         .unwrap();
-
-                    if version <= 4 {
-                        range_list.0[0] = Range::StartEnd {
-                            begin: Address::Constant(6666),
-                            end: Address::Constant(6666 + 7777),
-                        };
-                    }
                     assert_eq!(range_list, convert_range_list);
                 }
             }

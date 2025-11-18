@@ -3419,14 +3419,14 @@ mod tests {
             LittleEndian,
         ));
 
-        let range = RangeList(vec![Range::StartEnd {
-            begin: Address::Constant(0x1234),
-            end: Address::Constant(0x2345),
+        let range = RangeList(vec![Range::OffsetPair {
+            begin: 0x1234,
+            end: 0x2345,
         }]);
 
-        let location = LocationList(vec![Location::StartEnd {
-            begin: Address::Constant(0x1234),
-            end: Address::Constant(0x2345),
+        let location = LocationList(vec![Location::OffsetPair {
+            begin: 0x1234,
+            end: 0x2345,
             data: expression.clone(),
         }]);
 
@@ -3442,6 +3442,10 @@ mod tests {
                     let mut dwarf = Dwarf::new();
                     let unit = dwarf.units.add(Unit::new(encoding, LineProgram::none()));
                     let unit = dwarf.units.get_mut(unit);
+                    unit.get_mut(unit.root()).set(
+                        constants::DW_AT_low_pc,
+                        AttributeValue::Address(Address::Constant(0)),
+                    );
                     let loc_id = unit.locations.add(location.clone());
                     let range_id = unit.ranges.add(range.clone());
                     // Create a string with a non-zero id/offset.

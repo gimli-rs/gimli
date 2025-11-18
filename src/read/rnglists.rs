@@ -312,13 +312,6 @@ pub struct RawRngListIter<R: Reader> {
 /// A raw entry in .debug_rnglists
 #[derive(Clone, Debug)]
 pub enum RawRngListEntry<T> {
-    /// A range from DWARF version <= 4.
-    AddressOrOffsetPair {
-        /// Start of range. May be an address or an offset.
-        begin: u64,
-        /// End of range. May be an address or an offset.
-        end: u64,
-    },
     /// DW_RLE_base_address
     BaseAddress {
         /// base address
@@ -375,16 +368,17 @@ impl<T: ReaderOffset> RawRngListEntry<T> {
     ) -> Result<Option<Self>> {
         Ok(match format {
             RangeListsFormat::Bare => {
-                let range = RawRange::parse(input, encoding.address_size)?;
-                if range.is_end() {
-                    None
-                } else if range.is_base_address(encoding.address_size) {
-                    Some(RawRngListEntry::BaseAddress { addr: range.end })
+                let begin = input.read_address_offset(encoding.address_size)?;
+                if begin == !0 >> (64 - encoding.address_size * 8) {
+                    let addr = input.read_address(encoding.address_size)?;
+                    Some(RawRngListEntry::BaseAddress { addr })
                 } else {
-                    Some(RawRngListEntry::AddressOrOffsetPair {
-                        begin: range.begin,
-                        end: range.end,
-                    })
+                    let end = input.read_address_offset(encoding.address_size)?;
+                    if begin == 0 && end == 0 {
+                        None
+                    } else {
+                        Some(RawRngListEntry::OffsetPair { begin, end })
+                    }
                 }
             }
             RangeListsFormat::Rle => match constants::DwRle(input.read_u8()?) {
@@ -548,8 +542,7 @@ impl<R: Reader> RngListIter<R> {
                 let end = begin.wrapping_add_sized(length, address_size);
                 Range { begin, end }
             }
-            RawRngListEntry::AddressOrOffsetPair { begin, end }
-            | RawRngListEntry::OffsetPair { begin, end } => {
+            RawRngListEntry::OffsetPair { begin, end } => {
                 // Skip tombstone entries (see below).
                 if self.base_address >= u64::min_tombstone(address_size) {
                     return Ok(None);
@@ -590,42 +583,6 @@ impl<R: Reader> fallible_iterator::FallibleIterator for RngListIter<R> {
 
     fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
         RngListIter::next(self)
-    }
-}
-
-/// A raw address range from the `.debug_ranges` section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct RawRange {
-    /// The beginning address of the range.
-    pub begin: u64,
-
-    /// The first address past the end of the range.
-    pub end: u64,
-}
-
-impl RawRange {
-    /// Check if this is a range end entry.
-    #[inline]
-    pub fn is_end(&self) -> bool {
-        self.begin == 0 && self.end == 0
-    }
-
-    /// Check if this is a base address selection entry.
-    ///
-    /// A base address selection entry changes the base address that subsequent
-    /// range entries are relative to.
-    #[inline]
-    pub fn is_base_address(&self, address_size: u8) -> bool {
-        self.begin == !0 >> (64 - address_size * 8)
-    }
-
-    /// Parse an address range entry from `.debug_ranges` or `.debug_loc`.
-    #[inline]
-    pub fn parse<R: Reader>(input: &mut R, address_size: u8) -> Result<RawRange> {
-        let begin = input.read_address(address_size)?;
-        let end = input.read_address(address_size)?;
-        let range = RawRange { begin, end };
-        Ok(range)
     }
 }
 
@@ -815,38 +772,6 @@ mod tests {
                 .unwrap();
             assert_eq!(ranges.next(), Ok(None));
         }
-    }
-
-    #[test]
-    fn test_raw_range() {
-        let range = RawRange {
-            begin: 0,
-            end: 0xffff_ffff,
-        };
-        assert!(!range.is_end());
-        assert!(!range.is_base_address(4));
-        assert!(!range.is_base_address(8));
-
-        let range = RawRange { begin: 0, end: 0 };
-        assert!(range.is_end());
-        assert!(!range.is_base_address(4));
-        assert!(!range.is_base_address(8));
-
-        let range = RawRange {
-            begin: 0xffff_ffff,
-            end: 0,
-        };
-        assert!(!range.is_end());
-        assert!(range.is_base_address(4));
-        assert!(!range.is_base_address(8));
-
-        let range = RawRange {
-            begin: 0xffff_ffff_ffff_ffff,
-            end: 0,
-        };
-        assert!(!range.is_end());
-        assert!(!range.is_base_address(4));
-        assert!(range.is_base_address(8));
     }
 
     #[test]

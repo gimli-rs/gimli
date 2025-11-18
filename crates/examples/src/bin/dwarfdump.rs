@@ -1841,12 +1841,7 @@ fn dump_loc_list<R: Reader, W: Write>(
                 dump_exprloc(w, unit, data)?;
                 writeln!(w)?;
             }
-            gimli::RawLocListEntry::AddressOrOffsetPair {
-                begin,
-                end,
-                ref data,
-            }
-            | gimli::RawLocListEntry::OffsetPair {
+            gimli::RawLocListEntry::OffsetPair {
                 begin,
                 end,
                 ref data,
@@ -1936,8 +1931,7 @@ fn dump_range_list<R: Reader, W: Write>(
                 dump_range(w, range)?;
                 writeln!(w)?;
             }
-            gimli::RawRngListEntry::AddressOrOffsetPair { begin, end }
-            | gimli::RawRngListEntry::OffsetPair { begin, end } => {
+            gimli::RawRngListEntry::OffsetPair { begin, end } => {
                 write!(w, "<offset-pair {:#x}, {:#x}>", begin, end)?;
                 dump_range(w, range)?;
                 writeln!(w)?;

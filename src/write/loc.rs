@@ -94,9 +94,6 @@ impl LocationListTable {
         for loc_list in self.locations.iter() {
             offsets.push(w.offset());
             for loc in &loc_list.0 {
-                // Note that we must ensure none of the ranges have both begin == 0 and end == 0.
-                // We do this by ensuring that begin != end, which is a bit more restrictive
-                // than required, but still seems reasonable.
                 match *loc {
                     Location::BaseAddress { address } => {
                         let marker = !0 >> (64 - address_size * 8);
@@ -108,46 +105,17 @@ impl LocationListTable {
                         end,
                         ref data,
                     } => {
-                        if begin == end {
+                        if begin == 0 && end == 0 {
                             return Err(Error::InvalidRange);
                         }
                         w.write_udata(begin, address_size)?;
                         w.write_udata(end, address_size)?;
                         write_expression(&mut w.0, refs, encoding, unit_offsets, data)?;
                     }
-                    Location::StartEnd {
-                        begin,
-                        end,
-                        ref data,
-                    } => {
-                        if begin == end {
-                            return Err(Error::InvalidRange);
-                        }
-                        w.write_address(begin, address_size)?;
-                        w.write_address(end, address_size)?;
-                        write_expression(&mut w.0, refs, encoding, unit_offsets, data)?;
-                    }
-                    Location::StartLength {
-                        begin,
-                        length,
-                        ref data,
-                    } => {
-                        let end = match begin {
-                            Address::Constant(begin) => Address::Constant(begin + length),
-                            Address::Symbol { symbol, addend } => Address::Symbol {
-                                symbol,
-                                addend: addend + length as i64,
-                            },
-                        };
-                        if begin == end {
-                            return Err(Error::InvalidRange);
-                        }
-                        w.write_address(begin, address_size)?;
-                        w.write_address(end, address_size)?;
-                        write_expression(&mut w.0, refs, encoding, unit_offsets, data)?;
-                    }
-                    Location::DefaultLocation { .. } => {
-                        return Err(Error::InvalidRange);
+                    Location::StartEnd { .. }
+                    | Location::StartLength { .. }
+                    | Location::DefaultLocation { .. } => {
+                        return Err(Error::NeedVersion(5));
                     }
                 }
             }
@@ -329,44 +297,14 @@ mod convert {
                 )
             };
             let convert_address = |x| convert_address(x).ok_or(ConvertError::InvalidAddress);
-            let mut have_base_address = from_unit.low_pc != 0;
             let mut loc_list = Vec::new();
             while let Some(from_loc) = from.next()? {
                 let loc = match from_loc {
-                    read::RawLocListEntry::AddressOrOffsetPair { begin, end, data } => {
-                        // These were parsed as addresses, even if they are offsets.
-                        let begin = convert_address(begin)?;
-                        let end = convert_address(end)?;
-                        let data = convert_expression(data)?;
-                        match (begin, end) {
-                            (Address::Constant(begin_offset), Address::Constant(end_offset)) => {
-                                if have_base_address {
-                                    Location::OffsetPair {
-                                        begin: begin_offset,
-                                        end: end_offset,
-                                        data,
-                                    }
-                                } else {
-                                    Location::StartEnd { begin, end, data }
-                                }
-                            }
-                            _ => {
-                                if have_base_address {
-                                    // At least one of begin/end is an address, but we also have
-                                    // a base address. Adding addresses is undefined.
-                                    return Err(ConvertError::InvalidRangeRelativeAddress);
-                                }
-                                Location::StartEnd { begin, end, data }
-                            }
-                        }
-                    }
                     read::RawLocListEntry::BaseAddress { addr } => {
-                        have_base_address = true;
                         let address = convert_address(addr)?;
                         Location::BaseAddress { address }
                     }
                     read::RawLocListEntry::BaseAddressx { addr } => {
-                        have_base_address = true;
                         let address = convert_address(from_unit.address(addr)?)?;
                         Location::BaseAddress { address }
                     }
@@ -460,16 +398,6 @@ mod tests {
                     };
 
                     let mut loc_list = LocationList(vec![
-                        Location::StartLength {
-                            begin: Address::Constant(6666),
-                            length: 7777,
-                            data: expression.clone(),
-                        },
-                        Location::StartEnd {
-                            begin: Address::Constant(4444),
-                            end: Address::Constant(5555),
-                            data: expression.clone(),
-                        },
                         Location::BaseAddress {
                             address: Address::Constant(1111),
                         },
@@ -480,9 +408,21 @@ mod tests {
                         },
                     ]);
                     if version >= 5 {
-                        loc_list.0.push(Location::DefaultLocation {
-                            data: expression.clone(),
-                        });
+                        loc_list.0.extend([
+                            Location::StartLength {
+                                begin: Address::Constant(6666),
+                                length: 7777,
+                                data: expression.clone(),
+                            },
+                            Location::StartEnd {
+                                begin: Address::Constant(4444),
+                                end: Address::Constant(5555),
+                                data: expression.clone(),
+                            },
+                            Location::DefaultLocation {
+                                data: expression.clone(),
+                            },
+                        ]);
                     }
 
                     let mut locations = LocationListTable::default();
@@ -533,14 +473,6 @@ mod tests {
                         &NoConvertDebugInfoRef,
                     )
                     .unwrap();
-
-                    if version <= 4 {
-                        loc_list.0[0] = Location::StartEnd {
-                            begin: Address::Constant(6666),
-                            end: Address::Constant(6666 + 7777),
-                            data: expression.clone(),
-                        };
-                    }
                     assert_eq!(loc_list, convert_loc_list);
                 }
             }

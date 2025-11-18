@@ -539,7 +539,23 @@ pub trait Reader: Debug + Clone {
     }
 
     /// Read an address-sized integer, and return it as a `u64`.
+    ///
+    /// This is an absolute address, and may have a relocation in
+    /// relocatable object files.
     fn read_address(&mut self, address_size: u8) -> Result<u64> {
+        match address_size {
+            1 => self.read_u8().map(u64::from),
+            2 => self.read_u16().map(u64::from),
+            4 => self.read_u32().map(u64::from),
+            8 => self.read_u64(),
+            otherwise => Err(Error::UnsupportedAddressSize(otherwise)),
+        }
+    }
+
+    /// Read an address-sized integer, and return it as a `u64`.
+    ///
+    /// This is an offset from an address, and will not have a relocation.
+    fn read_address_offset(&mut self, address_size: u8) -> Result<u64> {
         match address_size {
             1 => self.read_u8().map(u64::from),
             2 => self.read_u16().map(u64::from),

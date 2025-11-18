@@ -345,8 +345,6 @@ mod convert {
         InvalidUnitRef,
         /// A `.debug_info` reference is invalid.
         InvalidDebugInfoRef,
-        /// Invalid relative address in a range list.
-        InvalidRangeRelativeAddress,
         /// Writing this CFI instruction is not implemented yet.
         UnsupportedCfiInstruction,
         /// Writing indirect pointers is not implemented yet.
@@ -399,9 +397,6 @@ mod convert {
                 InvalidLineRef => write!(f, "A `.debug_line` reference is invalid."),
                 InvalidUnitRef => write!(f, "A `.debug_info` unit entry reference is invalid."),
                 InvalidDebugInfoRef => write!(f, "A `.debug_info` reference is invalid."),
-                InvalidRangeRelativeAddress => {
-                    write!(f, "Invalid relative address in a range list.")
-                }
                 UnsupportedCfiInstruction => {
                     write!(f, "Writing this CFI instruction is not implemented yet.")
                 }

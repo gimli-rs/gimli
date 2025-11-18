@@ -5,8 +5,8 @@ use crate::common::{
 use crate::constants;
 use crate::endianity::Endianity;
 use crate::read::{
-    DebugAddr, EndianSlice, Error, Expression, Range, RawRange, Reader, ReaderAddress,
-    ReaderOffset, ReaderOffsetId, Result, Section, lists::ListsHeader,
+    DebugAddr, EndianSlice, Error, Expression, Range, Reader, ReaderAddress, ReaderOffset,
+    ReaderOffsetId, Result, Section, lists::ListsHeader,
 };
 
 /// The raw contents of the `.debug_loc` section.
@@ -335,15 +335,6 @@ pub struct RawLocListIter<R: Reader> {
 /// A raw entry in .debug_loclists.
 #[derive(Clone, Debug)]
 pub enum RawLocListEntry<R: Reader> {
-    /// A location from DWARF version <= 4.
-    AddressOrOffsetPair {
-        /// Start of range. May be an address or an offset.
-        begin: u64,
-        /// End of range. May be an address or an offset.
-        end: u64,
-        /// expression
-        data: Expression<R>,
-    },
     /// DW_LLE_base_address
     BaseAddress {
         /// base address
@@ -422,19 +413,19 @@ impl<R: Reader> RawLocListEntry<R> {
     fn parse(input: &mut R, encoding: Encoding, format: LocListsFormat) -> Result<Option<Self>> {
         Ok(match format {
             LocListsFormat::Bare => {
-                let range = RawRange::parse(input, encoding.address_size)?;
-                if range.is_end() {
-                    None
-                } else if range.is_base_address(encoding.address_size) {
-                    Some(RawLocListEntry::BaseAddress { addr: range.end })
+                let begin = input.read_address_offset(encoding.address_size)?;
+                if begin == !0 >> (64 - encoding.address_size * 8) {
+                    let addr = input.read_address(encoding.address_size)?;
+                    Some(RawLocListEntry::BaseAddress { addr })
                 } else {
-                    let len = R::Offset::from_u16(input.read_u16()?);
-                    let data = Expression(input.split(len)?);
-                    Some(RawLocListEntry::AddressOrOffsetPair {
-                        begin: range.begin,
-                        end: range.end,
-                        data,
-                    })
+                    let end = input.read_address_offset(encoding.address_size)?;
+                    if begin == 0 && end == 0 {
+                        None
+                    } else {
+                        let len = R::Offset::from_u16(input.read_u16()?);
+                        let data = Expression(input.split(len)?);
+                        Some(RawLocListEntry::OffsetPair { begin, end, data })
+                    }
                 }
             }
             LocListsFormat::Lle => match constants::DwLle(input.read_u8()?) {
@@ -625,8 +616,7 @@ impl<R: Reader> LocListIter<R> {
                 },
                 data,
             ),
-            RawLocListEntry::AddressOrOffsetPair { begin, end, data }
-            | RawLocListEntry::OffsetPair { begin, end, data } => {
+            RawLocListEntry::OffsetPair { begin, end, data } => {
                 // Skip tombstone entries (see below).
                 if self.base_address >= u64::min_tombstone(address_size) {
                     return Ok(None);
