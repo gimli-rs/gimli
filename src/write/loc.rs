@@ -334,30 +334,23 @@ mod convert {
             while let Some(from_loc) = from.next()? {
                 let loc = match from_loc {
                     read::RawLocListEntry::AddressOrOffsetPair { begin, end, data } => {
-                        // These were parsed as addresses, even if they are offsets.
+                        // This matches the logic in `RangeList::from`. See the comments there.
                         let begin = convert_address(begin)?;
                         let end = convert_address(end)?;
                         let data = convert_expression(data)?;
-                        match (begin, end) {
-                            (Address::Constant(begin_offset), Address::Constant(end_offset)) => {
-                                if have_base_address {
-                                    Location::OffsetPair {
-                                        begin: begin_offset,
-                                        end: end_offset,
-                                        data,
-                                    }
-                                } else {
-                                    Location::StartEnd { begin, end, data }
-                                }
+                        if have_base_address {
+                            let (Address::Constant(begin_offset), Address::Constant(end_offset)) =
+                                (begin, end)
+                            else {
+                                return Err(ConvertError::InvalidRangeRelativeAddress);
+                            };
+                            Location::OffsetPair {
+                                begin: begin_offset,
+                                end: end_offset,
+                                data,
                             }
-                            _ => {
-                                if have_base_address {
-                                    // At least one of begin/end is an address, but we also have
-                                    // a base address. Adding addresses is undefined.
-                                    return Err(ConvertError::InvalidRangeRelativeAddress);
-                                }
-                                Location::StartEnd { begin, end, data }
-                            }
+                        } else {
+                            Location::StartEnd { begin, end, data }
                         }
                     }
                     read::RawLocListEntry::BaseAddress { addr } => {
