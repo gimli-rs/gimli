@@ -235,33 +235,43 @@ mod convert {
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<Self> {
             let convert_address = |x| convert_address(x).ok_or(ConvertError::InvalidAddress);
+            // The CU DW_AT_low_pc was parsed with `Reader::read_address`.
+            // We could pass it to `convert_address`, but we rely on `read_address`
+            // returning 0 if and only if it was an unrelocated 0 value.
+            // If it is 0, then DWARF v2-4 ranges are address pairs unless there is a
+            // base address entry, otherwise they must be offset pairs.
+            // We don't handle the possibility of this being a tombstone since I don't
+            // think that can occur.
             let mut have_base_address = from_unit.low_pc != 0;
             let mut ranges = Vec::new();
             while let Some(from_range) = from.next()? {
                 let range = match from_range {
                     read::RawRngListEntry::AddressOrOffsetPair { begin, end } => {
-                        // These were parsed as addresses, even if they are offsets.
+                        // These were parsed with `Reader::read_address`, even if they are
+                        // offsets, so we need to apply the conversion function.
+                        // For executables, the converted values will be `Address::Constant`
+                        // for both offsets and addresses.
+                        // For relocatable objects, we expect offsets to be `Address::Constant`
+                        // and addresses to be `Address::Symbol`.
                         let begin = convert_address(begin)?;
                         let end = convert_address(end)?;
-                        match (begin, end) {
-                            (Address::Constant(begin_offset), Address::Constant(end_offset)) => {
-                                if have_base_address {
-                                    Range::OffsetPair {
-                                        begin: begin_offset,
-                                        end: end_offset,
-                                    }
-                                } else {
-                                    Range::StartEnd { begin, end }
-                                }
+                        // We must use the presence of a base address to disambiguate between
+                        // offsets and addresses for both executables and relocatable objects.
+                        // (This logic is also used in `LocationList::from`.)
+                        if have_base_address {
+                            let (Address::Constant(begin_offset), Address::Constant(end_offset)) =
+                                (begin, end)
+                            else {
+                                // We have a relocatable object file that uses both a base address
+                                // and an address pair.
+                                return Err(ConvertError::InvalidRangeRelativeAddress);
+                            };
+                            Range::OffsetPair {
+                                begin: begin_offset,
+                                end: end_offset,
                             }
-                            _ => {
-                                if have_base_address {
-                                    // At least one of begin/end is an address, but we also have
-                                    // a base address. Adding addresses is undefined.
-                                    return Err(ConvertError::InvalidRangeRelativeAddress);
-                                }
-                                Range::StartEnd { begin, end }
-                            }
+                        } else {
+                            Range::StartEnd { begin, end }
                         }
                     }
                     read::RawRngListEntry::BaseAddress { addr } => {

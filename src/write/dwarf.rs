@@ -126,11 +126,20 @@ pub(crate) mod convert {
     impl Dwarf {
         /// Create a `write::Dwarf` by converting a `read::Dwarf`.
         ///
-        /// `convert_address` is a function to convert read addresses into the `Address`
-        /// type. For non-relocatable addresses, this function may simply return
-        /// `Address::Constant(address)`. For relocatable addresses, it is the caller's
-        /// responsibility to determine the symbol and addend corresponding to the address
-        /// and return `Address::Symbol { symbol, addend }`.
+        /// `convert_address` is a function to convert addresses read by
+        /// `Reader::read_address` into the `Address` type. For executable files,
+        /// it is sufficient to simply map the address to `Address::Constant`.
+        ///
+        /// Relocatable object files are more complicated because there are relocations
+        /// associated with the address. To handle this, you can use a `Reader`
+        /// implementation for which `Reader::read_address` stores the relocation
+        /// information in a map and returns the map key instead of an address. Then
+        /// `convert_address` can look up the mapping to produce an `Address`.
+        ///
+        /// Note that `convert_address` is also used for address and offset pairs in
+        /// DWARF v2-v4 range lists and location lists. In order for the parser to
+        /// correctly handle these, `Reader::read_address` must return the values 0 and -1
+        /// unchanged.
         ///
         /// `convert_address` should not be used for complex address transformations, as it
         /// will not be called for address offsets (such as in `DW_AT_high_pc`, line programs,

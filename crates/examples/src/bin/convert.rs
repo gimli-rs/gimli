@@ -264,6 +264,53 @@ fn need_entry<R: gimli::Reader<Offset = usize>>(
                 if let Some(address) = entry.unit.attr_address(attr)? {
                     return Ok(!is_tombstone_address(entry, address));
                 }
+            } else if let Some(attr) = entry.attr_value(gimli::DW_AT_ranges) {
+                if let Some(offset) = entry.unit.attr_ranges_offset(attr)? {
+                    let mut base = if entry.unit.low_pc != 0 {
+                        // Have a base and it is valid.
+                        Some(true)
+                    } else {
+                        // Don't have a base.
+                        None
+                    };
+                    let mut ranges = entry.unit.raw_ranges(offset)?;
+                    while let Some(range) = ranges.next()? {
+                        match range {
+                            gimli::RawRngListEntry::AddressOrOffsetPair { begin, .. } => {
+                                if base == Some(true)
+                                    || (base.is_none() && !is_tombstone_address(entry, begin))
+                                {
+                                    return Ok(true);
+                                }
+                            }
+                            gimli::RawRngListEntry::OffsetPair { .. } => {
+                                if base == Some(true) {
+                                    return Ok(true);
+                                }
+                            }
+                            gimli::RawRngListEntry::BaseAddress { addr } => {
+                                base = Some(!is_tombstone_address(entry, addr));
+                            }
+                            gimli::RawRngListEntry::BaseAddressx { addr } => {
+                                let addr = entry.unit.address(addr)?;
+                                base = Some(!is_tombstone_address(entry, addr));
+                            }
+                            gimli::RawRngListEntry::StartEnd { begin, .. }
+                            | gimli::RawRngListEntry::StartLength { begin, .. } => {
+                                if !is_tombstone_address(entry, begin) {
+                                    return Ok(true);
+                                }
+                            }
+                            gimli::RawRngListEntry::StartxEndx { begin, .. }
+                            | gimli::RawRngListEntry::StartxLength { begin, .. } => {
+                                let begin = entry.unit.address(begin)?;
+                                if !is_tombstone_address(entry, begin) {
+                                    return Ok(true);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         gimli::DW_TAG_variable => {
