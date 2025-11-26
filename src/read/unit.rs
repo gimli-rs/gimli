@@ -1,5 +1,6 @@
 //! Functions for parsing DWARF `.debug_info` and `.debug_types` sections.
 
+use alloc::vec::Vec;
 use core::cell::Cell;
 use core::ops::{Range, RangeFrom, RangeTo};
 
@@ -2585,6 +2586,28 @@ impl<'abbrev, 'unit, R: Reader> EntriesRaw<'abbrev, 'unit, R> {
     #[inline(always)]
     pub fn read_attribute_inline(&mut self, spec: AttributeSpecification) -> Result<Attribute<R>> {
         parse_attribute(&mut self.input, self.unit.encoding(), spec)
+    }
+
+    /// Read all attributes into a `Vec`.
+    ///
+    /// This will clear `attrs` before reading.
+    ///
+    /// It is recommended to reuse the same `Vec` for multiple calls to avoid allocations.
+    pub fn read_attributes(
+        &mut self,
+        specs: &[AttributeSpecification],
+        attrs: &mut Vec<Attribute<R>>,
+    ) -> Result<()> {
+        attrs.clear();
+        attrs.reserve(specs.len());
+        for spec in specs {
+            attrs.push(parse_attribute(
+                &mut self.input,
+                self.unit.encoding(),
+                *spec,
+            )?);
+        }
+        Ok(())
     }
 
     /// Skip all the attributes of an abbreviation.
