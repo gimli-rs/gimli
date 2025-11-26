@@ -209,16 +209,11 @@ fn impl_bench_parsing_debug_info<R: Reader>(
         let mut cursor = unit.entries(&abbrevs);
         while let Some((_, entry)) = cursor.next_dfs().expect("Should parse next dfs") {
             let mut attrs = entry.attrs();
-            loop {
-                match attrs.next() {
-                    Ok(Some(ref attr)) => {
-                        black_box(attr);
-                    }
-                    Ok(None) => break,
-                    e @ Err(_) => {
-                        e.expect("Should parse entry's attribute");
-                    }
-                }
+            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+                let name = attr.name();
+                black_box(name);
+                let value = attr.raw_value();
+                black_box(value);
             }
         }
     }
@@ -273,19 +268,12 @@ fn bench_parsing_debug_info_tree(b: &mut Bencher) {
 }
 
 fn parse_debug_info_tree<R: Reader>(node: EntriesTreeNode<R>) {
-    {
-        let mut attrs = node.entry().attrs();
-        loop {
-            match attrs.next() {
-                Ok(Some(ref attr)) => {
-                    black_box(attr);
-                }
-                Ok(None) => break,
-                e @ Err(_) => {
-                    e.expect("Should parse entry's attribute");
-                }
-            }
-        }
+    let mut attrs = node.entry().attrs();
+    while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+        let name = attr.name();
+        black_box(name);
+        let value = attr.raw_value();
+        black_box(value);
     }
     let mut children = node.children();
     while let Some(child) = children.next().expect("Should parse child entry") {
@@ -317,14 +305,11 @@ fn bench_parsing_debug_info_raw(b: &mut Bencher) {
                     .expect("Should parse abbreviation code")
                 {
                     for spec in abbrev.attributes().iter().cloned() {
-                        match raw.read_attribute(spec) {
-                            Ok(ref attr) => {
-                                black_box(attr);
-                            }
-                            e @ Err(_) => {
-                                e.expect("Should parse attribute");
-                            }
-                        }
+                        let attr = raw.read_attribute(spec).expect("Should parse attribute");
+                        let name = attr.name();
+                        black_box(name);
+                        let value = attr.raw_value();
+                        black_box(value);
                     }
                 }
             }
