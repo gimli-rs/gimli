@@ -54,7 +54,6 @@ split-debuginfo = "packed"
 [profile.bench]
 debug = true
 codegen-units = 1
-split-debuginfo = "packed"
 
 [[bench]]
 name = "bench"
