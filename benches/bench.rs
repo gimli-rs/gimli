@@ -2,10 +2,11 @@ use criterion::{Bencher, Criterion, criterion_main};
 use std::hint::black_box;
 
 use gimli::{
-    AttributeValue, DebugAbbrev, DebugAddr, DebugAddrBase, DebugAranges, DebugInfo, DebugLine,
-    DebugLineOffset, DebugLoc, DebugLocLists, DebugPubNames, DebugPubTypes, DebugRanges,
-    DebugRngLists, Encoding, EndianSlice, EntriesTreeNode, Expression, LittleEndian, LocationLists,
-    NativeEndian, Operation, RangeLists, RangeListsOffset, Reader, ReaderOffset, leb128,
+    Attribute, AttributeSpecification, AttributeValue, DebugAbbrev, DebugAddr, DebugAddrBase,
+    DebugAranges, DebugInfo, DebugLine, DebugLineOffset, DebugLoc, DebugLocLists, DebugPubNames,
+    DebugPubTypes, DebugRanges, DebugRngLists, Encoding, EndianSlice, EntriesRaw, EntriesTreeNode,
+    Expression, LittleEndian, LocationLists, NativeEndian, Operation, RangeLists, RangeListsOffset,
+    Reader, ReaderOffset, leb128,
 };
 use std::env;
 use std::fs::File;
@@ -129,7 +130,11 @@ fn bench_read() {
     );
     c.bench_function("read::EntriesTree", bench_entries_tree::<1>);
     c.bench_function("read::EntriesTree (attrs twice)", bench_entries_tree::<2>);
-    c.bench_function("read::EntriesRaw", bench_entries_raw);
+    c.bench_function("read::EntriesRaw::read_attribute", bench_entries_raw_call);
+    c.bench_function(
+        "read::EntriesRaw::read_attribute_inline",
+        bench_entries_raw_inline,
+    );
 
     let mut c = Criterion::default().configure_from_args();
     c.bench_function("parse .debug_abbrev", bench_parsing_debug_abbrev);
@@ -291,7 +296,7 @@ fn parse_debug_info_tree<const COUNT: usize, R: Reader>(node: EntriesTreeNode<R>
     }
 }
 
-fn bench_entries_raw(b: &mut Bencher) {
+fn bench_entries_raw_call(b: &mut Bencher) {
     let debug_abbrev = read_section("debug_abbrev");
     let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
@@ -315,7 +320,53 @@ fn bench_entries_raw(b: &mut Bencher) {
                     .expect("Should parse abbreviation code")
                 {
                     for spec in abbrev.attributes().iter().cloned() {
-                        let attr = raw.read_attribute(spec).expect("Should parse attribute");
+                        let attr = read_attribute(&mut raw, spec).expect("Should parse attribute");
+                        let name = attr.name();
+                        black_box(name);
+                        let value = attr.raw_value();
+                        black_box(value);
+                    }
+                }
+            }
+        }
+    });
+}
+
+#[inline(never)]
+fn read_attribute<R: Reader>(
+    input: &mut EntriesRaw<R>,
+    spec: AttributeSpecification,
+) -> gimli::Result<Attribute<R>> {
+    input.read_attribute_inline(spec)
+}
+
+fn bench_entries_raw_inline(b: &mut Bencher) {
+    let debug_abbrev = read_section("debug_abbrev");
+    let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
+
+    let debug_info = read_section("debug_info");
+
+    b.iter(|| {
+        let debug_info = DebugInfo::new(&debug_info, LittleEndian);
+
+        let mut iter = debug_info.units();
+        while let Some(unit) = iter.next().expect("Should parse compilation unit") {
+            let abbrevs = unit
+                .abbreviations(&debug_abbrev)
+                .expect("Should parse abbreviations");
+
+            let mut raw = unit
+                .entries_raw(&abbrevs, None)
+                .expect("Should have entries");
+            while !raw.is_empty() {
+                if let Some(abbrev) = raw
+                    .read_abbreviation()
+                    .expect("Should parse abbreviation code")
+                {
+                    for spec in abbrev.attributes().iter().cloned() {
+                        let attr = raw
+                            .read_attribute_inline(spec)
+                            .expect("Should parse attribute");
                         let name = attr.name();
                         black_box(name);
                         let value = attr.raw_value();
