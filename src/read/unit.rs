@@ -2099,6 +2099,9 @@ fn allow_section_offset(name: constants::DwAt, version: u16) -> bool {
     }
 }
 
+// This function is performance critical. It is called from a small number of
+// wrapper functions. We always inline it into the wrapper functions.
+#[inline(always)]
 pub(crate) fn parse_attribute<R: Reader>(
     input: &mut R,
     encoding: Encoding,
@@ -2567,8 +2570,20 @@ impl<'abbrev, 'unit, R: Reader> EntriesRaw<'abbrev, 'unit, R> {
     }
 
     /// Read an attribute.
-    #[inline]
+    ///
+    /// This function is never inlined. Consider using `read_attribute_inline` instead
+    /// if you only call this from a small number of places.
+    #[inline(never)]
     pub fn read_attribute(&mut self, spec: AttributeSpecification) -> Result<Attribute<R>> {
+        parse_attribute(&mut self.input, self.unit.encoding(), spec)
+    }
+
+    /// Read an attribute.
+    ///
+    /// Identical to `read_attribute`, but has the `#[inline(always)]` attribute.
+    /// This allows better optimisation at the cost of code size.
+    #[inline(always)]
+    pub fn read_attribute_inline(&mut self, spec: AttributeSpecification) -> Result<Attribute<R>> {
         parse_attribute(&mut self.input, self.unit.encoding(), spec)
     }
 
