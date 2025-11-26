@@ -4180,7 +4180,7 @@ mod tests {
             entry.set(constants::DW_AT_name, AttributeValue::String(name.into()));
         }
         fn check_name<R: read::Reader>(
-            entry: &read::DebuggingInformationEntry<'_, '_, R>,
+            entry: &read::DebuggingInformationEntry<'_, R>,
             unit: read::UnitRef<'_, R>,
             name: &str,
         ) {

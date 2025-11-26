@@ -586,7 +586,7 @@ impl<R: Reader> Dwarf<R> {
     pub fn die_ranges(
         &self,
         unit: &Unit<R>,
-        entry: &DebuggingInformationEntry<'_, '_, R>,
+        entry: &DebuggingInformationEntry<'_, R>,
     ) -> Result<RangeIter<R>> {
         let mut low_pc = None;
         let mut high_pc = None;
@@ -1343,10 +1343,7 @@ impl<R: Reader> Unit<R> {
     }
 
     /// Read the `DebuggingInformationEntry` at the given offset.
-    pub fn entry(
-        &self,
-        offset: UnitOffset<R::Offset>,
-    ) -> Result<DebuggingInformationEntry<'_, '_, R>> {
+    pub fn entry(&self, offset: UnitOffset<R::Offset>) -> Result<DebuggingInformationEntry<'_, R>> {
         self.header.entry(&self.abbreviations, offset)
     }
 
@@ -1545,7 +1542,7 @@ impl<'a, R: Reader> UnitRef<'a, R> {
     /// Return an iterator for the address ranges of a `DebuggingInformationEntry`.
     ///
     /// This uses `DW_AT_low_pc`, `DW_AT_high_pc` and `DW_AT_ranges`.
-    pub fn die_ranges(&self, entry: &DebuggingInformationEntry<'_, '_, R>) -> Result<RangeIter<R>> {
+    pub fn die_ranges(&self, entry: &DebuggingInformationEntry<'_, R>) -> Result<RangeIter<R>> {
         self.dwarf.die_ranges(self.unit, entry)
     }
 

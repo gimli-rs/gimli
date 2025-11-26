@@ -579,13 +579,14 @@ where
     }
 
     /// Read the `DebuggingInformationEntry` at the given offset.
-    pub fn entry<'me, 'abbrev>(
-        &'me self,
+    pub fn entry<'abbrev>(
+        &self,
         abbreviations: &'abbrev Abbreviations,
         offset: UnitOffset<Offset>,
-    ) -> Result<DebuggingInformationEntry<'abbrev, 'me, R>> {
+    ) -> Result<DebuggingInformationEntry<'abbrev, R>> {
         let mut input = self.range_from(offset..)?;
-        let entry = DebuggingInformationEntry::parse(&mut input, self, abbreviations)?;
+        let entry =
+            DebuggingInformationEntry::parse(&mut input, self.encoding, abbreviations, offset)?;
         entry.ok_or(Error::NoEntryAtGivenOffset)
     }
 
@@ -761,36 +762,36 @@ fn parse_dwo_id<R: Reader>(input: &mut R) -> Result<DwoId> {
 ///
 /// DIEs have a set of attributes and optionally have children DIEs as well.
 #[derive(Clone, Debug)]
-pub struct DebuggingInformationEntry<'abbrev, 'unit, R, Offset = <R as Reader>::Offset>
+pub struct DebuggingInformationEntry<'abbrev, R, Offset = <R as Reader>::Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    offset: UnitOffset<Offset>,
     attrs_slice: R,
     attrs_len: Cell<Option<Offset>>,
+    encoding: Encoding,
     abbrev: &'abbrev Abbreviation,
-    unit: &'unit UnitHeader<R, Offset>,
+    offset: UnitOffset<Offset>,
 }
 
-impl<'abbrev, 'unit, R, Offset> DebuggingInformationEntry<'abbrev, 'unit, R, Offset>
+impl<'abbrev, R, Offset> DebuggingInformationEntry<'abbrev, R, Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
     /// Construct a new `DebuggingInformationEntry`.
     pub fn new(
-        offset: UnitOffset<Offset>,
         attrs_slice: R,
+        encoding: Encoding,
         abbrev: &'abbrev Abbreviation,
-        unit: &'unit UnitHeader<R, Offset>,
+        offset: UnitOffset<Offset>,
     ) -> Self {
         DebuggingInformationEntry {
-            offset,
             attrs_slice,
             attrs_len: Cell::new(None),
+            encoding,
             abbrev,
-            unit,
+            offset,
         }
     }
 
@@ -954,7 +955,7 @@ where
     ///
     /// Can be [used with
     /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
-    pub fn attrs<'me>(&'me self) -> AttrsIter<'abbrev, 'me, 'unit, R> {
+    pub fn attrs<'me>(&'me self) -> AttrsIter<'abbrev, 'me, R> {
         AttrsIter {
             input: self.attrs_slice.clone(),
             attributes: self.abbrev.attributes(),
@@ -1002,15 +1003,14 @@ where
         }
     }
 
-    /// Use the `DW_AT_sibling` attribute to find the input buffer for the
+    /// Use the `DW_AT_sibling` attribute to find the offset for the
     /// next sibling. Returns `None` if the attribute is missing or invalid.
-    fn sibling(&self) -> Option<R> {
+    fn sibling(&self) -> Option<UnitOffset<R::Offset>> {
         let attr = self.attr_value(constants::DW_AT_sibling);
         if let Ok(Some(AttributeValue::UnitRef(offset))) = attr
             && offset.0 > self.offset.0
-            && let Ok(input) = self.unit.range_from(offset..)
         {
-            return Some(input);
+            return Some(offset);
         }
         None
     }
@@ -1019,10 +1019,10 @@ where
     #[inline(always)]
     fn parse(
         input: &mut R,
-        unit: &'unit UnitHeader<R>,
+        encoding: Encoding,
         abbreviations: &'abbrev Abbreviations,
+        offset: UnitOffset<R::Offset>,
     ) -> Result<Option<Self>> {
-        let offset = unit.header_size() + input.offset_from(&unit.entries_buf);
         let code = input.read_uleb128()?;
         if code == 0 {
             return Ok(None);
@@ -1030,13 +1030,12 @@ where
         let abbrev = abbreviations
             .get(code)
             .ok_or(Error::UnknownAbbreviation(code))?;
-        Ok(Some(DebuggingInformationEntry {
-            offset: UnitOffset(offset),
-            attrs_slice: input.clone(),
-            attrs_len: Cell::new(None),
+        Ok(Some(DebuggingInformationEntry::new(
+            input.clone(),
+            encoding,
             abbrev,
-            unit,
-        }))
+            offset,
+        )))
     }
 }
 
@@ -2395,13 +2394,13 @@ pub(crate) fn skip_attributes<R: Reader>(
 /// Can be [used with
 /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
 #[derive(Clone, Copy, Debug)]
-pub struct AttrsIter<'abbrev, 'entry, 'unit, R: Reader> {
+pub struct AttrsIter<'abbrev, 'entry, R: Reader> {
     input: R,
     attributes: &'abbrev [AttributeSpecification],
-    entry: &'entry DebuggingInformationEntry<'abbrev, 'unit, R>,
+    entry: &'entry DebuggingInformationEntry<'abbrev, R>,
 }
 
-impl<'abbrev, 'entry, 'unit, R: Reader> AttrsIter<'abbrev, 'entry, 'unit, R> {
+impl<'abbrev, 'entry, R: Reader> AttrsIter<'abbrev, 'entry, R> {
     /// Advance the iterator and return the next attribute.
     ///
     /// Returns `None` when iteration is finished. If an error
@@ -2427,7 +2426,7 @@ impl<'abbrev, 'entry, 'unit, R: Reader> AttrsIter<'abbrev, 'entry, 'unit, R> {
 
         let spec = self.attributes[0];
         let rest_spec = &self.attributes[1..];
-        match parse_attribute(&mut self.input, self.entry.unit.encoding(), spec) {
+        match parse_attribute(&mut self.input, self.entry.encoding, spec) {
             Ok(attr) => {
                 self.attributes = rest_spec;
                 Ok(Some(attr))
@@ -2441,8 +2440,8 @@ impl<'abbrev, 'entry, 'unit, R: Reader> AttrsIter<'abbrev, 'entry, 'unit, R> {
 }
 
 #[cfg(feature = "fallible-iterator")]
-impl<'abbrev, 'entry, 'unit, R: Reader> fallible_iterator::FallibleIterator
-    for AttrsIter<'abbrev, 'entry, 'unit, R>
+impl<'abbrev, 'entry, R: Reader> fallible_iterator::FallibleIterator
+    for AttrsIter<'abbrev, 'entry, R>
 {
     type Item = Attribute<R>;
     type Error = Error;
@@ -2627,7 +2626,7 @@ where
     input: R,
     unit: &'unit UnitHeader<R>,
     abbreviations: &'abbrev Abbreviations,
-    cached_current: Option<DebuggingInformationEntry<'abbrev, 'unit, R>>,
+    cached_current: Option<DebuggingInformationEntry<'abbrev, R>>,
     delta_depth: isize,
 }
 
@@ -2637,7 +2636,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// If the cursor is not pointing at an entry, or if the current entry is a
     /// null entry, then `None` is returned.
     #[inline]
-    pub fn current(&self) -> Option<&DebuggingInformationEntry<'abbrev, 'unit, R>> {
+    pub fn current(&self) -> Option<&DebuggingInformationEntry<'abbrev, R>> {
         self.cached_current.as_ref()
     }
 
@@ -2656,7 +2655,14 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
             return Ok(None);
         }
 
-        match DebuggingInformationEntry::parse(&mut self.input, self.unit, self.abbreviations) {
+        let offset =
+            UnitOffset(self.unit.header_size() + self.input.offset_from(&self.unit.entries_buf));
+        match DebuggingInformationEntry::parse(
+            &mut self.input,
+            self.unit.encoding(),
+            self.abbreviations,
+            offset,
+        ) {
             Ok(Some(entry)) => {
                 self.delta_depth = entry.has_children() as isize;
                 self.cached_current = Some(entry);
@@ -2793,9 +2799,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     /// println!("The first entry with no children is {:?}",
     ///          first_entry_with_no_children.unwrap());
     /// ```
-    pub fn next_dfs(
-        &mut self,
-    ) -> Result<Option<(isize, &DebuggingInformationEntry<'abbrev, 'unit, R>)>> {
+    pub fn next_dfs(&mut self) -> Result<Option<(isize, &DebuggingInformationEntry<'abbrev, R>)>> {
         let mut delta_depth = self.delta_depth;
         loop {
             // The next entry should be the one we want.
@@ -2918,9 +2922,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
     ///     }
     /// }
     /// ```
-    pub fn next_sibling(
-        &mut self,
-    ) -> Result<Option<&DebuggingInformationEntry<'abbrev, 'unit, R>>> {
+    pub fn next_sibling(&mut self) -> Result<Option<&DebuggingInformationEntry<'abbrev, R>>> {
         if self.current().is_none() {
             // We're already at the null for the end of the sibling list.
             return Ok(None);
@@ -2929,9 +2931,12 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
         // Loop until we find an entry at the current level.
         let mut depth = 0;
         loop {
-            // Use is_some() and unwrap() to keep borrow checker happy.
-            if self.current().is_some() && self.current().unwrap().has_children() {
-                if let Some(sibling_input) = self.current().unwrap().sibling() {
+            if let Some(current) = self.current()
+                && current.has_children()
+            {
+                if let Some(sibling_offset) = current.sibling()
+                    && let Ok(sibling_input) = self.unit.range_from(sibling_offset..)
+                {
                     // Fast path: this entry has a DW_AT_sibling
                     // attribute pointing to its sibling, so jump
                     // to it (which keeps us at the same depth).
@@ -3012,7 +3017,7 @@ where
     unit: &'unit UnitHeader<R>,
     abbreviations: &'abbrev Abbreviations,
     input: R,
-    entry: Option<DebuggingInformationEntry<'abbrev, 'unit, R>>,
+    entry: Option<DebuggingInformationEntry<'abbrev, R>>,
     depth: isize,
 }
 
@@ -3032,8 +3037,14 @@ impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
     /// Returns the root node of the tree.
     pub fn root<'me>(&'me mut self) -> Result<EntriesTreeNode<'abbrev, 'unit, 'me, R>> {
         self.input = self.root.clone();
-        self.entry =
-            DebuggingInformationEntry::parse(&mut self.input, self.unit, self.abbreviations)?;
+        let offset =
+            UnitOffset(self.unit.header_size() + self.input.offset_from(&self.unit.entries_buf));
+        self.entry = DebuggingInformationEntry::parse(
+            &mut self.input,
+            self.unit.encoding(),
+            self.abbreviations,
+            offset,
+        )?;
         if self.entry.is_none() {
             return Err(Error::UnexpectedNull);
         }
@@ -3066,10 +3077,14 @@ impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
                 return Ok(false);
             }
 
+            let offset = UnitOffset(
+                self.unit.header_size() + self.input.offset_from(&self.unit.entries_buf),
+            );
             return match DebuggingInformationEntry::parse(
                 &mut self.input,
-                self.unit,
+                self.unit.encoding(),
                 self.abbreviations,
+                offset,
             ) {
                 Ok(entry) => {
                     self.entry = entry;
@@ -3087,7 +3102,9 @@ impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
             match self.entry {
                 Some(ref entry) => {
                     if entry.has_children() {
-                        if let Some(sibling_input) = entry.sibling() {
+                        if let Some(sibling_offset) = entry.sibling()
+                            && let Ok(sibling_input) = self.unit.range_from(sibling_offset..)
+                        {
                             // Fast path: this entry has a DW_AT_sibling
                             // attribute pointing to its sibling, so jump
                             // to it (which keeps us at the same depth).
@@ -3114,7 +3131,15 @@ impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
                 return Ok(false);
             }
 
-            match DebuggingInformationEntry::parse(&mut self.input, self.unit, self.abbreviations) {
+            let offset = UnitOffset(
+                self.unit.header_size() + self.input.offset_from(&self.unit.entries_buf),
+            );
+            match DebuggingInformationEntry::parse(
+                &mut self.input,
+                self.unit.encoding(),
+                self.abbreviations,
+                offset,
+            ) {
                 Ok(entry) => {
                     self.entry = entry;
                     if self.depth == depth {
@@ -3151,7 +3176,7 @@ impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeNode<'abbrev, 'unit, 'tree, R>
     }
 
     /// Returns the current entry in the tree.
-    pub fn entry(&self) -> &DebuggingInformationEntry<'abbrev, 'unit, R> {
+    pub fn entry(&self) -> &DebuggingInformationEntry<'abbrev, R> {
         // We never create a node without an entry.
         self.tree.entry.as_ref().unwrap()
     }
@@ -3360,7 +3385,6 @@ mod tests {
     };
     use crate::test_util::GimliSectionMethods;
     use alloc::vec::Vec;
-    use core::cell::Cell;
     use test_assembler::{Endian, Label, LabelMaker, Section};
 
     // Mixin methods for `Section` to help define binary test data.
@@ -5065,13 +5089,12 @@ mod tests {
             0xaa, 0xaa,
         ];
 
-        let entry = DebuggingInformationEntry {
-            offset: UnitOffset(0),
-            attrs_slice: EndianSlice::new(&buf, LittleEndian),
-            attrs_len: Cell::new(None),
-            abbrev: &abbrev,
-            unit: &unit,
-        };
+        let entry = DebuggingInformationEntry::new(
+            EndianSlice::new(&buf, LittleEndian),
+            unit.encoding(),
+            &abbrev,
+            UnitOffset(0),
+        );
 
         let mut attrs = AttrsIter {
             input: EndianSlice::new(&buf, LittleEndian),
@@ -5177,13 +5200,12 @@ mod tests {
         // "foo"
         let buf = [0x66, 0x6f, 0x6f, 0x00];
 
-        let entry = DebuggingInformationEntry {
-            offset: UnitOffset(0),
-            attrs_slice: EndianSlice::new(&buf, LittleEndian),
-            attrs_len: Cell::new(None),
-            abbrev: &abbrev,
-            unit: &unit,
-        };
+        let entry = DebuggingInformationEntry::new(
+            EndianSlice::new(&buf, LittleEndian),
+            unit.encoding(),
+            &abbrev,
+            UnitOffset(0),
+        );
 
         let mut attrs = AttrsIter {
             input: EndianSlice::new(&buf, LittleEndian),
@@ -5222,7 +5244,7 @@ mod tests {
     }
 
     fn assert_entry_name<Endian>(
-        entry: &DebuggingInformationEntry<'_, '_, EndianSlice<'_, Endian>>,
+        entry: &DebuggingInformationEntry<'_, EndianSlice<'_, Endian>>,
         name: &str,
     ) where
         Endian: Endianity,
