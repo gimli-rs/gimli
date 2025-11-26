@@ -1195,7 +1195,7 @@ where
     pub dwo_id: Option<DwoId>,
 }
 
-impl<'a, R: Reader> core::ops::Deref for Unit<R> {
+impl<R: Reader> core::ops::Deref for Unit<R> {
     type Target = UnitHeader<R>;
 
     fn deref(&self) -> &Self::Target {

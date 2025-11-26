@@ -675,9 +675,9 @@ impl LineProgram {
                         // terminated by a "\n" line ending.
                         let source = match file_source_form {
                             constants::DW_FORM_line_strp => {
-                                LineString::LineStringRef(line_strings.add(&[]))
+                                LineString::LineStringRef(line_strings.add([]))
                             }
-                            constants::DW_FORM_strp => LineString::StringRef(strings.add(&[])),
+                            constants::DW_FORM_strp => LineString::StringRef(strings.add([])),
                             _ => LineString::String(Vec::new()),
                         };
                         source.write(w, file_source_form, self.encoding, line_strings, strings)?;
