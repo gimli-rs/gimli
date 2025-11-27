@@ -111,19 +111,25 @@ fn bench_reading_leb128_u16_small(b: &mut Bencher) {
 
 fn bench_read() {
     let mut c = Criterion::default().sample_size(50).configure_from_args();
-    c.bench_function("parse .debug_info entries", bench_parsing_debug_info);
     c.bench_function(
-        "parse .debug_info entries EndianRcSlice",
-        bench_parsing_debug_info_with_endian_rc_slice,
+        "read::EntriesCursor<EndianSlice>",
+        bench_entries_cursor::<1>,
     );
     c.bench_function(
-        "parse .debug_info entries_tree",
-        bench_parsing_debug_info_tree,
+        "read::EntriesCursor<EndianSlice> (attrs twice)",
+        bench_entries_cursor::<2>,
     );
     c.bench_function(
-        "parse .debug_info entries_raw",
-        bench_parsing_debug_info_raw,
+        "read::EntriesCursor<EndianRcSlice>",
+        bench_entries_cursor_rc::<1>,
     );
+    c.bench_function(
+        "read::EntriesCursor<EndianRcSlice> (attrs twice)",
+        bench_entries_cursor_rc::<2>,
+    );
+    c.bench_function("read::EntriesTree", bench_entries_tree::<1>);
+    c.bench_function("read::EntriesTree (attrs twice)", bench_entries_tree::<2>);
+    c.bench_function("read::EntriesRaw", bench_entries_raw);
 
     let mut c = Criterion::default().configure_from_args();
     c.bench_function("parse .debug_abbrev", bench_parsing_debug_abbrev);
@@ -196,7 +202,7 @@ fn bench_parsing_debug_abbrev(b: &mut Bencher) {
 }
 
 #[inline]
-fn impl_bench_parsing_debug_info<R: Reader>(
+fn impl_bench_parsing_debug_info<const COUNT: usize, R: Reader>(
     debug_info: DebugInfo<R>,
     debug_abbrev: DebugAbbrev<R>,
 ) {
@@ -208,28 +214,30 @@ fn impl_bench_parsing_debug_info<R: Reader>(
 
         let mut cursor = unit.entries(&abbrevs);
         while let Some((_, entry)) = cursor.next_dfs().expect("Should parse next dfs") {
-            let mut attrs = entry.attrs();
-            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
-                let name = attr.name();
-                black_box(name);
-                let value = attr.raw_value();
-                black_box(value);
+            for _ in 0..COUNT {
+                let mut attrs = entry.attrs();
+                while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+                    let name = attr.name();
+                    black_box(name);
+                    let value = attr.raw_value();
+                    black_box(value);
+                }
             }
         }
     }
 }
 
-fn bench_parsing_debug_info(b: &mut Bencher) {
+fn bench_entries_cursor<const COUNT: usize>(b: &mut Bencher) {
     let debug_info = read_section("debug_info");
     let debug_info = DebugInfo::new(&debug_info, LittleEndian);
 
     let debug_abbrev = read_section("debug_abbrev");
     let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
-    b.iter(|| impl_bench_parsing_debug_info(debug_info, debug_abbrev));
+    b.iter(|| impl_bench_parsing_debug_info::<COUNT, _>(debug_info, debug_abbrev));
 }
 
-fn bench_parsing_debug_info_with_endian_rc_slice(b: &mut Bencher) {
+fn bench_entries_cursor_rc<const COUNT: usize>(b: &mut Bencher) {
     let debug_info = read_section("debug_info");
     let debug_info = Rc::from(&debug_info[..]);
     let debug_info = gimli::EndianRcSlice::new(debug_info, LittleEndian);
@@ -240,10 +248,10 @@ fn bench_parsing_debug_info_with_endian_rc_slice(b: &mut Bencher) {
     let debug_abbrev = gimli::EndianRcSlice::new(debug_abbrev, LittleEndian);
     let debug_abbrev = DebugAbbrev::from(debug_abbrev);
 
-    b.iter(|| impl_bench_parsing_debug_info(debug_info.clone(), debug_abbrev.clone()));
+    b.iter(|| impl_bench_parsing_debug_info::<COUNT, _>(debug_info.clone(), debug_abbrev.clone()));
 }
 
-fn bench_parsing_debug_info_tree(b: &mut Bencher) {
+fn bench_entries_tree<const COUNT: usize>(b: &mut Bencher) {
     let debug_abbrev = read_section("debug_abbrev");
     let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
@@ -262,26 +270,28 @@ fn bench_parsing_debug_info_tree(b: &mut Bencher) {
                 .entries_tree(&abbrevs, None)
                 .expect("Should have entries tree");
             let root = tree.root().expect("Should parse root entry");
-            parse_debug_info_tree(root);
+            parse_debug_info_tree::<COUNT, _>(root);
         }
     });
 }
 
-fn parse_debug_info_tree<R: Reader>(node: EntriesTreeNode<R>) {
-    let mut attrs = node.entry().attrs();
-    while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
-        let name = attr.name();
-        black_box(name);
-        let value = attr.raw_value();
-        black_box(value);
+fn parse_debug_info_tree<const COUNT: usize, R: Reader>(node: EntriesTreeNode<R>) {
+    for _ in 0..COUNT {
+        let mut attrs = node.entry().attrs();
+        while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+            let name = attr.name();
+            black_box(name);
+            let value = attr.raw_value();
+            black_box(value);
+        }
     }
     let mut children = node.children();
     while let Some(child) = children.next().expect("Should parse child entry") {
-        parse_debug_info_tree(child);
+        parse_debug_info_tree::<COUNT, R>(child);
     }
 }
 
-fn bench_parsing_debug_info_raw(b: &mut Bencher) {
+fn bench_entries_raw(b: &mut Bencher) {
     let debug_abbrev = read_section("debug_abbrev");
     let debug_abbrev = DebugAbbrev::new(&debug_abbrev, LittleEndian);
 
