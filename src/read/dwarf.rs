@@ -1349,17 +1349,14 @@ impl<R: Reader> Unit<R> {
 
     /// Navigate this unit's `DebuggingInformationEntry`s.
     #[inline]
-    pub fn entries(&self) -> EntriesCursor<'_, '_, R> {
+    pub fn entries(&self) -> EntriesCursor<'_, R> {
         self.header.entries(&self.abbreviations)
     }
 
     /// Navigate this unit's `DebuggingInformationEntry`s
     /// starting at the given offset.
     #[inline]
-    pub fn entries_at_offset(
-        &self,
-        offset: UnitOffset<R::Offset>,
-    ) -> Result<EntriesCursor<'_, '_, R>> {
+    pub fn entries_at_offset(&self, offset: UnitOffset<R::Offset>) -> Result<EntriesCursor<'_, R>> {
         self.header.entries_at_offset(&self.abbreviations, offset)
     }
 

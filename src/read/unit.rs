@@ -591,34 +591,31 @@ where
     }
 
     /// Navigate this unit's `DebuggingInformationEntry`s.
-    pub fn entries<'me, 'abbrev>(
-        &'me self,
+    pub fn entries<'abbrev>(
+        &self,
         abbreviations: &'abbrev Abbreviations,
-    ) -> EntriesCursor<'abbrev, 'me, R> {
-        EntriesCursor {
-            unit: self,
-            input: self.entries_buf.clone(),
+    ) -> EntriesCursor<'abbrev, R> {
+        EntriesCursor::new(
+            self.entries_buf.clone(),
+            self.encoding,
             abbreviations,
-            cached_current: None,
-            delta_depth: 0,
-        }
+            self.root_offset(),
+        )
     }
 
     /// Navigate this compilation unit's `DebuggingInformationEntry`s
     /// starting at the given offset.
-    pub fn entries_at_offset<'me, 'abbrev>(
-        &'me self,
+    pub fn entries_at_offset<'abbrev>(
+        &self,
         abbreviations: &'abbrev Abbreviations,
         offset: UnitOffset<Offset>,
-    ) -> Result<EntriesCursor<'abbrev, 'me, R>> {
-        let input = self.range_from(offset..)?;
-        Ok(EntriesCursor {
-            unit: self,
-            input,
+    ) -> Result<EntriesCursor<'abbrev, R>> {
+        Ok(EntriesCursor::new(
+            self.range_from(offset..)?,
+            self.encoding,
             abbreviations,
-            cached_current: None,
-            delta_depth: 0,
-        })
+            offset,
+        ))
     }
 
     /// Navigate this unit's `DebuggingInformationEntry`s as a tree
@@ -2637,18 +2634,36 @@ impl<'abbrev, R: Reader> EntriesRaw<'abbrev, R> {
 /// will return `None` if the current entry is a null entry, which signifies the
 /// end of the current tree depth.
 #[derive(Clone, Debug)]
-pub struct EntriesCursor<'abbrev, 'unit, R>
+pub struct EntriesCursor<'abbrev, R>
 where
     R: Reader,
 {
     input: R,
-    unit: &'unit UnitHeader<R>,
+    encoding: Encoding,
     abbreviations: &'abbrev Abbreviations,
     cached_current: Option<DebuggingInformationEntry<'abbrev, R>>,
+    end_offset: UnitOffset<R::Offset>,
     delta_depth: isize,
 }
 
-impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
+impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
+    fn new(
+        input: R,
+        encoding: Encoding,
+        abbreviations: &'abbrev Abbreviations,
+        offset: UnitOffset<R::Offset>,
+    ) -> Self {
+        let end_offset = UnitOffset(offset.0 + input.len());
+        EntriesCursor {
+            input,
+            encoding,
+            abbreviations,
+            cached_current: None,
+            end_offset,
+            delta_depth: 0,
+        }
+    }
+
     /// Get a reference to the entry that the cursor is currently pointing to.
     ///
     /// If the cursor is not pointing at an entry, or if the current entry is a
@@ -2673,11 +2688,10 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
             return Ok(None);
         }
 
-        let offset =
-            UnitOffset(self.unit.header_size() + self.input.offset_from(&self.unit.entries_buf));
+        let offset = UnitOffset(self.end_offset.0 - self.input.len());
         match DebuggingInformationEntry::parse(
             &mut self.input,
-            self.unit.encoding(),
+            self.encoding,
             self.abbreviations,
             offset,
         ) {
@@ -2953,12 +2967,13 @@ impl<'abbrev, 'unit, R: Reader> EntriesCursor<'abbrev, 'unit, R> {
                 && current.has_children()
             {
                 if let Some(sibling_offset) = current.sibling()
-                    && let Ok(sibling_input) = self.unit.range_from(sibling_offset..)
+                    && let next_offset = self.end_offset.0 - self.input.len()
+                    && let Some(skip_len) = sibling_offset.0.checked_sub(next_offset)
+                    && self.input.skip(skip_len).is_ok()
                 {
                     // Fast path: this entry has a DW_AT_sibling
                     // attribute pointing to its sibling, so jump
                     // to it (which keeps us at the same depth).
-                    self.input = sibling_input;
                     self.cached_current = None;
                 } else {
                     // This entry has children, so the next entry is
@@ -5278,10 +5293,8 @@ mod tests {
         );
     }
 
-    fn assert_current_name<Endian>(
-        cursor: &EntriesCursor<'_, '_, EndianSlice<'_, Endian>>,
-        name: &str,
-    ) where
+    fn assert_current_name<Endian>(cursor: &EntriesCursor<'_, EndianSlice<'_, Endian>>, name: &str)
+    where
         Endian: Endianity,
     {
         let entry = cursor.current().expect("Should have an entry result");
@@ -5289,7 +5302,7 @@ mod tests {
     }
 
     fn assert_next_entry<Endian>(
-        cursor: &mut EntriesCursor<'_, '_, EndianSlice<'_, Endian>>,
+        cursor: &mut EntriesCursor<'_, EndianSlice<'_, Endian>>,
         name: &str,
     ) where
         Endian: Endianity,
@@ -5301,7 +5314,7 @@ mod tests {
         assert_current_name(cursor, name);
     }
 
-    fn assert_next_entry_null<Endian>(cursor: &mut EntriesCursor<'_, '_, EndianSlice<'_, Endian>>)
+    fn assert_next_entry_null<Endian>(cursor: &mut EntriesCursor<'_, EndianSlice<'_, Endian>>)
     where
         Endian: Endianity,
     {
@@ -5313,7 +5326,7 @@ mod tests {
     }
 
     fn assert_next_dfs<Endian>(
-        cursor: &mut EntriesCursor<'_, '_, EndianSlice<'_, Endian>>,
+        cursor: &mut EntriesCursor<'_, EndianSlice<'_, Endian>>,
         name: &str,
         depth: isize,
     ) where
@@ -5331,7 +5344,7 @@ mod tests {
     }
 
     fn assert_next_sibling<Endian>(
-        cursor: &mut EntriesCursor<'_, '_, EndianSlice<'_, Endian>>,
+        cursor: &mut EntriesCursor<'_, EndianSlice<'_, Endian>>,
         name: &str,
     ) where
         Endian: Endianity,
@@ -5344,25 +5357,6 @@ mod tests {
             assert_entry_name(entry, name);
         }
         assert_current_name(cursor, name);
-    }
-
-    fn assert_valid_sibling_ptr<Endian>(cursor: &EntriesCursor<'_, '_, EndianSlice<'_, Endian>>)
-    where
-        Endian: Endianity,
-    {
-        let sibling_ptr = cursor
-            .current()
-            .expect("Should have current entry")
-            .attr_value(constants::DW_AT_sibling);
-        match sibling_ptr {
-            Ok(Some(AttributeValue::UnitRef(offset))) => {
-                cursor
-                    .unit
-                    .range_from(offset..)
-                    .expect("Sibling offset should be valid");
-            }
-            _ => panic!("Invalid sibling pointer {:?}", sibling_ptr),
-        }
     }
 
     fn entries_cursor_tests_abbrev_buf() -> Vec<u8> {
@@ -5743,7 +5737,7 @@ mod tests {
     }
 
     fn test_cursor_next_sibling_with_ptr(
-        cursor: &mut EntriesCursor<'_, '_, EndianSlice<'_, LittleEndian>>,
+        cursor: &mut EntriesCursor<'_, EndianSlice<'_, LittleEndian>>,
     ) {
         assert_next_dfs(cursor, "001", 0);
 
@@ -5753,7 +5747,6 @@ mod tests {
 
         // Now iterate all children of the root via `next_sibling`.
 
-        assert_valid_sibling_ptr(cursor);
         assert_next_sibling(cursor, "004");
         assert_next_sibling(cursor, "006");
         assert_next_sibling(cursor, "010");

@@ -3960,7 +3960,7 @@ mod tests {
         }
 
         fn next_child<R: read::Reader<Offset = usize>>(
-            entries: &mut read::EntriesCursor<'_, '_, R>,
+            entries: &mut read::EntriesCursor<'_, R>,
         ) -> (read::UnitOffset, Option<read::UnitOffset>) {
             let (_, entry) = entries.next_dfs().unwrap().unwrap();
             let offset = entry.offset();
