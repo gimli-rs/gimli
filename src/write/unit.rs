@@ -1726,7 +1726,7 @@ pub(crate) mod convert {
         pub unit: read::UnitRef<'a, R>,
         /// The skeleton unit being read if `unit` is a split unit.
         pub skeleton_unit: Option<read::UnitRef<'a, R>>,
-        entries: read::EntriesRaw<'a, 'a, R>,
+        entries: read::EntriesRaw<'a, R>,
         parents: Vec<FilterParent>,
         deps: &'a mut FilterDependencies,
     }
@@ -1831,7 +1831,7 @@ pub(crate) mod convert {
 
         fn read_attributes(
             entry: &mut FilterUnitEntry<'a, R>,
-            entries: &mut read::EntriesRaw<'_, '_, R>,
+            entries: &mut read::EntriesRaw<'_, R>,
             specs: &[read::AttributeSpecification],
         ) -> ConvertResult<()> {
             entry.attrs.reserve(specs.len());
@@ -2409,7 +2409,7 @@ pub(crate) mod convert {
         pub strings: &'a mut write::StringTable,
         line_program_files: Vec<FileId>,
         entry_ids: &'a FnvHashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
-        from_entries: read::EntriesRaw<'a, 'a, R>,
+        from_entries: read::EntriesRaw<'a, R>,
         parents: Vec<(isize, UnitEntryId)>,
     }
 
@@ -3032,7 +3032,7 @@ pub(crate) mod convert {
 
         fn read_attributes(
             &mut self,
-            from_entries: &mut read::EntriesRaw<'_, '_, R>,
+            from_entries: &mut read::EntriesRaw<'_, R>,
             specs: &[read::AttributeSpecification],
         ) -> ConvertResult<()> {
             self.attrs.reserve(specs.len());

@@ -1375,10 +1375,7 @@ impl<R: Reader> Unit<R> {
 
     /// Read the raw data that defines the Debugging Information Entries.
     #[inline]
-    pub fn entries_raw(
-        &self,
-        offset: Option<UnitOffset<R::Offset>>,
-    ) -> Result<EntriesRaw<'_, '_, R>> {
+    pub fn entries_raw(&self, offset: Option<UnitOffset<R::Offset>>) -> Result<EntriesRaw<'_, R>> {
         self.header.entries_raw(&self.abbreviations, offset)
     }
 

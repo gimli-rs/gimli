@@ -636,21 +636,18 @@ where
     }
 
     /// Read the raw data that defines the Debugging Information Entries.
-    pub fn entries_raw<'me, 'abbrev>(
-        &'me self,
+    pub fn entries_raw<'abbrev>(
+        &self,
         abbreviations: &'abbrev Abbreviations,
         offset: Option<UnitOffset<Offset>>,
-    ) -> Result<EntriesRaw<'abbrev, 'me, R>> {
-        let input = match offset {
-            Some(offset) => self.range_from(offset..)?,
-            None => self.entries_buf.clone(),
-        };
-        Ok(EntriesRaw {
-            input,
-            unit: self,
+    ) -> Result<EntriesRaw<'abbrev, R>> {
+        let offset = offset.unwrap_or_else(|| self.root_offset());
+        Ok(EntriesRaw::new(
+            self.range_from(offset..)?,
+            self.encoding,
             abbreviations,
-            depth: 0,
-        })
+            offset,
+        ))
     }
 
     /// Parse this unit's abbreviations.
@@ -2504,17 +2501,42 @@ impl<'abbrev, 'entry, R: Reader> fallible_iterator::FallibleIterator
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct EntriesRaw<'abbrev, 'unit, R>
+pub struct EntriesRaw<'abbrev, R>
 where
     R: Reader,
 {
     input: R,
-    unit: &'unit UnitHeader<R>,
+    encoding: Encoding,
     abbreviations: &'abbrev Abbreviations,
+    end_offset: UnitOffset<R::Offset>,
     depth: isize,
 }
 
-impl<'abbrev, 'unit, R: Reader> EntriesRaw<'abbrev, 'unit, R> {
+impl<'abbrev, R: Reader> EntriesRaw<'abbrev, R> {
+    /// Construct a new `EntriesRaw`.
+    ///
+    /// `input` may be anywhere within the entries for a unit, including partway
+    /// through an entry. It is up to the caller to know what needs to be parsed
+    /// next.
+    ///
+    /// `offset` may be any value. It is used as the initial value returned by
+    /// [`Self::next_offset`].
+    pub fn new(
+        input: R,
+        encoding: Encoding,
+        abbreviations: &'abbrev Abbreviations,
+        offset: UnitOffset<R::Offset>,
+    ) -> Self {
+        let end_offset = UnitOffset(offset.0 + input.len());
+        EntriesRaw {
+            input,
+            encoding,
+            abbreviations,
+            end_offset,
+            depth: 0,
+        }
+    }
+
     /// Return true if there is no more input.
     #[inline]
     pub fn is_empty(&self) -> bool {
@@ -2526,7 +2548,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesRaw<'abbrev, 'unit, R> {
     /// If you want the offset of the next entry, then this must be called prior to reading
     /// the next entry.
     pub fn next_offset(&self) -> UnitOffset<R::Offset> {
-        UnitOffset(self.unit.header_size() + self.input.offset_from(&self.unit.entries_buf))
+        UnitOffset(self.end_offset.0 - self.input.len())
     }
 
     /// Return the depth of the next entry.
@@ -2564,7 +2586,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesRaw<'abbrev, 'unit, R> {
     /// if you only call this from a small number of places.
     #[inline(never)]
     pub fn read_attribute(&mut self, spec: AttributeSpecification) -> Result<Attribute<R>> {
-        parse_attribute(&mut self.input, self.unit.encoding(), spec)
+        parse_attribute(&mut self.input, self.encoding, spec)
     }
 
     /// Read an attribute.
@@ -2573,7 +2595,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesRaw<'abbrev, 'unit, R> {
     /// This allows better optimisation at the cost of code size.
     #[inline(always)]
     pub fn read_attribute_inline(&mut self, spec: AttributeSpecification) -> Result<Attribute<R>> {
-        parse_attribute(&mut self.input, self.unit.encoding(), spec)
+        parse_attribute(&mut self.input, self.encoding, spec)
     }
 
     /// Read all attributes into a `Vec`.
@@ -2589,11 +2611,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesRaw<'abbrev, 'unit, R> {
         attrs.clear();
         attrs.reserve(specs.len());
         for spec in specs {
-            attrs.push(parse_attribute(
-                &mut self.input,
-                self.unit.encoding(),
-                *spec,
-            )?);
+            attrs.push(parse_attribute(&mut self.input, self.encoding, *spec)?);
         }
         Ok(())
     }
@@ -2601,7 +2619,7 @@ impl<'abbrev, 'unit, R: Reader> EntriesRaw<'abbrev, 'unit, R> {
     /// Skip all the attributes of an abbreviation.
     #[inline]
     pub fn skip_attributes(&mut self, specs: &[AttributeSpecification]) -> Result<()> {
-        skip_attributes(&mut self.input, self.unit.encoding(), specs)
+        skip_attributes(&mut self.input, self.encoding, specs)
     }
 }
 
@@ -6049,7 +6067,7 @@ mod tests {
     #[test]
     fn test_entries_raw() {
         fn assert_abbrev<'abbrev, Endian>(
-            entries: &mut EntriesRaw<'abbrev, '_, EndianSlice<'_, Endian>>,
+            entries: &mut EntriesRaw<'abbrev, EndianSlice<'_, Endian>>,
             tag: DwTag,
         ) -> &'abbrev Abbreviation
         where
@@ -6063,7 +6081,7 @@ mod tests {
             abbrev
         }
 
-        fn assert_null<Endian>(entries: &mut EntriesRaw<'_, '_, EndianSlice<'_, Endian>>)
+        fn assert_null<Endian>(entries: &mut EntriesRaw<'_, EndianSlice<'_, Endian>>)
         where
             Endian: Endianity,
         {
@@ -6076,7 +6094,7 @@ mod tests {
         }
 
         fn assert_attr<Endian>(
-            entries: &mut EntriesRaw<'_, '_, EndianSlice<'_, Endian>>,
+            entries: &mut EntriesRaw<'_, EndianSlice<'_, Endian>>,
             spec: Option<AttributeSpecification>,
             name: DwAt,
             value: &str,
