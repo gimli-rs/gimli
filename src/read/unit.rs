@@ -620,16 +620,18 @@ where
 
     /// Navigate this unit's `DebuggingInformationEntry`s as a tree
     /// starting at the given offset.
-    pub fn entries_tree<'me, 'abbrev>(
-        &'me self,
+    pub fn entries_tree<'abbrev>(
+        &self,
         abbreviations: &'abbrev Abbreviations,
         offset: Option<UnitOffset<Offset>>,
-    ) -> Result<EntriesTree<'abbrev, 'me, R>> {
-        let input = match offset {
-            Some(offset) => self.range_from(offset..)?,
-            None => self.entries_buf.clone(),
-        };
-        Ok(EntriesTree::new(input, self, abbreviations))
+    ) -> Result<EntriesTree<'abbrev, R>> {
+        let offset = offset.unwrap_or_else(|| self.root_offset());
+        Ok(EntriesTree::new(
+            self.range_from(offset..)?,
+            self.encoding,
+            abbreviations,
+            offset,
+        ))
     }
 
     /// Read the raw data that defines the Debugging Information Entries.
@@ -3042,39 +3044,46 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
 /// }
 /// ```
 #[derive(Clone, Debug)]
-pub struct EntriesTree<'abbrev, 'unit, R>
+pub struct EntriesTree<'abbrev, R>
 where
     R: Reader,
 {
     root: R,
-    unit: &'unit UnitHeader<R>,
-    abbreviations: &'abbrev Abbreviations,
     input: R,
+    encoding: Encoding,
+    abbreviations: &'abbrev Abbreviations,
     entry: Option<DebuggingInformationEntry<'abbrev, R>>,
+    end_offset: UnitOffset<R::Offset>,
     depth: isize,
 }
 
-impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
-    fn new(root: R, unit: &'unit UnitHeader<R>, abbreviations: &'abbrev Abbreviations) -> Self {
+impl<'abbrev, R: Reader> EntriesTree<'abbrev, R> {
+    fn new(
+        root: R,
+        encoding: Encoding,
+        abbreviations: &'abbrev Abbreviations,
+        offset: UnitOffset<R::Offset>,
+    ) -> Self {
         let input = root.clone();
+        let end_offset = UnitOffset(offset.0 + input.len());
         EntriesTree {
             root,
-            unit,
-            abbreviations,
             input,
+            encoding,
+            abbreviations,
             entry: None,
+            end_offset,
             depth: 0,
         }
     }
 
     /// Returns the root node of the tree.
-    pub fn root<'me>(&'me mut self) -> Result<EntriesTreeNode<'abbrev, 'unit, 'me, R>> {
+    pub fn root<'me>(&'me mut self) -> Result<EntriesTreeNode<'abbrev, 'me, R>> {
         self.input = self.root.clone();
-        let offset =
-            UnitOffset(self.unit.header_size() + self.input.offset_from(&self.unit.entries_buf));
+        let offset = UnitOffset(self.end_offset.0 - self.input.len());
         self.entry = DebuggingInformationEntry::parse(
             &mut self.input,
-            self.unit.encoding(),
+            self.encoding,
             self.abbreviations,
             offset,
         )?;
@@ -3110,12 +3119,10 @@ impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
                 return Ok(false);
             }
 
-            let offset = UnitOffset(
-                self.unit.header_size() + self.input.offset_from(&self.unit.entries_buf),
-            );
+            let offset = UnitOffset(self.end_offset.0 - self.input.len());
             return match DebuggingInformationEntry::parse(
                 &mut self.input,
-                self.unit.encoding(),
+                self.encoding,
                 self.abbreviations,
                 offset,
             ) {
@@ -3136,12 +3143,13 @@ impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
                 Some(ref entry) => {
                     if entry.has_children() {
                         if let Some(sibling_offset) = entry.sibling()
-                            && let Ok(sibling_input) = self.unit.range_from(sibling_offset..)
+                            && let next_offset = self.end_offset.0 - self.input.len()
+                            && let Some(skip_len) = sibling_offset.0.checked_sub(next_offset)
+                            && self.input.skip(skip_len).is_ok()
                         {
                             // Fast path: this entry has a DW_AT_sibling
                             // attribute pointing to its sibling, so jump
                             // to it (which keeps us at the same depth).
-                            self.input = sibling_input;
                         } else {
                             // This entry has children, so the next entry is
                             // down one level.
@@ -3164,12 +3172,10 @@ impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
                 return Ok(false);
             }
 
-            let offset = UnitOffset(
-                self.unit.header_size() + self.input.offset_from(&self.unit.entries_buf),
-            );
+            let offset = UnitOffset(self.end_offset.0 - self.input.len());
             match DebuggingInformationEntry::parse(
                 &mut self.input,
-                self.unit.encoding(),
+                self.encoding,
                 self.abbreviations,
                 offset,
             ) {
@@ -3194,16 +3200,16 @@ impl<'abbrev, 'unit, R: Reader> EntriesTree<'abbrev, 'unit, R> {
 /// The root node of a tree can be obtained
 /// via [`EntriesTree::root`](./struct.EntriesTree.html#method.root).
 #[derive(Debug)]
-pub struct EntriesTreeNode<'abbrev, 'unit, 'tree, R: Reader> {
-    tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
+pub struct EntriesTreeNode<'abbrev, 'tree, R: Reader> {
+    tree: &'tree mut EntriesTree<'abbrev, R>,
     depth: isize,
 }
 
-impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeNode<'abbrev, 'unit, 'tree, R> {
+impl<'abbrev, 'tree, R: Reader> EntriesTreeNode<'abbrev, 'tree, R> {
     fn new(
-        tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
+        tree: &'tree mut EntriesTree<'abbrev, R>,
         depth: isize,
-    ) -> EntriesTreeNode<'abbrev, 'unit, 'tree, R> {
+    ) -> EntriesTreeNode<'abbrev, 'tree, R> {
         debug_assert!(tree.entry.is_some());
         EntriesTreeNode { tree, depth }
     }
@@ -3218,7 +3224,7 @@ impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeNode<'abbrev, 'unit, 'tree, R>
     ///
     /// The current entry can no longer be accessed after creating the
     /// iterator.
-    pub fn children(self) -> EntriesTreeIter<'abbrev, 'unit, 'tree, R> {
+    pub fn children(self) -> EntriesTreeIter<'abbrev, 'tree, R> {
         EntriesTreeIter::new(self.tree, self.depth)
     }
 }
@@ -3229,17 +3235,17 @@ impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeNode<'abbrev, 'unit, 'tree, R>
 /// The items returned by this iterator are also `EntriesTreeNode`s,
 /// which allow recursive traversal of grandchildren, etc.
 #[derive(Debug)]
-pub struct EntriesTreeIter<'abbrev, 'unit, 'tree, R: Reader> {
-    tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
+pub struct EntriesTreeIter<'abbrev, 'tree, R: Reader> {
+    tree: &'tree mut EntriesTree<'abbrev, R>,
     depth: isize,
     empty: bool,
 }
 
-impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeIter<'abbrev, 'unit, 'tree, R> {
+impl<'abbrev, 'tree, R: Reader> EntriesTreeIter<'abbrev, 'tree, R> {
     fn new(
-        tree: &'tree mut EntriesTree<'abbrev, 'unit, R>,
+        tree: &'tree mut EntriesTree<'abbrev, R>,
         depth: isize,
-    ) -> EntriesTreeIter<'abbrev, 'unit, 'tree, R> {
+    ) -> EntriesTreeIter<'abbrev, 'tree, R> {
         EntriesTreeIter {
             tree,
             depth,
@@ -3250,7 +3256,7 @@ impl<'abbrev, 'unit, 'tree, R: Reader> EntriesTreeIter<'abbrev, 'unit, 'tree, R>
     /// Returns an `EntriesTreeNode` for the next child entry.
     ///
     /// Returns `None` if there are no more children.
-    pub fn next<'me>(&'me mut self) -> Result<Option<EntriesTreeNode<'abbrev, 'unit, 'me, R>>> {
+    pub fn next<'me>(&'me mut self) -> Result<Option<EntriesTreeNode<'abbrev, 'me, R>>> {
         if self.empty {
             Ok(None)
         } else if self.tree.next(self.depth)? {
@@ -5932,12 +5938,10 @@ mod tests {
 
     #[test]
     fn test_entries_tree() {
-        fn assert_entry<'input, 'abbrev, 'unit, 'tree, Endian>(
-            node: Result<
-                Option<EntriesTreeNode<'abbrev, 'unit, 'tree, EndianSlice<'input, Endian>>>,
-            >,
+        fn assert_entry<'input, 'abbrev, 'tree, Endian>(
+            node: Result<Option<EntriesTreeNode<'abbrev, 'tree, EndianSlice<'input, Endian>>>>,
             name: &str,
-        ) -> EntriesTreeIter<'abbrev, 'unit, 'tree, EndianSlice<'input, Endian>>
+        ) -> EntriesTreeIter<'abbrev, 'tree, EndianSlice<'input, Endian>>
         where
             Endian: Endianity,
         {
@@ -5949,7 +5953,7 @@ mod tests {
         }
 
         fn assert_null<E: Endianity>(
-            node: Result<Option<EntriesTreeNode<'_, '_, '_, EndianSlice<'_, E>>>>,
+            node: Result<Option<EntriesTreeNode<'_, '_, EndianSlice<'_, E>>>>,
         ) {
             match node {
                 Ok(None) => {}

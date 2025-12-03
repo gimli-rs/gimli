@@ -1366,7 +1366,7 @@ impl<R: Reader> Unit<R> {
     pub fn entries_tree(
         &self,
         offset: Option<UnitOffset<R::Offset>>,
-    ) -> Result<EntriesTree<'_, '_, R>> {
+    ) -> Result<EntriesTree<'_, R>> {
         self.header.entries_tree(&self.abbreviations, offset)
     }
 
