@@ -15,11 +15,8 @@ fuzz_target!(|sections: (Vec<u8>, Vec<u8>)| {
     while let Ok(Some(unit)) = units.next() {
         if let Ok(abbrevs) = unit.abbreviations(&debug_abbrev) {
             let mut cursor = unit.entries(&abbrevs);
-            while let Ok(Some((_delta, entry))) = cursor.next_dfs() {
-                let mut attrs = entry.attrs();
-                while let Ok(Some(_attr)) = attrs.next() {
-                    continue;
-                }
+            while let Ok(Some(_)) = cursor.next_dfs() {
+                continue;
             }
         }
     }

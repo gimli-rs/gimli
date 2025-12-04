@@ -1,7 +1,6 @@
 //! Functions for parsing DWARF `.debug_info` and `.debug_types` sections.
 
 use alloc::vec::Vec;
-use core::cell::Cell;
 use core::ops::{Range, RangeFrom, RangeTo};
 
 use crate::common::{
@@ -583,7 +582,7 @@ where
         &self,
         abbreviations: &'abbrev Abbreviations,
         offset: UnitOffset<Offset>,
-    ) -> Result<DebuggingInformationEntry<'abbrev, R>> {
+    ) -> Result<DebuggingInformationEntry<R>> {
         let mut input = self.range_from(offset..)?;
         let entry =
             DebuggingInformationEntry::parse(&mut input, self.encoding, abbreviations, offset)?;
@@ -758,42 +757,35 @@ fn parse_dwo_id<R: Reader>(input: &mut R) -> Result<DwoId> {
 ///
 /// DIEs have a set of attributes and optionally have children DIEs as well.
 #[derive(Clone, Debug)]
-pub struct DebuggingInformationEntry<'abbrev, R, Offset = <R as Reader>::Offset>
+pub struct DebuggingInformationEntry<R, Offset = <R as Reader>::Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    attrs_slice: R,
-    attrs_len: Cell<Option<Offset>>,
-    encoding: Encoding,
-    abbrev: &'abbrev Abbreviation,
+    tag: constants::DwTag,
+    has_children: bool,
+    attrs: Vec<Attribute<R>>,
     offset: UnitOffset<Offset>,
 }
 
-impl<'abbrev, R, Offset> DebuggingInformationEntry<'abbrev, R, Offset>
+impl<R, Offset> DebuggingInformationEntry<R, Offset>
 where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
     /// Construct a new `DebuggingInformationEntry`.
     pub fn new(
-        attrs_slice: R,
-        encoding: Encoding,
-        abbrev: &'abbrev Abbreviation,
+        tag: constants::DwTag,
+        has_children: bool,
+        attrs: Vec<Attribute<R>>,
         offset: UnitOffset<Offset>,
     ) -> Self {
         DebuggingInformationEntry {
-            attrs_slice,
-            attrs_len: Cell::new(None),
-            encoding,
-            abbrev,
+            tag,
+            has_children,
+            attrs,
             offset,
         }
-    }
-
-    /// Get this entry's code.
-    pub fn code(&self) -> u64 {
-        self.abbrev.code()
     }
 
     /// Get this entry's offset.
@@ -801,209 +793,48 @@ where
         self.offset
     }
 
-    /// Get this entry's `DW_TAG_whatever` tag.
-    ///
-    /// ```
-    /// # use gimli::{DebugAbbrev, DebugInfo, LittleEndian};
-    /// # let info_buf = [
-    /// #     // Comilation unit header
-    /// #
-    /// #     // 32-bit unit length = 12
-    /// #     0x0c, 0x00, 0x00, 0x00,
-    /// #     // Version 4
-    /// #     0x04, 0x00,
-    /// #     // debug_abbrev_offset
-    /// #     0x00, 0x00, 0x00, 0x00,
-    /// #     // Address size
-    /// #     0x04,
-    /// #
-    /// #     // DIEs
-    /// #
-    /// #     // Abbreviation code
-    /// #     0x01,
-    /// #     // Attribute of form DW_FORM_string = "foo\0"
-    /// #     0x66, 0x6f, 0x6f, 0x00,
-    /// # ];
-    /// # let debug_info = DebugInfo::new(&info_buf, LittleEndian);
-    /// # let abbrev_buf = [
-    /// #     // Code
-    /// #     0x01,
-    /// #     // DW_TAG_subprogram
-    /// #     0x2e,
-    /// #     // DW_CHILDREN_no
-    /// #     0x00,
-    /// #     // Begin attributes
-    /// #       // Attribute name = DW_AT_name
-    /// #       0x03,
-    /// #       // Attribute form = DW_FORM_string
-    /// #       0x08,
-    /// #     // End attributes
-    /// #     0x00,
-    /// #     0x00,
-    /// #     // Null terminator
-    /// #     0x00
-    /// # ];
-    /// # let debug_abbrev = DebugAbbrev::new(&abbrev_buf, LittleEndian);
-    /// # let unit = debug_info.units().next().unwrap().unwrap();
-    /// # let abbrevs = unit.abbreviations(&debug_abbrev).unwrap();
-    /// # let mut cursor = unit.entries(&abbrevs);
-    /// # let (_, entry) = cursor.next_dfs().unwrap().unwrap();
-    /// # let mut get_some_entry = || entry;
-    /// let entry = get_some_entry();
-    ///
-    /// match entry.tag() {
-    ///     gimli::DW_TAG_subprogram =>
-    ///         println!("this entry contains debug info about a function"),
-    ///     gimli::DW_TAG_inlined_subroutine =>
-    ///         println!("this entry contains debug info about a particular instance of inlining"),
-    ///     gimli::DW_TAG_variable =>
-    ///         println!("this entry contains debug info about a local variable"),
-    ///     gimli::DW_TAG_formal_parameter =>
-    ///         println!("this entry contains debug info about a function parameter"),
-    ///     otherwise =>
-    ///         println!("this entry is some other kind of data: {:?}", otherwise),
-    /// };
-    /// ```
+    /// Get this entry's tag.
     pub fn tag(&self) -> constants::DwTag {
-        self.abbrev.tag()
+        self.tag
     }
 
     /// Return true if this entry's type can have children, false otherwise.
     pub fn has_children(&self) -> bool {
-        self.abbrev.has_children()
+        self.has_children
     }
 
-    /// Iterate over this entry's set of attributes.
+    /// Return this entry's set of attributes.
+    pub fn attrs(&self) -> &[Attribute<R>] {
+        &self.attrs
+    }
+
+    /// Find the first attribute in this entry which has the given name.
     ///
-    /// ```
-    /// use gimli::{DebugAbbrev, DebugInfo, LittleEndian};
-    ///
-    /// // Read the `.debug_info` section.
-    ///
-    /// # let info_buf = [
-    /// #     // Comilation unit header
-    /// #
-    /// #     // 32-bit unit length = 12
-    /// #     0x0c, 0x00, 0x00, 0x00,
-    /// #     // Version 4
-    /// #     0x04, 0x00,
-    /// #     // debug_abbrev_offset
-    /// #     0x00, 0x00, 0x00, 0x00,
-    /// #     // Address size
-    /// #     0x04,
-    /// #
-    /// #     // DIEs
-    /// #
-    /// #     // Abbreviation code
-    /// #     0x01,
-    /// #     // Attribute of form DW_FORM_string = "foo\0"
-    /// #     0x66, 0x6f, 0x6f, 0x00,
-    /// # ];
-    /// # let read_debug_info_section_somehow = || &info_buf;
-    /// let debug_info = DebugInfo::new(read_debug_info_section_somehow(), LittleEndian);
-    ///
-    /// // Get the data about the first compilation unit out of the `.debug_info`.
-    ///
-    /// let unit = debug_info.units().next()
-    ///     .expect("Should have at least one compilation unit")
-    ///     .expect("and it should parse ok");
-    ///
-    /// // Read the `.debug_abbrev` section and parse the
-    /// // abbreviations for our compilation unit.
-    ///
-    /// # let abbrev_buf = [
-    /// #     // Code
-    /// #     0x01,
-    /// #     // DW_TAG_subprogram
-    /// #     0x2e,
-    /// #     // DW_CHILDREN_no
-    /// #     0x00,
-    /// #     // Begin attributes
-    /// #       // Attribute name = DW_AT_name
-    /// #       0x03,
-    /// #       // Attribute form = DW_FORM_string
-    /// #       0x08,
-    /// #     // End attributes
-    /// #     0x00,
-    /// #     0x00,
-    /// #     // Null terminator
-    /// #     0x00
-    /// # ];
-    /// # let read_debug_abbrev_section_somehow = || &abbrev_buf;
-    /// let debug_abbrev = DebugAbbrev::new(read_debug_abbrev_section_somehow(), LittleEndian);
-    /// let abbrevs = unit.abbreviations(&debug_abbrev).unwrap();
-    ///
-    /// // Get the first entry from that compilation unit.
-    ///
-    /// let mut cursor = unit.entries(&abbrevs);
-    /// let (_, entry) = cursor.next_dfs()
-    ///     .expect("Should parse next entry")
-    ///     .expect("Should have at least one entry");
-    ///
-    /// // Finally, print the first entry's attributes.
-    ///
-    /// let mut attrs = entry.attrs();
-    /// while let Some(attr) = attrs.next().unwrap() {
-    ///     println!("Attribute name = {:?}", attr.name());
-    ///     println!("Attribute value = {:?}", attr.value());
-    /// }
-    /// ```
-    ///
-    /// Can be [used with
-    /// `FallibleIterator`](./index.html#using-with-fallibleiterator).
-    pub fn attrs<'me>(&'me self) -> AttrsIter<'abbrev, 'me, R> {
-        AttrsIter {
-            input: self.attrs_slice.clone(),
-            attributes: self.abbrev.attributes(),
-            entry: self,
-        }
+    /// Returns `None` if no attribute is found.
+    pub fn attr(&self, name: constants::DwAt) -> Option<&Attribute<R>> {
+        self.attrs.iter().find(|attr| attr.name == name)
     }
 
     /// Find the first attribute in this entry which has the given name,
-    /// and return it. Returns `Ok(None)` if no attribute is found.
-    pub fn attr(&self, name: constants::DwAt) -> Result<Option<Attribute<R>>> {
-        let mut attrs = self.attrs();
-        while let Some(attr) = attrs.next()? {
-            if attr.name() == name {
-                return Ok(Some(attr));
-            }
-        }
-        Ok(None)
+    /// and return its raw value.
+    ///
+    /// Returns `None` if no attribute is found.
+    pub fn attr_value_raw(&self, name: constants::DwAt) -> Option<AttributeValue<R>> {
+        self.attr(name).map(Attribute::raw_value)
     }
 
     /// Find the first attribute in this entry which has the given name,
-    /// and return its raw value. Returns `Ok(None)` if no attribute is found.
-    pub fn attr_value_raw(&self, name: constants::DwAt) -> Result<Option<AttributeValue<R>>> {
-        self.attr(name)
-            .map(|attr| attr.map(|attr| attr.raw_value()))
-    }
-
-    /// Find the first attribute in this entry which has the given name,
-    /// and return its normalized value.  Returns `Ok(None)` if no
-    /// attribute is found.
-    pub fn attr_value(&self, name: constants::DwAt) -> Result<Option<AttributeValue<R>>> {
-        self.attr(name).map(|attr| attr.map(|attr| attr.value()))
-    }
-
-    /// Return the input buffer after the last attribute.
-    #[inline(always)]
-    fn after_attrs(&self) -> Result<R> {
-        if let Some(attrs_len) = self.attrs_len.get() {
-            let mut input = self.attrs_slice.clone();
-            input.skip(attrs_len)?;
-            Ok(input)
-        } else {
-            let mut attrs = self.attrs();
-            while attrs.next()?.is_some() {}
-            Ok(attrs.input)
-        }
+    /// and return its normalized value.
+    ///
+    /// Returns `None` if no attribute is found.
+    pub fn attr_value(&self, name: constants::DwAt) -> Option<AttributeValue<R>> {
+        self.attr(name).map(Attribute::value)
     }
 
     /// Use the `DW_AT_sibling` attribute to find the offset for the
     /// next sibling. Returns `None` if the attribute is missing or invalid.
     fn sibling(&self) -> Option<UnitOffset<R::Offset>> {
-        let attr = self.attr_value(constants::DW_AT_sibling);
-        if let Ok(Some(AttributeValue::UnitRef(offset))) = attr
+        if let Some(AttributeValue::UnitRef(offset)) = self.attr_value(constants::DW_AT_sibling)
             && offset.0 > self.offset.0
         {
             return Some(offset);
@@ -1016,7 +847,7 @@ where
     fn parse(
         input: &mut R,
         encoding: Encoding,
-        abbreviations: &'abbrev Abbreviations,
+        abbreviations: &Abbreviations,
         offset: UnitOffset<R::Offset>,
     ) -> Result<Option<Self>> {
         let code = input.read_uleb128()?;
@@ -1026,10 +857,15 @@ where
         let abbrev = abbreviations
             .get(code)
             .ok_or(Error::UnknownAbbreviation(code))?;
+        let specs = abbrev.attributes();
+        let mut attrs = Vec::with_capacity(specs.len());
+        for spec in specs {
+            attrs.push(parse_attribute(input, encoding, *spec)?);
+        }
         Ok(Some(DebuggingInformationEntry::new(
-            input.clone(),
-            encoding,
-            abbrev,
+            abbrev.tag(),
+            abbrev.has_children(),
+            attrs,
             offset,
         )))
     }
@@ -2381,72 +2217,6 @@ pub(crate) fn skip_attributes<R: Reader>(
     Ok(())
 }
 
-/// An iterator over a particular entry's attributes.
-///
-/// See [the documentation for
-/// `DebuggingInformationEntry::attrs()`](./struct.DebuggingInformationEntry.html#method.attrs)
-/// for details.
-///
-/// Can be [used with
-/// `FallibleIterator`](./index.html#using-with-fallibleiterator).
-#[derive(Clone, Copy, Debug)]
-pub struct AttrsIter<'abbrev, 'entry, R: Reader> {
-    input: R,
-    attributes: &'abbrev [AttributeSpecification],
-    entry: &'entry DebuggingInformationEntry<'abbrev, R>,
-}
-
-impl<'abbrev, 'entry, R: Reader> AttrsIter<'abbrev, 'entry, R> {
-    /// Advance the iterator and return the next attribute.
-    ///
-    /// Returns `None` when iteration is finished. If an error
-    /// occurs while parsing the next attribute, then this error
-    /// is returned, and all subsequent calls return `None`.
-    #[inline(always)]
-    pub fn next(&mut self) -> Result<Option<Attribute<R>>> {
-        if self.attributes.is_empty() {
-            // Now that we have parsed all of the attributes, we know where
-            // either (1) this entry's children start, if the abbreviation says
-            // this entry has children; or (2) where this entry's siblings
-            // begin.
-            if let Some(end) = self.entry.attrs_len.get() {
-                debug_assert_eq!(end, self.input.offset_from(&self.entry.attrs_slice));
-            } else {
-                self.entry
-                    .attrs_len
-                    .set(Some(self.input.offset_from(&self.entry.attrs_slice)));
-            }
-
-            return Ok(None);
-        }
-
-        let spec = self.attributes[0];
-        let rest_spec = &self.attributes[1..];
-        match parse_attribute(&mut self.input, self.entry.encoding, spec) {
-            Ok(attr) => {
-                self.attributes = rest_spec;
-                Ok(Some(attr))
-            }
-            Err(e) => {
-                self.input.empty();
-                Err(e)
-            }
-        }
-    }
-}
-
-#[cfg(feature = "fallible-iterator")]
-impl<'abbrev, 'entry, R: Reader> fallible_iterator::FallibleIterator
-    for AttrsIter<'abbrev, 'entry, R>
-{
-    type Item = Attribute<R>;
-    type Error = Error;
-
-    fn next(&mut self) -> ::core::result::Result<Option<Self::Item>, Self::Error> {
-        AttrsIter::next(self)
-    }
-}
-
 /// A raw reader of the data that defines the Debugging Information Entries.
 ///
 /// `EntriesRaw` provides primitives to read the components of Debugging Information
@@ -2643,7 +2413,7 @@ where
     input: R,
     encoding: Encoding,
     abbreviations: &'abbrev Abbreviations,
-    cached_current: Option<DebuggingInformationEntry<'abbrev, R>>,
+    cached_current: Option<DebuggingInformationEntry<R>>,
     end_offset: UnitOffset<R::Offset>,
     delta_depth: isize,
 }
@@ -2671,7 +2441,7 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
     /// If the cursor is not pointing at an entry, or if the current entry is a
     /// null entry, then `None` is returned.
     #[inline]
-    pub fn current(&self) -> Option<&DebuggingInformationEntry<'abbrev, R>> {
+    pub fn current(&self) -> Option<&DebuggingInformationEntry<R>> {
         self.cached_current.as_ref()
     }
 
@@ -2680,10 +2450,6 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
     /// Returns `Some` if there is a next entry, even if this entry is null.
     /// If there is no next entry, then `None` is returned.
     pub fn next_entry(&mut self) -> Result<Option<()>> {
-        if let Some(ref current) = self.cached_current {
-            self.input = current.after_attrs()?;
-        }
-
         if self.input.is_empty() {
             self.cached_current = None;
             self.delta_depth = 0;
@@ -2833,7 +2599,7 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
     /// println!("The first entry with no children is {:?}",
     ///          first_entry_with_no_children.unwrap());
     /// ```
-    pub fn next_dfs(&mut self) -> Result<Option<(isize, &DebuggingInformationEntry<'abbrev, R>)>> {
+    pub fn next_dfs(&mut self) -> Result<Option<(isize, &DebuggingInformationEntry<R>)>> {
         let mut delta_depth = self.delta_depth;
         loop {
             // The next entry should be the one we want.
@@ -2956,7 +2722,7 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
     ///     }
     /// }
     /// ```
-    pub fn next_sibling(&mut self) -> Result<Option<&DebuggingInformationEntry<'abbrev, R>>> {
+    pub fn next_sibling(&mut self) -> Result<Option<&DebuggingInformationEntry<R>>> {
         if self.current().is_none() {
             // We're already at the null for the end of the sibling list.
             return Ok(None);
@@ -3029,11 +2795,8 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
 /// fn process_tree<R>(mut node: gimli::EntriesTreeNode<R>) -> gimli::Result<()>
 ///     where R: gimli::Reader
 /// {
-///     {
-///         // Examine the entry attributes.
-///         let mut attrs = node.entry().attrs();
-///         while let Some(attr) = attrs.next()? {
-///         }
+///     // Examine the entry attributes.
+///     for attr in node.entry().attrs() {
 ///     }
 ///     let mut children = node.children();
 ///     while let Some(child) = children.next()? {
@@ -3052,7 +2815,7 @@ where
     input: R,
     encoding: Encoding,
     abbreviations: &'abbrev Abbreviations,
-    entry: Option<DebuggingInformationEntry<'abbrev, R>>,
+    entry: Option<DebuggingInformationEntry<R>>,
     end_offset: UnitOffset<R::Offset>,
     depth: isize,
 }
@@ -3109,7 +2872,6 @@ impl<'abbrev, R: Reader> EntriesTree<'abbrev, R> {
                         return Ok(false);
                     }
                     self.depth += 1;
-                    self.input = entry.after_attrs()?;
                 }
                 None => return Ok(false),
             }
@@ -3154,11 +2916,9 @@ impl<'abbrev, R: Reader> EntriesTree<'abbrev, R> {
                             // This entry has children, so the next entry is
                             // down one level.
                             self.depth += 1;
-                            self.input = entry.after_attrs()?;
                         }
                     } else {
                         // This entry has no children, so next entry is at same depth.
-                        self.input = entry.after_attrs()?;
                     }
                 }
                 None => {
@@ -3215,7 +2975,7 @@ impl<'abbrev, 'tree, R: Reader> EntriesTreeNode<'abbrev, 'tree, R> {
     }
 
     /// Returns the current entry in the tree.
-    pub fn entry(&self) -> &DebuggingInformationEntry<'abbrev, R> {
+    pub fn entry(&self) -> &DebuggingInformationEntry<R> {
         // We never create a node without an entry.
         self.tree.entry.as_ref().unwrap()
     }
@@ -5089,208 +4849,14 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_attrs_iter() {
-        let encoding = Encoding {
-            format: Format::Dwarf32,
-            version: 4,
-            address_size: 4,
-        };
-        let unit = UnitHeader::new(
-            encoding,
-            7,
-            UnitType::Compilation,
-            DebugAbbrevOffset(0x0807_0605),
-            SectionId::DebugInfo,
-            UnitSectionOffset(0),
-            EndianSlice::new(&[], LittleEndian),
-        );
-
-        let abbrev = Abbreviation::new(
-            42,
-            constants::DW_TAG_subprogram,
-            constants::DW_CHILDREN_yes,
-            vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
-                AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr, None),
-                AttributeSpecification::new(
-                    constants::DW_AT_high_pc,
-                    constants::DW_FORM_addr,
-                    None,
-                ),
-            ]
-            .into(),
-        );
-
-        // "foo", 42, 1337, 4 dangling bytes of 0xaa where children would be
-        let buf = [
-            0x66, 0x6f, 0x6f, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x39, 0x05, 0x00, 0x00, 0xaa, 0xaa,
-            0xaa, 0xaa,
-        ];
-
-        let entry = DebuggingInformationEntry::new(
-            EndianSlice::new(&buf, LittleEndian),
-            unit.encoding(),
-            &abbrev,
-            UnitOffset(0),
-        );
-
-        let mut attrs = AttrsIter {
-            input: EndianSlice::new(&buf, LittleEndian),
-            attributes: abbrev.attributes(),
-            entry: &entry,
-        };
-
-        match attrs.next() {
-            Ok(Some(attr)) => {
-                assert_eq!(
-                    attr,
-                    Attribute {
-                        name: constants::DW_AT_name,
-                        form: constants::DW_FORM_string,
-                        value: AttributeValue::String(EndianSlice::new(b"foo", LittleEndian)),
-                    }
-                );
-            }
-            otherwise => {
-                panic!("Unexpected parse result = {:#?}", otherwise);
-            }
-        }
-
-        assert!(entry.attrs_len.get().is_none());
-
-        match attrs.next() {
-            Ok(Some(attr)) => {
-                assert_eq!(
-                    attr,
-                    Attribute {
-                        name: constants::DW_AT_low_pc,
-                        form: constants::DW_FORM_addr,
-                        value: AttributeValue::Addr(0x2a),
-                    }
-                );
-            }
-            otherwise => {
-                panic!("Unexpected parse result = {:#?}", otherwise);
-            }
-        }
-
-        assert!(entry.attrs_len.get().is_none());
-
-        match attrs.next() {
-            Ok(Some(attr)) => {
-                assert_eq!(
-                    attr,
-                    Attribute {
-                        name: constants::DW_AT_high_pc,
-                        form: constants::DW_FORM_addr,
-                        value: AttributeValue::Addr(0x539),
-                    }
-                );
-            }
-            otherwise => {
-                panic!("Unexpected parse result = {:#?}", otherwise);
-            }
-        }
-
-        assert!(entry.attrs_len.get().is_none());
-
-        assert!(attrs.next().expect("should parse next").is_none());
-        assert!(entry.attrs_len.get().is_some());
-        assert_eq!(
-            entry.attrs_len.get().expect("should have entry.attrs_len"),
-            buf.len() - 4
-        )
-    }
-
-    #[test]
-    fn test_attrs_iter_incomplete() {
-        let encoding = Encoding {
-            format: Format::Dwarf32,
-            version: 4,
-            address_size: 4,
-        };
-        let unit = UnitHeader::new(
-            encoding,
-            7,
-            UnitType::Compilation,
-            DebugAbbrevOffset(0x0807_0605),
-            SectionId::DebugInfo,
-            UnitSectionOffset(0),
-            EndianSlice::new(&[], LittleEndian),
-        );
-
-        let abbrev = Abbreviation::new(
-            42,
-            constants::DW_TAG_subprogram,
-            constants::DW_CHILDREN_yes,
-            vec![
-                AttributeSpecification::new(constants::DW_AT_name, constants::DW_FORM_string, None),
-                AttributeSpecification::new(constants::DW_AT_low_pc, constants::DW_FORM_addr, None),
-                AttributeSpecification::new(
-                    constants::DW_AT_high_pc,
-                    constants::DW_FORM_addr,
-                    None,
-                ),
-            ]
-            .into(),
-        );
-
-        // "foo"
-        let buf = [0x66, 0x6f, 0x6f, 0x00];
-
-        let entry = DebuggingInformationEntry::new(
-            EndianSlice::new(&buf, LittleEndian),
-            unit.encoding(),
-            &abbrev,
-            UnitOffset(0),
-        );
-
-        let mut attrs = AttrsIter {
-            input: EndianSlice::new(&buf, LittleEndian),
-            attributes: abbrev.attributes(),
-            entry: &entry,
-        };
-
-        match attrs.next() {
-            Ok(Some(attr)) => {
-                assert_eq!(
-                    attr,
-                    Attribute {
-                        name: constants::DW_AT_name,
-                        form: constants::DW_FORM_string,
-                        value: AttributeValue::String(EndianSlice::new(b"foo", LittleEndian)),
-                    }
-                );
-            }
-            otherwise => {
-                panic!("Unexpected parse result = {:#?}", otherwise);
-            }
-        }
-
-        assert!(entry.attrs_len.get().is_none());
-
-        // Return error for incomplete attribute.
-        assert!(attrs.next().is_err());
-        assert!(entry.attrs_len.get().is_none());
-
-        // Return error for all subsequent calls.
-        assert!(attrs.next().is_err());
-        assert!(attrs.next().is_err());
-        assert!(attrs.next().is_err());
-        assert!(attrs.next().is_err());
-        assert!(entry.attrs_len.get().is_none());
-    }
-
     fn assert_entry_name<Endian>(
-        entry: &DebuggingInformationEntry<'_, EndianSlice<'_, Endian>>,
+        entry: &DebuggingInformationEntry<EndianSlice<'_, Endian>>,
         name: &str,
     ) where
         Endian: Endianity,
     {
         let value = entry
             .attr_value(constants::DW_AT_name)
-            .expect("Should have parsed the name attribute")
             .expect("Should have found the name attribute");
 
         assert_eq!(
@@ -5463,18 +5029,16 @@ mod tests {
         assert_next_entry(&mut cursor, "001");
         assert_next_entry(&mut cursor, "002");
 
-        {
-            // Entry code is present, but none of the attributes.
+        // Entry code is present, but none of the attributes.
+        assert!(cursor.next_entry().is_err());
+
+        // Fuse after error.
+        assert!(
             cursor
                 .next_entry()
                 .expect("Should parse next entry")
-                .expect("Should have an entry");
-            let entry = cursor.current().expect("Should have an entry result");
-            assert!(entry.attrs().next().is_err());
-        }
-
-        assert!(cursor.next_entry().is_err());
-        assert!(cursor.next_entry().is_err());
+                .is_none()
+        );
     }
 
     #[test]

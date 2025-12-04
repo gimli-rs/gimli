@@ -586,13 +586,12 @@ impl<R: Reader> Dwarf<R> {
     pub fn die_ranges(
         &self,
         unit: &Unit<R>,
-        entry: &DebuggingInformationEntry<'_, R>,
+        entry: &DebuggingInformationEntry<R>,
     ) -> Result<RangeIter<R>> {
         let mut low_pc = None;
         let mut high_pc = None;
         let mut size = None;
-        let mut attrs = entry.attrs();
-        while let Some(attr) = attrs.next()? {
+        for attr in entry.attrs() {
             match attr.name() {
                 constants::DW_AT_low_pc => {
                     low_pc = Some(
@@ -1257,8 +1256,7 @@ impl<R: Reader> Unit<R> {
             let mut cursor = unit.header.entries(&unit.abbreviations);
             cursor.next_dfs()?;
             let root = cursor.current().ok_or(Error::MissingUnitDie)?;
-            let mut attrs = root.attrs();
-            while let Some(attr) = attrs.next()? {
+            for attr in root.attrs() {
                 match attr.name() {
                     constants::DW_AT_name => {
                         name = Some(attr.value());
@@ -1343,7 +1341,7 @@ impl<R: Reader> Unit<R> {
     }
 
     /// Read the `DebuggingInformationEntry` at the given offset.
-    pub fn entry(&self, offset: UnitOffset<R::Offset>) -> Result<DebuggingInformationEntry<'_, R>> {
+    pub fn entry(&self, offset: UnitOffset<R::Offset>) -> Result<DebuggingInformationEntry<R>> {
         self.header.entry(&self.abbreviations, offset)
     }
 
@@ -1397,9 +1395,9 @@ impl<R: Reader> Unit<R> {
         entries.next_entry()?;
         let entry = entries.current().ok_or(Error::MissingUnitDie)?;
         if self.header.version() < 5 {
-            entry.attr_value(constants::DW_AT_GNU_dwo_name)
+            Ok(entry.attr_value(constants::DW_AT_GNU_dwo_name))
         } else {
-            entry.attr_value(constants::DW_AT_dwo_name)
+            Ok(entry.attr_value(constants::DW_AT_dwo_name))
         }
     }
 }
@@ -1536,7 +1534,7 @@ impl<'a, R: Reader> UnitRef<'a, R> {
     /// Return an iterator for the address ranges of a `DebuggingInformationEntry`.
     ///
     /// This uses `DW_AT_low_pc`, `DW_AT_high_pc` and `DW_AT_ranges`.
-    pub fn die_ranges(&self, entry: &DebuggingInformationEntry<'_, R>) -> Result<RangeIter<R>> {
+    pub fn die_ranges(&self, entry: &DebuggingInformationEntry<R>) -> Result<RangeIter<R>> {
         self.dwarf.die_ranges(self.unit, entry)
     }
 

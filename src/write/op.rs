@@ -1553,10 +1553,7 @@ mod tests {
                     // Get the expression.
                     let (_, read_entry) = read_entries.next_dfs().unwrap().unwrap();
                     assert_eq!(read_entry.tag(), constants::DW_TAG_subprogram);
-                    let read_attr = read_entry
-                        .attr_value(constants::DW_AT_location)
-                        .unwrap()
-                        .unwrap();
+                    let read_attr = read_entry.attr_value(constants::DW_AT_location).unwrap();
                     let read_expression = read_attr.exprloc_value().unwrap();
                     let mut read_operations = read_expression.operations(encoding);
                     for (_, _, operation) in operations {
@@ -1662,10 +1659,7 @@ mod tests {
                     assert_eq!(read_entry.tag(), constants::DW_TAG_compile_unit);
                     let (_, read_entry) = read_entries.next_dfs().unwrap().unwrap();
                     assert_eq!(read_entry.tag(), constants::DW_TAG_subprogram);
-                    let read_attr = read_entry
-                        .attr_value(constants::DW_AT_location)
-                        .unwrap()
-                        .unwrap();
+                    let read_attr = read_entry.attr_value(constants::DW_AT_location).unwrap();
                     let read_expression = read_attr.exprloc_value().unwrap();
                     let mut read_operations = read_expression.operations(encoding);
                     assert_eq!(
