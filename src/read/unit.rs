@@ -578,15 +578,23 @@ where
     }
 
     /// Read the `DebuggingInformationEntry` at the given offset.
+    ///
+    /// Creating a `DebuggingInformationEntry` requires an allocation, so frequent use of
+    /// this method may be slow. Use methods such as [`Self::entries_at_offset`] to read
+    /// multiple entries where possible, or [`Self::entries_raw`] which does not allocate.
     pub fn entry<'abbrev>(
         &self,
         abbreviations: &'abbrev Abbreviations,
         offset: UnitOffset<Offset>,
     ) -> Result<DebuggingInformationEntry<R>> {
         let mut input = self.range_from(offset..)?;
-        let entry =
-            DebuggingInformationEntry::parse(&mut input, self.encoding, abbreviations, offset)?;
-        entry.ok_or(Error::NoEntryAtGivenOffset)
+        let mut entry = DebuggingInformationEntry::null();
+        entry.parse(&mut input, self.encoding, abbreviations, offset)?;
+        if entry.is_null() {
+            Err(Error::NoEntryAtGivenOffset)
+        } else {
+            Ok(entry)
+        }
     }
 
     /// Navigate this unit's `DebuggingInformationEntry`s.
@@ -756,6 +764,9 @@ fn parse_dwo_id<R: Reader>(input: &mut R) -> Result<DwoId> {
 /// A Debugging Information Entry (DIE).
 ///
 /// DIEs have a set of attributes and optionally have children DIEs as well.
+///
+/// Creating a `DebuggingInformationEntry` requires an allocation, so frequent cloning of
+/// this struct may be slow.
 #[derive(Clone, Debug)]
 pub struct DebuggingInformationEntry<R, Offset = <R as Reader>::Offset>
 where
@@ -766,6 +777,16 @@ where
     has_children: bool,
     attrs: Vec<Attribute<R>>,
     offset: UnitOffset<Offset>,
+}
+
+impl<R, Offset> Default for DebuggingInformationEntry<R, Offset>
+where
+    R: Reader<Offset = Offset>,
+    Offset: ReaderOffset,
+{
+    fn default() -> Self {
+        Self::null()
+    }
 }
 
 impl<R, Offset> DebuggingInformationEntry<R, Offset>
@@ -786,6 +807,30 @@ where
             attrs,
             offset,
         }
+    }
+
+    /// Construct a new `DebuggingInformationEntry` with no tag or attributes.
+    pub fn null() -> Self {
+        DebuggingInformationEntry {
+            tag: constants::DW_TAG_null,
+            has_children: false,
+            attrs: Vec::new(),
+            offset: UnitOffset(Offset::from_u8(0)),
+        }
+    }
+
+    /// Return true if the entry tag is `DW_TAG_null`.
+    pub fn is_null(&self) -> bool {
+        self.tag == constants::DW_TAG_null
+    }
+
+    /// Set the entry to a null entry.
+    ///
+    /// This sets the tag to `DW_TAG_null`, and resets the `has_children` and `attrs` fields.
+    pub fn set_null(&mut self) {
+        self.tag = constants::DW_TAG_null;
+        self.has_children = false;
+        self.attrs.clear();
     }
 
     /// Get this entry's offset.
@@ -842,32 +887,34 @@ where
         None
     }
 
-    /// Parse an entry. Returns `Ok(None)` for null entries.
+    /// Parse an entry. Returns `Ok(false)` for null entries.
     #[inline(always)]
     fn parse(
+        &mut self,
         input: &mut R,
         encoding: Encoding,
         abbreviations: &Abbreviations,
         offset: UnitOffset<R::Offset>,
-    ) -> Result<Option<Self>> {
+    ) -> Result<bool> {
+        self.offset = offset;
         let code = input.read_uleb128()?;
         if code == 0 {
-            return Ok(None);
+            self.set_null();
+            return Ok(false);
         };
         let abbrev = abbreviations
             .get(code)
             .ok_or(Error::UnknownAbbreviation(code))?;
+        self.tag = abbrev.tag();
+        self.has_children = abbrev.has_children();
         let specs = abbrev.attributes();
-        let mut attrs = Vec::with_capacity(specs.len());
+        self.attrs.clear();
+        self.attrs.reserve(specs.len());
         for spec in specs {
-            attrs.push(parse_attribute(input, encoding, *spec)?);
+            self.attrs
+                .push(parse_attribute(input, encoding, *spec)?);
         }
-        Ok(Some(DebuggingInformationEntry::new(
-            abbrev.tag(),
-            abbrev.has_children(),
-            attrs,
-            offset,
-        )))
+        Ok(true)
     }
 }
 
@@ -2413,7 +2460,7 @@ where
     input: R,
     encoding: Encoding,
     abbreviations: &'abbrev Abbreviations,
-    cached_current: Option<DebuggingInformationEntry<R>>,
+    cached_current: DebuggingInformationEntry<R>,
     end_offset: UnitOffset<R::Offset>,
     delta_depth: isize,
 }
@@ -2430,7 +2477,7 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
             input,
             encoding,
             abbreviations,
-            cached_current: None,
+            cached_current: DebuggingInformationEntry::null(),
             end_offset,
             delta_depth: 0,
         }
@@ -2442,7 +2489,11 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
     /// null entry, then `None` is returned.
     #[inline]
     pub fn current(&self) -> Option<&DebuggingInformationEntry<R>> {
-        self.cached_current.as_ref()
+        if self.cached_current.is_null() {
+            None
+        } else {
+            Some(&self.cached_current)
+        }
     }
 
     /// Move the cursor to the next DIE in the tree.
@@ -2451,32 +2502,28 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
     /// If there is no next entry, then `None` is returned.
     pub fn next_entry(&mut self) -> Result<Option<()>> {
         if self.input.is_empty() {
-            self.cached_current = None;
+            self.cached_current.set_null();
             self.delta_depth = 0;
             return Ok(None);
         }
 
         let offset = UnitOffset(self.end_offset.0 - self.input.len());
-        match DebuggingInformationEntry::parse(
-            &mut self.input,
-            self.encoding,
-            self.abbreviations,
-            offset,
-        ) {
-            Ok(Some(entry)) => {
-                self.delta_depth = entry.has_children() as isize;
-                self.cached_current = Some(entry);
+        match self
+            .cached_current
+            .parse(&mut self.input, self.encoding, self.abbreviations, offset)
+        {
+            Ok(true) => {
+                self.delta_depth = self.cached_current.has_children() as isize;
                 Ok(Some(()))
             }
-            Ok(None) => {
+            Ok(false) => {
                 self.delta_depth = -1;
-                self.cached_current = None;
                 Ok(Some(()))
             }
             Err(e) => {
                 self.input.empty();
                 self.delta_depth = 0;
-                self.cached_current = None;
+                self.cached_current.set_null();
                 Err(e)
             }
         }
@@ -2604,8 +2651,8 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
         loop {
             // The next entry should be the one we want.
             if self.next_entry()?.is_some() {
-                if let Some(ref entry) = self.cached_current {
-                    return Ok(Some((delta_depth, entry)));
+                if !self.cached_current.is_null() {
+                    return Ok(Some((delta_depth, &self.cached_current)));
                 }
 
                 // next_entry() read a null entry.
@@ -2742,7 +2789,7 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
                     // Fast path: this entry has a DW_AT_sibling
                     // attribute pointing to its sibling, so jump
                     // to it (which keeps us at the same depth).
-                    self.cached_current = None;
+                    self.cached_current.set_null();
                 } else {
                     // This entry has children, so the next entry is
                     // down one level.
@@ -2815,7 +2862,7 @@ where
     input: R,
     encoding: Encoding,
     abbreviations: &'abbrev Abbreviations,
-    entry: Option<DebuggingInformationEntry<R>>,
+    entry: DebuggingInformationEntry<R>,
     end_offset: UnitOffset<R::Offset>,
     depth: isize,
 }
@@ -2834,7 +2881,7 @@ impl<'abbrev, R: Reader> EntriesTree<'abbrev, R> {
             input,
             encoding,
             abbreviations,
-            entry: None,
+            entry: DebuggingInformationEntry::null(),
             end_offset,
             depth: 0,
         }
@@ -2844,13 +2891,9 @@ impl<'abbrev, R: Reader> EntriesTree<'abbrev, R> {
     pub fn root<'me>(&'me mut self) -> Result<EntriesTreeNode<'abbrev, 'me, R>> {
         self.input = self.root.clone();
         let offset = UnitOffset(self.end_offset.0 - self.input.len());
-        self.entry = DebuggingInformationEntry::parse(
-            &mut self.input,
-            self.encoding,
-            self.abbreviations,
-            offset,
-        )?;
-        if self.entry.is_none() {
+        self.entry
+            .parse(&mut self.input, self.encoding, self.abbreviations, offset)?;
+        if self.entry.is_null() {
             return Err(Error::UnexpectedNull);
         }
         self.depth = 0;
@@ -2866,88 +2909,67 @@ impl<'abbrev, R: Reader> EntriesTree<'abbrev, R> {
         if self.depth < depth {
             debug_assert_eq!(self.depth + 1, depth);
 
-            match self.entry {
-                Some(ref entry) => {
-                    if !entry.has_children() {
-                        return Ok(false);
-                    }
-                    self.depth += 1;
-                }
-                None => return Ok(false),
+            if !self.entry.has_children() {
+                return Ok(false);
             }
+            self.depth += 1;
 
             if self.input.is_empty() {
-                self.entry = None;
+                self.entry.set_null();
                 return Ok(false);
             }
 
             let offset = UnitOffset(self.end_offset.0 - self.input.len());
-            return match DebuggingInformationEntry::parse(
-                &mut self.input,
-                self.encoding,
-                self.abbreviations,
-                offset,
-            ) {
-                Ok(entry) => {
-                    self.entry = entry;
-                    Ok(self.entry.is_some())
-                }
-                Err(e) => {
-                    self.input.empty();
-                    self.entry = None;
-                    Err(e)
-                }
-            };
+            let entry = self
+                .entry
+                .parse(&mut self.input, self.encoding, self.abbreviations, offset);
+            if entry.is_err() {
+                self.input.empty();
+                self.entry.set_null();
+            }
+            return entry;
         }
 
         loop {
-            match self.entry {
-                Some(ref entry) => {
-                    if entry.has_children() {
-                        if let Some(sibling_offset) = entry.sibling()
-                            && let next_offset = self.end_offset.0 - self.input.len()
-                            && let Some(skip_len) = sibling_offset.0.checked_sub(next_offset)
-                            && self.input.skip(skip_len).is_ok()
-                        {
-                            // Fast path: this entry has a DW_AT_sibling
-                            // attribute pointing to its sibling, so jump
-                            // to it (which keeps us at the same depth).
-                        } else {
-                            // This entry has children, so the next entry is
-                            // down one level.
-                            self.depth += 1;
-                        }
-                    } else {
-                        // This entry has no children, so next entry is at same depth.
-                    }
+            if self.entry.is_null() {
+                // This entry is a null, so next entry is up one level.
+                self.depth -= 1;
+            } else if self.entry.has_children() {
+                if let Some(sibling_offset) = self.entry.sibling()
+                    && let next_offset = self.end_offset.0 - self.input.len()
+                    && let Some(skip_len) = sibling_offset.0.checked_sub(next_offset)
+                    && self.input.skip(skip_len).is_ok()
+                {
+                    // Fast path: this entry has a DW_AT_sibling
+                    // attribute pointing to its sibling, so jump
+                    // to it (which keeps us at the same depth).
+                } else {
+                    // This entry has children, so the next entry is
+                    // down one level.
+                    self.depth += 1;
                 }
-                None => {
-                    // This entry is a null, so next entry is up one level.
-                    self.depth -= 1;
-                }
+            } else {
+                // This entry has no children, so next entry is at same depth.
             }
 
             if self.input.is_empty() {
-                self.entry = None;
+                self.entry.set_null();
                 return Ok(false);
             }
 
             let offset = UnitOffset(self.end_offset.0 - self.input.len());
-            match DebuggingInformationEntry::parse(
-                &mut self.input,
-                self.encoding,
-                self.abbreviations,
-                offset,
-            ) {
+            match self
+                .entry
+                .parse(&mut self.input, self.encoding, self.abbreviations, offset)
+            {
                 Ok(entry) => {
-                    self.entry = entry;
                     if self.depth == depth {
-                        return Ok(self.entry.is_some());
+                        return Ok(entry);
                     }
                 }
                 Err(e) => {
                     self.input.empty();
-                    self.entry = None;
+                    self.entry.set_null();
                     return Err(e);
                 }
             }
@@ -2970,14 +2992,14 @@ impl<'abbrev, 'tree, R: Reader> EntriesTreeNode<'abbrev, 'tree, R> {
         tree: &'tree mut EntriesTree<'abbrev, R>,
         depth: isize,
     ) -> EntriesTreeNode<'abbrev, 'tree, R> {
-        debug_assert!(tree.entry.is_some());
+        debug_assert!(!tree.entry.is_null());
         EntriesTreeNode { tree, depth }
     }
 
     /// Returns the current entry in the tree.
     pub fn entry(&self) -> &DebuggingInformationEntry<R> {
-        // We never create a node without an entry.
-        self.tree.entry.as_ref().unwrap()
+        // We never create a node with a null entry.
+        &self.tree.entry
     }
 
     /// Create an iterator for the children of the current entry.
