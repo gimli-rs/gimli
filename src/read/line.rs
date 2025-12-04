@@ -1706,10 +1706,10 @@ fn parse_file_v5<R: Reader>(
                 }
             }
             constants::DW_LNCT_MD5 => {
-                if let AttributeValue::Block(mut value) = value {
-                    if value.len().into_u64() == 16 {
-                        md5 = value.read_u8_array()?;
-                    }
+                if let AttributeValue::Block(mut value) = value
+                    && value.len().into_u64() == 16
+                {
+                    md5 = value.read_u8_array()?;
                 }
             }
             constants::DW_LNCT_LLVM_source => {

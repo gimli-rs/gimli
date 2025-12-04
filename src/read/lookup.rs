@@ -94,16 +94,16 @@ where
     /// Can be [used with `FallibleIterator`](./index.html#using-with-fallibleiterator).
     pub fn next(&mut self) -> Result<Option<Parser::Entry>> {
         loop {
-            if let Some((ref mut input, ref header)) = self.current_set {
-                if !input.is_empty() {
-                    match Parser::parse_entry(input, header) {
-                        Ok(Some(entry)) => return Ok(Some(entry)),
-                        Ok(None) => {}
-                        Err(e) => {
-                            input.empty();
-                            self.remaining_input.empty();
-                            return Err(e);
-                        }
+            if let Some((ref mut input, ref header)) = self.current_set
+                && !input.is_empty()
+            {
+                match Parser::parse_entry(input, header) {
+                    Ok(Some(entry)) => return Ok(Some(entry)),
+                    Ok(None) => {}
+                    Err(e) => {
+                        input.empty();
+                        self.remaining_input.empty();
+                        return Err(e);
                     }
                 }
             }

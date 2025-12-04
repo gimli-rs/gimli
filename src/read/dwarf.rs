@@ -1295,10 +1295,10 @@ impl<R: Reader> Unit<R> {
                         }
                     }
                     constants::DW_AT_GNU_dwo_id => {
-                        if unit.dwo_id.is_none() {
-                            if let AttributeValue::DwoId(dwo_id) = attr.value() {
-                                unit.dwo_id = Some(dwo_id);
-                            }
+                        if unit.dwo_id.is_none()
+                            && let AttributeValue::DwoId(dwo_id) = attr.value()
+                        {
+                            unit.dwo_id = Some(dwo_id);
                         }
                     }
                     _ => {}
@@ -1323,10 +1323,10 @@ impl<R: Reader> Unit<R> {
             )?),
             None => None,
         };
-        if let Some(low_pc_attr) = low_pc_attr {
-            if let Some(addr) = dwarf.attr_address(&unit, low_pc_attr)? {
-                unit.low_pc = addr;
-            }
+        if let Some(low_pc_attr) = low_pc_attr
+            && let Some(addr) = dwarf.attr_address(&unit, low_pc_attr)?
+        {
+            unit.low_pc = addr;
         }
         Ok(unit)
     }

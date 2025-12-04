@@ -31,7 +31,7 @@ To add a `gimli` dependency to your `Cargo.toml`, run:
 $ cargo add gimli
 ```
 
-The minimum supported Rust version is 1.85.
+The minimum supported Rust version is 1.88.
 
 ## Documentation
 

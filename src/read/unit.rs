@@ -1006,12 +1006,11 @@ where
     /// next sibling. Returns `None` if the attribute is missing or invalid.
     fn sibling(&self) -> Option<R> {
         let attr = self.attr_value(constants::DW_AT_sibling);
-        if let Ok(Some(AttributeValue::UnitRef(offset))) = attr {
-            if offset.0 > self.offset.0 {
-                if let Ok(input) = self.unit.range_from(offset..) {
-                    return Some(input);
-                }
-            }
+        if let Ok(Some(AttributeValue::UnitRef(offset))) = attr
+            && offset.0 > self.offset.0
+            && let Ok(input) = self.unit.range_from(offset..)
+        {
+            return Some(input);
         }
         None
     }
@@ -1935,22 +1934,12 @@ where
 {
     /// Try to convert this attribute's value to a u8.
     pub fn u8_value(&self) -> Option<u8> {
-        if let Some(value) = self.udata_value() {
-            if value <= u64::from(u8::MAX) {
-                return Some(value as u8);
-            }
-        }
-        None
+        self.udata_value().and_then(|val| u8::try_from(val).ok())
     }
 
     /// Try to convert this attribute's value to a u16.
     pub fn u16_value(&self) -> Option<u16> {
-        if let Some(value) = self.udata_value() {
-            if value <= u64::from(u16::MAX) {
-                return Some(value as u16);
-            }
-        }
-        None
+        self.udata_value().and_then(|val| u16::try_from(val).ok())
     }
 
     /// Try to convert this attribute's value to an unsigned integer.
