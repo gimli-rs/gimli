@@ -3263,10 +3263,7 @@ mod tests {
                     otherwise => panic!("unexpected {:?}", otherwise),
                 };
                 assert_eq!(producer, b"root");
-                let read_producer = read_root
-                    .attr_value(constants::DW_AT_producer)
-                    .unwrap()
-                    .unwrap();
+                let read_producer = read_root.attr_value(constants::DW_AT_producer).unwrap();
                 assert_eq!(
                     read_dwarf
                         .attr_string(&read_unit1, read_producer)
@@ -3293,10 +3290,7 @@ mod tests {
                 };
                 let name = dwarf.strings.get(name);
                 assert_eq!(name, b"child1");
-                let read_name = read_child
-                    .attr_value(constants::DW_AT_name)
-                    .unwrap()
-                    .unwrap();
+                let read_name = read_child.attr_value(constants::DW_AT_name).unwrap();
                 assert_eq!(
                     read_dwarf
                         .attr_string(&read_unit1, read_name)
@@ -3321,10 +3315,7 @@ mod tests {
                 };
                 let name = dwarf.strings.get(name);
                 assert_eq!(name, b"child2");
-                let read_name = read_child
-                    .attr_value(constants::DW_AT_name)
-                    .unwrap()
-                    .unwrap();
+                let read_name = read_child.attr_value(constants::DW_AT_name).unwrap();
                 assert_eq!(
                     read_dwarf
                         .attr_string(&read_unit1, read_name)
@@ -3643,7 +3634,7 @@ mod tests {
 
                     let mut get_attribute = |name| {
                         let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
-                        entry.attr(name).unwrap().unwrap()
+                        *entry.attr(name).unwrap()
                     };
                     for (name, _, expect_value) in attributes {
                         let read_value = &get_attribute(*name).raw_value();
@@ -3828,11 +3819,11 @@ mod tests {
         let mut read_entries = read_unit.entries(&abbrevs);
         let (_, _root) = read_entries.next_dfs().unwrap().unwrap();
         let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
-        let read_unit1_child1_attr = entry.attr_value(constants::DW_AT_type).unwrap();
+        let read_unit1_child1_attr = entry.attr_value(constants::DW_AT_type);
         let read_unit1_child1_section_offset =
             entry.offset().to_debug_info_offset(&read_unit).unwrap();
         let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
-        let read_unit1_child2_attr = entry.attr_value(constants::DW_AT_type).unwrap();
+        let read_unit1_child2_attr = entry.attr_value(constants::DW_AT_type);
         let read_unit1_child2_offset = entry.offset();
 
         let read_unit = read_units.next().unwrap().unwrap();
@@ -3840,11 +3831,11 @@ mod tests {
         let mut read_entries = read_unit.entries(&abbrevs);
         let (_, _root) = read_entries.next_dfs().unwrap().unwrap();
         let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
-        let read_unit2_child1_attr = entry.attr_value(constants::DW_AT_type).unwrap();
+        let read_unit2_child1_attr = entry.attr_value(constants::DW_AT_type);
         let read_unit2_child1_section_offset =
             entry.offset().to_debug_info_offset(&read_unit).unwrap();
         let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
-        let read_unit2_child2_attr = entry.attr_value(constants::DW_AT_type).unwrap();
+        let read_unit2_child2_attr = entry.attr_value(constants::DW_AT_type);
         let read_unit2_child2_offset = entry.offset();
 
         assert_eq!(
@@ -3964,14 +3955,12 @@ mod tests {
         ) -> (read::UnitOffset, Option<read::UnitOffset>) {
             let (_, entry) = entries.next_dfs().unwrap().unwrap();
             let offset = entry.offset();
-            let sibling =
-                entry
-                    .attr_value(constants::DW_AT_sibling)
-                    .unwrap()
-                    .map(|attr| match attr {
-                        read::AttributeValue::UnitRef(offset) => offset,
-                        _ => panic!("bad sibling value"),
-                    });
+            let sibling = entry
+                .attr_value(constants::DW_AT_sibling)
+                .map(|attr| match attr {
+                    read::AttributeValue::UnitRef(offset) => offset,
+                    _ => panic!("bad sibling value"),
+                });
             (offset, sibling)
         }
 
@@ -4090,7 +4079,7 @@ mod tests {
 
                     let mut get_path = |name| {
                         let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
-                        let read_attr = entry.attr(name).unwrap().unwrap();
+                        let read_attr = entry.attr(name).unwrap();
                         let read::AttributeValue::FileIndex(read_file_index) = read_attr.value()
                         else {
                             panic!("unexpected {:?}", read_attr);
@@ -4180,11 +4169,11 @@ mod tests {
             entry.set(constants::DW_AT_name, AttributeValue::String(name.into()));
         }
         fn check_name<R: read::Reader>(
-            entry: &read::DebuggingInformationEntry<'_, R>,
+            entry: &read::DebuggingInformationEntry<R>,
             unit: read::UnitRef<'_, R>,
             name: &str,
         ) {
-            let name_attr = entry.attr(constants::DW_AT_name).unwrap().unwrap();
+            let name_attr = entry.attr(constants::DW_AT_name).unwrap();
             let entry_name = unit.attr_string(name_attr.value()).unwrap();
             let entry_name_str = entry_name.to_string().unwrap();
             assert_eq!(entry_name_str, name);

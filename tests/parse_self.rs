@@ -57,8 +57,7 @@ fn impl_parse_self_debug_info<R: gimli::Reader>(
         while cursor.next_dfs().expect("Should parse next dfs").is_some() {
             let entry = cursor.current().expect("Should have a current entry");
 
-            let mut attrs = entry.attrs();
-            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+            for attr in entry.attrs() {
                 if let AttributeValue::Exprloc(expression) = attr.value() {
                     parse_expression(expression, unit.encoding());
                 }
@@ -120,16 +119,13 @@ fn test_parse_self_debug_line() {
 
         let comp_dir = unit_entry
             .attr_value(gimli::DW_AT_comp_dir)
-            .expect("Should parse comp_dir attribute")
             .and_then(|val| val.string_value(&debug_str));
         let comp_name = unit_entry
             .attr_value(gimli::DW_AT_name)
-            .expect("Should parse name attribute")
             .and_then(|val| val.string_value(&debug_str));
 
-        if let Some(AttributeValue::DebugLineRef(offset)) = unit_entry
-            .attr_value(gimli::DW_AT_stmt_list)
-            .expect("Should parse stmt_list")
+        if let Some(AttributeValue::DebugLineRef(offset)) =
+            unit_entry.attr_value(gimli::DW_AT_stmt_list)
         {
             let program = debug_line
                 .program(offset, unit.address_size(), comp_dir, comp_name)
@@ -199,9 +195,7 @@ fn test_parse_self_debug_loc() {
 
         {
             let unit_entry = cursor.current().expect("Should have a root entry");
-            let low_pc_attr = unit_entry
-                .attr_value(gimli::DW_AT_low_pc)
-                .expect("Should parse low_pc");
+            let low_pc_attr = unit_entry.attr_value(gimli::DW_AT_low_pc);
             if let Some(gimli::AttributeValue::Addr(address)) = low_pc_attr {
                 low_pc = address;
             }
@@ -209,8 +203,7 @@ fn test_parse_self_debug_loc() {
 
         while cursor.next_dfs().expect("Should parse next dfs").is_some() {
             let entry = cursor.current().expect("Should have a current entry");
-            let mut attrs = entry.attrs();
-            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+            for attr in entry.attrs() {
                 if let AttributeValue::LocationListsRef(offset) = attr.value() {
                     let mut locs = loclists
                         .locations(
@@ -260,9 +253,7 @@ fn test_parse_self_debug_ranges() {
 
         {
             let unit_entry = cursor.current().expect("Should have a root entry");
-            let low_pc_attr = unit_entry
-                .attr_value(gimli::DW_AT_low_pc)
-                .expect("Should parse low_pc");
+            let low_pc_attr = unit_entry.attr_value(gimli::DW_AT_low_pc);
             if let Some(gimli::AttributeValue::Addr(address)) = low_pc_attr {
                 low_pc = address;
             }
@@ -270,8 +261,7 @@ fn test_parse_self_debug_ranges() {
 
         while cursor.next_dfs().expect("Should parse next dfs").is_some() {
             let entry = cursor.current().expect("Should have a current entry");
-            let mut attrs = entry.attrs();
-            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+            for attr in entry.attrs() {
                 if let AttributeValue::RangeListsRef(offset) = attr.value() {
                     let mut ranges = rnglists
                         .ranges(

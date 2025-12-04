@@ -162,8 +162,7 @@ fn dump_unit(unit: gimli::UnitRef<Reader>) -> Result<(), gimli::Error> {
         println!("<{}><{:x}> {}", depth, entry.offset().0, entry.tag());
 
         // Iterate over the attributes in the DIE.
-        let mut attrs = entry.attrs();
-        while let Some(attr) = attrs.next()? {
+        for attr in entry.attrs() {
             print!("   {}: {:?}", attr.name(), attr.value());
             if let Ok(s) = unit.attr_string(attr.value()) {
                 print!(" '{}'", s.to_string_lossy()?);

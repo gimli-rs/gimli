@@ -177,43 +177,40 @@ fn validate_info<W, R>(
                 return ret;
             }
         };
-        let mut entries = unit.entries(&abbrevs);
+        let mut entries = unit.entries_raw(&abbrevs, None).unwrap();
         let mut unit_refs = Vec::new();
-        loop {
-            let (_, entry) = match entries.next_dfs() {
+        while !entries.is_empty() {
+            let entry_offset = entries.next_offset();
+            let abbrev = match entries.read_abbreviation() {
                 Err(err) => {
                     w.error(format!(
-                        "Invalid DIE for unit {:#x}: {}",
-                        unit_offset.0, &err
+                        "Invalid DIE for unit {:#x} at DIE {:#x}: {}",
+                        unit_offset.0, entry_offset.0, &err
                     ));
                     return ret;
                 }
-                Ok(None) => break,
-                Ok(Some(entry)) => entry,
+                Ok(None) => continue,
+                Ok(Some(abbrev)) => abbrev,
             };
-            ret.die_offsets.push(entry.offset());
+            ret.die_offsets.push(entry_offset);
 
-            let mut attrs = entry.attrs();
-            loop {
-                let attr = match attrs.next() {
+            for spec in abbrev.attributes() {
+                let attr = match entries.read_attribute(*spec) {
                     Err(err) => {
                         w.error(format!(
                             "Invalid attribute for unit {:#x} at DIE {:#x}: {}",
-                            unit_offset.0,
-                            entry.offset().0,
-                            &err
+                            unit_offset.0, entry_offset.0, &err
                         ));
                         return ret;
                     }
-                    Ok(None) => break,
-                    Ok(Some(attr)) => attr,
+                    Ok(attr) => attr,
                 };
                 match attr.value() {
                     AttributeValue::UnitRef(offset) => {
-                        unit_refs.push((entry.offset(), offset));
+                        unit_refs.push((entry_offset, offset));
                     }
                     AttributeValue::DebugInfoRef(offset) => {
-                        ret.global_die_references.push((entry.offset(), offset));
+                        ret.global_die_references.push((entry_offset, offset));
                     }
                     _ => (),
                 }

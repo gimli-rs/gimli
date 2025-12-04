@@ -221,8 +221,7 @@ fn impl_bench_parsing_debug_info<const COUNT: usize, R: Reader>(
         let mut cursor = unit.entries(&abbrevs);
         while let Some((_, entry)) = cursor.next_dfs().expect("Should parse next dfs") {
             for _ in 0..COUNT {
-                let mut attrs = entry.attrs();
-                while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+                for attr in entry.attrs() {
                     let name = attr.name();
                     black_box(name);
                     let value = attr.raw_value();
@@ -283,8 +282,7 @@ fn bench_entries_tree<const COUNT: usize>(b: &mut Bencher) {
 
 fn parse_debug_info_tree<const COUNT: usize, R: Reader>(node: EntriesTreeNode<R>) {
     for _ in 0..COUNT {
-        let mut attrs = node.entry().attrs();
-        while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+        for attr in node.entry().attrs() {
             let name = attr.name();
             black_box(name);
             let value = attr.raw_value();
@@ -531,9 +529,7 @@ fn bench_parsing_debug_loc(b: &mut Bencher) {
 
         {
             let unit_entry = cursor.current().expect("Should have a root entry");
-            let low_pc_attr = unit_entry
-                .attr_value(gimli::DW_AT_low_pc)
-                .expect("Should parse low_pc");
+            let low_pc_attr = unit_entry.attr_value(gimli::DW_AT_low_pc);
             if let Some(gimli::AttributeValue::Addr(address)) = low_pc_attr {
                 low_pc = address;
             }
@@ -541,8 +537,7 @@ fn bench_parsing_debug_loc(b: &mut Bencher) {
 
         while cursor.next_dfs().expect("Should parse next dfs").is_some() {
             let entry = cursor.current().expect("Should have a current entry");
-            let mut attrs = entry.attrs();
-            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+            for attr in entry.attrs() {
                 if let gimli::AttributeValue::LocationListsRef(offset) = attr.value() {
                     offsets.push((offset, unit.encoding(), low_pc));
                 }
@@ -592,9 +587,7 @@ fn bench_parsing_debug_ranges(b: &mut Bencher) {
 
         {
             let unit_entry = cursor.current().expect("Should have a root entry");
-            let low_pc_attr = unit_entry
-                .attr_value(gimli::DW_AT_low_pc)
-                .expect("Should parse low_pc");
+            let low_pc_attr = unit_entry.attr_value(gimli::DW_AT_low_pc);
             if let Some(gimli::AttributeValue::Addr(address)) = low_pc_attr {
                 low_pc = address;
             }
@@ -602,8 +595,7 @@ fn bench_parsing_debug_ranges(b: &mut Bencher) {
 
         while cursor.next_dfs().expect("Should parse next dfs").is_some() {
             let entry = cursor.current().expect("Should have a current entry");
-            let mut attrs = entry.attrs();
-            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+            for attr in entry.attrs() {
                 if let gimli::AttributeValue::RangeListsRef(offset) = attr.value() {
                     offsets.push((RangeListsOffset(offset.0), unit.encoding(), low_pc));
                 }
@@ -637,8 +629,7 @@ fn debug_info_expressions<R: Reader>(
 
         let mut cursor = unit.entries(&abbrevs);
         while let Some((_, entry)) = cursor.next_dfs().expect("Should parse next dfs") {
-            let mut attrs = entry.attrs();
-            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+            for attr in entry.attrs() {
                 if let AttributeValue::Exprloc(expression) = attr.value() {
                     expressions.push((expression, unit.encoding()));
                 }
@@ -710,9 +701,7 @@ fn debug_loc_expressions<R: Reader>(
 
         {
             let unit_entry = cursor.current().expect("Should have a root entry");
-            let low_pc_attr = unit_entry
-                .attr_value(gimli::DW_AT_low_pc)
-                .expect("Should parse low_pc");
+            let low_pc_attr = unit_entry.attr_value(gimli::DW_AT_low_pc);
             if let Some(gimli::AttributeValue::Addr(address)) = low_pc_attr {
                 low_pc = address;
             }
@@ -720,8 +709,7 @@ fn debug_loc_expressions<R: Reader>(
 
         while cursor.next_dfs().expect("Should parse next dfs").is_some() {
             let entry = cursor.current().expect("Should have a current entry");
-            let mut attrs = entry.attrs();
-            while let Some(attr) = attrs.next().expect("Should parse entry's attribute") {
+            for attr in entry.attrs() {
                 if let gimli::AttributeValue::LocationListsRef(offset) = attr.value() {
                     let mut locs = loclists
                         .locations(offset, unit.encoding(), low_pc, debug_addr, debug_addr_base)
