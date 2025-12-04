@@ -587,9 +587,9 @@ where
         abbreviations: &'abbrev Abbreviations,
         offset: UnitOffset<Offset>,
     ) -> Result<DebuggingInformationEntry<R>> {
-        let mut input = self.range_from(offset..)?;
         let mut entry = DebuggingInformationEntry::null();
-        entry.parse(&mut input, self.encoding, abbreviations, offset)?;
+        let mut input = self.entries_raw(abbreviations, Some(offset))?;
+        input.read_entry(&mut entry)?;
         if entry.is_null() {
             Err(Error::NoEntryAtGivenOffset)
         } else {
@@ -777,6 +777,7 @@ where
     has_children: bool,
     attrs: Vec<Attribute<R>>,
     offset: UnitOffset<Offset>,
+    depth: isize,
 }
 
 impl<R, Offset> Default for DebuggingInformationEntry<R, Offset>
@@ -806,6 +807,7 @@ where
             has_children,
             attrs,
             offset,
+            depth: 0,
         }
     }
 
@@ -816,6 +818,7 @@ where
             has_children: false,
             attrs: Vec::new(),
             offset: UnitOffset(Offset::from_u8(0)),
+            depth: 0,
         }
     }
 
@@ -831,6 +834,11 @@ where
         self.tag = constants::DW_TAG_null;
         self.has_children = false;
         self.attrs.clear();
+    }
+
+    /// Get the tree depth of this entry relative to the entry where reading started.
+    pub fn depth(&self) -> isize {
+        self.depth
     }
 
     /// Get this entry's offset.
@@ -885,36 +893,6 @@ where
             return Some(offset);
         }
         None
-    }
-
-    /// Parse an entry. Returns `Ok(false)` for null entries.
-    #[inline(always)]
-    fn parse(
-        &mut self,
-        input: &mut R,
-        encoding: Encoding,
-        abbreviations: &Abbreviations,
-        offset: UnitOffset<R::Offset>,
-    ) -> Result<bool> {
-        self.offset = offset;
-        let code = input.read_uleb128()?;
-        if code == 0 {
-            self.set_null();
-            return Ok(false);
-        };
-        let abbrev = abbreviations
-            .get(code)
-            .ok_or(Error::UnknownAbbreviation(code))?;
-        self.tag = abbrev.tag();
-        self.has_children = abbrev.has_children();
-        let specs = abbrev.attributes();
-        self.attrs.clear();
-        self.attrs.reserve(specs.len());
-        for spec in specs {
-            self.attrs
-                .push(parse_attribute(input, encoding, *spec)?);
-        }
-        Ok(true)
     }
 }
 
@@ -2273,6 +2251,10 @@ pub(crate) fn skip_attributes<R: Reader>(
 /// In particular, all attributes must always be read before reading another
 /// abbreviation code.
 ///
+/// Alternatively, you may call [`Self::read_entry`] to read the abbreviations and all
+/// attributes. The attributes are stored in a `Vec` in the DIE, so you should try to
+/// reuse this allocation for future calls.
+///
 /// `EntriesRaw` lacks some features of `EntriesCursor`, such as the ability to skip
 /// to the next sibling DIE. However, this also allows it to optimize better, since it
 /// does not need to perform the extra bookkeeping required to support these features,
@@ -2353,10 +2335,28 @@ impl<'abbrev, R: Reader> EntriesRaw<'abbrev, R> {
         }
     }
 
+    #[inline]
+    fn empty(&mut self) {
+        self.input.empty()
+    }
+
     /// Return true if there is no more input.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.input.is_empty()
+    }
+
+    fn seek_forward(&mut self, offset: UnitOffset<R::Offset>, depth: isize) -> bool {
+        if let Some(skip_len) = offset.0.checked_sub(self.next_offset().0) {
+            // Ignore invalid offsets. Be careful not to modify self.input on error.
+            let mut input = self.input.clone();
+            if input.skip(skip_len).is_ok() {
+                self.input = input;
+                self.depth = depth;
+                return true;
+            }
+        }
+        false
     }
 
     /// Return the unit offset at which the reader will read next.
@@ -2376,9 +2376,34 @@ impl<'abbrev, R: Reader> EntriesRaw<'abbrev, R> {
         self.depth
     }
 
+    /// Read an entry into a placeholder.
+    ///
+    /// This reads the abbreviation code and all attributes. The attributes are stored in
+    /// a `Vec` in the entry, so you should try to reuse this entry for future calls.
+    ///
+    /// Returns `Ok(false)` if a null entry is read. All fields in the entry will be
+    /// set appropriately for a null entry.
+    ///
+    /// Returns `Err` if an error occurred. Some fields in the entry may be modified
+    /// depending on where the error occurred.
+    pub fn read_entry(&mut self, entry: &mut DebuggingInformationEntry<R>) -> Result<bool> {
+        entry.depth = self.next_depth();
+        entry.offset = self.next_offset();
+        let Some(abbrev) = self.read_abbreviation()? else {
+            entry.set_null();
+            return Ok(false);
+        };
+        entry.tag = abbrev.tag();
+        entry.has_children = abbrev.has_children();
+        self.read_attributes(abbrev.attributes(), &mut entry.attrs)?;
+        Ok(true)
+    }
+
     /// Read an abbreviation code and lookup the corresponding `Abbreviation`.
     ///
     /// Returns `Ok(None)` for null entries.
+    ///
+    /// Returns `Err` if end of input is reached, or the code is invalid.
     #[inline]
     pub fn read_abbreviation(&mut self) -> Result<Option<&'abbrev Abbreviation>> {
         let code = self.input.read_uleb128()?;
@@ -2457,12 +2482,8 @@ pub struct EntriesCursor<'abbrev, R>
 where
     R: Reader,
 {
-    input: R,
-    encoding: Encoding,
-    abbreviations: &'abbrev Abbreviations,
+    input: EntriesRaw<'abbrev, R>,
     cached_current: DebuggingInformationEntry<R>,
-    end_offset: UnitOffset<R::Offset>,
-    delta_depth: isize,
 }
 
 impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
@@ -2472,14 +2493,9 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
         abbreviations: &'abbrev Abbreviations,
         offset: UnitOffset<R::Offset>,
     ) -> Self {
-        let end_offset = UnitOffset(offset.0 + input.len());
         EntriesCursor {
-            input,
-            encoding,
-            abbreviations,
+            input: EntriesRaw::new(input, encoding, abbreviations, offset),
             cached_current: DebuggingInformationEntry::null(),
-            end_offset,
-            delta_depth: 0,
         }
     }
 
@@ -2496,6 +2512,30 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
         }
     }
 
+    /// The unit offset of the current DIE.
+    ///
+    /// This works even if the cursor is positioned at a null DIE.
+    pub fn offset(&self) -> UnitOffset<R::Offset> {
+        self.cached_current.offset
+    }
+
+    /// The tree depth of the current DIE.
+    ///
+    /// This works even if the cursor is positioned at a null DIE.
+    pub fn depth(&self) -> isize {
+        self.cached_current.depth
+    }
+
+    /// The unit offset of the next DIE that [`Self::next_entry`] will read.
+    pub fn next_offset(&self) -> UnitOffset<R::Offset> {
+        self.input.next_offset()
+    }
+
+    /// The tree depth of the next DIE that [`Self::next_entry`] will read.
+    pub fn next_depth(&self) -> isize {
+        self.input.next_depth()
+    }
+
     /// Move the cursor to the next DIE in the tree.
     ///
     /// Returns `Some` if there is a next entry, even if this entry is null.
@@ -2503,26 +2543,13 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
     pub fn next_entry(&mut self) -> Result<Option<()>> {
         if self.input.is_empty() {
             self.cached_current.set_null();
-            self.delta_depth = 0;
             return Ok(None);
         }
 
-        let offset = UnitOffset(self.end_offset.0 - self.input.len());
-        match self
-            .cached_current
-            .parse(&mut self.input, self.encoding, self.abbreviations, offset)
-        {
-            Ok(true) => {
-                self.delta_depth = self.cached_current.has_children() as isize;
-                Ok(Some(()))
-            }
-            Ok(false) => {
-                self.delta_depth = -1;
-                Ok(Some(()))
-            }
+        match self.input.read_entry(&mut self.cached_current) {
+            Ok(_) => Ok(Some(())),
             Err(e) => {
                 self.input.empty();
-                self.delta_depth = 0;
                 self.cached_current.set_null();
                 Err(e)
             }
@@ -2647,16 +2674,14 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
     ///          first_entry_with_no_children.unwrap());
     /// ```
     pub fn next_dfs(&mut self) -> Result<Option<(isize, &DebuggingInformationEntry<R>)>> {
-        let mut delta_depth = self.delta_depth;
+        let current_depth = self.cached_current.depth;
         loop {
             // The next entry should be the one we want.
             if self.next_entry()?.is_some() {
                 if !self.cached_current.is_null() {
+                    let delta_depth = self.cached_current.depth - current_depth;
                     return Ok(Some((delta_depth, &self.cached_current)));
                 }
-
-                // next_entry() read a null entry.
-                delta_depth += self.delta_depth;
             } else {
                 return Ok(None);
             }
@@ -2776,25 +2801,16 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
         }
 
         // Loop until we find an entry at the current level.
-        let mut depth = 0;
+        let current_depth = self.cached_current.depth;
         loop {
             if let Some(current) = self.current()
                 && current.has_children()
+                && let Some(sibling_offset) = current.sibling()
             {
-                if let Some(sibling_offset) = current.sibling()
-                    && let next_offset = self.end_offset.0 - self.input.len()
-                    && let Some(skip_len) = sibling_offset.0.checked_sub(next_offset)
-                    && self.input.skip(skip_len).is_ok()
-                {
-                    // Fast path: this entry has a DW_AT_sibling
-                    // attribute pointing to its sibling, so jump
-                    // to it (which keeps us at the same depth).
-                    self.cached_current.set_null();
-                } else {
-                    // This entry has children, so the next entry is
-                    // down one level.
-                    depth += 1;
-                }
+                // Fast path: this entry has a DW_AT_sibling
+                // attribute pointing to its sibling, so jump
+                // to it (which keeps us at the same depth).
+                self.input.seek_forward(sibling_offset, current.depth);
             }
 
             if self.next_entry()?.is_none() {
@@ -2802,15 +2818,9 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
                 return Ok(None);
             }
 
-            if depth == 0 {
+            if self.cached_current.depth == current_depth {
                 // Found an entry at the current level.
                 return Ok(self.current());
-            }
-
-            if self.current().is_none() {
-                // A null entry means the end of a child list, so we're
-                // back up a level.
-                depth -= 1;
             }
         }
     }
@@ -2859,12 +2869,8 @@ where
     R: Reader,
 {
     root: R,
-    input: R,
-    encoding: Encoding,
-    abbreviations: &'abbrev Abbreviations,
+    input: EntriesRaw<'abbrev, R>,
     entry: DebuggingInformationEntry<R>,
-    end_offset: UnitOffset<R::Offset>,
-    depth: isize,
 }
 
 impl<'abbrev, R: Reader> EntriesTree<'abbrev, R> {
@@ -2875,28 +2881,20 @@ impl<'abbrev, R: Reader> EntriesTree<'abbrev, R> {
         offset: UnitOffset<R::Offset>,
     ) -> Self {
         let input = root.clone();
-        let end_offset = UnitOffset(offset.0 + input.len());
         EntriesTree {
             root,
-            input,
-            encoding,
-            abbreviations,
+            input: EntriesRaw::new(input, encoding, abbreviations, offset),
             entry: DebuggingInformationEntry::null(),
-            end_offset,
-            depth: 0,
         }
     }
 
     /// Returns the root node of the tree.
     pub fn root<'me>(&'me mut self) -> Result<EntriesTreeNode<'abbrev, 'me, R>> {
-        self.input = self.root.clone();
-        let offset = UnitOffset(self.end_offset.0 - self.input.len());
-        self.entry
-            .parse(&mut self.input, self.encoding, self.abbreviations, offset)?;
-        if self.entry.is_null() {
+        self.input.input = self.root.clone();
+        self.input.depth = 0;
+        if !self.input.read_entry(&mut self.entry)? {
             return Err(Error::UnexpectedNull);
         }
-        self.depth = 0;
         Ok(EntriesTreeNode::new(self, 1))
     }
 
@@ -2906,23 +2904,19 @@ impl<'abbrev, R: Reader> EntriesTree<'abbrev, R> {
     ///
     /// Returns `true` if successful.
     fn next(&mut self, depth: isize) -> Result<bool> {
-        if self.depth < depth {
-            debug_assert_eq!(self.depth + 1, depth);
+        if self.entry.depth < depth {
+            debug_assert_eq!(self.entry.depth + 1, depth);
 
             if !self.entry.has_children() {
                 return Ok(false);
             }
-            self.depth += 1;
 
             if self.input.is_empty() {
                 self.entry.set_null();
                 return Ok(false);
             }
 
-            let offset = UnitOffset(self.end_offset.0 - self.input.len());
-            let entry = self
-                .entry
-                .parse(&mut self.input, self.encoding, self.abbreviations, offset);
+            let entry = self.input.read_entry(&mut self.entry);
             if entry.is_err() {
                 self.input.empty();
                 self.entry.set_null();
@@ -2931,25 +2925,13 @@ impl<'abbrev, R: Reader> EntriesTree<'abbrev, R> {
         }
 
         loop {
-            if self.entry.is_null() {
-                // This entry is a null, so next entry is up one level.
-                self.depth -= 1;
-            } else if self.entry.has_children() {
-                if let Some(sibling_offset) = self.entry.sibling()
-                    && let next_offset = self.end_offset.0 - self.input.len()
-                    && let Some(skip_len) = sibling_offset.0.checked_sub(next_offset)
-                    && self.input.skip(skip_len).is_ok()
-                {
-                    // Fast path: this entry has a DW_AT_sibling
-                    // attribute pointing to its sibling, so jump
-                    // to it (which keeps us at the same depth).
-                } else {
-                    // This entry has children, so the next entry is
-                    // down one level.
-                    self.depth += 1;
-                }
-            } else {
-                // This entry has no children, so next entry is at same depth.
+            if self.entry.has_children()
+                && let Some(sibling_offset) = self.entry.sibling()
+            {
+                // Fast path: this entry has a DW_AT_sibling
+                // attribute pointing to its sibling, so jump
+                // to it (which keeps us at the same depth).
+                self.input.seek_forward(sibling_offset, self.entry.depth);
             }
 
             if self.input.is_empty() {
@@ -2957,13 +2939,9 @@ impl<'abbrev, R: Reader> EntriesTree<'abbrev, R> {
                 return Ok(false);
             }
 
-            let offset = UnitOffset(self.end_offset.0 - self.input.len());
-            match self
-                .entry
-                .parse(&mut self.input, self.encoding, self.abbreviations, offset)
-            {
+            match self.input.read_entry(&mut self.entry) {
                 Ok(entry) => {
-                    if self.depth == depth {
+                    if self.entry.depth == depth {
                         return Ok(entry);
                     }
                 }
