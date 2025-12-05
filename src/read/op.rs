@@ -1955,10 +1955,10 @@ impl<R: Reader, S: EvaluationStorage<R>> Evaluation<R, S> {
     fn evaluate_internal(&mut self) -> Result<EvaluationResult<R>> {
         while !self.end_of_expression() {
             self.iteration += 1;
-            if let Some(max_iterations) = self.max_iterations {
-                if self.iteration > max_iterations {
-                    return Err(Error::TooManyIterations);
-                }
+            if let Some(max_iterations) = self.max_iterations
+                && self.iteration > max_iterations
+            {
+                return Err(Error::TooManyIterations);
             }
 
             let op_result = self.evaluate_one_operation()?;

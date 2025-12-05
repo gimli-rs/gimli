@@ -2577,10 +2577,10 @@ pub(crate) mod convert {
                     self.parents.pop();
                 }
 
-                if let Some(id) = id {
-                    if abbrev.has_children() {
-                        self.parents.push((depth, id));
-                    }
+                if let Some(id) = id
+                    && abbrev.has_children()
+                {
+                    self.parents.push((depth, id));
                 }
 
                 let mut entry = ConvertUnitEntry {
