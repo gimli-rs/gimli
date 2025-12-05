@@ -109,7 +109,7 @@ impl ValueType {
     /// Construct a `ValueType` from a base type DIE.
     #[cfg(feature = "read")]
     pub fn from_entry<R: Reader>(
-        entry: &DebuggingInformationEntry<'_, '_, R>,
+        entry: &DebuggingInformationEntry<'_, R>,
     ) -> Result<Option<ValueType>> {
         if entry.tag() != constants::DW_TAG_base_type {
             return Ok(None);
@@ -887,11 +887,10 @@ impl Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{DebugAbbrevOffset, Encoding, Format, SectionId, UnitSectionOffset};
+    use crate::common::{Encoding, Format};
     use crate::endianity::LittleEndian;
     use crate::read::{
-        Abbreviation, AttributeSpecification, DebuggingInformationEntry, EndianSlice, UnitHeader,
-        UnitOffset, UnitType,
+        Abbreviation, AttributeSpecification, DebuggingInformationEntry, EndianSlice, UnitOffset,
     };
 
     #[test]
@@ -902,15 +901,6 @@ mod tests {
             version: 4,
             address_size: 4,
         };
-        let unit = UnitHeader::new(
-            encoding,
-            7,
-            UnitType::Compilation,
-            DebugAbbrevOffset(0),
-            SectionId::DebugInfo,
-            UnitSectionOffset(0),
-            EndianSlice::new(&[], LittleEndian),
-        );
 
         let abbrev = Abbreviation::new(
             42,
@@ -948,10 +938,10 @@ mod tests {
             ([0x08, constants::DW_ATE_float.0, constants::DW_END_default.0], ValueType::F64),
         ] {
             let entry = DebuggingInformationEntry::new(
-                UnitOffset(0),
                 EndianSlice::new(&attrs, LittleEndian),
+                encoding,
                 &abbrev,
-                &unit,
+                UnitOffset(0),
             );
             assert_eq!(ValueType::from_entry(&entry), Ok(Some(result)));
         }
@@ -961,10 +951,10 @@ mod tests {
             [0x02, constants::DW_ATE_signed.0, constants::DW_END_big.0],
         ] {
             let entry = DebuggingInformationEntry::new(
-                UnitOffset(0),
                 EndianSlice::new(attrs, LittleEndian),
+                encoding,
                 &abbrev,
-                &unit,
+                UnitOffset(0),
             );
             assert_eq!(ValueType::from_entry(&entry), Ok(None));
         }
