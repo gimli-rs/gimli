@@ -155,11 +155,14 @@ fn dump_file(
 
 fn dump_unit(unit: gimli::UnitRef<Reader>) -> Result<(), gimli::Error> {
     // Iterate over the Debugging Information Entries (DIEs) in the unit.
-    let mut depth = 0;
     let mut entries = unit.entries();
-    while let Some((delta_depth, entry)) = entries.next_dfs()? {
-        depth += delta_depth;
-        println!("<{}><{:x}> {}", depth, entry.offset().0, entry.tag());
+    while let Some(entry) = entries.next_dfs()? {
+        println!(
+            "<{}><{:x}> {}",
+            entry.depth(),
+            entry.offset().0,
+            entry.tag()
+        );
 
         // Iterate over the attributes in the DIE.
         for attr in entry.attrs() {

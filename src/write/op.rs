@@ -1536,11 +1536,11 @@ mod tests {
                     let read_unit_header = read_units.next().unwrap().unwrap();
                     let read_unit = read_dwarf.unit(read_unit_header).unwrap();
                     let mut read_entries = read_unit.entries();
-                    let (_, read_entry) = read_entries.next_dfs().unwrap().unwrap();
+                    let read_entry = read_entries.next_dfs().unwrap().unwrap();
                     assert_eq!(read_entry.tag(), constants::DW_TAG_compile_unit);
 
                     // Determine the offset of the entry that can be referenced by the expression.
-                    let (_, read_entry) = read_entries.next_dfs().unwrap().unwrap();
+                    let read_entry = read_entries.next_dfs().unwrap().unwrap();
                     assert_eq!(read_entry.tag(), constants::DW_TAG_base_type);
                     let read_state = ReadState {
                         debug_info_offset: read_entry
@@ -1551,7 +1551,7 @@ mod tests {
                     };
 
                     // Get the expression.
-                    let (_, read_entry) = read_entries.next_dfs().unwrap().unwrap();
+                    let read_entry = read_entries.next_dfs().unwrap().unwrap();
                     assert_eq!(read_entry.tag(), constants::DW_TAG_subprogram);
                     let read_attr = read_entry.attr_value(constants::DW_AT_location).unwrap();
                     let read_expression = read_attr.exprloc_value().unwrap();
@@ -1655,9 +1655,9 @@ mod tests {
                     let read_unit_header = read_units.next().unwrap().unwrap();
                     let read_unit = read_dwarf.unit(read_unit_header).unwrap();
                     let mut read_entries = read_unit.entries();
-                    let (_, read_entry) = read_entries.next_dfs().unwrap().unwrap();
+                    let read_entry = read_entries.next_dfs().unwrap().unwrap();
                     assert_eq!(read_entry.tag(), constants::DW_TAG_compile_unit);
-                    let (_, read_entry) = read_entries.next_dfs().unwrap().unwrap();
+                    let read_entry = read_entries.next_dfs().unwrap().unwrap();
                     assert_eq!(read_entry.tag(), constants::DW_TAG_subprogram);
                     let read_attr = read_entry.attr_value(constants::DW_AT_location).unwrap();
                     let read_expression = read_attr.exprloc_value().unwrap();

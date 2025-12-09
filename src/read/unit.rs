@@ -2555,24 +2555,18 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
 
     /// Move the cursor to the next DIE in the tree in DFS order.
     ///
-    /// Upon successful movement of the cursor, return the delta traversal
-    /// depth and the entry:
+    /// Upon successful movement of the cursor, returns the entry, which may be:
     ///
-    ///   * If we moved down into the previous current entry's children, we get
-    ///     `Some((1, entry))`.
+    ///   * The first child of the previous current entry, if any.
     ///
-    ///   * If we moved to the previous current entry's sibling, we get
-    ///     `Some((0, entry))`.
+    ///   * The sibling of the previous current entry, if any.
     ///
-    ///   * If the previous entry does not have any siblings and we move up to
-    ///     its parent's next sibling, then we get `Some((-1, entry))`. Note that
-    ///     if the parent doesn't have a next sibling, then it could go up to the
-    ///     parent's parent's next sibling and return `Some((-2, entry))`, etc.
+    ///   * The sibling of the previous entry's parent, if any, and so on.
     ///
     /// If there is no next entry, then `None` is returned.
     ///
-    /// Here is an example that finds the first entry in a compilation unit that
-    /// does not have any children.
+    /// Here is an example that prints the offset and depth of all entries in a
+    /// compilation unit.
     ///
     /// ```
     /// # use gimli::{DebugAbbrev, DebugInfo, LittleEndian};
@@ -2647,37 +2641,24 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
     /// let unit = get_some_unit();
     /// # let get_abbrevs_for_unit = |_| unit.abbreviations(&debug_abbrev).unwrap();
     /// let abbrevs = get_abbrevs_for_unit(&unit);
-    ///
-    /// let mut first_entry_with_no_children = None;
     /// let mut cursor = unit.entries(&abbrevs);
     ///
-    /// // Move the cursor to the root.
-    /// assert!(cursor.next_dfs().unwrap().is_some());
-    ///
     /// // Traverse the DIE tree in depth-first search order.
-    /// let mut depth = 0;
-    /// while let Some((delta_depth, current)) = cursor.next_dfs().expect("Should parse next dfs") {
-    ///     // Update depth value, and break out of the loop when we
-    ///     // return to the original starting position.
-    ///     depth += delta_depth;
-    ///     if depth <= 0 {
-    ///         break;
-    ///     }
-    ///
-    ///     first_entry_with_no_children = Some(current.clone());
+    /// while let Some(current) = cursor.next_dfs().expect("Should parse next dfs") {
+    ///     println!(
+    ///         "Offset: {:x} Depth: {} Tag: {}",
+    ///         current.offset().0,
+    ///         current.depth(),
+    ///         current.tag()
+    ///     );
     /// }
-    ///
-    /// println!("The first entry with no children is {:?}",
-    ///          first_entry_with_no_children.unwrap());
     /// ```
-    pub fn next_dfs(&mut self) -> Result<Option<(isize, &DebuggingInformationEntry<R>)>> {
-        let current_depth = self.cached_current.depth;
+    pub fn next_dfs(&mut self) -> Result<Option<&DebuggingInformationEntry<R>>> {
         loop {
             // The next entry should be the one we want.
             if self.next_entry()?.is_some() {
                 if !self.cached_current.is_null() {
-                    let delta_depth = self.cached_current.depth - current_depth;
-                    return Ok(Some((delta_depth, &self.cached_current)));
+                    return Ok(Some(&self.cached_current));
                 }
             } else {
                 return Ok(None);
@@ -4903,11 +4884,11 @@ mod tests {
         Endian: Endianity,
     {
         {
-            let (val, entry) = cursor
+            let entry = cursor
                 .next_dfs()
                 .expect("Should parse next dfs")
                 .expect("Should not be done with traversal");
-            assert_eq!(val, depth);
+            assert_eq!(entry.depth(), depth);
             assert_entry_name(entry, name);
         }
         assert_current_name(cursor, name);
@@ -4916,6 +4897,7 @@ mod tests {
     fn assert_next_sibling<Endian>(
         cursor: &mut EntriesCursor<'_, EndianSlice<'_, Endian>>,
         name: &str,
+        depth: isize,
     ) where
         Endian: Endianity,
     {
@@ -4924,6 +4906,7 @@ mod tests {
                 .next_sibling()
                 .expect("Should parse next sibling")
                 .expect("Should not be done with traversal");
+            assert_eq!(entry.depth(), depth);
             assert_entry_name(entry, name);
         }
         assert_current_name(cursor, name);
@@ -5111,14 +5094,14 @@ mod tests {
 
         assert_next_dfs(&mut cursor, "001", 0);
         assert_next_dfs(&mut cursor, "002", 1);
-        assert_next_dfs(&mut cursor, "003", 1);
-        assert_next_dfs(&mut cursor, "004", -1);
-        assert_next_dfs(&mut cursor, "005", 1);
-        assert_next_dfs(&mut cursor, "006", 0);
-        assert_next_dfs(&mut cursor, "007", -1);
-        assert_next_dfs(&mut cursor, "008", 1);
-        assert_next_dfs(&mut cursor, "009", 1);
-        assert_next_dfs(&mut cursor, "010", -2);
+        assert_next_dfs(&mut cursor, "003", 2);
+        assert_next_dfs(&mut cursor, "004", 1);
+        assert_next_dfs(&mut cursor, "005", 2);
+        assert_next_dfs(&mut cursor, "006", 2);
+        assert_next_dfs(&mut cursor, "007", 1);
+        assert_next_dfs(&mut cursor, "008", 2);
+        assert_next_dfs(&mut cursor, "009", 3);
+        assert_next_dfs(&mut cursor, "010", 1);
 
         assert!(cursor.next_dfs().expect("Should parse next dfs").is_none());
         assert!(cursor.current().is_none());
@@ -5152,9 +5135,9 @@ mod tests {
 
         // Now iterate all children of the root via `next_sibling`.
 
-        assert_next_sibling(&mut cursor, "004");
-        assert_next_sibling(&mut cursor, "007");
-        assert_next_sibling(&mut cursor, "010");
+        assert_next_sibling(&mut cursor, "004", 1);
+        assert_next_sibling(&mut cursor, "007", 1);
+        assert_next_sibling(&mut cursor, "010", 1);
 
         // There should be no more siblings.
 
@@ -5195,9 +5178,9 @@ mod tests {
 
         // Get the next sibling, then iterate its children
 
-        assert_next_sibling(&mut cursor, "004");
-        assert_next_dfs(&mut cursor, "005", 1);
-        assert_next_sibling(&mut cursor, "006");
+        assert_next_sibling(&mut cursor, "004", 1);
+        assert_next_dfs(&mut cursor, "005", 2);
+        assert_next_sibling(&mut cursor, "006", 2);
         assert!(
             cursor
                 .next_sibling()
@@ -5225,8 +5208,8 @@ mod tests {
 
         // And we should be able to continue with the children of the root entry.
 
-        assert_next_dfs(&mut cursor, "007", -1);
-        assert_next_sibling(&mut cursor, "010");
+        assert_next_dfs(&mut cursor, "007", 1);
+        assert_next_sibling(&mut cursor, "010", 1);
 
         // There should be no more siblings.
 
@@ -5315,9 +5298,9 @@ mod tests {
 
         // Now iterate all children of the root via `next_sibling`.
 
-        assert_next_sibling(cursor, "004");
-        assert_next_sibling(cursor, "006");
-        assert_next_sibling(cursor, "010");
+        assert_next_sibling(cursor, "004", 1);
+        assert_next_sibling(cursor, "006", 1);
+        assert_next_sibling(cursor, "010", 1);
 
         // There should be no more siblings.
 

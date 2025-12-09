@@ -3253,8 +3253,8 @@ mod tests {
 
             let root = unit1.get(unit1.root());
             {
-                let (depth, read_root) = read_entries.next_dfs().unwrap().unwrap();
-                assert_eq!(depth, 0);
+                let read_root = read_entries.next_dfs().unwrap().unwrap();
+                assert_eq!(read_root.depth(), 0);
                 assert_eq!(root.tag(), read_root.tag());
                 assert!(read_root.has_children());
 
@@ -3279,8 +3279,8 @@ mod tests {
                 let child = children.next().unwrap();
                 assert_eq!(child, UnitEntryId::new(unit1.base_id, 1));
                 let child = unit1.get(child);
-                let (depth, read_child) = read_entries.next_dfs().unwrap().unwrap();
-                assert_eq!(depth, 1);
+                let read_child = read_entries.next_dfs().unwrap().unwrap();
+                assert_eq!(read_child.depth(), 1);
                 assert_eq!(child.tag(), read_child.tag());
                 assert!(!read_child.has_children());
 
@@ -3304,8 +3304,8 @@ mod tests {
                 let child = children.next().unwrap();
                 assert_eq!(child, UnitEntryId::new(unit1.base_id, 2));
                 let child = unit1.get(child);
-                let (depth, read_child) = read_entries.next_dfs().unwrap().unwrap();
-                assert_eq!(depth, 0);
+                let read_child = read_entries.next_dfs().unwrap().unwrap();
+                assert_eq!(read_child.depth(), 1);
                 assert_eq!(child.tag(), read_child.tag());
                 assert!(!read_child.has_children());
 
@@ -3340,8 +3340,8 @@ mod tests {
 
             {
                 let root = unit2.get(unit2.root());
-                let (depth, read_root) = read_entries.next_dfs().unwrap().unwrap();
-                assert_eq!(depth, 0);
+                let read_root = read_entries.next_dfs().unwrap().unwrap();
+                assert_eq!(read_root.depth(), 0);
                 assert_eq!(root.tag(), read_root.tag());
                 assert!(!read_root.has_children());
             }
@@ -3361,8 +3361,8 @@ mod tests {
 
             {
                 let root = unit3.get(unit3.root());
-                let (depth, read_root) = read_entries.next_dfs().unwrap().unwrap();
-                assert_eq!(depth, 0);
+                let read_root = read_entries.next_dfs().unwrap().unwrap();
+                assert_eq!(read_root.depth(), 0);
                 assert_eq!(root.tag(), read_root.tag());
                 assert!(!read_root.has_children());
             }
@@ -3630,10 +3630,10 @@ mod tests {
                     let read_unit = read_dwarf.unit(read_unit).unwrap();
                     let read_unit = read_unit.unit_ref(&read_dwarf);
                     let mut read_entries = read_unit.entries();
-                    let (_, _root) = read_entries.next_dfs().unwrap().unwrap();
+                    let _root = read_entries.next_dfs().unwrap().unwrap();
 
                     let mut get_attribute = |name| {
-                        let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
+                        let entry = read_entries.next_dfs().unwrap().unwrap();
                         *entry.attr(name).unwrap()
                     };
                     for (name, _, expect_value) in attributes {
@@ -3817,24 +3817,24 @@ mod tests {
         let read_unit = read_units.next().unwrap().unwrap();
         let abbrevs = read_dwarf.abbreviations(&read_unit).unwrap();
         let mut read_entries = read_unit.entries(&abbrevs);
-        let (_, _root) = read_entries.next_dfs().unwrap().unwrap();
-        let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
+        let _root = read_entries.next_dfs().unwrap().unwrap();
+        let entry = read_entries.next_dfs().unwrap().unwrap();
         let read_unit1_child1_attr = entry.attr_value(constants::DW_AT_type);
         let read_unit1_child1_section_offset =
             entry.offset().to_debug_info_offset(&read_unit).unwrap();
-        let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
+        let entry = read_entries.next_dfs().unwrap().unwrap();
         let read_unit1_child2_attr = entry.attr_value(constants::DW_AT_type);
         let read_unit1_child2_offset = entry.offset();
 
         let read_unit = read_units.next().unwrap().unwrap();
         let abbrevs = read_dwarf.abbreviations(&read_unit).unwrap();
         let mut read_entries = read_unit.entries(&abbrevs);
-        let (_, _root) = read_entries.next_dfs().unwrap().unwrap();
-        let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
+        let _root = read_entries.next_dfs().unwrap().unwrap();
+        let entry = read_entries.next_dfs().unwrap().unwrap();
         let read_unit2_child1_attr = entry.attr_value(constants::DW_AT_type);
         let read_unit2_child1_section_offset =
             entry.offset().to_debug_info_offset(&read_unit).unwrap();
-        let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
+        let entry = read_entries.next_dfs().unwrap().unwrap();
         let read_unit2_child2_attr = entry.attr_value(constants::DW_AT_type);
         let read_unit2_child2_offset = entry.offset();
 
@@ -3953,7 +3953,7 @@ mod tests {
         fn next_child<R: read::Reader<Offset = usize>>(
             entries: &mut read::EntriesCursor<'_, R>,
         ) -> (read::UnitOffset, Option<read::UnitOffset>) {
-            let (_, entry) = entries.next_dfs().unwrap().unwrap();
+            let entry = entries.next_dfs().unwrap().unwrap();
             let offset = entry.offset();
             let sibling = entry
                 .attr_value(constants::DW_AT_sibling)
@@ -4075,10 +4075,10 @@ mod tests {
                     let read_unit = read_unit.unit_ref(&read_dwarf);
                     let read_line_program = read_unit.line_program.as_ref().unwrap().header();
                     let mut read_entries = read_unit.entries();
-                    let (_, _root) = read_entries.next_dfs().unwrap().unwrap();
+                    let _root = read_entries.next_dfs().unwrap().unwrap();
 
                     let mut get_path = |name| {
-                        let (_, entry) = read_entries.next_dfs().unwrap().unwrap();
+                        let entry = read_entries.next_dfs().unwrap().unwrap();
                         let read_attr = entry.attr(name).unwrap();
                         let read::AttributeValue::FileIndex(read_file_index) = read_attr.value()
                         else {
@@ -4216,13 +4216,13 @@ mod tests {
         // root
         entries.next_dfs().unwrap().unwrap();
         // child2
-        let (_, read_child2) = entries.next_dfs().unwrap().unwrap();
+        let read_child2 = entries.next_dfs().unwrap().unwrap();
         check_name(read_child2, read_unit, "child2");
         // child3
-        let (_, read_child3) = entries.next_dfs().unwrap().unwrap();
+        let read_child3 = entries.next_dfs().unwrap().unwrap();
         check_name(read_child3, read_unit, "child3");
         // child4
-        let (_, read_child4) = entries.next_dfs().unwrap().unwrap();
+        let read_child4 = entries.next_dfs().unwrap().unwrap();
         check_name(read_child4, read_unit, "child4");
         // There should be no more entries
         assert!(entries.next_dfs().unwrap().is_none());
