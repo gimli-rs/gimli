@@ -2466,17 +2466,14 @@ impl<'abbrev, R: Reader> EntriesRaw<'abbrev, R> {
 
 /// A cursor into the Debugging Information Entries tree for a compilation unit.
 ///
-/// The `EntriesCursor` can traverse the DIE tree in DFS order using `next_dfs()`,
+/// The `EntriesCursor` can traverse the DIE tree in DFS order using [`Self::next_dfs`],
 /// or skip to the next sibling of the entry the cursor is currently pointing to
-/// using `next_sibling()`.
+/// using [`Self::next_sibling`].
 ///
-/// It is also possible to traverse the DIE tree at a lower abstraction level
-/// using `next_entry()`. This method does not skip over null entries, or provide
-/// any indication of the current tree depth. In this case, you must use `current()`
-/// to obtain the current entry, and `current().has_children()` to determine if
-/// the entry following the current entry will be a sibling or child. `current()`
-/// will return `None` if the current entry is a null entry, which signifies the
-/// end of the current tree depth.
+/// [`Self::next_dfs`] will skip over the null DIEs that delimit lists of children. Use
+/// [`Self::next_entry`] if you wish to stop at null DIEs. This may be useful if you want
+/// to read entries at a specific depth, such as moving to the first child prior to using
+/// [`Self::next_sibling`].
 #[derive(Clone, Debug)]
 pub struct EntriesCursor<'abbrev, R>
 where
@@ -2690,12 +2687,18 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
 
     /// Move the cursor to the next sibling DIE of the current one.
     ///
-    /// Returns `Ok(Some(entry))` when the cursor has been moved to
-    /// the next sibling, `Ok(None)` when there is no next sibling.
+    /// Returns `Ok(Some(entry))` when the cursor has been moved to the next sibling,
+    /// `Ok(None)` when there is no next sibling.
     ///
-    /// The depth of the cursor is never changed if this method returns `Ok`.
-    /// Once `Ok(None)` is returned, this method will continue to return
-    /// `Ok(None)` until either `next_entry` or `next_dfs` is called.
+    /// The depth of the cursor is never changed if this method returns `Ok`. Once
+    /// `Ok(None)` is returned, this method will continue to return `Ok(None)` until
+    /// either [`Self::next_entry`] or [`Self::next_dfs`] is called.
+    ///
+    /// This method is useful for reading only the children of a DIE. However, you
+    /// must first move the cursor to the first child. [`Self::next_entry`] is usually
+    /// the easiest way to do this. You should also use either [`Self::next_depth`] or
+    /// [`DebuggingInformationEntry::has_children`] to determine if the DIE can have
+    /// children.
     ///
     /// Here is an example that iterates over all of the direct children of the
     /// root entry:
@@ -2777,21 +2780,16 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
     /// let mut cursor = unit.entries(&abbrevs);
     ///
     /// // Move the cursor to the root.
-    /// assert!(cursor.next_dfs().unwrap().is_some());
+    /// assert!(cursor.next_entry().unwrap().is_some());
     ///
-    /// // Move the cursor to the root's first child.
-    /// assert!(cursor.next_dfs().unwrap().is_some());
+    /// // Move the cursor to the root's first child, if any.
+    /// assert!(cursor.current().unwrap().has_children());
+    /// assert!(cursor.next_entry().unwrap().is_some());
     ///
     /// // Iterate the root's children.
-    /// loop {
-    ///     {
-    ///         let current = cursor.current().expect("Should be at an entry");
-    ///         println!("{:?} is a child of the root", current);
-    ///     }
-    ///
-    ///     if cursor.next_sibling().expect("Should parse next sibling").is_none() {
-    ///         break;
-    ///     }
+    /// while let Some(current) = cursor.current() {
+    ///     println!("{:?} is a child of the root", current);
+    ///     cursor.next_sibling().expect("Should parse next sibling");
     /// }
     /// ```
     pub fn next_sibling(&mut self) -> Result<Option<&DebuggingInformationEntry<R>>> {
