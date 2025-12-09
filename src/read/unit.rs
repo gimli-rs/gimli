@@ -2535,16 +2535,16 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
 
     /// Move the cursor to the next DIE in the tree.
     ///
-    /// Returns `Some` if there is a next entry, even if this entry is null.
-    /// If there is no next entry, then `None` is returned.
-    pub fn next_entry(&mut self) -> Result<Option<()>> {
+    /// Returns `true` if there is a next entry, even if this entry is null.
+    /// If there is no next entry, then `false` is returned.
+    pub fn next_entry(&mut self) -> Result<bool> {
         if self.input.is_empty() {
             self.cached_current.set_null();
-            return Ok(None);
+            return Ok(false);
         }
 
         match self.input.read_entry(&mut self.cached_current) {
-            Ok(_) => Ok(Some(())),
+            Ok(_) => Ok(true),
             Err(e) => {
                 self.input.empty();
                 self.cached_current.set_null();
@@ -2656,7 +2656,7 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
     pub fn next_dfs(&mut self) -> Result<Option<&DebuggingInformationEntry<R>>> {
         loop {
             // The next entry should be the one we want.
-            if self.next_entry()?.is_some() {
+            if self.next_entry()? {
                 if !self.cached_current.is_null() {
                     return Ok(Some(&self.cached_current));
                 }
@@ -2761,11 +2761,11 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
     /// let mut cursor = unit.entries(&abbrevs);
     ///
     /// // Move the cursor to the root.
-    /// assert!(cursor.next_entry().unwrap().is_some());
+    /// assert!(cursor.next_entry().unwrap());
     ///
     /// // Move the cursor to the root's first child, if any.
     /// assert!(cursor.current().unwrap().has_children());
-    /// assert!(cursor.next_entry().unwrap().is_some());
+    /// assert!(cursor.next_entry().unwrap());
     ///
     /// // Iterate the root's children.
     /// while let Some(current) = cursor.current() {
@@ -2792,7 +2792,7 @@ impl<'abbrev, R: Reader> EntriesCursor<'abbrev, R> {
                 self.input.seek_forward(sibling_offset, current.depth);
             }
 
-            if self.next_entry()?.is_none() {
+            if !self.next_entry()? {
                 // End of input.
                 return Ok(None);
             }
@@ -4858,10 +4858,7 @@ mod tests {
     ) where
         Endian: Endianity,
     {
-        cursor
-            .next_entry()
-            .expect("Should parse next entry")
-            .expect("Should have an entry");
+        assert!(cursor.next_entry().expect("Should parse next entry"));
         assert_current_name(cursor, name);
     }
 
@@ -4869,10 +4866,7 @@ mod tests {
     where
         Endian: Endianity,
     {
-        cursor
-            .next_entry()
-            .expect("Should parse next entry")
-            .expect("Should have an entry");
+        assert!(cursor.next_entry().expect("Should parse next entry"));
         assert!(cursor.current().is_none());
     }
 
@@ -5014,12 +5008,7 @@ mod tests {
         assert!(cursor.next_entry().is_err());
 
         // Fuse after error.
-        assert!(
-            cursor
-                .next_entry()
-                .expect("Should parse next entry")
-                .is_none()
-        );
+        assert!(!cursor.next_entry().expect("Should parse next entry"));
     }
 
     #[test]
@@ -5063,12 +5052,7 @@ mod tests {
         assert_next_entry_null(&mut cursor);
         assert_next_entry_null(&mut cursor);
 
-        assert!(
-            cursor
-                .next_entry()
-                .expect("Should parse next entry")
-                .is_none()
-        );
+        assert!(!cursor.next_entry().expect("Should parse next entry"));
         assert!(cursor.current().is_none());
     }
 
