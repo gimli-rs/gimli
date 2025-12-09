@@ -219,7 +219,7 @@ fn impl_bench_parsing_debug_info<const COUNT: usize, R: Reader>(
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
-        while let Some((_, entry)) = cursor.next_dfs().expect("Should parse next dfs") {
+        while let Some(entry) = cursor.next_dfs().expect("Should parse next dfs") {
             for _ in 0..COUNT {
                 for attr in entry.attrs() {
                     let name = attr.name();
@@ -628,7 +628,7 @@ fn debug_info_expressions<R: Reader>(
             .expect("Should parse abbreviations");
 
         let mut cursor = unit.entries(&abbrevs);
-        while let Some((_, entry)) = cursor.next_dfs().expect("Should parse next dfs") {
+        while let Some(entry) = cursor.next_dfs().expect("Should parse next dfs") {
             for attr in entry.attrs() {
                 if let AttributeValue::Exprloc(expression) = attr.value() {
                     expressions.push((expression, unit.encoding()));

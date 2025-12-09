@@ -28,7 +28,7 @@
 //!
 //!     // Iterate over all of this compilation unit's entries.
 //!     let mut entries = unit.entries();
-//!     while let Some((_, entry)) = entries.next_dfs()? {
+//!     while let Some(entry) = entries.next_dfs()? {
 //!         // If we find an entry for a function, print it.
 //!         if entry.tag() == gimli::DW_TAG_subprogram {
 //!             println!("Found a function: {:?}", entry);
