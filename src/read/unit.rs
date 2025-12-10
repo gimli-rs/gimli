@@ -773,11 +773,18 @@ where
     R: Reader<Offset = Offset>,
     Offset: ReaderOffset,
 {
-    tag: constants::DwTag,
-    has_children: bool,
-    attrs: Vec<Attribute<R>>,
-    offset: UnitOffset<Offset>,
-    depth: isize,
+    /// The DWARF tag for this entry.
+    pub tag: constants::DwTag,
+    /// Whether this entry has a null terminated list of children.
+    ///
+    /// Note that this list may be empty.
+    pub has_children: bool,
+    /// This entry's attributes.
+    pub attrs: Vec<Attribute<R>>,
+    /// The offset within the unit of this entry.
+    pub offset: UnitOffset<Offset>,
+    /// The tree depth of this entry relative to the entry where reading started.
+    pub depth: isize,
 }
 
 impl<R, Offset> Default for DebuggingInformationEntry<R, Offset>
@@ -859,6 +866,11 @@ where
     /// Return this entry's set of attributes.
     pub fn attrs(&self) -> &[Attribute<R>] {
         &self.attrs
+    }
+
+    /// Return true if this entry has an attribute with the given name.
+    pub fn has_attr(&self, name: constants::DwAt) -> bool {
+        self.attrs.iter().any(|attr| attr.name == name)
     }
 
     /// Find the first attribute in this entry which has the given name.
