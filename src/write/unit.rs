@@ -1782,40 +1782,32 @@ pub(crate) mod convert {
                     return Ok(false);
                 }
 
-                // Calculate offset and depth before reading the abbreviation code.
-                let offset = self.entries.next_offset();
-                let depth = self.entries.next_depth();
-
-                let Some(abbrev) = self.entries.read_abbreviation()? else {
+                if !self.entries.read_entry(&mut entry.read_entry)? {
                     // Null entry.
                     continue;
-                };
+                }
+                entry.read_unit = self.read_unit;
+                Self::filter_attributes(entry)?;
 
                 while let Some(parent) = self.parents.last() {
-                    if parent.depth < depth {
+                    if parent.depth < entry.depth {
                         break;
                     }
                     self.parents.pop();
                 }
                 let parent = self.parents.last().copied();
+                entry.parent = parent.map(|p| p.offset);
+                entry.parent_tag = parent.map(|p| p.tag);
 
-                if abbrev.has_children() {
+                if entry.has_children() {
                     self.parents.push(FilterParent {
-                        depth,
-                        offset,
-                        tag: abbrev.tag(),
+                        depth: entry.depth,
+                        offset: entry.offset,
+                        tag: entry.tag,
                     });
                 }
 
-                let entry_offset = offset.to_unit_section_offset(&self.read_unit);
-                entry.read_unit = self.read_unit;
-                entry.offset = offset;
-                entry.depth = depth;
-                entry.tag = abbrev.tag();
-                entry.attrs.clear();
-                entry.parent = parent.map(|p| p.offset);
-                entry.parent_tag = parent.map(|p| p.tag);
-                Self::read_attributes(entry, &mut self.entries, abbrev.attributes())?;
+                let entry_offset = entry.offset.to_unit_section_offset(&self.read_unit);
                 let mut deps = Vec::new();
                 for attr in &entry.attrs {
                     self.add_attribute_refs(&mut deps, attr.value())?;
@@ -1833,14 +1825,8 @@ pub(crate) mod convert {
             }
         }
 
-        fn read_attributes(
-            entry: &mut FilterUnitEntry<'a, R>,
-            entries: &mut read::EntriesRaw<'_, R>,
-            specs: &[read::AttributeSpecification],
-        ) -> ConvertResult<()> {
-            entry.attrs.reserve(specs.len());
-            for spec in specs {
-                let attr = entries.read_attribute(*spec)?;
+        fn filter_attributes(entry: &mut FilterUnitEntry<'a, R>) -> ConvertResult<()> {
+            entry.read_entry.attrs.retain(|attr| {
                 match attr.name() {
                     // Skip DWARF metadata attributes.
                     // TODO: should DWO attributes be conditionally kept?
@@ -1853,10 +1839,10 @@ pub(crate) mod convert {
                     | constants::DW_AT_GNU_addr_base
                     | constants::DW_AT_GNU_ranges_base
                     | constants::DW_AT_GNU_dwo_name
-                    | constants::DW_AT_GNU_dwo_id => {}
-                    _ => entry.attrs.push(attr),
+                    | constants::DW_AT_GNU_dwo_id => false,
+                    _ => true,
                 }
-            }
+            });
             Ok(())
         }
 
@@ -1966,6 +1952,10 @@ pub(crate) mod convert {
 
     /// A DIE read by [`FilterUnit::read_entry`].
     ///
+    /// This is a simple wrapper that adds some extra information to
+    /// [`read::DebuggingInformationEntry`]. The inner [`Self::read_entry`] is accessible
+    /// via `Deref`.
+    ///
     /// See [`FilterUnitSection`] for an example.
     #[derive(Debug)]
     #[non_exhaustive]
@@ -1974,19 +1964,8 @@ pub(crate) mod convert {
         ///
         /// This may be a skeleton unit.
         pub read_unit: read::UnitRef<'a, R>,
-        /// The offset of this DIE within the unit.
-        pub offset: read::UnitOffset,
-        /// The depth of this DIE in the tree.
-        ///
-        /// This may be useful for maintaining a stack of state corresponding to the
-        /// parent entries.
-        pub depth: isize,
-        /// The tag that was read for this DIE.
-        pub tag: constants::DwTag,
-        /// The attributes that were read for this DIE.
-        ///
-        /// This excludes attributes for DWARF metadata.
-        pub attrs: Vec<read::Attribute<R>>,
+        /// The DIE that was read.
+        pub read_entry: read::DebuggingInformationEntry<R>,
         /// The offset of this DIE's parent, if any.
         ///
         /// This is set to `None` if the parent is the root of the unit.
@@ -1997,6 +1976,14 @@ pub(crate) mod convert {
         pub parent_tag: Option<constants::DwTag>,
     }
 
+    impl<'a, R: Reader<Offset = usize>> Deref for FilterUnitEntry<'a, R> {
+        type Target = read::DebuggingInformationEntry<R>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.read_entry
+        }
+    }
+
     impl<'a, R: Reader<Offset = usize>> FilterUnitEntry<'a, R> {
         /// Return a null entry.
         ///
@@ -2004,26 +1991,10 @@ pub(crate) mod convert {
         pub fn null(read_unit: read::UnitRef<'a, R>) -> Self {
             FilterUnitEntry {
                 read_unit,
-                offset: read::UnitOffset(0),
-                depth: 0,
-                tag: constants::DW_TAG_null,
-                attrs: Vec::new(),
+                read_entry: read::DebuggingInformationEntry::null(),
                 parent: None,
                 parent_tag: None,
             }
-        }
-
-        /// Return `true` if this entry has an attribute with the given name.
-        pub fn has_attr(&self, name: constants::DwAt) -> bool {
-            self.attrs.iter().any(|attr| attr.name() == name)
-        }
-
-        /// Find the value of the first attribute with the given name.
-        pub fn attr_value(&self, name: constants::DwAt) -> Option<read::AttributeValue<R>> {
-            self.attrs
-                .iter()
-                .find(|attr| attr.name() == name)
-                .map(|attr| attr.value())
         }
 
         /// Return `true` if this DIE has a back-edge to its parent.
@@ -2583,41 +2554,31 @@ pub(crate) mod convert {
                     return Ok(None);
                 }
 
-                // Calculate offset and depth before reading the abbreviation code.
-                let offset = self.read_entries.next_offset();
-                let depth = self.read_entries.next_depth();
-
-                let Some(abbrev) = self.read_entries.read_abbreviation()? else {
+                if !self.read_entries.read_entry(&mut entry.read_entry)? {
                     // Null entry.
                     continue;
                 };
+                entry.read_unit = self.read_unit;
+                entry.filter_attributes();
 
-                let section_offset = offset.to_unit_section_offset(&self.read_unit);
+                let section_offset = entry.offset.to_unit_section_offset(&self.read_unit);
                 let id = self.entry_ids.get(&section_offset).map(|entry| entry.1);
 
-                let mut parent = None;
+                entry.parent = None;
                 while let Some((parent_depth, parent_id)) = self.parents.last().copied() {
-                    if parent_depth < depth {
-                        parent = Some(parent_id);
+                    if parent_depth < entry.depth {
+                        entry.parent = Some(parent_id);
                         break;
                     }
                     self.parents.pop();
                 }
 
                 if let Some(id) = id
-                    && abbrev.has_children()
+                    && entry.has_children()
                 {
-                    self.parents.push((depth, id));
+                    self.parents.push((entry.depth, id));
                 }
 
-                entry.read_unit = self.read_unit;
-                entry.offset = offset;
-                entry.depth = depth;
-                entry.tag = abbrev.tag();
-                entry.attrs.clear();
-                entry.sibling = false;
-                entry.parent = parent;
-                entry.read_attributes(&mut self.read_entries, abbrev.attributes())?;
                 return Ok(Some(id));
             }
         }
@@ -2996,6 +2957,10 @@ pub(crate) mod convert {
     }
 
     /// A DIE read by [`ConvertUnit::read_entry`].
+    ///
+    /// This is a simple wrapper that adds some extra information to
+    /// [`read::DebuggingInformationEntry`]. The inner [`Self::read_entry`] is accessible
+    /// via `Deref`.
     #[derive(Debug)]
     #[non_exhaustive]
     pub struct ConvertUnitEntry<'a, R: Reader<Offset = usize>> {
@@ -3003,19 +2968,8 @@ pub(crate) mod convert {
         ///
         /// This may be a skeleton unit.
         pub read_unit: read::UnitRef<'a, R>,
-        /// The offset of this DIE within the unit.
-        pub offset: read::UnitOffset,
-        /// The depth of this DIE in the tree.
-        ///
-        /// This may be useful for maintaining a stack of state corresponding to the
-        /// parent entries.
-        pub depth: isize,
-        /// The tag that was read for this DIE.
-        pub tag: constants::DwTag,
-        /// The attributes that were read for this DIE.
-        ///
-        /// This excludes attributes for DWARF metadata.
-        pub attrs: Vec<read::Attribute<R>>,
+        /// The DIE that was read.
+        pub read_entry: read::DebuggingInformationEntry<R>,
         /// True if the `DW_AT_sibling` attribute was present.
         pub sibling: bool,
         /// The id of the entry that was reserved for this DIE's parent, if any.
@@ -3025,6 +2979,14 @@ pub(crate) mod convert {
         pub parent: Option<UnitEntryId>,
     }
 
+    impl<'a, R: Reader<Offset = usize>> Deref for ConvertUnitEntry<'a, R> {
+        type Target = read::DebuggingInformationEntry<R>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.read_entry
+        }
+    }
+
     impl<'a, R: Reader<Offset = usize>> ConvertUnitEntry<'a, R> {
         /// Return a null entry.
         ///
@@ -3032,10 +2994,7 @@ pub(crate) mod convert {
         pub fn null(read_unit: read::UnitRef<'a, R>) -> Self {
             ConvertUnitEntry {
                 read_unit,
-                offset: read::UnitOffset(0),
-                depth: 0,
-                tag: constants::DW_TAG_null,
-                attrs: Vec::new(),
+                read_entry: read::DebuggingInformationEntry::null(),
                 sibling: false,
                 parent: None,
             }
@@ -3053,35 +3012,31 @@ pub(crate) mod convert {
             offset: read::UnitOffset,
         ) -> ConvertResult<ConvertUnitEntry<'a, R>> {
             let mut read_entries = read_unit.entries_raw(Some(offset))?;
-            let Some(abbrev) = read_entries.read_abbreviation()? else {
+            let mut read_entry = read::DebuggingInformationEntry::null();
+            if !read_entries.read_entry(&mut read_entry)? {
                 // Null entry.
                 return Err(read::Error::NoEntryAtGivenOffset.into());
             };
 
             let mut entry = ConvertUnitEntry {
                 read_unit,
-                offset,
-                depth: 0,
-                tag: abbrev.tag(),
-                attrs: Vec::new(),
+                read_entry,
                 sibling: false,
                 parent: None,
             };
-            entry.read_attributes(&mut read_entries, abbrev.attributes())?;
+            entry.filter_attributes();
             Ok(entry)
         }
 
-        fn read_attributes(
-            &mut self,
-            read_entries: &mut read::EntriesRaw<'_, R>,
-            specs: &[read::AttributeSpecification],
-        ) -> ConvertResult<()> {
-            self.attrs.reserve(specs.len());
-            for spec in specs {
-                let attr = read_entries.read_attribute(*spec)?;
+        fn filter_attributes(&mut self) {
+            self.sibling = false;
+            self.read_entry.attrs.retain(|attr| {
                 match attr.name() {
                     // This may point to a null entry, so we have to treat it differently.
-                    constants::DW_AT_sibling => self.sibling = true,
+                    constants::DW_AT_sibling => {
+                        self.sibling = true;
+                        false
+                    }
                     // Skip DWARF metadata attributes.
                     // TODO: should DWO attributes be conditionally kept?
                     constants::DW_AT_str_offsets_base
@@ -3092,24 +3047,10 @@ pub(crate) mod convert {
                     | constants::DW_AT_GNU_addr_base
                     | constants::DW_AT_GNU_ranges_base
                     | constants::DW_AT_GNU_dwo_name
-                    | constants::DW_AT_GNU_dwo_id => {}
-                    _ => self.attrs.push(attr),
+                    | constants::DW_AT_GNU_dwo_id => false,
+                    _ => true,
                 }
-            }
-            Ok(())
-        }
-
-        /// Return `true` if this entry has an attribute with the given name.
-        pub fn has_attr(&self, name: constants::DwAt) -> bool {
-            self.attrs.iter().any(|attr| attr.name() == name)
-        }
-
-        /// Find the value of the first attribute with the given name.
-        pub fn attr_value(&self, name: constants::DwAt) -> Option<read::AttributeValue<R>> {
-            self.attrs
-                .iter()
-                .find(|attr| attr.name() == name)
-                .map(|attr| attr.value())
+            });
         }
     }
 
