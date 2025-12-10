@@ -1723,9 +1723,9 @@ pub(crate) mod convert {
     #[derive(Debug)]
     pub struct FilterUnit<'a, R: Reader<Offset = usize>> {
         /// The unit being read.
-        pub unit: read::UnitRef<'a, R>,
-        /// The skeleton unit being read if `unit` is a split unit.
-        pub skeleton_unit: Option<read::UnitRef<'a, R>>,
+        pub read_unit: read::UnitRef<'a, R>,
+        /// The skeleton unit being read if `read_unit` is a split unit.
+        pub read_skeleton_unit: Option<read::UnitRef<'a, R>>,
         entries: read::EntriesRaw<'a, R>,
         parents: Vec<FilterParent>,
         deps: &'a mut FilterDependencies,
@@ -1740,18 +1740,18 @@ pub(crate) mod convert {
 
     impl<'a, R: Reader<Offset = usize>> FilterUnit<'a, R> {
         fn new(
-            unit: read::UnitRef<'a, R>,
-            skeleton_unit: Option<read::UnitRef<'a, R>>,
+            read_unit: read::UnitRef<'a, R>,
+            read_skeleton_unit: Option<read::UnitRef<'a, R>>,
             deps: &'a mut FilterDependencies,
         ) -> ConvertResult<Self> {
-            let mut entries = unit.entries_raw(None)?;
+            let mut entries = read_unit.entries_raw(None)?;
             let abbrev = entries
                 .read_abbreviation()?
                 .ok_or(read::Error::MissingUnitDie)?;
             entries.skip_attributes(abbrev.attributes())?;
             Ok(FilterUnit {
-                unit,
-                skeleton_unit,
+                read_unit,
+                read_skeleton_unit,
                 entries,
                 parents: Vec::new(),
                 deps,
@@ -1801,9 +1801,9 @@ pub(crate) mod convert {
                     });
                 }
 
-                let entry_offset = offset.to_unit_section_offset(&self.unit);
+                let entry_offset = offset.to_unit_section_offset(&self.read_unit);
                 let mut entry = FilterUnitEntry {
-                    unit: self.unit,
+                    read_unit: self.read_unit,
                     offset,
                     depth,
                     tag: abbrev.tag(),
@@ -1817,7 +1817,7 @@ pub(crate) mod convert {
                     self.add_attribute_refs(&mut deps, attr.value())?;
                 }
                 if let Some(parent) = parent {
-                    let parent_offset = parent.offset.to_unit_section_offset(&self.unit);
+                    let parent_offset = parent.offset.to_unit_section_offset(&self.read_unit);
                     deps.push(parent_offset);
                     if parent.tag != constants::DW_TAG_namespace && entry.has_die_back_edge() {
                         self.deps.add_edge(parent_offset, entry_offset);
@@ -1864,13 +1864,13 @@ pub(crate) mod convert {
             match value {
                 read::AttributeValue::UnitRef(val) => {
                     // This checks that the offset is within bounds, but not that it refers to a valid DIE.
-                    if val.is_in_bounds(&self.unit) {
-                        deps.push(val.to_unit_section_offset(&self.unit));
+                    if val.is_in_bounds(&self.read_unit) {
+                        deps.push(val.to_unit_section_offset(&self.read_unit));
                     }
                 }
                 read::AttributeValue::DebugInfoRef(val) => {
                     let offset = val
-                        .to_unit_section_offset(&self.unit)
+                        .to_unit_section_offset(&self.read_unit)
                         .ok_or(ConvertError::InvalidDebugInfoRef)?;
                     deps.push(offset);
                 }
@@ -1881,7 +1881,7 @@ pub(crate) mod convert {
                     self.add_location_refs(deps, val)?;
                 }
                 read::AttributeValue::DebugLocListsIndex(index) => {
-                    self.add_location_refs(deps, self.unit.locations_offset(index)?)?;
+                    self.add_location_refs(deps, self.read_unit.locations_offset(index)?)?;
                 }
                 _ => (),
             }
@@ -1893,7 +1893,7 @@ pub(crate) mod convert {
             deps: &mut Vec<UnitSectionOffset>,
             offset: LocationListsOffset,
         ) -> ConvertResult<()> {
-            let mut locations = self.unit.locations(offset)?;
+            let mut locations = self.read_unit.locations(offset)?;
             while let Some(location) = locations.next()? {
                 self.add_expression_refs(deps, location.data)?;
             }
@@ -1905,7 +1905,7 @@ pub(crate) mod convert {
             deps: &mut Vec<UnitSectionOffset>,
             expression: read::Expression<R>,
         ) -> ConvertResult<()> {
-            let mut ops = expression.operations(self.unit.encoding());
+            let mut ops = expression.operations(self.read_unit.encoding());
             // Ignore parsing errors. They can be handled in the conversion step.
             while let Ok(Some(op)) = ops.next() {
                 match op {
@@ -1929,8 +1929,8 @@ pub(crate) mod convert {
                         offset: read::DieReference::UnitRef(offset),
                         ..
                     } => {
-                        if offset.is_in_bounds(&self.unit) {
-                            deps.push(offset.to_unit_section_offset(&self.unit));
+                        if offset.is_in_bounds(&self.read_unit) {
+                            deps.push(offset.to_unit_section_offset(&self.read_unit));
                         }
                     }
                     read::Operation::Call {
@@ -1938,7 +1938,7 @@ pub(crate) mod convert {
                         ..
                     } => {
                         let offset = ref_offset
-                            .to_unit_section_offset(&self.unit)
+                            .to_unit_section_offset(&self.read_unit)
                             .ok_or(ConvertError::InvalidDebugInfoRef)?;
                         deps.push(offset);
                     }
@@ -1954,9 +1954,9 @@ pub(crate) mod convert {
         ///
         /// This can only be called for offsets within the current unit.
         pub fn require_entry(&mut self, offset: read::UnitOffset) {
-            debug_assert!(offset.is_in_bounds(&self.unit));
+            debug_assert!(offset.is_in_bounds(&self.read_unit));
             self.deps
-                .require_entry(offset.to_unit_section_offset(&self.unit));
+                .require_entry(offset.to_unit_section_offset(&self.read_unit));
         }
     }
 
@@ -1969,7 +1969,7 @@ pub(crate) mod convert {
         /// The unit that this DIE was read from.
         ///
         /// This may be a skeleton unit.
-        pub unit: read::UnitRef<'a, R>,
+        pub read_unit: read::UnitRef<'a, R>,
         /// The offset of this DIE within the unit.
         pub offset: read::UnitOffset,
         /// The depth of this DIE in the tree.
@@ -2064,14 +2064,14 @@ pub(crate) mod convert {
     /// Created by [`Dwarf::convert`] or [`Dwarf::convert_with_filter`].
     #[derive(Debug)]
     pub struct ConvertUnitSection<'a, R: Reader<Offset = usize>> {
-        from_dwarf: &'a read::Dwarf<R>,
-        from_units: Vec<(read::Unit<R>, UnitId)>,
-        /// The next unit in `from_units` to return from `read_unit`.
-        from_unit_index: usize,
+        read_dwarf: &'a read::Dwarf<R>,
+        read_units: Vec<(read::Unit<R>, UnitId)>,
+        /// The next unit in `read_units` to return from `read_unit`.
+        read_unit_index: usize,
         /// The associated skeleton unit if this is a split DWARF section.
         ///
-        /// If this is set then `from_units` will contain exactly one unit.
-        from_skeleton_unit: Option<read::UnitRef<'a, R>>,
+        /// If this is set then `read_units` will contain exactly one unit.
+        read_skeleton_unit: Option<read::UnitRef<'a, R>>,
         entry_ids: FnvHashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
         dwarf: &'a mut Dwarf,
     }
@@ -2079,14 +2079,14 @@ pub(crate) mod convert {
     impl<'a, R: Reader<Offset = usize>> ConvertUnitSection<'a, R> {
         /// Create a converter for the `.debug_info` section of the given DWARF object.
         pub(crate) fn new(
-            from_dwarf: &'a read::Dwarf<R>,
+            read_dwarf: &'a read::Dwarf<R>,
             dwarf: &'a mut Dwarf,
         ) -> ConvertResult<Self> {
             let mut convert = ConvertUnitSection {
-                from_dwarf,
-                from_units: Vec::new(),
-                from_unit_index: 0,
-                from_skeleton_unit: None,
+                read_dwarf,
+                read_units: Vec::new(),
+                read_unit_index: 0,
+                read_skeleton_unit: None,
                 entry_ids: FnvHashMap::default(),
                 dwarf,
             };
@@ -2094,11 +2094,11 @@ pub(crate) mod convert {
             // Assigns ids to all units and entries, so that we can convert
             // references in attributes.
             let mut offsets = Vec::new();
-            let mut from_units = from_dwarf.units();
-            while let Some(from_unit) = from_units.next()? {
-                let from_unit = from_dwarf.unit(from_unit)?;
-                read_entry_offsets(&from_unit, &mut offsets)?;
-                convert.reserve_unit(from_unit, &offsets);
+            let mut read_units = read_dwarf.units();
+            while let Some(read_unit) = read_units.next()? {
+                let read_unit = read_dwarf.unit(read_unit)?;
+                read_entry_offsets(&read_unit, &mut offsets)?;
+                convert.reserve_unit(read_unit, &offsets);
             }
 
             Ok(convert)
@@ -2114,10 +2114,10 @@ pub(crate) mod convert {
             filter: FilterUnitSection<'a, R>,
         ) -> ConvertResult<Self> {
             let mut convert = ConvertUnitSection {
-                from_dwarf: filter.dwarf,
-                from_units: Vec::new(),
-                from_unit_index: 0,
-                from_skeleton_unit: filter.skeleton_unit,
+                read_dwarf: filter.dwarf,
+                read_units: Vec::new(),
+                read_unit_index: 0,
+                read_skeleton_unit: filter.skeleton_unit,
                 entry_ids: FnvHashMap::default(),
                 dwarf,
             };
@@ -2127,15 +2127,15 @@ pub(crate) mod convert {
             // Reserve all filtered entries.
             let mut start;
             let mut end = 0;
-            for from_unit in filter.units {
+            for unit in filter.units {
                 start = end;
                 while let Some(offset) = offsets.get(end) {
-                    if offset.to_unit_offset(&from_unit).is_none() {
+                    if offset.to_unit_offset(&unit).is_none() {
                         break;
                     }
                     end += 1;
                 }
-                convert.reserve_unit(from_unit, &offsets[start..end]);
+                convert.reserve_unit(unit, &offsets[start..end]);
             }
             debug_assert_eq!(end, offsets.len());
 
@@ -2145,17 +2145,14 @@ pub(crate) mod convert {
         /// Create a placeholder for each entry in a unit.
         ///
         /// This allows us to assign IDs to entries before they are created.
-        fn reserve_unit(&mut self, from_unit: read::Unit<R>, offsets: &[UnitSectionOffset]) {
-            let root_offset = from_unit
-                .header
-                .root_offset()
-                .to_unit_section_offset(&from_unit);
+        fn reserve_unit(&mut self, unit: read::Unit<R>, offsets: &[UnitSectionOffset]) {
+            let root_offset = unit.header.root_offset().to_unit_section_offset(&unit);
 
             let unit_id = self
                 .dwarf
                 .units
-                .add(Unit::new(from_unit.encoding(), LineProgram::none()));
-            self.from_units.push((from_unit, unit_id));
+                .add(Unit::new(unit.encoding(), LineProgram::none()));
+            self.read_units.push((unit, unit_id));
             let unit = self.dwarf.units.get_mut(unit_id);
 
             self.entry_ids.insert(root_offset, (unit_id, unit.root()));
@@ -2173,23 +2170,23 @@ pub(crate) mod convert {
         pub fn read_unit(
             &mut self,
         ) -> ConvertResult<Option<(ConvertUnit<'_, R>, ConvertUnitEntry<'_, R>)>> {
-            let Some((from_unit, unit_id)) = self.from_units.get(self.from_unit_index) else {
+            let Some((read_unit, unit_id)) = self.read_units.get(self.read_unit_index) else {
                 return Ok(None);
             };
-            self.from_unit_index += 1;
+            self.read_unit_index += 1;
 
-            let from_unit = from_unit.unit_ref(self.from_dwarf);
+            let read_unit = read_unit.unit_ref(self.read_dwarf);
 
             let mut unit = ConvertUnit {
-                from_unit,
-                from_skeleton_unit: self.from_skeleton_unit,
+                read_unit,
+                read_skeleton_unit: self.read_skeleton_unit,
                 unit_id: *unit_id,
                 unit: self.dwarf.units.get_mut(*unit_id),
                 entry_ids: &self.entry_ids,
                 line_strings: &mut self.dwarf.line_strings,
                 strings: &mut self.dwarf.strings,
                 line_program_files: Vec::new(),
-                from_entries: from_unit.entries_raw(None)?,
+                read_entries: read_unit.entries_raw(None)?,
                 parents: Vec::new(),
             };
             let (_id, entry) = unit.read_entry()?.ok_or(read::Error::MissingUnitDie)?;
@@ -2203,9 +2200,9 @@ pub(crate) mod convert {
     /// [`ConvertUnit::convert_split_with_filter`].
     #[derive(Debug)]
     pub struct ConvertSplitUnitSection<'a, R: Reader<Offset = usize>> {
-        from_dwarf: &'a read::Dwarf<R>,
-        from_unit: read::Unit<R>,
-        from_skeleton_unit: read::UnitRef<'a, R>,
+        read_dwarf: &'a read::Dwarf<R>,
+        read_unit: read::Unit<R>,
+        read_skeleton_unit: read::UnitRef<'a, R>,
         entry_ids: FnvHashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
         unit_id: UnitId,
         unit: &'a mut write::Unit,
@@ -2218,14 +2215,14 @@ pub(crate) mod convert {
             skeleton: &'a mut ConvertUnit<'a, R>,
             split_dwarf: &'a read::Dwarf<R>,
         ) -> ConvertResult<Self> {
-            debug_assert!(skeleton.from_skeleton_unit.is_none());
+            debug_assert!(skeleton.read_skeleton_unit.is_none());
 
             let split_unit_header = split_dwarf
                 .units()
                 .next()?
                 .ok_or(read::Error::MissingSplitUnit)?;
             let mut split_unit = split_dwarf.unit(split_unit_header)?;
-            split_unit.copy_relocated_attributes(&skeleton.from_unit);
+            split_unit.copy_relocated_attributes(&skeleton.read_unit);
 
             let mut offsets = Vec::new();
             read_entry_offsets(&split_unit, &mut offsets)?;
@@ -2237,7 +2234,7 @@ pub(crate) mod convert {
             skeleton: &'a mut ConvertUnit<'a, R>,
             filter: FilterUnitSection<'a, R>,
         ) -> ConvertResult<Self> {
-            debug_assert!(skeleton.from_skeleton_unit.is_none());
+            debug_assert!(skeleton.read_skeleton_unit.is_none());
 
             let split_unit = filter
                 .units
@@ -2272,9 +2269,9 @@ pub(crate) mod convert {
             }
 
             Ok(ConvertSplitUnitSection {
-                from_dwarf: split_dwarf,
-                from_unit: split_unit,
-                from_skeleton_unit: skeleton.from_unit,
+                read_dwarf: split_dwarf,
+                read_unit: split_unit,
+                read_skeleton_unit: skeleton.read_unit,
                 entry_ids,
                 unit_id,
                 unit,
@@ -2292,18 +2289,18 @@ pub(crate) mod convert {
         pub fn read_unit(
             &'_ mut self,
         ) -> ConvertResult<(ConvertUnit<'_, R>, ConvertUnitEntry<'_, R>)> {
-            let from_unit = self.from_unit.unit_ref(self.from_dwarf);
+            let read_unit = self.read_unit.unit_ref(self.read_dwarf);
 
             let mut unit = ConvertUnit {
-                from_unit,
-                from_skeleton_unit: Some(self.from_skeleton_unit),
+                read_unit,
+                read_skeleton_unit: Some(self.read_skeleton_unit),
                 unit_id: self.unit_id,
                 unit: self.unit,
                 entry_ids: &self.entry_ids,
                 line_strings: self.line_strings,
                 strings: self.strings,
                 line_program_files: Vec::new(),
-                from_entries: from_unit.entries_raw(None)?,
+                read_entries: read_unit.entries_raw(None)?,
                 parents: Vec::new(),
             };
             let (_id, entry) = unit.read_entry()?.ok_or(read::Error::MissingUnitDie)?;
@@ -2320,21 +2317,21 @@ pub(crate) mod convert {
         unit: &read::Unit<R>,
         offsets: &mut Vec<UnitSectionOffset>,
     ) -> ConvertResult<()> {
-        let mut from_entries = unit.entries_raw(None)?;
+        let mut read_entries = unit.entries_raw(None)?;
 
         // The root entry is skipped because write::Unit always creates a root entry.
-        let abbrev = from_entries
+        let abbrev = read_entries
             .read_abbreviation()?
             .ok_or(read::Error::MissingUnitDie)?;
-        from_entries.skip_attributes(abbrev.attributes())?;
+        read_entries.skip_attributes(abbrev.attributes())?;
 
         offsets.clear();
-        while !from_entries.is_empty() {
-            let offset = from_entries.next_offset();
-            let Some(abbrev) = from_entries.read_abbreviation()? else {
+        while !read_entries.is_empty() {
+            let offset = read_entries.next_offset();
+            let Some(abbrev) = read_entries.read_abbreviation()? else {
                 continue;
             };
-            from_entries.skip_attributes(abbrev.attributes())?;
+            read_entries.skip_attributes(abbrev.attributes())?;
             offsets.push(offset.to_unit_section_offset(unit));
         }
 
@@ -2383,7 +2380,7 @@ pub(crate) mod convert {
     /// ) -> gimli::write::ConvertResult<()> {
     ///     for attr in &entry.attrs {
     ///         let value = unit.convert_attribute_value(
-    ///             entry.from_unit,
+    ///             entry.read_unit,
     ///             attr,
     ///             &|address| Some(gimli::write::Address::Constant(address)),
     ///         )?;
@@ -2397,9 +2394,9 @@ pub(crate) mod convert {
     #[derive(Debug)]
     pub struct ConvertUnit<'a, R: Reader<Offset = usize>> {
         /// The unit being read from.
-        pub from_unit: read::UnitRef<'a, R>,
-        /// The skeleton unit being read from if `from_unit` is a split unit.
-        pub from_skeleton_unit: Option<read::UnitRef<'a, R>>,
+        pub read_unit: read::UnitRef<'a, R>,
+        /// The skeleton unit being read from if `read_unit` is a split unit.
+        pub read_skeleton_unit: Option<read::UnitRef<'a, R>>,
         unit_id: UnitId,
         /// The unit being written to.
         pub unit: &'a mut write::Unit,
@@ -2409,7 +2406,7 @@ pub(crate) mod convert {
         pub strings: &'a mut write::StringTable,
         line_program_files: Vec<FileId>,
         entry_ids: &'a FnvHashMap<UnitSectionOffset, (UnitId, UnitEntryId)>,
-        from_entries: read::EntriesRaw<'a, R>,
+        read_entries: read::EntriesRaw<'a, R>,
         parents: Vec<(isize, UnitEntryId)>,
     }
 
@@ -2430,7 +2427,7 @@ pub(crate) mod convert {
         /// let dwp = gimli::read::DwarfPackage::load(loader, Default::default())?;
         /// let mut convert: gimli::write::ConvertUnitSection<_> = unimplemented!();
         /// while let Some((mut unit, root_entry)) = convert.read_unit()? {
-        ///     let Some(dwo_id) = unit.from_unit.dwo_id else {
+        ///     let Some(dwo_id) = unit.read_unit.dwo_id else {
         ///         // Not a split unit. Handling omitted for this example.
         ///         continue;
         ///     };
@@ -2466,12 +2463,12 @@ pub(crate) mod convert {
         /// let dwp = gimli::read::DwarfPackage::load(loader, Default::default())?;
         /// let mut convert: gimli::write::ConvertUnitSection<_> = unimplemented!();
         /// while let Some((mut unit, root_entry)) = convert.read_unit()? {
-        ///     let Some(dwo_id) = unit.from_unit.dwo_id else {
+        ///     let Some(dwo_id) = unit.read_unit.dwo_id else {
         ///         // Not a split unit. Handling omitted for this example.
         ///         continue;
         ///     };
         ///     let split_dwarf = dwp.find_cu(dwo_id, skeleton_unit.dwarf)?.unwrap();
-        ///     let mut filter = gimli::write::FilterUnitSection::new_split(&split_dwarf, unit.from_unit)?;
+        ///     let mut filter = gimli::write::FilterUnitSection::new_split(&split_dwarf, unit.read_unit)?;
         ///     while let Some(mut unit) = filter.read_unit()? {
         ///         while let Some(entry) = unit.read_entry()? {
         ///             if need_entry(&entry)? {
@@ -2507,16 +2504,16 @@ pub(crate) mod convert {
             encoding: Option<Encoding>,
             line_encoding: Option<LineEncoding>,
         ) -> ConvertResult<Option<ConvertLineProgram<'_, R>>> {
-            let from_unit = self.from_skeleton_unit.unwrap_or(self.from_unit);
-            let Some(from_program) = &from_unit.line_program else {
+            let read_unit = self.read_skeleton_unit.unwrap_or(self.read_unit);
+            let Some(read_program) = &read_unit.line_program else {
                 return Ok(None);
             };
             ConvertLineProgram::new(
-                from_unit.dwarf,
-                from_program.clone(),
+                read_unit.dwarf,
+                read_program.clone(),
                 // If the program is in a skeleton unit, then pass the name from the split unit.
-                self.from_skeleton_unit
-                    .and_then(|_| self.from_unit.name.clone()),
+                self.read_skeleton_unit
+                    .and_then(|_| self.read_unit.name.clone()),
                 encoding,
                 line_encoding,
                 self.line_strings,
@@ -2552,20 +2549,20 @@ pub(crate) mod convert {
             &mut self,
         ) -> ConvertResult<Option<(Option<UnitEntryId>, ConvertUnitEntry<'a, R>)>> {
             loop {
-                if self.from_entries.is_empty() {
+                if self.read_entries.is_empty() {
                     return Ok(None);
                 }
 
                 // Calculate offset and depth before reading the abbreviation code.
-                let offset = self.from_entries.next_offset();
-                let depth = self.from_entries.next_depth();
+                let offset = self.read_entries.next_offset();
+                let depth = self.read_entries.next_depth();
 
-                let Some(abbrev) = self.from_entries.read_abbreviation()? else {
+                let Some(abbrev) = self.read_entries.read_abbreviation()? else {
                     // Null entry.
                     continue;
                 };
 
-                let section_offset = offset.to_unit_section_offset(&self.from_unit);
+                let section_offset = offset.to_unit_section_offset(&self.read_unit);
                 let id = self.entry_ids.get(&section_offset).map(|entry| entry.1);
 
                 let mut parent = None;
@@ -2584,7 +2581,7 @@ pub(crate) mod convert {
                 }
 
                 let mut entry = ConvertUnitEntry {
-                    from_unit: self.from_unit,
+                    read_unit: self.read_unit,
                     offset,
                     depth,
                     tag: abbrev.tag(),
@@ -2592,7 +2589,7 @@ pub(crate) mod convert {
                     sibling: false,
                     parent,
                 };
-                entry.read_attributes(&mut self.from_entries, abbrev.attributes())?;
+                entry.read_attributes(&mut self.read_entries, abbrev.attributes())?;
                 return Ok(Some((id, entry)));
             }
         }
@@ -2702,7 +2699,7 @@ pub(crate) mod convert {
                     // TODO: remove this when we support it.
                 } else {
                     let value =
-                        self.convert_attribute_value(entry.from_unit, attr, convert_address)?;
+                        self.convert_attribute_value(entry.read_unit, attr, convert_address)?;
                     self.unit.get_mut(id).set(attr.name(), value);
                 }
             }
@@ -2717,7 +2714,7 @@ pub(crate) mod convert {
         /// See [`Dwarf::from`](crate::write::Dwarf::from) for the meaning of `convert_address`.
         pub fn convert_attribute_value(
             &mut self,
-            from_unit: read::UnitRef<'_, R>,
+            read_unit: read::UnitRef<'_, R>,
             attr: &read::Attribute<R>,
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<AttributeValue> {
@@ -2756,7 +2753,7 @@ pub(crate) mod convert {
                         }
                     }
                     let expression =
-                        self.convert_expression(from_unit, expression, convert_address)?;
+                        self.convert_expression(read_unit, expression, convert_address)?;
                     AttributeValue::Exprloc(expression)
                 }
                 read::AttributeValue::Flag(val) => {
@@ -2767,7 +2764,7 @@ pub(crate) mod convert {
                     }
                 }
                 read::AttributeValue::DebugAddrIndex(index) => {
-                    let val = from_unit.address(index)?;
+                    let val = read_unit.address(index)?;
                     match convert_address(val) {
                         Some(val) => AttributeValue::Address(val),
                         None => return Err(ConvertError::InvalidAddress),
@@ -2785,7 +2782,7 @@ pub(crate) mod convert {
                 read::AttributeValue::DebugLineRef(val) => {
                     // There should only be a ref to the line program in the CU DIE.
                     if Some(val)
-                        != from_unit
+                        != read_unit
                             .line_program
                             .as_ref()
                             .map(|program| program.header().offset())
@@ -2797,44 +2794,44 @@ pub(crate) mod convert {
                 read::AttributeValue::DebugMacinfoRef(val) => AttributeValue::DebugMacinfoRef(val),
                 read::AttributeValue::DebugMacroRef(val) => AttributeValue::DebugMacroRef(val),
                 read::AttributeValue::LocationListsRef(val) => {
-                    let loc_list = self.convert_location_list(from_unit, val, convert_address)?;
+                    let loc_list = self.convert_location_list(read_unit, val, convert_address)?;
                     let loc_id = self.unit.locations.add(loc_list);
                     AttributeValue::LocationListRef(loc_id)
                 }
                 read::AttributeValue::DebugLocListsIndex(index) => {
-                    let offset = from_unit.locations_offset(index)?;
+                    let offset = read_unit.locations_offset(index)?;
                     let loc_list =
-                        self.convert_location_list(from_unit, offset, convert_address)?;
+                        self.convert_location_list(read_unit, offset, convert_address)?;
                     let loc_id = self.unit.locations.add(loc_list);
                     AttributeValue::LocationListRef(loc_id)
                 }
                 read::AttributeValue::RangeListsRef(offset) => {
-                    let offset = from_unit.ranges_offset_from_raw(offset);
-                    let range_list = self.convert_range_list(from_unit, offset, convert_address)?;
+                    let offset = read_unit.ranges_offset_from_raw(offset);
+                    let range_list = self.convert_range_list(read_unit, offset, convert_address)?;
                     let range_id = self.unit.ranges.add(range_list);
                     AttributeValue::RangeListRef(range_id)
                 }
                 read::AttributeValue::DebugRngListsIndex(index) => {
-                    let offset = from_unit.ranges_offset(index)?;
-                    let range_list = self.convert_range_list(from_unit, offset, convert_address)?;
+                    let offset = read_unit.ranges_offset(index)?;
+                    let range_list = self.convert_range_list(read_unit, offset, convert_address)?;
                     let range_id = self.unit.ranges.add(range_list);
                     AttributeValue::RangeListRef(range_id)
                 }
                 read::AttributeValue::DebugTypesRef(val) => AttributeValue::DebugTypesRef(val),
                 read::AttributeValue::DebugStrRef(offset) => {
-                    let r = from_unit.string(offset)?;
+                    let r = read_unit.string(offset)?;
                     let id = self.strings.add(r.to_slice()?);
                     AttributeValue::StringRef(id)
                 }
                 read::AttributeValue::DebugStrRefSup(val) => AttributeValue::DebugStrRefSup(val),
                 read::AttributeValue::DebugStrOffsetsIndex(index) => {
-                    let offset = from_unit.string_offset(index)?;
-                    let r = from_unit.string(offset)?;
+                    let offset = read_unit.string_offset(index)?;
+                    let r = read_unit.string(offset)?;
                     let id = self.strings.add(r.to_slice()?);
                     AttributeValue::StringRef(id)
                 }
                 read::AttributeValue::DebugLineStrRef(offset) => {
-                    let r = from_unit.line_string(offset)?;
+                    let r = read_unit.line_string(offset)?;
                     let id = self.line_strings.add(r.to_slice()?);
                     AttributeValue::LineStringRef(id)
                 }
@@ -2854,7 +2851,7 @@ pub(crate) mod convert {
                 read::AttributeValue::Inline(val) => AttributeValue::Inline(val),
                 read::AttributeValue::Ordering(val) => AttributeValue::Ordering(val),
                 read::AttributeValue::FileIndex(val) => {
-                    AttributeValue::FileIndex(self.convert_file_index(from_unit, val)?)
+                    AttributeValue::FileIndex(self.convert_file_index(read_unit, val)?)
                 }
                 read::AttributeValue::DwoId(DwoId(val)) => AttributeValue::Udata(val),
                 // Should always be a more specific section reference.
@@ -2877,14 +2874,14 @@ pub(crate) mod convert {
         /// See [`Dwarf::from`](crate::write::Dwarf::from) for the meaning of `convert_address`.
         pub fn convert_expression(
             &self,
-            from_unit: read::UnitRef<'_, R>,
+            read_unit: read::UnitRef<'_, R>,
             expression: read::Expression<R>,
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<Expression> {
             Expression::from(
                 expression,
-                from_unit.encoding(),
-                Some(from_unit),
+                read_unit.encoding(),
+                Some(read_unit),
                 convert_address,
                 self,
             )
@@ -2896,10 +2893,10 @@ pub(crate) mod convert {
         /// file index attributes.
         pub fn convert_file_index(
             &self,
-            from_unit: read::UnitRef<'_, R>,
+            read_unit: read::UnitRef<'_, R>,
             index: u64,
         ) -> ConvertResult<Option<FileId>> {
-            if index == 0 && from_unit.encoding().version <= 4 {
+            if index == 0 && read_unit.encoding().version <= 4 {
                 return Ok(None);
             }
             match self.line_program_files.get(index as usize) {
@@ -2913,12 +2910,12 @@ pub(crate) mod convert {
         /// See [`Dwarf::from`](crate::write::Dwarf::from) for the meaning of `convert_address`.
         pub fn convert_location_list(
             &self,
-            from_unit: read::UnitRef<'_, R>,
+            read_unit: read::UnitRef<'_, R>,
             offset: LocationListsOffset,
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<LocationList> {
-            let iter = from_unit.raw_locations(offset)?;
-            LocationList::from(iter, from_unit, convert_address, self)
+            let iter = read_unit.raw_locations(offset)?;
+            LocationList::from(iter, read_unit, convert_address, self)
         }
 
         /// Convert a range list.
@@ -2926,12 +2923,12 @@ pub(crate) mod convert {
         /// See [`Dwarf::from`](crate::write::Dwarf::from) for the meaning of `convert_address`.
         pub fn convert_range_list(
             &self,
-            from_unit: read::UnitRef<'_, R>,
+            read_unit: read::UnitRef<'_, R>,
             offset: RangeListsOffset,
             convert_address: &dyn Fn(u64) -> Option<Address>,
         ) -> ConvertResult<RangeList> {
-            let iter = from_unit.raw_ranges(offset)?;
-            RangeList::from(iter, from_unit, convert_address)
+            let iter = read_unit.raw_ranges(offset)?;
+            RangeList::from(iter, read_unit, convert_address)
         }
 
         /// Convert a reference to an entry in the same unit.
@@ -2939,12 +2936,12 @@ pub(crate) mod convert {
         /// This conversion doesn't work for references from a skeleton unit,
         /// but those shouldn't occur in practice.
         pub fn convert_unit_ref(&self, entry: read::UnitOffset) -> ConvertResult<UnitEntryId> {
-            if !entry.is_in_bounds(&self.from_unit) {
+            if !entry.is_in_bounds(&self.read_unit) {
                 return Err(ConvertError::InvalidUnitRef);
             }
             let id = self
                 .entry_ids
-                .get(&entry.to_unit_section_offset(&self.from_unit))
+                .get(&entry.to_unit_section_offset(&self.read_unit))
                 .ok_or(ConvertError::InvalidUnitRef)?;
             Ok(id.1)
         }
@@ -2959,7 +2956,7 @@ pub(crate) mod convert {
         ) -> ConvertResult<DebugInfoRef> {
             // TODO: support relocation of this value
             let offset = entry
-                .to_unit_section_offset(&self.from_unit)
+                .to_unit_section_offset(&self.read_unit)
                 .ok_or(ConvertError::InvalidDebugInfoRef)?;
             let id = self
                 .entry_ids
@@ -2976,7 +2973,7 @@ pub(crate) mod convert {
         /// The unit that this DIE was read from.
         ///
         /// This may be a skeleton unit.
-        pub from_unit: read::UnitRef<'a, R>,
+        pub read_unit: read::UnitRef<'a, R>,
         /// The offset of this DIE within the unit.
         pub offset: read::UnitOffset,
         /// The depth of this DIE in the tree.
@@ -3008,17 +3005,17 @@ pub(crate) mod convert {
         ///
         /// Returns an error if there is no entry at the given offset.
         pub fn read(
-            from_unit: read::UnitRef<'a, R>,
+            read_unit: read::UnitRef<'a, R>,
             offset: read::UnitOffset,
         ) -> ConvertResult<ConvertUnitEntry<'a, R>> {
-            let mut from_entries = from_unit.entries_raw(Some(offset))?;
-            let Some(abbrev) = from_entries.read_abbreviation()? else {
+            let mut read_entries = read_unit.entries_raw(Some(offset))?;
+            let Some(abbrev) = read_entries.read_abbreviation()? else {
                 // Null entry.
                 return Err(read::Error::NoEntryAtGivenOffset.into());
             };
 
             let mut entry = ConvertUnitEntry {
-                from_unit,
+                read_unit,
                 offset,
                 depth: 0,
                 tag: abbrev.tag(),
@@ -3026,18 +3023,18 @@ pub(crate) mod convert {
                 sibling: false,
                 parent: None,
             };
-            entry.read_attributes(&mut from_entries, abbrev.attributes())?;
+            entry.read_attributes(&mut read_entries, abbrev.attributes())?;
             Ok(entry)
         }
 
         fn read_attributes(
             &mut self,
-            from_entries: &mut read::EntriesRaw<'_, R>,
+            read_entries: &mut read::EntriesRaw<'_, R>,
             specs: &[read::AttributeSpecification],
         ) -> ConvertResult<()> {
             self.attrs.reserve(specs.len());
             for spec in specs {
-                let attr = from_entries.read_attribute(*spec)?;
+                let attr = read_entries.read_attribute(*spec)?;
                 match attr.name() {
                     // This may point to a null entry, so we have to treat it differently.
                     constants::DW_AT_sibling => self.sibling = true,
