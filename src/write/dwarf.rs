@@ -168,7 +168,7 @@ pub(crate) mod convert {
             let mut dwarf = Dwarf::default();
             let mut convert = dwarf.convert(from_dwarf)?;
             while let Some((mut unit, root_entry)) = convert.read_unit()? {
-                unit.convert(&root_entry, convert_address)?;
+                unit.convert(root_entry, convert_address)?;
             }
             // TODO: convert the line programs that were not referenced by a unit.
             Ok(dwarf)
@@ -227,7 +227,8 @@ pub(crate) mod convert {
         /// let read_dwarf = gimli::read::Dwarf::load(loader)?;
         /// let mut filter = gimli::write::FilterUnitSection::new(&read_dwarf)?;
         /// while let Some(mut unit) = filter.read_unit()? {
-        ///     while let Some(entry) = unit.read_entry()? {
+        ///     let mut entry = unit.null_entry();
+        ///     while unit.read_entry(&mut entry)? {
         ///         if need_entry(&entry)? {
         ///             unit.require_entry(entry.offset);
         ///         }

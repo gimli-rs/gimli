@@ -1089,7 +1089,7 @@ mod write {
             let mut write_dwarf = write::Dwarf::new();
             let mut convert_dwarf = write_dwarf.convert(&read_dwarf).unwrap();
             while let Some((mut unit, root)) = convert_dwarf.read_unit().unwrap() {
-                unit.convert(&root, &|address| Some(write::Address::Constant(address)))
+                unit.convert(root, &|address| Some(write::Address::Constant(address)))
                     .unwrap();
                 unit.write(&mut write_sections).unwrap();
             }
